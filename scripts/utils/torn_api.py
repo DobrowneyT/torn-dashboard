@@ -1,0 +1,317 @@
+"""
+Torn API Wrapper - handles all API calls to Torn City
+"""
+
+import requests
+import time
+import logging
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class TornAPIError(Exception):
+    """Custom exception for Torn API errors"""
+    pass
+
+
+class TornAPI:
+    """Wrapper for Torn City API v2"""
+    
+    BASE_URL = "https://api.torn.com/v2"
+    
+    def __init__(self, api_key: str):
+        """
+        Initialize Torn API wrapper
+        
+        Args:
+            api_key: Torn City API key
+        """
+        self.api_key = api_key
+        self.session = requests.Session()
+        self.rate_limit_delay = 1  # Seconds between requests
+        self.last_request_time = 0
+        
+    def _wait_for_rate_limit(self):
+        """Ensure we don't exceed rate limits"""
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        
+        if time_since_last < self.rate_limit_delay:
+            time.sleep(self.rate_limit_delay - time_since_last)
+        
+        self.last_request_time = time.time()
+    
+    def _make_request(self, url: str, params: Dict = None) -> Dict:
+        """
+        Make API request with error handling
+        
+        Args:
+            url: Full API URL
+            params: Query parameters
+            
+        Returns:
+            Parsed JSON response
+            
+        Raises:
+            TornAPIError: If request fails or API returns error
+        """
+        self._wait_for_rate_limit()
+        
+        try:
+            logger.info(f"API Request: {url}")
+            response = self.session.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Check for API errors
+            if 'error' in data:
+                error_msg = f"API Error {data['error'].get('code', 'Unknown')}: {data['error'].get('error', 'Unknown error')}"
+                logger.error(error_msg)
+                raise TornAPIError(error_msg)
+            
+            return data
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error: {e}")
+            raise TornAPIError(f"Network error: {e}")
+        except ValueError as e:
+            logger.error(f"JSON decode error: {e}")
+            raise TornAPIError(f"Invalid JSON response: {e}")
+    
+    def get_faction_crimes(
+        self,
+        category: str = "all",
+        filters: Optional[str] = None,
+        from_timestamp: Optional[int] = None,
+        to_timestamp: Optional[int] = None,
+        offset: int = 0,
+        sort: str = "ASC"
+    ) -> Dict:
+        """
+        Get faction crimes from API
+        
+        Args:
+            category: Crime category (all, completed, available, etc.)
+            filters: Filter field (created_at, executed_at)
+            from_timestamp: Start timestamp for filtering
+            to_timestamp: End timestamp for filtering
+            offset: Pagination offset
+            sort: Sort order (ASC or DESC)
+            
+        Returns:
+            Dict with crimes data and metadata
+        """
+        url = f"{self.BASE_URL}/faction/crimes"
+        
+        params = {
+            "cat": category,
+            "sort": sort,
+            "key": self.api_key,
+            "comment": "OC_Python_System"
+        }
+        
+        if filters:
+            params["filters"] = filters
+        if from_timestamp is not None:
+            params["from"] = from_timestamp
+        if to_timestamp is not None:
+            params["to"] = to_timestamp
+        if offset > 0:
+            params["offset"] = offset
+        
+        return self._make_request(url, params)
+    
+    def get_all_faction_crimes_paginated(
+        self,
+        category: str = "all",
+        filters: str = "created_at",
+        from_timestamp: Optional[int] = None,
+        to_timestamp: Optional[int] = None,
+        sort: str = "ASC"
+    ) -> List[Dict]:
+        """
+        Get all faction crimes with automatic pagination
+        
+        Args:
+            category: Crime category
+            filters: Filter field
+            from_timestamp: Start timestamp
+            to_timestamp: End timestamp
+            sort: Sort order
+            
+        Returns:
+            List of all crime objects
+        """
+        all_crimes = []
+        last_created_at = from_timestamp
+        processed_crime_ids = set()
+        
+        logger.info(f"Starting paginated crime fetch from timestamp: {from_timestamp}")
+        
+        while True:
+            response = self.get_faction_crimes(
+                category=category,
+                filters=filters,
+                from_timestamp=last_created_at,
+                to_timestamp=to_timestamp,
+                sort=sort
+            )
+            
+            crimes = response.get('crimes', [])
+            
+            if not crimes:
+                logger.info("No more crimes to fetch")
+                break
+            
+            # Add new crimes (avoid duplicates)
+            new_crimes_count = 0
+            for crime in crimes:
+                crime_id = crime['id']
+                
+                # Skip if already processed
+                if crime_id in processed_crime_ids:
+                    continue
+                
+                # Stop if we've exceeded the to_timestamp
+                if to_timestamp and crime['created_at'] > to_timestamp:
+                    logger.info(f"Reached crimes beyond to_timestamp: {to_timestamp}")
+                    return all_crimes
+                
+                all_crimes.append(crime)
+                processed_crime_ids.add(crime_id)
+                new_crimes_count += 1
+                
+                # Update pagination marker
+                if crime['created_at'] > last_created_at:
+                    last_created_at = crime['created_at']
+            
+            logger.info(f"Fetched {new_crimes_count} new crimes (total: {len(all_crimes)})")
+            
+            # If no new crimes were added, we're done
+            if new_crimes_count == 0:
+                break
+            
+            # Check if there are more pages
+            next_link = response.get('_metadata', {}).get('links', {}).get('next')
+            if not next_link:
+                logger.info("No next page available")
+                break
+        
+        logger.info(f"Completed pagination: fetched {len(all_crimes)} total crimes")
+        return all_crimes
+    
+    def get_faction_members(self) -> Dict:
+        """
+        Get current faction members
+        
+        Returns:
+            Dict with member data
+        """
+        url = f"{self.BASE_URL}/faction/members"
+        params = {
+            "key": self.api_key,
+            "comment": "OC_Python_System"
+        }
+        
+        return self._make_request(url, params)
+    
+    def get_item_data(self, item_ids: List[int]) -> Dict:
+        """
+        Get item information from Torn API
+        
+        Args:
+            item_ids: List of item IDs
+            
+        Returns:
+            Dict with item data keyed by item ID
+        """
+        if not item_ids:
+            return {}
+        
+        item_ids_str = ','.join(str(id) for id in item_ids)
+        url = f"https://api.torn.com/torn/{item_ids_str}"
+        
+        params = {
+            "selections": "items",
+            "key": self.api_key,
+            "comment": "OC_Python_System"
+        }
+        
+        response = self._make_request(url, params)
+        return response.get('items', {})
+    
+    def test_connection(self) -> bool:
+        """
+        Test API connection
+        
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            # Simple API call to verify key works
+            url = f"{self.BASE_URL}/faction/crimes"
+            params = {
+                "cat": "completed",
+                "offset": 0,
+                "key": self.api_key
+            }
+            
+            self._make_request(url, params)
+            logger.info("API connection test successful")
+            return True
+            
+        except TornAPIError as e:
+            logger.error(f"API connection test failed: {e}")
+            return False
+
+
+# Convenience function for scripts
+def create_torn_api(api_key: Optional[str] = None) -> TornAPI:
+    """
+    Create TornAPI instance with API key from environment or parameter
+    
+    Args:
+        api_key: Optional API key, otherwise reads from environment
+        
+    Returns:
+        TornAPI instance
+    """
+    import os
+    
+    if api_key is None:
+        api_key = os.environ.get('TORN_API_KEY')
+    
+    if not api_key:
+        raise ValueError("TORN_API_KEY not found in environment or parameters")
+    
+    return TornAPI(api_key)
+
+
+if __name__ == "__main__":
+    # Test script
+    import os
+    
+    api_key = os.environ.get('TORN_API_KEY')
+    if not api_key:
+        print("Error: TORN_API_KEY environment variable not set")
+        exit(1)
+    
+    api = TornAPI(api_key)
+    
+    print("Testing API connection...")
+    if api.test_connection():
+        print("✓ Connection successful")
+        
+        print("\nFetching recent crimes...")
+        result = api.get_faction_crimes(category="completed", offset=0)
+        crimes = result.get('crimes', [])
+        print(f"✓ Fetched {len(crimes)} crimes")
+        
+        if crimes:
+            print(f"\nSample crime: {crimes[0]['name']} (Level {crimes[0]['difficulty']})")
+    else:
+        print("✗ Connection failed")
