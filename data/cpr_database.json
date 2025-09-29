@@ -9,7 +9,9 @@
           "Muscle": 93
         },
         "6": {
-          "Robber": 89
+          "Robber": 89,
+          "Enforcer": 88,
+          "Muscle": 88
         },
         "5": {
           "Robber": 92,
@@ -28,11 +30,16 @@
           "Muscle": 71,
           "Imitator": 77,
           "Assassin": 78,
-          "Thief": 73
+          "Thief": 73,
+          "Cat Burglar": 78,
+          "Cleaner": 77
         },
-        "3": {}
+        "3": {
+          "Imitator": 96,
+          "Looter": 96
+        }
       },
-      "last_scraped": "2025-09-29T12:51:51.812355"
+      "last_scraped": "2025-09-29T16:48:48.677305"
     },
     "Marnix0126": {
       "name": "Marnix0126",
@@ -43,7 +50,9 @@
           "Muscle": 91
         },
         "6": {
-          "Robber": 85
+          "Robber": 85,
+          "Enforcer": 84,
+          "Muscle": 84
         },
         "5": {
           "Robber": 90,
@@ -61,16 +70,21 @@
           "Robber": 63,
           "Muscle": 61,
           "Imitator": 68,
-          "Assassin": 66,
-          "Thief": 64
+          "Assassin": 67,
+          "Thief": 64,
+          "Cat Burglar": 68,
+          "Cleaner": 67
         },
-        "3": {}
+        "3": {
+          "Imitator": 95,
+          "Looter": 95
+        }
       },
-      "last_scraped": "2025-09-29T12:51:53.663584"
+      "last_scraped": "2025-09-29T16:48:50.451680"
     }
   },
   "metadata": {
-    "last_updated": "2025-09-29T12:51:55.711859",
+    "last_updated": "2025-09-29T16:48:52.200885",
     "total_members": 2,
     "version": "1.0"
   }
