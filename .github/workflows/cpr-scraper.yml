@@ -1,11 +1,11 @@
-# .github/workflows/cpr-scraper.yml
+# ============================================
+# FILE: .github/workflows/cpr-scraper.yml
+# ============================================
 name: CPR Data Scraper
 
 on:
-  # Triggered by repository dispatch from Google Sheets button
   repository_dispatch:
     types: [trigger-cpr-scrape]
-  # Allow manual triggers from GitHub UI for testing
   workflow_dispatch:
     inputs:
       member_filter:
@@ -18,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     
-    # Add permissions for git push
     permissions:
       contents: write
     
@@ -29,12 +28,12 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
       
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -51,6 +50,22 @@ jobs:
         GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
       run: |
         echo "$GOOGLE_DRIVE_CREDENTIALS" > google_credentials.json
+    
+    - name: Verify API keys configuration
+      env:
+        MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
+      run: |
+        python -c "
+        import os
+        import json
+        keys_json = os.environ.get('MEMBER_API_KEYS', '{}')
+        keys = json.loads(keys_json)
+        print(f'✓ API keys configured for {len(keys)} members')
+        if keys:
+          print('Members:', ', '.join(keys.keys()))
+        else:
+          print('⚠ Warning: No member API keys found!')
+        "
         
     - name: Update Sheets status to Processing
       env:
@@ -60,12 +75,13 @@ jobs:
         from scripts.utils.google_sheets import GoogleSheetsManager
         sheets = GoogleSheetsManager()
         sheets.update_status('Processing CPR scrape...')
+        print('✓ Status updated to Processing')
         "
         
     - name: Run CPR scraper
       env:
         GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
-        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
         MEMBER_FILTER: ${{ github.event.inputs.member_filter }}
       run: |
         python scripts/cpr_scraper.py
@@ -79,7 +95,9 @@ jobs:
         from scripts.utils.google_sheets import GoogleSheetsManager
         from datetime import datetime
         sheets = GoogleSheetsManager()
-        sheets.update_status(f'CPR scrape completed at {datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")}')
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        sheets.update_status(f'✓ CPR scrape completed at {timestamp}')
+        print('✓ Status updated to Complete')
         "
         
     - name: Update Sheets status to Failed
@@ -90,12 +108,13 @@ jobs:
         python -c "
         from scripts.utils.google_sheets import GoogleSheetsManager
         sheets = GoogleSheetsManager()
-        sheets.update_status('CPR scrape failed - check GitHub Actions logs')
+        sheets.update_status('✗ CPR scrape failed - check GitHub Actions logs')
+        print('✗ Status updated to Failed')
         "
         
     - name: Upload logs as artifact
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: cpr-scrape-logs-${{ github.run_number }}
         path: logs/

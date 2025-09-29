@@ -1,0 +1,78 @@
+# ============================================
+# FILE: .github/workflows/weekly-payout.yml
+# ============================================
+name: Weekly Payout Processing
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: 'Payout period start (YYYY-MM-DD)'
+        required: true
+      end_date:
+        description: 'Payout period end (YYYY-MM-DD)'
+        required: true
+      dry_run:
+        description: 'Dry run (calculate but do not update sheets)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+
+jobs:
+  process-weekly-payout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create Google credentials file
+      env:
+        GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+      run: |
+        echo "$GOOGLE_DRIVE_CREDENTIALS" > google_credentials.json
+        
+    - name: Process weekly payout
+      env:
+        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        START_DATE: ${{ github.event.inputs.start_date }}
+        END_DATE: ${{ github.event.inputs.end_date }}
+        DRY_RUN: ${{ github.event.inputs.dry_run }}
+      run: |
+        python scripts/weekly_payout.py
+        
+    - name: Upload payout results
+      uses: actions/upload-artifact@v4
+      with:
+        name: payout-results-${{ github.event.inputs.start_date }}-to-${{ github.event.inputs.end_date }}
+        path: |
+          payout_results.json
+          payout_summary.txt
+        retention-days: 90
