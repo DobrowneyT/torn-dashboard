@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.utils.json_storage import JSONStorageManager
 from scripts.utils.google_sheets import GoogleSheetsManager
-from scripts.utils.torn_api import TornAPI
+from scripts.utils.torn_api import TornAPI, TornAPIError
 
 # Set up logging
 logging.basicConfig(
@@ -96,7 +96,7 @@ class CPRScraper:
     
     def _fetch_available_crimes(self, api_key: str, member_name: str) -> Optional[Dict]:
         """
-        Fetch available crimes from Torn API
+        Fetch available crimes from Torn API with error handling for invalid keys
         
         Args:
             api_key: Member's API key
@@ -120,8 +120,13 @@ class CPRScraper:
             logger.info(f"{member_name}: Fetched {len(crimes)} available crimes")
             return result
             
+        except TornAPIError as e:
+            # Log error but don't raise - continue with other members
+            logger.warning(f"{member_name}: API key invalid or API error - {e}")
+            logger.warning(f"{member_name}: Skipping CPR update (existing data unchanged)")
+            return None
         except Exception as e:
-            logger.error(f"{member_name}: Failed to fetch crimes - {e}")
+            logger.error(f"{member_name}: Unexpected error fetching crimes - {e}")
             return None
     
     def _extract_cpr_from_crimes(self, crimes_data: Dict, member_name: str) -> Dict[str, Dict[str, int]]:
@@ -213,7 +218,7 @@ class CPRScraper:
         
         return updates
     
-    def scrape_member(self, member_name: str, api_key: str, cpr_data: Dict) -> Tuple[bool, int]:
+    def scrape_member(self, member_name: str, api_key: str, cpr_data: Dict) -> Tuple[bool, int, Optional[str]]:
         """
         Scrape CPR data for a single member
         
@@ -223,29 +228,31 @@ class CPRScraper:
             cpr_data: CPR database to update
             
         Returns:
-            Tuple of (success, updates_count)
+            Tuple of (success, updates_count, error_message)
         """
         logger.info(f"Starting scrape for {member_name}")
         
         # Fetch available crimes
         crimes_data = self._fetch_available_crimes(api_key, member_name)
         
-        if not crimes_data:
-            logger.error(f"{member_name}: Failed to fetch crimes")
-            return False, 0
+        if crimes_data is None:
+            # API key invalid or error - return error but mark as "handled"
+            error_msg = "Invalid API key or API error - data unchanged"
+            logger.warning(f"{member_name}: {error_msg}")
+            return True, 0, error_msg  # True = handled gracefully, not a fatal error
         
         # Extract CPR requirements
         new_cpr = self._extract_cpr_from_crimes(crimes_data, member_name)
         
         if not new_cpr:
             logger.warning(f"{member_name}: No empty slots found in available crimes")
-            return True, 0  # Still success, just no data
+            return True, 0, "No empty slots available"
         
         # Update member's CPR data
         updates = self._update_member_cpr(cpr_data, member_name, new_cpr)
         
         logger.info(f"{member_name}: Scrape complete - {updates} updates made")
-        return True, updates
+        return True, updates, None
     
     def scrape_all_members(self) -> Dict[str, any]:
         """
@@ -271,8 +278,10 @@ class CPRScraper:
             'total_members': len(self.member_api_keys),
             'successful': 0,
             'failed': 0,
+            'skipped_invalid_key': 0,
             'total_updates': 0,
             'members_scraped': [],
+            'members_with_errors': {},
             'members_failed': []
         }
         
@@ -281,12 +290,18 @@ class CPRScraper:
             logger.info(f"Processing {i}/{stats['total_members']}: {member_name}")
             
             try:
-                success, updates = self.scrape_member(member_name, api_key, cpr_data)
+                success, updates, error_msg = self.scrape_member(member_name, api_key, cpr_data)
                 
                 if success:
                     stats['successful'] += 1
                     stats['total_updates'] += updates
                     stats['members_scraped'].append(member_name)
+                    
+                    if error_msg:
+                        # Handled error (e.g., invalid API key)
+                        stats['members_with_errors'][member_name] = error_msg
+                        if 'Invalid API key' in error_msg:
+                            stats['skipped_invalid_key'] += 1
                 else:
                     stats['failed'] += 1
                     stats['members_failed'].append(member_name)
@@ -295,10 +310,11 @@ class CPRScraper:
                 logger.error(f"{member_name}: Unexpected error - {e}")
                 stats['failed'] += 1
                 stats['members_failed'].append(member_name)
+                stats['members_with_errors'][member_name] = str(e)
             
             # Rate limiting - wait between requests
             if i < stats['total_members']:
-                time.sleep(1.5)  # 1.5 second delay between members
+                time.sleep(1.5)
         
         # Save updated CPR database
         self._save_cpr_database(cpr_data)
@@ -315,7 +331,14 @@ class CPRScraper:
         logger.info(f"  Total members: {stats['total_members']}")
         logger.info(f"  Successful: {stats['successful']}")
         logger.info(f"  Failed: {stats['failed']}")
+        logger.info(f"  Skipped (invalid key): {stats['skipped_invalid_key']}")
         logger.info(f"  Total updates: {stats['total_updates']}")
+        
+        if stats['members_with_errors']:
+            logger.info("  Members with issues:")
+            for member, error in stats['members_with_errors'].items():
+                logger.info(f"    - {member}: {error}")
+        
         logger.info("="*60)
         
         stats['success'] = True
@@ -340,7 +363,7 @@ class CPRScraper:
             
             avg_cpr = round(sum(all_cprs) / len(all_cprs), 1) if all_cprs else 0
             
-            # Determine tier based on CPR (this is simplified - adjust as needed)
+            # Determine tier based on CPR (adjust thresholds as needed)
             if avg_cpr >= 20:
                 tier = "Tier 3"
             elif avg_cpr >= 10:
@@ -360,19 +383,6 @@ class CPRScraper:
         if members_list:
             self.sheets.update_members(members_list)
             logger.info(f"Updated {len(members_list)} members in Google Sheets")
-    
-    def get_member_cpr_summary(self, member_name: str) -> Optional[Dict]:
-        """
-        Get CPR summary for a specific member
-        
-        Args:
-            member_name: Member name
-            
-        Returns:
-            CPR data for the member or None
-        """
-        cpr_data = self._load_cpr_database()
-        return cpr_data.get('members', {}).get(member_name)
 
 
 def main():
@@ -396,7 +406,7 @@ def main():
                 sys.exit(1)
             
             cpr_data = scraper._load_cpr_database()
-            success, updates = scraper.scrape_member(
+            success, updates, error_msg = scraper.scrape_member(
                 member_filter,
                 scraper.member_api_keys[member_filter],
                 cpr_data
@@ -404,7 +414,10 @@ def main():
             
             if success:
                 scraper._save_cpr_database(cpr_data)
-                logger.info(f"Successfully scraped {member_filter} - {updates} updates")
+                if error_msg:
+                    logger.warning(f"Completed with warning: {error_msg}")
+                else:
+                    logger.info(f"Successfully scraped {member_filter} - {updates} updates")
             else:
                 logger.error(f"Failed to scrape {member_filter}")
                 sys.exit(1)
@@ -414,6 +427,12 @@ def main():
             
             if not stats.get('success'):
                 logger.error("Scrape failed")
+                sys.exit(1)
+            
+            # Note: We don't fail if some members had invalid keys
+            # as long as we successfully processed others
+            if stats['failed'] > 0 and stats['successful'] == 0:
+                logger.error("All member scrapes failed")
                 sys.exit(1)
         
         logger.info("CPR scraper completed successfully")

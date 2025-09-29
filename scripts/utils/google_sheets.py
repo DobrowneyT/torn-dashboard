@@ -554,6 +554,48 @@ class GoogleSheetsManager:
             logger.error(f"Error writing payout data: {e}")
             raise GoogleSheetsError(f"Failed to write payout data: {e}")
     
+    # ==================== Crime Log Operations ====================
+    
+    def write_crime_log(self, crime_rows: List[List[Any]]) -> bool:
+        """
+        Write crime log data to Crime_Log sheet
+        
+        Args:
+            crime_rows: List of crime data rows
+                Each row: [id, name, difficulty, status, slots, created, executed, participants]
+                
+        Returns:
+            True if successful
+        """
+        try:
+            # Clear existing data
+            self.clear_range("Crime_Log", "A2:H10000")
+            
+            # Write headers
+            headers = [[
+                "Crime ID",
+                "Crime Name",
+                "Difficulty",
+                "Status",
+                "Slots Filled",
+                "Created At",
+                "Executed At",
+                "Participants"
+            ]]
+            self.write_range("Crime_Log", "A1:H1", headers)
+            
+            # Write crime data
+            if crime_rows:
+                end_row = 1 + len(crime_rows)
+                self.write_range("Crime_Log", f"A2:H{end_row}", crime_rows)
+            
+            logger.info(f"Wrote {len(crime_rows)} crimes to Crime_Log sheet")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error writing crime log: {e}")
+            raise GoogleSheetsError(f"Failed to write crime log: {e}")
+    
     # ==================== Utility Methods ====================
     
     def get_sheet_properties(self) -> Dict:
