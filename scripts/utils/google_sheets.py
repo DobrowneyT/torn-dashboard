@@ -273,11 +273,11 @@ class GoogleSheetsManager:
         """
         try:
             # Clear existing data
-            self.clear_range(self.SHEET_DASHBOARD, "A10:F100")
+            self.clear_range(self.SHEET_DASHBOARD, "A21:F100")
             
             # Write headers
             headers = [["Crime ID", "Name", "Difficulty", "Status", "Slots", "Created"]]
-            self.write_range(self.SHEET_DASHBOARD, "A10:F10", headers)
+            self.write_range(self.SHEET_DASHBOARD, "A21:F21", headers)
             
             # Prepare crime data
             crime_rows = []
@@ -553,6 +553,154 @@ class GoogleSheetsManager:
         except Exception as e:
             logger.error(f"Error writing payout data: {e}")
             raise GoogleSheetsError(f"Failed to write payout data: {e}")
+        
+    def read_payout_timestamps(self) -> tuple:
+        """
+        Read payout analysis timestamps from Dashboard sheet
+        
+        Returns:
+            Tuple of (from_timestamp, to_timestamp) or (None, None) if not set
+        
+        📍 TO CHANGE CELL LOCATIONS: Modify F2 and F3 below
+        """
+        try:
+            # 📍 CELL LOCATIONS - Change here if Dashboard layout changes
+            from_ts = self.read_cell(self.SHEET_DASHBOARD, "F2")  # ⭐ FROM_TIMESTAMP cell
+            to_ts = self.read_cell(self.SHEET_DASHBOARD, "F3")    # ⭐ TO_TIMESTAMP cell
+            
+            if from_ts and to_ts:
+                # Convert to int if they're strings
+                from_ts = int(float(from_ts)) if from_ts else None
+                to_ts = int(float(to_ts)) if to_ts else None
+                
+                logger.info(f"Read timestamps from Dashboard: {from_ts} to {to_ts}")
+                return from_ts, to_ts
+            else:
+                logger.warning("Timestamps not set in Dashboard F2:F3")
+                return None, None
+                
+        except Exception as e:
+            logger.error(f"Error reading timestamps from Dashboard: {e}")
+            return None, None
+
+    def write_payout_summary(self, income: Dict, member_count: int) -> bool:
+        """
+        Write payout summary to Dashboard sheet
+        
+        Args:
+            income: Income calculation dict from calculate_net_income()
+            member_count: Number of participating members
+            
+        Returns:
+            True if successful
+        
+        📍 TO CHANGE CELL LOCATIONS: Modify E5:E11 range below
+        """
+        try:
+            # Calculate pooled payout per member
+            pooled_per_member = income['net_pool'] / member_count if member_count > 0 else 0
+            
+            # 📍 CELL LOCATIONS - Change here if Dashboard layout changes
+            # Writing to cells E6:E12 (column E, rows 6-12)
+            summary_data = [
+                ["20.00%"],            # E6  - Faction cut
+                [income['gross_rewards']],        # E7  - Money Reward
+                [income['item_rewards_value']],   # E8  - Item Reward
+                [income['item_used_value']],      # E9  - Item Cost
+                [income['net_pool']],             # E10 - Member payout
+                [member_count],                   # E11 - Participating members
+                [pooled_per_member]               # E12 - Pooled payout per member
+            ]
+
+            self.write_range(self.SHEET_DASHBOARD, "E6:E12", summary_data)
+
+            logger.info(f"Wrote payout summary to Dashboard")
+            logger.info(f"  Net pool: ${income['net_pool']:,}")
+            logger.info(f"  Members: {member_count}")
+            logger.info(f"  Per member average: ${pooled_per_member:,.0f}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error writing payout summary: {e}")
+            raise GoogleSheetsError(f"Failed to write payout summary: {e}")
+
+    def write_item_outcomes(self, item_details: List[Dict], period_start: str, period_end: str) -> bool:
+        """
+        Write item outcomes (rewards vs used) to item_outcomes sheet
+        
+        Args:
+            item_details: List of item dicts with id, name, status, market_value, quantity, total_value
+            period_start: Start date string
+            period_end: End date string
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Clear existing data
+            self.clear_range('item_outcomes', "A1:Z1000")
+            
+            # Write headers
+            headers = [["ID", "Name", "Status", "Market Value", "Quantity", "Total Value"]]
+            self.write_range('item_outcomes', "A1:F1", headers)
+            
+            if not item_details:
+                logger.info("No items to write")
+                return True
+            
+            # Sort by status (rewards first, then used)
+            item_details.sort(key=lambda x: (x['status'] != 'reward', x['name']))
+            
+            # Prepare rows with formulas
+            item_rows = []
+            for i, item in enumerate(item_details, start=2):
+                # Create formula for total value
+                if item['status'] == 'reward':
+                    total_formula = f"=D{i}*E{i}"
+                else:  # used
+                    total_formula = f"=-D{i}*E{i}"
+                
+                item_rows.append([
+                    item['id'],
+                    item['name'],
+                    item['status'],
+                    item['market_value'],
+                    item['quantity'],
+                    total_formula
+                ])
+            
+            # Write item rows
+            if item_rows:
+                self.write_range('item_outcomes', f"A2:F{len(item_rows)+1}", item_rows)
+            
+            # Add summary calculations
+            summary_row = len(item_rows) + 3
+            
+            summary_data = [
+                [f"NET TOTAL:", "", "", "", "", f"=SUM(F2:F{len(item_rows)+1})"],
+                [f"REWARDS TOTAL:", "", "", "", "", f'=SUMIF(C2:C{len(item_rows)+1},"reward",F2:F{len(item_rows)+1})'],
+                [f"USED TOTAL:", "", "", "", "", f'=SUMIF(C2:C{len(item_rows)+1},"used",F2:F{len(item_rows)+1})']
+            ]
+            
+            self.write_range('item_outcomes', f"A{summary_row}:F{summary_row+2}", summary_data)
+            
+            # Also write fixed cell references (H1:H3) for easy access
+            self.write_cell('item_outcomes', 'G1', 'Net Total:')
+            self.write_cell('item_outcomes', 'H1', f"=SUM(F2:F{len(item_rows)+1})")
+            
+            self.write_cell('item_outcomes', 'G2', 'Rewards Total:')
+            self.write_cell('item_outcomes', 'H2', f'=SUMIF(C2:C{len(item_rows)+1},"reward",F2:F{len(item_rows)+1})')
+            
+            self.write_cell('item_outcomes', 'G3', 'Used Total:')
+            self.write_cell('item_outcomes', 'H3', f'=SUMIF(C2:C{len(item_rows)+1},"used",F2:F{len(item_rows)+1})')
+            
+            logger.info(f"Wrote {len(item_rows)} item entries to item_outcomes sheet")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error writing item outcomes: {e}")
+            raise GoogleSheetsError(f"Failed to write item outcomes: {e}")
     
     # ==================== Crime Log Operations ====================
     
