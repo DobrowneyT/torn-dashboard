@@ -28,9 +28,12 @@ logger = logging.getLogger(__name__)
 class CrimeDataUpdater:
     """Update crime database with latest data from Torn API"""
     
+    FIRST_CRIME_ID = 778107  # Your faction's first crime ID for reference
+    
     def __init__(self):
         """Initialize the crime updater"""
-        self.storage = JSONStorageManager(data_dir='data', auto_commit=True)
+        testing_mode = os.environ.get('TESTING_MODE') == 'true'
+        self.storage = JSONStorageManager(data_dir='data', auto_commit=not testing_mode)
         self.sheets = GoogleSheetsManager()
         
         # Get API key
@@ -49,15 +52,23 @@ class CrimeDataUpdater:
         if not crimes_data:
             # Initialize if doesn't exist
             crimes_data = {
-                'crimes': {},  # Keyed by crime ID for fast lookups
+                'crimes': {},  # Dictionary keyed by crime ID
                 'metadata': {
                     'last_updated': datetime.now().isoformat(),
                     'total_crimes': 0,
                     'last_processed_id': None,
+                    'oldest_incomplete_timestamp': None,
                     'version': '1.0'
                 }
             }
             self.storage.write_json('crimes_database.json', crimes_data, create_backup=False)
+        else:
+            # Fix if crimes is a list instead of dict (migration)
+            if isinstance(crimes_data.get('crimes'), list):
+                logger.warning("Converting crimes list to dictionary format")
+                old_crimes = crimes_data['crimes']
+                crimes_data['crimes'] = {str(c['id']): c for c in old_crimes if 'id' in c}
+                self.storage.write_json('crimes_database.json', crimes_data, create_backup=True)
         
         return crimes_data
     
@@ -74,47 +85,151 @@ class CrimeDataUpdater:
         )
         logger.info("Crimes database saved")
     
-    def _fetch_all_crimes(self) -> List[Dict]:
+    def _get_fetch_start_timestamp(self, crimes_db: Dict) -> Optional[int]:
         """
-        Fetch all faction crimes from API
+        Determine the timestamp to start fetching from
+        
+        For first run: None (fetch from beginning)
+        For subsequent runs: timestamp of oldest incomplete crime (or one before it)
         
         Returns:
-            List of all crimes
+            Timestamp to start from, or None to start from beginning
         """
-        logger.info("Fetching all faction crimes...")
+        if not crimes_db['crimes']:
+            # Empty database - fetch everything from the beginning
+            logger.info("Empty database detected - will fetch all historical crimes")
+            return None
         
-        try:
-            # Get all crimes (all categories to capture everything)
-            all_crimes = []
+        # Find the oldest crime that isn't completed yet
+        # This includes crimes in "Recruiting", "Planning", or any other incomplete state
+        incomplete_crimes = []
+        
+        for crime in crimes_db['crimes'].values():
+            # A crime is incomplete if it hasn't executed yet
+            if not crime.get('executed_at'):
+                incomplete_crimes.append(crime)
+        
+        if incomplete_crimes:
+            # Sort by created_at to find the oldest
+            incomplete_crimes.sort(key=lambda c: c.get('created_at', 0))
+            oldest = incomplete_crimes[0]
             
-            # Categories to fetch
-            categories = ['available', 'planning', 'executing', 'completed', 'failed']
+            logger.info(f"Found {len(incomplete_crimes)} incomplete crimes")
+            logger.info(f"Oldest incomplete: Crime {oldest['id']} created at {oldest['created_at']}")
             
-            for category in categories:
-                logger.info(f"Fetching {category} crimes...")
-                
+            # Use this timestamp to start fetching
+            # This ensures we update all crimes from this point forward
+            return oldest['created_at']
+        else:
+            # All crimes are complete - use the newest crime's timestamp
+            # to check for any new crimes spawned since last update
+            all_crimes = list(crimes_db['crimes'].values())
+            if all_crimes:
+                all_crimes.sort(key=lambda c: c.get('created_at', 0), reverse=True)
+                newest = all_crimes[0]
+                logger.info(f"All crimes complete - checking for new crimes after {newest['id']}")
+                return newest['created_at']
+            else:
+                return None
+    
+    def _fetch_crimes_paginated(self, from_timestamp: Optional[int] = None) -> List[Dict]:
+        """
+        Fetch all crimes with pagination, starting from a given timestamp
+        
+        Pagination logic:
+        1. Fetch crimes starting from 'from_timestamp' (or 0 if None)
+        2. If we get exactly 100 crimes, make another call using the last crime's timestamp
+        3. Continue until we get < 100 crimes (that's the definitive end signal)
+        
+        Args:
+            from_timestamp: Starting timestamp (None = from beginning)
+            
+        Returns:
+            List of all fetched crimes
+        """
+        all_crimes = []
+        current_from = from_timestamp if from_timestamp is not None else 0
+        page = 1
+        last_page_crime_ids = set()
+        
+        while True:
+            logger.info(f"Fetching page {page} (from_timestamp: {current_from if current_from > 0 else 'beginning'})...")
+            
+            try:
                 result = self.api.get_faction_crimes(
-                    category=category,
+                    category="all",
                     filters="created_at",
-                    sort="DESC"
+                    from_timestamp=current_from,
+                    sort="ASC"
                 )
                 
                 crimes = result.get('crimes', [])
-                all_crimes.extend(crimes)
-                logger.info(f"  Found {len(crimes)} {category} crimes")
+                
+                if not crimes:
+                    logger.info("No crimes returned - reached end")
+                    break
+                
+                logger.info(f"  Fetched {len(crimes)} crimes (IDs: {crimes[0]['id']} to {crimes[-1]['id']})")
+                
+                # Verify overlap with previous page (except first page)
+                if page > 1:
+                    current_page_ids = {c['id'] for c in crimes}
+                    overlap = last_page_crime_ids & current_page_ids
+                    if overlap:
+                        logger.info(f"  Verified overlap: {len(overlap)} crime(s) from previous page")
+                    else:
+                        logger.warning(f"  No overlap detected - possible gap between pages!")
+                
+                # Track crimes we've already seen to avoid duplicates
+                existing_ids = {c['id'] for c in all_crimes}
+                new_crimes = [c for c in crimes if c['id'] not in existing_ids]
+                duplicates = len(crimes) - len(new_crimes)
+                
+                all_crimes.extend(new_crimes)
+                logger.info(f"  Added {len(new_crimes)} new crimes, {duplicates} duplicates (total: {len(all_crimes)})")
+                
+                # CRITICAL: Only stop when we get less than 100 crimes
+                # If we got exactly 100, there might be more - keep going
+                if len(crimes) < 100:
+                    logger.info(f"Received {len(crimes)} crimes (< 100) - reached end")
+                    break
+                
+                # Got 100 crimes - prepare for next page
+                logger.info(f"Received 100 crimes - fetching next page")
+                
+                # Store current page's crime IDs for overlap verification
+                last_page_crime_ids = {c['id'] for c in crimes}
+                
+                # Update from_timestamp to the last crime's created_at for next page
+                last_crime = crimes[-1]
+                current_from = last_crime['created_at']
+                logger.info(f"  Next page will start from timestamp: {current_from}")
+                
+                page += 1
+                
+            except TornAPIError as e:
+                logger.error(f"API error on page {page}: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error on page {page}: {e}")
+                raise
+        
+        logger.info(f"Pagination complete: fetched {len(all_crimes)} total crimes across {page} page(s)")
+        
+        # Final verification - check for gaps in crime IDs
+        if all_crimes:
+            crime_ids = sorted([c['id'] for c in all_crimes])
+            first_id, last_id = crime_ids[0], crime_ids[-1]
+            expected_range = last_id - first_id + 1
+            actual_count = len(crime_ids)
             
-            # Remove duplicates by crime ID
-            unique_crimes = {crime['id']: crime for crime in all_crimes}
-            logger.info(f"Total unique crimes fetched: {len(unique_crimes)}")
-            
-            return list(unique_crimes.values())
-            
-        except TornAPIError as e:
-            logger.error(f"API error fetching crimes: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error fetching crimes: {e}")
-            raise
+            if expected_range != actual_count:
+                missing_count = expected_range - actual_count
+                logger.warning(f"Crime ID gaps detected: expected {expected_range}, got {actual_count} ({missing_count} missing)")
+            else:
+                logger.info(f"Crime ID range verified: {first_id} to {last_id} ({actual_count} crimes)")
+        
+        return all_crimes
     
     def _normalize_crime_data(self, crime: Dict) -> Dict:
         """
@@ -256,8 +371,16 @@ class CrimeDataUpdater:
         # Load existing database
         crimes_db = self._load_crimes_database()
         
-        # Fetch all current crimes
-        api_crimes = self._fetch_all_crimes()
+        # Determine where to start fetching from
+        start_timestamp = self._get_fetch_start_timestamp(crimes_db)
+        
+        if start_timestamp:
+            logger.info(f"Fetching crimes from timestamp: {start_timestamp}")
+        else:
+            logger.info("Fetching all historical crimes from the beginning")
+        
+        # Fetch all crimes with pagination
+        api_crimes = self._fetch_crimes_paginated(from_timestamp=start_timestamp)
         
         if not api_crimes:
             logger.warning("No crimes fetched from API")
@@ -293,6 +416,10 @@ class CrimeDataUpdater:
             # Track status distribution
             status = normalized['status']
             stats['status_changes'][status] = stats['status_changes'].get(status, 0) + 1
+        
+        # Update metadata with oldest incomplete timestamp
+        oldest_incomplete_ts = self._get_fetch_start_timestamp(crimes_db)
+        crimes_db['metadata']['oldest_incomplete_timestamp'] = oldest_incomplete_ts
         
         # Save updated database
         self._save_crimes_database(crimes_db)
