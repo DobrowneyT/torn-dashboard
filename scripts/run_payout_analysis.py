@@ -61,6 +61,10 @@ def main():
         
         # Update status
         sheets.write_cell('Dashboard', 'E4', "Analysis in progress...")  # 📍 Status cell
+
+        # ===== STEP 0: Sync faction members FIRST =====
+        logger.info("\nStep 0: Syncing faction members...")
+        sheets.sync_faction_members(api_key)
         
         logger.info(f"Analysis window: {from_ts} to {to_ts}")
         from_date = datetime.fromtimestamp(from_ts).strftime('%Y-%m-%d')

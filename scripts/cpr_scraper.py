@@ -391,6 +391,13 @@ def main():
     logger.info("="*60)
     logger.info("Starting CPR Scraper")
     logger.info("="*60)
+
+    # Sync members first
+    sheets = GoogleSheetsManager()
+    api_key = os.environ.get('TORN_API_KEY')
+    
+    logger.info("Syncing faction members...")
+    sheets.sync_faction_members(api_key)
     
     try:
         # Initialize scraper
