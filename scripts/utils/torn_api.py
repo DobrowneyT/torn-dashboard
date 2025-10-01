@@ -205,17 +205,21 @@ class TornAPI:
         logger.info(f"Completed pagination: fetched {len(all_crimes)} total crimes")
         return all_crimes
     
-    def get_faction_members(self) -> Dict:
+    def get_faction_members(
+        self,
+        comment: str = "Forge_OC2_Member_Sync"
+    ) -> Dict:
         """
-        Get current faction members
+        Get faction members from API
         
         Returns:
-            Dict with member data
+            Dict with members list and metadata
         """
         url = f"{self.BASE_URL}/faction/members"
+        
         params = {
             "key": self.api_key,
-            "comment": "Forge_OC2_Faction_Members"
+            "comment": comment
         }
         
         return self._make_request(url, params)

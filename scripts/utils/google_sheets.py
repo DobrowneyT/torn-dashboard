@@ -737,64 +737,59 @@ class GoogleSheetsManager:
         Args:
             api_key: Torn API key for faction members endpoint
         """
-        import requests
-        
         logger = logging.getLogger(__name__)
         logger.info("Syncing faction members...")
         
         try:
-            # Fetch faction members from Torn API
-            url = f"https://api.torn.com/v2/faction/members"
-            params = {
-                'key': api_key,
-                'comment': 'OC_sheet_member_sync'
-            }
+            # Import here to avoid circular imports
+            from scripts.utils.torn_api import TornAPI
             
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            # Initialize API wrapper
+            api = TornAPI(api_key)
             
-            if 'error' in data:
-                logger.error(f"API error: {data['error']}")
-                raise Exception(f"Torn API error: {data['error']}")
+            # Fetch faction members using API wrapper
+            logger.debug("Fetching members from Torn API...")
+            response = api.get_faction_members()
             
-            members = data.get('members', {})
+            # Extract members list from response
+            if 'error' in response:
+                logger.error(f"API error: {response['error']}")
+                raise Exception(f"Torn API error: {response['error']}")
             
-            if not members:
+            members_list = response.get('members', [])
+            
+            if not members_list:
                 logger.warning("No members returned from API")
                 return
             
-            # Prepare member data as list of [id, name]
+            # Convert list to rows: [id, name]
             member_rows = []
-            for member_id, member_data in members.items():
-                member_rows.append([
-                    int(member_id),
-                    member_data.get('name', 'Unknown')
-                ])
+            for member in members_list:
+                member_id = member.get('id')
+                member_name = member.get('name', 'Unknown')
+                
+                if member_id:
+                    member_rows.append([
+                        int(member_id),
+                        member_name
+                    ])
             
             # Sort by ID for consistency
             member_rows.sort(key=lambda x: x[0])
             
             logger.info(f"Fetched {len(member_rows)} faction members")
             
-            # Get Members sheet
-            sheet = self.spreadsheet.worksheet("Members")
-            
-            # Clear existing data (starting from row 2, preserve headers in row 1)
-            # Clear up to 200 rows to handle member turnover
-            sheet.batch_clear(['A2:B201'])
+            # Clear existing data (starting from row 2, preserve headers)
+            self.SHEET_MEMBERS.batch_clear(['A2:B201'])
             
             # Write new member data
             if member_rows:
                 cell_range = f'A2:B{len(member_rows) + 1}'
-                sheet.update(cell_range, member_rows, value_input_option='RAW')
+                self.SHEET_MEMBERS.update(cell_range, member_rows, value_input_option='RAW')
                 logger.info(f"Updated Members sheet with {len(member_rows)} members")
             
             logger.info("✓ Faction members synced successfully")
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Network error syncing members: {e}")
-            raise
         except Exception as e:
             logger.error(f"Error syncing members: {e}")
             raise
