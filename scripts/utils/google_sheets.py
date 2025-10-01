@@ -451,6 +451,157 @@ class GoogleSheetsManager:
         except Exception as e:
             logger.error(f"Error updating members: {e}")
             raise GoogleSheetsError(f"Failed to update members: {e}")
+        
+    def update_member_tier_data(self, tier_data: Dict) -> bool:
+        """
+        Update tier and CPR data for specific members in Members sheet
+        Matches by Member ID in column A, updates columns C-F only
+        
+        Args:
+            tier_data: Dictionary of tier assignments
+                {
+                    'member_id': {
+                        'score': float,
+                        'tier': int,
+                        'previous_tier': int,
+                        'changed': bool,
+                        'manual_override': bool
+                    }
+                }
+        
+        Returns:
+            True if successful
+        """
+        logger.info("Updating tier data in Members sheet...")
+        
+        try:
+            # Step 1: Read existing member IDs from column A
+            existing_members = self.read_range(self.SHEET_MEMBERS, 'A2:A200')
+            
+            # Create mapping: member_id -> row_number
+            member_row_map = {}
+            for i, row in enumerate(existing_members):
+                if row and row[0]:  # If cell has a value
+                    member_id = str(row[0]).strip()
+                    row_number = i + 2  # +2 because we start at row 2
+                    member_row_map[member_id] = row_number
+            
+            logger.info(f"Found {len(member_row_map)} members in sheet")
+            
+            # Step 2: Clear tier columns (C-F) for all rows
+            self.clear_range(self.SHEET_MEMBERS, 'C2:F200')
+            
+            # Step 3: Prepare updates for each member
+            updates_made = 0
+            for member_id, data in tier_data.items():
+                member_id_str = str(member_id)
+                
+                if member_id_str not in member_row_map:
+                    logger.warning(f"Member {member_id} not found in sheet - skipping")
+                    continue
+                
+                row_num = member_row_map[member_id_str]
+                
+                # Determine status
+                if data.get('manual_override'):
+                    status = "Manual Override"
+                elif data.get('changed'):
+                    if data['tier'] < data['previous_tier']:
+                        status = "↑ Promoted"
+                    else:
+                        status = "↓ Demoted"
+                else:
+                    status = "Maintained"
+                
+                # Prepare row data: [CPR Score, Current Tier, Previous Tier, Status]
+                row_data = [[
+                    round(data.get('score', 0), 2),  # Column C
+                    data.get('tier', ''),             # Column D
+                    data.get('previous_tier', ''),    # Column E
+                    status                             # Column F
+                ]]
+                
+                # Write to specific row
+                cell_range = f'C{row_num}:F{row_num}'
+                self.write_range(self.SHEET_MEMBERS, cell_range, row_data, value_input_option='RAW')
+                updates_made += 1
+            
+            logger.info(f"✓ Updated tier data for {updates_made} members")
+            
+            # Step 4: Report any members with tier data but not in sheet
+            missing_members = set(str(m) for m in tier_data.keys()) - set(member_row_map.keys())
+            if missing_members:
+                logger.warning(f"Tier data exists for {len(missing_members)} members not in sheet: {list(missing_members)[:5]}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating tier data: {e}")
+            raise GoogleSheetsError(f"Failed to update tier data: {e}")
+
+
+    def update_member_cpr_scores(self, cpr_data: Dict) -> bool:
+        """
+        Update CPR scores for specific members in Members sheet
+        Matches by Member ID in column A, updates column C only
+        
+        Args:
+            cpr_data: Dictionary of CPR scores
+                {
+                    'member_id': {
+                        'average_cpr': float,
+                        'cpr_by_difficulty': {...}
+                    }
+                }
+        
+        Returns:
+            True if successful
+        """
+        logger.info("Updating CPR scores in Members sheet...")
+        
+        try:
+            # Read existing member IDs
+            existing_members = self.read_range(self.SHEET_MEMBERS, 'A2:A200')
+            
+            # Create mapping
+            member_row_map = {}
+            for i, row in enumerate(existing_members):
+                if row and row[0]:
+                    member_id = str(row[0]).strip()
+                    row_number = i + 2
+                    member_row_map[member_id] = row_number
+            
+            # Update each member's CPR score
+            updates_made = 0
+            for member_id, data in cpr_data.items():
+                member_id_str = str(member_id)
+                
+                if member_id_str not in member_row_map:
+                    continue
+                
+                row_num = member_row_map[member_id_str]
+                
+                # Get average CPR (you may need to calculate this from cpr_by_difficulty)
+                cpr_score = data.get('average_cpr', 0)
+                if not cpr_score and 'cpr_by_difficulty' in data:
+                    # Calculate average from difficulty data
+                    all_cprs = []
+                    for diff_data in data['cpr_by_difficulty'].values():
+                        all_cprs.extend(diff_data.values())
+                    cpr_score = sum(all_cprs) / len(all_cprs) if all_cprs else 0
+                
+                # Write CPR score to column C
+                cell_range = f'C{row_num}'
+                self.write_cell(self.SHEET_MEMBERS, cell_range, round(cpr_score, 2))
+                updates_made += 1
+            
+            logger.info(f"✓ Updated CPR scores for {updates_made} members")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating CPR scores: {e}")
+            raise GoogleSheetsError(f"Failed to update CPR scores: {e}")
+
     
     # ==================== Weekly Analysis Operations ====================
     

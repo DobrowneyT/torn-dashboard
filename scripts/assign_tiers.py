@@ -326,19 +326,19 @@ class TierAssignment:
         try:
             sheets = GoogleSheetsManager()
             
-            # Write tier assignments using new method
-            sheets.write_tier_assignments(assignments)
+            # Use new method that matches by Member ID and updates only tier columns
+            sheets.update_member_tier_data(assignments)
             
             # Optional: Write tier history for changed tiers
             changes = []
             for member_id, data in assignments.items():
-                if data['changed']:
+                if data.get('changed'):
                     changes.append({
                         'member_id': int(member_id),
                         'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'old_tier': data['previous_tier'],
                         'new_tier': data['tier'],
-                        'score': data['score'],
+                        'score': data.get('score', 0),
                         'reason': 'CPR-based assignment'
                     })
             
@@ -350,7 +350,6 @@ class TierAssignment:
         except Exception as e:
             logger.error(f"Error updating Google Sheets: {e}")
             raise
-
 
 def main():
     """Main execution"""
