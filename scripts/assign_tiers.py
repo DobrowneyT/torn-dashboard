@@ -320,32 +320,27 @@ class TierAssignment:
         
         try:
             sheets = GoogleSheetsManager()
-            sheet = sheets.spreadsheet.worksheet("Members")
             
-            # Prepare data for Members sheet
-            # Assuming columns: A=ID, B=Name, C=Tier, D=Score, E=Previous, F=Status
-            rows = []
-            for member_id, data in sorted(assignments.items(), key=lambda x: int(x[0])):
-                status = "Manual Override" if data.get('manual_override') else \
-                        ("↑ Promoted" if data['changed'] and data['tier'] < data['previous_tier'] else \
-                        ("↓ Demoted" if data['changed'] and data['tier'] > data['previous_tier'] else \
-                        "Maintained"))
-                
-                rows.append([
-                    int(member_id),
-                    data['score'],
-                    data['tier'],
-                    data['previous_tier'],
-                    status
-                ])
+            # Write tier assignments using new method
+            sheets.write_tier_assignments(assignments)
             
-            # Write tier data starting from column C (assuming A=ID, B=Name from member sync)
-            if rows:
-                cell_range = f'C2:G{len(rows) + 1}'
-                sheet.update(cell_range, rows, value_input_option='RAW')
-                logger.info(f"✓ Updated Members sheet with {len(rows)} tier assignments")
+            # Optional: Write tier history for changed tiers
+            changes = []
+            for member_id, data in assignments.items():
+                if data['changed']:
+                    changes.append({
+                        'member_id': int(member_id),
+                        'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'old_tier': data['previous_tier'],
+                        'new_tier': data['tier'],
+                        'score': data['score'],
+                        'reason': 'CPR-based assignment'
+                    })
             
-            # TODO: Update Tier_History sheet with changes
+            if changes:
+                sheets.write_tier_history(changes)
+            
+            logger.info("✓ Google Sheets updated successfully")
             
         except Exception as e:
             logger.error(f"Error updating Google Sheets: {e}")

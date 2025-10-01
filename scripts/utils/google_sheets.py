@@ -764,9 +764,130 @@ class GoogleSheetsManager:
             logger.error(f"Error writing crime log: {e}")
             raise GoogleSheetsError(f"Failed to write crime log: {e}")
         
-    """
-    Member sync function to keep Members sheet up to date
-    """
+    # ==================== Tier Assignment Operations ================
+
+    def write_tier_assignments(self, assignments: Dict) -> bool:
+        """
+        Write tier assignments to Members sheet
+        Updates columns C-G with tier data (A=ID, B=Name from member sync)
+        
+        Args:
+            assignments: Dictionary of tier assignments from assign_tiers.py
+                {
+                    'member_id': {
+                        'tier': int,
+                        'score': float,
+                        'previous_tier': int,
+                        'changed': bool,
+                        'manual_override': bool,
+                        ...
+                    }
+                }
+        
+        Returns:
+            True if successful
+        """
+        logger.info("Writing tier assignments to Members sheet...")
+        
+        try:
+            # Clear old tier data (preserve ID and Name in columns A-B)
+            self.clear_range(self.SHEET_MEMBERS, 'C2:G200')
+            
+            # Prepare tier data rows
+            rows = []
+            for member_id, data in sorted(assignments.items(), key=lambda x: int(x[0])):
+                # Determine status message
+                if data.get('manual_override'):
+                    status = "Manual Override"
+                elif data['changed']:
+                    if data['tier'] < data['previous_tier']:
+                        status = "↑ Promoted"
+                    else:
+                        status = "↓ Demoted"
+                else:
+                    status = "Maintained"
+                
+                # Row: [Score, Tier, Previous Tier, Status]
+                # Columns C-G (A=ID, B=Name already exist)
+                row = [
+                    round(data['score'], 2),        # Column C: CPR Score
+                    data['tier'],                    # Column D: Current Tier
+                    data['previous_tier'],           # Column E: Previous Tier
+                    status                           # Column F: Status
+                ]
+                rows.append(row)
+            
+            # Write tier data
+            if rows:
+                end_row = 1 + len(rows)
+                self.write_range(
+                    self.SHEET_MEMBERS,
+                    f'C2:F{end_row}',
+                    rows,
+                    value_input_option='RAW'
+                )
+                logger.info(f"✓ Updated Members sheet with {len(rows)} tier assignments")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error writing tier assignments: {e}")
+            raise GoogleSheetsError(f"Failed to write tier assignments: {e}")
+
+
+    def write_tier_history(self, changes: List[Dict]) -> bool:
+        """
+        Append tier changes to Tier_History sheet
+        
+        Args:
+            changes: List of tier change dictionaries
+                [
+                    {
+                        'member_id': int,
+                        'date': str,
+                        'old_tier': int,
+                        'new_tier': int,
+                        'score': float,
+                        'reason': str
+                    }
+                ]
+        
+        Returns:
+            True if successful
+        """
+        if not changes:
+            logger.info("No tier changes to record")
+            return True
+        
+        logger.info(f"Writing {len(changes)} tier changes to history...")
+        
+        try:
+            # Prepare rows for history
+            history_rows = []
+            for change in changes:
+                row = [
+                    change['member_id'],
+                    f'=IFERROR(VLOOKUP(A{len(history_rows)+2},Members!$A:$B,2,FALSE),"Unknown")',  # Name VLOOKUP
+                    change['date'],
+                    change['old_tier'],
+                    change['new_tier'],
+                    change['score'],
+                    change['reason']
+                ]
+                history_rows.append(row)
+            
+            # Append to Tier_History sheet
+            self.append_rows('Tier_History', history_rows, value_input_option='USER_ENTERED')
+            logger.info(f"✓ Recorded {len(history_rows)} tier changes to history")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error writing tier history: {e}")
+            # Don't raise - history is nice-to-have, not critical
+            return False
+        
+    # ==================== Member Sync Operations ====================
 
     def sync_faction_members(self, api_key: str) -> None:
         """
