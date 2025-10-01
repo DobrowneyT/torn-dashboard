@@ -1,0 +1,103 @@
+name: Payout Window Analysis
+
+on:
+  repository_dispatch:
+    types: [trigger-payout-analysis]
+  workflow_dispatch:
+    inputs:
+      from_timestamp:
+        description: 'Start timestamp (Unix epoch time)'
+        required: true
+        type: string
+      to_timestamp:
+        description: 'End timestamp (Unix epoch time)'
+        required: true
+        type: string
+
+jobs:
+  analyze-payouts:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create Google credentials file
+      run: |
+        echo '${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}' > google_credentials.json
+        
+    - name: Extract timestamps from event
+      id: get_timestamps
+      run: |
+        if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+          echo "from_ts=${{ github.event.client_payload.from_timestamp }}" >> $GITHUB_OUTPUT
+          echo "to_ts=${{ github.event.client_payload.to_timestamp }}" >> $GITHUB_OUTPUT
+          echo "trigger_source=google_sheets" >> $GITHUB_OUTPUT
+        else
+          echo "from_ts=${{ github.event.inputs.from_timestamp }}" >> $GITHUB_OUTPUT
+          echo "to_ts=${{ github.event.inputs.to_timestamp }}" >> $GITHUB_OUTPUT
+          echo "trigger_source=manual" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Validate timestamps
+      run: |
+        FROM_TS="${{ steps.get_timestamps.outputs.from_ts }}"
+        TO_TS="${{ steps.get_timestamps.outputs.to_ts }}"
+        
+        if [ -z "$FROM_TS" ] || [ -z "$TO_TS" ]; then
+          echo "Error: Missing timestamps"
+          exit 1
+        fi
+        
+        if [ "$FROM_TS" -ge "$TO_TS" ]; then
+          echo "Error: FROM timestamp must be before TO timestamp"
+          exit 1
+        fi
+        
+        echo "Validated: FROM=$FROM_TS, TO=$TO_TS"
+        
+    - name: Run payout analysis
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        FROM_TIMESTAMP: ${{ steps.get_timestamps.outputs.from_ts }}
+        TO_TIMESTAMP: ${{ steps.get_timestamps.outputs.to_ts }}
+      run: |
+        echo "Starting payout analysis..."
+        echo "Window: $FROM_TIMESTAMP to $TO_TIMESTAMP"
+        python scripts/run_payout_analysis.py
+        
+    - name: Upload execution logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: payout-analysis-logs-${{ github.run_number }}
+        path: |
+          logs/*.log
+          logs/*.txt
+        retention-days: 30
+        
+    - name: Report success
+      if: success()
+      run: |
+        echo "✅ Payout analysis completed successfully"
+        echo "Triggered by: ${{ steps.get_timestamps.outputs.trigger_source }}"
+        echo "Check Google Sheets for updated payout data"
+        
+    - name: Report failure
+      if: failure()
+      run: |
+        echo "❌ Payout analysis failed"
+        echo "Check logs artifact for details"
+        exit 1
