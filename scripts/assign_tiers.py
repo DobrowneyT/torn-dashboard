@@ -53,7 +53,12 @@ class TierAssignment:
             with open(path, 'r') as f:
                 data = json.load(f)
             logger.info(f"✓ Loaded CPR data for {len(data)} members")
-            return data
+
+            # Extract data from 'members'
+            if 'members' in data:
+                return data['members']  
+            
+            return data  # ✅ Or return as-is if flat structure
         except FileNotFoundError:
             logger.warning(f"CPR database not found: {path}")
             return {}

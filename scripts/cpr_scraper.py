@@ -315,7 +315,8 @@ class CPRScraper:
             
             # Rate limiting - wait between requests
             if i < stats['total_members']:
-                time.sleep(1.5)
+                # time.sleep(1.5)
+                time.sleep(.01)  
         
         # Save updated CPR database
         self._save_cpr_database(cpr_data)
