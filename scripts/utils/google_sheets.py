@@ -507,7 +507,7 @@ class GoogleSheetsManager:
     
     # ==================== Payout Operations ====================
     
-    def write_payout_calculator(self, payout_results: List[Dict], from_date: str, to_date: str) -> None:
+    def write_payout_data(self, payout_results: List[Dict], from_date: str, to_date: str) -> None:
         """
         Write payout calculator data with VLOOKUP for member names
         
