@@ -32,7 +32,7 @@ def test_api_keys_format():
     
     if not user_input:
         # Use example
-        api_keys_json = '{"MonChoon": "225eKmgnVTCUxeaS", "TestPlayer": "abc123def456"}'
+        api_keys_json = os.environ['MEMBER_API_KEYS'] if 'MEMBER_API_KEYS' in os.environ else '{"2250591": "225eKmgnVTCUxeaS","Marnix012": "abc123def456"}'
         print(f"Using example: {api_keys_json}")
     else:
         api_keys_json = user_input
@@ -229,6 +229,69 @@ def print_github_setup_instructions(api_keys_json):
     
     print("\n6. Test by running the workflow manually in GitHub Actions")
 
+def load_env_file():
+    """Load environment variables from .env.local (handles multi-line JSON)"""
+    env_file = Path('.env.local')
+    if not env_file.exists():
+        print("⚠ .env.local not found - using environment variables")
+        return
+    
+    with open(env_file) as f:
+        content = f.read()
+    
+    # Split by lines but handle multi-line values
+    lines = content.split('\n')
+    current_key = None
+    current_value = []
+    in_multiline = False
+    
+    for line in lines:
+        line_stripped = line.strip()
+        
+        # Skip empty lines and comments
+        if not line_stripped or line_stripped.startswith('#'):
+            continue
+        
+        # Check if this is a new key=value pair
+        if '=' in line and not in_multiline:
+            # Save previous key if exists
+            if current_key:
+                final_value = ''.join(current_value).strip()
+                os.environ[current_key] = final_value
+            
+            # Parse new key
+            key, value = line.split('=', 1)
+            current_key = key.strip()
+            current_value = [value]
+            
+            # Check if value starts a multi-line JSON object
+            value_stripped = value.strip()
+            if value_stripped.startswith('{') and not value_stripped.endswith('}'):
+                in_multiline = True
+            elif value_stripped.startswith('{') and value_stripped.endswith('}'):
+                # Single line JSON
+                in_multiline = False
+        else:
+            # Continuation of multi-line value
+            current_value.append(line)
+            if '}' in line:
+                in_multiline = False
+    
+    # Save last key
+    if current_key:
+        final_value = ''.join(current_value).strip()
+        os.environ[current_key] = final_value
+    
+    print("✓ Loaded .env.local")
+    
+    # Verify MEMBER_API_KEYS is valid JSON
+    if 'MEMBER_API_KEYS' in os.environ:
+        try:
+            api_keys = json.loads(os.environ['MEMBER_API_KEYS'])
+            print(f"✓ Loaded {len(api_keys)} member API keys")
+        except json.JSONDecodeError as e:
+            print(f"⚠ Warning: MEMBER_API_KEYS is not valid JSON: {e}")
+
 
 def main():
     """Run all tests"""
@@ -238,6 +301,9 @@ def main():
     print("\nThis script will help you verify your CPR scraper is set up correctly.")
     
     results = []
+
+    # Load environment
+    load_env_file()
     
     # Test 1: API keys format
     success, api_keys = test_api_keys_format()
@@ -280,7 +346,7 @@ def main():
     
     if passed == total:
         print("\n🎉 All tests passed!")
-        print_github_setup_instructions(api_keys_json)
+        # print_github_setup_instructions(api_keys_json)
         print("\n✅ You're ready to set up GitHub Secrets and run the scraper!")
     else:
         print("\n⚠ Some tests failed. Fix the issues above before proceeding.")

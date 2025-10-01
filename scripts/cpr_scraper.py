@@ -395,6 +395,8 @@ def main():
     # Sync members first
     sheets = GoogleSheetsManager()
     api_key = os.environ.get('TORN_API_KEY')
+    if not api_key:
+        raise ValueError("TORN_API_KEY environment variable not set")
     
     logger.info("Syncing faction members...")
     sheets.sync_faction_members(api_key)
