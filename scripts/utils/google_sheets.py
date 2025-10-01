@@ -461,14 +461,10 @@ class GoogleSheetsManager:
         Headers: Member ID | Name | Tier | Time (hours) | Base Tickets | 
                 Time Penalty | Adjusted Tickets | Crimes Participated | Payout
         """
-        logger = logging.getLogger(__name__)
         logger.info("Writing Weekly_Analysis sheet...")
-
-        # Get Weekly_Analysis sheet
-        sheet = self.spreadsheet.worksheet(self.SHEET_WEEKLY_ANALYSIS)
         
         # Clear old data (keep headers in row 1)
-        sheet.batch_clear(['A2:I500'])
+        self.clear_range(self.SHEET_WEEKLY_ANALYSIS, 'A2:I500')
         
         # Prepare data rows
         rows = []
@@ -491,13 +487,22 @@ class GoogleSheetsManager:
         
         # Write data
         if rows:
-            cell_range = f'A2:I{len(rows) + 1}'
-            sheet.update(cell_range, rows, value_input_option='USER_ENTERED')  # USER_ENTERED to process formulas
+            end_row = 1 + len(rows)
+            self.write_range(
+                self.SHEET_WEEKLY_ANALYSIS,
+                f'A2:I{end_row}',
+                rows,
+                value_input_option='USER_ENTERED'  # USER_ENTERED to process formulas
+            )
             logger.info(f"Wrote {len(rows)} rows to Weekly_Analysis")
         
         # Update header with date range
-        sheet.update('A1', [[f'Weekly Analysis: {from_date} to {to_date}']])
-
+        self.write_range(
+            self.SHEET_WEEKLY_ANALYSIS,
+            'A1:A1',
+            [[f'Weekly Analysis: {from_date} to {to_date}']]
+        )
+        
         logger.info("✓ Weekly_Analysis updated")
     
     # ==================== Payout Operations ====================
@@ -508,15 +513,11 @@ class GoogleSheetsManager:
         
         Headers: Member ID | Name | Adjusted Tickets | Payout | Manual Override | Final Payout
         """
-        logger = logging.getLogger(__name__)
         logger.info("Writing Payout_Calculator sheet...")
-
-        # Get Payout_Calculator sheet
-        sheet = self.spreadsheet.worksheet(self.SHEET_PAYOUT)
         
-        # Clear old data (keep headers in row 1, preserve manual overrides if they exist)
+        # Clear old data (keep headers in row 1, preserve manual overrides)
         # Only clear columns A-D, leave E-F for manual overrides and final payout formulas
-        sheet.batch_clear(['A2:D500'])
+        self.clear_range(self.SHEET_PAYOUT, 'A2:D500')
         
         # Prepare data rows
         rows = []
@@ -534,37 +535,56 @@ class GoogleSheetsManager:
         
         # Write data
         if rows:
-            cell_range = f'A2:D{len(rows) + 1}'
-            sheet.update(cell_range, rows, value_input_option='USER_ENTERED')
-
-            # Add Final Payout formulas in column F (if they don't already exist)
+            end_row = 1 + len(rows)
+            self.write_range(
+                self.SHEET_PAYOUT,
+                f'A2:D{end_row}',
+                rows,
+                value_input_option='USER_ENTERED'
+            )
+            
+            # Add Final Payout formulas in column F
             # Formula: =IF(E2="",D2,E2) - use override if present, otherwise use calculated
             final_formulas = []
-            for i in range(2, len(rows) + 2):
+            for i in range(2, end_row + 1):
                 final_formulas.append([f'=IF(E{i}="",D{i},E{i})'])
             
-            formula_range = f'F2:F{len(rows) + 1}'
-            sheet.update(formula_range, final_formulas, value_input_option='USER_ENTERED')
+            self.write_range(
+                self.SHEET_PAYOUT,
+                f'F2:F{end_row}',
+                final_formulas,
+                value_input_option='USER_ENTERED'
+            )
             
             logger.info(f"Wrote {len(rows)} rows to Payout_Calculator")
         
         # Update header with date range
-        sheet.update('A1', [[f'Payout Calculator: {from_date} to {to_date}']])
+        self.write_range(
+            self.SHEET_PAYOUT,
+            'A1:A1',
+            [[f'Payout Calculator: {from_date} to {to_date}']]
+        )
         
         # Add totals row
-        last_data_row = len(rows) + 1
+        last_data_row = 1 + len(rows)
         totals_row = last_data_row + 2
         
-        totals = [
-            ['TOTALS:', '', 
+        totals = [[
+            'TOTALS:',
+            '',
             f'=SUM(C2:C{last_data_row})',  # Total adjusted tickets
             f'=SUM(D2:D{last_data_row})',  # Total calculated payout
             '',
             f'=SUM(F2:F{last_data_row})'   # Total final payout
-            ]
-        ]
-        sheet.update(f'A{totals_row}:F{totals_row}', totals, value_input_option='USER_ENTERED')
-
+        ]]
+        
+        self.write_range(
+            self.SHEET_PAYOUT,
+            f'A{totals_row}:F{totals_row}',
+            totals,
+            value_input_option='USER_ENTERED'
+        )
+        
         logger.info("✓ Payout_Calculator updated")
         
     def read_payout_timestamps(self) -> tuple:
@@ -640,18 +660,14 @@ class GoogleSheetsManager:
 
     def write_item_outcomes(self, item_details: List[Dict], from_date: str, to_date: str) -> None:
         """
-        Write item outcomes (no member names here, but keeping consistent format)
+        Write item outcomes
         
         Headers: ID | Name | Status | Market Value | Quantity | Total Value
         """
-        logger = logging.getLogger(__name__)
         logger.info("Writing item_outcomes sheet...")
-
-        # Get item_outcomes sheet
-        sheet = self.spreadsheet.worksheet(self.SHEET_ITEM_OUTCOMES)
         
         # Clear old data
-        sheet.batch_clear(['A2:F500'])
+        self.clear_range(self.SHEET_ITEM_OUTCOMES, 'A2:F500')
         
         # Prepare rows
         rows = []
@@ -671,15 +687,24 @@ class GoogleSheetsManager:
         
         # Write data
         if rows:
-            cell_range = f'A2:F{len(rows) + 1}'
-            sheet.update(cell_range, rows, value_input_option='RAW')
+            end_row = 1 + len(rows)
+            self.write_range(
+                self.SHEET_ITEM_OUTCOMES,
+                f'A2:F{end_row}',
+                rows,
+                value_input_option='RAW'
+            )
             logger.info(f"Wrote {len(rows)} items to item_outcomes")
         
         # Update header with date range
-        sheet.update('A1', [[f'Item Outcomes: {from_date} to {to_date}']])
-
+        self.write_range(
+            self.SHEET_ITEM_OUTCOMES,
+            'A1:A1',
+            [[f'Item Outcomes: {from_date} to {to_date}']]
+        )
+        
         # Add summary calculations
-        last_data_row = len(rows) + 1
+        last_data_row = 1 + len(rows)
         summary_start = last_data_row + 2
         
         summaries = [
@@ -688,9 +713,13 @@ class GoogleSheetsManager:
             ['USED TOTAL:', '', '', '', '', f'=SUMIF(C2:C{last_data_row},"used",F2:F{last_data_row})']
         ]
         
-        summary_range = f'A{summary_start}:F{summary_start + 2}'
-        sheet.update(summary_range, summaries, value_input_option='USER_ENTERED')
-
+        self.write_range(
+            self.SHEET_ITEM_OUTCOMES,
+            f'A{summary_start}:F{summary_start + 2}',
+            summaries,
+            value_input_option='USER_ENTERED'
+        )
+        
         logger.info("✓ item_outcomes updated")
     
     # ==================== Crime Log Operations ====================
