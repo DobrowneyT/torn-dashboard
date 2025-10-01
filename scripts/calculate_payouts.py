@@ -147,13 +147,14 @@ class PayoutCalculator:
         logger.info(f"Fetching market values for {len(item_ids)} items...")
         
         api = TornAPI(api_key)
-        item_id_string = ','.join(str(id) for id in item_ids)
         
         try:
-            result = api.get(f"torn/{item_id_string}?selections=items")
+            # Convert set to list and pass directly to get_item_data
+            # get_item_data already handles URL construction
+            result = api.get_item_data(list(item_ids))
             
             items = {}
-            for item_id, item_data in result.get('items', {}).items():
+            for item_id, item_data in result.items():  # No need for .get('items', {}) - result IS the items dict
                 items[int(item_id)] = {
                     'name': item_data.get('name', 'Unknown Item'),
                     'market_value': item_data.get('market_value', 0),
@@ -165,6 +166,8 @@ class PayoutCalculator:
             
         except Exception as e:
             logger.error(f"Failed to fetch item data: {e}")
+            import traceback
+            traceback.print_exc()
             return {}
     
     def calculate_net_income(

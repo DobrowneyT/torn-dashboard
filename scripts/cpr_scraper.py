@@ -113,7 +113,8 @@ class CPRScraper:
                 category="available",
                 filters="created_at",
                 offset=0,
-                sort="DESC"
+                sort="DESC",
+                comment="TNL Forge CPR Scraper"
             )
             
             crimes = result.get('crimes', [])

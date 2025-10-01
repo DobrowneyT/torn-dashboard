@@ -89,7 +89,8 @@ class TornAPI:
         from_timestamp: Optional[int] = None,
         to_timestamp: Optional[int] = None,
         offset: int = 0,
-        sort: str = "ASC"
+        sort: str = "ASC",
+        comment: str = "Forge_OC2_Faction_Crimes"
     ) -> Dict:
         """
         Get faction crimes from API
@@ -111,7 +112,7 @@ class TornAPI:
             "cat": category,
             "sort": sort,
             "key": self.api_key,
-            "comment": "OC_Python_System"
+            "comment": comment
         }
         
         if filters:
@@ -214,7 +215,7 @@ class TornAPI:
         url = f"{self.BASE_URL}/faction/members"
         params = {
             "key": self.api_key,
-            "comment": "OC_Python_System"
+            "comment": "Forge_OC2_Faction_Members"
         }
         
         return self._make_request(url, params)
@@ -238,7 +239,7 @@ class TornAPI:
         params = {
             "selections": "items",
             "key": self.api_key,
-            "comment": "OC_Python_System"
+            "comment": "Forge_OC2_Item_Data"
         }
         
         response = self._make_request(url, params)
@@ -257,7 +258,8 @@ class TornAPI:
             params = {
                 "cat": "completed",
                 "offset": 0,
-                "key": self.api_key
+                "key": self.api_key,
+                "comment": "Forge_OC2_System_Test"
             }
             
             self._make_request(url, params)
