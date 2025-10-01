@@ -49,6 +49,7 @@ class GoogleSheetsManager:
             raise ValueError("spreadsheet_id must be provided or set in GOOGLE_SHEETS_ID environment variable")
         
         self.service = self._authenticate()
+        self.spreadsheet = self.service.open_by_key(self.spreadsheet_id)
         logger.info(f"Initialized Google Sheets manager for spreadsheet: {self.spreadsheet_id}")
     
     def _authenticate(self):
