@@ -462,9 +462,12 @@ class GoogleSheetsManager:
         """
         logger = logging.getLogger(__name__)
         logger.info("Writing Weekly_Analysis sheet...")
+
+        # Get Weekly_Analysis sheet
+        sheet = self.spreadsheet.worksheet(self.SHEET_WEEKLY_ANALYSIS)
         
         # Clear old data (keep headers in row 1)
-        self.SHEET_WEEKLY_ANALYSIS.batch_clear(['A2:I500'])
+        sheet.batch_clear(['A2:I500'])
         
         # Prepare data rows
         rows = []
@@ -488,11 +491,11 @@ class GoogleSheetsManager:
         # Write data
         if rows:
             cell_range = f'A2:I{len(rows) + 1}'
-            self.SHEET_WEEKLY_ANALYSIS.update(cell_range, rows, value_input_option='USER_ENTERED')  # USER_ENTERED to process formulas
+            sheet.update(cell_range, rows, value_input_option='USER_ENTERED')  # USER_ENTERED to process formulas
             logger.info(f"Wrote {len(rows)} rows to Weekly_Analysis")
         
         # Update header with date range
-        self.SHEET_WEEKLY_ANALYSIS.update('A1', [[f'Weekly Analysis: {from_date} to {to_date}']])
+        sheet.update('A1', [[f'Weekly Analysis: {from_date} to {to_date}']])
 
         logger.info("✓ Weekly_Analysis updated")
     
@@ -506,10 +509,13 @@ class GoogleSheetsManager:
         """
         logger = logging.getLogger(__name__)
         logger.info("Writing Payout_Calculator sheet...")
+
+        # Get Payout_Calculator sheet
+        sheet = self.spreadsheet.worksheet(self.SHEET_PAYOUT)
         
         # Clear old data (keep headers in row 1, preserve manual overrides if they exist)
         # Only clear columns A-D, leave E-F for manual overrides and final payout formulas
-        self.SHEET_PAYOUT.batch_clear(['A2:D500'])
+        sheet.batch_clear(['A2:D500'])
         
         # Prepare data rows
         rows = []
@@ -528,8 +534,8 @@ class GoogleSheetsManager:
         # Write data
         if rows:
             cell_range = f'A2:D{len(rows) + 1}'
-            self.SHEET_PAYOUT.update(cell_range, rows, value_input_option='USER_ENTERED')
-            
+            sheet.update(cell_range, rows, value_input_option='USER_ENTERED')
+
             # Add Final Payout formulas in column F (if they don't already exist)
             # Formula: =IF(E2="",D2,E2) - use override if present, otherwise use calculated
             final_formulas = []
@@ -537,12 +543,12 @@ class GoogleSheetsManager:
                 final_formulas.append([f'=IF(E{i}="",D{i},E{i})'])
             
             formula_range = f'F2:F{len(rows) + 1}'
-            self.SHEET_PAYOUT.update(formula_range, final_formulas, value_input_option='USER_ENTERED')
+            sheet.update(formula_range, final_formulas, value_input_option='USER_ENTERED')
             
             logger.info(f"Wrote {len(rows)} rows to Payout_Calculator")
         
         # Update header with date range
-        self.SHEET_PAYOUT.update('A1', [[f'Payout Calculator: {from_date} to {to_date}']])
+        sheet.update('A1', [[f'Payout Calculator: {from_date} to {to_date}']])
         
         # Add totals row
         last_data_row = len(rows) + 1
@@ -556,8 +562,8 @@ class GoogleSheetsManager:
             f'=SUM(F2:F{last_data_row})'   # Total final payout
             ]
         ]
-        self.SHEET_PAYOUT.update(f'A{totals_row}:F{totals_row}', totals, value_input_option='USER_ENTERED')
-        
+        sheet.update(f'A{totals_row}:F{totals_row}', totals, value_input_option='USER_ENTERED')
+
         logger.info("✓ Payout_Calculator updated")
         
     def read_payout_timestamps(self) -> tuple:
@@ -639,9 +645,12 @@ class GoogleSheetsManager:
         """
         logger = logging.getLogger(__name__)
         logger.info("Writing item_outcomes sheet...")
+
+        # Get item_outcomes sheet
+        sheet = self.spreadsheet.worksheet(self.SHEET_ITEM_OUTCOMES)
         
         # Clear old data
-        self.SHEET_ITEM_OUTCOMES.batch_clear(['A2:F500'])
+        sheet.batch_clear(['A2:F500'])
         
         # Prepare rows
         rows = []
@@ -662,11 +671,11 @@ class GoogleSheetsManager:
         # Write data
         if rows:
             cell_range = f'A2:F{len(rows) + 1}'
-            self.SHEET_ITEM_OUTCOMES.update(cell_range, rows, value_input_option='RAW')
+            sheet.update(cell_range, rows, value_input_option='RAW')
             logger.info(f"Wrote {len(rows)} items to item_outcomes")
         
         # Update header with date range
-        self.SHEET_ITEM_OUTCOMES.update('A1', [[f'Item Outcomes: {from_date} to {to_date}']])
+        sheet.update('A1', [[f'Item Outcomes: {from_date} to {to_date}']])
 
         # Add summary calculations
         last_data_row = len(rows) + 1
@@ -679,8 +688,8 @@ class GoogleSheetsManager:
         ]
         
         summary_range = f'A{summary_start}:F{summary_start + 2}'
-        self.SHEET_ITEM_OUTCOMES.update(summary_range, summaries, value_input_option='USER_ENTERED')
-        
+        sheet.update(summary_range, summaries, value_input_option='USER_ENTERED')
+
         logger.info("✓ item_outcomes updated")
     
     # ==================== Crime Log Operations ====================
@@ -778,14 +787,17 @@ class GoogleSheetsManager:
             member_rows.sort(key=lambda x: x[0])
             
             logger.info(f"Fetched {len(member_rows)} faction members")
+
+            # Get Members sheet
+            sheet = self.spreadsheet.worksheet(self.SHEET_MEMBERS)
             
             # Clear existing data (starting from row 2, preserve headers)
-            self.SHEET_MEMBERS.batch_clear(['A2:B201'])
+            sheet.batch_clear(['A2:B201'])
             
             # Write new member data
             if member_rows:
                 cell_range = f'A2:B{len(member_rows) + 1}'
-                self.SHEET_MEMBERS.update(cell_range, member_rows, value_input_option='RAW')
+                sheet.update(cell_range, member_rows, value_input_option='RAW')
                 logger.info(f"Updated Members sheet with {len(member_rows)} members")
             
             logger.info("✓ Faction members synced successfully")
