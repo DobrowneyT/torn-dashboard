@@ -28,6 +28,7 @@ class GoogleSheetsManager:
     
     # Sheet names
     SHEET_DASHBOARD = "Dashboard"
+    SHEET_CRIME_LOG = "Crime_Log"
     SHEET_WEEKLY_ANALYSIS = "Weekly_Analysis"
     SHEET_PAYOUT = "Payout_Calculator"
     SHEET_CONFIG = "Config"
@@ -736,7 +737,7 @@ class GoogleSheetsManager:
         """
         try:
             # Clear existing data
-            self.clear_range("Crime_Log", "A2:H10000")
+            self.clear_range(self.SHEET_CRIME_LOG, "A2:H10000")
             
             # Write headers
             headers = [[
@@ -749,12 +750,12 @@ class GoogleSheetsManager:
                 "Executed At",
                 "Participants"
             ]]
-            self.write_range("Crime_Log", "A1:H1", headers)
+            self.write_range(self.SHEET_CRIME_LOG, "A1:H1", headers)
             
             # Write crime data
             if crime_rows:
                 end_row = 1 + len(crime_rows)
-                self.write_range("Crime_Log", f"A2:H{end_row}", crime_rows)
+                self.write_range(self.SHEET_CRIME_LOG, f"A2:H{end_row}", crime_rows)
             
             logger.info(f"Wrote {len(crime_rows)} crimes to Crime_Log sheet")
             return True
@@ -816,17 +817,14 @@ class GoogleSheetsManager:
             member_rows.sort(key=lambda x: x[0])
             
             logger.info(f"Fetched {len(member_rows)} faction members")
-
-            # Get Members sheet
-            sheet = self.spreadsheet.worksheet(self.SHEET_MEMBERS)
             
             # Clear existing data (starting from row 2, preserve headers)
-            sheet.batch_clear(['A2:B201'])
+            self.clear_range(self.SHEET_MEMBERS, 'A2:B201')
             
             # Write new member data
             if member_rows:
                 cell_range = f'A2:B{len(member_rows) + 1}'
-                sheet.update(cell_range, member_rows, value_input_option='RAW')
+                self.write_range(self.SHEET_MEMBERS, cell_range, member_rows, value_input_option='RAW')
                 logger.info(f"Updated Members sheet with {len(member_rows)} members")
             
             logger.info("✓ Faction members synced successfully")
