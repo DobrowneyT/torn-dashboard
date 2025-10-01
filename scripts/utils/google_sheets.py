@@ -32,6 +32,7 @@ class GoogleSheetsManager:
     SHEET_PAYOUT = "Payout_Calculator"
     SHEET_CONFIG = "Config"
     SHEET_MEMBERS = "Members"
+    SHEET_ITEM_OUTCOMES = "item_outcomes"
     
     def __init__(self, credentials_file: str = 'google_credentials.json', spreadsheet_id: Optional[str] = None):
         """
@@ -452,107 +453,112 @@ class GoogleSheetsManager:
     
     # ==================== Weekly Analysis Operations ====================
     
-    def write_weekly_analysis(self, analysis_data: List[Dict], period_start: str, period_end: str) -> bool:
+    def write_weekly_analysis(self, payout_results: List[Dict], from_date: str, to_date: str) -> None:
         """
-        Write weekly analysis data for payout period
+        Write weekly analysis data with VLOOKUP for member names
         
-        Args:
-            analysis_data: List of member analysis dictionaries
-            period_start: Start date string
-            period_end: End date string
-            
-        Returns:
-            True if successful
+        Headers: Member ID | Name | Tier | Time (hours) | Base Tickets | 
+                Time Penalty | Adjusted Tickets | Crimes Participated | Payout
         """
-        try:
-            # Clear existing data
-            self.clear_range(self.SHEET_WEEKLY_ANALYSIS, "A1:Z1000")
+        logger = logging.getLogger(__name__)
+        logger.info("Writing Weekly_Analysis sheet...")
+        
+        # Clear old data (keep headers in row 1)
+        self.SHEET_WEEKLY_ANALYSIS.batch_clear(['A2:I500'])
+        
+        # Prepare data rows
+        rows = []
+        for i, member in enumerate(payout_results, start=2):
+            member_id = member['member_id']
             
-            # Write header with period
-            header_info = [[f"Weekly Analysis: {period_start} to {period_end}"]]
-            self.write_range(self.SHEET_WEEKLY_ANALYSIS, "A1:A1", header_info)
-            
-            # Write column headers
-            headers = [["Member ID", "Name", "Tier", "Total Time (hrs)", "Tier Multiplier", "Weighted Time", "Crimes Participated"]]
-            self.write_range(self.SHEET_WEEKLY_ANALYSIS, "A3:G3", headers)
-            
-            # Prepare analysis rows
-            analysis_rows = []
-            for member in analysis_data:
-                analysis_rows.append([
-                    member.get('member_id', ''),
-                    member.get('name', ''),
-                    member.get('tier', ''),
-                    round(member.get('total_time_hours', 0), 2),
-                    member.get('tier_multiplier', 1.0),
-                    round(member.get('weighted_time', 0), 2),
-                    member.get('crime_count', 0)
-                ])
-            
-            if analysis_rows:
-                self.write_range(self.SHEET_WEEKLY_ANALYSIS, "A4:G" + str(3 + len(analysis_rows)), analysis_rows)
-            
-            logger.info(f"Wrote weekly analysis for {len(analysis_rows)} members")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error writing weekly analysis: {e}")
-            raise GoogleSheetsError(f"Failed to write weekly analysis: {e}")
+            # Row: [ID, VLOOKUP_FORMULA, Tier, Hours, Base, Penalty, Adjusted, Crimes, Payout]
+            row = [
+                member_id,
+                f'=IFERROR(VLOOKUP(A{i},Members!$A:$B,2,FALSE),"Unknown")',  # VLOOKUP for name
+                member['tier'],
+                round(member['time_in_crimes'] / 3600, 2),  # Convert seconds to hours
+                member['base_tickets'],
+                round(member['time_penalty'], 2),
+                round(member['adjusted_tickets'], 2),
+                member['crimes_participated'],
+                f"${member['payout']:,.0f}"
+            ]
+            rows.append(row)
+        
+        # Write data
+        if rows:
+            cell_range = f'A2:I{len(rows) + 1}'
+            self.SHEET_WEEKLY_ANALYSIS.update(cell_range, rows, value_input_option='USER_ENTERED')  # USER_ENTERED to process formulas
+            logger.info(f"Wrote {len(rows)} rows to Weekly_Analysis")
+        
+        # Update header with date range
+        self.SHEET_WEEKLY_ANALYSIS.update('A1', [[f'Weekly Analysis: {from_date} to {to_date}']])
+
+        logger.info("✓ Weekly_Analysis updated")
     
     # ==================== Payout Operations ====================
     
-    def write_payout_data(self, payout_data: List[Dict], period_start: str, period_end: str) -> bool:
+    def write_payout_calculator(self, payout_results: List[Dict], from_date: str, to_date: str) -> None:
         """
-        Write payout calculations
+        Write payout calculator data with VLOOKUP for member names
         
-        Args:
-            payout_data: List of member payout dictionaries
-            period_start: Start date string
-            period_end: End date string
-            
-        Returns:
-            True if successful
+        Headers: Member ID | Name | Adjusted Tickets | Payout | Manual Override | Final Payout
         """
-        try:
-            # Clear existing data
-            self.clear_range(self.SHEET_PAYOUT, "A1:Z1000")
+        logger = logging.getLogger(__name__)
+        logger.info("Writing Payout_Calculator sheet...")
+        
+        # Clear old data (keep headers in row 1, preserve manual overrides if they exist)
+        # Only clear columns A-D, leave E-F for manual overrides and final payout formulas
+        self.SHEET_PAYOUT.batch_clear(['A2:D500'])
+        
+        # Prepare data rows
+        rows = []
+        for i, member in enumerate(payout_results, start=2):
+            member_id = member['member_id']
             
-            # Write header with period
-            header_info = [[f"Payout Calculator: {period_start} to {period_end}"]]
-            self.write_range(self.SHEET_PAYOUT, "A1:A1", header_info)
+            # Row: [ID, VLOOKUP_FORMULA, Adjusted Tickets, Payout]
+            row = [
+                member_id,
+                f'=IFERROR(VLOOKUP(A{i},Members!$A:$B,2,FALSE),"Unknown")',  # VLOOKUP for name
+                round(member['adjusted_tickets'], 2),
+                member['payout']
+            ]
+            rows.append(row)
+        
+        # Write data
+        if rows:
+            cell_range = f'A2:D{len(rows) + 1}'
+            self.SHEET_PAYOUT.update(cell_range, rows, value_input_option='USER_ENTERED')
             
-            # Write column headers
-            headers = [["Member ID", "Name", "Weighted Time", "Rate per Hour", "Calculated Payout", "Manual Override", "Final Payout"]]
-            self.write_range(self.SHEET_PAYOUT, "A3:G3", headers)
+            # Add Final Payout formulas in column F (if they don't already exist)
+            # Formula: =IF(E2="",D2,E2) - use override if present, otherwise use calculated
+            final_formulas = []
+            for i in range(2, len(rows) + 2):
+                final_formulas.append([f'=IF(E{i}="",D{i},E{i})'])
             
-            # Prepare payout rows
-            payout_rows = []
-            for member in payout_data:
-                calculated = member.get('calculated_payout', 0)
-                payout_rows.append([
-                    member.get('member_id', ''),
-                    member.get('name', ''),
-                    round(member.get('weighted_time', 0), 2),
-                    member.get('rate_per_hour', 0),
-                    calculated,
-                    '',  # Empty for manual override
-                    f'=IF(F{len(payout_rows) + 4}="",E{len(payout_rows) + 4},F{len(payout_rows) + 4})'  # Formula for final
-                ])
+            formula_range = f'F2:F{len(rows) + 1}'
+            self.SHEET_PAYOUT.update(formula_range, final_formulas, value_input_option='USER_ENTERED')
             
-            if payout_rows:
-                self.write_range(self.SHEET_PAYOUT, "A4:G" + str(3 + len(payout_rows)), payout_rows)
-            
-            # Add total row
-            total_row_num = 4 + len(payout_rows)
-            total_row = [["", "TOTAL", "", "", f"=SUM(E4:E{total_row_num-1})", "", f"=SUM(G4:G{total_row_num-1})"]]
-            self.write_range(self.SHEET_PAYOUT, f"A{total_row_num}:G{total_row_num}", total_row)
-            
-            logger.info(f"Wrote payout data for {len(payout_rows)} members")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error writing payout data: {e}")
-            raise GoogleSheetsError(f"Failed to write payout data: {e}")
+            logger.info(f"Wrote {len(rows)} rows to Payout_Calculator")
+        
+        # Update header with date range
+        self.SHEET_PAYOUT.update('A1', [[f'Payout Calculator: {from_date} to {to_date}']])
+        
+        # Add totals row
+        last_data_row = len(rows) + 1
+        totals_row = last_data_row + 2
+        
+        totals = [
+            ['TOTALS:', '', 
+            f'=SUM(C2:C{last_data_row})',  # Total adjusted tickets
+            f'=SUM(D2:D{last_data_row})',  # Total calculated payout
+            '',
+            f'=SUM(F2:F{last_data_row})'   # Total final payout
+            ]
+        ]
+        self.SHEET_PAYOUT.update(f'A{totals_row}:F{totals_row}', totals, value_input_option='USER_ENTERED')
+        
+        logger.info("✓ Payout_Calculator updated")
         
     def read_payout_timestamps(self) -> tuple:
         """
@@ -625,82 +631,57 @@ class GoogleSheetsManager:
             logger.error(f"Error writing payout summary: {e}")
             raise GoogleSheetsError(f"Failed to write payout summary: {e}")
 
-    def write_item_outcomes(self, item_details: List[Dict], period_start: str, period_end: str) -> bool:
+    def write_item_outcomes(self, item_details: List[Dict], from_date: str, to_date: str) -> None:
         """
-        Write item outcomes (rewards vs used) to item_outcomes sheet
+        Write item outcomes (no member names here, but keeping consistent format)
         
-        Args:
-            item_details: List of item dicts with id, name, status, market_value, quantity, total_value
-            period_start: Start date string
-            period_end: End date string
-            
-        Returns:
-            True if successful
+        Headers: ID | Name | Status | Market Value | Quantity | Total Value
         """
-        try:
-            # Clear existing data
-            self.clear_range('item_outcomes', "A1:Z1000")
+        logger = logging.getLogger(__name__)
+        logger.info("Writing item_outcomes sheet...")
+        
+        # Clear old data
+        self.SHEET_ITEM_OUTCOMES.batch_clear(['A2:F500'])
+        
+        # Prepare rows
+        rows = []
+        for item in item_details:
+            # Determine if this is a reward (+) or used (-)
+            multiplier = 1 if item['status'] == 'reward' else -1
             
-            # Write headers
-            headers = [["ID", "Name", "Status", "Market Value", "Quantity", "Total Value"]]
-            self.write_range('item_outcomes', "A1:F1", headers)
-            
-            if not item_details:
-                logger.info("No items to write")
-                return True
-            
-            # Sort by status (rewards first, then used)
-            item_details.sort(key=lambda x: (x['status'] != 'reward', x['name']))
-            
-            # Prepare rows with formulas
-            item_rows = []
-            for i, item in enumerate(item_details, start=2):
-                # Create formula for total value
-                if item['status'] == 'reward':
-                    total_formula = f"=D{i}*E{i}"
-                else:  # used
-                    total_formula = f"=-D{i}*E{i}"
-                
-                item_rows.append([
-                    item['id'],
-                    item['name'],
-                    item['status'],
-                    item['market_value'],
-                    item['quantity'],
-                    total_formula
-                ])
-            
-            # Write item rows
-            if item_rows:
-                self.write_range('item_outcomes', f"A2:F{len(item_rows)+1}", item_rows)
-            
-            # Add summary calculations
-            summary_row = len(item_rows) + 3
-            
-            summary_data = [
-                [f"NET TOTAL:", "", "", "", "", f"=SUM(F2:F{len(item_rows)+1})"],
-                [f"REWARDS TOTAL:", "", "", "", "", f'=SUMIF(C2:C{len(item_rows)+1},"reward",F2:F{len(item_rows)+1})'],
-                [f"USED TOTAL:", "", "", "", "", f'=SUMIF(C2:C{len(item_rows)+1},"used",F2:F{len(item_rows)+1})']
+            row = [
+                item['id'],
+                item['name'],
+                item['status'],
+                item['market_value'],
+                item['quantity'],
+                multiplier * item['market_value'] * item['quantity']  # Calculate total
             ]
-            
-            self.write_range('item_outcomes', f"A{summary_row}:F{summary_row+2}", summary_data)
-            
-            # Also write fixed cell references (H1:H3) for easy access
-            self.write_cell('item_outcomes', 'G1', 'Net Total:')
-            self.write_cell('item_outcomes', 'H1', f"=SUM(F2:F{len(item_rows)+1})")
-            
-            self.write_cell('item_outcomes', 'G2', 'Rewards Total:')
-            self.write_cell('item_outcomes', 'H2', f'=SUMIF(C2:C{len(item_rows)+1},"reward",F2:F{len(item_rows)+1})')
-            
-            self.write_cell('item_outcomes', 'G3', 'Used Total:')
-            self.write_cell('item_outcomes', 'H3', f'=SUMIF(C2:C{len(item_rows)+1},"used",F2:F{len(item_rows)+1})')
-            
-            logger.info(f"Wrote {len(item_rows)} item entries to item_outcomes sheet")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error writing item outcomes: {e}")
-            raise GoogleSheetsError(f"Failed to write item outcomes: {e}")
+            rows.append(row)
+        
+        # Write data
+        if rows:
+            cell_range = f'A2:F{len(rows) + 1}'
+            self.SHEET_ITEM_OUTCOMES.update(cell_range, rows, value_input_option='RAW')
+            logger.info(f"Wrote {len(rows)} items to item_outcomes")
+        
+        # Update header with date range
+        self.SHEET_ITEM_OUTCOMES.update('A1', [[f'Item Outcomes: {from_date} to {to_date}']])
+
+        # Add summary calculations
+        last_data_row = len(rows) + 1
+        summary_start = last_data_row + 2
+        
+        summaries = [
+            ['NET TOTAL:', '', '', '', '', f'=SUM(F2:F{last_data_row})'],
+            ['REWARDS TOTAL:', '', '', '', '', f'=SUMIF(C2:C{last_data_row},"reward",F2:F{last_data_row})'],
+            ['USED TOTAL:', '', '', '', '', f'=SUMIF(C2:C{last_data_row},"used",F2:F{last_data_row})']
+        ]
+        
+        summary_range = f'A{summary_start}:F{summary_start + 2}'
+        self.SHEET_ITEM_OUTCOMES.update(summary_range, summaries, value_input_option='USER_ENTERED')
+        
+        logger.info("✓ item_outcomes updated")
     
     # ==================== Crime Log Operations ====================
     
@@ -743,6 +724,80 @@ class GoogleSheetsManager:
         except Exception as e:
             logger.error(f"Error writing crime log: {e}")
             raise GoogleSheetsError(f"Failed to write crime log: {e}")
+        
+    """
+    Member sync function to keep Members sheet up to date
+    """
+
+    def sync_faction_members(self, api_key: str) -> None:
+        """
+        Sync faction members to Members sheet
+        Fetches current faction members and updates IDs and names
+        
+        Args:
+            api_key: Torn API key for faction members endpoint
+        """
+        import requests
+        
+        logger = logging.getLogger(__name__)
+        logger.info("Syncing faction members...")
+        
+        try:
+            # Fetch faction members from Torn API
+            url = f"https://api.torn.com/v2/faction/members"
+            params = {
+                'key': api_key,
+                'comment': 'OC_sheet_member_sync'
+            }
+            
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            if 'error' in data:
+                logger.error(f"API error: {data['error']}")
+                raise Exception(f"Torn API error: {data['error']}")
+            
+            members = data.get('members', {})
+            
+            if not members:
+                logger.warning("No members returned from API")
+                return
+            
+            # Prepare member data as list of [id, name]
+            member_rows = []
+            for member_id, member_data in members.items():
+                member_rows.append([
+                    int(member_id),
+                    member_data.get('name', 'Unknown')
+                ])
+            
+            # Sort by ID for consistency
+            member_rows.sort(key=lambda x: x[0])
+            
+            logger.info(f"Fetched {len(member_rows)} faction members")
+            
+            # Get Members sheet
+            sheet = self.spreadsheet.worksheet("Members")
+            
+            # Clear existing data (starting from row 2, preserve headers in row 1)
+            # Clear up to 200 rows to handle member turnover
+            sheet.batch_clear(['A2:B201'])
+            
+            # Write new member data
+            if member_rows:
+                cell_range = f'A2:B{len(member_rows) + 1}'
+                sheet.update(cell_range, member_rows, value_input_option='RAW')
+                logger.info(f"Updated Members sheet with {len(member_rows)} members")
+            
+            logger.info("✓ Faction members synced successfully")
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error syncing members: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error syncing members: {e}")
+            raise
     
     # ==================== Utility Methods ====================
     

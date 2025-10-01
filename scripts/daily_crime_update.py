@@ -547,6 +547,13 @@ class CrimeDataUpdater:
 def main():
     """Main execution function"""
     try:
+        sheets = GoogleSheetsManager()
+        api_key = os.environ.get('TORN_API_KEY')
+        
+        # Sync members first
+        logger.info("Syncing faction members...")
+        sheets.sync_faction_members(api_key)
+
         updater = CrimeDataUpdater()
         stats = updater.update_all_crimes()
         
