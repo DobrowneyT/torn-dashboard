@@ -1,0 +1,174 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2025-01-XX",
+  "description": "Tier assignment configuration for Torn Forge OC system",
+  
+  "tier_definitions": {
+    "1": {
+      "name": "Elite",
+      "ticket_allocation": 40,
+      "description": "Top performers with excellent CPR across all roles",
+      "color": "#FFD700",
+      "requirements": "95%+ average CPR"
+    },
+    "2": {
+      "name": "Advanced",
+      "ticket_allocation": 30,
+      "description": "Strong performers with good CPR",
+      "color": "#C0C0C0",
+      "requirements": "85-94% average CPR"
+    },
+    "3": {
+      "name": "Intermediate",
+      "ticket_allocation": 15,
+      "description": "Average performers, meeting expectations",
+      "color": "#CD7F32",
+      "requirements": "70-84% average CPR"
+    },
+    "4": {
+      "name": "Developing",
+      "ticket_allocation": 7,
+      "description": "Below average, needs improvement",
+      "color": "#87CEEB",
+      "requirements": "50-69% average CPR"
+    },
+    "5": {
+      "name": "Beginner",
+      "ticket_allocation": 3,
+      "description": "New members or very low performance",
+      "color": "#D3D3D3",
+      "requirements": "Below 50% average CPR"
+    }
+  },
+  
+  "evaluation_criteria": {
+    "method": "weighted_average",
+    "comment": "Weighted average of CPR across specified roles and difficulties",
+    
+    "roles_to_evaluate": [
+      {
+        "difficulty": "high",
+        "roles": ["Lookout", "Hacker", "Transporter"],
+        "weight": 1.5,
+        "comment": "High difficulty crimes weighted most"
+      },
+      {
+        "difficulty": "medium",
+        "roles": ["Lookout", "Hacker", "Transporter"],
+        "weight": 1.0,
+        "comment": "Medium difficulty crimes standard weight"
+      },
+      {
+        "difficulty": "easy",
+        "roles": ["Lookout", "Hacker", "Transporter"],
+        "weight": 0.5,
+        "comment": "Easy difficulty crimes weighted less"
+      }
+    ],
+    
+    "minimum_crimes_for_evaluation": 10,
+    "comment_minimum": "Members with fewer crimes get default tier",
+    
+    "default_tier_for_new_members": 3,
+    "comment_default": "New members start at Tier 3 until they have enough data"
+  },
+  
+  "tier_thresholds": {
+    "method": "cpr_average",
+    "comment": "Tiers assigned based on weighted average CPR score",
+    
+    "thresholds": [
+      {
+        "tier": 1,
+        "min_cpr": 95.0,
+        "max_cpr": 100.0,
+        "description": "Elite: 95%+ average CPR"
+      },
+      {
+        "tier": 2,
+        "min_cpr": 85.0,
+        "max_cpr": 94.99,
+        "description": "Advanced: 85-94.9% average CPR"
+      },
+      {
+        "tier": 3,
+        "min_cpr": 70.0,
+        "max_cpr": 84.99,
+        "description": "Intermediate: 70-84.9% average CPR"
+      },
+      {
+        "tier": 4,
+        "min_cpr": 50.0,
+        "max_cpr": 69.99,
+        "description": "Developing: 50-69.9% average CPR"
+      },
+      {
+        "tier": 5,
+        "min_cpr": 0.0,
+        "max_cpr": 49.99,
+        "description": "Beginner: Below 50% average CPR"
+      }
+    ]
+  },
+  
+  "assignment_rules": {
+    "allow_manual_overrides": true,
+    "comment_overrides": "Admins can manually override tier assignments",
+    
+    "preserve_overrides_on_reassignment": true,
+    "comment_preserve": "Manual overrides persist across automatic reassignments",
+    
+    "notify_on_tier_changes": true,
+    "notification_channels": ["google_sheets", "discord"],
+    
+    "grace_period_days": 7,
+    "comment_grace": "Tier downgrades delayed by 7 days to avoid volatility",
+    
+    "reevaluation_frequency": "weekly",
+    "comment_frequency": "Tiers recalculated every week after CPR scrape",
+    
+    "require_admin_approval_for": {
+      "tier_1_promotions": false,
+      "tier_5_demotions": true,
+      "manual_overrides": true
+    }
+  },
+  
+  "display_options": {
+    "show_score_in_sheets": true,
+    "show_previous_tier": true,
+    "show_tier_change_date": true,
+    "show_evaluated_roles": true,
+    "highlight_recent_changes": true,
+    "highlight_duration_days": 7
+  },
+  
+  "special_cases": {
+    "comment": "Handle edge cases and special situations",
+    
+    "inactive_members": {
+      "threshold_days": 30,
+      "action": "maintain_tier",
+      "comment": "Don't change tier if inactive over 30 days"
+    },
+    
+    "leadership_members": {
+      "member_ids": [],
+      "minimum_tier": 2,
+      "comment": "Leadership members can't drop below Tier 2"
+    },
+    
+    "probationary_members": {
+      "days_in_faction": 14,
+      "fixed_tier": 3,
+      "comment": "Members under 14 days get fixed Tier 3"
+    }
+  },
+  
+  "notes": [
+    "This configuration drives automatic tier assignment based on CPR data",
+    "Modify thresholds carefully - changes affect payout distribution",
+    "Test changes with assign_tiers.py before deploying",
+    "Manual overrides can be set in member_tiers.json with 'manual_override': true"
+  ]
+}

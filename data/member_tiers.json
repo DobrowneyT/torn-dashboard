@@ -1,21 +1,18 @@
 {
-  "tiers": {
-    "tier1": {
-      "name": "Tier 1",
-      "multiplier": 1.0
-    },
-    "tier2": {
-      "name": "Tier 2",
-      "multiplier": 1.5
-    },
-    "tier3": {
-      "name": "Tier 3",
-      "multiplier": 2.0
-    }
+  "members": {
+    "tier": 3,
+    "score": 0.0,
+    "previous_tier": 3,
+    "last_updated": "2025-10-01T03:06:22.864882",
+    "manual_override": false,
+    "total_crimes": 0
   },
-  "members": {},
   "metadata": {
-    "last_updated": "2025-09-28T20:49:57.224324",
-    "version": "1.0"
+    "tier": 3,
+    "score": 0.0,
+    "previous_tier": 3,
+    "last_updated": "2025-10-01T03:06:22.864893",
+    "manual_override": false,
+    "total_crimes": 0
   }
 }

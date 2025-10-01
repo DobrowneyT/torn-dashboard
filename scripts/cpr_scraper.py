@@ -444,6 +444,18 @@ def main():
                 sys.exit(1)
         
         logger.info("CPR scraper completed successfully")
+
+        # Automatically assign tiers based on new CPR data
+        logger.info("\nAuto-assigning tiers based on CPR data...")
+        try:
+            from scripts.assign_tiers import TierAssignment
+            tier_system = TierAssignment()
+            assignments = tier_system.generate_tier_assignments()
+            tier_system.save_tier_assignments(assignments)
+            tier_system.update_google_sheets(assignments)
+            logger.info("✓ Tiers assigned successfully")
+        except Exception as e:
+            logger.error(f"Tier assignment failed: {e}")
         
     except Exception as e:
         logger.error(f"Fatal error in CPR scraper: {e}")
