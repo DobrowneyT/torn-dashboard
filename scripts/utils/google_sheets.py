@@ -275,11 +275,11 @@ class GoogleSheetsManager:
         """
         try:
             # Clear existing data
-            self.clear_range(self.SHEET_DASHBOARD, "A21:F100")
+            self.clear_range(self.SHEET_DASHBOARD, "A16:F100")
             
             # Write headers
             headers = [["Crime ID", "Name", "Difficulty", "Status", "Slots", "Created"]]
-            self.write_range(self.SHEET_DASHBOARD, "A21:F21", headers)
+            self.write_range(self.SHEET_DASHBOARD, "A16:F16", headers)
             
             # Prepare crime data
             crime_rows = []
@@ -294,7 +294,7 @@ class GoogleSheetsManager:
                 ])
             
             if crime_rows:
-                self.write_range(self.SHEET_DASHBOARD, "A11:F" + str(10 + len(crime_rows)), crime_rows)
+                self.write_range(self.SHEET_DASHBOARD, "A17:F" + str(10 + len(crime_rows)), crime_rows)
             
             logger.info(f"Updated dashboard with {len(crime_rows)} pending crimes")
             return True
