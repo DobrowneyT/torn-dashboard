@@ -30,6 +30,11 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Pull latest changes
+      run: |
+        git config pull.rebase true
+        git pull origin main
       
     - name: Set up Python 3.11
       uses: actions/setup-python@v5

@@ -192,6 +192,8 @@ class JSONStorageManager:
             
             if result.returncode != 0:  # There are changes
                 subprocess.run(['git', 'commit', '-m', commit_message], check=True)
+                logger.info("Pulling remote changes before push...")
+                subprocess.run(['git', 'pull', '--rebase', 'origin', 'main'], check=True)
                 subprocess.run(['git', 'push'], check=True)
                 logger.info(f"Committed and pushed: {commit_message}")
             else:
