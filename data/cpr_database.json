@@ -34,7 +34,11 @@
         "5": {
           "Engineer": 92,
           "Enforcer": 92,
-          "Hustler": 92
+          "Hustler": 92,
+          "Robber": 92,
+          "Looter": 92,
+          "Hacker": 92,
+          "Picklock": 92
         },
         "7": {
           "Picklock": 86,
@@ -44,7 +48,7 @@
           "Bomber": 86
         }
       },
-      "last_scraped": "2025-10-04T13:54:43.070675"
+      "last_scraped": "2025-10-04T17:14:30.937272"
     },
     "2932241": {
       "name": "2932241",
@@ -80,7 +84,11 @@
         "5": {
           "Engineer": 89,
           "Enforcer": 90,
-          "Hustler": 90
+          "Hustler": 90,
+          "Robber": 90,
+          "Looter": 90,
+          "Hacker": 90,
+          "Picklock": 90
         },
         "7": {
           "Picklock": 78,
@@ -90,7 +98,7 @@
           "Bomber": 77
         }
       },
-      "last_scraped": "2025-10-04T13:54:43.350841"
+      "last_scraped": "2025-10-04T17:14:31.239761"
     },
     "2264192": {
       "name": "2264192",
@@ -126,7 +134,11 @@
         "5": {
           "Engineer": 91,
           "Enforcer": 91,
-          "Hustler": 91
+          "Hustler": 91,
+          "Robber": 91,
+          "Looter": 91,
+          "Hacker": 91,
+          "Picklock": 91
         },
         "7": {
           "Picklock": 82,
@@ -136,7 +148,7 @@
           "Bomber": 82
         }
       },
-      "last_scraped": "2025-10-04T13:54:43.641692"
+      "last_scraped": "2025-10-04T17:14:31.559263"
     },
     "49580": {
       "name": "49580",
@@ -172,7 +184,11 @@
         "5": {
           "Engineer": 89,
           "Enforcer": 90,
-          "Hustler": 90
+          "Hustler": 90,
+          "Robber": 89,
+          "Looter": 89,
+          "Hacker": 89,
+          "Picklock": 89
         },
         "7": {
           "Picklock": 74,
@@ -182,7 +198,7 @@
           "Bomber": 73
         }
       },
-      "last_scraped": "2025-10-04T13:54:43.885753"
+      "last_scraped": "2025-10-04T17:14:31.909115"
     },
     "462912": {
       "name": "462912",
@@ -218,7 +234,11 @@
         "5": {
           "Engineer": 91,
           "Enforcer": 91,
-          "Hustler": 91
+          "Hustler": 91,
+          "Robber": 91,
+          "Looter": 91,
+          "Hacker": 91,
+          "Picklock": 91
         },
         "7": {
           "Picklock": 81,
@@ -228,7 +248,7 @@
           "Bomber": 81
         }
       },
-      "last_scraped": "2025-10-04T13:54:44.163277"
+      "last_scraped": "2025-10-04T17:14:32.517427"
     },
     "3711308": {
       "name": "3711308",
@@ -244,7 +264,7 @@
           "Imitator": 81,
           "Looter": 84,
           "Car Thief": 79,
-          "Hustler": 80
+          "Hustler": 81
         },
         "8": {
           "Muscle": 27,
@@ -264,7 +284,11 @@
         "5": {
           "Engineer": 60,
           "Enforcer": 56,
-          "Hustler": 55
+          "Hustler": 55,
+          "Robber": 51,
+          "Looter": 57,
+          "Hacker": 47,
+          "Picklock": 49
         },
         "7": {
           "Picklock": 24,
@@ -274,7 +298,7 @@
           "Bomber": 25
         }
       },
-      "last_scraped": "2025-10-04T13:54:44.409538"
+      "last_scraped": "2025-10-04T17:14:33.018499"
     },
     "2882851": {
       "name": "2882851",
@@ -310,7 +334,11 @@
         "5": {
           "Engineer": 89,
           "Enforcer": 90,
-          "Hustler": 90
+          "Hustler": 90,
+          "Robber": 90,
+          "Looter": 90,
+          "Hacker": 89,
+          "Picklock": 90
         },
         "7": {
           "Picklock": 77,
@@ -320,7 +348,7 @@
           "Bomber": 76
         }
       },
-      "last_scraped": "2025-10-04T13:54:44.763906"
+      "last_scraped": "2025-10-04T17:14:33.481162"
     },
     "2407528": {
       "name": "2407528",
@@ -356,7 +384,11 @@
         "5": {
           "Engineer": 91,
           "Enforcer": 92,
-          "Hustler": 92
+          "Hustler": 92,
+          "Robber": 92,
+          "Looter": 91,
+          "Hacker": 91,
+          "Picklock": 92
         },
         "7": {
           "Picklock": 84,
@@ -366,7 +398,7 @@
           "Bomber": 83
         }
       },
-      "last_scraped": "2025-10-04T13:54:45.085487"
+      "last_scraped": "2025-10-04T17:14:33.917680"
     },
     "2983319": {
       "name": "2983319",
@@ -402,7 +434,11 @@
         "5": {
           "Engineer": 73,
           "Enforcer": 68,
-          "Hustler": 66
+          "Hustler": 66,
+          "Robber": 67,
+          "Looter": 72,
+          "Hacker": 63,
+          "Picklock": 67
         },
         "7": {
           "Picklock": 38,
@@ -412,7 +448,7 @@
           "Bomber": 34
         }
       },
-      "last_scraped": "2025-10-04T13:54:45.322742"
+      "last_scraped": "2025-10-04T17:14:34.261877"
     },
     "3680626": {
       "name": "3680626",
@@ -448,7 +484,11 @@
         "5": {
           "Engineer": 65,
           "Enforcer": 61,
-          "Hustler": 59
+          "Hustler": 59,
+          "Robber": 62,
+          "Looter": 67,
+          "Hacker": 56,
+          "Picklock": 60
         },
         "7": {
           "Picklock": 33,
@@ -458,7 +498,7 @@
           "Bomber": 30
         }
       },
-      "last_scraped": "2025-10-04T13:54:45.571203"
+      "last_scraped": "2025-10-04T17:14:34.732720"
     },
     "2146235": {
       "name": "2146235",
@@ -494,7 +534,11 @@
         "5": {
           "Engineer": 83,
           "Enforcer": 80,
-          "Hustler": 78
+          "Hustler": 78,
+          "Robber": 78,
+          "Looter": 82,
+          "Hacker": 76,
+          "Picklock": 76
         },
         "7": {
           "Picklock": 43,
@@ -504,7 +548,7 @@
           "Bomber": 46
         }
       },
-      "last_scraped": "2025-10-04T13:54:45.892579"
+      "last_scraped": "2025-10-04T17:14:35.138736"
     },
     "2328830": {
       "name": "2328830",
@@ -540,7 +584,11 @@
         "5": {
           "Engineer": 87,
           "Enforcer": 85,
-          "Hustler": 84
+          "Hustler": 84,
+          "Robber": 88,
+          "Looter": 86,
+          "Hacker": 87,
+          "Picklock": 88
         },
         "7": {
           "Picklock": 70,
@@ -550,7 +598,7 @@
           "Bomber": 64
         }
       },
-      "last_scraped": "2025-10-04T13:54:46.202397"
+      "last_scraped": "2025-10-04T17:14:35.574131"
     },
     "3383262": {
       "name": "3383262",
@@ -586,7 +634,11 @@
         "5": {
           "Engineer": 86,
           "Enforcer": 87,
-          "Hustler": 87
+          "Hustler": 87,
+          "Robber": 87,
+          "Looter": 87,
+          "Hacker": 83,
+          "Picklock": 87
         },
         "7": {
           "Picklock": 67,
@@ -596,7 +648,7 @@
           "Bomber": 66
         }
       },
-      "last_scraped": "2025-10-04T13:54:46.510286"
+      "last_scraped": "2025-10-04T17:14:35.922450"
     },
     "3292192": {
       "name": "3292192",
@@ -632,7 +684,11 @@
         "5": {
           "Engineer": 85,
           "Enforcer": 87,
-          "Hustler": 87
+          "Hustler": 87,
+          "Robber": 87,
+          "Looter": 87,
+          "Hacker": 86,
+          "Picklock": 87
         },
         "7": {
           "Picklock": 66,
@@ -642,7 +698,7 @@
           "Bomber": 65
         }
       },
-      "last_scraped": "2025-10-04T13:54:46.749267"
+      "last_scraped": "2025-10-04T17:14:36.205733"
     },
     "1586328": {
       "name": "1586328",
@@ -678,7 +734,11 @@
         "5": {
           "Engineer": 91,
           "Enforcer": 92,
-          "Hustler": 92
+          "Hustler": 92,
+          "Robber": 91,
+          "Looter": 91,
+          "Hacker": 91,
+          "Picklock": 91
         },
         "7": {
           "Picklock": 83,
@@ -688,7 +748,7 @@
           "Bomber": 82
         }
       },
-      "last_scraped": "2025-10-04T13:54:46.993453"
+      "last_scraped": "2025-10-04T17:14:36.570276"
     },
     "428286": {
       "name": "428286",
@@ -724,7 +784,11 @@
         "5": {
           "Engineer": 92,
           "Enforcer": 93,
-          "Hustler": 93
+          "Hustler": 93,
+          "Robber": 92,
+          "Looter": 92,
+          "Hacker": 92,
+          "Picklock": 92
         },
         "7": {
           "Picklock": 86,
@@ -734,7 +798,7 @@
           "Bomber": 86
         }
       },
-      "last_scraped": "2025-10-04T13:54:47.244901"
+      "last_scraped": "2025-10-04T17:14:36.872926"
     },
     "3130493": {
       "name": "3130493",
@@ -770,7 +834,11 @@
         "5": {
           "Engineer": 87,
           "Enforcer": 88,
-          "Hustler": 88
+          "Hustler": 88,
+          "Robber": 87,
+          "Looter": 87,
+          "Hacker": 87,
+          "Picklock": 88
         },
         "7": {
           "Picklock": 69,
@@ -780,7 +848,7 @@
           "Bomber": 65
         }
       },
-      "last_scraped": "2025-10-04T13:54:47.573917"
+      "last_scraped": "2025-10-04T17:14:37.161923"
     },
     "2507533": {
       "name": "2507533",
@@ -816,7 +884,11 @@
         "5": {
           "Engineer": 84,
           "Enforcer": 84,
-          "Hustler": 84
+          "Hustler": 84,
+          "Robber": 81,
+          "Looter": 84,
+          "Hacker": 85,
+          "Picklock": 79
         },
         "7": {
           "Picklock": 47,
@@ -826,7 +898,7 @@
           "Bomber": 47
         }
       },
-      "last_scraped": "2025-10-04T13:54:47.833526"
+      "last_scraped": "2025-10-04T17:14:37.480151"
     },
     "2478585": {
       "name": "2478585",
@@ -862,7 +934,11 @@
         "5": {
           "Engineer": 83,
           "Enforcer": 86,
-          "Hustler": 85
+          "Hustler": 85,
+          "Robber": 86,
+          "Looter": 80,
+          "Hacker": 79,
+          "Picklock": 86
         },
         "7": {
           "Picklock": 65,
@@ -872,7 +948,7 @@
           "Bomber": 53
         }
       },
-      "last_scraped": "2025-10-04T13:54:48.074292"
+      "last_scraped": "2025-10-04T17:14:37.866615"
     },
     "3355589": {
       "name": "3355589",
@@ -908,7 +984,11 @@
         "5": {
           "Engineer": 74,
           "Enforcer": 69,
-          "Hustler": 67
+          "Hustler": 67,
+          "Robber": 74,
+          "Looter": 74,
+          "Hacker": 63,
+          "Picklock": 75
         },
         "7": {
           "Picklock": 53,
@@ -918,7 +998,7 @@
           "Bomber": 38
         }
       },
-      "last_scraped": "2025-10-04T13:54:48.348667"
+      "last_scraped": "2025-10-04T17:14:38.162857"
     },
     "2642228": {
       "name": "2642228",
@@ -954,7 +1034,11 @@
         "5": {
           "Engineer": 90,
           "Enforcer": 91,
-          "Hustler": 91
+          "Hustler": 91,
+          "Robber": 91,
+          "Looter": 91,
+          "Hacker": 90,
+          "Picklock": 91
         },
         "7": {
           "Picklock": 81,
@@ -964,7 +1048,7 @@
           "Bomber": 81
         }
       },
-      "last_scraped": "2025-10-04T13:54:48.588693"
+      "last_scraped": "2025-10-04T17:14:38.574841"
     },
     "299480": {
       "name": "299480",
@@ -1000,7 +1084,11 @@
         "5": {
           "Engineer": 89,
           "Enforcer": 90,
-          "Hustler": 90
+          "Hustler": 90,
+          "Robber": 89,
+          "Looter": 88,
+          "Hacker": 90,
+          "Picklock": 90
         },
         "7": {
           "Picklock": 75,
@@ -1010,7 +1098,7 @@
           "Bomber": 75
         }
       },
-      "last_scraped": "2025-10-04T13:54:48.852396"
+      "last_scraped": "2025-10-04T17:14:38.926157"
     },
     "3623195": {
       "name": "3623195",
@@ -1046,7 +1134,11 @@
         "5": {
           "Engineer": 68,
           "Enforcer": 64,
-          "Hustler": 62
+          "Hustler": 62,
+          "Robber": 62,
+          "Looter": 69,
+          "Hacker": 59,
+          "Picklock": 60
         },
         "7": {
           "Picklock": 29,
@@ -1056,7 +1148,7 @@
           "Bomber": 31
         }
       },
-      "last_scraped": "2025-10-04T13:54:49.093978"
+      "last_scraped": "2025-10-04T17:14:39.227853"
     },
     "2388372": {
       "name": "2388372",
@@ -1092,7 +1184,11 @@
         "5": {
           "Engineer": 87,
           "Enforcer": 87,
-          "Hustler": 87
+          "Hustler": 87,
+          "Robber": 88,
+          "Looter": 88,
+          "Hacker": 88,
+          "Picklock": 88
         },
         "7": {
           "Picklock": 69,
@@ -1102,7 +1198,7 @@
           "Bomber": 66
         }
       },
-      "last_scraped": "2025-10-04T13:54:49.327619"
+      "last_scraped": "2025-10-04T17:14:39.560915"
     },
     "711289": {
       "name": "711289",
@@ -1138,7 +1234,11 @@
         "5": {
           "Engineer": 92,
           "Enforcer": 92,
-          "Hustler": 92
+          "Hustler": 92,
+          "Robber": 92,
+          "Looter": 92,
+          "Hacker": 92,
+          "Picklock": 92
         },
         "7": {
           "Picklock": 84,
@@ -1148,7 +1248,7 @@
           "Bomber": 84
         }
       },
-      "last_scraped": "2025-10-04T13:54:49.559079"
+      "last_scraped": "2025-10-04T17:14:39.855072"
     },
     "1654809": {
       "name": "1654809",
@@ -1184,7 +1284,11 @@
         "5": {
           "Engineer": 83,
           "Enforcer": 80,
-          "Hustler": 79
+          "Hustler": 79,
+          "Robber": 78,
+          "Looter": 81,
+          "Hacker": 76,
+          "Picklock": 76
         },
         "7": {
           "Picklock": 43,
@@ -1194,7 +1298,7 @@
           "Bomber": 45
         }
       },
-      "last_scraped": "2025-10-04T13:54:49.789043"
+      "last_scraped": "2025-10-04T17:14:40.158426"
     },
     "2214797": {
       "name": "2214797",
@@ -1230,7 +1334,11 @@
         "5": {
           "Engineer": 89,
           "Enforcer": 90,
-          "Hustler": 90
+          "Hustler": 90,
+          "Robber": 89,
+          "Looter": 89,
+          "Hacker": 90,
+          "Picklock": 90
         },
         "7": {
           "Picklock": 76,
@@ -1240,7 +1348,7 @@
           "Bomber": 75
         }
       },
-      "last_scraped": "2025-10-04T13:54:50.029268"
+      "last_scraped": "2025-10-04T17:14:40.507797"
     },
     "2168406": {
       "name": "2168406",
@@ -1276,7 +1384,11 @@
         "5": {
           "Engineer": 91,
           "Enforcer": 91,
-          "Hustler": 91
+          "Hustler": 91,
+          "Robber": 91,
+          "Looter": 91,
+          "Hacker": 91,
+          "Picklock": 91
         },
         "7": {
           "Picklock": 82,
@@ -1286,7 +1398,7 @@
           "Bomber": 82
         }
       },
-      "last_scraped": "2025-10-04T13:54:50.260808"
+      "last_scraped": "2025-10-04T17:14:40.797612"
     },
     "3538517": {
       "name": "3538517",
@@ -1322,7 +1434,11 @@
         "5": {
           "Engineer": 73,
           "Enforcer": 72,
-          "Hustler": 72
+          "Hustler": 72,
+          "Robber": 69,
+          "Looter": 73,
+          "Hacker": 64,
+          "Picklock": 68
         },
         "7": {
           "Picklock": 39,
@@ -1332,7 +1448,7 @@
           "Bomber": 35
         }
       },
-      "last_scraped": "2025-10-04T13:54:50.508905"
+      "last_scraped": "2025-10-04T17:14:41.083102"
     },
     "3349449": {
       "name": "3349449",
@@ -1368,7 +1484,11 @@
         "5": {
           "Engineer": 83,
           "Enforcer": 81,
-          "Hustler": 80
+          "Hustler": 80,
+          "Robber": 84,
+          "Looter": 83,
+          "Hacker": 84,
+          "Picklock": 85
         },
         "7": {
           "Picklock": 60,
@@ -1378,7 +1498,7 @@
           "Bomber": 53
         }
       },
-      "last_scraped": "2025-10-04T13:54:50.739765"
+      "last_scraped": "2025-10-04T17:14:41.410888"
     },
     "3447837": {
       "name": "3447837",
@@ -1414,7 +1534,11 @@
         "5": {
           "Engineer": 67,
           "Enforcer": 62,
-          "Hustler": 60
+          "Hustler": 60,
+          "Robber": 62,
+          "Looter": 68,
+          "Hacker": 57,
+          "Picklock": 61
         },
         "7": {
           "Picklock": 35,
@@ -1424,7 +1548,7 @@
           "Bomber": 31
         }
       },
-      "last_scraped": "2025-10-04T13:54:50.983913"
+      "last_scraped": "2025-10-04T17:14:41.702818"
     },
     "2282199": {
       "name": "2282199",
@@ -1460,7 +1584,11 @@
         "5": {
           "Engineer": 92,
           "Enforcer": 92,
-          "Hustler": 92
+          "Hustler": 92,
+          "Robber": 91,
+          "Looter": 91,
+          "Hacker": 92,
+          "Picklock": 91
         },
         "7": {
           "Picklock": 83,
@@ -1470,7 +1598,7 @@
           "Bomber": 83
         }
       },
-      "last_scraped": "2025-10-04T13:54:51.232259"
+      "last_scraped": "2025-10-04T17:14:41.988465"
     },
     "3283862": {
       "name": "3283862",
@@ -1552,7 +1680,11 @@
         "5": {
           "Engineer": 90,
           "Enforcer": 90,
-          "Hustler": 91
+          "Hustler": 91,
+          "Robber": 90,
+          "Looter": 90,
+          "Hacker": 90,
+          "Picklock": 90
         },
         "7": {
           "Picklock": 78,
@@ -1562,7 +1694,7 @@
           "Bomber": 77
         }
       },
-      "last_scraped": "2025-10-04T13:54:51.660485"
+      "last_scraped": "2025-10-04T17:14:42.494359"
     },
     "2672536": {
       "name": "2672536",
@@ -1597,7 +1729,11 @@
         "5": {
           "Engineer": 90,
           "Enforcer": 90,
-          "Hustler": 90
+          "Hustler": 90,
+          "Robber": 90,
+          "Looter": 90,
+          "Hacker": 90,
+          "Picklock": 90
         },
         "7": {
           "Picklock": 78,
@@ -1607,7 +1743,7 @@
           "Bomber": 76
         }
       },
-      "last_scraped": "2025-10-04T13:54:52.198042"
+      "last_scraped": "2025-10-04T17:14:42.819340"
     },
     "3249124": {
       "name": "3249124",
@@ -1643,17 +1779,21 @@
         "5": {
           "Engineer": 86,
           "Enforcer": 88,
-          "Hustler": 88
+          "Hustler": 88,
+          "Robber": 87,
+          "Looter": 87,
+          "Hacker": 87,
+          "Picklock": 88
         },
         "7": {
-          "Picklock": 68,
+          "Picklock": 69,
           "Muscle": 65,
           "Engineer": 64,
-          "Hacker": 67,
-          "Bomber": 67
+          "Hacker": 68,
+          "Bomber": 68
         }
       },
-      "last_scraped": "2025-10-04T13:54:52.683227"
+      "last_scraped": "2025-10-04T17:14:43.404223"
     },
     "430470": {
       "name": "430470",
@@ -1689,7 +1829,11 @@
         "5": {
           "Engineer": 91,
           "Enforcer": 89,
-          "Hustler": 88
+          "Hustler": 88,
+          "Robber": 91,
+          "Looter": 88,
+          "Hacker": 91,
+          "Picklock": 91
         },
         "7": {
           "Picklock": 81,
@@ -1699,7 +1843,7 @@
           "Bomber": 76
         }
       },
-      "last_scraped": "2025-10-04T13:54:53.007893"
+      "last_scraped": "2025-10-04T17:14:43.714691"
     },
     "3254805": {
       "name": "3254805",
@@ -1735,7 +1879,11 @@
         "5": {
           "Engineer": 82,
           "Enforcer": 83,
-          "Hustler": 84
+          "Hustler": 84,
+          "Robber": 82,
+          "Looter": 82,
+          "Hacker": 76,
+          "Picklock": 82
         },
         "7": {
           "Picklock": 58,
@@ -1745,7 +1893,7 @@
           "Bomber": 45
         }
       },
-      "last_scraped": "2025-10-04T13:54:53.240569"
+      "last_scraped": "2025-10-04T17:14:44.078638"
     },
     "2808985": {
       "name": "2808985",
@@ -1781,17 +1929,21 @@
         "5": {
           "Engineer": 90,
           "Enforcer": 88,
-          "Hustler": 86
+          "Hustler": 86,
+          "Robber": 90,
+          "Looter": 90,
+          "Hacker": 90,
+          "Picklock": 90
         },
         "7": {
           "Picklock": 78,
           "Muscle": 77,
-          "Engineer": 75,
+          "Engineer": 76,
           "Hacker": 77,
           "Bomber": 71
         }
       },
-      "last_scraped": "2025-10-04T13:54:53.512152"
+      "last_scraped": "2025-10-04T17:14:44.370311"
     },
     "2822740": {
       "name": "2822740",
@@ -1827,7 +1979,11 @@
         "5": {
           "Engineer": 88,
           "Enforcer": 89,
-          "Hustler": 89
+          "Hustler": 89,
+          "Robber": 89,
+          "Looter": 89,
+          "Hacker": 84,
+          "Picklock": 89
         },
         "7": {
           "Picklock": 74,
@@ -1837,7 +1993,7 @@
           "Bomber": 73
         }
       },
-      "last_scraped": "2025-10-04T13:54:53.754270"
+      "last_scraped": "2025-10-04T17:14:44.679927"
     },
     "3225628": {
       "name": "3225628",
@@ -1873,7 +2029,11 @@
         "5": {
           "Engineer": 84,
           "Enforcer": 85,
-          "Hustler": 85
+          "Hustler": 85,
+          "Robber": 85,
+          "Looter": 85,
+          "Hacker": 82,
+          "Picklock": 85
         },
         "7": {
           "Picklock": 63,
@@ -1883,7 +2043,7 @@
           "Bomber": 56
         }
       },
-      "last_scraped": "2025-10-04T13:54:53.990583"
+      "last_scraped": "2025-10-04T17:14:44.967324"
     },
     "873341": {
       "member_id": "873341",
@@ -1925,10 +2085,14 @@
         "5": {
           "Engineer": 91,
           "Enforcer": 91,
-          "Hustler": 92
+          "Hustler": 92,
+          "Robber": 91,
+          "Looter": 91,
+          "Hacker": 91,
+          "Picklock": 91
         }
       },
-      "last_scraped": "2025-10-04T13:54:52.430038"
+      "last_scraped": "2025-10-04T17:14:43.120381"
     },
     "3208959": {
       "member_id": "3208959",
@@ -1942,7 +2106,11 @@
         "5": {
           "Engineer": 85,
           "Enforcer": 86,
-          "Hustler": 87
+          "Hustler": 87,
+          "Robber": 86,
+          "Looter": 86,
+          "Hacker": 86,
+          "Picklock": 86
         },
         "6": {
           "Enforcer": 72,
@@ -1972,7 +2140,7 @@
           "Hustler": 92
         }
       },
-      "last_scraped": "2025-10-04T13:54:54.222422"
+      "last_scraped": "2025-10-04T17:14:45.279808"
     },
     "3058543": {
       "member_id": "3058543",
@@ -1986,7 +2154,11 @@
         "5": {
           "Engineer": 89,
           "Enforcer": 90,
-          "Hustler": 90
+          "Hustler": 90,
+          "Robber": 90,
+          "Looter": 90,
+          "Hacker": 89,
+          "Picklock": 90
         },
         "6": {
           "Enforcer": 83,
@@ -2016,13 +2188,13 @@
           "Hustler": 94
         }
       },
-      "last_scraped": "2025-10-04T13:54:54.498673"
+      "last_scraped": "2025-10-04T17:14:45.594748"
     },
     "2253786": {
       "member_id": "2253786",
       "cpr_by_role": {
         "4": {
-          "Enforcer": 93,
+          "Enforcer": 94,
           "Muscle": 94,
           "Lookout": 93,
           "Sniper": 94
@@ -2030,7 +2202,11 @@
         "5": {
           "Engineer": 91,
           "Enforcer": 91,
-          "Hustler": 91
+          "Hustler": 91,
+          "Robber": 91,
+          "Looter": 91,
+          "Hacker": 90,
+          "Picklock": 91
         },
         "6": {
           "Enforcer": 86,
@@ -2060,7 +2236,7 @@
           "Hustler": 95
         }
       },
-      "last_scraped": "2025-10-04T13:54:54.739594"
+      "last_scraped": "2025-10-04T17:14:45.877441"
     },
     "2763324": {
       "member_id": "2763324",
@@ -2074,7 +2250,11 @@
         "5": {
           "Engineer": 85,
           "Enforcer": 87,
-          "Hustler": 87
+          "Hustler": 87,
+          "Robber": 86,
+          "Looter": 86,
+          "Hacker": 86,
+          "Picklock": 87
         },
         "6": {
           "Enforcer": 74,
@@ -2104,7 +2284,7 @@
           "Hustler": 92
         }
       },
-      "last_scraped": "2025-10-04T13:54:54.980111"
+      "last_scraped": "2025-10-04T17:14:46.163015"
     },
     "2672505": {
       "member_id": "2672505",
@@ -2126,7 +2306,11 @@
         "5": {
           "Enforcer": 90,
           "Hustler": 90,
-          "Engineer": 90
+          "Engineer": 90,
+          "Robber": 90,
+          "Looter": 90,
+          "Hacker": 90,
+          "Picklock": 90
         },
         "7": {
           "Picklock": 78,
@@ -2144,11 +2328,11 @@
           "Robber": 85
         }
       },
-      "last_scraped": "2025-10-04T13:54:55.601649"
+      "last_scraped": "2025-10-04T17:14:46.453041"
     }
   },
   "metadata": {
-    "last_updated": "2025-10-04T13:54:55.601774",
+    "last_updated": "2025-10-04T17:14:46.453106",
     "total_members": 47,
     "version": "1.0"
   }
