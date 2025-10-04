@@ -1,0 +1,204 @@
+name: Weekly Payout Master
+
+on:
+  repository_dispatch:
+    types: [trigger-weekly-payout]
+  workflow_dispatch:
+    inputs:
+      from_timestamp:
+        description: 'Start timestamp (Unix epoch time)'
+        required: true
+        type: string
+      to_timestamp:
+        description: 'End timestamp (Unix epoch time)'
+        required: true
+        type: string
+
+jobs:
+  update-crime-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create Google credentials
+      run: |
+        echo '${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}' > google_credentials.json
+        
+    - name: Update crime database
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+      run: |
+        echo "Updating crime database with latest data..."
+        python scripts/daily_crime_update.py
+        
+    - name: Upload crime update logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: crime-update-logs-${{ github.run_number }}
+        path: logs/*.log
+        retention-days: 30
+
+  update-cpr-and-tiers:
+    needs: update-crime-data
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+      
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create Google credentials
+      run: |
+        echo '${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}' > google_credentials.json
+        
+    - name: Run CPR scraper and tier assignment
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
+      run: |
+        echo "Running CPR scraper..."
+        python scripts/cpr_scraper.py
+        
+    - name: Upload CPR scraper logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cpr-scraper-logs-${{ github.run_number }}
+        path: logs/*.log
+        retention-days: 30
+
+  calculate-payouts:
+    needs: update-cpr-and-tiers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create Google credentials
+      run: |
+        echo '${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}' > google_credentials.json
+        
+    - name: Extract timestamps
+      id: get_timestamps
+      run: |
+        if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+          echo "from_ts=${{ github.event.client_payload.from_timestamp }}" >> $GITHUB_OUTPUT
+          echo "to_ts=${{ github.event.client_payload.to_timestamp }}" >> $GITHUB_OUTPUT
+          echo "trigger_source=google_sheets" >> $GITHUB_OUTPUT
+        else
+          echo "from_ts=${{ github.event.inputs.from_timestamp }}" >> $GITHUB_OUTPUT
+          echo "to_ts=${{ github.event.inputs.to_timestamp }}" >> $GITHUB_OUTPUT
+          echo "trigger_source=manual" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Validate timestamps
+      run: |
+        FROM_TS="${{ steps.get_timestamps.outputs.from_ts }}"
+        TO_TS="${{ steps.get_timestamps.outputs.to_ts }}"
+        
+        if [ -z "$FROM_TS" ] || [ -z "$TO_TS" ]; then
+          echo "Error: Missing timestamps"
+          exit 1
+        fi
+        
+        if [ "$FROM_TS" -ge "$TO_TS" ]; then
+          echo "Error: FROM timestamp must be before TO timestamp"
+          exit 1
+        fi
+        
+        DURATION_DAYS=$(( (TO_TS - FROM_TS) / 86400 ))
+        echo "Validated timestamps"
+        echo "FROM: $FROM_TS"
+        echo "TO: $TO_TS"
+        echo "Duration: $DURATION_DAYS days"
+        
+    - name: Run payout analysis
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        FROM_TIMESTAMP: ${{ steps.get_timestamps.outputs.from_ts }}
+        TO_TIMESTAMP: ${{ steps.get_timestamps.outputs.to_ts }}
+      run: |
+        echo "Starting payout analysis..."
+        echo "Window: $FROM_TIMESTAMP to $TO_TIMESTAMP"
+        python scripts/run_payout_analysis.py
+        
+    - name: Upload payout analysis logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: payout-analysis-logs-${{ github.run_number }}
+        path: logs/*.log
+        retention-days: 30
+        
+    - name: Report master workflow success
+      if: success()
+      run: |
+        echo "======================================"
+        echo "Weekly Payout Master - SUCCESS"
+        echo "======================================"
+        echo "✅ Crime database updated"
+        echo "✅ CPR data scraped"
+        echo "✅ Tiers assigned"
+        echo "✅ Payouts calculated"
+        echo ""
+        echo "Triggered by: ${{ steps.get_timestamps.outputs.trigger_source }}"
+        echo "Check Google Sheets for complete payout data"
+        echo "======================================"
+        
+    - name: Report master workflow failure
+      if: failure()
+      run: |
+        echo "======================================"
+        echo "Weekly Payout Master - FAILED"
+        echo "======================================"
+        echo "❌ One or more steps failed"
+        echo "Check individual job logs for details"
+        echo "======================================"
+        exit 1
