@@ -19,7 +19,7 @@ class GistUpdater:
     def __init__(self):
         """Initialize Gist updater"""
         self.github_token = os.environ.get('GIST_TOKEN')
-        self.gist_id = os.environ.get('GIST_ID')  # Optional - will create new if not provided
+        self.gist_id = os.environ.get('GIST_ID')  
         self.api_base = "https://api.github.com"
         
         if not self.github_token:

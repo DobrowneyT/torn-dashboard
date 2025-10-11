@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils.json_storage import JSONStorageManager
 from scripts.utils.google_sheets import GoogleSheetsManager
 from scripts.utils.torn_api import TornAPI, TornAPIError
+from scripts.utils.gist_updater import update_gist
 
 # Set up logging
 logging.basicConfig(
@@ -479,7 +480,7 @@ def main():
         # Update GitHub Gist with CPR database
         logger.info("\nUpdating public GitHub Gist...")
         try:
-            from scripts.utils.gist_updater import update_gist
+            
             update_gist()
         except Exception as e:
             logger.error(f"Gist update failed: {e}")
