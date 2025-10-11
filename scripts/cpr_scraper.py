@@ -8,7 +8,6 @@ import sys
 import json
 import logging
 import time
-import random
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
@@ -36,7 +35,6 @@ class CPRScraper:
         self.storage = JSONStorageManager(data_dir='data', auto_commit=True)
         self.sheets = GoogleSheetsManager()
         self.member_api_keys = self._load_api_keys()
-        self.faction_id = "10739"  # Your faction ID
         
         logger.info("CPR Scraper initialized")
         logger.info(f"Found API keys for {len(self.member_api_keys)} members")
@@ -65,47 +63,7 @@ class CPRScraper:
             logger.error(f"Failed to parse MEMBER_API_KEYS: {e}")
             return {}
     
-    def _fetch_faction_members(self) -> Optional[Dict[str, str]]:
-        """
-        Fetch all faction members and create id->name mapping.
-        Uses random API keys with retry logic until success.
-        
-        Returns:
-            Dictionary mapping member_id -> member_name, or None if all keys fail
-        """
-        logger.info("Fetching faction member list...")
-        
-        # Get list of available API keys
-        available_keys = list(self.member_api_keys.items())
-        random.shuffle(available_keys)  # Randomize order
-        
-        for member_id, api_key in available_keys:
-            try:
-                api = TornAPI(api_key)
-                result = api.make_request(
-                    endpoint=f"faction/{self.faction_id}/members",
-                    selections="",
-                    comment="TNL Forge Member Name Fetch"
-                )
-                
-                # Create member_id -> name mapping
-                member_names = {}
-                for member in result.get('members', []):
-                    member_names[str(member['id'])] = member['name']
-                
-                logger.info(f"✓ Successfully fetched {len(member_names)} faction members using key from member {member_id}")
-                return member_names
-                
-            except TornAPIError as e:
-                logger.warning(f"API key from member {member_id} failed: {e}")
-                continue
-            except Exception as e:
-                logger.error(f"Unexpected error with member {member_id}: {e}")
-                continue
-        
-        logger.error("All API keys failed to fetch faction members")
-        return None
-    
+
     def _load_cpr_database(self) -> Dict:
         """Load the CPR database from storage"""
         cpr_data = self.storage.read_json('cpr_database.json')
@@ -302,9 +260,12 @@ class CPRScraper:
         logger.info(f"Member {member_name} ({member_id}): Scrape complete - {updates} updates made")
         return True, updates, None
 
-    def scrape_all_members(self) -> Dict[str, any]:
+    def scrape_all_members(self, member_names: Dict[str, str] = None) -> Dict[str, any]:
         """
         Scrape CPR data for all members with API keys
+        
+        Args:
+            member_names: Optional dictionary mapping member_id -> member_name
         
         Returns:
             Summary statistics
@@ -318,10 +279,9 @@ class CPRScraper:
         
         logger.info(f"Starting CPR scrape for {len(self.member_api_keys)} members")
         
-        # First, fetch faction member names
-        member_names = self._fetch_faction_members()
-        if not member_names:
-            logger.error("Failed to fetch faction member list - proceeding without names")
+        # Use provided member names or default to empty dict
+        if member_names is None:
+            logger.warning("No member names provided - using member IDs only")
             member_names = {}
         
         # Load CPR database
@@ -436,14 +396,15 @@ def main():
     logger.info("Starting CPR Scraper")
     logger.info("="*60)
 
-    # Sync members first
+    # Sync members first and get member names
     sheets = GoogleSheetsManager()
     api_key = os.environ.get('TORN_API_KEY')
     if not api_key:
         raise ValueError("TORN_API_KEY environment variable not set")
     
     logger.info("Syncing faction members...")
-    sheets.sync_faction_members(api_key)
+    member_names = sheets.sync_faction_members(api_key)
+    logger.info(f"Received {len(member_names)} member names from sync")
     
     try:
         # Initialize scraper
@@ -460,11 +421,7 @@ def main():
                 logger.info(f"Available member IDs: {list(scraper.member_api_keys.keys())}")
                 sys.exit(1)
             
-            # Get member names
-            member_names = scraper._fetch_faction_members()
-            if not member_names:
-                member_names = {}
-            
+            # Get member name from synced data
             member_name = member_names.get(member_filter, f"Member_{member_filter}")
             
             cpr_data = scraper._load_cpr_database()
@@ -492,8 +449,8 @@ def main():
                 logger.error(f"Failed to scrape member {member_filter}")
                 sys.exit(1)
         else:
-            # Scrape all members
-            stats = scraper.scrape_all_members()
+            # Scrape all members - pass member_names from sync
+            stats = scraper.scrape_all_members(member_names)
             
             if not stats.get('success'):
                 logger.error("Scrape failed")

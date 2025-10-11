@@ -1124,13 +1124,16 @@ class GoogleSheetsManager:
         
     # ==================== Member Sync Operations ====================
 
-    def sync_faction_members(self, api_key: str) -> None:
+    def sync_faction_members(self, api_key: str) -> Dict[str, str]:
         """
         Sync faction members to Members sheet
         Fetches current faction members and updates IDs and names
         
         Args:
             api_key: Torn API key for faction members endpoint
+        
+        Returns:
+            Dictionary mapping member_id -> member_name
         """
         logger = logging.getLogger(__name__)
         logger.info("Syncing faction members...")
@@ -1155,10 +1158,12 @@ class GoogleSheetsManager:
             
             if not members_list:
                 logger.warning("No members returned from API")
-                return
+                return {}
             
-            # Convert list to rows: [id, name]
+            # Convert list to rows: [id, name] and create id->name mapping
             member_rows = []
+            member_names = {}
+            
             for member in members_list:
                 member_id = member.get('id')
                 member_name = member.get('name', 'Unknown')
@@ -1168,6 +1173,8 @@ class GoogleSheetsManager:
                         int(member_id),
                         member_name
                     ])
+                    # Store in dictionary for return value
+                    member_names[str(member_id)] = member_name
             
             # Sort by ID for consistency
             member_rows.sort(key=lambda x: x[0])
@@ -1184,6 +1191,9 @@ class GoogleSheetsManager:
                 logger.info(f"Updated Members sheet with {len(member_rows)} members")
             
             logger.info("✓ Faction members synced successfully")
+            
+            # Return the member_id -> name mapping
+            return member_names
             
         except Exception as e:
             logger.error(f"Error syncing members: {e}")
