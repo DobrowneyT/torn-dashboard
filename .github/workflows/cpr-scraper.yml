@@ -89,6 +89,8 @@ jobs:
         MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
         MEMBER_FILTER: ${{ github.event.inputs.member_filter }}
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}   
+        GIST_TOKEN: ${{ secrets.GIST_TOKEN }}     
+        GIST_ID: ${{ secrets.GIST_ID }}
       run: |
         python scripts/cpr_scraper.py
         
