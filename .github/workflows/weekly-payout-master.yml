@@ -103,6 +103,8 @@ jobs:
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
         MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
+        GIST_TOKEN: ${{ secrets.GIST_TOKEN }}     
+        GIST_ID: ${{ secrets.GIST_ID }}
       run: |
         echo "Running CPR scraper..."
         python scripts/cpr_scraper.py
