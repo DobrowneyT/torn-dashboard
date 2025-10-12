@@ -3,6 +3,7 @@ google_credentials.json
 *.key
 config.json
 api_keys.json
+.secrets/
 
 # Python
 __pycache__/
