@@ -3173,38 +3173,6 @@
         "4": {}
       },
       "last_scraped": "2025-10-12T13:17:06.083900"
-    },
-    "3208951": {
-      "name": "Sour-Deez",
-      "cpr_by_role": {
-        "8": {
-          "Cat Burglar": 56,
-          "Assassin": 48,
-          "Cleaner": 56,
-          "Imitator": 55,
-          "Robber": 51,
-          "Muscle": 47,
-          "Thief": 53
-        },
-        "7": {
-          "Picklock": 66,
-          "Engineer": 61,
-          "Bomber": 62,
-          "Muscle": 61
-        },
-        "6": {
-          "Robber": 73,
-          "Driver": 66,
-          "Bomber": 72
-        },
-        "3": {
-          "Imitator": 93,
-          "Looter": 93
-        },
-        "5": {},
-        "4": {}
-      },
-      "last_scraped": "2025-10-12T13:16:58.654268"
     }
   },
   "metadata": {
