@@ -377,7 +377,7 @@
       "last_scraped": "2025-10-12T12:26:58.619Z"
     },
     "865783": {
-      "name": "User_865783",
+      "name": "WashedUpCatcher",
       "cpr_by_role": {
         "6": {
           "Muscle": 73
@@ -456,7 +456,7 @@
       "last_scraped": "2025-09-10T15:47:05.000Z"
     },
     "1474498": {
-      "name": "User_1474498",
+      "name": "mwcerberus",
       "cpr_by_role": {
         "1": {
           "Looter": 96
@@ -640,7 +640,9 @@
           "Driver": 80
         },
         "7": {
-          "Engineer": 77
+          "Engineer": 77,
+          "Bomber": 77,
+          "Muscle": 78
         },
         "8": {
           "Assassin": 70,
@@ -684,7 +686,7 @@
       "last_scraped": "2025-10-12T12:27:07.385Z"
     },
     "1723047": {
-      "name": "User_1723047",
+      "name": "DJStone",
       "cpr_by_role": {
         "5": {
           "Techie": 89
@@ -880,7 +882,7 @@
       "last_scraped": "2025-10-12T12:26:59.612Z"
     },
     "2183027": {
-      "name": "User_2183027",
+      "name": "Weareolf697",
       "cpr_by_role": {
         "1": {
           "Looter": 94
@@ -1018,7 +1020,8 @@
           "Muscle": 82,
           "Bomber": 82,
           "Picklock": 82,
-          "Engineer": 81
+          "Engineer": 81,
+          "Hacker": 82
         },
         "8": {
           "Muscle": 67,
@@ -1340,7 +1343,7 @@
       "last_scraped": "2025-10-11T20:59:06.000Z"
     },
     "2327067": {
-      "name": "User_2327067",
+      "name": "Goodkid",
       "cpr_by_role": {
         "2": {
           "Thief": 95,
@@ -1810,7 +1813,8 @@
         },
         "8": {
           "Cleaner": 71,
-          "Assassin": 69
+          "Assassin": 69,
+          "Cat Burglar": 72
         }
       },
       "last_scraped": "2025-10-09T10:58:04.000Z"
@@ -1841,7 +1845,8 @@
           "Hacker": 90,
           "Picklock": 91,
           "Car Thief": 86,
-          "Techie": 90
+          "Techie": 90,
+          "Imitator": 89
         },
         "6": {
           "Muscle": 87,
@@ -2032,10 +2037,11 @@
         "7": {
           "Bomber": 77,
           "Muscle": 76,
-          "Picklock": 77
+          "Picklock": 77,
+          "Hacker": 76
         },
         "8": {
-          "Thief": 62,
+          "Thief": 63,
           "Cleaner": 67,
           "Muscle": 62
         }
@@ -2090,7 +2096,8 @@
         },
         "7": {
           "Bomber": 75,
-          "Picklock": 75
+          "Picklock": 75,
+          "Muscle": 73
         },
         "8": {
           "Cat Burglar": 65
@@ -2121,7 +2128,8 @@
           "Bomber": 77
         },
         "8": {
-          "Cat Burglar": 67
+          "Cat Burglar": 67,
+          "Muscle": 60
         }
       },
       "last_scraped": "2025-10-11T20:59:06.000Z"
@@ -2266,7 +2274,8 @@
           "Muscle": 85,
           "Robber": 86,
           "Driver": 81,
-          "Bomber": 86
+          "Bomber": 86,
+          "Enforcer": 85
         },
         "7": {
           "Picklock": 79,
@@ -2354,13 +2363,14 @@
         },
         "4": {
           "Enforcer": 89,
-          "Muscle": 88,
+          "Muscle": 89,
           "Imitator": 87
         },
         "5": {
           "Picklock": 83,
           "Robber": 83,
-          "Hustler": 85
+          "Hustler": 85,
+          "Engineer": 80
         },
         "6": {
           "Robber": 70,
@@ -2460,7 +2470,8 @@
         },
         "8": {
           "Assassin": 65,
-          "Cleaner": 67
+          "Cleaner": 67,
+          "Robber": 63
         }
       },
       "last_scraped": "2025-10-09T10:58:04.000Z"
@@ -2601,7 +2612,7 @@
       "last_scraped": "2025-10-12T12:26:50.767Z"
     },
     "2983319": {
-      "name": "User_2983319",
+      "name": "EggStone",
       "cpr_by_role": {
         "1": {
           "Looter": 94
@@ -2609,7 +2620,7 @@
         "3": {
           "Car Thief": 84,
           "Looter": 88,
-          "Imitator": 84,
+          "Imitator": 85,
           "Hustler": 84
         },
         "4": {
@@ -2982,7 +2993,8 @@
         },
         "6": {
           "Robber": 70,
-          "Muscle": 69
+          "Muscle": 69,
+          "Enforcer": 70
         },
         "7": {
           "Muscle": 60
@@ -3008,10 +3020,15 @@
           "Engineer": 83
         },
         "6": {
-          "Enforcer": 73
+          "Enforcer": 73,
+          "Bomber": 75,
+          "Muscle": 69
         },
         "7": {
           "Picklock": 66
+        },
+        "8": {
+          "Assassin": 47
         }
       },
       "last_scraped": "2025-10-11T21:41:06.000Z"
@@ -3149,7 +3166,7 @@
           "Looter": 89
         },
         "4": {
-          "Muscle": 84,
+          "Muscle": 85,
           "Enforcer": 84
         },
         "5": {
@@ -3160,7 +3177,7 @@
       "last_scraped": "2025-10-09T06:00:07.000Z"
     },
     "3279714": {
-      "name": "User_3279714",
+      "name": "Decim",
       "cpr_by_role": {
         "2": {
           "Picklock": 88
@@ -3342,7 +3359,8 @@
           "Enforcer": 87,
           "Looter": 87,
           "Picklock": 87,
-          "Car Thief": 80
+          "Car Thief": 80,
+          "Imitator": 84
         },
         "6": {
           "Robber": 75,
@@ -3508,7 +3526,8 @@
         "4": {
           "Imitator": 78,
           "Sniper": 86,
-          "Hustler": 80
+          "Hustler": 80,
+          "Muscle": 85
         },
         "5": {
           "Enforcer": 78
@@ -3739,12 +3758,14 @@
           "Robber": 78,
           "Hacker": 78,
           "Looter": 77,
-          "Hustler": 76
+          "Hustler": 76,
+          "Techie": 75
         },
         "6": {
           "Robber": 60,
           "Driver": 49,
-          "Bomber": 52
+          "Bomber": 52,
+          "Muscle": 53
         },
         "7": {
           "Picklock": 52,
@@ -3903,7 +3924,8 @@
           "Imitator": 84
         },
         "4": {
-          "Sniper": 83
+          "Sniper": 83,
+          "Muscle": 82
         },
         "5": {
           "Engineer": 69
@@ -3925,7 +3947,7 @@
         },
         "4": {
           "Muscle": 79,
-          "Lookout": 82
+          "Lookout": 83
         },
         "6": {
           "Robber": 46,
@@ -4074,8 +4096,9 @@
     }
   },
   "metadata": {
-    "last_updated": "2025-10-13T00:09:14.042Z",
+    "last_updated": "2025-10-12T20:22:19.766681",
     "total_members": 96,
-    "version": "1.0"
+    "version": "1.0",
+    "last_merge_source": "Discord"
   }
 }
