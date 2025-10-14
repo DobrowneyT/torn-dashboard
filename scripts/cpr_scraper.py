@@ -345,6 +345,9 @@ class CPRScraper:
             # Rate limiting
             if i < stats['total_members']:
                 time.sleep(0.01)
+
+        stats['success'] = stats['successful'] > 0
+        return stats
         
         # Save updated CPR database
     def _save_cpr_database(self, cpr_data: Dict):
@@ -368,7 +371,7 @@ class CPRScraper:
             commit_message="Update CPR database from scrape"
         )
         logger.info("CPR database saved with sorted difficulty levels")
-        
+
     def _update_sheets_with_cpr(self, cpr_data: Dict):
         """
         Update Google Sheets with CPR scores in Members sheet column C
@@ -467,7 +470,31 @@ def main():
             # Scrape all members - pass member_names from sync
             stats = scraper.scrape_all_members(member_names)
             
-            if not stats.get('success'):
+            if stats.get('success'):
+
+                scraper._save_cpr_database(cpr_data)
+                
+                # Update Google Sheets with CPR data
+                try:
+                    scraper._update_sheets_with_cpr(cpr_data)
+                except Exception as e:
+                    logger.error(f"Failed to update Google Sheets: {e}")
+                
+                if error_msg:
+                    logger.warning(f"Completed with warning: {error_msg}")
+                else:
+                    # Log summary
+                    logger.info("="*60)
+                    logger.info("CPR Scrape Summary:")
+                    logger.info(f"  Total members: {stats['total_members']}")
+                    logger.info(f"  Successful: {stats['successful']}")
+                    logger.info(f"  Failed: {stats['failed']}")
+                    logger.info(f"  Skipped (not in faction): {stats['skipped_not_in_faction']}")
+                    logger.info(f"  Skipped (invalid key): {stats['skipped_invalid_key']}")
+                    logger.info(f"  Total updates: {stats['total_updates']}")
+                    logger.info("="*60)
+
+            else:
                 logger.error("Scrape failed")
                 sys.exit(1)
             
