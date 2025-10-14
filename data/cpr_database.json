@@ -1095,7 +1095,7 @@
         "3": {
           "Imitator": 96,
           "Looter": 96,
-          "Car Thief": 94,
+          "Car Thief": 95,
           "Hustler": 95,
           "Negotiator": 95,
           "Arsonist": 95
@@ -1137,11 +1137,11 @@
           "Imitator": 78,
           "Cat Burglar": 78,
           "Assassin": 79,
-          "Robber": 72,
+          "Robber": 73,
           "Cleaner": 78
         }
       },
-      "last_scraped": "2025-10-12T12:26:50.448Z"
+      "last_scraped": "2025-10-14T17:44:15.969107"
     },
     "2253786": {
       "name": "Fucitol",
@@ -4097,7 +4097,7 @@
     }
   },
   "metadata": {
-    "last_updated": "2025-10-14T16:07:23.489Z",
+    "last_updated": "2025-10-14T17:44:15.979271",
     "total_members": 96,
     "version": "1.0"
   }
