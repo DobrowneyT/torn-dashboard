@@ -305,7 +305,8 @@ class CPRScraper:
             'members_scraped': [],
             'members_with_errors': {},
             'members_failed': [],
-            'members_not_in_faction': []
+            'members_not_in_faction': [],
+            'members_invalid_key': []  # Add this to track invalid keys separately
         }
         
         # Scrape each member
@@ -332,6 +333,7 @@ class CPRScraper:
                         stats['members_with_errors'][member_id] = error_msg
                         if 'Invalid API key' in error_msg:
                             stats['skipped_invalid_key'] += 1
+                            stats['members_invalid_key'].append(member_id)
                 else:
                     stats['failed'] += 1
                     stats['members_failed'].append(member_id)
@@ -345,33 +347,86 @@ class CPRScraper:
             # Rate limiting
             if i < stats['total_members']:
                 time.sleep(0.01)
-
-            # ✅ SAVE THE CPR DATABASE HERE (before returning)
-            if stats['successful'] > 0:
-                self._save_cpr_database(cpr_data)  # Pass cpr_data, not stats!
-                
-                # Update Google Sheets
-                try:
-                    self._update_sheets_with_cpr(cpr_data)  # Pass cpr_data, not stats!
-                except Exception as e:
-                    logger.error(f"Failed to update Google Sheets: {e}")
+        
+        # Save the CPR database if any successful scrapes
+        if stats['successful'] > 0:
+            self._save_cpr_database(cpr_data)
             
-            # Log summary
-            logger.info("="*60)
-            logger.info("CPR Scrape Summary:")
-            logger.info(f"  Total members: {stats['total_members']}")
-            logger.info(f"  Successful: {stats['successful']}")
-            logger.info(f"  Failed: {stats['failed']}")
-            logger.info(f"  Skipped (not in faction): {stats['skipped_not_in_faction']}")
-            logger.info(f"  Skipped (invalid key): {stats['skipped_invalid_key']}")
-            logger.info(f"  Total updates: {stats['total_updates']}")
-            logger.info("="*60)
-            
-            # Set success flag
-            stats['success'] = stats['successful'] > 0
-            
-            # ✅ RETURN THE STATS
-            return stats
+            # Update Google Sheets
+            try:
+                self._update_sheets_with_cpr(cpr_data)
+            except Exception as e:
+                logger.error(f"Failed to update Google Sheets: {e}")
+        
+        # ✅ ENHANCED LOGGING SUMMARY
+        logger.info("="*70)
+        logger.info("CPR SCRAPE SUMMARY")
+        logger.info("="*70)
+        logger.info(f"  Total members with API keys: {stats['total_members']}")
+        logger.info(f"  ✓ Successfully scraped: {stats['successful']}")
+        logger.info(f"  ✗ Failed: {stats['failed']}")
+        logger.info(f"  ⊘ Skipped (not in faction): {stats['skipped_not_in_faction']}")
+        logger.info(f"  ⊘ Skipped (invalid key): {stats['skipped_invalid_key']}")
+        logger.info(f"  Total CPR updates: {stats['total_updates']}")
+        logger.info("")
+        
+        # Members not in faction (have keys but left faction)
+        if stats['members_not_in_faction']:
+            logger.warning("⚠️  MEMBERS NOT IN FACTION (have API keys but not in roster):")
+            for member_id in stats['members_not_in_faction']:
+                # Try to get name from cpr_data if they were previously scraped
+                old_name = cpr_data.get('members', {}).get(member_id, {}).get('name', 'Unknown')
+                logger.warning(f"    • {old_name} [{member_id}]")
+            logger.info("")
+        
+        # Members with invalid API keys
+        if stats['members_invalid_key']:
+            logger.warning("🔑 MEMBERS WITH INVALID API KEYS:")
+            for member_id in stats['members_invalid_key']:
+                member_name = member_names.get(member_id, 'Unknown')
+                error = stats['members_with_errors'].get(member_id, 'Invalid API key')
+                logger.warning(f"    • {member_name} [{member_id}] - {error}")
+            logger.info("")
+        
+        # Members who failed for other reasons
+        if stats['members_failed']:
+            logger.error("❌ MEMBERS THAT FAILED TO SCRAPE:")
+            for member_id in stats['members_failed']:
+                member_name = member_names.get(member_id, 'Unknown')
+                error = stats['members_with_errors'].get(member_id, 'Unknown error')
+                logger.error(f"    • {member_name} [{member_id}] - {error}")
+            logger.info("")
+        
+        # Members in faction but missing API keys (reverse lookup)
+        members_without_keys = []
+        for member_id, member_name in member_names.items():
+            if member_id not in self.member_api_keys:
+                members_without_keys.append((member_id, member_name))
+        
+        if members_without_keys:
+            logger.warning("📝 MEMBERS IN FACTION WITHOUT API KEYS:")
+            logger.warning(f"    Total: {len(members_without_keys)} members")
+            # Sort by name for easier reading
+            for member_id, member_name in sorted(members_without_keys, key=lambda x: x[1]):
+                logger.warning(f"    • {member_name} [{member_id}]")
+            logger.info("")
+            logger.warning("    💡 TIP: Request API keys from these members and add to MEMBER_API_KEYS secret")
+            logger.info("")
+        
+        # Success summary
+        if stats['successful'] > 0:
+            logger.info(f"✓ Successfully updated CPR data for {stats['successful']} members")
+            if stats['total_updates'] > 0:
+                logger.info(f"✓ Total CPR values updated/added: {stats['total_updates']}")
+            else:
+                logger.info("  (No new CPR changes detected)")
+        
+        logger.info("="*70)
+        
+        # Set success flag
+        stats['success'] = stats['successful'] > 0
+        
+        return stats
         
         # Save updated CPR database
     def _save_cpr_database(self, cpr_data: Dict):
