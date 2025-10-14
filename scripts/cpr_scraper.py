@@ -472,11 +472,11 @@ def main():
             
             if stats.get('success'):
 
-                scraper._save_cpr_database(cpr_data)
+                scraper._save_cpr_database(stats)
                 
                 # Update Google Sheets with CPR data
                 try:
-                    scraper._update_sheets_with_cpr(cpr_data)
+                    scraper._update_sheets_with_cpr(stats)
                 except Exception as e:
                     logger.error(f"Failed to update Google Sheets: {e}")
                 
