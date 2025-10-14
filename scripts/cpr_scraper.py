@@ -346,8 +346,32 @@ class CPRScraper:
             if i < stats['total_members']:
                 time.sleep(0.01)
 
-        stats['success'] = stats['successful'] > 0
-        return stats
+            # ✅ SAVE THE CPR DATABASE HERE (before returning)
+            if stats['successful'] > 0:
+                self._save_cpr_database(cpr_data)  # Pass cpr_data, not stats!
+                
+                # Update Google Sheets
+                try:
+                    self._update_sheets_with_cpr(cpr_data)  # Pass cpr_data, not stats!
+                except Exception as e:
+                    logger.error(f"Failed to update Google Sheets: {e}")
+            
+            # Log summary
+            logger.info("="*60)
+            logger.info("CPR Scrape Summary:")
+            logger.info(f"  Total members: {stats['total_members']}")
+            logger.info(f"  Successful: {stats['successful']}")
+            logger.info(f"  Failed: {stats['failed']}")
+            logger.info(f"  Skipped (not in faction): {stats['skipped_not_in_faction']}")
+            logger.info(f"  Skipped (invalid key): {stats['skipped_invalid_key']}")
+            logger.info(f"  Total updates: {stats['total_updates']}")
+            logger.info("="*60)
+            
+            # Set success flag
+            stats['success'] = stats['successful'] > 0
+            
+            # ✅ RETURN THE STATS
+            return stats
         
         # Save updated CPR database
     def _save_cpr_database(self, cpr_data: Dict):
@@ -470,31 +494,7 @@ def main():
             # Scrape all members - pass member_names from sync
             stats = scraper.scrape_all_members(member_names)
             
-            if stats.get('success'):
-
-                scraper._save_cpr_database(stats)
-                
-                # Update Google Sheets with CPR data
-                try:
-                    scraper._update_sheets_with_cpr(stats)
-                except Exception as e:
-                    logger.error(f"Failed to update Google Sheets: {e}")
-                
-                if error_msg:
-                    logger.warning(f"Completed with warning: {error_msg}")
-                else:
-                    # Log summary
-                    logger.info("="*60)
-                    logger.info("CPR Scrape Summary:")
-                    logger.info(f"  Total members: {stats['total_members']}")
-                    logger.info(f"  Successful: {stats['successful']}")
-                    logger.info(f"  Failed: {stats['failed']}")
-                    logger.info(f"  Skipped (not in faction): {stats['skipped_not_in_faction']}")
-                    logger.info(f"  Skipped (invalid key): {stats['skipped_invalid_key']}")
-                    logger.info(f"  Total updates: {stats['total_updates']}")
-                    logger.info("="*60)
-
-            else:
+            if not stats.get('success'):
                 logger.error("Scrape failed")
                 sys.exit(1)
             
