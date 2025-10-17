@@ -24,7 +24,7 @@
         },
         "5": {
           "Picklock": 89,
-          "Engineer": 88,
+          "Engineer": 89,
           "Enforcer": 90,
           "Hustler": 90,
           "Robber": 89,
@@ -52,14 +52,14 @@
         "8": {
           "Muscle": 57,
           "Thief": 60,
-          "Cat Burglar": 65,
+          "Cat Burglar": 66,
           "Assassin": 58,
           "Robber": 59,
           "Cleaner": 66,
           "Imitator": 66
         }
       },
-      "last_scraped": "2025-10-16T21:13:23.836422"
+      "last_scraped": "2025-10-17T19:05:33.226796"
     },
     "299480": {
       "name": "Pacifist",
@@ -90,7 +90,7 @@
           "Picklock": 90,
           "Looter": 88,
           "Techie": 89,
-          "Engineer": 87,
+          "Engineer": 89,
           "Enforcer": 90,
           "Hustler": 90,
           "Robber": 89,
@@ -104,7 +104,7 @@
           "Robber": 83,
           "Driver": 75,
           "Bomber": 83,
-          "Enforcer": 83
+          "Enforcer": 84
         },
         "7": {
           "Hacker": 76,
@@ -118,12 +118,12 @@
           "Robber": 61,
           "Muscle": 60,
           "Cat Burglar": 64,
-          "Assassin": 62,
+          "Assassin": 63,
           "Cleaner": 67,
           "Imitator": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:30.081235"
+      "last_scraped": "2025-10-17T19:05:39.192930"
     },
     "330505": {
       "name": "The_Pit",
@@ -145,7 +145,9 @@
         "5": {
           "Techie": 90,
           "Negotiator": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Hustler": 91,
+          "Engineer": 91
         },
         "6": {
           "Bomber": 88,
@@ -171,7 +173,7 @@
           "Cleaner": 74
         }
       },
-      "last_scraped": "2025-10-16T21:13:40.736347"
+      "last_scraped": "2025-10-17T19:05:48.912739"
     },
     "428286": {
       "name": "AlleyCat",
@@ -197,7 +199,7 @@
           "Imitator": 94
         },
         "5": {
-          "Engineer": 91,
+          "Engineer": 92,
           "Enforcer": 93,
           "Hustler": 93,
           "Robber": 92,
@@ -233,7 +235,7 @@
           "Robber": 73
         }
       },
-      "last_scraped": "2025-10-16T21:13:27.850788"
+      "last_scraped": "2025-10-17T19:05:37.136531"
     },
     "430470": {
       "name": "Nutte",
@@ -258,7 +260,7 @@
           "Imitator": 90
         },
         "5": {
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 89,
           "Hustler": 88,
           "Robber": 91,
@@ -294,7 +296,7 @@
           "Imitator": 65
         }
       },
-      "last_scraped": "2025-10-16T21:13:35.827237"
+      "last_scraped": "2025-10-17T19:05:44.405042"
     },
     "462912": {
       "name": "JJC",
@@ -323,7 +325,7 @@
         },
         "5": {
           "Techie": 90,
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 91,
           "Hustler": 91,
           "Robber": 91,
@@ -358,7 +360,7 @@
           "Imitator": 73
         }
       },
-      "last_scraped": "2025-10-16T21:13:24.304538"
+      "last_scraped": "2025-10-17T19:05:33.575970"
     },
     "711289": {
       "name": "LadyD34",
@@ -380,7 +382,7 @@
           "Imitator": 93
         },
         "5": {
-          "Engineer": 90,
+          "Engineer": 92,
           "Enforcer": 92,
           "Hustler": 92,
           "Robber": 92,
@@ -416,7 +418,7 @@
           "Imitator": 76
         }
       },
-      "last_scraped": "2025-10-16T21:13:31.154440"
+      "last_scraped": "2025-10-17T19:05:40.225286"
     },
     "865783": {
       "name": "WashedUpCatcher",
@@ -447,7 +449,7 @@
           "Imitator": 93
         },
         "5": {
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 91,
           "Hustler": 92,
           "Robber": 91,
@@ -483,7 +485,7 @@
           "Robber": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:35.113851"
+      "last_scraped": "2025-10-17T19:05:43.755313"
     },
     "900727": {
       "name": "Rich",
@@ -540,7 +542,7 @@
           "Imitator": 93
         },
         "5": {
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 92,
           "Hustler": 92,
           "Robber": 91,
@@ -576,7 +578,7 @@
           "Cleaner": 74
         }
       },
-      "last_scraped": "2025-10-16T21:13:27.451798"
+      "last_scraped": "2025-10-17T19:05:36.835290"
     },
     "1654809": {
       "name": "Reece",
@@ -601,10 +603,10 @@
           "Imitator": 84
         },
         "5": {
-          "Engineer": 80,
+          "Engineer": 84,
           "Looter": 81,
           "Enforcer": 80,
-          "Hustler": 79,
+          "Hustler": 80,
           "Robber": 78,
           "Hacker": 76,
           "Picklock": 76,
@@ -614,11 +616,11 @@
           "Imitator": 74
         },
         "6": {
-          "Robber": 58,
+          "Robber": 59,
           "Driver": 55,
           "Bomber": 57,
           "Muscle": 64,
-          "Enforcer": 58
+          "Enforcer": 59
         },
         "7": {
           "Picklock": 44,
@@ -637,7 +639,7 @@
           "Imitator": 40
         }
       },
-      "last_scraped": "2025-10-16T21:13:31.505963"
+      "last_scraped": "2025-10-17T19:05:40.648021"
     },
     "1656752": {
       "name": "GJBP",
@@ -665,13 +667,15 @@
         "5": {
           "Techie": 80,
           "Negotiator": 81,
-          "Imitator": 80
+          "Imitator": 80,
+          "Hustler": 82,
+          "Engineer": 87
         },
         "6": {
           "Muscle": 73,
           "Robber": 74,
           "Driver": 63,
-          "Bomber": 66,
+          "Bomber": 67,
           "Enforcer": 66
         },
         "7": {
@@ -684,14 +688,14 @@
         "8": {
           "Cat Burglar": 58,
           "Assassin": 56,
-          "Cleaner": 49,
+          "Cleaner": 48,
           "Imitator": 45,
           "Robber": 55,
           "Muscle": 52,
           "Thief": 55
         }
       },
-      "last_scraped": "2025-10-16T21:13:43.959507"
+      "last_scraped": "2025-10-17T19:05:51.783507"
     },
     "1659147": {
       "name": "Albatra",
@@ -715,7 +719,9 @@
           "Looter": 90,
           "Techie": 89,
           "Negotiator": 89,
-          "Imitator": 89
+          "Imitator": 89,
+          "Hustler": 91,
+          "Engineer": 90
         },
         "6": {
           "Robber": 86,
@@ -741,7 +747,7 @@
           "Cat Burglar": 70
         }
       },
-      "last_scraped": "2025-10-16T21:13:49.403928"
+      "last_scraped": "2025-10-17T19:05:57.184758"
     },
     "1712182": {
       "name": "Muttley",
@@ -761,10 +767,11 @@
           "Imitator": 93
         },
         "5": {
-          "Engineer": 91,
+          "Engineer": 92,
           "Techie": 91,
           "Negotiator": 91,
-          "Imitator": 91
+          "Imitator": 91,
+          "Hustler": 92
         },
         "6": {
           "Bomber": 88,
@@ -790,7 +797,7 @@
           "Thief": 71
         }
       },
-      "last_scraped": "2025-10-16T21:13:41.104992"
+      "last_scraped": "2025-10-17T19:05:49.273537"
     },
     "1723047": {
       "name": "DJStone",
@@ -830,7 +837,9 @@
         "5": {
           "Techie": 90,
           "Negotiator": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Hustler": 91,
+          "Engineer": 91
         },
         "6": {
           "Muscle": 87,
@@ -856,7 +865,7 @@
           "Thief": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:50.836545"
+      "last_scraped": "2025-10-17T19:05:58.438557"
     },
     "2075640": {
       "name": "Subzero",
@@ -904,7 +913,9 @@
           "Car Thief": 86,
           "Techie": 89,
           "Negotiator": 88,
-          "Imitator": 88
+          "Imitator": 88,
+          "Hustler": 89,
+          "Engineer": 91
         },
         "6": {
           "Muscle": 86,
@@ -930,7 +941,7 @@
           "Thief": 66
         }
       },
-      "last_scraped": "2025-10-16T21:13:50.455837"
+      "last_scraped": "2025-10-17T19:05:58.119366"
     },
     "2146235": {
       "name": "m3llow",
@@ -960,9 +971,9 @@
         },
         "5": {
           "Looter": 82,
-          "Engineer": 83,
+          "Engineer": 84,
           "Enforcer": 80,
-          "Hustler": 78,
+          "Hustler": 79,
           "Robber": 78,
           "Hacker": 76,
           "Picklock": 76,
@@ -995,7 +1006,7 @@
           "Imitator": 41
         }
       },
-      "last_scraped": "2025-10-16T21:13:25.820649"
+      "last_scraped": "2025-10-17T19:05:35.432733"
     },
     "2168406": {
       "name": "Godi667",
@@ -1021,7 +1032,7 @@
         },
         "5": {
           "Negotiator": 90,
-          "Engineer": 89,
+          "Engineer": 91,
           "Enforcer": 91,
           "Hustler": 91,
           "Robber": 91,
@@ -1056,7 +1067,7 @@
           "Imitator": 73
         }
       },
-      "last_scraped": "2025-10-16T21:13:32.310472"
+      "last_scraped": "2025-10-17T19:05:41.262466"
     },
     "2183027": {
       "name": "Weareolf697",
@@ -1127,7 +1138,7 @@
         },
         "5": {
           "Hacker": 90,
-          "Engineer": 89,
+          "Engineer": 90,
           "Picklock": 90,
           "Enforcer": 90,
           "Hustler": 91,
@@ -1162,7 +1173,7 @@
           "Imitator": 69
         }
       },
-      "last_scraped": "2025-10-16T21:13:34.404368"
+      "last_scraped": "2025-10-17T19:05:43.080484"
     },
     "2189887": {
       "name": "Pdub",
@@ -1205,7 +1216,9 @@
         "5": {
           "Techie": 90,
           "Negotiator": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Hustler": 92,
+          "Engineer": 91
         },
         "6": {
           "Robber": 87,
@@ -1231,7 +1244,7 @@
           "Thief": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:39.707760"
+      "last_scraped": "2025-10-17T19:05:47.961519"
     },
     "2214797": {
       "name": "Onyx",
@@ -1253,7 +1266,7 @@
           "Imitator": 92
         },
         "5": {
-          "Engineer": 88,
+          "Engineer": 90,
           "Enforcer": 90,
           "Hustler": 90,
           "Robber": 89,
@@ -1266,7 +1279,7 @@
           "Imitator": 89
         },
         "6": {
-          "Driver": 78,
+          "Driver": 79,
           "Muscle": 83,
           "Bomber": 84,
           "Robber": 84,
@@ -1289,7 +1302,7 @@
           "Imitator": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:31.941180"
+      "last_scraped": "2025-10-17T19:05:40.953326"
     },
     "2250591": {
       "name": "MonChoon",
@@ -1311,7 +1324,7 @@
           "Imitator": 93
         },
         "5": {
-          "Engineer": 91,
+          "Engineer": 92,
           "Enforcer": 92,
           "Hustler": 92,
           "Robber": 92,
@@ -1347,7 +1360,7 @@
           "Cleaner": 78
         }
       },
-      "last_scraped": "2025-10-16T21:13:22.633866"
+      "last_scraped": "2025-10-17T19:05:31.965489"
     },
     "2253786": {
       "name": "Fucitol",
@@ -1371,7 +1384,7 @@
         "5": {
           "Car Thief": 86,
           "Hacker": 90,
-          "Engineer": 89,
+          "Engineer": 91,
           "Enforcer": 91,
           "Hustler": 91,
           "Robber": 91,
@@ -1405,7 +1418,7 @@
           "Robber": 67
         }
       },
-      "last_scraped": "2025-10-16T21:13:38.294936"
+      "last_scraped": "2025-10-17T19:05:46.657233"
     },
     "2264192": {
       "name": "McGummy",
@@ -1432,7 +1445,7 @@
         "5": {
           "Car Thief": 87,
           "Imitator": 90,
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 91,
           "Hustler": 91,
           "Robber": 91,
@@ -1466,7 +1479,7 @@
           "Robber": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:23.444089"
+      "last_scraped": "2025-10-17T19:05:32.882100"
     },
     "2282199": {
       "name": "Frodo",
@@ -1493,7 +1506,7 @@
         "5": {
           "Robber": 91,
           "Hacker": 92,
-          "Engineer": 90,
+          "Engineer": 92,
           "Enforcer": 92,
           "Hustler": 92,
           "Looter": 91,
@@ -1527,7 +1540,7 @@
           "Cleaner": 74
         }
       },
-      "last_scraped": "2025-10-16T21:13:33.717550"
+      "last_scraped": "2025-10-17T19:05:42.545215"
     },
     "2327020": {
       "name": "BWub",
@@ -1600,7 +1613,7 @@
         "5": {
           "Car Thief": 81,
           "Picklock": 88,
-          "Engineer": 86,
+          "Engineer": 87,
           "Enforcer": 85,
           "Hustler": 84,
           "Robber": 88,
@@ -1634,7 +1647,7 @@
           "Imitator": 50
         }
       },
-      "last_scraped": "2025-10-16T21:13:26.181911"
+      "last_scraped": "2025-10-17T19:05:35.770979"
     },
     "2388372": {
       "name": "Noid13",
@@ -1691,14 +1704,14 @@
         "8": {
           "Muscle": 53,
           "Thief": 57,
-          "Cat Burglar": 60,
+          "Cat Burglar": 61,
           "Assassin": 54,
           "Robber": 56,
           "Cleaner": 59,
           "Imitator": 57
         }
       },
-      "last_scraped": "2025-10-16T21:13:30.785714"
+      "last_scraped": "2025-10-17T19:05:39.882677"
     },
     "2407528": {
       "name": "DiabolicPickles",
@@ -1727,7 +1740,7 @@
         },
         "5": {
           "Car Thief": 88,
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 92,
           "Hustler": 92,
           "Robber": 92,
@@ -1762,7 +1775,7 @@
           "Cleaner": 75
         }
       },
-      "last_scraped": "2025-10-16T21:13:25.111339"
+      "last_scraped": "2025-10-17T19:05:34.798581"
     },
     "2407566": {
       "name": "mastermILLer",
@@ -1789,7 +1802,9 @@
           "Hacker": 89,
           "Techie": 89,
           "Negotiator": 89,
-          "Imitator": 88
+          "Imitator": 88,
+          "Hustler": 90,
+          "Engineer": 90
         },
         "6": {
           "Muscle": 84,
@@ -1815,7 +1830,7 @@
           "Cat Burglar": 69
         }
       },
-      "last_scraped": "2025-10-16T21:13:47.147170"
+      "last_scraped": "2025-10-17T19:05:54.835813"
     },
     "2465113": {
       "name": "SnowBadger87",
@@ -1835,10 +1850,11 @@
           "Imitator": 92
         },
         "5": {
-          "Engineer": 90,
+          "Engineer": 91,
           "Techie": 90,
           "Negotiator": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Hustler": 91
         },
         "6": {
           "Driver": 83,
@@ -1864,7 +1880,7 @@
           "Thief": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:41.807723"
+      "last_scraped": "2025-10-17T19:05:49.887376"
     },
     "2478585": {
       "name": "Gekents",
@@ -1894,9 +1910,9 @@
         "5": {
           "Picklock": 86,
           "Car Thief": 76,
-          "Engineer": 80,
+          "Engineer": 83,
           "Enforcer": 86,
-          "Hustler": 85,
+          "Hustler": 86,
           "Robber": 86,
           "Looter": 80,
           "Hacker": 79,
@@ -1907,7 +1923,7 @@
         "6": {
           "Robber": 73,
           "Bomber": 65,
-          "Driver": 56,
+          "Driver": 57,
           "Muscle": 72,
           "Enforcer": 71
         },
@@ -1928,7 +1944,7 @@
           "Imitator": 54
         }
       },
-      "last_scraped": "2025-10-16T21:13:28.968297"
+      "last_scraped": "2025-10-17T19:05:38.185258"
     },
     "2482317": {
       "name": "TheGoblinOfMars",
@@ -1954,7 +1970,9 @@
           "Looter": 90,
           "Techie": 88,
           "Negotiator": 89,
-          "Imitator": 88
+          "Imitator": 88,
+          "Hustler": 90,
+          "Engineer": 89
         },
         "6": {
           "Driver": 78,
@@ -1980,7 +1998,7 @@
           "Muscle": 61
         }
       },
-      "last_scraped": "2025-10-16T21:13:44.633570"
+      "last_scraped": "2025-10-17T19:05:52.466457"
     },
     "2507533": {
       "name": "JoeMusashi",
@@ -2008,7 +2026,7 @@
           "Hacker": 85,
           "Techie": 81,
           "Enforcer": 84,
-          "Engineer": 83,
+          "Engineer": 84,
           "Hustler": 85,
           "Robber": 81,
           "Looter": 84,
@@ -2028,7 +2046,7 @@
           "Picklock": 50,
           "Muscle": 54,
           "Engineer": 57,
-          "Hacker": 61,
+          "Hacker": 62,
           "Bomber": 48
         },
         "8": {
@@ -2041,7 +2059,7 @@
           "Imitator": 48
         }
       },
-      "last_scraped": "2025-10-16T21:13:28.573855"
+      "last_scraped": "2025-10-17T19:05:37.852007"
     },
     "2632539": {
       "name": "RmB",
@@ -2061,11 +2079,12 @@
           "Imitator": 92
         },
         "5": {
-          "Engineer": 89,
+          "Engineer": 91,
           "Car Thief": 86,
           "Techie": 90,
           "Negotiator": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Hustler": 91
         },
         "6": {
           "Driver": 83,
@@ -2091,7 +2110,7 @@
           "Thief": 69
         }
       },
-      "last_scraped": "2025-10-16T21:13:40.037254"
+      "last_scraped": "2025-10-17T19:05:48.290329"
     },
     "2632966": {
       "name": "CalliBee",
@@ -2113,7 +2132,9 @@
         "5": {
           "Techie": 89,
           "Negotiator": 90,
-          "Imitator": 89
+          "Imitator": 89,
+          "Hustler": 91,
+          "Engineer": 90
         },
         "6": {
           "Muscle": 86,
@@ -2139,7 +2160,7 @@
           "Muscle": 64
         }
       },
-      "last_scraped": "2025-10-16T21:13:46.399891"
+      "last_scraped": "2025-10-17T19:05:54.132273"
     },
     "2642228": {
       "name": "-Fly-",
@@ -2161,7 +2182,7 @@
           "Imitator": 92
         },
         "5": {
-          "Engineer": 89,
+          "Engineer": 91,
           "Enforcer": 91,
           "Hustler": 91,
           "Robber": 91,
@@ -2197,7 +2218,7 @@
           "Robber": 67
         }
       },
-      "last_scraped": "2025-10-16T21:13:29.718594"
+      "last_scraped": "2025-10-17T19:05:38.824662"
     },
     "2672100": {
       "name": "Acid",
@@ -2217,10 +2238,11 @@
           "Imitator": 92
         },
         "5": {
-          "Engineer": 87,
+          "Engineer": 89,
           "Techie": 89,
           "Negotiator": 87,
-          "Imitator": 89
+          "Imitator": 89,
+          "Hustler": 91
         },
         "6": {
           "Robber": 86,
@@ -2246,7 +2268,7 @@
           "Thief": 60
         }
       },
-      "last_scraped": "2025-10-16T21:13:39.367387"
+      "last_scraped": "2025-10-17T19:05:47.632722"
     },
     "2672505": {
       "name": "ewakes",
@@ -2273,7 +2295,7 @@
         "5": {
           "Enforcer": 90,
           "Hustler": 90,
-          "Engineer": 88,
+          "Engineer": 90,
           "Robber": 90,
           "Looter": 90,
           "Hacker": 90,
@@ -2307,7 +2329,7 @@
           "Imitator": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:38.992741"
+      "last_scraped": "2025-10-17T19:05:47.346933"
     },
     "2672536": {
       "name": "Shoognight",
@@ -2335,7 +2357,7 @@
           "Imitator": 92
         },
         "5": {
-          "Engineer": 88,
+          "Engineer": 90,
           "Enforcer": 90,
           "Hustler": 90,
           "Robber": 90,
@@ -2349,7 +2371,7 @@
         },
         "6": {
           "Robber": 85,
-          "Bomber": 84,
+          "Bomber": 85,
           "Driver": 80,
           "Muscle": 85,
           "Enforcer": 85
@@ -2371,7 +2393,7 @@
           "Imitator": 69
         }
       },
-      "last_scraped": "2025-10-16T21:13:34.759928"
+      "last_scraped": "2025-10-17T19:05:43.425423"
     },
     "2677601": {
       "name": "Jaumzin",
@@ -2393,7 +2415,9 @@
         "5": {
           "Techie": 89,
           "Negotiator": 89,
-          "Imitator": 89
+          "Imitator": 89,
+          "Hustler": 90,
+          "Engineer": 90
         },
         "6": {
           "Bomber": 85,
@@ -2419,7 +2443,7 @@
           "Cat Burglar": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:48.280782"
+      "last_scraped": "2025-10-17T19:05:56.219589"
     },
     "2719034": {
       "name": "xAnri",
@@ -2441,7 +2465,9 @@
         "5": {
           "Techie": 87,
           "Negotiator": 86,
-          "Imitator": 87
+          "Imitator": 87,
+          "Hustler": 89,
+          "Engineer": 88
         },
         "6": {
           "Robber": 80,
@@ -2455,7 +2481,7 @@
           "Engineer": 69,
           "Bomber": 70,
           "Muscle": 70,
-          "Hacker": 70
+          "Hacker": 71
         },
         "8": {
           "Cat Burglar": 63,
@@ -2467,7 +2493,7 @@
           "Thief": 58
         }
       },
-      "last_scraped": "2025-10-16T21:13:42.899692"
+      "last_scraped": "2025-10-17T19:05:50.884812"
     },
     "2720023": {
       "name": "Frambojan",
@@ -2493,7 +2519,9 @@
           "Looter": 89,
           "Techie": 85,
           "Negotiator": 88,
-          "Imitator": 88
+          "Imitator": 88,
+          "Hustler": 90,
+          "Engineer": 89
         },
         "6": {
           "Enforcer": 82,
@@ -2504,7 +2532,7 @@
         },
         "7": {
           "Bomber": 75,
-          "Picklock": 75,
+          "Picklock": 76,
           "Muscle": 74,
           "Hacker": 63,
           "Engineer": 72
@@ -2519,7 +2547,7 @@
           "Cleaner": 65
         }
       },
-      "last_scraped": "2025-10-16T21:13:48.677082"
+      "last_scraped": "2025-10-17T19:05:56.547873"
     },
     "2736995": {
       "name": "CleverGirl",
@@ -2547,7 +2575,9 @@
         "5": {
           "Imitator": 88,
           "Techie": 88,
-          "Negotiator": 89
+          "Negotiator": 89,
+          "Hustler": 90,
+          "Engineer": 89
         },
         "6": {
           "Enforcer": 84,
@@ -2573,7 +2603,7 @@
           "Cleaner": 67
         }
       },
-      "last_scraped": "2025-10-16T21:13:49.042377"
+      "last_scraped": "2025-10-17T19:05:56.851356"
     },
     "2739056": {
       "name": "Rokiyam",
@@ -2598,7 +2628,9 @@
         "5": {
           "Techie": 90,
           "Negotiator": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Hustler": 91,
+          "Engineer": 91
         },
         "6": {
           "Enforcer": 86,
@@ -2624,7 +2656,7 @@
           "Robber": 66
         }
       },
-      "last_scraped": "2025-10-16T21:13:46.055351"
+      "last_scraped": "2025-10-17T19:05:53.794146"
     },
     "2749598": {
       "name": "Uncensored",
@@ -2646,7 +2678,9 @@
         "5": {
           "Techie": 90,
           "Negotiator": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Hustler": 91,
+          "Engineer": 91
         },
         "6": {
           "Muscle": 86,
@@ -2672,7 +2706,7 @@
           "Robber": 67
         }
       },
-      "last_scraped": "2025-10-16T21:13:43.602493"
+      "last_scraped": "2025-10-17T19:05:51.485736"
     },
     "2763324": {
       "name": "yerodaktuilos",
@@ -2698,7 +2732,7 @@
         },
         "5": {
           "Hacker": 86,
-          "Engineer": 83,
+          "Engineer": 85,
           "Picklock": 87,
           "Enforcer": 87,
           "Hustler": 87,
@@ -2733,7 +2767,7 @@
           "Robber": 53
         }
       },
-      "last_scraped": "2025-10-16T21:13:38.643408"
+      "last_scraped": "2025-10-17T19:05:47.031104"
     },
     "2778101": {
       "name": "Erectangle",
@@ -2759,12 +2793,14 @@
           "Picklock": 90,
           "Techie": 89,
           "Negotiator": 89,
-          "Imitator": 89
+          "Imitator": 89,
+          "Hustler": 90,
+          "Engineer": 90
         },
         "6": {
           "Muscle": 86,
           "Robber": 86,
-          "Driver": 81,
+          "Driver": 82,
           "Bomber": 86,
           "Enforcer": 85
         },
@@ -2781,11 +2817,11 @@
           "Thief": 66,
           "Assassin": 64,
           "Cleaner": 69,
-          "Imitator": 69,
+          "Imitator": 70,
           "Muscle": 63
         }
       },
-      "last_scraped": "2025-10-16T21:13:43.249872"
+      "last_scraped": "2025-10-17T19:05:51.172821"
     },
     "2808985": {
       "name": "Sexy-Alexis",
@@ -2807,7 +2843,7 @@
           "Imitator": 89
         },
         "5": {
-          "Engineer": 88,
+          "Engineer": 90,
           "Enforcer": 88,
           "Hustler": 86,
           "Robber": 90,
@@ -2843,7 +2879,7 @@
           "Imitator": 59
         }
       },
-      "last_scraped": "2025-10-16T21:13:36.526963"
+      "last_scraped": "2025-10-17T19:05:45.033407"
     },
     "2816329": {
       "name": "Crescent57",
@@ -2868,8 +2904,8 @@
         "5": {
           "Picklock": 83,
           "Robber": 83,
-          "Hustler": 85,
-          "Engineer": 80,
+          "Hustler": 86,
+          "Engineer": 84,
           "Techie": 78,
           "Negotiator": 77,
           "Imitator": 80
@@ -2892,13 +2928,13 @@
           "Cat Burglar": 54,
           "Assassin": 51,
           "Cleaner": 52,
-          "Imitator": 51,
+          "Imitator": 52,
           "Robber": 51,
           "Muscle": 46,
           "Thief": 53
         }
       },
-      "last_scraped": "2025-10-16T21:13:45.691041"
+      "last_scraped": "2025-10-17T19:05:53.484565"
     },
     "2822740": {
       "name": "Nanlex",
@@ -2928,7 +2964,7 @@
         "5": {
           "Looter": 89,
           "Robber": 89,
-          "Engineer": 86,
+          "Engineer": 88,
           "Enforcer": 89,
           "Hustler": 89,
           "Hacker": 84,
@@ -2962,7 +2998,7 @@
           "Imitator": 63
         }
       },
-      "last_scraped": "2025-10-16T21:13:36.885481"
+      "last_scraped": "2025-10-17T19:05:45.350713"
     },
     "2854737": {
       "name": "MasterF1re",
@@ -3008,10 +3044,11 @@
         },
         "5": {
           "Hacker": 86,
-          "Engineer": 85,
+          "Engineer": 86,
           "Techie": 85,
           "Negotiator": 77,
-          "Imitator": 80
+          "Imitator": 80,
+          "Hustler": 82
         },
         "6": {
           "Enforcer": 66,
@@ -3037,7 +3074,7 @@
           "Cat Burglar": 56
         }
       },
-      "last_scraped": "2025-10-16T21:13:47.565251"
+      "last_scraped": "2025-10-17T19:05:55.213986"
     },
     "2882851": {
       "name": "Berkshire",
@@ -3059,7 +3096,7 @@
           "Imitator": 91
         },
         "5": {
-          "Engineer": 88,
+          "Engineer": 89,
           "Enforcer": 90,
           "Hustler": 90,
           "Robber": 90,
@@ -3095,7 +3132,7 @@
           "Imitator": 67
         }
       },
-      "last_scraped": "2025-10-16T21:13:24.655082"
+      "last_scraped": "2025-10-17T19:05:33.938037"
     },
     "2932241": {
       "name": "Marnix0126",
@@ -3121,7 +3158,7 @@
         },
         "5": {
           "Robber": 90,
-          "Engineer": 88,
+          "Engineer": 90,
           "Enforcer": 90,
           "Hustler": 90,
           "Looter": 90,
@@ -3156,7 +3193,7 @@
           "Imitator": 68
         }
       },
-      "last_scraped": "2025-10-16T21:13:23.038506"
+      "last_scraped": "2025-10-17T19:05:32.477233"
     },
     "2983319": {
       "name": "EggStone",
@@ -3235,7 +3272,9 @@
           "Picklock": 88,
           "Techie": 86,
           "Negotiator": 86,
-          "Imitator": 86
+          "Imitator": 86,
+          "Hustler": 88,
+          "Engineer": 87
         },
         "6": {
           "Enforcer": 78,
@@ -3261,7 +3300,7 @@
           "Muscle": 54
         }
       },
-      "last_scraped": "2025-10-16T21:13:42.218534"
+      "last_scraped": "2025-10-17T19:05:50.255627"
     },
     "3058543": {
       "name": "Gank",
@@ -3289,7 +3328,7 @@
           "Imitator": 90
         },
         "5": {
-          "Engineer": 87,
+          "Engineer": 89,
           "Enforcer": 90,
           "Hustler": 90,
           "Robber": 90,
@@ -3325,7 +3364,7 @@
           "Robber": 62
         }
       },
-      "last_scraped": "2025-10-16T21:13:37.943139"
+      "last_scraped": "2025-10-17T19:05:46.345074"
     },
     "3130493": {
       "name": "DarthCheetoe",
@@ -3353,7 +3392,7 @@
           "Imitator": 89
         },
         "5": {
-          "Engineer": 86,
+          "Engineer": 87,
           "Hacker": 87,
           "Techie": 86,
           "Enforcer": 88,
@@ -3389,7 +3428,7 @@
           "Imitator": 58
         }
       },
-      "last_scraped": "2025-10-16T21:13:28.224333"
+      "last_scraped": "2025-10-17T19:05:37.535220"
     },
     "3136837": {
       "name": "Sanityloss",
@@ -3415,8 +3454,9 @@
           "Car Thief": 80,
           "Negotiator": 86,
           "Imitator": 85,
-          "Engineer": 85,
-          "Techie": 85
+          "Engineer": 87,
+          "Techie": 85,
+          "Hustler": 88
         },
         "6": {
           "Bomber": 76,
@@ -3430,7 +3470,7 @@
           "Engineer": 65,
           "Bomber": 67,
           "Muscle": 65,
-          "Hacker": 67
+          "Hacker": 68
         },
         "8": {
           "Cat Burglar": 59,
@@ -3442,7 +3482,7 @@
           "Thief": 56
         }
       },
-      "last_scraped": "2025-10-16T21:13:45.348228"
+      "last_scraped": "2025-10-17T19:05:53.132942"
     },
     "3208951": {
       "name": "Sour-Deez",
@@ -3467,7 +3507,7 @@
           "Imitator": 88
         },
         "5": {
-          "Engineer": 84,
+          "Engineer": 86,
           "Car Thief": 80,
           "Enforcer": 86,
           "Techie": 85,
@@ -3488,7 +3528,7 @@
         },
         "7": {
           "Picklock": 66,
-          "Hacker": 64,
+          "Hacker": 65,
           "Engineer": 61,
           "Bomber": 63,
           "Muscle": 62
@@ -3503,7 +3543,7 @@
           "Robber": 51
         }
       },
-      "last_scraped": "2025-10-16T21:13:37.589673"
+      "last_scraped": "2025-10-17T19:05:46.014495"
     },
     "3225628": {
       "name": "Polio",
@@ -3528,12 +3568,12 @@
           "Imitator": 87
         },
         "5": {
-          "Engineer": 82,
+          "Engineer": 84,
           "Picklock": 85,
           "Enforcer": 85,
           "Hacker": 82,
           "Car Thief": 74,
-          "Hustler": 85,
+          "Hustler": 86,
           "Robber": 85,
           "Looter": 85,
           "Techie": 80,
@@ -3564,7 +3604,7 @@
           "Imitator": 53
         }
       },
-      "last_scraped": "2025-10-16T21:13:37.239671"
+      "last_scraped": "2025-10-17T19:05:45.672790"
     },
     "3228747": {
       "name": "-Jesse-",
@@ -3585,9 +3625,10 @@
         },
         "5": {
           "Imitator": 82,
-          "Engineer": 81,
+          "Engineer": 85,
           "Negotiator": 78,
-          "Techie": 82
+          "Techie": 82,
+          "Hustler": 86
         },
         "6": {
           "Robber": 71,
@@ -3600,12 +3641,12 @@
           "Muscle": 61,
           "Picklock": 63,
           "Hacker": 62,
-          "Engineer": 58,
+          "Engineer": 59,
           "Bomber": 58
         },
         "8": {
-          "Imitator": 54,
-          "Cat Burglar": 54,
+          "Imitator": 55,
+          "Cat Burglar": 55,
           "Assassin": 43,
           "Cleaner": 54,
           "Robber": 51,
@@ -3613,7 +3654,7 @@
           "Muscle": 49
         }
       },
-      "last_scraped": "2025-10-16T21:13:49.731531"
+      "last_scraped": "2025-10-17T19:05:57.493098"
     },
     "3247125": {
       "name": "FARVA",
@@ -3641,15 +3682,16 @@
         "5": {
           "Techie": 85,
           "Picklock": 87,
-          "Engineer": 83,
+          "Engineer": 85,
           "Negotiator": 85,
-          "Imitator": 84
+          "Imitator": 84,
+          "Hustler": 87
         },
         "6": {
           "Enforcer": 74,
           "Bomber": 75,
           "Muscle": 72,
-          "Driver": 66,
+          "Driver": 67,
           "Robber": 75
         },
         "7": {
@@ -3669,7 +3711,7 @@
           "Cat Burglar": 56
         }
       },
-      "last_scraped": "2025-10-16T21:13:46.795758"
+      "last_scraped": "2025-10-17T19:05:54.441637"
     },
     "3249124": {
       "name": "F8TAL_3RR0R",
@@ -3700,7 +3742,7 @@
         "5": {
           "Imitator": 86,
           "Negotiator": 87,
-          "Engineer": 84,
+          "Engineer": 87,
           "Enforcer": 88,
           "Hustler": 88,
           "Robber": 87,
@@ -3727,14 +3769,14 @@
         "8": {
           "Muscle": 51,
           "Thief": 55,
-          "Cat Burglar": 58,
+          "Cat Burglar": 59,
           "Assassin": 51,
           "Robber": 54,
           "Cleaner": 58,
           "Imitator": 59
         }
       },
-      "last_scraped": "2025-10-16T21:13:35.474537"
+      "last_scraped": "2025-10-17T19:05:44.054912"
     },
     "3254805": {
       "name": "JDM",
@@ -3762,7 +3804,7 @@
           "Picklock": 82,
           "Imitator": 77,
           "Enforcer": 83,
-          "Engineer": 76,
+          "Engineer": 82,
           "Hustler": 84,
           "Robber": 82,
           "Looter": 82,
@@ -3781,7 +3823,7 @@
         "7": {
           "Picklock": 59,
           "Muscle": 52,
-          "Engineer": 52,
+          "Engineer": 53,
           "Hacker": 45,
           "Bomber": 46
         },
@@ -3795,7 +3837,7 @@
           "Imitator": 48
         }
       },
-      "last_scraped": "2025-10-16T21:13:36.199895"
+      "last_scraped": "2025-10-17T19:05:44.712142"
     },
     "3255379": {
       "name": "1337",
@@ -3820,10 +3862,11 @@
         },
         "5": {
           "Looter": 73,
-          "Engineer": 73,
+          "Engineer": 74,
           "Techie": 61,
           "Negotiator": 60,
-          "Imitator": 65
+          "Imitator": 65,
+          "Hustler": 72
         },
         "6": {
           "Enforcer": 50,
@@ -3849,7 +3892,7 @@
           "Cat Burglar": 37
         }
       },
-      "last_scraped": "2025-10-16T21:13:47.905661"
+      "last_scraped": "2025-10-17T19:05:55.884912"
     },
     "3279714": {
       "name": "Decim",
@@ -3884,7 +3927,7 @@
           "Imitator": 89
         },
         "5": {
-          "Engineer": 85,
+          "Engineer": 86,
           "Car Thief": 80,
           "Enforcer": 87,
           "Hustler": 87,
@@ -3920,7 +3963,7 @@
           "Imitator": 56
         }
       },
-      "last_scraped": "2025-10-16T21:13:34.019424"
+      "last_scraped": "2025-10-17T19:05:42.763828"
     },
     "3291056": {
       "name": "Helios-",
@@ -3946,10 +3989,11 @@
         },
         "5": {
           "Hacker": 73,
-          "Hustler": 84,
+          "Hustler": 85,
           "Techie": 73,
           "Negotiator": 74,
-          "Imitator": 79
+          "Imitator": 79,
+          "Engineer": 83
         },
         "6": {
           "Robber": 66,
@@ -3968,14 +4012,14 @@
         "8": {
           "Cat Burglar": 50,
           "Assassin": 38,
-          "Cleaner": 51,
+          "Cleaner": 52,
           "Imitator": 52,
           "Robber": 48,
           "Muscle": 46,
-          "Thief": 49
+          "Thief": 50
         }
       },
-      "last_scraped": "2025-10-16T21:13:41.465205"
+      "last_scraped": "2025-10-17T19:05:49.582005"
     },
     "3291843": {
       "name": "CouchMonster",
@@ -4002,11 +4046,12 @@
           "Imitator": 89
         },
         "5": {
-          "Engineer": 84,
+          "Engineer": 86,
           "Techie": 85,
           "Car Thief": 79,
           "Negotiator": 85,
-          "Imitator": 85
+          "Imitator": 85,
+          "Hustler": 87
         },
         "6": {
           "Enforcer": 75,
@@ -4023,7 +4068,7 @@
           "Hacker": 66
         },
         "8": {
-          "Cat Burglar": 57,
+          "Cat Burglar": 58,
           "Assassin": 51,
           "Cleaner": 57,
           "Imitator": 58,
@@ -4032,7 +4077,7 @@
           "Thief": 55
         }
       },
-      "last_scraped": "2025-10-16T21:13:42.561165"
+      "last_scraped": "2025-10-17T19:05:50.561035"
     },
     "3292192": {
       "name": "Jarnathan",
@@ -4061,7 +4106,7 @@
           "Robber": 87,
           "Techie": 85,
           "Hustler": 87,
-          "Engineer": 83,
+          "Engineer": 86,
           "Enforcer": 87,
           "Looter": 87,
           "Picklock": 87,
@@ -4093,7 +4138,7 @@
           "Imitator": 56
         }
       },
-      "last_scraped": "2025-10-16T21:13:26.973951"
+      "last_scraped": "2025-10-17T19:05:36.487626"
     },
     "3349449": {
       "name": "Mysdreavus",
@@ -4143,7 +4188,7 @@
         "7": {
           "Picklock": 62,
           "Muscle": 57,
-          "Engineer": 52,
+          "Engineer": 53,
           "Hacker": 60,
           "Bomber": 56
         },
@@ -4157,7 +4202,7 @@
           "Imitator": 39
         }
       },
-      "last_scraped": "2025-10-16T21:13:33.019340"
+      "last_scraped": "2025-10-17T19:05:41.920671"
     },
     "3355589": {
       "name": "Noodle2113",
@@ -4188,10 +4233,10 @@
           "Imitator": 78
         },
         "5": {
-          "Engineer": 72,
+          "Engineer": 75,
           "Looter": 75,
           "Enforcer": 69,
-          "Hustler": 67,
+          "Hustler": 68,
           "Robber": 74,
           "Hacker": 63,
           "Picklock": 75,
@@ -4220,11 +4265,11 @@
           "Cat Burglar": 46,
           "Assassin": 34,
           "Robber": 45,
-          "Cleaner": 31,
+          "Cleaner": 32,
           "Imitator": 30
         }
       },
-      "last_scraped": "2025-10-16T21:13:29.372683"
+      "last_scraped": "2025-10-17T19:05:38.496080"
     },
     "3380497": {
       "name": "absolutmayhem2u",
@@ -4278,7 +4323,7 @@
         },
         "5": {
           "Enforcer": 87,
-          "Engineer": 84,
+          "Engineer": 86,
           "Hustler": 87,
           "Robber": 87,
           "Looter": 87,
@@ -4313,7 +4358,7 @@
           "Imitator": 56
         }
       },
-      "last_scraped": "2025-10-16T21:13:26.546733"
+      "last_scraped": "2025-10-17T19:05:36.135259"
     },
     "3395364": {
       "name": "scrolllock404",
@@ -4337,12 +4382,13 @@
         },
         "5": {
           "Techie": 77,
-          "Engineer": 77,
+          "Engineer": 82,
           "Picklock": 81,
           "Looter": 81,
           "Negotiator": 76,
           "Car Thief": 71,
-          "Imitator": 76
+          "Imitator": 76,
+          "Hustler": 82
         },
         "6": {
           "Muscle": 63,
@@ -4354,7 +4400,7 @@
         "7": {
           "Picklock": 60,
           "Engineer": 51,
-          "Bomber": 53,
+          "Bomber": 54,
           "Muscle": 53,
           "Hacker": 51
         },
@@ -4368,7 +4414,7 @@
           "Thief": 48
         }
       },
-      "last_scraped": "2025-10-16T21:13:44.976079"
+      "last_scraped": "2025-10-17T19:05:52.794609"
     },
     "3437705": {
       "name": "Flamehusky",
@@ -4391,10 +4437,10 @@
           "Sniper": 88
         },
         "5": {
-          "Engineer": 79,
+          "Engineer": 80,
           "Looter": 77,
           "Robber": 76,
-          "Hustler": 78,
+          "Hustler": 80,
           "Techie": 72,
           "Negotiator": 69,
           "Imitator": 73
@@ -4402,7 +4448,7 @@
         "6": {
           "Muscle": 59,
           "Enforcer": 60,
-          "Driver": 50,
+          "Driver": 51,
           "Bomber": 54,
           "Robber": 63
         },
@@ -4415,15 +4461,15 @@
         },
         "8": {
           "Imitator": 42,
-          "Cat Burglar": 47,
+          "Cat Burglar": 48,
           "Assassin": 37,
-          "Cleaner": 45,
+          "Cleaner": 46,
           "Robber": 46,
           "Thief": 47,
           "Muscle": 40
         }
       },
-      "last_scraped": "2025-10-16T21:13:50.079035"
+      "last_scraped": "2025-10-17T19:05:57.822937"
     },
     "3447837": {
       "name": "Idzohra",
@@ -4449,9 +4495,9 @@
           "Imitator": 72
         },
         "5": {
-          "Engineer": 60,
+          "Engineer": 68,
           "Enforcer": 62,
-          "Hustler": 60,
+          "Hustler": 61,
           "Robber": 62,
           "Looter": 68,
           "Hacker": 57,
@@ -4485,7 +4531,7 @@
           "Imitator": 27
         }
       },
-      "last_scraped": "2025-10-16T21:13:33.368525"
+      "last_scraped": "2025-10-17T19:05:42.210207"
     },
     "3459507": {
       "name": "User_3459507",
@@ -4530,10 +4576,11 @@
           "Robber": 78,
           "Hacker": 78,
           "Looter": 77,
-          "Hustler": 76,
+          "Hustler": 77,
           "Techie": 75,
           "Negotiator": 68,
-          "Imitator": 70
+          "Imitator": 70,
+          "Engineer": 80
         },
         "6": {
           "Robber": 60,
@@ -4551,15 +4598,15 @@
         },
         "8": {
           "Cat Burglar": 45,
-          "Assassin": 33,
+          "Assassin": 34,
           "Cleaner": 46,
           "Imitator": 34,
           "Robber": 41,
           "Muscle": 35,
-          "Thief": 45
+          "Thief": 46
         }
       },
-      "last_scraped": "2025-10-16T21:13:40.400843"
+      "last_scraped": "2025-10-17T19:05:48.603015"
     },
     "3538517": {
       "name": "THARAGINCAJIN",
@@ -4588,9 +4635,9 @@
           "Imitator": 80
         },
         "5": {
-          "Engineer": 67,
+          "Engineer": 75,
           "Enforcer": 72,
-          "Hustler": 72,
+          "Hustler": 73,
           "Robber": 69,
           "Looter": 73,
           "Hacker": 64,
@@ -4611,20 +4658,20 @@
           "Picklock": 40,
           "Muscle": 44,
           "Engineer": 45,
-          "Hacker": 36,
+          "Hacker": 37,
           "Bomber": 36
         },
         "8": {
           "Muscle": 36,
           "Thief": 41,
           "Cat Burglar": 37,
-          "Assassin": 31,
+          "Assassin": 32,
           "Robber": 33,
           "Cleaner": 44,
           "Imitator": 37
         }
       },
-      "last_scraped": "2025-10-16T21:13:32.672120"
+      "last_scraped": "2025-10-17T19:05:41.580430"
     },
     "3623195": {
       "name": "Shaddyr",
@@ -4653,9 +4700,9 @@
           "Imitator": 74
         },
         "5": {
-          "Engineer": 61,
+          "Engineer": 70,
           "Enforcer": 64,
-          "Hustler": 62,
+          "Hustler": 64,
           "Robber": 62,
           "Looter": 69,
           "Hacker": 59,
@@ -4666,7 +4713,7 @@
           "Imitator": 57
         },
         "6": {
-          "Robber": 41,
+          "Robber": 42,
           "Driver": 37,
           "Bomber": 40,
           "Muscle": 47,
@@ -4689,7 +4736,7 @@
           "Imitator": 26
         }
       },
-      "last_scraped": "2025-10-16T21:13:30.427555"
+      "last_scraped": "2025-10-17T19:05:39.561845"
     },
     "3629708": {
       "name": "CaptShen",
@@ -4716,28 +4763,34 @@
           "Lookout": 83
         },
         "5": {
-          "Engineer": 69,
-          "Negotiator": 55
+          "Engineer": 72,
+          "Negotiator": 55,
+          "Hustler": 67
         },
         "6": {
           "Robber": 54,
-          "Driver": 39,
+          "Driver": 40,
           "Bomber": 47,
-          "Muscle": 49
+          "Muscle": 49,
+          "Enforcer": 43
         },
         "7": {
           "Picklock": 49,
           "Hacker": 32,
           "Engineer": 41,
-          "Muscle": 40
+          "Muscle": 40,
+          "Bomber": 38
         },
         "8": {
           "Assassin": 30,
           "Thief": 24,
-          "Muscle": 32
+          "Muscle": 32,
+          "Imitator": 27,
+          "Cat Burglar": 42,
+          "Cleaner": 41
         }
       },
-      "last_scraped": "2025-10-16T21:13:51.526139"
+      "last_scraped": "2025-10-17T19:05:59.026392"
     },
     "3663303": {
       "name": "mcswagger",
@@ -4763,7 +4816,9 @@
         "5": {
           "Techie": 57,
           "Negotiator": 52,
-          "Imitator": 56
+          "Imitator": 56,
+          "Hustler": 64,
+          "Engineer": 70
         },
         "6": {
           "Robber": 48,
@@ -4773,14 +4828,14 @@
           "Muscle": 46
         },
         "7": {
-          "Picklock": 39,
+          "Picklock": 40,
           "Engineer": 40,
           "Bomber": 33,
           "Muscle": 38,
           "Hacker": 27
         },
         "8": {
-          "Cat Burglar": 34,
+          "Cat Burglar": 35,
           "Assassin": 28,
           "Cleaner": 39,
           "Imitator": 24,
@@ -4789,7 +4844,7 @@
           "Thief": 42
         }
       },
-      "last_scraped": "2025-10-16T21:13:44.293165"
+      "last_scraped": "2025-10-17T19:05:52.107339"
     },
     "3680626": {
       "name": "Chef_Tris",
@@ -4817,9 +4872,9 @@
           "Imitator": 72
         },
         "5": {
-          "Engineer": 59,
+          "Engineer": 67,
           "Enforcer": 61,
-          "Hustler": 59,
+          "Hustler": 61,
           "Robber": 62,
           "Looter": 67,
           "Hacker": 56,
@@ -4830,7 +4885,7 @@
           "Imitator": 55
         },
         "6": {
-          "Robber": 44,
+          "Robber": 45,
           "Driver": 36,
           "Bomber": 39,
           "Muscle": 47,
@@ -4853,7 +4908,7 @@
           "Imitator": 25
         }
       },
-      "last_scraped": "2025-10-16T21:13:25.482976"
+      "last_scraped": "2025-10-17T19:05:35.121900"
     },
     "3711308": {
       "name": "Ceq",
@@ -4932,31 +4987,38 @@
           "Sniper": 90
         },
         "5": {
-          "Negotiator": 82
+          "Negotiator": 82,
+          "Hustler": 86,
+          "Engineer": 86
         },
         "6": {
           "Robber": 71,
           "Driver": 69,
           "Bomber": 71,
-          "Muscle": 67
+          "Muscle": 67,
+          "Enforcer": 71
         },
         "7": {
           "Picklock": 63,
           "Hacker": 64,
           "Engineer": 61,
-          "Muscle": 55
+          "Muscle": 55,
+          "Bomber": 62
         },
         "8": {
           "Assassin": 44,
           "Thief": 54,
-          "Muscle": 39
+          "Muscle": 39,
+          "Imitator": 50,
+          "Cat Burglar": 56,
+          "Cleaner": 51
         }
       },
-      "last_scraped": "2025-10-16T21:13:51.183592"
+      "last_scraped": "2025-10-17T19:05:58.733879"
     }
   },
   "metadata": {
-    "last_updated": "2025-10-16T21:13:51.526218",
+    "last_updated": "2025-10-17T19:05:59.026472",
     "total_members": 97,
     "version": "1.0"
   }
