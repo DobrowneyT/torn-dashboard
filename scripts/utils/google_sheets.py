@@ -12,6 +12,13 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    logging.warning("pandas not available - DataFrame methods will not work")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -50,6 +57,7 @@ class GoogleSheetsManager:
             raise ValueError("spreadsheet_id must be provided or set in GOOGLE_SHEETS_ID environment variable")
         
         self.service = self._authenticate()
+        self._sheet_id_cache = {}  # Cache for sheet IDs
         logger.info(f"Initialized Google Sheets manager for spreadsheet: {self.spreadsheet_id}")
     
     def _authenticate(self):
@@ -66,6 +74,38 @@ class GoogleSheetsManager:
         except Exception as e:
             logger.error(f"Failed to authenticate with Google Sheets: {e}")
             raise GoogleSheetsError(f"Authentication failed: {e}")
+    
+    def _get_sheet_id(self, sheet_name: str) -> int:
+        """
+        Get the internal sheet ID for a given sheet name
+        Used for batch updates
+        
+        Args:
+            sheet_name: Name of the sheet
+            
+        Returns:
+            Sheet ID (integer)
+        """
+        # Check cache first
+        if sheet_name in self._sheet_id_cache:
+            return self._sheet_id_cache[sheet_name]
+        
+        try:
+            metadata = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+            
+            for sheet in metadata.get('sheets', []):
+                if sheet['properties']['title'] == sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    self._sheet_id_cache[sheet_name] = sheet_id
+                    return sheet_id
+            
+            raise GoogleSheetsError(f"Sheet '{sheet_name}' not found")
+            
+        except HttpError as e:
+            logger.error(f"Error getting sheet ID for {sheet_name}: {e}")
+            raise GoogleSheetsError(f"Failed to get sheet ID: {e}")
     
     def _get_range_notation(self, sheet_name: str, range_str: str) -> str:
         """
@@ -138,6 +178,31 @@ class GoogleSheetsManager:
         except HttpError as e:
             logger.error(f"Error writing to range {range_notation}: {e}")
             raise GoogleSheetsError(f"Failed to write range: {e}")
+    
+    def batch_update(self, requests: List[Dict]) -> bool:
+        """
+        Execute batch update requests
+        
+        Args:
+            requests: List of update request objects
+            
+        Returns:
+            True if successful
+        """
+        try:
+            body = {'requests': requests}
+            
+            result = self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            
+            logger.info(f"Batch update completed: {len(requests)} requests processed")
+            return True
+            
+        except HttpError as e:
+            logger.error(f"Error in batch update: {e}")
+            raise GoogleSheetsError(f"Failed to batch update: {e}")
     
     def append_rows(self, sheet_name: str, values: List[List[Any]], 
                     value_input_option: str = 'USER_ENTERED') -> bool:
@@ -228,11 +293,11 @@ class GoogleSheetsManager:
         """
         return self.write_range(sheet_name, cell, [[value]])
     
-    # ==================== Dashboard Operations ====================
+    # ==================== BATCH UPDATE METHODS ====================
     
-    def update_dashboard_stats(self, stats: Dict[str, Any]) -> bool:
+    def update_dashboard_stats_batch(self, stats: Dict[str, Any]) -> bool:
         """
-        Update dashboard statistics
+        Update dashboard statistics using batch update (more efficient)
         
         Args:
             stats: Dictionary containing dashboard metrics
@@ -240,13 +305,326 @@ class GoogleSheetsManager:
                 - pending_crimes: Number of pending crimes
                 - completed_this_week: Crimes completed this week
                 - active_members: Number of active members
-                - last_update: Timestamp of last update
                 
         Returns:
             True if successful
         """
         try:
+            sheet_id = self._get_sheet_id(self.SHEET_DASHBOARD)
+            
             # Prepare data rows
+            data_rows = [
+                [{"userEnteredValue": {"stringValue": "Last Updated"}}, 
+                 {"userEnteredValue": {"stringValue": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}}],
+                [{"userEnteredValue": {"stringValue": "Total Crimes"}}, 
+                 {"userEnteredValue": {"numberValue": stats.get('total_crimes', 0)}}],
+                [{"userEnteredValue": {"stringValue": "Pending Crimes"}}, 
+                 {"userEnteredValue": {"numberValue": stats.get('pending_crimes', 0)}}],
+                [{"userEnteredValue": {"stringValue": "Completed This Week"}}, 
+                 {"userEnteredValue": {"numberValue": stats.get('completed_this_week', 0)}}],
+                [{"userEnteredValue": {"stringValue": "Active Members"}}, 
+                 {"userEnteredValue": {"numberValue": stats.get('active_members', 0)}}],
+            ]
+            
+            requests = [{
+                'updateCells': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 1,  # Row 2 (0-indexed)
+                        'endRowIndex': 6,    # Row 6
+                        'startColumnIndex': 0,  # Column A
+                        'endColumnIndex': 2     # Column B
+                    },
+                    'rows': [{'values': row} for row in data_rows],
+                    'fields': 'userEnteredValue'
+                }
+            }]
+            
+            self.batch_update(requests)
+            logger.info("Updated dashboard statistics (batch)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating dashboard: {e}")
+            raise GoogleSheetsError(f"Failed to update dashboard: {e}")
+    
+    def update_dashboard_pending_crimes_batch(self, crimes: List[Dict]) -> bool:
+        """
+        Update pending crimes list on dashboard using batch update
+        
+        Args:
+            crimes: List of pending crime dictionaries
+            
+        Returns:
+            True if successful
+        """
+        try:
+            sheet_id = self._get_sheet_id(self.SHEET_DASHBOARD)
+            
+            # Prepare header row
+            header_row = [
+                {"userEnteredValue": {"stringValue": "Crime ID"}},
+                {"userEnteredValue": {"stringValue": "Name"}},
+                {"userEnteredValue": {"stringValue": "Difficulty"}},
+                {"userEnteredValue": {"stringValue": "Status"}},
+                {"userEnteredValue": {"stringValue": "Slots"}},
+                {"userEnteredValue": {"stringValue": "Created"}}
+            ]
+            
+            # Prepare crime data rows
+            data_rows = [header_row]
+            
+            for crime in crimes[:50]:  # Limit to 50
+                row = [
+                    {"userEnteredValue": {"numberValue": crime.get('id', 0)}},
+                    {"userEnteredValue": {"stringValue": crime.get('name', '')}},
+                    {"userEnteredValue": {"numberValue": crime.get('difficulty', 0)}},
+                    {"userEnteredValue": {"stringValue": crime.get('status', '')}},
+                    {"userEnteredValue": {"stringValue": f"{crime.get('filled_slots', 0)}/{crime.get('total_slots', 0)}"}},
+                    {"userEnteredValue": {"stringValue": datetime.fromtimestamp(crime.get('created_at', 0)).strftime("%Y-%m-%d %H:%M") if crime.get('created_at') else ''}}
+                ]
+                data_rows.append(row)
+            
+            # Calculate range
+            end_row = 15 + len(data_rows)  # Start at row 16, add all rows
+            
+            requests = [
+                # Clear the range first
+                {
+                    'updateCells': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 15,  # Row 16
+                            'endRowIndex': 100,   # Clear up to row 100
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 6
+                        },
+                        'fields': 'userEnteredValue'
+                    }
+                },
+                # Write new data
+                {
+                    'updateCells': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 15,  # Row 16
+                            'endRowIndex': end_row,
+                            'startColumnIndex': 0,  # Column A
+                            'endColumnIndex': 6     # Column F
+                        },
+                        'rows': [{'values': row} for row in data_rows],
+                        'fields': 'userEnteredValue'
+                    }
+                }
+            ]
+            
+            self.batch_update(requests)
+            logger.info(f"Updated dashboard with {len(crimes)} pending crimes (batch)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating pending crimes: {e}")
+            raise GoogleSheetsError(f"Failed to update pending crimes: {e}")
+    
+    def write_crime_log_batch(self, crime_rows: List[List[Any]]) -> bool:
+        """
+        Write crime log data to Crime_Log sheet using batch update
+        
+        Args:
+            crime_rows: List of crime data rows
+                Each row: [id, name, difficulty, status, slots, created, executed, participants]
+                
+        Returns:
+            True if successful
+        """
+        try:
+            sheet_id = self._get_sheet_id(self.SHEET_CRIME_LOG)
+            
+            # Prepare header
+            header = [
+                {"userEnteredValue": {"stringValue": "Crime ID"}},
+                {"userEnteredValue": {"stringValue": "Crime Name"}},
+                {"userEnteredValue": {"stringValue": "Difficulty"}},
+                {"userEnteredValue": {"stringValue": "Status"}},
+                {"userEnteredValue": {"stringValue": "Slots Filled"}},
+                {"userEnteredValue": {"stringValue": "Created At"}},
+                {"userEnteredValue": {"stringValue": "Executed At"}},
+                {"userEnteredValue": {"stringValue": "Participants"}}
+            ]
+            
+            # Convert crime rows to cell format
+            formatted_rows = [header]
+            for row in crime_rows:
+                formatted_row = []
+                for i, cell in enumerate(row):
+                    if i in [0, 2]:  # Crime ID and Difficulty are numbers
+                        formatted_row.append({"userEnteredValue": {"numberValue": cell if cell else 0}})
+                    else:
+                        formatted_row.append({"userEnteredValue": {"stringValue": str(cell) if cell else ''}})
+                formatted_rows.append(formatted_row)
+            
+            end_row = len(formatted_rows)
+            
+            requests = [
+                # Clear existing data
+                {
+                    'updateCells': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 0,
+                            'endRowIndex': 10000,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 8
+                        },
+                        'fields': 'userEnteredValue'
+                    }
+                },
+                # Write new data
+                {
+                    'updateCells': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 0,
+                            'endRowIndex': end_row,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 8
+                        },
+                        'rows': [{'values': row} for row in formatted_rows],
+                        'fields': 'userEnteredValue'
+                    }
+                }
+            ]
+            
+            self.batch_update(requests)
+            logger.info(f"Wrote {len(crime_rows)} crimes to Crime_Log sheet (batch)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error writing crime log: {e}")
+            raise GoogleSheetsError(f"Failed to write crime log: {e}")
+    
+    # ==================== PANDAS DATAFRAME METHODS ====================
+    
+    def write_dataframe_to_sheet(self, df: 'pd.DataFrame', sheet_name: str, 
+                                  start_row: int = 1, start_col: int = 1,
+                                  include_index: bool = False) -> bool:
+        """
+        Write a pandas DataFrame to a Google Sheet
+        
+        Args:
+            df: pandas DataFrame to write
+            sheet_name: Name of the target sheet
+            start_row: Starting row (1-indexed)
+            start_col: Starting column (1-indexed)
+            include_index: Whether to include the DataFrame index
+            
+        Returns:
+            True if successful
+        """
+        if not PANDAS_AVAILABLE:
+            raise GoogleSheetsError("pandas is not installed. Install with: pip install pandas")
+        
+        try:
+            logger.info(f"Writing DataFrame to sheet '{sheet_name}' ({len(df)} rows, {len(df.columns)} columns)")
+            
+            # Convert DataFrame to list of lists
+            if include_index:
+                # Include index as first column
+                headers = ['Index'] + df.columns.tolist()
+                data = [[idx] + row.tolist() for idx, row in df.iterrows()]
+            else:
+                headers = df.columns.tolist()
+                data = df.values.tolist()
+            
+            # Combine headers and data
+            all_data = [headers] + data
+            
+            # Convert to column letters
+            def num_to_col(n):
+                """Convert column number to letter (1 -> A, 27 -> AA)"""
+                result = ""
+                while n > 0:
+                    n -= 1
+                    result = chr(65 + (n % 26)) + result
+                    n //= 26
+                return result
+            
+            start_col_letter = num_to_col(start_col)
+            end_col_letter = num_to_col(start_col + len(headers) - 1)
+            end_row = start_row + len(all_data) - 1
+            
+            range_str = f"{start_col_letter}{start_row}:{end_col_letter}{end_row}"
+            
+            logger.info(f"Writing to range: {sheet_name}!{range_str}")
+            
+            # Write using standard method
+            self.write_range(sheet_name, range_str, all_data, value_input_option='RAW')
+            
+            logger.info(f"✓ Successfully wrote DataFrame to {sheet_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error writing DataFrame to sheet: {e}")
+            raise GoogleSheetsError(f"Failed to write DataFrame: {e}")
+    
+    def read_sheet_to_dataframe(self, sheet_name: str, range_str: Optional[str] = None,
+                                header_row: int = 0) -> 'pd.DataFrame':
+        """
+        Read a Google Sheet range into a pandas DataFrame
+        
+        Args:
+            sheet_name: Name of the sheet
+            range_str: Optional range (e.g., "A1:F100"). If None, reads entire sheet
+            header_row: Which row contains headers (0-indexed)
+            
+        Returns:
+            pandas DataFrame
+        """
+        if not PANDAS_AVAILABLE:
+            raise GoogleSheetsError("pandas is not installed. Install with: pip install pandas")
+        
+        try:
+            # Read the range
+            if range_str:
+                values = self.read_range(sheet_name, range_str)
+            else:
+                values = self.read_range(sheet_name, "A1:ZZ10000")
+            
+            if not values:
+                logger.warning(f"No data found in {sheet_name}")
+                return pd.DataFrame()
+            
+            # Extract headers and data
+            if len(values) > header_row:
+                headers = values[header_row]
+                data = values[header_row + 1:]
+            else:
+                headers = values[0] if values else []
+                data = []
+            
+            # Create DataFrame
+            df = pd.DataFrame(data, columns=headers)
+            
+            logger.info(f"Read {len(df)} rows from {sheet_name} into DataFrame")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error reading sheet to DataFrame: {e}")
+            raise GoogleSheetsError(f"Failed to read DataFrame: {e}")
+    
+    # ==================== Dashboard Operations (Original) ====================
+    
+    def update_dashboard_stats(self, stats: Dict[str, Any]) -> bool:
+        """
+        Update dashboard statistics (standard method - use batch version for efficiency)
+        
+        Args:
+            stats: Dictionary containing dashboard metrics
+                
+        Returns:
+            True if successful
+        """
+        try:
             values = [
                 ["Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
                 ["Total Crimes", stats.get('total_crimes', 0)],
@@ -265,7 +643,7 @@ class GoogleSheetsManager:
     
     def update_dashboard_pending_crimes(self, crimes: List[Dict]) -> bool:
         """
-        Update pending crimes list on dashboard
+        Update pending crimes list on dashboard (standard method)
         
         Args:
             crimes: List of pending crime dictionaries
@@ -283,18 +661,19 @@ class GoogleSheetsManager:
             
             # Prepare crime data
             crime_rows = []
-            for crime in crimes[:50]:  # Limit to 50 most recent
+            for crime in crimes[:50]:
                 crime_rows.append([
                     crime.get('id', ''),
                     crime.get('name', ''),
                     crime.get('difficulty', ''),
                     crime.get('status', ''),
-                    f"{len(crime.get('participants', []))}/{crime.get('slots', 0)}",
-                    datetime.fromtimestamp(crime.get('created_at', 0)).strftime("%Y-%m-%d %H:%M")
+                    f"{crime.get('filled_slots', 0)}/{crime.get('total_slots', 0)}",
+                    datetime.fromtimestamp(crime.get('created_at', 0)).strftime("%Y-%m-%d %H:%M") if crime.get('created_at') else ''
                 ])
             
             if crime_rows:
-                self.write_range(self.SHEET_DASHBOARD, "A17:F" + str(10 + len(crime_rows)), crime_rows)
+                end_row = 16 + len(crime_rows)
+                self.write_range(self.SHEET_DASHBOARD, f"A17:F{end_row}", crime_rows)
             
             logger.info(f"Updated dashboard with {len(crime_rows)} pending crimes")
             return True
@@ -302,6 +681,308 @@ class GoogleSheetsManager:
         except Exception as e:
             logger.error(f"Error updating pending crimes: {e}")
             raise GoogleSheetsError(f"Failed to update pending crimes: {e}")
+
+
+
+# import os
+# import logging
+# from typing import Dict, List, Optional, Any, Tuple
+# from datetime import datetime
+
+# from google.oauth2 import service_account
+# from googleapiclient.discovery import build
+# from googleapiclient.errors import HttpError
+
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
+
+
+# class GoogleSheetsError(Exception):
+#     """Custom exception for Google Sheets errors"""
+#     pass
+
+
+# class GoogleSheetsManager:
+#     """Manage Google Sheets operations for OC system"""
+    
+#     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+    
+#     # Sheet names
+#     SHEET_DASHBOARD = "Dashboard"
+#     SHEET_CRIME_LOG = "Crime_Log"
+#     SHEET_WEEKLY_ANALYSIS = "Weekly_Analysis"
+#     SHEET_PAYOUT = "Payout_Calculator"
+#     SHEET_CONFIG = "Config"
+#     SHEET_MEMBERS = "Members"
+#     SHEET_ITEM_OUTCOMES = "item_outcomes"
+    
+#     def __init__(self, credentials_file: str = 'google_credentials.json', spreadsheet_id: Optional[str] = None):
+#         """
+#         Initialize Google Sheets manager
+        
+#         Args:
+#             credentials_file: Path to service account credentials JSON
+#             spreadsheet_id: Google Sheets spreadsheet ID
+#         """
+#         self.credentials_file = credentials_file
+#         self.spreadsheet_id = spreadsheet_id or os.environ.get('GOOGLE_SHEETS_ID')
+        
+#         if not self.spreadsheet_id:
+#             raise ValueError("spreadsheet_id must be provided or set in GOOGLE_SHEETS_ID environment variable")
+        
+#         self.service = self._authenticate()
+#         logger.info(f"Initialized Google Sheets manager for spreadsheet: {self.spreadsheet_id}")
+    
+#     def _authenticate(self):
+#         """Authenticate with Google Sheets API"""
+#         try:
+#             credentials = service_account.Credentials.from_service_account_file(
+#                 self.credentials_file,
+#                 scopes=self.SCOPES
+#             )
+#             service = build('sheets', 'v4', credentials=credentials)
+#             logger.info("Successfully authenticated with Google Sheets")
+#             return service
+            
+#         except Exception as e:
+#             logger.error(f"Failed to authenticate with Google Sheets: {e}")
+#             raise GoogleSheetsError(f"Authentication failed: {e}")
+    
+#     def _get_range_notation(self, sheet_name: str, range_str: str) -> str:
+#         """
+#         Get A1 notation for a range
+        
+#         Args:
+#             sheet_name: Name of the sheet
+#             range_str: Range in A1 notation (e.g., "A1:B10")
+            
+#         Returns:
+#             Full range notation (e.g., "Dashboard!A1:B10")
+#         """
+#         return f"{sheet_name}!{range_str}"
+    
+#     def read_range(self, sheet_name: str, range_str: str) -> List[List[Any]]:
+#         """
+#         Read values from a range
+        
+#         Args:
+#             sheet_name: Name of the sheet
+#             range_str: Range in A1 notation
+            
+#         Returns:
+#             List of rows, each row is a list of values
+#         """
+#         try:
+#             range_notation = self._get_range_notation(sheet_name, range_str)
+#             result = self.service.spreadsheets().values().get(
+#                 spreadsheetId=self.spreadsheet_id,
+#                 range=range_notation
+#             ).execute()
+            
+#             values = result.get('values', [])
+#             logger.info(f"Read {len(values)} rows from {range_notation}")
+#             return values
+            
+#         except HttpError as e:
+#             logger.error(f"Error reading range {range_notation}: {e}")
+#             raise GoogleSheetsError(f"Failed to read range: {e}")
+    
+#     def write_range(self, sheet_name: str, range_str: str, values: List[List[Any]], 
+#                     value_input_option: str = 'USER_ENTERED') -> bool:
+#         """
+#         Write values to a range
+        
+#         Args:
+#             sheet_name: Name of the sheet
+#             range_str: Range in A1 notation
+#             values: 2D array of values to write
+#             value_input_option: How to interpret input ('RAW' or 'USER_ENTERED')
+            
+#         Returns:
+#             True if successful
+#         """
+#         try:
+#             range_notation = self._get_range_notation(sheet_name, range_str)
+#             body = {'values': values}
+            
+#             result = self.service.spreadsheets().values().update(
+#                 spreadsheetId=self.spreadsheet_id,
+#                 range=range_notation,
+#                 valueInputOption=value_input_option,
+#                 body=body
+#             ).execute()
+            
+#             updated_cells = result.get('updatedCells', 0)
+#             logger.info(f"Updated {updated_cells} cells in {range_notation}")
+#             return True
+            
+#         except HttpError as e:
+#             logger.error(f"Error writing to range {range_notation}: {e}")
+#             raise GoogleSheetsError(f"Failed to write range: {e}")
+    
+#     def append_rows(self, sheet_name: str, values: List[List[Any]], 
+#                     value_input_option: str = 'USER_ENTERED') -> bool:
+#         """
+#         Append rows to the end of a sheet
+        
+#         Args:
+#             sheet_name: Name of the sheet
+#             values: 2D array of values to append
+#             value_input_option: How to interpret input
+            
+#         Returns:
+#             True if successful
+#         """
+#         try:
+#             body = {'values': values}
+            
+#             result = self.service.spreadsheets().values().append(
+#                 spreadsheetId=self.spreadsheet_id,
+#                 range=sheet_name,
+#                 valueInputOption=value_input_option,
+#                 insertDataOption='INSERT_ROWS',
+#                 body=body
+#             ).execute()
+            
+#             updated_rows = result.get('updates', {}).get('updatedRows', 0)
+#             logger.info(f"Appended {updated_rows} rows to {sheet_name}")
+#             return True
+            
+#         except HttpError as e:
+#             logger.error(f"Error appending to {sheet_name}: {e}")
+#             raise GoogleSheetsError(f"Failed to append rows: {e}")
+    
+#     def clear_range(self, sheet_name: str, range_str: str) -> bool:
+#         """
+#         Clear values in a range
+        
+#         Args:
+#             sheet_name: Name of the sheet
+#             range_str: Range in A1 notation
+            
+#         Returns:
+#             True if successful
+#         """
+#         try:
+#             range_notation = self._get_range_notation(sheet_name, range_str)
+            
+#             self.service.spreadsheets().values().clear(
+#                 spreadsheetId=self.spreadsheet_id,
+#                 range=range_notation,
+#                 body={}
+#             ).execute()
+            
+#             logger.info(f"Cleared range {range_notation}")
+#             return True
+            
+#         except HttpError as e:
+#             logger.error(f"Error clearing range {range_notation}: {e}")
+#             raise GoogleSheetsError(f"Failed to clear range: {e}")
+    
+#     def read_cell(self, sheet_name: str, cell: str) -> Any:
+#         """
+#         Read a single cell value
+        
+#         Args:
+#             sheet_name: Name of the sheet
+#             cell: Cell in A1 notation (e.g., "B10")
+            
+#         Returns:
+#             Cell value or None if empty
+#         """
+#         values = self.read_range(sheet_name, cell)
+#         if values and values[0]:
+#             return values[0][0]
+#         return None
+    
+#     def write_cell(self, sheet_name: str, cell: str, value: Any) -> bool:
+#         """
+#         Write to a single cell
+        
+#         Args:
+#             sheet_name: Name of the sheet
+#             cell: Cell in A1 notation
+#             value: Value to write
+            
+#         Returns:
+#             True if successful
+#         """
+#         return self.write_range(sheet_name, cell, [[value]])
+    
+#     # ==================== Dashboard Operations ====================
+    
+#     def update_dashboard_stats(self, stats: Dict[str, Any]) -> bool:
+#         """
+#         Update dashboard statistics
+        
+#         Args:
+#             stats: Dictionary containing dashboard metrics
+#                 - total_crimes: Total crimes in database
+#                 - pending_crimes: Number of pending crimes
+#                 - completed_this_week: Crimes completed this week
+#                 - active_members: Number of active members
+#                 - last_update: Timestamp of last update
+                
+#         Returns:
+#             True if successful
+#         """
+#         try:
+#             # Prepare data rows
+#             values = [
+#                 ["Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+#                 ["Total Crimes", stats.get('total_crimes', 0)],
+#                 ["Pending Crimes", stats.get('pending_crimes', 0)],
+#                 ["Completed This Week", stats.get('completed_this_week', 0)],
+#                 ["Active Members", stats.get('active_members', 0)],
+#             ]
+            
+#             self.write_range(self.SHEET_DASHBOARD, "A2:B6", values)
+#             logger.info("Updated dashboard statistics")
+#             return True
+            
+#         except Exception as e:
+#             logger.error(f"Error updating dashboard: {e}")
+#             raise GoogleSheetsError(f"Failed to update dashboard: {e}")
+    
+#     def update_dashboard_pending_crimes(self, crimes: List[Dict]) -> bool:
+#         """
+#         Update pending crimes list on dashboard
+        
+#         Args:
+#             crimes: List of pending crime dictionaries
+            
+#         Returns:
+#             True if successful
+#         """
+#         try:
+#             # Clear existing data
+#             self.clear_range(self.SHEET_DASHBOARD, "A16:F100")
+            
+#             # Write headers
+#             headers = [["Crime ID", "Name", "Difficulty", "Status", "Slots", "Created"]]
+#             self.write_range(self.SHEET_DASHBOARD, "A16:F16", headers)
+            
+#             # Prepare crime data
+#             crime_rows = []
+#             for crime in crimes[:50]:  # Limit to 50 most recent
+#                 crime_rows.append([
+#                     crime.get('id', ''),
+#                     crime.get('name', ''),
+#                     crime.get('difficulty', ''),
+#                     crime.get('status', ''),
+#                     f"{len(crime.get('participants', []))}/{crime.get('slots', 0)}",
+#                     datetime.fromtimestamp(crime.get('created_at', 0)).strftime("%Y-%m-%d %H:%M")
+#                 ])
+            
+#             if crime_rows:
+#                 self.write_range(self.SHEET_DASHBOARD, "A17:F" + str(10 + len(crime_rows)), crime_rows)
+            
+#             logger.info(f"Updated dashboard with {len(crime_rows)} pending crimes")
+#             return True
+            
+#         except Exception as e:
+#             logger.error(f"Error updating pending crimes: {e}")
+#             raise GoogleSheetsError(f"Failed to update pending crimes: {e}")
     
     # ==================== Config Operations ====================
     
@@ -1272,11 +1953,9 @@ if __name__ == "__main__":
     if sheets.test_connection():
         print("✓ Connection successful")
         
-        # Get sheet properties
         props = sheets.get_sheet_properties()
         print(f"✓ Spreadsheet: {props.get('properties', {}).get('title', 'Unknown')}")
         
-        # Test reading config
         print("\nTesting config read...")
         try:
             config = sheets.read_config()
@@ -1284,12 +1963,17 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"⚠ Config read failed (sheet may not exist yet): {e}")
         
-        # Test status update
         print("\nTesting status update...")
         try:
             sheets.update_status("Test successful at " + datetime.now().strftime("%H:%M:%S"))
             print("✓ Status update successful")
         except Exception as e:
             print(f"⚠ Status update failed: {e}")
+        
+        # Test pandas integration if available
+        if PANDAS_AVAILABLE:
+            print("\n✓ pandas is available - DataFrame methods enabled")
+        else:
+            print("\n⚠ pandas not available - install with: pip install pandas")
     else:
         print("✗ Connection failed")
