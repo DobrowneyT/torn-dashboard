@@ -487,6 +487,9 @@ class CrimeDataUpdater:
         
         # EXPERIMENTAL: Write crimes to "test" sheet using pandas DataFrame
         self._write_crimes_to_test_sheet_pandas(crimes_db)
+
+        # NEW: Write CPR database to 'cpr_database' sheet
+        self._write_cpr_database_to_sheet_pandas()
         
         logger.info("Google Sheets updated successfully")
     
@@ -619,6 +622,81 @@ class CrimeDataUpdater:
             logger.error(f"Error writing to test sheet: {e}")
             import traceback
             traceback.print_exc()
+
+    def _write_cpr_database_to_sheet_pandas(self):
+        """
+        Write CPR database to 'cpr_database' sheet using pandas DataFrame
+        Flattens the nested JSON structure into columns for easy viewing
+        """
+        logger.info("Writing CPR database to 'cpr_database' sheet using pandas DataFrame")
+        
+        try:
+            # Load CPR database
+            cpr_data = self.storage.read_json('cpr_database.json')
+            
+            if not cpr_data or 'members' not in cpr_data:
+                logger.warning("No CPR data found to write")
+                return
+            
+            members_data = cpr_data['members']
+            
+            # Flatten the nested structure into rows
+            flattened_rows = []
+            
+            for member_id, member_info in members_data.items():
+                member_name = member_info.get('name', 'Unknown')
+                last_scraped = member_info.get('last_scraped', '')
+                cpr_by_role = member_info.get('cpr_by_role', {})
+                
+                # For each difficulty level
+                for difficulty, roles in cpr_by_role.items():
+                    # For each role in that difficulty
+                    for role_name, cpr_score in roles.items():
+                        flattened_rows.append({
+                            'Member ID': int(member_id),
+                            'Member Name': member_name,
+                            'Difficulty': int(difficulty),
+                            'Role': role_name,
+                            'CPR Score': int(cpr_score),
+                            'Last Scraped': last_scraped
+                        })
+            
+            if not flattened_rows:
+                logger.warning("No CPR data to write (empty dataset)")
+                return
+            
+            # Create DataFrame
+            df = pd.DataFrame(flattened_rows)
+            
+            # Sort for better readability: by Member ID, then Difficulty, then Role
+            df = df.sort_values(['Member ID', 'Difficulty', 'Role'])
+            
+            # Reset index for clean display
+            df = df.reset_index(drop=True)
+            
+            logger.info(f"Created CPR DataFrame with {len(df)} rows")
+            logger.info(f"Columns: {', '.join(df.columns)}")
+            logger.info(f"Members: {df['Member ID'].nunique()}")
+            logger.info(f"Difficulty levels: {sorted(df['Difficulty'].unique())}")
+            
+            # Write to 'cpr_database' sheet using pandas integration
+            self.sheets.write_dataframe_to_sheet(df, sheet_name='cpr_database')
+            
+            logger.info("✓ Successfully wrote CPR database to 'cpr_database' sheet")
+            
+            # Log some summary stats
+            summary_stats = df.groupby('Difficulty')['CPR Score'].agg(['mean', 'min', 'max']).round(2)
+            logger.info("\nCPR Summary by Difficulty:")
+            for difficulty in sorted(summary_stats.index):
+                stats = summary_stats.loc[difficulty]
+                logger.info(f"  Level {difficulty}: Avg={stats['mean']}, Min={stats['min']}, Max={stats['max']}")
+            
+        except Exception as e:
+            logger.error(f"Error writing CPR database to sheet: {e}")
+            import traceback
+            traceback.print_exc()
+
+
 
 
 def main():
