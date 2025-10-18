@@ -527,6 +527,9 @@ class GoogleSheetsManager:
         try:
             logger.info(f"Writing DataFrame to sheet '{sheet_name}' ({len(df)} rows, {len(df.columns)} columns)")
             
+            # CRITICAL: Replace NaN values with empty strings to avoid JSON errors
+            df = df.fillna('')
+            
             # Convert DataFrame to list of lists
             if include_index:
                 # Include index as first column
@@ -538,6 +541,26 @@ class GoogleSheetsManager:
             
             # Combine headers and data
             all_data = [headers] + data
+            
+            # Clean data to ensure JSON serialization works
+            # Convert any remaining problematic values
+            cleaned_data = []
+            for row in all_data:
+                cleaned_row = []
+                for cell in row:
+                    # Handle special float values
+                    if isinstance(cell, float):
+                        import math
+                        if math.isnan(cell) or math.isinf(cell):
+                            cleaned_row.append('')
+                        else:
+                            cleaned_row.append(cell)
+                    # Convert None to empty string
+                    elif cell is None:
+                        cleaned_row.append('')
+                    else:
+                        cleaned_row.append(cell)
+                cleaned_data.append(cleaned_row)
             
             # Convert to column letters
             def num_to_col(n):
@@ -551,14 +574,14 @@ class GoogleSheetsManager:
             
             start_col_letter = num_to_col(start_col)
             end_col_letter = num_to_col(start_col + len(headers) - 1)
-            end_row = start_row + len(all_data) - 1
+            end_row = start_row + len(cleaned_data) - 1
             
             range_str = f"{start_col_letter}{start_row}:{end_col_letter}{end_row}"
             
             logger.info(f"Writing to range: {sheet_name}!{range_str}")
             
             # Write using standard method
-            self.write_range(sheet_name, range_str, all_data, value_input_option='RAW')
+            self.write_range(sheet_name, range_str, cleaned_data, value_input_option='RAW')
             
             logger.info(f"✓ Successfully wrote DataFrame to {sheet_name}")
             return True

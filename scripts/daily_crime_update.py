@@ -563,27 +563,43 @@ class CrimeDataUpdater:
             
             for crime_id, crime in crimes_db['crimes'].items():
                 # Flatten the crime data - extract key fields
+                # Use .get() with defaults to avoid None/NaN values
                 flat_crime = {
-                    'Crime ID': crime['id'],
-                    'Name': crime['name'],
-                    'Difficulty': crime['difficulty'],
-                    'Status': crime['status'],
+                    'Crime ID': crime.get('id', 0),
+                    'Name': crime.get('name', ''),
+                    'Difficulty': crime.get('difficulty', 0),
+                    'Status': crime.get('status', ''),
                     'Created At': datetime.fromtimestamp(crime['created_at']).strftime('%Y-%m-%d %H:%M') if crime.get('created_at') else '',
                     'Executed At': datetime.fromtimestamp(crime['executed_at']).strftime('%Y-%m-%d %H:%M') if crime.get('executed_at') else '',
-                    'Total Slots': crime['total_slots'],
-                    'Filled Slots': crime['filled_slots'],
+                    'Total Slots': crime.get('total_slots', 0),
+                    'Filled Slots': crime.get('filled_slots', 0),
                     'Participants': ', '.join(str(p['user_id']) for p in crime.get('participants', [])),
                     'Participant Count': len(crime.get('participants', [])),
                     'Money Reward': crime.get('rewards', {}).get('money', 0) if crime.get('rewards') else 0,
                     'Respect': crime.get('rewards', {}).get('respect', 0) if crime.get('rewards') else 0,
-                    'Previous Crime ID': crime.get('previous_crime_id', ''),
-                    'Last Updated': crime['last_updated'],
+                    'Previous Crime ID': crime.get('previous_crime_id') if crime.get('previous_crime_id') else '',
+                    'Last Updated': crime.get('last_updated', ''),
                 }
                 
                 flattened_crimes.append(flat_crime)
             
             # Create DataFrame
             df = pd.DataFrame(flattened_crimes)
+            
+            # Ensure no NaN values - replace with appropriate defaults
+            # For numeric columns, replace NaN with 0
+            numeric_cols = ['Crime ID', 'Difficulty', 'Total Slots', 'Filled Slots', 
+                          'Participant Count', 'Money Reward', 'Respect']
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = df[col].fillna(0)
+            
+            # For string columns, replace NaN with empty string
+            string_cols = ['Name', 'Status', 'Created At', 'Executed At', 
+                          'Participants', 'Previous Crime ID', 'Last Updated']
+            for col in string_cols:
+                if col in df.columns:
+                    df[col] = df[col].fillna('')
             
             # Sort by Crime ID descending (newest first)
             df = df.sort_values('Crime ID', ascending=False)
