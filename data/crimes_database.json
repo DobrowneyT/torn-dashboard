@@ -1,0 +1,10 @@
+{
+  "crimes": {},
+  "metadata": {
+    "last_updated": "2025-10-18T22:14:11.342575",
+    "total_crimes": 0,
+    "last_processed_id": null,
+    "oldest_incomplete_timestamp": null,
+    "version": "1.0"
+  }
+}
