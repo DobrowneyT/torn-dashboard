@@ -543,19 +543,54 @@ class CrimeDataUpdater:
         self.sheets.write_crime_log_batch(crime_rows)
         
         logger.info(f"Wrote {len(crime_rows)} crimes to Crime_Log sheet")
-    
+
     def _write_crimes_to_test_sheet_pandas(self, crimes_db: Dict):
         """
         Write crimes database to 'test' sheet using pandas DataFrame
-        Includes item rewards, items used, and participant tuples
+        OPTIMIZED: Only writes incomplete crimes + recently completed crimes
+        This keeps the sheet focused on "active" data without rewriting historical crimes
         """
-        logger.info("Writing crimes to 'test' sheet using pandas DataFrame")
+        logger.info("Writing crimes to 'test' sheet using pandas DataFrame (optimized)")
         
         try:
-            # Convert crimes dictionary to list of flattened dictionaries
-            flattened_crimes = []
+            # Define which statuses are "incomplete" (still need action)
+            INCOMPLETE_STATUSES = {'Recruiting', 'Planning', 'Ready', 'available'}
+            
+            # Get current timestamp for "recent" filter
+            current_time = datetime.now().timestamp()
+            RECENT_WINDOW_HOURS = 48  # Show crimes completed in last 48 hours
+            recent_threshold = current_time - (RECENT_WINDOW_HOURS * 3600)
+            
+            # Filter crimes to include
+            filtered_crimes = []
             
             for crime_id, crime in crimes_db['crimes'].items():
+                status = crime.get('status', '')
+                executed_at = crime.get('executed_at')
+                
+                # Include if:
+                # 1. Crime is incomplete (recruiting, planning, ready)
+                # 2. Crime was completed recently (within last 48 hours)
+                include_crime = False
+                
+                if status in INCOMPLETE_STATUSES:
+                    include_crime = True
+                elif executed_at and executed_at >= recent_threshold:
+                    include_crime = True
+                
+                if include_crime:
+                    filtered_crimes.append(crime)
+            
+            logger.info(f"Filtered to {len(filtered_crimes)} crimes (incomplete + recent)")
+            
+            if not filtered_crimes:
+                logger.warning("No crimes to write (no incomplete or recent crimes)")
+                return
+            
+            # Convert filtered crimes to flattened format
+            flattened_crimes = []
+            
+            for crime in filtered_crimes:
                 # Extract item rewards as tuples: (id, quantity)
                 item_rewards = ""
                 if crime.get('rewards') and crime['rewards'].get('items'):
@@ -637,16 +672,22 @@ class CrimeDataUpdater:
                 if col in df.columns:
                     df[col] = df[col].fillna('')
             
-            # Sort by Crime ID descending (newest first)
-            df = df.sort_values('Crime ID', ascending=False)
+            # Sort by Crime ID ascending (oldest first, matches database order)
+            df = df.sort_values('Crime ID', ascending=True)
             
-            # Limit to most recent 100 crimes for the test sheet
-            df = df.head(100)
+            # Reset index for clean display
+            df = df.reset_index(drop=True)
             
             logger.info(f"Created DataFrame with {len(df)} rows and {len(df.columns)} columns")
             logger.info(f"Columns: {', '.join(df.columns)}")
+            logger.info(f"Crime ID range: {df['Crime ID'].min()} to {df['Crime ID'].max()}")
+            
+            # Status breakdown
+            status_counts = df['Status'].value_counts()
+            logger.info(f"Status breakdown: {status_counts.to_dict()}")
             
             # Write to test sheet using pandas integration
+            # This will clear the sheet and write new data
             self.sheets.write_dataframe_to_sheet(df, sheet_name='test')
             
             logger.info("✓ Successfully wrote crimes to 'test' sheet using pandas")
@@ -726,6 +767,189 @@ class CrimeDataUpdater:
             logger.error(f"Error writing CPR database to sheet: {e}")
             import traceback
             traceback.print_exc()
+    
+    # def _write_crimes_to_test_sheet_pandas(self, crimes_db: Dict):
+    #     """
+    #     Write crimes database to 'test' sheet using pandas DataFrame
+    #     Includes item rewards, items used, and participant tuples
+    #     """
+    #     logger.info("Writing crimes to 'test' sheet using pandas DataFrame")
+        
+    #     try:
+    #         # Convert crimes dictionary to list of flattened dictionaries
+    #         flattened_crimes = []
+            
+    #         for crime_id, crime in crimes_db['crimes'].items():
+    #             # Extract item rewards as tuples: (id, quantity)
+    #             item_rewards = ""
+    #             if crime.get('rewards') and crime['rewards'].get('items'):
+    #                 reward_tuples = [
+    #                     f"({item['id']},{item['quantity']})" 
+    #                     for item in crime['rewards']['items']
+    #                 ]
+    #                 item_rewards = ",".join(reward_tuples)
+                
+    #             # Extract items used from slots as tuples: (id, quantity)
+    #             # Items are "used" if they're not reusable (is_reusable=false)
+    #             items_used = []
+    #             items_used_ids = set()  # Track to avoid duplicates
+                
+    #             for slot in crime.get('slots', []):
+    #                 item_req = slot.get('item_requirement')
+    #                 if item_req and not item_req.get('is_reusable', True):
+    #                     item_id = item_req['id']
+    #                     # Only add if we haven't seen this item yet for this crime
+    #                     if item_id not in items_used_ids:
+    #                         items_used.append(f"({item_id},1)")  # Quantity is always 1 per slot
+    #                         items_used_ids.add(item_id)
+                
+    #             items_used_str = ",".join(items_used) if items_used else ""
+                
+    #             # Extract participants as tuples: (user_id, position position_number, joined_at)
+    #             # Example: (3680626,Picklock 1,1755635518)
+    #             participant_tuples = []
+    #             for slot in crime.get('slots', []):
+    #                 if slot.get('user'):
+    #                     user = slot['user']
+    #                     position = slot['position']
+    #                     position_num = slot.get('position_number', 1)
+    #                     joined_at = user.get('joined_at', 0)
+                        
+    #                     participant_tuples.append(
+    #                         f"({user['id']},{position} {position_num},{joined_at})"
+    #                     )
+                
+    #             participants_str = ",".join(participant_tuples)
+                
+    #             # Flatten the crime data - extract key fields
+    #             flat_crime = {
+    #                 'Crime ID': crime.get('id', 0),
+    #                 'Name': crime.get('name', ''),
+    #                 'Difficulty': crime.get('difficulty', 0),
+    #                 'Status': crime.get('status', ''),
+    #                 'Created At': datetime.fromtimestamp(crime['created_at']).strftime('%Y-%m-%d %H:%M') if crime.get('created_at') else '',
+    #                 'Executed At': datetime.fromtimestamp(crime['executed_at']).strftime('%Y-%m-%d %H:%M') if crime.get('executed_at') else '',
+    #                 'Total Slots': crime.get('total_slots', 0),
+    #                 'Filled Slots': crime.get('filled_slots', 0),
+    #                 'Participants': participants_str,
+    #                 'Money Reward': crime.get('rewards', {}).get('money', 0) if crime.get('rewards') else 0,
+    #                 'Item Reward': item_rewards,
+    #                 'Item Used': items_used_str,
+    #                 'Respect': crime.get('rewards', {}).get('respect', 0) if crime.get('rewards') else 0,
+    #                 'Previous Crime ID': crime.get('previous_crime_id') if crime.get('previous_crime_id') else '',
+    #                 'Last Updated': crime.get('last_updated', ''),
+    #             }
+                
+    #             flattened_crimes.append(flat_crime)
+            
+    #         # Create DataFrame
+    #         df = pd.DataFrame(flattened_crimes)
+            
+    #         # Ensure no NaN values - replace with appropriate defaults
+    #         # For numeric columns, replace NaN with 0
+    #         numeric_cols = ['Crime ID', 'Difficulty', 'Total Slots', 'Filled Slots', 
+    #                     'Money Reward', 'Respect']
+    #         for col in numeric_cols:
+    #             if col in df.columns:
+    #                 df[col] = df[col].fillna(0)
+            
+    #         # For string columns, replace NaN with empty string
+    #         string_cols = ['Name', 'Status', 'Created At', 'Executed At', 
+    #                     'Participants', 'Item Reward', 'Item Used', 
+    #                     'Previous Crime ID', 'Last Updated']
+    #         for col in string_cols:
+    #             if col in df.columns:
+    #                 df[col] = df[col].fillna('')
+            
+    #         # Sort by Crime ID descending (newest first)
+    #         df = df.sort_values('Crime ID', ascending=False)
+            
+    #         # Limit to most recent 100 crimes for the test sheet
+    #         df = df.head(100)
+            
+    #         logger.info(f"Created DataFrame with {len(df)} rows and {len(df.columns)} columns")
+    #         logger.info(f"Columns: {', '.join(df.columns)}")
+            
+    #         # Write to test sheet using pandas integration
+    #         self.sheets.write_dataframe_to_sheet(df, sheet_name='test')
+            
+    #         logger.info("✓ Successfully wrote crimes to 'test' sheet using pandas")
+            
+    #     except Exception as e:
+    #         logger.error(f"Error writing to test sheet: {e}")
+    #         import traceback
+    #         traceback.print_exc()
+    #     """
+    #     Write CPR database to 'cpr_database' sheet using pandas DataFrame
+    #     Flattens the nested JSON structure into columns for easy viewing
+    #     """
+    #     logger.info("Writing CPR database to 'cpr_database' sheet using pandas DataFrame")
+        
+    #     try:
+    #         # Load CPR database
+    #         cpr_data = self.storage.read_json('cpr_database.json')
+            
+    #         if not cpr_data or 'members' not in cpr_data:
+    #             logger.warning("No CPR data found to write")
+    #             return
+            
+    #         members_data = cpr_data['members']
+            
+    #         # Flatten the nested structure into rows
+    #         flattened_rows = []
+            
+    #         for member_id, member_info in members_data.items():
+    #             member_name = member_info.get('name', 'Unknown')
+    #             last_scraped = member_info.get('last_scraped', '')
+    #             cpr_by_role = member_info.get('cpr_by_role', {})
+                
+    #             # For each difficulty level
+    #             for difficulty, roles in cpr_by_role.items():
+    #                 # For each role in that difficulty
+    #                 for role_name, cpr_score in roles.items():
+    #                     flattened_rows.append({
+    #                         'Member ID': int(member_id),
+    #                         'Member Name': member_name,
+    #                         'Difficulty': int(difficulty),
+    #                         'Role': role_name,
+    #                         'CPR Score': int(cpr_score),
+    #                         'Last Scraped': last_scraped
+    #                     })
+            
+    #         if not flattened_rows:
+    #             logger.warning("No CPR data to write (empty dataset)")
+    #             return
+            
+    #         # Create DataFrame
+    #         df = pd.DataFrame(flattened_rows)
+            
+    #         # Sort for better readability: by Member ID, then Difficulty, then Role
+    #         df = df.sort_values(['Member ID', 'Difficulty', 'Role'])
+            
+    #         # Reset index for clean display
+    #         df = df.reset_index(drop=True)
+            
+    #         logger.info(f"Created CPR DataFrame with {len(df)} rows")
+    #         logger.info(f"Columns: {', '.join(df.columns)}")
+    #         logger.info(f"Members: {df['Member ID'].nunique()}")
+    #         logger.info(f"Difficulty levels: {sorted(df['Difficulty'].unique())}")
+            
+    #         # Write to 'cpr_database' sheet using pandas integration
+    #         self.sheets.write_dataframe_to_sheet(df, sheet_name='cpr_database')
+            
+    #         logger.info("✓ Successfully wrote CPR database to 'cpr_database' sheet")
+            
+    #         # Log some summary stats
+    #         summary_stats = df.groupby('Difficulty')['CPR Score'].agg(['mean', 'min', 'max']).round(2)
+    #         logger.info("\nCPR Summary by Difficulty:")
+    #         for difficulty in sorted(summary_stats.index):
+    #             stats = summary_stats.loc[difficulty]
+    #             logger.info(f"  Level {difficulty}: Avg={stats['mean']}, Min={stats['min']}, Max={stats['max']}")
+            
+    #     except Exception as e:
+    #         logger.error(f"Error writing CPR database to sheet: {e}")
+    #         import traceback
+    #         traceback.print_exc()
 
     def _write_cpr_database_to_sheet_pandas(self):
         """
