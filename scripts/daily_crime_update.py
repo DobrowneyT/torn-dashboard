@@ -789,7 +789,8 @@ class CrimeDataUpdater:
                     df, 
                     sheet_name=SHEET_NAME, 
                     start_row=2,
-                    include_index=False
+                    include_index=False,
+                    include_headers=False
                 )
             
             logger.info("✓ Successfully wrote crimes to 'test' sheet")

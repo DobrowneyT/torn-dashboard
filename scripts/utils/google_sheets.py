@@ -585,7 +585,8 @@ class GoogleSheetsManager:
     
     def write_dataframe_to_sheet(self, df: 'pd.DataFrame', sheet_name: str, 
                                   start_row: int = 1, start_col: int = 1,
-                                  include_index: bool = False) -> bool:
+                                  include_index: bool = False,
+                                  include_headers: bool = False) -> bool:
         """
         Write a pandas DataFrame to a Google Sheet
         
