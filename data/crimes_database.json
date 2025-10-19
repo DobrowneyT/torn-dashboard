@@ -29477,7 +29477,7 @@
             "outcome": null,
             "id": 2183760,
             "joined_at": 1760569019,
-            "progress": 38.84,
+            "progress": 58.52,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 80
@@ -29564,7 +29564,7 @@
         3291843
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.808755",
+      "last_updated": "2025-10-19T06:18:04.940764",
       "first_seen": "2025-10-18T22:14:14.409002"
     },
     "924158": {
@@ -29683,7 +29683,7 @@
           "paid_at": 1760650371
         }
       },
-      "last_updated": "2025-10-19T01:34:35.808792",
+      "last_updated": "2025-10-19T06:18:04.940806",
       "first_seen": "2025-10-18T22:14:14.409032"
     },
     "924159": {
@@ -29844,7 +29844,7 @@
           "paid_at": 1760749956
         }
       },
-      "last_updated": "2025-10-19T01:34:35.808812",
+      "last_updated": "2025-10-19T06:18:04.940827",
       "first_seen": "2025-10-18T22:14:14.409060"
     },
     "924160": {
@@ -29963,7 +29963,7 @@
           "paid_at": 1760562961
         }
       },
-      "last_updated": "2025-10-19T01:34:35.808834",
+      "last_updated": "2025-10-19T06:18:04.940849",
       "first_seen": "2025-10-18T22:14:14.409087"
     },
     "924219": {
@@ -30078,7 +30078,7 @@
           "paid_at": 1760633266
         }
       },
-      "last_updated": "2025-10-19T01:34:35.808848",
+      "last_updated": "2025-10-19T06:18:04.940868",
       "first_seen": "2025-10-18T22:14:14.409120"
     },
     "932087": {
@@ -30194,7 +30194,7 @@
             "outcome": null,
             "id": 299480,
             "joined_at": 1760790290,
-            "progress": 13.42,
+            "progress": 33.11,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 83
@@ -30209,7 +30209,7 @@
         299480
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.808884",
+      "last_updated": "2025-10-19T06:18:04.940885",
       "first_seen": "2025-10-18T22:14:14.409151"
     },
     "932778": {
@@ -30303,7 +30303,7 @@
         "scope": 0,
         "payout": null
       },
-      "last_updated": "2025-10-19T01:34:35.808902",
+      "last_updated": "2025-10-19T06:18:04.940904",
       "first_seen": "2025-10-18T22:14:14.409180"
     },
     "932779": {
@@ -30365,7 +30365,7 @@
             "outcome": null,
             "id": 3015831,
             "joined_at": 1760712850,
-            "progress": 20.04,
+            "progress": 39.73,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 77
@@ -30377,7 +30377,7 @@
         3015831
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.808922",
+      "last_updated": "2025-10-19T06:18:04.940929",
       "first_seen": "2025-10-18T22:14:14.409209"
     },
     "932781": {
@@ -30471,7 +30471,7 @@
             "outcome": null,
             "id": 1654809,
             "joined_at": 1760678996,
-            "progress": 18.12,
+            "progress": 37.81,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 90
@@ -30500,7 +30500,7 @@
         3663303
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.808939",
+      "last_updated": "2025-10-19T06:18:04.940950",
       "first_seen": "2025-10-18T22:14:14.409237"
     },
     "932834": {
@@ -30544,7 +30544,7 @@
             "outcome": null,
             "id": 462912,
             "joined_at": 1760588259,
-            "progress": 98.9,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 81
@@ -30562,7 +30562,7 @@
             "outcome": null,
             "id": 49580,
             "joined_at": 1760720286,
-            "progress": 0,
+            "progress": 18.59,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 73
@@ -30620,7 +30620,7 @@
         2677601
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.808956",
+      "last_updated": "2025-10-19T06:18:04.940971",
       "first_seen": "2025-10-18T22:14:14.409267"
     },
     "934835": {
@@ -30728,7 +30728,7 @@
             "outcome": null,
             "id": 330505,
             "joined_at": 1760636979,
-            "progress": 91.03,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 68
@@ -30741,7 +30741,7 @@
         330505
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.808969",
+      "last_updated": "2025-10-19T06:18:04.940988",
       "first_seen": "2025-10-18T22:14:14.409296"
     },
     "934838": {
@@ -30807,7 +30807,7 @@
             "outcome": null,
             "id": 2720023,
             "joined_at": 1760740564,
-            "progress": 58.64,
+            "progress": 78.32,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 60
@@ -30862,7 +30862,7 @@
         2282199
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.808984",
+      "last_updated": "2025-10-19T06:18:04.941004",
       "first_seen": "2025-10-18T22:14:14.409324"
     },
     "934839": {
@@ -30914,7 +30914,7 @@
       ],
       "participant_ids": [],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.808996",
+      "last_updated": "2025-10-19T06:18:04.941020",
       "first_seen": "2025-10-18T22:14:14.409352"
     },
     "934840": {
@@ -30994,18 +30994,18 @@
         "scope": 4,
         "payout": null
       },
-      "last_updated": "2025-10-19T01:34:35.809006",
+      "last_updated": "2025-10-19T06:18:04.941031",
       "first_seen": "2025-10-18T22:14:14.409392"
     },
     "934841": {
       "id": 934841,
       "name": "Smoke and Wing Mirrors",
       "difficulty": 3,
-      "status": "Planning",
+      "status": "Successful",
       "previous_crime_id": null,
       "created_at": 1760452146,
       "planning_at": 1760508938,
-      "executed_at": null,
+      "executed_at": 1760854565,
       "ready_at": 1760854538,
       "expired_at": 1761056946,
       "total_slots": 4,
@@ -31021,7 +31021,7 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3249124,
             "joined_at": 1760637958,
             "progress": 100,
@@ -31039,7 +31039,7 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3680626,
             "joined_at": 1760508938,
             "progress": 100,
@@ -31053,7 +31053,7 @@
           "position_number": 1,
           "item_requirement": null,
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3380497,
             "joined_at": 1760526095,
             "progress": 100,
@@ -31067,10 +31067,10 @@
           "position_number": 2,
           "item_requirement": null,
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3291056,
             "joined_at": 1760671081,
-            "progress": 80.48,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 91
@@ -31082,8 +31082,19 @@
         3380497,
         3291056
       ],
-      "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809016",
+      "rewards": {
+        "money": 0,
+        "items": [
+          {
+            "id": 521,
+            "quantity": 1
+          }
+        ],
+        "respect": 75,
+        "scope": 3,
+        "payout": null
+      },
+      "last_updated": "2025-10-19T06:18:04.941045",
       "first_seen": "2025-10-18T22:14:14.409444"
     },
     "937952": {
@@ -31175,7 +31186,7 @@
             "outcome": null,
             "id": 2854737,
             "joined_at": 1760831935,
-            "progress": 6.64,
+            "progress": 26.33,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 77
@@ -31196,7 +31207,7 @@
         2854737
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809029",
+      "last_updated": "2025-10-19T06:18:04.941109",
       "first_seen": "2025-10-18T22:14:14.409480"
     },
     "937953": {
@@ -31226,7 +31237,7 @@
             "outcome": null,
             "id": 2407566,
             "joined_at": 1760583874,
-            "progress": 33.55,
+            "progress": 53.24,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 67
@@ -31289,7 +31300,7 @@
         2168406
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809040",
+      "last_updated": "2025-10-19T06:18:04.941129",
       "first_seen": "2025-10-18T22:14:14.409510"
     },
     "937954": {
@@ -31373,7 +31384,7 @@
             "outcome": null,
             "id": 3136837,
             "joined_at": 1760799045,
-            "progress": 33.94,
+            "progress": 53.63,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 56
@@ -31410,7 +31421,7 @@
         3136837
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809052",
+      "last_updated": "2025-10-19T06:18:04.941144",
       "first_seen": "2025-10-18T22:14:14.409543"
     },
     "937955": {
@@ -31510,7 +31521,7 @@
             "outcome": null,
             "id": 3247125,
             "joined_at": 1760810753,
-            "progress": 31.16,
+            "progress": 50.85,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 67
@@ -31523,7 +31534,7 @@
         3247125
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809065",
+      "last_updated": "2025-10-19T06:18:04.941159",
       "first_seen": "2025-10-18T22:14:14.409573"
     },
     "937956": {
@@ -31609,7 +31620,7 @@
             "outcome": null,
             "id": 2864154,
             "joined_at": 1760683765,
-            "progress": 31.29,
+            "progress": 50.97,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 90
@@ -31638,7 +31649,7 @@
         3383262
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809078",
+      "last_updated": "2025-10-19T06:18:04.941173",
       "first_seen": "2025-10-18T22:14:14.409602"
     },
     "940527": {
@@ -31676,7 +31687,7 @@
             "outcome": null,
             "id": 2189887,
             "joined_at": 1760730914,
-            "progress": 34.71,
+            "progress": 54.39,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 74
@@ -31744,7 +31755,7 @@
         3058543
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809092",
+      "last_updated": "2025-10-19T06:18:04.941188",
       "first_seen": "2025-10-18T22:14:14.409631"
     },
     "940528": {
@@ -31788,7 +31799,7 @@
             "outcome": null,
             "id": 428286,
             "joined_at": 1760647656,
-            "progress": 30.54,
+            "progress": 50.23,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 79
@@ -31837,7 +31848,7 @@
         711289
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809104",
+      "last_updated": "2025-10-19T06:18:04.941202",
       "first_seen": "2025-10-18T22:14:14.409659"
     },
     "940529": {
@@ -31931,7 +31942,7 @@
             "outcome": null,
             "id": 3292192,
             "joined_at": 1760793330,
-            "progress": 32.91,
+            "progress": 52.6,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 67
@@ -31943,7 +31954,7 @@
         3292192
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809117",
+      "last_updated": "2025-10-19T06:18:04.941215",
       "first_seen": "2025-10-18T22:14:14.409687"
     },
     "940532": {
@@ -31987,7 +31998,7 @@
             "outcome": null,
             "id": 2763324,
             "joined_at": 1760677549,
-            "progress": 19.59,
+            "progress": 39.28,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 84
@@ -32017,7 +32028,7 @@
         3386225
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809128",
+      "last_updated": "2025-10-19T06:18:04.941229",
       "first_seen": "2025-10-18T22:14:14.409715"
     },
     "940534": {
@@ -32043,7 +32054,7 @@
             "outcome": null,
             "id": 3437705,
             "joined_at": 1760678515,
-            "progress": 93.49,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 84
@@ -32089,7 +32100,7 @@
             "outcome": null,
             "id": 3482350,
             "joined_at": 1760682435,
-            "progress": 0,
+            "progress": 13.17,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 83
@@ -32102,7 +32113,7 @@
         3482350
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809139",
+      "last_updated": "2025-10-19T06:18:04.941241",
       "first_seen": "2025-10-18T22:14:14.409743"
     },
     "941756": {
@@ -32132,7 +32143,7 @@
             "outcome": null,
             "id": 2822740,
             "joined_at": 1760834463,
-            "progress": 3.72,
+            "progress": 23.4,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 82
@@ -32212,7 +32223,7 @@
         2749598
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809149",
+      "last_updated": "2025-10-19T06:18:04.941254",
       "first_seen": "2025-10-18T22:14:14.409774"
     },
     "943537": {
@@ -32304,7 +32315,7 @@
         2719034
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809160",
+      "last_updated": "2025-10-19T06:18:04.941268",
       "first_seen": "2025-10-18T22:14:14.409804"
     },
     "943538": {
@@ -32334,7 +32345,7 @@
             "outcome": null,
             "id": 2327020,
             "joined_at": 1760753045,
-            "progress": 97.95,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 70
@@ -32376,7 +32387,7 @@
         2327020
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809171",
+      "last_updated": "2025-10-19T06:18:04.941280",
       "first_seen": "2025-10-18T22:14:14.409832"
     },
     "943539": {
@@ -32432,7 +32443,7 @@
         3225628
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809180",
+      "last_updated": "2025-10-19T06:18:04.941292",
       "first_seen": "2025-10-18T22:14:14.409858"
     },
     "946272": {
@@ -32490,7 +32501,7 @@
             "outcome": null,
             "id": 3349449,
             "joined_at": 1760798512,
-            "progress": 45.33,
+            "progress": 65.01,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 72
@@ -32500,7 +32511,7 @@
         3349449
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809189",
+      "last_updated": "2025-10-19T06:18:04.941302",
       "first_seen": "2025-10-18T22:14:14.409888"
     },
     "946279": {
@@ -32584,7 +32595,7 @@
       ],
       "participant_ids": [],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809200",
+      "last_updated": "2025-10-19T06:18:04.941314",
       "first_seen": "2025-10-18T22:14:14.409920"
     },
     "946281": {
@@ -32650,7 +32661,7 @@
             "outcome": null,
             "id": 2075640,
             "joined_at": 1760806343,
-            "progress": 36.26,
+            "progress": 55.95,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 55
@@ -32684,12 +32695,12 @@
         2075640
       ],
       "rewards": null,
-      "last_updated": "2025-10-19T01:34:35.809211",
+      "last_updated": "2025-10-19T06:18:04.941327",
       "first_seen": "2025-10-18T22:14:14.409949"
     }
   },
   "metadata": {
-    "last_updated": "2025-10-19T01:34:35.809362",
+    "last_updated": "2025-10-19T06:18:04.941494",
     "total_crimes": 282,
     "last_processed_id": null,
     "oldest_incomplete_timestamp": 1760128986,
