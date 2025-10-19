@@ -716,9 +716,10 @@ class CrimeDataUpdater:
                         position = slot['position']
                         position_num = slot.get('position_number', 1)
                         joined_at = user.get('joined_at', 0)
+                        cpr = slot['checkpoint_pass_rate']
                         
                         participant_tuples.append(
-                            f"({user['id']},{position} {position_num},{joined_at})"
+                            f"({user['id']},{position} {position_num},{joined_at},{cpr})"
                         )
                 
                 participants_str = ",".join(participant_tuples)
