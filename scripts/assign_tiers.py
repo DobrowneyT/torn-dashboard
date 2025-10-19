@@ -204,7 +204,7 @@ class TierAssignment:
             
             return cpr_value >= min_cpr, True
     
-    def check_tier_eligibility(self, member_id: str, member_data: Dict, tier: int) -> Tuple[bool, int, int, List[str]]:
+    def check_tier_eligibility(self, member_id: str, member_data: Dict, tier: int) -> Tuple[bool, int, int, List[str], List[Tuple]]:
         """
         Check if member meets requirements for a specific tier
         
@@ -214,32 +214,38 @@ class TierAssignment:
             tier: Tier number to check
         
         Returns:
-            (eligible, requirements_met, requirements_needed, missing_data_roles)
+            (eligible, requirements_met, requirements_needed, missing_data_roles, requirements_with_data)
         """
         requirements = self.TIER_REQUIREMENTS[tier]
         requirements_needed = self.tier_requirements_needed[tier]
         
         requirements_met = 0
+        requirements_failed = 0
         missing_data_roles = []
+        requirements_with_data = []  # Track requirements where we have data
         
         for req in requirements:
             met, data_available = self.evaluate_requirement(member_data, req)
             
             if data_available:
+                requirements_with_data.append(req)
                 if met:
                     requirements_met += 1
+                else:
+                    requirements_failed += 1
             else:
                 # Track missing data
                 if req[0] == "avg":
-                    missing_data_roles.append(f"Level {req[1]} Average")
+                    missing_data_roles.append((req, f"Level {req[1]} Average"))
                 else:
-                    missing_data_roles.append(f"Level {req[0]} {req[1]}")
+                    missing_data_roles.append((req, f"Level {req[0]} {req[1]}"))
         
         eligible = requirements_met >= requirements_needed
         
-        logger.debug(f"Member {member_id} Tier {tier}: {requirements_met}/{requirements_needed} requirements met")
+        logger.debug(f"Member {member_id} Tier {tier}: {requirements_met}/{requirements_needed} requirements met, "
+                    f"{requirements_failed} failed, {len(missing_data_roles)} missing")
         
-        return eligible, requirements_met, requirements_needed, missing_data_roles
+        return eligible, requirements_met, requirements_needed, missing_data_roles, requirements_with_data
     
     def has_sufficient_data(self, member_data: Dict, tier: int) -> Tuple[bool, List[str]]:
         """
@@ -293,7 +299,79 @@ class TierAssignment:
         # Sort by CPR value descending (best performance first)
         return sorted(cpr_points, key=lambda x: x[2], reverse=True)
     
-    def predict_tier_knn(self, member_id: str, member_data: Dict) -> Optional[Dict]:
+    def predict_tier_for_missing_requirement(self, member_id: str, member_data: Dict, requirement: Tuple, tier: int) -> Optional[int]:
+        """
+        Predict if member would meet a specific requirement using KNN
+        
+        Args:
+            member_id: Member ID
+            member_data: Member's CPR data
+            requirement: The requirement tuple to predict for
+            tier: The tier being evaluated
+        
+        Returns:
+            Predicted tier for members with similar profiles, or None if cannot predict
+        """
+        # Get the member's available CPR data that we do have
+        member_profile = self.get_member_cpr_profile(member_data)
+        
+        if not member_profile:
+            return None
+        
+        # Find members with similar CPR profiles who have the missing requirement data
+        predictions_from_roles = []
+        
+        # Use the member's available roles to find similar members
+        for level_key, role, member_cpr in member_profile[:5]:  # Use top 5 available roles
+            neighbors = []
+            level_num = int(level_key.split()[1])
+            
+            # Find members with data for this role AND the missing requirement
+            for other_id, other_data in self.cpr_data.items():
+                if other_id == member_id:
+                    continue
+                
+                # Must have tier assignment
+                if other_id not in self.existing_tiers:
+                    continue
+                
+                # Must have data for the role we're comparing on
+                other_cpr = self.get_cpr_value(other_data, level_num, role)
+                if other_cpr is None:
+                    continue
+                
+                # Must have data for the missing requirement we're trying to predict
+                _, has_requirement_data = self.evaluate_requirement(other_data, requirement)
+                if not has_requirement_data:
+                    continue
+                
+                # Calculate distance and get their tier
+                distance = abs(member_cpr - other_cpr)
+                other_tier = self.existing_tiers[other_id]['tier']
+                
+                neighbors.append((distance, other_tier, other_id))
+            
+            # Need at least k neighbors for this role
+            if len(neighbors) >= self.knn_k:
+                nearest = sorted(neighbors, key=lambda x: x[0])[:self.knn_k]
+                tier_votes = [n[1] for n in nearest]
+                
+                # Get most common tier from neighbors
+                vote_counts = Counter(tier_votes)
+                predicted_tier = vote_counts.most_common(1)[0][0]
+                predictions_from_roles.append(predicted_tier)
+                
+                logger.debug(f"Member {member_id}, {level_key} {role}: KNN predicts neighbors are in tiers {tier_votes}")
+        
+        if not predictions_from_roles:
+            return None
+        
+        # If all predictions agree, return that tier
+        if len(set(predictions_from_roles)) == 1:
+            return predictions_from_roles[0]
+        
+        # If predictions differ, return the lower (more conservative) tier
+        return min(predictions_from_roles)
         """
         Predict tier using K-Nearest Neighbors based on available CPR data
         
@@ -395,9 +473,14 @@ class TierAssignment:
             'prediction_details': prediction_details
         }
     
-    def assign_member_tier(self, member_id: str, member_data: Dict) -> Optional[Dict]:
+    def assign_member_tier(self, member_id: str, member_data: Dict, use_knn: bool = False) -> Optional[Dict]:
         """
-        Assign tier to a member using top-down approach with KNN fallback
+        Assign tier to a member using top-down approach
+        
+        Args:
+            member_id: Member ID
+            member_data: Member's CPR data
+            use_knn: Whether to use KNN for missing data (second pass)
         
         Returns:
             Assignment data dict or None if cannot assign
@@ -423,17 +506,17 @@ class TierAssignment:
         
         # Top-down tier checking (1 through 4)
         for tier in range(1, 5):
-            # Check if we have sufficient data for this tier
-            has_data, missing = self.has_sufficient_data(member_data, tier)
-            
-            if not has_data:
-                logger.debug(f"Member {member_id}: Insufficient data for Tier {tier} (missing: {missing})")
-                continue
-            
-            # Check eligibility
-            eligible, met, needed, missing_data = self.check_tier_eligibility(
-                member_id, member_data, tier
-            )
+            if use_knn:
+                # Second pass: Use KNN for missing requirements
+                eligible, met, needed, missing_roles, decision_reason = self.check_tier_with_knn(
+                    member_id, member_data, tier
+                )
+            else:
+                # First pass: Only use actual data
+                eligible, met, needed, missing_roles, reqs_with_data = self.check_tier_eligibility(
+                    member_id, member_data, tier
+                )
+                decision_reason = 'requirements_met' if eligible else 'requirements_not_met'
             
             if eligible:
                 previous_tier = self.existing_tiers.get(member_id, {}).get('tier', 5)
@@ -441,7 +524,20 @@ class TierAssignment:
                 
                 if changed:
                     direction = "↑ Promoted" if tier < previous_tier else "↓ Demoted"
-                    logger.info(f"Member {member_id}: {direction} from Tier {previous_tier} to Tier {tier} ({met}/{needed} requirements)")
+                    logger.info(f"Member {member_id}: {direction} from Tier {previous_tier} to Tier {tier} "
+                              f"({met}/{needed}, method: {decision_reason})")
+                
+                # Track if KNN was used
+                used_knn = use_knn and "knn" in decision_reason
+                if used_knn:
+                    self.knn_predictions.append({
+                        'member_id': member_id,
+                        'tier': tier,
+                        'method': decision_reason,
+                        'requirements_met': met,
+                        'requirements_needed': needed,
+                        'missing_roles': missing_roles
+                    })
                 
                 return {
                     'tier': tier,
@@ -454,7 +550,8 @@ class TierAssignment:
                     'requirements_needed': needed,
                     'manual_override': False,
                     'last_updated': datetime.now().isoformat(),
-                    'assignment_method': 'requirements_based'
+                    'assignment_method': decision_reason,
+                    'used_knn': used_knn
                 }
         
         # Did not qualify for Tiers 1-4 based on requirements
@@ -544,38 +641,71 @@ class TierAssignment:
     
     def generate_tier_assignments(self) -> Dict:
         """
-        Generate tier assignments for all members
+        Generate tier assignments for all members using two-pass approach
+        
+        Pass 1: Assign tiers based only on available data
+        Pass 2: Use KNN for members who were skipped due to missing data
         
         Returns:
             Dictionary of member assignments with metadata
         """
         logger.info("="*60)
-        logger.info("Generating Tier Assignments (Proportion + KNN Method)")
+        logger.info("Generating Tier Assignments (Two-Pass with KNN)")
         logger.info(f"Proportion threshold: {self.proportion_threshold:.2%}")
         logger.info(f"KNN neighbors (k): {self.knn_k}")
         logger.info("="*60)
         
         assignments = {}
+        skipped_members = []
         self.members_missing_data = []
         self.knn_predictions = []
         
+        # PASS 1: Assign tiers using only available data
+        logger.info("\n--- PASS 1: Assigning tiers with available data ---")
         for member_id, member_data in self.cpr_data.items():
             logger.debug(f"\nProcessing member {member_id}...")
             
-            assignment = self.assign_member_tier(member_id, member_data)
+            assignment = self.assign_member_tier(member_id, member_data, use_knn=False)
             
             if assignment:
                 assignments[member_id] = assignment
+            else:
+                # Skip for now - will try KNN in pass 2
+                skipped_members.append(member_id)
+                logger.debug(f"Member {member_id}: Skipped (insufficient data for Pass 1)")
+        
+        logger.info(f"\nPass 1 complete: {len(assignments)} assigned, {len(skipped_members)} skipped")
+        
+        # PASS 2: Try KNN for skipped members
+        if skipped_members:
+            logger.info(f"\n--- PASS 2: Using KNN for {len(skipped_members)} skipped members ---")
+            
+            for member_id in skipped_members:
+                member_data = self.cpr_data[member_id]
+                logger.debug(f"\nRetrying member {member_id} with KNN...")
+                
+                assignment = self.assign_member_tier(member_id, member_data, use_knn=True)
+                
+                if assignment:
+                    assignments[member_id] = assignment
+                    logger.info(f"Member {member_id}: Successfully assigned using KNN")
+                else:
+                    # Still couldn't assign even with KNN
+                    logger.warning(f"Member {member_id}: Could not assign even with KNN")
+                    self.members_missing_data.append({
+                        'member_id': member_id,
+                        'reason': 'Insufficient data even with KNN',
+                        'total_crimes': member_data.get('total_crimes', 0)
+                    })
+            
+            logger.info(f"\nPass 2 complete: {len(assignments)} total assigned, "
+                       f"{len(self.members_missing_data)} still unassigned")
         
         # Summary statistics
         tier_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
         changes = {'promoted': 0, 'demoted': 0, 'unchanged': 0}
-        method_counts = {
-            'requirements_based': 0,
-            'knn_prediction': 0,
-            'default_tier_5': 0,
-            'manual_override': 0
-        }
+        method_counts = {}
+        knn_usage_count = 0
         
         for assignment in assignments.values():
             tier = assignment['tier']
@@ -583,6 +713,9 @@ class TierAssignment:
             
             method = assignment.get('assignment_method', 'unknown')
             method_counts[method] = method_counts.get(method, 0) + 1
+            
+            if assignment.get('used_knn', False):
+                knn_usage_count += 1
             
             if assignment['changed']:
                 if assignment['tier'] < assignment['previous_tier']:
@@ -597,31 +730,35 @@ class TierAssignment:
         logger.info("="*60)
         logger.info(f"Total members evaluated: {len(assignments)}")
         logger.info(f"Members skipped (no data): {len([m for m in self.members_missing_data if 'No CPR data' in m['reason']])}")
+        logger.info(f"KNN used for missing requirements: {knn_usage_count} members")
         logger.info(f"\nTier distribution:")
         for tier in range(1, 6):
             logger.info(f"  Tier {tier}: {tier_counts[tier]} members")
         logger.info(f"\nAssignment methods:")
-        logger.info(f"  Requirements-based: {method_counts['requirements_based']}")
-        logger.info(f"  KNN prediction: {method_counts['knn_prediction']}")
-        logger.info(f"  Default Tier 5: {method_counts['default_tier_5']}")
-        logger.info(f"  Manual override: {method_counts['manual_override']}")
+        for method, count in sorted(method_counts.items()):
+            logger.info(f"  {method.replace('_', ' ').title()}: {count}")
         logger.info(f"\nChanges:")
         logger.info(f"  Promoted: {changes['promoted']}")
         logger.info(f"  Demoted: {changes['demoted']}")
         logger.info(f"  Unchanged: {changes['unchanged']}")
         
         if self.knn_predictions:
-            logger.info(f"\n⚠ KNN Predictions ({len(self.knn_predictions)} members):")
-            for pred in self.knn_predictions:
-                logger.info(f"  - Member {pred['member_id']}: Tier {pred['predicted_tier']} "
-                          f"(confidence: {pred['confidence']:.1%}, consensus: {pred['consensus']})")
+            logger.info(f"\n⚠ KNN Used for Missing Requirements ({len(self.knn_predictions)} cases):")
+            for pred in self.knn_predictions[:10]:  # Show first 10
+                logger.info(f"  - Member {pred['member_id']}: Tier {pred['tier']} "
+                          f"({pred['requirements_met']}/{pred['requirements_needed']}, "
+                          f"missing: {len(pred.get('missing_roles', []))} roles)")
+            if len(self.knn_predictions) > 10:
+                logger.info(f"  ... and {len(self.knn_predictions) - 10} more (see knn_predictions.json)")
         
         if self.members_missing_data:
             no_data = [m for m in self.members_missing_data if 'No CPR data' in m['reason']]
             if no_data:
                 logger.info(f"\n⚠ Members with no CPR data ({len(no_data)}):")
-                for member_info in no_data:
+                for member_info in no_data[:10]:
                     logger.info(f"  - Member {member_info['member_id']}")
+                if len(no_data) > 10:
+                    logger.info(f"  ... and {len(no_data) - 10} more")
         
         logger.info("="*60)
         
