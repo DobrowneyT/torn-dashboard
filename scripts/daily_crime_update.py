@@ -770,8 +770,8 @@ class CrimeDataUpdater:
                 if col in df.columns:
                     df[col] = df[col].fillna('')
             
-            # Sort by Crime ID ascending (oldest first) - matches database order
-            df = df.sort_values('Crime ID', ascending=True)
+            # Sort by Crime ID descending (newest first) - newest crimes at top
+            df = df.sort_values('Crime ID', ascending=False)
             df = df.reset_index(drop=True)
             
             logger.info(f"Writing {len(df)} rows to sheet starting at row {oldest_incomplete_row}")
