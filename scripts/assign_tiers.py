@@ -136,13 +136,17 @@ class TierAssignment:
         Returns:
             CPR value or None if not available
         """
-        cpr_by_difficulty = member_data.get('cpr_by_difficulty', {})
-        level_key = f"Level {level}"
+        # Try both 'cpr_by_role' and 'cpr_by_difficulty' keys for compatibility
+        cpr_data = member_data.get('cpr_by_role') or member_data.get('cpr_by_difficulty', {})
         
-        if level_key not in cpr_by_difficulty:
-            return None
+        # Level can be stored as string number or "Level X" format
+        level_key = str(level)
+        if level_key not in cpr_data:
+            level_key = f"Level {level}"
+            if level_key not in cpr_data:
+                return None
         
-        level_data = cpr_by_difficulty[level_key]
+        level_data = cpr_data[level_key]
         return level_data.get(role)
     
     def calculate_level_average(self, member_data: Dict, level: int) -> Optional[float]:
@@ -152,13 +156,17 @@ class TierAssignment:
         Returns:
             Average CPR or None if no data available
         """
-        cpr_by_difficulty = member_data.get('cpr_by_difficulty', {})
-        level_key = f"Level {level}"
+        # Try both 'cpr_by_role' and 'cpr_by_difficulty' keys for compatibility
+        cpr_data = member_data.get('cpr_by_role') or member_data.get('cpr_by_difficulty', {})
         
-        if level_key not in cpr_by_difficulty:
-            return None
+        # Level can be stored as string number or "Level X" format
+        level_key = str(level)
+        if level_key not in cpr_data:
+            level_key = f"Level {level}"
+            if level_key not in cpr_data:
+                return None
         
-        level_data = cpr_by_difficulty[level_key]
+        level_data = cpr_data[level_key]
         cpr_values = [v for v in level_data.values() if isinstance(v, (int, float))]
         
         if not cpr_values:
@@ -267,13 +275,20 @@ class TierAssignment:
         Returns:
             List of (level_key, role, cpr_value) tuples, sorted by CPR descending
         """
-        cpr_by_difficulty = member_data.get('cpr_by_difficulty', {})
+        # Try both 'cpr_by_role' and 'cpr_by_difficulty' keys for compatibility
+        cpr_data = member_data.get('cpr_by_role') or member_data.get('cpr_by_difficulty', {})
         cpr_points = []
         
-        for level_key, roles in cpr_by_difficulty.items():
+        for level_key, roles in cpr_data.items():
+            # Normalize level_key to "Level X" format for consistency
+            if not level_key.startswith("Level"):
+                normalized_level_key = f"Level {level_key}"
+            else:
+                normalized_level_key = level_key
+                
             for role, cpr in roles.items():
                 if isinstance(cpr, (int, float)):
-                    cpr_points.append((level_key, role, cpr))
+                    cpr_points.append((normalized_level_key, role, cpr))
         
         # Sort by CPR value descending (best performance first)
         return sorted(cpr_points, key=lambda x: x[2], reverse=True)

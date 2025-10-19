@@ -499,66 +499,66 @@ def main():
     logger.info(f"Received {len(member_names)} member names from sync")
     
     try:
-        # Initialize scraper
-        scraper = CPRScraper()
+        # # Initialize scraper
+        # scraper = CPRScraper()
         
-        # Check if we should scrape a specific member
-        member_filter = os.environ.get('MEMBER_FILTER', '').strip()
+        # # Check if we should scrape a specific member
+        # member_filter = os.environ.get('MEMBER_FILTER', '').strip()
         
-        if member_filter:
-            logger.info(f"Scraping specific member: {member_filter}")
+        # if member_filter:
+        #     logger.info(f"Scraping specific member: {member_filter}")
             
-            if member_filter not in scraper.member_api_keys:
-                logger.error(f"Member ID {member_filter} not found in API keys")
-                logger.info(f"Available member IDs: {list(scraper.member_api_keys.keys())}")
-                sys.exit(1)
+        #     if member_filter not in scraper.member_api_keys:
+        #         logger.error(f"Member ID {member_filter} not found in API keys")
+        #         logger.info(f"Available member IDs: {list(scraper.member_api_keys.keys())}")
+        #         sys.exit(1)
             
-            # Check if member is in faction
-            if member_filter not in member_names:
-                logger.error(f"Member {member_filter} not found in faction roster - cannot scrape")
-                sys.exit(1)
+        #     # Check if member is in faction
+        #     if member_filter not in member_names:
+        #         logger.error(f"Member {member_filter} not found in faction roster - cannot scrape")
+        #         sys.exit(1)
             
-            # Get member name from synced data
-            member_name = member_names[member_filter]
+        #     # Get member name from synced data
+        #     member_name = member_names[member_filter]
             
-            cpr_data = scraper._load_cpr_database()
-            success, updates, error_msg = scraper.scrape_member(
-                member_filter,
-                scraper.member_api_keys[member_filter],
-                member_name,
-                cpr_data
-            )
+        #     cpr_data = scraper._load_cpr_database()
+        #     success, updates, error_msg = scraper.scrape_member(
+        #         member_filter,
+        #         scraper.member_api_keys[member_filter],
+        #         member_name,
+        #         cpr_data
+        #     )
             
-            if success:
-                scraper._save_cpr_database(cpr_data)
+        #     if success:
+        #         scraper._save_cpr_database(cpr_data)
                 
-                # Update Google Sheets with CPR data
-                try:
-                    scraper._update_sheets_with_cpr(cpr_data)
-                except Exception as e:
-                    logger.error(f"Failed to update Google Sheets: {e}")
+        #         # Update Google Sheets with CPR data
+        #         try:
+        #             scraper._update_sheets_with_cpr(cpr_data)
+        #         except Exception as e:
+        #             logger.error(f"Failed to update Google Sheets: {e}")
                 
-                if error_msg:
-                    logger.warning(f"Completed with warning: {error_msg}")
-                else:
-                    logger.info(f"Successfully scraped {member_name} ({member_filter}) - {updates} updates")
-            else:
-                logger.error(f"Failed to scrape member {member_filter}")
-                sys.exit(1)
-        else:
-            # Scrape all members - pass member_names from sync
-            stats = scraper.scrape_all_members(member_names)
+        #         if error_msg:
+        #             logger.warning(f"Completed with warning: {error_msg}")
+        #         else:
+        #             logger.info(f"Successfully scraped {member_name} ({member_filter}) - {updates} updates")
+        #     else:
+        #         logger.error(f"Failed to scrape member {member_filter}")
+        #         sys.exit(1)
+        # else:
+        #     # Scrape all members - pass member_names from sync
+        #     stats = scraper.scrape_all_members(member_names)
             
-            if not stats.get('success'):
-                logger.error("Scrape failed")
-                sys.exit(1)
+        #     if not stats.get('success'):
+        #         logger.error("Scrape failed")
+        #         sys.exit(1)
             
-            # Don't fail if some members had invalid keys or weren't in faction
-            if stats['failed'] > 0 and stats['successful'] == 0:
-                logger.error("All member scrapes failed")
-                sys.exit(1)
+        #     # Don't fail if some members had invalid keys or weren't in faction
+        #     if stats['failed'] > 0 and stats['successful'] == 0:
+        #         logger.error("All member scrapes failed")
+        #         sys.exit(1)
         
-        logger.info("CPR scraper completed successfully")
+        # logger.info("CPR scraper completed successfully")
 
         # Automatically assign tiers based on new CPR data
         logger.info("\nAuto-assigning tiers based on CPR data...")
@@ -573,13 +573,13 @@ def main():
             logger.error(f"Tier assignment failed: {e}")
             # Don't exit - CPR scrape was successful
         
-        # Update GitHub Gist with CPR database
-        logger.info("\nUpdating public GitHub Gist...")
-        try:
-            update_gist()
-        except Exception as e:
-            logger.error(f"Gist update failed: {e}")
-            # Don't exit - CPR scrape was successful
+        # # Update GitHub Gist with CPR database
+        # logger.info("\nUpdating public GitHub Gist...")
+        # try:
+        #     update_gist()
+        # except Exception as e:
+        #     logger.error(f"Gist update failed: {e}")
+        #     # Don't exit - CPR scrape was successful
         
     except Exception as e:
         logger.error(f"Fatal error in CPR scraper: {e}")
