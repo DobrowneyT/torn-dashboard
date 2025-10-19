@@ -477,9 +477,9 @@ class CrimeDataUpdater:
         self._write_crime_log_sheet_batch(crimes_db)
         
         # Write crimes to "test" sheet using pandas DataFrame
-        self._write_crimes_to_test_sheet_pandas(crimes_db)
+        self._write_crimes_log_pandas(crimes_db)
 
-        # NEW: Write CPR database to 'cpr_database' sheet
+        # Write CPR database to 'cpr_database' sheet
         self._write_cpr_database_to_sheet_pandas()
         
         logger.info("Google Sheets updated successfully")
@@ -543,6 +543,259 @@ class CrimeDataUpdater:
         self.sheets.write_crime_log_batch(crime_rows)
         
         logger.info(f"Wrote {len(crime_rows)} crimes to Crime_Log sheet")
+
+    def _write_crimes_log_pandas(self, crimes_db: Dict):
+        """
+        Smart Crime Log writer with incremental updates
+        
+        Logic:
+        1. Check if sheet is empty (row 2 is empty)
+        2. If empty: Write entire crimes database
+        3. If has data: Find OLDEST incomplete crime (lowest created_at with no executed_at), 
+        delete from there, rewrite those crimes
+        
+        This ensures:
+        - Completed crimes are never rewritten (efficient)
+        - Incomplete crimes are always current
+        - New crimes are always added
+        """
+        logger.info("Writing crimes to 'test' sheet with smart incremental updates")
+        
+        try:
+            SHEET_NAME = 'test'
+            
+            # Step 1: Check if sheet is empty by reading first 100 rows
+            logger.info("Checking sheet status...")
+            try:
+                existing_data = self.sheets.read_range(SHEET_NAME, 'A2:A101')
+                sheet_is_empty = not existing_data or not existing_data[0] or not existing_data[0][0]
+            except Exception as e:
+                logger.warning(f"Could not read sheet (might not exist): {e}")
+                sheet_is_empty = True
+            
+            if sheet_is_empty:
+                logger.info("Sheet is empty - performing FULL database write")
+                crimes_to_write = list(crimes_db['crimes'].values())
+                oldest_incomplete_row = 2
+            else:
+                logger.info("Sheet has data - performing INCREMENTAL update")
+                
+                # Step 2: Find OLDEST incomplete crime in sheet
+                # Read Crime ID (A), Created At (E), and Executed At (F) from first 100 rows
+                try:
+                    crime_ids_in_sheet = self.sheets.read_range(SHEET_NAME, 'A2:A101')
+                    created_at_in_sheet = self.sheets.read_range(SHEET_NAME, 'E2:E101')
+                    executed_at_in_sheet = self.sheets.read_range(SHEET_NAME, 'F2:F101')
+                    
+                    oldest_incomplete_crime_id = None
+                    oldest_incomplete_row = None
+                    oldest_incomplete_created_at = float('inf')  # Start with infinity to find minimum
+                    
+                    # Iterate through ALL rows to find the OLDEST crime (lowest created_at) with no executed_at
+                    for i, (crime_id_row, created_row, executed_row) in enumerate(
+                        zip(crime_ids_in_sheet, created_at_in_sheet, executed_at_in_sheet)
+                    ):
+                        if crime_id_row and crime_id_row[0]:
+                            crime_id = str(crime_id_row[0]).strip()
+                            
+                            # Get created_at timestamp (it's stored as UNIX timestamp)
+                            created_at = int(created_row[0]) if created_row and created_row[0] else 0
+                            
+                            # Get executed_at value
+                            executed_at = executed_row[0] if executed_row and executed_row[0] else ''
+                            
+                            # If executed_at is empty AND created_at is older than current oldest
+                            if not executed_at and created_at < oldest_incomplete_created_at:
+                                oldest_incomplete_crime_id = crime_id
+                                oldest_incomplete_row = i + 2  # +2 because row 1 is header, i is 0-indexed
+                                oldest_incomplete_created_at = created_at
+                    
+                    if oldest_incomplete_crime_id:
+                        logger.info(f"Found OLDEST incomplete crime: ID {oldest_incomplete_crime_id} "
+                                f"created at {oldest_incomplete_created_at} "
+                                f"(first appears at row {oldest_incomplete_row})")
+                        
+                        # Step 3: Get all crimes from that created_at onwards
+                        cutoff_created_at = oldest_incomplete_created_at
+                        
+                        # Get all crimes with created_at >= cutoff (includes the incomplete and newer)
+                        crimes_to_write = [
+                            c for c in crimes_db['crimes'].values()
+                            if c.get('created_at', 0) >= cutoff_created_at
+                        ]
+                        
+                        logger.info(f"Found {len(crimes_to_write)} crimes to update "
+                                f"(all crimes with created_at >= {cutoff_created_at})")
+                        
+                        # Step 4: Find the FIRST occurrence of this crime in the sheet to know where to delete from
+                        # We need to delete from the first row where ANY crime has created_at >= cutoff
+                        first_row_to_delete = None
+                        for i, created_row in enumerate(created_at_in_sheet):
+                            created_at = int(created_row[0]) if created_row and created_row[0] else 0
+                            if created_at >= cutoff_created_at:
+                                first_row_to_delete = i + 2  # +2 for header and 0-indexing
+                                break
+                        
+                        if first_row_to_delete:
+                            logger.info(f"Will clear sheet from row {first_row_to_delete} onwards")
+                            oldest_incomplete_row = first_row_to_delete
+                            self.sheets.clear_range(SHEET_NAME, f'A{first_row_to_delete}:N10000')
+                        else:
+                            logger.warning("Could not find row to delete from - clearing from row 2")
+                            oldest_incomplete_row = 2
+                            self.sheets.clear_range(SHEET_NAME, 'A2:N10000')
+                            
+                    else:
+                        logger.info("All crimes in sheet are completed - checking for new crimes only")
+                        # Get the last crime ID in sheet (most recent by created_at)
+                        max_created_at = 0
+                        for created_row in created_at_in_sheet:
+                            created_at = int(created_row[0]) if created_row and created_row[0] else 0
+                            max_created_at = max(max_created_at, created_at)
+                        
+                        if max_created_at > 0:
+                            # Write only crimes newer than the most recent one in sheet
+                            crimes_to_write = [
+                                c for c in crimes_db['crimes'].values()
+                                if c.get('created_at', 0) > max_created_at
+                            ]
+                            
+                            if crimes_to_write:
+                                logger.info(f"Found {len(crimes_to_write)} new crimes to append")
+                                # We'll append these after the existing data
+                                # No deletion needed - find last row
+                                oldest_incomplete_row = len(crime_ids_in_sheet) + 2  # +2 for header
+                            else:
+                                logger.info("No new crimes to add - sheet is up to date")
+                                return
+                        else:
+                            logger.warning("Could not determine max created_at - performing full write")
+                            crimes_to_write = list(crimes_db['crimes'].values())
+                            oldest_incomplete_row = 2
+                            self.sheets.clear_range(SHEET_NAME, 'A2:N10000')
+                    
+                except Exception as e:
+                    logger.error(f"Error during incremental update logic: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    logger.warning("Falling back to full database write")
+                    crimes_to_write = list(crimes_db['crimes'].values())
+                    oldest_incomplete_row = 2
+                    # Clear everything except header
+                    self.sheets.clear_range(SHEET_NAME, 'A2:N10000')
+            
+            # Step 5: Convert crimes to DataFrame format
+            logger.info(f"Converting {len(crimes_to_write)} crimes to sheet format...")
+            
+            flattened_crimes = []
+            
+            for crime in crimes_to_write:
+                # Extract item rewards as tuples: (id, quantity)
+                item_rewards = ""
+                if crime.get('rewards') and crime['rewards'].get('items'):
+                    reward_tuples = [
+                        f"({item['id']},{item['quantity']})" 
+                        for item in crime['rewards']['items']
+                    ]
+                    item_rewards = ",".join(reward_tuples)
+                
+                # Extract items used from slots as tuples: (id, quantity)
+                items_used = []
+                items_used_ids = set()
+                
+                for slot in crime.get('slots', []):
+                    item_req = slot.get('item_requirement')
+                    if item_req and not item_req.get('is_reusable', True):
+                        item_id = item_req['id']
+                        if item_id not in items_used_ids:
+                            items_used.append(f"({item_id},1)")
+                            items_used_ids.add(item_id)
+                
+                items_used_str = ",".join(items_used) if items_used else ""
+                
+                # Extract participants as tuples
+                participant_tuples = []
+                for slot in crime.get('slots', []):
+                    if slot.get('user'):
+                        user = slot['user']
+                        position = slot['position']
+                        position_num = slot.get('position_number', 1)
+                        joined_at = user.get('joined_at', 0)
+                        
+                        participant_tuples.append(
+                            f"({user['id']},{position} {position_num},{joined_at})"
+                        )
+                
+                participants_str = ",".join(participant_tuples)
+                
+                # Flatten the crime data - KEEP TIMESTAMPS AS UNIX
+                flat_crime = {
+                    'Crime ID': crime.get('id', 0),
+                    'Name': crime.get('name', ''),
+                    'Difficulty': crime.get('difficulty', 0),
+                    'Status': crime.get('status', ''),
+                    'Created At': crime.get('created_at', 0),  # UNIX timestamp
+                    'Executed At': crime.get('executed_at', 0) if crime.get('executed_at') else '',  # UNIX timestamp or empty
+                    'Total Slots': crime.get('total_slots', 0),
+                    'Filled Slots': crime.get('filled_slots', 0),
+                    'Participants': participants_str,
+                    'Money Reward': crime.get('rewards', {}).get('money', 0) if crime.get('rewards') else 0,
+                    'Item Reward': item_rewards,
+                    'Item Used': items_used_str,
+                    'Respect': crime.get('rewards', {}).get('respect', 0) if crime.get('rewards') else 0,
+                    'Previous Crime ID': crime.get('previous_crime_id') if crime.get('previous_crime_id') else '',
+                    'Last Updated': crime.get('last_updated', ''),
+                }
+                
+                flattened_crimes.append(flat_crime)
+            
+            if not flattened_crimes:
+                logger.info("No crimes to write")
+                return
+            
+            # Create DataFrame
+            df = pd.DataFrame(flattened_crimes)
+            
+            # Ensure no NaN values
+            numeric_cols = ['Crime ID', 'Difficulty', 'Created At', 'Total Slots', 'Filled Slots', 
+                        'Money Reward', 'Respect']
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = df[col].fillna(0)
+            
+            string_cols = ['Name', 'Status', 'Executed At',
+                        'Participants', 'Item Reward', 'Item Used', 
+                        'Previous Crime ID', 'Last Updated']
+            for col in string_cols:
+                if col in df.columns:
+                    df[col] = df[col].fillna('')
+            
+            # Sort by Crime ID ascending (oldest first) - matches database order
+            df = df.sort_values('Crime ID', ascending=True)
+            df = df.reset_index(drop=True)
+            
+            logger.info(f"Writing {len(df)} rows to sheet starting at row {oldest_incomplete_row}")
+            logger.info(f"Crime ID range: {df['Crime ID'].min()} to {df['Crime ID'].max()}")
+            
+            # Step 6: Write to sheet
+            if sheet_is_empty or oldest_incomplete_row == 2:
+                # Full write - includes header
+                self.sheets.write_dataframe_to_sheet(df, sheet_name=SHEET_NAME)
+            else:
+                # Incremental write - without header, starting at specific row
+                self.sheets.write_dataframe_to_sheet(
+                    df, 
+                    sheet_name=SHEET_NAME, 
+                    start_row=oldest_incomplete_row,
+                    include_index=False
+                )
+            
+            logger.info("✓ Successfully wrote crimes to 'test' sheet")
+            
+        except Exception as e:
+            logger.error(f"Error writing crimes log: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _write_crimes_to_test_sheet_pandas(self, crimes_db: Dict):
         """
