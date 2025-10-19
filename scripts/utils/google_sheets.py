@@ -235,6 +235,84 @@ class GoogleSheetsManager:
         except HttpError as e:
             logger.error(f"Error appending to {sheet_name}: {e}")
             raise GoogleSheetsError(f"Failed to append rows: {e}")
+        
+    def delete_rows(self, sheet_name: str, start_row: int, end_row: int) -> bool:
+        """
+        Delete rows from a sheet
+        
+        Args:
+            sheet_name: Name of the sheet
+            start_row: Starting row number (1-indexed, inclusive)
+            end_row: Ending row number (1-indexed, inclusive)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            sheet_id = self._get_sheet_id(sheet_name)
+            
+            # Convert to 0-indexed for API (and make end_row exclusive)
+            start_index = start_row - 1
+            end_index = end_row  # API uses exclusive end
+            
+            request = {
+                'deleteDimension': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'dimension': 'ROWS',
+                        'startIndex': start_index,
+                        'endIndex': end_index
+                    }
+                }
+            }
+            
+            self.batch_update([request])
+            logger.info(f"Deleted rows {start_row} to {end_row} from {sheet_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting rows: {e}")
+            raise GoogleSheetsError(f"Failed to delete rows: {e}")
+
+
+    def insert_blank_rows(self, sheet_name: str, start_row: int, num_rows: int) -> bool:
+        """
+        Insert blank rows into a sheet
+        
+        Args:
+            sheet_name: Name of the sheet
+            start_row: Row number to insert before (1-indexed)
+            num_rows: Number of rows to insert
+            
+        Returns:
+            True if successful
+        """
+        try:
+            sheet_id = self._get_sheet_id(sheet_name)
+            
+            # Convert to 0-indexed for API
+            start_index = start_row - 1
+            end_index = start_index + num_rows
+            
+            request = {
+                'insertDimension': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'dimension': 'ROWS',
+                        'startIndex': start_index,
+                        'endIndex': end_index
+                    },
+                    'inheritFromBefore': False
+                }
+            }
+            
+            self.batch_update([request])
+            logger.info(f"Inserted {num_rows} blank rows at row {start_row} in {sheet_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error inserting rows: {e}")
+            raise GoogleSheetsError(f"Failed to insert rows: {e}")
     
     def clear_range(self, sheet_name: str, range_str: str) -> bool:
         """

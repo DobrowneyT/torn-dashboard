@@ -613,7 +613,7 @@ class CrimeDataUpdater:
                     if oldest_incomplete_crime_id:
                         logger.info(f"Found OLDEST incomplete crime: ID {oldest_incomplete_crime_id} "
                                 f"created at {oldest_incomplete_created_at} "
-                                f"(first appears at row {oldest_incomplete_row})")
+                                f"(row {oldest_incomplete_row})")
                         
                         # Step 3: Get all crimes from that created_at onwards
                         cutoff_created_at = oldest_incomplete_created_at
@@ -627,23 +627,15 @@ class CrimeDataUpdater:
                         logger.info(f"Found {len(crimes_to_write)} crimes to update "
                                 f"(all crimes with created_at >= {cutoff_created_at})")
                         
-                        # Step 4: Find the FIRST occurrence of this crime in the sheet to know where to delete from
-                        # We need to delete from the first row where ANY crime has created_at >= cutoff
-                        first_row_to_delete = None
-                        for i, created_row in enumerate(created_at_in_sheet):
-                            created_at = int(created_row[0]) if created_row and created_row[0] else 0
-                            if created_at >= cutoff_created_at:
-                                first_row_to_delete = i + 2  # +2 for header and 0-indexing
-                                break
-                        
-                        if first_row_to_delete:
-                            logger.info(f"Will clear sheet from row {first_row_to_delete} onwards")
-                            oldest_incomplete_row = first_row_to_delete
-                            self.sheets.clear_range(SHEET_NAME, f'A{first_row_to_delete}:N10000')
-                        else:
-                            logger.warning("Could not find row to delete from - clearing from row 2")
-                            oldest_incomplete_row = 2
-                            self.sheets.clear_range(SHEET_NAME, 'A2:N10000')
+                        # Step 4: Delete rows from row 2 to oldest_incomplete_row (inclusive)
+                        # These are all the crimes that need to be replaced
+                        if oldest_incomplete_row > 2:
+                            logger.info(f"Deleting rows 2 to {oldest_incomplete_row} from sheet")
+                            self.sheets.delete_rows(SHEET_NAME, 2, oldest_incomplete_row)
+                        elif oldest_incomplete_row == 2:
+                            # Only one row to delete
+                            logger.info(f"Deleting row 2 from sheet")
+                            self.sheets.delete_rows(SHEET_NAME, 2, 2)
                             
                     else:
                         logger.info("All crimes in sheet are completed - checking for new crimes only")
@@ -672,7 +664,7 @@ class CrimeDataUpdater:
                             logger.warning("Could not determine max created_at - performing full write")
                             crimes_to_write = list(crimes_db['crimes'].values())
                             oldest_incomplete_row = 2
-                            self.sheets.clear_range(SHEET_NAME, 'A2:N10000')
+                            self.sheets.delete_rows(SHEET_NAME, 2, 100)  # Delete existing data rows
                     
                 except Exception as e:
                     logger.error(f"Error during incremental update logic: {e}")
@@ -681,8 +673,11 @@ class CrimeDataUpdater:
                     logger.warning("Falling back to full database write")
                     crimes_to_write = list(crimes_db['crimes'].values())
                     oldest_incomplete_row = 2
-                    # Clear everything except header
-                    self.sheets.clear_range(SHEET_NAME, 'A2:N10000')
+                    # Delete all existing data rows
+                    try:
+                        self.sheets.delete_rows(SHEET_NAME, 2, 100)
+                    except:
+                        pass  # Sheet might be empty
             
             # Step 5: Convert crimes to DataFrame format
             logger.info(f"Converting {len(crimes_to_write)} crimes to sheet format...")
@@ -774,19 +769,26 @@ class CrimeDataUpdater:
             df = df.sort_values('Crime ID', ascending=False)
             df = df.reset_index(drop=True)
             
-            logger.info(f"Writing {len(df)} rows to sheet starting at row {oldest_incomplete_row}")
+            logger.info(f"Writing {len(df)} rows to sheet starting at row 2")
             logger.info(f"Crime ID range: {df['Crime ID'].min()} to {df['Crime ID'].max()}")
             
-            # Step 6: Write to sheet
-            if sheet_is_empty or oldest_incomplete_row == 2:
+            # Step 6: Insert blank rows and write data
+            if not sheet_is_empty:
+                # Insert the exact number of rows we need at row 2
+                num_rows_to_insert = len(df)
+                logger.info(f"Inserting {num_rows_to_insert} blank rows at row 2")
+                self.sheets.insert_blank_rows(SHEET_NAME, 2, num_rows_to_insert)
+            
+            # Write data starting at row 2 (without header if incremental, with header if full write)
+            if sheet_is_empty:
                 # Full write - includes header
                 self.sheets.write_dataframe_to_sheet(df, sheet_name=SHEET_NAME)
             else:
-                # Incremental write - without header, starting at specific row
+                # Incremental write - write to the newly inserted rows starting at row 2
                 self.sheets.write_dataframe_to_sheet(
                     df, 
                     sheet_name=SHEET_NAME, 
-                    start_row=oldest_incomplete_row,
+                    start_row=2,
                     include_index=False
                 )
             
