@@ -474,7 +474,7 @@ class CrimeDataUpdater:
         self.sheets.update_dashboard_pending_crimes_batch(pending_crimes[:50])
         
         # Write full crime log to Crime_Log sheet (batch)
-        self._write_crime_log_sheet_batch(crimes_db)
+        # self._write_crime_log_sheet_batch(crimes_db)
         
         # Write crimes to "test" sheet using pandas DataFrame
         self._write_crimes_log_pandas(crimes_db)
