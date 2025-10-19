@@ -619,8 +619,11 @@ class GoogleSheetsManager:
                 data = df.values.tolist()
             
             # Combine headers and data
-            all_data = [headers] + data
-            
+            if include_headers:
+                all_data = [headers] + data
+            else:
+                all_data = data
+
             # Clean data to ensure JSON serialization works
             # Convert any remaining problematic values
             cleaned_data = []
