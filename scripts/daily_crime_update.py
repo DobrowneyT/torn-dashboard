@@ -734,10 +734,10 @@ class CrimeDataUpdater:
                     'Executed At': crime.get('executed_at', 0) if crime.get('executed_at') else '',  # UNIX timestamp or empty
                     'Total Slots': crime.get('total_slots', 0),
                     'Filled Slots': crime.get('filled_slots', 0),
-                    'Participants': participants_str,
+                    'Participants (user_id,position position_number,joined_at,cpr)': participants_str,
                     'Money Reward': crime.get('rewards', {}).get('money', 0) if crime.get('rewards') else 0,
-                    'Item Reward': item_rewards,
-                    'Item Used': items_used_str,
+                    'Item Reward (item_id,quantity)': item_rewards,
+                    'Item Used (item_id,quantity)': items_used_str,
                     'Respect': crime.get('rewards', {}).get('respect', 0) if crime.get('rewards') else 0,
                     'Previous Crime ID': crime.get('previous_crime_id') if crime.get('previous_crime_id') else '',
                     'Last Updated': crime.get('last_updated', ''),
