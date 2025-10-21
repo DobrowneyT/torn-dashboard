@@ -1172,7 +1172,7 @@ class GoogleSheetsManager:
             List of member dictionaries
         """
         try:
-            values = self.read_range(self.SHEET_MEMBERS, "A2:Z100")
+            values = self.read_range(self.SHEET_MEMBERS, "A2:Z101")
             
             if not values:
                 return []
@@ -1215,7 +1215,7 @@ class GoogleSheetsManager:
         """
         try:
             # Clear existing data
-            self.clear_range(self.SHEET_MEMBERS, "A2:E100")
+            self.clear_range(self.SHEET_MEMBERS, "A2:E101")
             
             # Prepare member data
             member_rows = []
@@ -1258,7 +1258,7 @@ class GoogleSheetsManager:
         
         try:
             # Read member IDs from column A (A2:A102)
-            member_ids = self.read_range(self.SHEET_MEMBERS, 'A2:A102')
+            member_ids = self.read_range(self.SHEET_MEMBERS, 'A2:A101')
             
             # Prepare CPR scores for all rows
             cpr_rows = []
@@ -1329,7 +1329,7 @@ class GoogleSheetsManager:
         
         try:
             # Read member IDs from column A (A2:A102)
-            member_ids = self.read_range(self.SHEET_MEMBERS, 'A2:A102')
+            member_ids = self.read_range(self.SHEET_MEMBERS, 'A2:A101')
             
             # Prepare tier data for all rows
             tier_rows = []
@@ -1402,7 +1402,7 @@ class GoogleSheetsManager:
         
         try:
             # Read member IDs from column A (A2:A102)
-            member_ids = self.read_range(self.SHEET_MEMBERS, 'A2:A102')
+            member_ids = self.read_range(self.SHEET_MEMBERS, 'A2:A101')
             
             # Prepare complete data for all rows
             data_rows = []
@@ -1812,7 +1812,7 @@ class GoogleSheetsManager:
         
         try:
             # Clear old tier data (preserve ID and Name in columns A-B)
-            self.clear_range(self.SHEET_MEMBERS, 'C2:G200')
+            self.clear_range(self.SHEET_MEMBERS, 'C2:G201')
             
             # Prepare tier data rows
             rows = []
