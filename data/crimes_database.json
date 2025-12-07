@@ -56362,15 +56362,15 @@
       "id": 1070673,
       "name": "Break the Bank",
       "difficulty": 8,
-      "status": "Recruiting",
+      "status": "Planning",
       "previous_crime_id": null,
       "created_at": 1764439172,
       "planning_at": 1764798292,
       "executed_at": null,
-      "ready_at": 1765230292,
+      "ready_at": 1765316692,
       "expired_at": 1765043972,
       "total_slots": 6,
-      "filled_slots": 5,
+      "filled_slots": 6,
       "slots": [
         {
           "position": "Robber",
@@ -56415,10 +56415,16 @@
           "item_requirement": {
             "id": 1429,
             "is_reusable": false,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 72
+          "user": {
+            "outcome": null,
+            "id": 2882851,
+            "joined_at": 1765003805,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 62
         },
         {
           "position": "Thief",
@@ -56433,7 +56439,7 @@
             "outcome": null,
             "id": 3283862,
             "joined_at": 1764885086,
-            "progress": 35.67,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 57
@@ -56451,7 +56457,7 @@
             "outcome": null,
             "id": 711289,
             "joined_at": 1764887968,
-            "progress": 0,
+            "progress": 35.67,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 71
@@ -56478,12 +56484,13 @@
       "participant_ids": [
         330505,
         428286,
+        2882851,
         3283862,
         711289,
         2749598
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997026",
+      "last_updated": "2025-12-07T06:18:28.598967",
       "first_seen": "2025-11-30T06:19:28.912522"
     },
     "1070674": {
@@ -56569,7 +56576,7 @@
           "paid_at": 1764906989
         }
       },
-      "last_updated": "2025-12-06T06:18:32.997041",
+      "last_updated": "2025-12-07T06:18:28.599042",
       "first_seen": "2025-11-30T06:19:28.912549"
     },
     "1070675": {
@@ -56678,20 +56685,25 @@
         "items": [],
         "respect": 102,
         "scope": 3,
-        "payout": null
+        "payout": {
+          "type": "balance",
+          "percentage": 0,
+          "paid_by": 2749598,
+          "paid_at": 1765081428
+        }
       },
-      "last_updated": "2025-12-06T06:18:32.997053",
+      "last_updated": "2025-12-07T06:18:28.599060",
       "first_seen": "2025-11-30T06:19:28.912579"
     },
     "1073015": {
       "id": 1073015,
       "name": "Blast from the Past",
       "difficulty": 7,
-      "status": "Planning",
+      "status": "Failure",
       "previous_crime_id": null,
       "created_at": 1764506599,
       "planning_at": 1764515821,
-      "executed_at": null,
+      "executed_at": 1765034225,
       "ready_at": 1765034221,
       "expired_at": 1765111399,
       "total_slots": 6,
@@ -56703,7 +56715,7 @@
           "position_number": 1,
           "item_requirement": null,
           "user": {
-            "outcome": null,
+            "outcome": "Failed",
             "id": 3058543,
             "joined_at": 1764515821,
             "progress": 100,
@@ -56721,11 +56733,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Failed",
             "id": 1853567,
             "joined_at": 1764799468,
-            "progress": 62.61,
-            "item_outcome": null
+            "progress": 100,
+            "item_outcome": {
+              "owned_by": "user",
+              "item_id": 103,
+              "item_uid": 17068985698,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 79
         },
@@ -56739,11 +56756,17 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Hospitalized",
             "id": 2672536,
             "joined_at": 1764731190,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 1431,
+              "item_uid": 16949225185,
+              "outcome": "used"
+            },
+            "outcome_duration": 77589
           },
           "checkpoint_pass_rate": 77
         },
@@ -56757,11 +56780,17 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Hospitalized",
             "id": 3249124,
             "joined_at": 1764516203,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 1430,
+              "item_uid": 16949229547,
+              "outcome": "used"
+            },
+            "outcome_duration": 27911
           },
           "checkpoint_pass_rate": 70
         },
@@ -56775,11 +56804,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Failed",
             "id": 2932241,
             "joined_at": 1764798658,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 1429,
+              "item_uid": 16015863769,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 78
         },
@@ -56789,11 +56823,12 @@
           "position_number": 2,
           "item_requirement": null,
           "user": {
-            "outcome": null,
+            "outcome": "Hospitalized",
             "id": 3291843,
             "joined_at": 1764536266,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": null,
+            "outcome_duration": 92427
           },
           "checkpoint_pass_rate": 71
         }
@@ -56807,18 +56842,18 @@
         3291843
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997100",
+      "last_updated": "2025-12-07T06:18:28.599077",
       "first_seen": "2025-12-01T06:22:33.433778"
     },
     "1073016": {
       "id": 1073016,
       "name": "Blast from the Past",
       "difficulty": 7,
-      "status": "Planning",
+      "status": "Successful",
       "previous_crime_id": null,
       "created_at": 1764506602,
       "planning_at": 1764516484,
-      "executed_at": null,
+      "executed_at": 1765062545,
       "ready_at": 1765062534,
       "expired_at": 1765111402,
       "total_slots": 6,
@@ -56830,7 +56865,7 @@
           "position_number": 1,
           "item_requirement": null,
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 2720023,
             "joined_at": 1764730075,
             "progress": 100,
@@ -56848,11 +56883,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 49580,
             "joined_at": 1764517068,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 103,
+              "item_uid": 16949238038,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 76
         },
@@ -56866,11 +56906,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3012215,
             "joined_at": 1764716934,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 1431,
+              "item_uid": 16949225183,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 75
         },
@@ -56884,11 +56929,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 2264192,
             "joined_at": 1764516484,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": {
+              "owned_by": "user",
+              "item_id": 1430,
+              "item_uid": 15950005057,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 83
         },
@@ -56902,11 +56952,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 2852673,
             "joined_at": 1764806986,
-            "progress": 29.84,
-            "item_outcome": null
+            "progress": 100,
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 1429,
+              "item_uid": 16015863768,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 76
         },
@@ -56916,7 +56971,7 @@
           "position_number": 2,
           "item_requirement": null,
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3120070,
             "joined_at": 1764804879,
             "progress": 100,
@@ -56933,8 +56988,19 @@
         2852673,
         3120070
       ],
-      "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997117",
+      "rewards": {
+        "money": 167576000,
+        "items": [],
+        "respect": 348,
+        "scope": 5,
+        "payout": {
+          "type": "balance",
+          "percentage": 0,
+          "paid_by": 2749598,
+          "paid_at": 1765081418
+        }
+      },
+      "last_updated": "2025-12-07T06:18:28.599130",
       "first_seen": "2025-12-01T06:22:33.433818"
     },
     "1073064": {
@@ -57039,18 +57105,18 @@
           "paid_at": 1764907566
         }
       },
-      "last_updated": "2025-12-06T06:18:32.997131",
+      "last_updated": "2025-12-07T06:18:28.599175",
       "first_seen": "2025-12-01T06:22:33.433856"
     },
     "1073493": {
       "id": 1073493,
       "name": "Blast from the Past",
       "difficulty": 7,
-      "status": "Planning",
+      "status": "Successful",
       "previous_crime_id": null,
       "created_at": 1764518952,
       "planning_at": 1764534011,
-      "executed_at": null,
+      "executed_at": 1765064165,
       "ready_at": 1765064129,
       "expired_at": 1765123752,
       "total_slots": 6,
@@ -57062,7 +57128,7 @@
           "position_number": 1,
           "item_requirement": null,
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 1586328,
             "joined_at": 1764534011,
             "progress": 100,
@@ -57080,11 +57146,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 462912,
             "joined_at": 1764826485,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 103,
+              "item_uid": 16949236613,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 82
         },
@@ -57098,11 +57169,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 2736995,
             "joined_at": 1764718529,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 1431,
+              "item_uid": 16949225184,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 75
         },
@@ -57116,11 +57192,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 430470,
             "joined_at": 1764611700,
             "progress": 100,
-            "item_outcome": null
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 1430,
+              "item_uid": 16949229546,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 74
         },
@@ -57134,11 +57215,16 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3015831,
             "joined_at": 1764860323,
-            "progress": 27.99,
-            "item_outcome": null
+            "progress": 100,
+            "item_outcome": {
+              "owned_by": "faction",
+              "item_id": 1429,
+              "item_uid": 15950273867,
+              "outcome": "used"
+            }
           },
           "checkpoint_pass_rate": 69
         },
@@ -57148,7 +57234,7 @@
           "position_number": 2,
           "item_requirement": null,
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3130493,
             "joined_at": 1764783653,
             "progress": 100,
@@ -57165,8 +57251,19 @@
         3015831,
         3130493
       ],
-      "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997145",
+      "rewards": {
+        "money": 114913000,
+        "items": [],
+        "respect": 301,
+        "scope": 5,
+        "payout": {
+          "type": "balance",
+          "percentage": 0,
+          "paid_by": 2749598,
+          "paid_at": 1765081416
+        }
+      },
+      "last_updated": "2025-12-07T06:18:28.599192",
       "first_seen": "2025-12-01T06:22:33.433890"
     },
     "1073494": {
@@ -57280,7 +57377,7 @@
           "paid_at": 1764907561
         }
       },
-      "last_updated": "2025-12-06T06:18:32.997159",
+      "last_updated": "2025-12-07T06:18:28.599246",
       "first_seen": "2025-12-01T06:22:33.433924"
     },
     "1076402": {
@@ -57324,7 +57421,7 @@
             "outcome": null,
             "id": 2926373,
             "joined_at": 1764891978,
-            "progress": 0,
+            "progress": 53.98,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 76
@@ -57396,7 +57493,7 @@
             "outcome": null,
             "id": 3624845,
             "joined_at": 1764881716,
-            "progress": 53.99,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 52
@@ -57411,7 +57508,7 @@
         3624845
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997172",
+      "last_updated": "2025-12-07T06:18:28.599268",
       "first_seen": "2025-12-02T06:21:47.465242"
     },
     "1080656": {
@@ -57441,7 +57538,7 @@
             "outcome": null,
             "id": 580210,
             "joined_at": 1764887963,
-            "progress": 63.24,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 88
@@ -57473,7 +57570,7 @@
             "outcome": null,
             "id": 3270683,
             "joined_at": 1764945230,
-            "progress": 0,
+            "progress": 63.23,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 71
@@ -57485,18 +57582,18 @@
         3270683
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997187",
+      "last_updated": "2025-12-07T06:18:28.599284",
       "first_seen": "2025-12-03T06:21:27.897876"
     },
     "1080657": {
       "id": 1080657,
       "name": "Honey Trap",
       "difficulty": 6,
-      "status": "Planning",
+      "status": "Successful",
       "previous_crime_id": null,
       "created_at": 1764710864,
       "planning_at": 1764748151,
-      "executed_at": null,
+      "executed_at": 1765007405,
       "ready_at": 1765007351,
       "expired_at": 1765315664,
       "total_slots": 3,
@@ -57512,7 +57609,7 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 2507533,
             "joined_at": 1764748151,
             "progress": 100,
@@ -57526,7 +57623,7 @@
           "position_number": 1,
           "item_requirement": null,
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3208403,
             "joined_at": 1764780602,
             "progress": 100,
@@ -57544,10 +57641,10 @@
             "is_available": true
           },
           "user": {
-            "outcome": null,
+            "outcome": "Successful",
             "id": 3228747,
             "joined_at": 1764850893,
-            "progress": 93.7,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 72
@@ -57558,8 +57655,19 @@
         3208403,
         3228747
       ],
-      "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997231",
+      "rewards": {
+        "money": 25758000,
+        "items": [],
+        "respect": 146,
+        "scope": 4,
+        "payout": {
+          "type": "balance",
+          "percentage": 0,
+          "paid_by": 2749598,
+          "paid_at": 1765081421
+        }
+      },
+      "last_updated": "2025-12-07T06:18:28.599296",
       "first_seen": "2025-12-03T06:21:27.897908"
     },
     "1080658": {
@@ -57585,7 +57693,7 @@
             "outcome": null,
             "id": 3623195,
             "joined_at": 1764879553,
-            "progress": 0,
+            "progress": 85.4,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 77
@@ -57603,7 +57711,7 @@
             "outcome": null,
             "id": 1654809,
             "joined_at": 1764879365,
-            "progress": 85.4,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 85
@@ -57644,7 +57752,7 @@
         3687690
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997245",
+      "last_updated": "2025-12-07T06:18:28.599344",
       "first_seen": "2025-12-03T06:21:27.897940"
     },
     "1080659": {
@@ -57716,7 +57824,7 @@
             "outcome": null,
             "id": 2146235,
             "joined_at": 1764893791,
-            "progress": 66.67,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 90
@@ -57730,7 +57838,7 @@
             "outcome": null,
             "id": 3642824,
             "joined_at": 1764900642,
-            "progress": 0,
+            "progress": 66.67,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 84
@@ -57744,7 +57852,7 @@
         3642824
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997257",
+      "last_updated": "2025-12-07T06:18:28.599359",
       "first_seen": "2025-12-03T06:21:27.897973"
     },
     "1081787": {
@@ -57774,7 +57882,7 @@
             "outcome": null,
             "id": 2163818,
             "joined_at": 1764811078,
-            "progress": 58.62,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 70
@@ -57824,7 +57932,7 @@
             "outcome": null,
             "id": 2632539,
             "joined_at": 1764890003,
-            "progress": 0,
+            "progress": 58.61,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 74
@@ -57837,22 +57945,22 @@
         2632539
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997298",
+      "last_updated": "2025-12-07T06:18:28.599373",
       "first_seen": "2025-12-04T06:21:06.693534"
     },
     "1083747": {
       "id": 1083747,
       "name": "Blast from the Past",
       "difficulty": 7,
-      "status": "Recruiting",
+      "status": "Planning",
       "previous_crime_id": null,
       "created_at": 1764800034,
       "planning_at": 1764801006,
       "executed_at": null,
-      "ready_at": 1765060206,
+      "ready_at": 1765319406,
       "expired_at": 1765404834,
       "total_slots": 6,
-      "filled_slots": 3,
+      "filled_slots": 6,
       "slots": [
         {
           "position": "Picklock",
@@ -57863,7 +57971,7 @@
             "outcome": null,
             "id": 3187613,
             "joined_at": 1764890158,
-            "progress": 32.53,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 70
@@ -57875,10 +57983,16 @@
           "item_requirement": {
             "id": 103,
             "is_reusable": false,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 86
+          "user": {
+            "outcome": null,
+            "id": 2672536,
+            "joined_at": 1765036567,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 78
         },
         {
           "position": "Engineer",
@@ -57887,10 +58001,16 @@
           "item_requirement": {
             "id": 1431,
             "is_reusable": false,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 85
+          "user": {
+            "outcome": null,
+            "id": 2852673,
+            "joined_at": 1765075048,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 74
         },
         {
           "position": "Bomber",
@@ -57917,10 +58037,16 @@
           "item_requirement": {
             "id": 1429,
             "is_reusable": false,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 86
+          "user": {
+            "outcome": null,
+            "id": 2465113,
+            "joined_at": 1765025172,
+            "progress": 32.53,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 82
         },
         {
           "position": "Picklock",
@@ -57939,11 +58065,14 @@
       ],
       "participant_ids": [
         3187613,
+        2672536,
+        2852673,
         2854737,
+        2465113,
         2822740
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997313",
+      "last_updated": "2025-12-07T06:18:28.599385",
       "first_seen": "2025-12-04T06:21:06.693566"
     },
     "1083748": {
@@ -57955,10 +58084,10 @@
       "created_at": 1764800036,
       "planning_at": 1764803792,
       "executed_at": null,
-      "ready_at": 1765081910,
+      "ready_at": 1765254710,
       "expired_at": 1765404836,
       "total_slots": 6,
-      "filled_slots": 3,
+      "filled_slots": 5,
       "slots": [
         {
           "position": "Robber",
@@ -57991,7 +58120,7 @@
             "outcome": null,
             "id": 1957682,
             "joined_at": 1764995510,
-            "progress": 7.41,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 68
@@ -58003,10 +58132,16 @@
           "item_requirement": {
             "id": 1429,
             "is_reusable": false,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 72
+          "user": {
+            "outcome": null,
+            "id": 2327020,
+            "joined_at": 1765004585,
+            "progress": 7.41,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 65
         },
         {
           "position": "Thief",
@@ -58033,10 +58168,16 @@
           "item_requirement": {
             "id": 1331,
             "is_reusable": true,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 72
+          "user": {
+            "outcome": null,
+            "id": 2282199,
+            "joined_at": 1765005180,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 69
         },
         {
           "position": "Thief",
@@ -58054,25 +58195,27 @@
       "participant_ids": [
         1659147,
         1957682,
-        2719034
+        2327020,
+        2719034,
+        2282199
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997326",
+      "last_updated": "2025-12-07T06:18:28.599437",
       "first_seen": "2025-12-04T06:21:06.693597"
     },
     "1085437": {
       "id": 1085437,
       "name": "Clinical Precision",
       "difficulty": 8,
-      "status": "Recruiting",
+      "status": "Planning",
       "previous_crime_id": null,
       "created_at": 1764850220,
       "planning_at": 1764881763,
       "executed_at": null,
-      "ready_at": 1765054563,
+      "ready_at": 1765227363,
       "expired_at": 1765455020,
       "total_slots": 4,
-      "filled_slots": 2,
+      "filled_slots": 4,
       "slots": [
         {
           "position": "Imitator",
@@ -58097,8 +58240,14 @@
           "position_id": "P2",
           "position_number": 1,
           "item_requirement": null,
-          "user": null,
-          "checkpoint_pass_rate": 79
+          "user": {
+            "outcome": null,
+            "id": 2214797,
+            "joined_at": 1765008528,
+            "progress": 39.06,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 68
         },
         {
           "position": "Assassin",
@@ -58107,10 +58256,16 @@
           "item_requirement": {
             "id": 576,
             "is_reusable": false,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 80
+          "user": {
+            "outcome": null,
+            "id": 2932241,
+            "joined_at": 1765034271,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 69
         },
         {
           "position": "Cleaner",
@@ -58125,7 +58280,7 @@
             "outcome": null,
             "id": 2739056,
             "joined_at": 1764883105,
-            "progress": 39.06,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 75
@@ -58133,10 +58288,12 @@
       ],
       "participant_ids": [
         2677601,
+        2214797,
+        2932241,
         2739056
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997365",
+      "last_updated": "2025-12-07T06:18:28.599545",
       "first_seen": "2025-12-05T06:21:06.896782"
     },
     "1085438": {
@@ -58166,7 +58323,7 @@
             "outcome": null,
             "id": 2642228,
             "joined_at": 1764883796,
-            "progress": 41.36,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 73
@@ -58216,7 +58373,7 @@
             "outcome": null,
             "id": 2672505,
             "joined_at": 1764900740,
-            "progress": 0,
+            "progress": 41.35,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 70
@@ -58229,7 +58386,7 @@
         2672505
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997377",
+      "last_updated": "2025-12-07T06:18:28.599592",
       "first_seen": "2025-12-05T06:21:06.896818"
     },
     "1085439": {
@@ -58273,7 +58430,7 @@
             "outcome": null,
             "id": 2733351,
             "joined_at": 1764882817,
-            "progress": 0,
+            "progress": 60.47,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 82
@@ -58301,7 +58458,7 @@
             "outcome": null,
             "id": 3538517,
             "joined_at": 1764879919,
-            "progress": 60.47,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 83
@@ -58314,7 +58471,7 @@
         3538517
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997417",
+      "last_updated": "2025-12-07T06:18:28.599607",
       "first_seen": "2025-12-05T06:21:06.896850"
     },
     "1085440": {
@@ -58340,7 +58497,7 @@
             "outcome": null,
             "id": 3136837,
             "joined_at": 1764959670,
-            "progress": 0,
+            "progress": 75.13,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 80
@@ -58354,7 +58511,7 @@
             "outcome": null,
             "id": 3225628,
             "joined_at": 1764856294,
-            "progress": 75.13,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 75
@@ -58403,7 +58560,7 @@
         2763324
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997438",
+      "last_updated": "2025-12-07T06:18:28.599619",
       "first_seen": "2025-12-05T06:21:06.896880"
     },
     "1085840": {
@@ -58489,7 +58646,7 @@
             "outcome": null,
             "id": 3680626,
             "joined_at": 1764958582,
-            "progress": 43.29,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 84
@@ -58503,7 +58660,7 @@
             "outcome": null,
             "id": 3547685,
             "joined_at": 1764968565,
-            "progress": 0,
+            "progress": 43.28,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 87
@@ -58518,7 +58675,7 @@
         3547685
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997495",
+      "last_updated": "2025-12-07T06:18:28.599632",
       "first_seen": "2025-12-05T06:21:06.896910"
     },
     "1089994": {
@@ -58528,20 +58685,26 @@
       "status": "Recruiting",
       "previous_crime_id": null,
       "created_at": 1764977056,
-      "planning_at": null,
+      "planning_at": 1765022370,
       "executed_at": null,
-      "ready_at": null,
+      "ready_at": 1765195170,
       "expired_at": 1765581856,
       "total_slots": 6,
-      "filled_slots": 0,
+      "filled_slots": 2,
       "slots": [
         {
           "position": "Picklock",
           "position_id": "P1",
           "position_number": 1,
           "item_requirement": null,
-          "user": null,
-          "checkpoint_pass_rate": 87
+          "user": {
+            "outcome": null,
+            "id": 3058543,
+            "joined_at": 1765050572,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 78
         },
         {
           "position": "Hacker",
@@ -58550,111 +58713,27 @@
           "item_requirement": {
             "id": 103,
             "is_reusable": false,
-            "is_available": false
-          },
-          "user": null,
-          "checkpoint_pass_rate": 86
-        },
-        {
-          "position": "Engineer",
-          "position_id": "P3",
-          "position_number": 1,
-          "item_requirement": {
-            "id": 1431,
-            "is_reusable": false,
-            "is_available": false
-          },
-          "user": null,
-          "checkpoint_pass_rate": 85
-        },
-        {
-          "position": "Bomber",
-          "position_id": "P4",
-          "position_number": 1,
-          "item_requirement": {
-            "id": 1430,
-            "is_reusable": false,
-            "is_available": false
-          },
-          "user": null,
-          "checkpoint_pass_rate": 86
-        },
-        {
-          "position": "Muscle",
-          "position_id": "P5",
-          "position_number": 1,
-          "item_requirement": {
-            "id": 1429,
-            "is_reusable": false,
-            "is_available": false
-          },
-          "user": null,
-          "checkpoint_pass_rate": 86
-        },
-        {
-          "position": "Picklock",
-          "position_id": "P6",
-          "position_number": 2,
-          "item_requirement": null,
-          "user": null,
-          "checkpoint_pass_rate": 87
-        }
-      ],
-      "participant_ids": [],
-      "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997543",
-      "first_seen": "2025-12-06T06:18:32.997547"
-    },
-    "1089995": {
-      "id": 1089995,
-      "name": "Blast from the Past",
-      "difficulty": 7,
-      "status": "Recruiting",
-      "previous_crime_id": null,
-      "created_at": 1764977058,
-      "planning_at": 1764999427,
-      "executed_at": null,
-      "ready_at": 1765085827,
-      "expired_at": 1765581858,
-      "total_slots": 6,
-      "filled_slots": 1,
-      "slots": [
-        {
-          "position": "Picklock",
-          "position_id": "P1",
-          "position_number": 1,
-          "item_requirement": null,
-          "user": null,
-          "checkpoint_pass_rate": 87
-        },
-        {
-          "position": "Hacker",
-          "position_id": "P2",
-          "position_number": 1,
-          "item_requirement": {
-            "id": 103,
-            "is_reusable": false,
-            "is_available": false
-          },
-          "user": null,
-          "checkpoint_pass_rate": 86
-        },
-        {
-          "position": "Engineer",
-          "position_id": "P3",
-          "position_number": 1,
-          "item_requirement": {
-            "id": 1431,
-            "is_reusable": false,
-            "is_available": false
+            "is_available": true
           },
           "user": {
             "outcome": null,
-            "id": 2250591,
-            "joined_at": 1764999427,
-            "progress": 2.88,
+            "id": 2808985,
+            "joined_at": 1765022370,
+            "progress": 76.32,
             "item_outcome": null
           },
+          "checkpoint_pass_rate": 78
+        },
+        {
+          "position": "Engineer",
+          "position_id": "P3",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1431,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
           "checkpoint_pass_rate": 85
         },
         {
@@ -58691,25 +58770,26 @@
         }
       ],
       "participant_ids": [
-        2250591
+        3058543,
+        2808985
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997577",
-      "first_seen": "2025-12-06T06:18:32.997581"
+      "last_updated": "2025-12-07T06:18:28.599644",
+      "first_seen": "2025-12-06T06:18:32.997547"
     },
-    "1089996": {
-      "id": 1089996,
+    "1089995": {
+      "id": 1089995,
       "name": "Blast from the Past",
       "difficulty": 7,
       "status": "Recruiting",
       "previous_crime_id": null,
-      "created_at": 1764977069,
-      "planning_at": 1764996787,
+      "created_at": 1764977058,
+      "planning_at": 1764999427,
       "executed_at": null,
-      "ready_at": 1765083187,
-      "expired_at": 1765581869,
+      "ready_at": 1765258627,
+      "expired_at": 1765581858,
       "total_slots": 6,
-      "filled_slots": 1,
+      "filled_slots": 3,
       "slots": [
         {
           "position": "Picklock",
@@ -58738,10 +58818,122 @@
           "item_requirement": {
             "id": 1431,
             "is_reusable": false,
+            "is_available": true
+          },
+          "user": {
+            "outcome": null,
+            "id": 2250591,
+            "joined_at": 1764999427,
+            "progress": 100,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 85
+        },
+        {
+          "position": "Bomber",
+          "position_id": "P4",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1430,
+            "is_reusable": false,
+            "is_available": true
+          },
+          "user": {
+            "outcome": null,
+            "id": 3012215,
+            "joined_at": 1765063815,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 78
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P5",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1429,
+            "is_reusable": false,
             "is_available": false
           },
           "user": null,
-          "checkpoint_pass_rate": 85
+          "checkpoint_pass_rate": 86
+        },
+        {
+          "position": "Picklock",
+          "position_id": "P6",
+          "position_number": 2,
+          "item_requirement": null,
+          "user": {
+            "outcome": null,
+            "id": 3291843,
+            "joined_at": 1765034512,
+            "progress": 2.87,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 71
+        }
+      ],
+      "participant_ids": [
+        2250591,
+        3012215,
+        3291843
+      ],
+      "rewards": null,
+      "last_updated": "2025-12-07T06:18:28.599687",
+      "first_seen": "2025-12-06T06:18:32.997581"
+    },
+    "1089996": {
+      "id": 1089996,
+      "name": "Blast from the Past",
+      "difficulty": 7,
+      "status": "Recruiting",
+      "previous_crime_id": null,
+      "created_at": 1764977069,
+      "planning_at": 1764996787,
+      "executed_at": null,
+      "ready_at": 1765255987,
+      "expired_at": 1765581869,
+      "total_slots": 6,
+      "filled_slots": 3,
+      "slots": [
+        {
+          "position": "Picklock",
+          "position_id": "P1",
+          "position_number": 1,
+          "item_requirement": null,
+          "user": null,
+          "checkpoint_pass_rate": 87
+        },
+        {
+          "position": "Hacker",
+          "position_id": "P2",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 103,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 86
+        },
+        {
+          "position": "Engineer",
+          "position_id": "P3",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1431,
+            "is_reusable": false,
+            "is_available": true
+          },
+          "user": {
+            "outcome": null,
+            "id": 2253786,
+            "joined_at": 1765026650,
+            "progress": 5.93,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 80
         },
         {
           "position": "Bomber",
@@ -58756,7 +58948,7 @@
             "outcome": null,
             "id": 2407528,
             "joined_at": 1764996787,
-            "progress": 5.93,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 85
@@ -58778,15 +58970,23 @@
           "position_id": "P6",
           "position_number": 2,
           "item_requirement": null,
-          "user": null,
-          "checkpoint_pass_rate": 87
+          "user": {
+            "outcome": null,
+            "id": 3120070,
+            "joined_at": 1765063217,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 70
         }
       ],
       "participant_ids": [
-        2407528
+        2253786,
+        2407528,
+        3120070
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997622",
+      "last_updated": "2025-12-07T06:18:28.599729",
       "first_seen": "2025-12-06T06:18:32.997625"
     },
     "1089997": {
@@ -58796,12 +58996,12 @@
       "status": "Recruiting",
       "previous_crime_id": null,
       "created_at": 1764977076,
-      "planning_at": null,
+      "planning_at": 1765037190,
       "executed_at": null,
-      "ready_at": null,
+      "ready_at": 1765209990,
       "expired_at": 1765581876,
       "total_slots": 3,
-      "filled_slots": 0,
+      "filled_slots": 2,
       "slots": [
         {
           "position": "Enforcer",
@@ -58810,18 +59010,30 @@
           "item_requirement": {
             "id": 1080,
             "is_reusable": true,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 89
+          "user": {
+            "outcome": null,
+            "id": 3228747,
+            "joined_at": 1765037190,
+            "progress": 59.16,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 72
         },
         {
           "position": "Muscle",
           "position_id": "P2",
           "position_number": 1,
           "item_requirement": null,
-          "user": null,
-          "checkpoint_pass_rate": 88
+          "user": {
+            "outcome": null,
+            "id": 3130493,
+            "joined_at": 1765067688,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 77
         },
         {
           "position": "Muscle",
@@ -58836,24 +59048,27 @@
           "checkpoint_pass_rate": 88
         }
       ],
-      "participant_ids": [],
+      "participant_ids": [
+        3228747,
+        3130493
+      ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997654",
+      "last_updated": "2025-12-07T06:18:28.599766",
       "first_seen": "2025-12-06T06:18:32.997657"
     },
     "1089998": {
       "id": 1089998,
       "name": "Honey Trap",
       "difficulty": 6,
-      "status": "Recruiting",
+      "status": "Planning",
       "previous_crime_id": null,
       "created_at": 1764977078,
-      "planning_at": null,
+      "planning_at": 1765011598,
       "executed_at": null,
-      "ready_at": null,
+      "ready_at": 1765270798,
       "expired_at": 1765581878,
       "total_slots": 3,
-      "filled_slots": 0,
+      "filled_slots": 3,
       "slots": [
         {
           "position": "Enforcer",
@@ -58862,18 +59077,30 @@
           "item_requirement": {
             "id": 1080,
             "is_reusable": true,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 89
+          "user": {
+            "outcome": null,
+            "id": 2507533,
+            "joined_at": 1765011598,
+            "progress": 88.78,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 70
         },
         {
           "position": "Muscle",
           "position_id": "P2",
           "position_number": 1,
           "item_requirement": null,
-          "user": null,
-          "checkpoint_pass_rate": 88
+          "user": {
+            "outcome": null,
+            "id": 3249124,
+            "joined_at": 1765034399,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 78
         },
         {
           "position": "Muscle",
@@ -58882,15 +59109,25 @@
           "item_requirement": {
             "id": 1080,
             "is_reusable": true,
-            "is_available": false
+            "is_available": true
           },
-          "user": null,
-          "checkpoint_pass_rate": 88
+          "user": {
+            "outcome": null,
+            "id": 3208403,
+            "joined_at": 1765034571,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 75
         }
       ],
-      "participant_ids": [],
+      "participant_ids": [
+        2507533,
+        3249124,
+        3208403
+      ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997684",
+      "last_updated": "2025-12-07T06:18:28.599801",
       "first_seen": "2025-12-06T06:18:32.997687"
     },
     "1089999": {
@@ -58932,7 +59169,7 @@
             "outcome": null,
             "id": 3291056,
             "joined_at": 1764981534,
-            "progress": 23.59,
+            "progress": 100,
             "item_outcome": null
           },
           "checkpoint_pass_rate": 91
@@ -58958,13 +59195,440 @@
         3291056
       ],
       "rewards": null,
-      "last_updated": "2025-12-06T06:18:32.997719",
+      "last_updated": "2025-12-07T06:18:28.599839",
       "first_seen": "2025-12-06T06:18:32.997723"
+    },
+    "1093084": {
+      "id": 1093084,
+      "name": "Break the Bank",
+      "difficulty": 8,
+      "status": "Recruiting",
+      "previous_crime_id": null,
+      "created_at": 1765066811,
+      "planning_at": null,
+      "executed_at": null,
+      "ready_at": null,
+      "expired_at": 1765671611,
+      "total_slots": 6,
+      "filled_slots": 0,
+      "slots": [
+        {
+          "position": "Robber",
+          "position_id": "P1",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 74
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P2",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 72
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P3",
+          "position_number": 2,
+          "item_requirement": {
+            "id": 1429,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 72
+        },
+        {
+          "position": "Thief",
+          "position_id": "P4",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 74
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P5",
+          "position_number": 3,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 72
+        },
+        {
+          "position": "Thief",
+          "position_id": "P6",
+          "position_number": 2,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 74
+        }
+      ],
+      "participant_ids": [],
+      "rewards": null,
+      "last_updated": "2025-12-07T06:18:28.599851",
+      "first_seen": "2025-12-07T06:18:28.599854"
+    },
+    "1093085": {
+      "id": 1093085,
+      "name": "Blast from the Past",
+      "difficulty": 7,
+      "status": "Recruiting",
+      "previous_crime_id": null,
+      "created_at": 1765066813,
+      "planning_at": 1765067018,
+      "executed_at": null,
+      "ready_at": 1765239818,
+      "expired_at": 1765671613,
+      "total_slots": 6,
+      "filled_slots": 2,
+      "slots": [
+        {
+          "position": "Picklock",
+          "position_id": "P1",
+          "position_number": 1,
+          "item_requirement": null,
+          "user": null,
+          "checkpoint_pass_rate": 87
+        },
+        {
+          "position": "Hacker",
+          "position_id": "P2",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 103,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 86
+        },
+        {
+          "position": "Engineer",
+          "position_id": "P3",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1431,
+            "is_reusable": false,
+            "is_available": true
+          },
+          "user": {
+            "outcome": null,
+            "id": 49580,
+            "joined_at": 1765067914,
+            "progress": 0,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 75
+        },
+        {
+          "position": "Bomber",
+          "position_id": "P4",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1430,
+            "is_reusable": false,
+            "is_available": true
+          },
+          "user": {
+            "outcome": null,
+            "id": 2736995,
+            "joined_at": 1765067018,
+            "progress": 24.64,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 78
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P5",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1429,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 86
+        },
+        {
+          "position": "Picklock",
+          "position_id": "P6",
+          "position_number": 2,
+          "item_requirement": null,
+          "user": null,
+          "checkpoint_pass_rate": 87
+        }
+      ],
+      "participant_ids": [
+        49580,
+        2736995
+      ],
+      "rewards": null,
+      "last_updated": "2025-12-07T06:18:28.599886",
+      "first_seen": "2025-12-07T06:18:28.599889"
+    },
+    "1093086": {
+      "id": 1093086,
+      "name": "Break the Bank",
+      "difficulty": 8,
+      "status": "Recruiting",
+      "previous_crime_id": null,
+      "created_at": 1765066827,
+      "planning_at": 1765068017,
+      "executed_at": null,
+      "ready_at": 1765154417,
+      "expired_at": 1765671627,
+      "total_slots": 6,
+      "filled_slots": 1,
+      "slots": [
+        {
+          "position": "Robber",
+          "position_id": "P1",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 74
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P2",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 72
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P3",
+          "position_number": 2,
+          "item_requirement": {
+            "id": 1429,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 72
+        },
+        {
+          "position": "Thief",
+          "position_id": "P4",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 74
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P5",
+          "position_number": 3,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": true
+          },
+          "user": {
+            "outcome": null,
+            "id": 462912,
+            "joined_at": 1765068017,
+            "progress": 23.48,
+            "item_outcome": null
+          },
+          "checkpoint_pass_rate": 67
+        },
+        {
+          "position": "Thief",
+          "position_id": "P6",
+          "position_number": 2,
+          "item_requirement": {
+            "id": 1331,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 74
+        }
+      ],
+      "participant_ids": [
+        462912
+      ],
+      "rewards": null,
+      "last_updated": "2025-12-07T06:18:28.599920",
+      "first_seen": "2025-12-07T06:18:28.599924"
+    },
+    "1093087": {
+      "id": 1093087,
+      "name": "Counter Offer",
+      "difficulty": 5,
+      "status": "Recruiting",
+      "previous_crime_id": null,
+      "created_at": 1765066830,
+      "planning_at": null,
+      "executed_at": null,
+      "ready_at": null,
+      "expired_at": 1765671630,
+      "total_slots": 5,
+      "filled_slots": 0,
+      "slots": [
+        {
+          "position": "Robber",
+          "position_id": "P1",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1429,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 92
+        },
+        {
+          "position": "Looter",
+          "position_id": "P2",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1429,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 92
+        },
+        {
+          "position": "Hacker",
+          "position_id": "P3",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 70,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 92
+        },
+        {
+          "position": "Picklock",
+          "position_id": "P4",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 1203,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 93
+        },
+        {
+          "position": "Engineer",
+          "position_id": "P5",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 981,
+            "is_reusable": true,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 92
+        }
+      ],
+      "participant_ids": [],
+      "rewards": null,
+      "last_updated": "2025-12-07T06:18:28.599970",
+      "first_seen": "2025-12-07T06:18:28.599974"
+    },
+    "1093236": {
+      "id": 1093236,
+      "name": "Snow Blind",
+      "difficulty": 4,
+      "status": "Recruiting",
+      "previous_crime_id": null,
+      "created_at": 1765070902,
+      "planning_at": null,
+      "executed_at": null,
+      "ready_at": null,
+      "expired_at": 1765675702,
+      "total_slots": 4,
+      "filled_slots": 0,
+      "slots": [
+        {
+          "position": "Hustler",
+          "position_id": "P1",
+          "position_number": 1,
+          "item_requirement": null,
+          "user": null,
+          "checkpoint_pass_rate": 94
+        },
+        {
+          "position": "Imitator",
+          "position_id": "P2",
+          "position_number": 1,
+          "item_requirement": {
+            "id": 201,
+            "is_reusable": false,
+            "is_available": false
+          },
+          "user": null,
+          "checkpoint_pass_rate": 94
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P3",
+          "position_number": 1,
+          "item_requirement": null,
+          "user": null,
+          "checkpoint_pass_rate": 94
+        },
+        {
+          "position": "Muscle",
+          "position_id": "P4",
+          "position_number": 2,
+          "item_requirement": null,
+          "user": null,
+          "checkpoint_pass_rate": 94
+        }
+      ],
+      "participant_ids": [],
+      "rewards": null,
+      "last_updated": "2025-12-07T06:18:28.600013",
+      "first_seen": "2025-12-07T06:18:28.600017"
     }
   },
   "metadata": {
-    "last_updated": "2025-12-06T06:18:32.997961",
-    "total_crimes": 492,
+    "last_updated": "2025-12-07T06:18:28.600280",
+    "total_crimes": 497,
     "last_processed_id": null,
     "oldest_incomplete_timestamp": 1764439172,
     "version": "1.0"
