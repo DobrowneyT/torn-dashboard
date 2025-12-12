@@ -566,7 +566,6 @@ def main():
     if not api_key:
         raise ValueError("TORN_API_KEY environment variable not set")
     
-    logger.info("Syncing faction members...")
     current_members = sheets.sync_faction_members(api_key)
     logger.info(f"Received {len(current_members)} current faction members")
     
