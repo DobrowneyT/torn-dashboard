@@ -2,7 +2,7 @@
   "members": {
     "49580": {
       "name": "DMagnusV",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Looter": 97
@@ -71,11 +71,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:19.945980",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.292986"
     },
     "50716": {
       "name": "Honey-Badger",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -142,11 +142,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:20.262339",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293016"
     },
     "117315": {
       "name": "JBF89",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -207,11 +207,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:20.601802",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293040"
     },
     "330505": {
       "name": "The_Pit",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -278,11 +278,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:21.166885",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293063"
     },
     "428286": {
       "name": "AlleyCat",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Looter": 98,
@@ -352,11 +352,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:21.511646",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293087"
     },
     "430470": {
       "name": "Nutte",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -425,11 +425,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:21.823282",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293110"
     },
     "447982": {
       "name": "DarkWildKitty",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -496,11 +496,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:22.298378",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293133"
     },
     "462912": {
       "name": "JJC",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Looter": 98
@@ -571,11 +571,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:22.619269",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293159"
     },
     "580210": {
       "name": "Tahiayemone",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -642,11 +642,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:22.910777",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293206"
     },
     "711289": {
       "name": "LadyD34",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -713,11 +713,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:23.223943",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293237"
     },
     "873341": {
       "name": "Goosey",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -784,11 +784,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:23.544805",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293268"
     },
     "965750": {
       "name": "Smilin-Assassin",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -855,11 +855,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:23.844045",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293298"
     },
     "1586328": {
       "name": "Billy",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Looter": 98
@@ -928,11 +928,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:24.171832",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293326"
     },
     "1654809": {
       "name": "Reece",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -1001,11 +1001,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:24.464272",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293352"
     },
     "1659147": {
       "name": "Albatra",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1072,11 +1072,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:24.977034",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293378"
     },
     "1712182": {
       "name": "Muttley",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1143,11 +1143,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:25.287014",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293405"
     },
     "1853567": {
       "name": "El_Colonel",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1214,7 +1214,7 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:25.650389",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293436"
     },
     "1884523": {
       "name": "Chilldafuqout",
@@ -1240,11 +1240,13 @@
         "9": {},
         "10": {}
       },
-      "last_scraped": "2025-12-25T18:50:05.000Z"
+      "last_scraped": "2025-12-25T18:50:05.000Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.293468"
     },
     "1957682": {
       "name": "PerfectPlayer",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1311,11 +1313,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:25.935654",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293495"
     },
     "2058023": {
       "name": "Freddo",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1382,11 +1384,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:26.278131",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293521"
     },
     "2080190": {
       "name": "DHew",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1453,11 +1455,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:26.590751",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293552"
     },
     "2146235": {
       "name": "m3llow",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Muscle": 95,
@@ -1529,11 +1531,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:26.886237",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293581"
     },
     "2162161": {
       "name": "Plastic-Man",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1600,11 +1602,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:27.239893",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293607"
     },
     "2163818": {
       "name": "Pierce",
-      "tier": -1,
+      "tier": 2,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1671,11 +1673,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:27.556332",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293633"
     },
     "2192470": {
       "name": "EvenOdds_",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1742,11 +1744,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:28.305968",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293660"
     },
     "2194846": {
       "name": "-Anna-",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Looter": 98
@@ -1817,11 +1819,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:28.618806",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293685"
     },
     "2214797": {
       "name": "Onyx",
-      "tier": -1,
+      "tier": 2,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1888,11 +1890,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:28.905825",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293711"
     },
     "2250591": {
       "name": "MonChoon",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -1959,11 +1961,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:29.196346",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293742"
     },
     "2253786": {
       "name": "Fucitol",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -2030,11 +2032,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:29.499144",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293769"
     },
     "2264192": {
       "name": "McGummy",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -2103,11 +2105,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:29.832703",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293795"
     },
     "2282199": {
       "name": "Frodo",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Picklock": 97
@@ -2176,11 +2178,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:30.220955",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293825"
     },
     "2327020": {
       "name": "BWub",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Looter": 97
@@ -2249,11 +2251,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:30.519732",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293852"
     },
     "2407528": {
       "name": "DiabolicPickles",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Muscle": 97
@@ -2324,11 +2326,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:31.252646",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293878"
     },
     "2465113": {
       "name": "SnowBadger87",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -2395,11 +2397,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:31.554271",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293904"
     },
     "2478585": {
       "name": "Gekents",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Looter": 95
@@ -2470,11 +2472,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:31.875343",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293930"
     },
     "2507533": {
       "name": "JoeMusashi",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Kidnapper": 94
@@ -2543,11 +2545,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:32.175930",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293955"
     },
     "2620570": {
       "name": "Droxy",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -2614,11 +2616,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:32.551368",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.293980"
     },
     "2632539": {
       "name": "RmB",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -2685,11 +2687,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:32.851757",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294004"
     },
     "2632966": {
       "name": "CalliBee",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -2756,11 +2758,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:33.151191",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294034"
     },
     "2642228": {
       "name": "FLY",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -2827,11 +2829,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:33.435602",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294061"
     },
     "2672100": {
       "name": "Acid",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -2898,11 +2900,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:33.773938",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294088"
     },
     "2672505": {
       "name": "ewakes",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -2971,11 +2973,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:34.057726",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294114"
     },
     "2677601": {
       "name": "Jaumzin",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -3042,11 +3044,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:34.567686",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294140"
     },
     "2683506": {
       "name": "StJohn",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -3113,11 +3115,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:34.873465",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294166"
     },
     "2719034": {
       "name": "xAnri",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -3184,11 +3186,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:35.155036",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294213"
     },
     "2720023": {
       "name": "Frambojan",
-      "tier": -1,
+      "tier": 2,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -3257,7 +3259,7 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:35.456123",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294246"
     },
     "2733351": {
       "name": "Jonnybravo",
@@ -3284,11 +3286,13 @@
         "9": {},
         "10": {}
       },
-      "last_scraped": "2025-12-25T03:39:04.000Z"
+      "last_scraped": "2025-12-25T03:39:04.000Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.294273"
     },
     "2736995": {
       "name": "CleverGirl",
-      "tier": -1,
+      "tier": 2,
       "cpr_by_role": {
         "1": {
           "Looter": 97
@@ -3359,11 +3363,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:35.752849",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294299"
     },
     "2739056": {
       "name": "Rokiyam",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -3432,11 +3436,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:36.094839",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294329"
     },
     "2749598": {
       "name": "Uncensored",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -3503,11 +3507,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:36.374663",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294360"
     },
     "2750555": {
       "name": "Jrelix",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -3574,11 +3578,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:36.667119",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294386"
     },
     "2763324": {
       "name": "yerodaktuilos",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 96
@@ -3647,11 +3651,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:36.970499",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294412"
     },
     "2778101": {
       "name": "Erectangle",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Looter": 97
@@ -3720,11 +3724,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:37.269630",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294438"
     },
     "2781975": {
       "name": "hkgolden",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -3791,11 +3795,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:37.558376",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294464"
     },
     "2799525": {
       "name": "caioluis",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -3862,11 +3866,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:37.839114",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294490"
     },
     "2808985": {
       "name": "Sexy-Alexis",
-      "tier": -1,
+      "tier": 2,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -3933,11 +3937,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:38.168410",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294516"
     },
     "2822740": {
       "name": "Nanlex",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Looter": 97
@@ -4008,7 +4012,7 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:38.468449",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294545"
     },
     "2852673": {
       "name": "Haloblade",
@@ -4030,11 +4034,13 @@
         "9": {},
         "10": {}
       },
-      "last_scraped": "2025-12-16T11:50:05.000Z"
+      "last_scraped": "2025-12-16T11:50:05.000Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.296482"
     },
     "2854737": {
       "name": "MasterF1re",
-      "tier": -1,
+      "tier": 2,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -4101,11 +4107,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:38.786194",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294572"
     },
     "2864154": {
       "name": "RavenInfinity",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Looter": 96
@@ -4174,11 +4180,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:39.087165",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294598"
     },
     "2882851": {
       "name": "Berkshire",
-      "tier": -1,
+      "tier": 2,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -4245,11 +4251,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:39.411644",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294623"
     },
     "2906032": {
       "name": "YukiNiEien",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -4316,11 +4322,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:39.712866",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294652"
     },
     "2926373": {
       "name": "Apilli",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -4387,11 +4393,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:40.016255",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294680"
     },
     "2932241": {
       "name": "Marnix0126",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -4460,11 +4466,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:40.309346",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294705"
     },
     "3012215": {
       "name": "UncleI",
-      "tier": -1,
+      "tier": 2,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -4531,11 +4537,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:40.609553",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294729"
     },
     "3015831": {
       "name": "Warwinds",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Looter": 97
@@ -4604,11 +4610,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:40.900207",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294753"
     },
     "3058543": {
       "name": "Gank",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Looter": 97
@@ -4679,11 +4685,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:41.232802",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294779"
     },
     "3120070": {
       "name": "HiUpDown",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -4750,11 +4756,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:41.544090",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294803"
     },
     "3130493": {
       "name": "DarthCheetoe",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 97
@@ -4825,11 +4831,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:41.836116",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294828"
     },
     "3136837": {
       "name": "Sanityloss",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 96
@@ -4898,11 +4904,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:42.150583",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294852"
     },
     "3187613": {
       "name": "ELEKTRISHIN",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -4968,11 +4974,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:42.443151",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294879"
     },
     "3208403": {
       "name": "Spitfire",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -5038,11 +5044,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:42.728849",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294904"
     },
     "3208951": {
       "name": "Sour-Deez",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Muscle": 95
@@ -5111,11 +5117,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:43.023088",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294930"
     },
     "3225628": {
       "name": "Polio",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -5184,7 +5190,7 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:43.321096",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.294956"
     },
     "3228747": {
       "name": "-Jesse-",
@@ -5253,11 +5259,13 @@
         "9": {},
         "10": {}
       },
-      "last_scraped": "2025-12-22T17:46:22.400Z"
+      "last_scraped": "2025-12-22T17:46:22.400Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.294987"
     },
     "3247125": {
       "name": "FARVA",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Kidnapper": 95
@@ -5328,11 +5336,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:43.819035",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295015"
     },
     "3270683": {
       "name": "Rick_G15",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -5398,11 +5406,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:44.539454",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295041"
     },
     "3283862": {
       "name": "DavidDJ",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -5472,11 +5480,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:44.841059",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295068"
     },
     "3291056": {
       "name": "Helios-",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Looter": 95,
@@ -5546,11 +5554,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:45.179533",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295094"
     },
     "3291843": {
       "name": "CouchMonster",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Picklock": 96,
@@ -5622,11 +5630,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:45.488632",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295120"
     },
     "3292192": {
       "name": "Jarnathan",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -5695,11 +5703,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:45.787519",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295146"
     },
     "3383262": {
       "name": "Zyuunii",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 94
@@ -5770,11 +5778,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:46.461496",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295190"
     },
     "3395364": {
       "name": "scrolllock404",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Looter": 95
@@ -5843,11 +5851,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:46.764782",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295225"
     },
     "3411597": {
       "name": "Charlie_e",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -5882,11 +5890,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:47.056219",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.296509"
     },
     "3437705": {
       "name": "Flamehusky",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -5955,11 +5963,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:47.353036",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295258"
     },
     "3447837": {
       "name": "Idzohra",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -6028,11 +6036,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:47.647665",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295286"
     },
     "3452212": {
       "name": "GoobersKitten",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -6099,11 +6107,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:47.940751",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295313"
     },
     "3538517": {
       "name": "RealJoker",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Looter": 94
@@ -6174,11 +6182,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:48.233491",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295342"
     },
     "3547685": {
       "name": "Lily83",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -6245,11 +6253,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:48.524119",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295369"
     },
     "3567688": {
       "name": "Murdahface",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -6316,11 +6324,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:48.909874",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295395"
     },
     "3623195": {
       "name": "Shaddyr",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {
           "Looter": 93
@@ -6391,11 +6399,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:49.221349",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295420"
     },
     "3624845": {
       "name": "BigMudz",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -6461,11 +6469,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:49.528562",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295446"
     },
     "3629708": {
       "name": "CaptShen",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {
           "Looter": 93
@@ -6537,11 +6545,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:49.833264",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295476"
     },
     "3642824": {
       "name": "_SaLaaR_",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -6608,11 +6616,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:50.136631",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295503"
     },
     "3655519": {
       "name": "DerangedEvil",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {
           "Picklock": 93
@@ -6681,11 +6689,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:50.433705",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295530"
     },
     "3663303": {
       "name": "mcswagger",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {},
         "2": {
@@ -6754,11 +6762,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:50.729227",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295555"
     },
     "3680626": {
       "name": "Chef_Tris",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {
           "Looter": 92
@@ -6829,11 +6837,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:51.044634",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295582"
     },
     "3687690": {
       "name": "iiZod",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {},
         "2": {},
@@ -6900,11 +6908,11 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:51.336225",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295607"
     },
     "3820837": {
       "name": "SpacePickle",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "1": {
           "Kidnapper": 83
@@ -6973,7 +6981,7 @@
         "10": {}
       },
       "last_scraped": "2025-12-27T15:47:51.864349",
-      "tier_last_updated": ""
+      "tier_last_updated": "2025-12-27T15:47:53.295632"
     },
     "227273": {
       "name": "Webster",
@@ -6983,7 +6991,9 @@
           "Cat Burglar": 75
         }
       },
-      "last_scraped": "2025-10-31T23:23:06.000Z"
+      "last_scraped": "2025-10-31T23:23:06.000Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.296534"
     },
     "299480": {
       "name": "Pacifist",
@@ -7051,7 +7061,9 @@
           "Imitator": 69
         }
       },
-      "last_scraped": "2025-11-22T19:47:06.000Z"
+      "last_scraped": "2025-11-22T19:47:06.000Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.295662"
     },
     "479620": {
       "name": "Mr_Bob",
@@ -7063,7 +7075,9 @@
           "Muscle": 72
         }
       },
-      "last_scraped": "2025-10-31T03:25:07.000Z"
+      "last_scraped": "2025-10-31T03:25:07.000Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.296561"
     },
     "672082": {
       "name": "Isca",
@@ -7075,7 +7089,9 @@
           "Thief": 70
         }
       },
-      "last_scraped": "2025-10-31T12:02:06.000Z"
+      "last_scraped": "2025-10-31T12:02:06.000Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.296587"
     },
     "865783": {
       "name": "WashedUpCatcher",
@@ -7087,7 +7103,9 @@
           "Picklock": 67
         }
       },
-      "last_scraped": "2025-10-26T15:38:03.000Z"
+      "last_scraped": "2025-10-26T15:38:03.000Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.296614"
     },
     "900727": {
       "name": "Rich",
@@ -7103,7 +7121,9 @@
           "Muscle": 77
         }
       },
-      "last_scraped": "2025-09-10T15:47:05.000Z"
+      "last_scraped": "2025-09-10T15:47:05.000Z",
+      "tier": 4,
+      "tier_last_updated": "2025-12-27T15:47:53.296641"
     },
     "946818": {
       "name": "caitlynne",
@@ -7112,7 +7132,9 @@
           "Enforcer": 80
         }
       },
-      "last_scraped": "2025-10-28T03:05:07.000Z"
+      "last_scraped": "2025-10-28T03:05:07.000Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.296667"
     },
     "1474498": {
       "name": "mwcerberus",
@@ -7128,7 +7150,9 @@
           "Picklock": 84
         }
       },
-      "last_scraped": "2025-09-06T15:25:06.000Z"
+      "last_scraped": "2025-09-06T15:25:06.000Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.295689"
     },
     "1656752": {
       "name": "GJBP",
@@ -7195,7 +7219,9 @@
           "Thief": 55
         }
       },
-      "last_scraped": "2025-11-22T17:49:53.591Z"
+      "last_scraped": "2025-11-22T17:49:53.591Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.295714"
     },
     "1723047": {
       "name": "DJStone",
@@ -7213,7 +7239,9 @@
           "Bomber": 77
         }
       },
-      "last_scraped": "2025-09-27T06:54:05.000Z"
+      "last_scraped": "2025-09-27T06:54:05.000Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.296693"
     },
     "1906686": {
       "name": "Omanpx",
@@ -7229,7 +7257,9 @@
           "Thief": 70
         }
       },
-      "last_scraped": "2025-11-24T21:28:06.000Z"
+      "last_scraped": "2025-11-24T21:28:06.000Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.296724"
     },
     "1950861": {
       "name": "Nerlair",
@@ -7238,7 +7268,9 @@
           "Picklock": 75
         }
       },
-      "last_scraped": "2025-11-02T21:26:04.000Z"
+      "last_scraped": "2025-11-02T21:26:04.000Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.296752"
     },
     "2060206": {
       "name": "finally",
@@ -7248,7 +7280,9 @@
           "Muscle": 73
         }
       },
-      "last_scraped": "2025-11-02T22:50:05.000Z"
+      "last_scraped": "2025-11-02T22:50:05.000Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.296778"
     },
     "2075640": {
       "name": "Subzero",
@@ -7301,7 +7335,9 @@
           "Imitator": 42
         }
       },
-      "last_scraped": "2025-10-25T17:20:05.000Z"
+      "last_scraped": "2025-10-25T17:20:05.000Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.295740"
     },
     "2105701": {
       "name": "Arjan",
@@ -7369,7 +7405,9 @@
           "Thief": 67
         }
       },
-      "last_scraped": "2025-11-30T13:06:12.597Z"
+      "last_scraped": "2025-11-30T13:06:12.597Z",
+      "tier": 2,
+      "tier_last_updated": "2025-12-27T15:47:53.295769"
     },
     "2168406": {
       "name": "Godi667",
@@ -7437,7 +7475,9 @@
           "Cat Burglar": 74
         }
       },
-      "last_scraped": "2025-11-30T13:05:58.799Z"
+      "last_scraped": "2025-11-30T13:05:58.799Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.295797"
     },
     "2183027": {
       "name": "Weareolf697",
@@ -7459,7 +7499,9 @@
           "Muscle": 83
         }
       },
-      "last_scraped": "2025-09-27T20:40:06.000Z"
+      "last_scraped": "2025-09-27T20:40:06.000Z",
+      "tier": 6,
+      "tier_last_updated": "2025-12-27T15:47:53.295826"
     },
     "2183125": {
       "name": "-Fr3d-",
@@ -7478,7 +7520,9 @@
           "Hacker": 80
         }
       },
-      "last_scraped": "2025-09-17T20:18:04.000Z"
+      "last_scraped": "2025-09-17T20:18:04.000Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.295853"
     },
     "2183760": {
       "name": "Holmberg68",
@@ -7550,7 +7594,9 @@
           "Imitator": 70
         }
       },
-      "last_scraped": "2025-11-30T15:16:04.000Z"
+      "last_scraped": "2025-11-30T15:16:04.000Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.295882"
     },
     "2189887": {
       "name": "Pdub",
@@ -7568,7 +7614,9 @@
           "Muscle": 73
         }
       },
-      "last_scraped": "2025-11-09T18:46:06.000Z"
+      "last_scraped": "2025-11-09T18:46:06.000Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.296808"
     },
     "2271177": {
       "name": "JackKelly",
@@ -7578,7 +7626,9 @@
           "Muscle": 70
         }
       },
-      "last_scraped": "2025-11-05T20:31:05.000Z"
+      "last_scraped": "2025-11-05T20:31:05.000Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.296836"
     },
     "2272373": {
       "name": "Sinnerzz",
@@ -7590,7 +7640,9 @@
           "Imitator": 71
         }
       },
-      "last_scraped": "2025-11-29T22:15:06.000Z"
+      "last_scraped": "2025-11-29T22:15:06.000Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.296858"
     },
     "2327067": {
       "name": "Goodkid",
@@ -7607,7 +7659,9 @@
           "Picklock": 77
         }
       },
-      "last_scraped": "2025-09-14T20:16:05.000Z"
+      "last_scraped": "2025-09-14T20:16:05.000Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.296882"
     },
     "2328830": {
       "name": "Beks",
@@ -7672,7 +7726,9 @@
           "Imitator": 50
         }
       },
-      "last_scraped": "2025-11-07T18:49:05.000Z"
+      "last_scraped": "2025-11-07T18:49:05.000Z",
+      "tier": 4,
+      "tier_last_updated": "2025-12-27T15:47:53.295909"
     },
     "2364907": {
       "name": "xXPussyhunterXx",
@@ -7682,7 +7738,9 @@
           "Muscle": 68
         }
       },
-      "last_scraped": "2025-10-31T12:02:06.000Z"
+      "last_scraped": "2025-10-31T12:02:06.000Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.296904"
     },
     "2388372": {
       "name": "Noid13",
@@ -7753,7 +7811,9 @@
           "Imitator": 58
         }
       },
-      "last_scraped": "2025-11-30T13:05:57.664Z"
+      "last_scraped": "2025-11-30T13:05:57.664Z",
+      "tier": 4,
+      "tier_last_updated": "2025-12-27T15:47:53.295935"
     },
     "2407566": {
       "name": "mastermILLer",
@@ -7817,7 +7877,9 @@
           "Cat Burglar": 69
         }
       },
-      "last_scraped": "2025-11-16T19:07:04.000Z"
+      "last_scraped": "2025-11-16T19:07:04.000Z",
+      "tier": 2,
+      "tier_last_updated": "2025-12-27T15:47:53.295961"
     },
     "2482317": {
       "name": "TheGoblinOfMars",
@@ -7885,7 +7947,9 @@
           "Muscle": 61
         }
       },
-      "last_scraped": "2025-11-30T13:06:08.431Z"
+      "last_scraped": "2025-11-30T13:06:08.431Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.295994"
     },
     "2672536": {
       "name": "Shoognight",
@@ -7956,7 +8020,9 @@
           "Robber": 64
         }
       },
-      "last_scraped": "2025-12-22T17:46:10.779Z"
+      "last_scraped": "2025-12-22T17:46:10.779Z",
+      "tier": 1,
+      "tier_last_updated": "2025-12-27T15:47:53.296021"
     },
     "2816329": {
       "name": "Crescent57",
@@ -8024,7 +8090,9 @@
           "Thief": 54
         }
       },
-      "last_scraped": "2025-11-30T13:06:09.224Z"
+      "last_scraped": "2025-11-30T13:06:09.224Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.296047"
     },
     "2983319": {
       "name": "EggStone",
@@ -8077,7 +8145,9 @@
           "Imitator": 27
         }
       },
-      "last_scraped": "2025-10-07T02:49:05.000Z"
+      "last_scraped": "2025-10-07T02:49:05.000Z",
+      "tier": 6,
+      "tier_last_updated": "2025-12-27T15:47:53.296075"
     },
     "3249124": {
       "name": "F8TAL_3RR0R",
@@ -8149,7 +8219,9 @@
           "Imitator": 61
         }
       },
-      "last_scraped": "2025-12-15T15:58:06.000Z"
+      "last_scraped": "2025-12-15T15:58:06.000Z",
+      "tier": 3,
+      "tier_last_updated": "2025-12-27T15:47:53.296102"
     },
     "3254805": {
       "name": "JDM",
@@ -8217,7 +8289,9 @@
           "Imitator": 49
         }
       },
-      "last_scraped": "2025-12-01T22:12:04.000Z"
+      "last_scraped": "2025-12-01T22:12:04.000Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.296128"
     },
     "3255379": {
       "name": "1337",
@@ -8285,7 +8359,9 @@
           "Cat Burglar": 38
         }
       },
-      "last_scraped": "2025-12-01T19:52:04.000Z"
+      "last_scraped": "2025-12-01T19:52:04.000Z",
+      "tier": 6,
+      "tier_last_updated": "2025-12-27T15:47:53.296158"
     },
     "3279714": {
       "name": "Decim",
@@ -8294,7 +8370,9 @@
           "Picklock": 88
         }
       },
-      "last_scraped": "2025-08-29T06:27:04.000Z"
+      "last_scraped": "2025-08-29T06:27:04.000Z",
+      "tier": 6,
+      "tier_last_updated": "2025-12-27T15:47:53.296202"
     },
     "3349449": {
       "name": "Mysdreavus",
@@ -8365,7 +8443,9 @@
           "Imitator": 45
         }
       },
-      "last_scraped": "2025-11-30T13:05:59.334Z"
+      "last_scraped": "2025-11-30T13:05:59.334Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.296236"
     },
     "3355589": {
       "name": "Noodle2113",
@@ -8436,7 +8516,9 @@
           "Imitator": 30
         }
       },
-      "last_scraped": "2025-11-02T20:57:06.000Z"
+      "last_scraped": "2025-11-02T20:57:06.000Z",
+      "tier": 6,
+      "tier_last_updated": "2025-12-27T15:47:53.296264"
     },
     "3363679": {
       "name": "Indica",
@@ -8446,7 +8528,9 @@
           "Bomber": 69
         }
       },
-      "last_scraped": "2025-10-31T16:55:05.000Z"
+      "last_scraped": "2025-10-31T16:55:05.000Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.296928"
     },
     "3380497": {
       "name": "absolutmayhem2u",
@@ -8515,7 +8599,9 @@
           "Robber": 45
         }
       },
-      "last_scraped": "2025-11-30T13:06:13.421Z"
+      "last_scraped": "2025-11-30T13:06:13.421Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.296294"
     },
     "3386225": {
       "name": "Major-Gunfight",
@@ -8575,7 +8661,9 @@
           "Robber": 50
         }
       },
-      "last_scraped": "2025-11-22T17:50:01.230Z"
+      "last_scraped": "2025-11-22T17:50:01.230Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.296321"
     },
     "3459507": {
       "name": "User_3459507",
@@ -8584,7 +8672,9 @@
           "Imitator": 86
         }
       },
-      "last_scraped": "2025-08-23T19:49:07.000Z"
+      "last_scraped": "2025-08-23T19:49:07.000Z",
+      "tier": 6,
+      "tier_last_updated": "2025-12-27T15:47:53.296346"
     },
     "3463013": {
       "name": "Xtrume",
@@ -8593,7 +8683,9 @@
           "Lookout": 91
         }
       },
-      "last_scraped": "2025-08-25T20:36:06.000Z"
+      "last_scraped": "2025-08-25T20:36:06.000Z",
+      "tier": 6,
+      "tier_last_updated": "2025-12-27T15:47:53.296376"
     },
     "3482350": {
       "name": "Ziegenbagel",
@@ -8661,7 +8753,9 @@
           "Thief": 47
         }
       },
-      "last_scraped": "2025-12-01T22:12:04.000Z"
+      "last_scraped": "2025-12-01T22:12:04.000Z",
+      "tier": 5,
+      "tier_last_updated": "2025-12-27T15:47:53.296404"
     },
     "3572617": {
       "name": "Orc",
@@ -8671,7 +8765,9 @@
           "Hacker": 75
         }
       },
-      "last_scraped": "2025-10-31T07:35:06.000Z"
+      "last_scraped": "2025-10-31T07:35:06.000Z",
+      "tier": 6,
+      "tier_last_updated": "2025-12-27T15:47:53.296430"
     },
     "3711308": {
       "name": "Ceq",
@@ -8733,11 +8829,13 @@
           "Imitator": 25
         }
       },
-      "last_scraped": "2025-10-12T12:26:52.207Z"
+      "last_scraped": "2025-10-12T12:26:52.207Z",
+      "tier": 6,
+      "tier_last_updated": "2025-12-27T15:47:53.296456"
     }
   },
   "metadata": {
-    "last_updated": "2025-12-27T15:47:51.864443",
+    "last_updated": "2025-12-27T15:47:53.297097",
     "total_members": 144,
     "version": "2.0"
   }
