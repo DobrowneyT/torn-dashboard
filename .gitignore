@@ -59,4 +59,3 @@ node_modules/
 dist/
 *.local
 .env
-package-lock.json
