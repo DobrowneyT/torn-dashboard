@@ -1,1 +1,184 @@
-Coming soon...
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torn Forge OC Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🔧 Torn Forge OC Dashboard</h1>
+                <p class="subtitle">Faction Performance & Crime Statistics</p>
+                <div class="last-updated" id="lastUpdated">Loading...</div>
+            </div>
+        </header>
+
+        <!-- Stats Overview -->
+        <section class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <div class="stat-icon">👥</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="totalMembers">-</div>
+                    <div class="stat-label">Total Members</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🎯</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="totalCrimes">-</div>
+                    <div class="stat-label">Crimes Completed</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">💰</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="totalPayout">-</div>
+                    <div class="stat-label">Total Payout</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="avgCPR">-</div>
+                    <div class="stat-label">Avg CPR</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Navigation Tabs -->
+        <nav class="tabs">
+            <button class="tab active" data-tab="members">Member Tiers</button>
+            <button class="tab" data-tab="crimes">Crime History</button>
+            <button class="tab" data-tab="requirements">Tier Requirements</button>
+            <button class="tab" data-tab="payouts">Payout Analysis</button>
+        </nav>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Members Tab -->
+            <div class="tab-pane active" id="members-tab">
+                <div class="section-header">
+                    <h2>Member Performance by Tier</h2>
+                    <div class="controls">
+                        <input type="text" id="memberSearch" placeholder="Search members..." class="search-input">
+                        <select id="tierFilter" class="filter-select">
+                            <option value="all">All Tiers</option>
+                            <option value="1">Tier 1</option>
+                            <option value="2">Tier 2</option>
+                            <option value="3">Tier 3</option>
+                            <option value="4">Tier 4</option>
+                            <option value="5">Tier 5</option>
+                            <option value="6">Tier 6</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="membersTable">
+                        <thead>
+                            <tr>
+                                <th>Member</th>
+                                <th>Tier</th>
+                                <th>Total Crimes</th>
+                                <th>Avg CPR</th>
+                                <th>Last Updated</th>
+                                <th>Top Roles</th>
+                            </tr>
+                        </thead>
+                        <tbody id="membersTableBody">
+                            <tr>
+                                <td colspan="6" class="loading">Loading member data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Crimes Tab -->
+            <div class="tab-pane" id="crimes-tab">
+                <div class="section-header">
+                    <h2>Recent Crime History</h2>
+                    <div class="controls">
+                        <select id="crimeFilter" class="filter-select">
+                            <option value="all">All Crimes</option>
+                            <option value="7">Last 7 Days</option>
+                            <option value="30">Last 30 Days</option>
+                            <option value="90">Last 90 Days</option>
+                        </select>
+                        <select id="statusFilter" class="filter-select">
+                            <option value="all">All Statuses</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="crimesTable">
+                        <thead>
+                            <tr>
+                                <th>Crime ID</th>
+                                <th>Name</th>
+                                <th>Difficulty</th>
+                                <th>Status</th>
+                                <th>Payout</th>
+                                <th>Participants</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="crimesTableBody">
+                            <tr>
+                                <td colspan="7" class="loading">Loading crime data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tier Requirements Tab -->
+            <div class="tab-pane" id="requirements-tab">
+                <div class="section-header">
+                    <h2>Tier Requirements & Progression</h2>
+                </div>
+                <div class="tier-requirements" id="tierRequirements">
+                    <!-- Will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Payouts Tab -->
+            <div class="tab-pane" id="payouts-tab">
+                <div class="section-header">
+                    <h2>Payout Analysis</h2>
+                    <div class="controls">
+                        <select id="payoutPeriod" class="filter-select">
+                            <option value="7">Last 7 Days</option>
+                            <option value="30">Last 30 Days</option>
+                            <option value="90">Last 90 Days</option>
+                            <option value="all">All Time</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="payout-grid" id="payoutGrid">
+                    <!-- Will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Torn Forge OC 2.0 • Auto-updated via GitHub Actions</p>
+            <p class="footer-links">
+                <a href="https://github.com/YOUR_USERNAME/torn-forge-oc-2.0" target="_blank">GitHub</a> •
+                <a href="https://www.torn.com" target="_blank">Torn City</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
