@@ -3,9 +3,15 @@ export default function StatsOverview({ cprData, crimesData }) {
   const crimes = crimesData?.crimes || {}
 
   const totalMembers = Object.keys(members).length
-  const completedCrimes = Object.values(crimes).filter(c => c.status === 'completed')
+  
+  // Count completed crimes by checking for success/completed statuses
+  const completedCrimes = Object.values(crimes).filter(c => {
+    const status = c.status?.toLowerCase()
+    return status === 'successful' || status === 'success' || status === 'completed'
+  })
+  
   const totalCrimes = completedCrimes.length
-  const totalPayout = completedCrimes.reduce((sum, c) => sum + (c.payout || 0), 0)
+  const totalPayout = completedCrimes.reduce((sum, c) => sum + (c.rewards?.money || 0), 0)
 
   let totalCpr = 0, cprCount = 0
   Object.values(members).forEach(member => {

@@ -27,4 +27,43 @@
   .dark .input {
     @apply bg-slate-700 border-slate-600 text-gray-100;
   }
+  
+  /* Tier badge colors */
+  .bg-tier-1 {
+    @apply bg-purple-600;
+  }
+  .bg-tier-2 {
+    @apply bg-blue-600;
+  }
+  .bg-tier-3 {
+    @apply bg-green-600;
+  }
+  .bg-tier-4 {
+    @apply bg-yellow-600;
+  }
+  .bg-tier-5 {
+    @apply bg-orange-600;
+  }
+  .bg-tier-6 {
+    @apply bg-gray-600;
+  }
+  
+  .border-tier-1 {
+    @apply border-purple-600;
+  }
+  .border-tier-2 {
+    @apply border-blue-600;
+  }
+  .border-tier-3 {
+    @apply border-green-600;
+  }
+  .border-tier-4 {
+    @apply border-yellow-600;
+  }
+  .border-tier-5 {
+    @apply border-orange-600;
+  }
+  .border-tier-6 {
+    @apply border-gray-600;
+  }
 }

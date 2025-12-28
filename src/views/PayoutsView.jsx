@@ -6,7 +6,7 @@ export default function PayoutsView({ cprData, crimesData }) {
 
   const payouts = useMemo(() => {
     if (!cprData?.members || !crimesData?.crimes) return []
-    const cutoffDate = period === 'all' ? new Date(0) : new Date(Date.now() - parseInt(period) * 24 * 60 * 60 * 1000)
+    const cutoffTimestamp = period === 'all' ? 0 : (Date.now() / 1000) - parseInt(period) * 24 * 60 * 60
 
     return Object.entries(cprData.members).map(([memberId, memberData]) => {
       const tier = memberData.tier || 6
@@ -14,13 +14,18 @@ export default function PayoutsView({ cprData, crimesData }) {
       const name = memberData.name || `Member ${memberId}`
 
       const crimesInPeriod = Object.values(crimesData.crimes).filter(crime => {
-        const crimeDate = new Date(crime.completed_at || crime.created_at || 0)
-        const isInPeriod = crimeDate >= cutoffDate
-        const participated = (crime.participants || []).some(p => p.user_id === parseInt(memberId))
-        return isInPeriod && participated && crime.status === 'completed'
+        // Use executed_at for completed crimes, created_at for in-progress
+        const crimeTimestamp = crime.executed_at || crime.created_at || 0
+        const isInPeriod = crimeTimestamp >= cutoffTimestamp
+        // Check participant_ids array instead of participants
+        const participated = (crime.participant_ids || []).includes(parseInt(memberId))
+        // Check for Successful status (actual database format)
+        const isCompleted = crime.status === 'Successful' || crime.status === 'Success'
+        return isInPeriod && participated && isCompleted
       })
 
-      const totalPayout = crimesInPeriod.reduce((sum, c) => sum + (c.payout || 0), 0)
+      // Sum up rewards.money from completed crimes
+      const totalPayout = crimesInPeriod.reduce((sum, c) => sum + (c.rewards?.money || 0), 0)
 
       return { memberId, name, tier, tickets, crimesCount: crimesInPeriod.length, totalPayout }
     }).sort((a, b) => b.totalPayout - a.totalPayout).slice(0, 20)
