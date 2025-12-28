@@ -7,23 +7,36 @@ export default function CrimesView({ crimesData }) {
 
   const crimes = useMemo(() => {
     if (!crimesData?.crimes) return []
-    let filtered = Object.entries(crimesData.crimes).map(([id, data]) => ({ id, ...data }))
+    let filtered = Object.entries(crimesData.crimes).map(([id, data]) => {
+      // Map status to standardized values
+      const normalizedStatus = normalizeStatus(data.status)
+      
+      // Use executed_at for completed crimes, otherwise use created_at
+      const crimeDate = data.executed_at || data.created_at
+      
+      return {
+        id,
+        ...data,
+        status: normalizedStatus,
+        completed_at: data.executed_at,
+        date: crimeDate,
+        // Extract payout from rewards.money
+        payout: data.rewards?.money || 0,
+        // Use participant_ids length
+        participantCount: (data.participant_ids || []).length
+      }
+    })
     
     if (daysFilter !== 'all') {
-      const cutoff = new Date(Date.now() - parseInt(daysFilter) * 24 * 60 * 60 * 1000)
-      filtered = filtered.filter(crime => {
-        const crimeDate = new Date(crime.completed_at || crime.created_at || 0)
-        return crimeDate >= cutoff
-      })
+      const cutoff = Date.now() / 1000 - parseInt(daysFilter) * 24 * 60 * 60
+      filtered = filtered.filter(crime => crime.date >= cutoff)
     }
+    
     if (statusFilter !== 'all') {
       filtered = filtered.filter(crime => crime.status === statusFilter)
     }
-    return filtered.sort((a,b) => {
-      const dateA = new Date(a.completed_at || a.created_at || 0)
-      const dateB = new Date(b.completed_at || b.created_at || 0)
-      return dateB - dateA
-    }).slice(0, 100)
+    
+    return filtered.sort((a, b) => (b.date || 0) - (a.date || 0)).slice(0, 100)
   }, [crimesData, daysFilter, statusFilter])
 
   return (
@@ -41,6 +54,8 @@ export default function CrimesView({ crimesData }) {
             <option value="all">All Statuses</option>
             <option value="completed">Completed</option>
             <option value="failed">Failed</option>
+            <option value="in-progress">In Progress</option>
+            <option value="recruiting">Recruiting</option>
           </select>
         </div>
       </div>
@@ -67,10 +82,10 @@ export default function CrimesView({ crimesData }) {
                   <td className="py-3 px-4">{crime.name || 'Unknown'}</td>
                   <td className="py-3 px-4">Level {crime.difficulty || 'N/A'}</td>
                   <td className="py-3 px-4"><StatusBadge status={crime.status} /></td>
-                  <td className="py-3 px-4">${((crime.payout || 0) / 1e6).toFixed(2)}M</td>
-                  <td className="py-3 px-4">{(crime.participants || []).length} members</td>
+                  <td className="py-3 px-4">{formatPayout(crime.payout)}</td>
+                  <td className="py-3 px-4">{crime.participantCount} members</td>
                   <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">
-                    {formatDate(crime.completed_at || crime.created_at)}
+                    {formatDate(crime.date)}
                   </td>
                 </tr>
               ))
@@ -82,13 +97,53 @@ export default function CrimesView({ crimesData }) {
   )
 }
 
-function StatusBadge({ status }) {
-  const colors = {completed:'bg-green-500',failed:'bg-red-500','in-progress':'bg-yellow-500'}
-  return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold text-sm ${colors[status] || 'bg-gray-500'}`}>{status}</span>
+function normalizeStatus(status) {
+  const statusMap = {
+    'Successful': 'completed',
+    'Success': 'completed',
+    'Completed': 'completed',
+    'Failed': 'failed',
+    'Failure': 'failed',
+    'Planning': 'in-progress',
+    'Executing': 'in-progress',
+    'Recruiting': 'recruiting',
+    'Ready': 'in-progress'
+  }
+  return statusMap[status] || status.toLowerCase()
 }
 
-function formatDate(dateString) {
-  if (!dateString) return 'N/A'
-  try { return format(new Date(dateString), 'MMM dd, yyyy') }
-  catch { return 'Invalid date' }
+function StatusBadge({ status }) {
+  const colors = {
+    'completed': 'bg-green-500',
+    'failed': 'bg-red-500',
+    'in-progress': 'bg-blue-500',
+    'recruiting': 'bg-yellow-500'
+  }
+  const labels = {
+    'completed': 'Completed',
+    'failed': 'Failed',
+    'in-progress': 'In Progress',
+    'recruiting': 'Recruiting'
+  }
+  return (
+    <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold text-sm ${colors[status] || 'bg-gray-500'}`}>
+      {labels[status] || status}
+    </span>
+  )
+}
+
+function formatPayout(payout) {
+  if (!payout || payout === 0) return 'N/A'
+  return `$${(payout / 1e6).toFixed(2)}M`
+}
+
+function formatDate(timestamp) {
+  if (!timestamp) return 'N/A'
+  try {
+    // Handle Unix timestamp (seconds)
+    const date = new Date(timestamp * 1000)
+    return format(date, 'MMM dd, yyyy HH:mm')
+  } catch {
+    return 'Invalid date'
+  }
 }
