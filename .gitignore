@@ -53,3 +53,10 @@ temp/
 backup/
 torn-forge-oc-system-703471ca8d3b.json
 .env.local
+
+# Node.js / React
+node_modules/
+dist/
+*.local
+.env
+package-lock.json
