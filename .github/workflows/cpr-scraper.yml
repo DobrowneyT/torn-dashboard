@@ -130,6 +130,5 @@ jobs:
 
     - name: Copy data to public folder
       run: |
-        mkdir -p public/data
         cp data/cpr_database.json public/data/
         cp data/crimes_database.json public/data/
