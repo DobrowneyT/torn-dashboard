@@ -1,7 +1,7 @@
 export const config = {
   dataSource: {
-    cprData: import.meta.env.VITE_CPR_DATA_URL || '',
-    crimesData: import.meta.env.VITE_CRIMES_DATA_URL || '',
+    cprData: import.meta.env.VITE_CPR_DATA_URL || '/torn-forge-oc-system/data/cpr_database.json',
+    crimesData: import.meta.env.VITE_CRIMES_DATA_URL || '/torn-forge-oc-system/data/crimes_database.json',
   },
   faction: {
     name: "Your Faction Name",
