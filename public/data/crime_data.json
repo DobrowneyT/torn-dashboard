@@ -1,0 +1,627 @@
+{
+  "missions": {
+    "mob_mentality": {
+      "name": "Mob Mentality",
+      "description": "A group of pranksters has organized a flash mob at the local mall. Take advantage of the confusion by using the event as cover to steal luxury goods. Posing as flash mobbers, you'll weave through the throngs of people, moving swiftly from store to store. While mall security is distracted by the chaos, your crew will loot the joint, turning the spectacle into a lucrative operation. Stay sharp and act fast—and don't get caught up in the crowd!",
+      "tier": 1,
+      "level": 1,
+      "difficulty": 1,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/mobmentality",
+      "duration": "4d",
+      "participants": 4,
+      "spawn": {
+        "level": 1,
+        "name": "λ"
+      },
+      "scope": {
+        "cost": 1,
+        "return": 2
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": 1168000,
+        "min_respect": 38,
+        "max_money": 1500000,
+        "max_respect": 52
+      },
+      "positions": [
+        {"id": "P1", "name": "Looter", "item": {"id": 568, "name": "Jemmy", "is_reusable": false}, "success_rate": 34},
+        {"id": "P2", "name": "Looter", "item": null, "success_rate": 26},
+        {"id": "P3", "name": "Looter", "item": {"id": 568, "name": "Jemmy", "is_reusable": false}, "success_rate": 18},
+        {"id": "P4", "name": "Looter", "item": null, "success_rate": 23}
+      ]
+    },
+    "pet_project": {
+      "name": "Pet Project",
+      "description": "Some people pay a lot of money for their fancy pets, and they'll pay even more if their lives are threatened. These pampered pooches enjoy a life of luxury most can only dream of. Imagine how distraught their owners will be upon discovering their beloved pets are missing. When the owners have gone out for the evening, we'll swoop in and steal both dogs. The ransom we can demand for these expensive breeds will make it all worthwhile.",
+      "tier": 1,
+      "level": 1,
+      "difficulty": 1,
+      "url": null,
+      "duration": "3d",
+      "participants": 3,
+      "spawn": {
+        "level": 1,
+        "name": "λ"
+      },
+      "scope": {
+        "cost": 1,
+        "return": 2
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": 450000,
+        "min_respect": 21,
+        "max_money": 800000,
+        "max_respect": 40
+      },
+      "positions": [
+        {"id": "P1", "name": "Kidnapper", "item": {"id": 1361, "name": "Dog Treats", "is_reusable": false}, "success_rate": 96},
+        {"id": "P2", "name": "Muscle", "item": {"id": 1362, "name": "Net", "is_reusable": true}, "success_rate": 96},
+        {"id": "P3", "name": "Picklock", "item": {"id": 1203, "name": "Lockpicks", "is_reusable": true}, "success_rate": 96}
+      ]
+    },
+    "cash_me_if_you_can": {
+      "name": "Cash Me if You Can",
+      "description": "The broker has intercepted a cash delivery van on its way to the bank. The cash boxes are empty but the vehicle itself may prove useful. There is a brief window of opportunity to use the delivery van as cover to rob the ATMs at Loaners Bank. The robbery must take place at dawn, before the bank opens to the public, while minimal staff members are present.",
+      "tier": 1,
+      "level": 2,
+      "difficulty": 2,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/cashmeifyoucan",
+      "duration": "3d",
+      "participants": 3,
+      "spawn": {
+        "level": 1,
+        "name": "λ"
+      },
+      "scope": {
+        "cost": 1,
+        "return": 2
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": 1322000,
+        "min_respect": 38,
+        "max_money": 1591000,
+        "max_respect": 51
+      },
+      "positions": [
+        {"id": "P1", "name": "Thief", "item": {"id": 1381, "name": "ID Badge", "is_reusable": false}, "success_rate": 94},
+        {"id": "P2", "name": "Thief", "item": {"id": 1379, "name": "ATM Key", "is_reusable": false}, "success_rate": 94},
+        {"id": "P3", "name": "Lookout", "item": null, "success_rate": 93}
+      ]
+    },
+    "best_of_the_lot": {
+      "name": "Best of the Lot",
+      "description": "A wealthy Arab sheikh has had his luxury car impounded for unpaid parking fines. The billionaire playboy abandoned the car and returned to his home country, leaving it ripe for the taking. Your mission: break into the impound lot, locate the vehicle, and drive it off without tripping the alarm. If things go sideways, a quick flash of a police badge should clear the way.",
+      "tier": 2,
+      "level": 2,
+      "difficulty": 2,
+      "url": null,
+      "duration": "4d",
+      "participants": 4,
+      "spawn": {
+        "level": 1,
+        "name": "λ"
+      },
+      "scope": {
+        "cost": 1,
+        "return": 2
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": null,
+        "min_respect": 36,
+        "max_money": null,
+        "max_respect": 68,
+        "scope": "2 or 3",
+        "other_rewards": "1 x Mercia SLR or 1 x Echo R8 or 1 x Lolo 458"
+      },
+      "positions": [
+        {"id": "P1", "name": "Picklock", "item": {"id": 1203, "name": "Lockpicks", "is_reusable": true}, "success_rate": 96},
+        {"id": "P2", "name": "Car Thief", "item": null, "success_rate": 94},
+        {"id": "P3", "name": "Muscle", "item": null, "success_rate": 95},
+        {"id": "P4", "name": "Impersonator", "item": {"id": 1350, "name": "Police Badge", "is_reusable": true}, "success_rate": 95}
+      ]
+    },
+    "smoke_and_wing_mirrors": {
+      "name": "Smoke and Wing Mirrors",
+      "description": "A golden opportunity has arisen to swipe a high-end car from an upmarket showroom. The plan is simple: split your team into two, with one group posing as an influencer and their photographer, and the other acting like interested buyers. Together, you'll separate the sales team, nab the keys, and race away with a luxury ride. If you can assemble the right crew, you'll soon be cruising to success.",
+      "tier": 2,
+      "level": 3,
+      "difficulty": 3,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/smokeandwingmirrors",
+      "duration": "4d",
+      "participants": 4,
+      "spawn": {
+        "level": 2,
+        "name": "Σ"
+      },
+      "scope": {
+        "cost": 2,
+        "return": 3
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": null,
+        "min_respect": 39,
+        "max_money": null,
+        "max_respect": 89,
+        "other_rewards": "1 x Veloria LFA or 1x Weston Marlin 177 or 1x Lambrini Torobravo"
+      },
+      "positions": [
+        {"id": "P1", "name": "Car Thief", "item": {"id": 1380, "name": "RF Detector", "is_reusable": true}, "success_rate": 50},
+        {"id": "P2", "name": "Impersonator", "item": {"id": 1383, "name": "DSLR Camera", "is_reusable": true}, "success_rate": 24},
+        {"id": "P3", "name": "Hustler", "item": null, "success_rate": 17},
+        {"id": "P4", "name": "Hustler", "item": null, "success_rate": 9}
+      ]
+    },
+    "market_forces": {
+      "name": "Market Forces",
+      "description": "We've been hired by Duke to collect protection money from a group of stubborn market traders. Not everyone will be willing to pay up, so don't be afraid to use intimidation to get what you want. Just be careful not to go too far as there could be undercover cops loitering in the area. If the feds show up, turn on the charm; a little kickback might just smooth things over.",
+      "tier": 2,
+      "level": 3,
+      "difficulty": 3,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/marketforces",
+      "duration": "5d",
+      "participants": 5,
+      "spawn": {
+        "level": 2,
+        "name": "Σ"
+      },
+      "scope": {
+        "cost": 2,
+        "return": 3
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": 5095000,
+        "min_respect": 72,
+        "max_money": 8575000,
+        "max_respect": 111
+      },
+      "positions": [
+        {"id": "P1", "name": "Enforcer", "item": null, "success_rate": 24},
+        {"id": "P2", "name": "Negotiator", "item": null, "success_rate": 22},
+        {"id": "P3", "name": "Lookout", "item": null, "success_rate": 20},
+        {"id": "P4", "name": "Arsonist", "item": {"id": 172, "name": "Gasoline", "is_reusable": false}, "success_rate": 15},
+        {"id": "P5", "name": "Muscle", "item": null, "success_rate": 4}
+      ]
+    },
+    "gaslight_the_way": {
+      "name": "Gaslight the Way",
+      "description": "A wealthy older couple has been bragging about their expensive lifestyle on social media. It's time to show them the error of their ways by ransacking their penthouse. To gain access, two of you will pose as the building's maintenance crew investigating a gas leak. With evidence of tampering conveniently \"discovered,\" they will be forced to call security, at which point the rest of the team will enter. Once the owners are out of the way, you'll have to work quickly to loot the place and escape before anyone alerts the real authorities.",
+      "tier": 2,
+      "level": 3,
+      "difficulty": 3,
+      "url": null,
+      "duration": "6d",
+      "participants": 6,
+      "spawn": {
+        "level": 2,
+        "name": "Σ"
+      },
+      "scope": {
+        "cost": 2,
+        "return": 3
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": null,
+        "min_respect": null,
+        "max_money": null,
+        "max_respect": null
+      },
+      "positions": [
+        {"id": "P1", "name": "Impersonator", "item": {"id": 643, "name": "Construction Helmet", "is_reusable": false}, "success_rate": null},
+        {"id": "P2", "name": "Looter", "item": null, "success_rate": null},
+        {"id": "P3", "name": "Impersonator", "item": {"id": 1381, "name": "ID Badge", "is_reusable": false}, "success_rate": null},
+        {"id": "P4", "name": "Looter", "item": null, "success_rate": null},
+        {"id": "P5", "name": "Impersonator", "item": {"id": 1381, "name": "ID Badge", "is_reusable": false}, "success_rate": null},
+        {"id": "P6", "name": "Looter", "item": null, "success_rate": null}
+      ]
+    },
+    "snow_blind": {
+      "name": "Snow Blind",
+      "description": "An up-and-coming rapper, Lil Drizzle, is hosting a party and needs a huge quantity of cocaine. His manager, Juliet, has been told that your product is the best in the business–but of course, that's a lie. Dupe these naive morons by selling them PCP laced with dental anesthetic to mimic the numbing effect of cocaine. But don't let them take too much or they'll overdose!",
+      "tier": 2,
+      "level": 4,
+      "difficulty": 4,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/snowblind",
+      "duration": "4d",
+      "participants": 4,
+      "spawn": {
+        "level": 2,
+        "name": "Σ"
+      },
+      "scope": {
+        "cost": 2,
+        "return": 3
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": 7691000,
+        "min_respect": 70,
+        "max_money": 10565000,
+        "max_respect": 116
+      },
+      "positions": [
+        {"id": "P1", "name": "Hustler", "item": null, "success_rate": 50},
+        {"id": "P2", "name": "Impersonator", "item": {"id": 201, "name": "PCP", "is_reusable": false}, "success_rate": 31},
+        {"id": "P3", "name": "Muscle", "item": null, "success_rate": 10},
+        {"id": "P4", "name": "Muscle", "item": null, "success_rate": 10}
+      ]
+    },
+    "stage_fright": {
+      "name": "Stage Fright",
+      "description": "Our mission is clear: send a message to Swiss Toni, the ruthless mob boss who thinks he’s untouchable. To do this, we’ll threaten his mistress, Clara, and make him realize that nobody is off-limits in this town. Toni's side-piece is heading out for a night at the opera flanked by her elite guards. We’ll ambush her in plain sight, dividing our crew between high ground and street level, ready to strike from all angles at the intersection. The bounty is vague, but we’re free to take whatever we can from Clara. And tonight’s performance? It’s destined to be a tragedy.",
+      "tier": 2,
+      "level": 4,
+      "difficulty": 4,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/stagefright",
+      "duration": "6d",
+      "participants": 6,
+      "spawn": {
+        "level": 2,
+        "name": "Σ"
+      },
+      "scope": {
+        "cost": 2,
+        "return": 3
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": null,
+        "min_respect": 67,
+        "max_money": null,
+        "max_respect": 174,
+        "min_xanax": 10,
+        "max_xanax": 30
+      },
+      "positions": [
+        {"id": "P1", "name": "Enforcer", "item": null, "success_rate": 87},
+        {"id": "P2", "name": "Muscle", "item": null, "success_rate": 90},
+        {"id": "P3", "name": "Muscle", "item": null, "success_rate": 88},
+        {"id": "P4", "name": "Muscle", "item": null, "success_rate": 67},
+        {"id": "P5", "name": "Lookout", "item": {"id": 1258, "name": "Binoculars", "is_reusable": true}, "success_rate": 84},
+        {"id": "P6", "name": "Sniper", "item": null, "success_rate": 77}
+      ]
+    },
+    "counter_offer": {
+      "name": "Counter Offer",
+      "description": "Morrigan's Military Surplus has an impressive array of specialist weapons and armor for sale. They're offering a 100% discount to anyone bold enough to rob them. Bypass their strict one-in-one-out policy, subdue the employees, and crack open their high-tech weapon stores. Carrying a gun through the entrance will set off the detectors and bring the T.C.P.D. running, so don't do that, or you'll be going home in handcuffs.",
+      "tier": 3,
+      "level": 5,
+      "difficulty": 5,
+      "url": null,
+      "duration": "5d",
+      "participants": 5,
+      "spawn": {
+        "level": 3,
+        "name": "Φ"
+      },
+      "scope": {
+        "cost": 3,
+        "return": 4
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": null,
+        "min_respect": 158,
+        "max_money": null,
+        "max_respect": 166,
+        "note": "All weapons and armors obtained through Counter Offer are grey quality, meaning they do not have any Weapon Bonuses."
+      },
+      "positions": [
+        {"id": "P1", "name": "Robber", "item": {"id": 1429, "name": "Zip Ties", "is_reusable": false}, "success_rate": 68},
+        {"id": "P2", "name": "Looter", "item": {"id": 1429, "name": "Zip Ties", "is_reusable": false}, "success_rate": 72},
+        {"id": "P3", "name": "Hacker", "item": {"id": 73, "name": "Stealth Virus", "is_reusable": false}, "success_rate": 85},
+        {"id": "P4", "name": "Picklock", "item": {"id": 1203, "name": "Lockpicks", "is_reusable": true}, "success_rate": 83},
+        {"id": "P5", "name": "Engineer", "item": {"id": 981, "name": "Wire Cutters", "is_reusable": true}, "success_rate": 80}
+      ]
+    },
+    "leave_no_trace": {
+      "name": "Leave No Trace",
+      "description": "Our client has just been arrested for a heinous crime. She wants us to retrieve a cell phone containing sensitive data that must be erased. The bad news: the device is inside a police station. The good news: the police captain has been bribed to make things easier. We'll need to deploy a code phrase while talking to the desk sergeant to get inside. Once we've obtained the phone, we should wipe the data outside the premises to avoid leaving a digital footprint, then return it undamaged. And don’t forget to bring a cop badge–it might come in handy.",
+      "tier": 3,
+      "level": 5,
+      "difficulty": 5,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/leavenotrace",
+      "duration": "3d",
+      "participants": 3,
+      "spawn": {
+        "level": 3,
+        "name": "Φ"
+      },
+      "scope": {
+        "cost": 3,
+        "return": 4
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": 9660000,
+        "min_respect": 75,
+        "max_money": 13474000,
+        "max_respect": 108
+      },
+      "positions": [
+        {"id": "P1", "name": "Techie", "item": null, "success_rate": 44},
+        {"id": "P2", "name": "Negotiator", "item": {"id": 1350, "name": "Police Badge", "is_reusable": true}, "success_rate": 30},
+        {"id": "P3", "name": "Impersonator", "item": {"id": 1350, "name": "Police Badge", "is_reusable": true}, "success_rate": 26}
+      ]
+    },
+    "no_reserve": {
+      "name": "No Reserve",
+      "description": "The team needs a military-grade vehicle for an upcoming assault on the auction house. A high-spec Humvee is undergoing repairs off-base at an army maintenance facility. Guard presence is light, but mistakes will still draw unwanted attention. Slip in, neutralize the guards, and leave with the vehicle before the military shows up.",
+      "tier": 3,
+      "level": 5,
+      "difficulty": 5,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/noreserve",
+      "duration": "3d",
+      "participants": 3,
+      "spawn": {
+        "level": 3,
+        "name": "Φ"
+      },
+      "scope": {
+        "cost": 3,
+        "return": 4
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": null,
+        "min_respect": null,
+        "max_money": null,
+        "max_respect": null,
+        "note": "Bidding War scenario"
+      },
+      "positions": [
+        {"id": "P1", "name": "Car Thief", "item": {"id": 159, "name": "Bolt Cutters", "is_reusable": true}, "success_rate": 46},
+        {"id": "P2", "name": "Techie", "item": {"id": 856, "name": "Spray Paint : Black", "is_reusable": false}, "success_rate": 39},
+        {"id": "P3", "name": "Engineer", "item": {"id": 576, "name": "Chloroform", "is_reusable": false}, "success_rate": 39}
+      ]
+    },
+    "bidding_war": {
+      "name": "Bidding War",
+      "description": "A number of valuable artifacts are up for sale at the auction house today. The broker represents powerful international buyers who would rather not pay the reserve price. Armed with a military-grade Humvee, your task is to breach the main hall with bombs and bravado, grab as many treasures as possible, and escape safely in the armored vehicle. Be careful—if the auction house security team shows up, you’ll pay a steep price.",
+      "tier": 3,
+      "level": 6,
+      "difficulty": 6,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/biddingwar",
+      "duration": "6d",
+      "participants": 6,
+      "spawn": {
+        "level": 3,
+        "name": "Φ"
+      },
+      "scope": {
+        "cost": 3,
+        "return": 4
+      },
+      "prerequisite": "No Reserve",
+      "requirements": {
+        "min_money": 92000000,
+        "min_respect": 345,
+        "max_money": 132000000,
+        "max_respect": 448
+      },
+      "positions": [
+        {"id": "P1", "name": "Robber", "item": {"id": 568, "name": "Jemmy", "is_reusable": true}, "success_rate": 28},
+        {"id": "P2", "name": "Driver", "item": null, "success_rate": 21},
+        {"id": "P3", "name": "Robber", "item": {"id": 222, "name": "Flash Grenade", "is_reusable": false}, "success_rate": 18},
+        {"id": "P4", "name": "Robber", "item": {"id": 1284, "name": "Dental Mirror", "is_reusable": true}, "success_rate": 16},
+        {"id": "P5", "name": "Bomber", "item": {"id": 190, "name": "C4 Explosive", "is_reusable": false}, "success_rate": 9},
+        {"id": "P6", "name": "Bomber", "item": {"id": 190, "name": "C4 Explosive", "is_reusable": false}, "success_rate": 7}
+      ]
+    },
+    "honey_trap": {
+      "name": "Honey Trap",
+      "description": "Honey, a local stripper, has been blackmailing powerful individuals after bedding them, threatening to expose their proclivities. Find her and retrieve any evidence she's keeping without causing a scene–our client rewards discretion. Oh, and you might need to buy a dance, so take your money in a clip because this is an upmarket establishment.",
+      "tier": 3,
+      "level": 6,
+      "difficulty": 6,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/honeytrap",
+      "duration": "3d",
+      "participants": 3,
+      "spawn": {
+        "level": 3,
+        "name": "Φ"
+      },
+      "scope": {
+        "cost": 3,
+        "return": 4
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": 17077000,
+        "min_respect": 88,
+        "max_money": 25671000,
+        "max_respect": 141
+      },
+      "positions": [
+        {"id": "P1", "name": "Enforcer", "item": {"id": 1080, "name": "Billfold", "is_reusable": true}, "success_rate": 64},
+        {"id": "P2", "name": "Muscle", "item": null, "success_rate": 32},
+        {"id": "P3", "name": "Muscle", "item": {"id": 1080, "name": "Billfold", "is_reusable": true}, "success_rate": 25}
+      ]
+    },
+    "blast_from_the_past": {
+      "name": "Blast From The Past",
+      "description": "We’ve received intel on a private vault owned by a wealthy mobster. The vault, built in the 1900s, has vulnerabilities in its hinges and surrounding structure that can be exploited using core drilling and explosives. Despite its antique facade, the vault is protected by a sophisticated security system that protects the entire building. Therefore, assembling a team with specialized skills is crucial for the success of this operation.",
+      "tier": 4,
+      "level": 7,
+      "difficulty": 7,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/blastfromthepast",
+      "duration": "6d",
+      "participants": 6,
+      "spawn": {
+        "level": 4,
+        "name": "Ψ"
+      },
+      "scope": {
+        "cost": 4,
+        "return": 5
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": 147321000,
+        "min_respect": 270,
+        "max_money": 202382000,
+        "max_respect": 375
+      },
+      "positions": [
+        {"id": "P1", "name": "Picklock", "item": null, "success_rate": 36},
+        {"id": "P2", "name": "Hacker", "item": {"id": 103, "name": "Firewalk Virus", "is_reusable": false}, "success_rate": 25},
+        {"id": "P3", "name": "Engineer", "item": {"id": 1431, "name": "Core Drill", "is_reusable": false}, "success_rate": 19},
+        {"id": "P4", "name": "Bomber", "item": {"id": 1430, "name": "Shaped Charge", "is_reusable": false}, "success_rate": 10},
+        {"id": "P5", "name": "Muscle", "item": {"id": 1429, "name": "Zip Ties", "is_reusable": false}, "success_rate": 9},
+        {"id": "P6", "name": "Picklock", "item": null, "success_rate": 2}
+      ]
+    },
+    "break_the_bank": {
+      "name": "Break The Bank",
+      "description": "The target is the west side branch of the Torn and Shanghai Bank. While its security system appears robust, it is undermined by one critical flaw: the bank's employees. By applying pressure to the bank's soft, human underbelly, we should be able to bypass the security measures and gain access to the vaults. Take hostages if necessary, but remain alert for any would-be heroes attempting to thwart the operation. Strike hard, strike fast, and vanish before the alarm even begins to sound.",
+      "tier": 4,
+      "level": 8,
+      "difficulty": 8,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/breakthebank",
+      "duration": "6d",
+      "participants": 6,
+      "spawn": {
+        "level": 4,
+        "name": "Ψ"
+      },
+      "scope": {
+        "cost": 4,
+        "return": 5
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": 195135000,
+        "min_respect": 111,
+        "max_money": 395980000,
+        "max_respect": 497
+      },
+      "positions": [
+        {"id": "P1", "name": "Robber", "item": {"id": 1331, "name": "Hand Drill", "is_reusable": true}, "success_rate": 55},
+        {"id": "P2", "name": "Muscle", "item": {"id": 1331, "name": "Hand Drill", "is_reusable": true}, "success_rate": 59},
+        {"id": "P3", "name": "Muscle", "item": {"id": 1429, "name": "Zip Ties", "is_reusable": false}, "success_rate": 60},
+        {"id": "P4", "name": "Thief", "item": {"id": 1331, "name": "Hand Drill", "is_reusable": true}, "success_rate": 51},
+        {"id": "P5", "name": "Muscle", "item": {"id": 1331, "name": "Hand Drill", "is_reusable": true}, "success_rate": 53},
+        {"id": "P6", "name": "Thief", "item": {"id": 1331, "name": "Hand Drill", "is_reusable": true}, "success_rate": 48}
+      ]
+    },
+    "stacking_the_deck": {
+      "name": "Stacking The Deck",
+      "description": "In this high-stakes operation, we’re laying the groundwork for a grand heist. With a carefully choreographed plan, the team will infiltrate the casino, bypassing the guards to breach their security network. The goal is twofold: plant our operatives' identities in their employee database, then trigger the vault’s alarm to map their response protocols. If you pull this off, the odds of success will be stacked in your favor.",
+      "tier": 5,
+      "level": 8,
+      "difficulty": 8,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/stackingthedeck",
+      "duration": "4d",
+      "participants": 4,
+      "spawn": {
+        "level": 5,
+        "name": "Ω"
+      },
+      "scope": {
+        "cost": 5,
+        "return": 6
+      },
+      "prerequisite": null,
+      "requirements": {
+        "min_money": null,
+        "min_respect": null,
+        "max_money": null,
+        "max_respect": null,
+        "note": "Ace in the Hole scenario"
+      },
+      "positions": [
+        {"id": "P1", "name": "Cat Burglar", "item": {"id": 568, "name": "Jemmy", "is_reusable": true}, "success_rate": 42},
+        {"id": "P2", "name": "Driver", "item": {"id": 226, "name": "Smoke Grenade", "is_reusable": false}, "success_rate": 29},
+        {"id": "P3", "name": "Hacker", "item": {"id": 73, "name": "Stealth Virus", "is_reusable": false}, "success_rate": 25},
+        {"id": "P4", "name": "Impersonator", "item": {"id": 1381, "name": "ID Badge", "is_reusable": false}, "success_rate": 4}
+      ]
+    },
+    "ace_in_the_hole": {
+      "name": "Ace In The Hole",
+      "description": "Having prepared the groundwork, the stage is set for a grand heist at the Lucky Shots Casino. One of you will pose as an employee and slip in through the staff entrance, while two more will blend in as everyday gamblers on the casino floor. Once the team is in position, a fake breach will bait security into opening the vault door. That's the moment to strike. By the time backup arrives, the crew should already be gone, the cash smuggled out in a laundry cart, and the casino beaten in a game they never knew they were playing.",
+      "tier": 5,
+      "level": 9,
+      "difficulty": 9,
+      "url": "https://crimeshub-2b4b0.firebaseapp.com/oc/aceinthehole",
+      "duration": "5d",
+      "participants": 5,
+      "spawn": {
+        "level": 5,
+        "name": "Ω"
+      },
+      "scope": {
+        "cost": 5,
+        "return": 6
+      },
+      "prerequisite": "Stacking the Deck",
+      "requirements": {
+        "min_money": 2805000,
+        "min_respect": 346,
+        "max_money": 579783000,
+        "max_respect": 134
+      },
+      "positions": [
+        {"id": "P1", "name": "Impersonator", "item": {"id": 1381, "name": "ID Badge", "is_reusable": false}, "success_rate": 36},
+        {"id": "P2", "name": "Muscle", "item": null, "success_rate": 23},
+        {"id": "P3", "name": "Muscle", "item": null, "success_rate": 16},
+        {"id": "P4", "name": "Hacker", "item": null, "success_rate": 15},
+        {"id": "P5", "name": "Driver", "item": null, "success_rate": 9}
+      ]
+    }
+  },
+  "scenario_categories": {
+    "lambda": {
+      "symbol": "Λ",
+      "name": "Lambda",
+      "description": "Introductory Tasks",
+      "difficulty_range": "1 - 2",
+      "scope_cost": 1,
+      "scope_reward": 2
+    },
+    "sigma": {
+      "symbol": "Σ",
+      "name": "Sigma",
+      "description": "Simple Assignments",
+      "difficulty_range": "3 - 4",
+      "scope_cost": 2,
+      "scope_reward": 3
+    },
+    "phi": {
+      "symbol": "Φ",
+      "name": "Phi",
+      "description": "Intermediate Jobs",
+      "difficulty_range": "5 - 6",
+      "scope_cost": 3,
+      "scope_reward": 4
+    },
+    "psi": {
+      "symbol": "Ψ",
+      "name": "Psi",
+      "description": "Advanced Operations",
+      "difficulty_range": "7 - 8",
+      "scope_cost": 4,
+      "scope_reward": 5
+    },
+    "omega": {
+      "symbol": "Ω",
+      "name": "Omega",
+      "description": "Elaborate Campaigns",
+      "difficulty_range": "8 - 10",
+      "scope_cost": 5,
+      "scope_reward": 6
+    }
+  },
+  "system_info": {
+    "scope_starting_amount": 25,
+    "scope_max_amount": 100,
+    "scope_regeneration_rate": "1 per day",
+    "scenario_expiry": "7 days",
+    "description": "Factions can spawn a random scenario from four difficulty ranges. Each time a scenario is spawned, it consumes a new faction resource called Scope, which can be earned by successfully completing scenarios. Before being able to manually spawn any scenarios, the relevant upgrade must be unlocked on the faction tree's core branch."
+  }
+} 
