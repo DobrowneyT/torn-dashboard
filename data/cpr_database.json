@@ -1604,7 +1604,7 @@
     },
     "2060206": {
       "name": "finally",
-      "tier": 3,
+      "tier": 2,
       "cpr_by_role": {
         "7": {
           "Engineer": 75,
@@ -1612,7 +1612,7 @@
         }
       },
       "last_scraped": "2025-11-02T22:50:05.000Z",
-      "tier_last_updated": "2025-12-27T15:47:53.296778"
+      "tier_last_updated": "2025-12-29T17:05:03.231953"
     },
     "2075640": {
       "name": "Subzero",
@@ -8521,7 +8521,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2025-12-29T17:05:02.215898",
+    "last_updated": "2025-12-29T17:05:03.232231",
     "total_members": 144
   }
 }
