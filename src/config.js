@@ -4,7 +4,7 @@ export const config = {
     crimesData: import.meta.env.VITE_CRIMES_DATA_URL || '/torn-forge-oc-system/data/crimes_database.json',
   },
   faction: {
-    name: "Your Faction Name",
+    name: "The Next Level - Forge",
     tag: "[TAG]",
   },
   tierRequirements: {
