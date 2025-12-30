@@ -1,11 +1,4 @@
-const tabs = [
-  { id: 'members', label: 'Member Tiers' },
-  { id: 'crimes', label: 'Crime History' },
-  { id: 'requirements', label: 'Tier Requirements' },
-  { id: 'payouts', label: 'Payout Analysis' },
-]
-
-export default function Navigation({ activeTab, onTabChange }) {
+export default function Navigation({ activeTab, onTabChange, tabs }) {
   return (
     <nav className="mt-6">
       <div className="card p-2">
