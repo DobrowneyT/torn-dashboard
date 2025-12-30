@@ -476,11 +476,8 @@ class CrimeDataUpdater:
         # Write full crime log to Crime_Log sheet (batch)
         # self._write_crime_log_sheet_batch(crimes_db)
         
-        # Write crimes to "test" sheet using pandas DataFrame
+        # Write crimes to sheet using pandas DataFrame
         self._write_crimes_log_pandas(crimes_db)
-
-        # Write CPR database to 'cpr_database' sheet
-        self._write_cpr_database_pandas()
         
         logger.info("Google Sheets updated successfully")
     
