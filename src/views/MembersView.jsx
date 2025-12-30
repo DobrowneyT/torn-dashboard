@@ -1,18 +1,34 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { useViewState } from '../contexts/ViewStateContext'
 
 export default function MembersView({ cprData, crimesData }) {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [tierFilter, setTierFilter] = useState('all')
+  // Get persisted state
+  const [persistedState, setPersistedState] = useViewState('members')
+  
+  // Initialize from persisted state or defaults
+  const [searchTerm, setSearchTerm] = useState(persistedState.searchTerm || '')
+  const [tierFilter, setTierFilter] = useState(persistedState.tierFilter || 'all')
+  const [sortConfig, setSortConfig] = useState(
+    persistedState.sortConfig || { key: 'tier', direction: 'asc' }
+  )
   const [currentFactionMembers, setCurrentFactionMembers] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  // Persist state changes - setPersistedState is now stable, no need to include it
+  useEffect(() => {
+    setPersistedState({
+      searchTerm,
+      tierFilter,
+      sortConfig
+    })
+  }, [searchTerm, tierFilter, sortConfig])
 
   // Fetch current faction members from Torn API
   useEffect(() => {
     async function fetchFactionMembers() {
       try {
         setLoading(true)
-        // You'll need to add your faction API key to config or env
-        const factionId = import.meta.env.VITE_FACTION_ID || '46427' // Replace with your faction ID
+        const factionId = import.meta.env.VITE_FACTION_ID || '46427'
         const apiKey = import.meta.env.VITE_TORN_API_KEY || ''
         
         if (!apiKey) {
@@ -28,7 +44,6 @@ export default function MembersView({ cprData, crimesData }) {
         
         if (response.ok) {
           const data = await response.json()
-          // Extract member IDs from faction data
           const memberIds = new Set(Object.keys(data.members || {}).map(id => id.toString()))
           setCurrentFactionMembers(memberIds)
         } else {
@@ -72,8 +87,55 @@ export default function MembersView({ cprData, crimesData }) {
       filtered = filtered.filter(m => m.tier === parseInt(tierFilter))
     }
     
-    return filtered.sort((a, b) => (a.tier || 6) - (b.tier || 6))
-  }, [cprData, crimesData, searchTerm, tierFilter, currentFactionMembers])
+    // Apply sorting
+    return filtered.sort((a, b) => {
+      let aVal = a[sortConfig.key]
+      let bVal = b[sortConfig.key]
+      
+      // Handle special cases
+      if (sortConfig.key === 'name') {
+        aVal = (aVal || '').toLowerCase()
+        bVal = (bVal || '').toLowerCase()
+      } else if (sortConfig.key === 'id') {
+        // Parse IDs as integers for proper numeric sorting
+        aVal = parseInt(aVal) || 0
+        bVal = parseInt(bVal) || 0
+      } else if (sortConfig.key === 'avgCpr') {
+        aVal = aVal === 'N/A' ? -1 : parseFloat(aVal)
+        bVal = bVal === 'N/A' ? -1 : parseFloat(bVal)
+      } else if (sortConfig.key === 'tier') {
+        aVal = aVal || 6
+        bVal = bVal || 6
+      }
+      
+      if (aVal < bVal) {
+        return sortConfig.direction === 'asc' ? -1 : 1
+      }
+      if (aVal > bVal) {
+        return sortConfig.direction === 'asc' ? 1 : -1
+      }
+      return 0
+    })
+  }, [cprData, crimesData, searchTerm, tierFilter, currentFactionMembers, sortConfig])
+
+  const handleSort = (key) => {
+    let direction = 'asc'
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc'
+    }
+    setSortConfig({ key, direction })
+  }
+
+  const SortIcon = ({ columnKey }) => {
+    if (sortConfig.key !== columnKey) {
+      return <span className="ml-1 text-gray-400">⇅</span>
+    }
+    return (
+      <span className="ml-1">
+        {sortConfig.direction === 'asc' ? '↑' : '↓'}
+      </span>
+    )
+  }
 
   if (loading) {
     return (
@@ -102,7 +164,7 @@ export default function MembersView({ cprData, crimesData }) {
             </p>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <input
             type="text"
             placeholder="Search members..."
@@ -110,21 +172,53 @@ export default function MembersView({ cprData, crimesData }) {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="input flex-1 md:w-64"
           />
-          <select value={tierFilter} onChange={(e) => setTierFilter(e.target.value)} className="input">
+          <select 
+            value={tierFilter} 
+            onChange={(e) => setTierFilter(e.target.value)} 
+            className="input"
+          >
             <option value="all">All Tiers</option>
             {[1,2,3,4,5,6].map(t => <option key={t} value={t}>Tier {t}</option>)}
           </select>
+          <div className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+            💾 Persisted
+          </div>
         </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="border-b-2 border-gray-200 dark:border-slate-700">
             <tr className="text-left">
-              <th className="py-3 px-4 font-semibold text-sm">Member</th>
-              <th className="py-3 px-4 font-semibold text-sm">ID</th>
-              <th className="py-3 px-4 font-semibold text-sm">Tier</th>
-              <th className="py-3 px-4 font-semibold text-sm">Crimes</th>
-              <th className="py-3 px-4 font-semibold text-sm">Avg CPR</th>
+              <th 
+                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                onClick={() => handleSort('name')}
+              >
+                Member <SortIcon columnKey="name" />
+              </th>
+              <th 
+                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                onClick={() => handleSort('id')}
+              >
+                ID <SortIcon columnKey="id" />
+              </th>
+              <th 
+                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                onClick={() => handleSort('tier')}
+              >
+                Tier <SortIcon columnKey="tier" />
+              </th>
+              <th 
+                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                onClick={() => handleSort('totalCrimes')}
+              >
+                Crimes <SortIcon columnKey="totalCrimes" />
+              </th>
+              <th 
+                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                onClick={() => handleSort('avgCpr')}
+              >
+                Avg CPR <SortIcon columnKey="avgCpr" />
+              </th>
               <th className="py-3 px-4 font-semibold text-sm">Top Roles</th>
             </tr>
           </thead>

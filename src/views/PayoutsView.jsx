@@ -1,10 +1,23 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { useViewState } from '../contexts/ViewStateContext'
 
 export default function PayoutsView({ cprData }) {
-  const [period, setPeriod] = useState('4')  // Default to last 4 weeks
+  // Get persisted state
+  const [persistedState, setPersistedState] = useViewState('payouts')
+  
+  // Initialize from persisted state or defaults
+  const [period, setPeriod] = useState(persistedState.period || '4')
+  const [sortBy, setSortBy] = useState(persistedState.sortBy || 'total')
   const [payoutData, setPayoutData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [sortBy, setSortBy] = useState('total')  // 'total' or 'recent'
+
+  // Persist state changes - setPersistedState is now stable, no need to include it
+  useEffect(() => {
+    setPersistedState({
+      period,
+      sortBy
+    })
+  }, [period, sortBy])
 
   useEffect(() => {
     async function loadPayouts() {
@@ -52,7 +65,7 @@ export default function PayoutsView({ cprData }) {
         weeklyDetails: recentPayouts
       }
     })
-    .filter(m => m.weeksActive > 0)  // Only show members with payouts in selected period
+    .filter(m => m.weeksActive > 0)
     .sort((a, b) => {
       if (sortBy === 'total') return b.totalPayout - a.totalPayout
       if (sortBy === 'recent') return b.recentPayout - a.recentPayout
@@ -113,19 +126,30 @@ export default function PayoutsView({ cprData }) {
       <div className="card">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <h2 className="text-xl font-semibold">Weekly Payout Distribution</h2>
-          <div className="flex gap-2">
-            <select value={period} onChange={(e) => setPeriod(e.target.value)} className="input">
+          <div className="flex gap-2 items-center">
+            <select 
+              value={period} 
+              onChange={(e) => setPeriod(e.target.value)} 
+              className="input"
+            >
               <option value="1">Last Week</option>
               <option value="4">Last 4 Weeks</option>
               <option value="8">Last 8 Weeks</option>
               <option value="12">Last 12 Weeks</option>
               <option value="all">All Time</option>
             </select>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="input">
+            <select 
+              value={sortBy} 
+              onChange={(e) => setSortBy(e.target.value)} 
+              className="input"
+            >
               <option value="total">Sort by Total</option>
               <option value="recent">Sort by Recent</option>
               <option value="avg">Sort by Average</option>
             </select>
+            <div className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+              💾 Persisted
+            </div>
           </div>
         </div>
       </div>

@@ -78,20 +78,62 @@ export function calculateTimeSpent(joinedAt, timeReference, from, to) {
   return effectiveEndTime - effectiveStartTime
 }
 
-function processItemOutcomes(slots, itemTransactions, crimeId) {
+/**
+ * Process item outcomes and requirements from crime slots
+ * Tracks both items used (costs) and items rewarded
+ */
+function processItemOutcomes(crime, itemTransactions, crimeId) {
+  const slots = crime.slots || []
+  
+  // Process each slot
   slots.forEach(slot => {
-    if (slot.user?.item_outcome) {
-      const outcome = slot.user.item_outcome
-      const status = outcome.outcome === 'used' ? 'used' : 'reward'
+    // Check if slot has a user (filled position)
+    if (slot.user) {
+      // Track items that were used
+      if (slot.item_requirement && !slot.item_requirement.is_reusable) {
+        // Non-reusable item was consumed
+        itemTransactions.push({
+          id: slot.item_requirement.id.toString(),
+          quantity: 1,
+          status: 'used',
+          crimeId: crimeId,
+          position: slot.position,
+          userId: slot.user.id
+        })
+      }
       
-      itemTransactions.push({
-        id: outcome.item_id.toString(),
-        quantity: 1,
-        status: status,
-        crimeId: crimeId
-      })
+      // Track item outcome (if item was consumed or returned as different item)
+      if (slot.user.item_outcome) {
+        const outcome = slot.user.item_outcome
+        
+        // Only count if outcome is "used" (consumed)
+        // Don't double-count if we already counted from item_requirement
+        if (outcome.outcome === 'used' && 
+            (!slot.item_requirement || slot.item_requirement.id !== outcome.item_id)) {
+          itemTransactions.push({
+            id: outcome.item_id.toString(),
+            quantity: 1,
+            status: 'used',
+            crimeId: crimeId,
+            position: slot.position,
+            userId: slot.user.id
+          })
+        }
+      }
     }
   })
+  
+  // Process crime-level item rewards
+  if (crime.rewards?.items && Array.isArray(crime.rewards.items)) {
+    crime.rewards.items.forEach(item => {
+      itemTransactions.push({
+        id: item.id ? item.id.toString() : item.toString(),
+        quantity: item.quantity || 1,
+        status: 'reward',
+        crimeId: crimeId
+      })
+    })
+  }
 }
 
 function estimateItemValue(itemId) {
@@ -158,10 +200,10 @@ function calculateSitOutPenalty(timeSpent, baseTickets) {
     return 0
   }
   
-  // FULL PENALTY: < 48 hours (2 days) - lose all tickets
+  // FULL PENALTY: < 48 hours (2 days) - lose ALL tickets
   if (timeSpent < MIN_TIME_FOR_ANY_PAYOUT) {
-    // Remove all tickets except 0.01 to keep them in the list
-    return -(baseTickets - 0.01)
+    // Remove ALL tickets → adjusted = 0, payout = $0
+    return -baseTickets
   }
   
   // SLIDING SCALE: Between 48-120 hours
@@ -215,7 +257,7 @@ function processParticipantsFromSlots(crime, timeReference, from, to, members, c
   })
 }
 
-export function calculatePayoutsWithItems(crimesData, cprData, fromTimestamp, toTimestamp, tierConfig) {
+export function calculatePayoutsWithItems(crimesData, cprData, fromTimestamp, toTimestamp, tierConfig, customFactionCut = null) {
   console.log('\n===========================================')
   console.log('PAYOUT CALCULATION START')
   console.log('===========================================')
@@ -266,7 +308,7 @@ export function calculatePayoutsWithItems(crimesData, cprData, fromTimestamp, to
         const moneyReward = crime.rewards?.money || 0
         totalMoneyReward += moneyReward
         
-        processItemOutcomes(crime.slots || [], itemTransactions, crimeId)
+        processItemOutcomes(crime, itemTransactions, crimeId)
         processParticipantsFromSlots(crime, executedAt, fromTimestamp, toTimestamp, members, cprData)
       } else if (executedAt >= fromTimestamp) {
         processParticipantsFromSlots(crime, toTimestamp, fromTimestamp, toTimestamp, members, cprData)
@@ -274,7 +316,7 @@ export function calculatePayoutsWithItems(crimesData, cprData, fromTimestamp, to
     }
     else if (status === 'Failure') {
       if (executedAt >= fromTimestamp && executedAt < toTimestamp) {
-        processItemOutcomes(crime.slots || [], itemTransactions, crimeId)
+        processItemOutcomes(crime, itemTransactions, crimeId)
         processParticipantsFromSlots(crime, executedAt, fromTimestamp, toTimestamp, members, cprData)
       } else if (executedAt >= fromTimestamp) {
         processParticipantsFromSlots(crime, toTimestamp, fromTimestamp, toTimestamp, members, cprData)
@@ -290,7 +332,7 @@ export function calculatePayoutsWithItems(crimesData, cprData, fromTimestamp, to
   
   const itemValues = calculateItemValues(itemTransactions)
   
-  const factionCutPercent = 0.20
+  const factionCutPercent = customFactionCut !== null ? customFactionCut : 0.20
   const memberPayoutTotal = (totalMoneyReward + itemValues.itemReward - itemValues.itemCost) * (1 - factionCutPercent)
   const factionCut = totalMoneyReward * factionCutPercent
   

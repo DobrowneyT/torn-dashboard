@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { config } from '../config'
 import {
@@ -23,18 +23,22 @@ export default function PayoutManagement({ cprData, crimesData }) {
   const [fromTimestamp, setFromTimestamp] = useState(null)
   const [toTimestamp, setToTimestamp] = useState(null)
   
+  // Faction cut state (editable)
+  const [factionCutPercent, setFactionCutPercent] = useState(20)
+  
   // UI state
   const [hasCalculated, setHasCalculated] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [showBatchURL, setShowBatchURL] = useState(false)
+  const [showItemDetails, setShowItemDetails] = useState(false)
   
   // Sorting state
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' })
 
   // Initialize with current week on mount
-  useState(() => {
+  useEffect(() => {
     const currentWeek = getCurrentWeekRange()
     setFromDate(currentWeek.monday.toISOString().split('T')[0])
     setToDate(currentWeek.sunday.toISOString().split('T')[0])
@@ -42,7 +46,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
     setToTimestamp(currentWeek.sundayTimestamp)
   }, [])
 
-  // Calculate payouts when timestamps are set and "Run Payout" is clicked
+  // Calculate payouts
   const payoutResults = useMemo(() => {
     if (!hasCalculated || !fromTimestamp || !toTimestamp || !cprData || !crimesData) {
       return {
@@ -57,28 +61,29 @@ export default function PayoutManagement({ cprData, crimesData }) {
         payoutPerMember: 0,
         crimesProcessed: 0,
         totalTimeSpent: 0,
-        debugInfo: []
+        itemDetails: []
       }
     }
 
     console.log('=== PAYOUT CALCULATION DEBUG ===')
     console.log('Date range:', new Date(fromTimestamp * 1000), 'to', new Date(toTimestamp * 1000))
-    console.log('Total crimes in database:', Object.keys(crimesData?.crimes || {}).length)
+    console.log('Faction cut:', factionCutPercent + '%')
     
     const results = calculatePayoutsWithItems(
       crimesData,
       cprData,
       fromTimestamp,
       toTimestamp,
-      config
+      config,
+      factionCutPercent / 100 // Pass as decimal
     )
     
-    console.log('Calculation results:', results)
-    console.log('Members with time > 0:', results.members.filter(m => m.timeSpent > 0).length)
-    console.log('Sample member:', results.members[0])
+    console.log('Item details:', results.itemDetails)
+    console.log('Item reward:', results.itemReward)
+    console.log('Item cost:', results.itemCost)
     
     return results
-  }, [cprData, crimesData, fromTimestamp, toTimestamp, hasCalculated])
+  }, [cprData, crimesData, fromTimestamp, toTimestamp, hasCalculated, factionCutPercent])
 
   const { 
     members, 
@@ -86,14 +91,14 @@ export default function PayoutManagement({ cprData, crimesData }) {
     itemReward,
     itemCost,
     factionCut,
-    factionCutPercent,
     memberPayout,
     participatingMembers,
     payoutPerMember,
-    crimesProcessed 
+    crimesProcessed,
+    itemDetails
   } = payoutResults
 
-  // Sorting logic
+  // Sorted members
   const sortedMembers = useMemo(() => {
     if (!sortConfig.key) {
       return members
@@ -185,6 +190,17 @@ export default function PayoutManagement({ cprData, crimesData }) {
     setHasCalculated(false)
   }
 
+  function handleFactionCutChange(e) {
+    const value = parseFloat(e.target.value)
+    if (!isNaN(value) && value >= 0 && value <= 100) {
+      setFactionCutPercent(value)
+      // Trigger recalculation if already calculated
+      if (hasCalculated) {
+        setHasCalculated(true) // Force recalc
+      }
+    }
+  }
+
   function handleRunPayout() {
     if (!fromTimestamp || !toTimestamp) {
       alert('Please select both FROM and TO dates')
@@ -194,11 +210,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
     if (fromTimestamp >= toTimestamp) {
       alert('FROM date must be before TO date')
       return
-    }
-    
-    if (crimesData?.crimes) {
-      const crimeEntries = Object.entries(crimesData.crimes).slice(0, 3)
-      console.log('Sample crimes:', crimeEntries)
     }
     
     setHasCalculated(true)
@@ -276,7 +287,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
       <div className="card">
         <h2 className="text-xl font-semibold mb-4">Payout Analysis Window</h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
           {/* From Date */}
           <div>
             <label className="block text-sm font-medium mb-2" style={{color: '#22c55e'}}>From Timestamp:</label>
@@ -320,6 +331,21 @@ export default function PayoutManagement({ cprData, crimesData }) {
               />
             </div>
           </div>
+
+          {/* Faction Cut */}
+          <div>
+            <label className="block text-sm font-medium mb-2" style={{color: '#8b5cf6'}}>Faction Cut (%):</label>
+            <input
+              type="number"
+              value={factionCutPercent}
+              onChange={handleFactionCutChange}
+              min="0"
+              max="100"
+              step="0.1"
+              className="input"
+              style={{backgroundColor: '#ede9fe', borderColor: '#8b5cf6'}}
+            />
+          </div>
         </div>
 
         {/* Status */}
@@ -356,22 +382,22 @@ export default function PayoutManagement({ cprData, crimesData }) {
         </button>
       </div>
 
-      {/* Payout Summary Dashboard - Only show after calculation */}
+      {/* Payout Summary Dashboard */}
       {hasCalculated && (
         <>
           <div className="card bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-700 border-2 border-blue-200 dark:border-blue-700">
             <h2 className="text-xl font-semibold mb-4">Payout Summary</h2>
             
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {/* Faction Cut */}
-              <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
+              {/* Faction Cut - Editable */}
+              <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-purple-200 dark:border-purple-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Faction Cut</div>
-                <div className="text-xl font-bold text-green-600 dark:text-green-400">
+                <div className="text-xl font-bold text-purple-600 dark:text-purple-400">
                   {formatPercent(factionCutPercent)}
                 </div>
               </div>
 
-              {/* Money Reward - FULL AMOUNT */}
+              {/* Money Reward */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Money Reward</div>
                 <div className="text-lg font-bold text-orange-600 dark:text-orange-400">
@@ -379,23 +405,35 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Item Reward - FULL AMOUNT */}
-              <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
-                <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Item Reward</div>
+              {/* Item Reward - Clickable */}
+              <div 
+                className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600 cursor-pointer hover:border-blue-400 transition-colors"
+                onClick={() => setShowItemDetails(!showItemDetails)}
+              >
+                <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1 flex items-center justify-between">
+                  <span>Item Reward</span>
+                  <span className="text-blue-500">{showItemDetails ? '▼' : '▶'}</span>
+                </div>
                 <div className="text-lg font-bold text-blue-600 dark:text-blue-400">
                   {formatCurrency(itemReward)}
                 </div>
               </div>
 
-              {/* Item Cost - FULL AMOUNT */}
-              <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
-                <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Item Cost</div>
+              {/* Item Cost - Clickable */}
+              <div 
+                className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600 cursor-pointer hover:border-red-400 transition-colors"
+                onClick={() => setShowItemDetails(!showItemDetails)}
+              >
+                <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1 flex items-center justify-between">
+                  <span>Item Cost</span>
+                  <span className="text-red-500">{showItemDetails ? '▼' : '▶'}</span>
+                </div>
                 <div className="text-lg font-bold text-red-600 dark:text-red-400">
                   {formatCurrency(itemCost)}
                 </div>
               </div>
 
-              {/* Member Payout - FULL AMOUNT */}
+              {/* Member Payout */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Member Payout</div>
                 <div className="text-lg font-bold text-purple-600 dark:text-purple-400">
@@ -411,7 +449,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Payout Per Member - FULL AMOUNT */}
+              {/* Payout Per Member */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Payout Per Member</div>
                 <div className="text-lg font-bold text-teal-600 dark:text-teal-400">
@@ -419,7 +457,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Crimes Processed */}
+              {/* Crimes Completed */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Crimes Completed</div>
                 <div className="text-xl font-bold text-gray-700 dark:text-gray-300">
@@ -428,6 +466,11 @@ export default function PayoutManagement({ cprData, crimesData }) {
               </div>
             </div>
           </div>
+
+          {/* Item Details Expandable Section */}
+          {showItemDetails && itemDetails && itemDetails.length > 0 && (
+            <ItemDetailsView itemDetails={itemDetails} />
+          )}
 
           {/* Action Buttons */}
           <div className="card">
@@ -463,7 +506,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
             {saveSuccess && (
               <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
                 <p className="text-sm text-green-600 dark:text-green-400">
-                  ✅ Week saved successfully! Export JSON and commit to <code>public/data/payouts/</code>
+                  ✅ Week saved successfully!
                 </p>
               </div>
             )}
@@ -554,7 +597,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
                       </td>
                     </tr>
                   ) : (
-                    sortedMembers.map((member, index) => {
+                    sortedMembers.map((member) => {
                       const timePercent = payoutResults.totalTimeSpent > 0 
                         ? ((member.timeSpent / payoutResults.totalTimeSpent) * 100)
                         : 0
@@ -609,7 +652,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
         </>
       )}
 
-      {/* Instructions - Show only when not calculated */}
+      {/* Instructions */}
       {!hasCalculated && (
         <div className="card bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
           <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
@@ -617,14 +660,159 @@ export default function PayoutManagement({ cprData, crimesData }) {
           </h3>
           <ol className="text-sm text-blue-800 dark:text-blue-200 space-y-2 list-decimal list-inside">
             <li>Select date range (or use Current/Previous Week buttons)</li>
+            <li>Adjust Faction Cut % if needed (default: 20%)</li>
             <li>Click <strong>"Run Payout"</strong> to calculate payouts</li>
-            <li>Review the Payout Summary dashboard (matches your Excel sheet)</li>
-            <li>Check member payouts in the table - <strong>click any column header to sort!</strong></li>
-            <li>Click "Copy Batch URL" to get Torn payout link</li>
-            <li>Click "Save Week" to store locally, then export JSON for repository</li>
+            <li>Review the Payout Summary dashboard</li>
+            <li>Click Item Reward/Cost boxes to see item details</li>
+            <li>Check member payouts - click any column header to sort</li>
+            <li>Use action buttons to export or copy batch URL</li>
           </ol>
         </div>
       )}
+    </div>
+  )
+}
+
+// Item Details Component
+function ItemDetailsView({ itemDetails }) {
+  const [sortKey, setSortKey] = useState('totalValue')
+  const [sortDir, setSortDir] = useState('desc')
+
+  const sortedItems = useMemo(() => {
+    return [...itemDetails].sort((a, b) => {
+      const getValue = (item) => {
+        switch (sortKey) {
+          case 'name': return item.id
+          case 'status': return item.status
+          case 'quantity': return item.quantity
+          case 'totalValue': return item.quantity * estimateItemValue(item.id)
+          default: return 0
+        }
+      }
+
+      const aVal = getValue(a)
+      const bVal = getValue(b)
+
+      if (sortDir === 'asc') {
+        return aVal > bVal ? 1 : -1
+      } else {
+        return aVal < bVal ? 1 : -1
+      }
+    })
+  }, [itemDetails, sortKey, sortDir])
+
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
+  }
+
+  // Temporary estimate - will be replaced with inventory lookup
+  function estimateItemValue(itemId) {
+    const commonValues = {
+      '1361': 50000,
+      '1362': 100000,
+      '1203': 75000,
+      '71': 25000,
+      '579': 50000,
+    }
+    return commonValues[itemId] || 50000
+  }
+
+  const totalReward = sortedItems
+    .filter(i => i.status === 'reward')
+    .reduce((sum, i) => sum + (i.quantity * estimateItemValue(i.id)), 0)
+
+  const totalUsed = sortedItems
+    .filter(i => i.status === 'used')
+    .reduce((sum, i) => sum + (i.quantity * estimateItemValue(i.id)), 0)
+
+  return (
+    <div className="card bg-gradient-to-br from-purple-50 to-pink-50 dark:from-slate-800 dark:to-slate-700 border-2 border-purple-200 dark:border-purple-700">
+      <h3 className="text-lg font-semibold mb-4">Item Details</h3>
+      
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-blue-200">
+          <div className="text-xs text-gray-600 dark:text-gray-400">Items Rewarded</div>
+          <div className="text-lg font-bold text-blue-600">{formatCurrency(totalReward)}</div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-red-200">
+          <div className="text-xs text-gray-600 dark:text-gray-400">Items Used</div>
+          <div className="text-lg font-bold text-red-600">{formatCurrency(totalUsed)}</div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-green-200">
+          <div className="text-xs text-gray-600 dark:text-gray-400">Net Value</div>
+          <div className="text-lg font-bold text-green-600">{formatCurrency(totalReward - totalUsed)}</div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="border-b-2 border-gray-200 dark:border-slate-700">
+            <tr className="text-left">
+              <th 
+                className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('name')}
+              >
+                Item ID {sortKey === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
+              </th>
+              <th 
+                className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('status')}
+              >
+                Type {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}
+              </th>
+              <th 
+                className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('quantity')}
+              >
+                Quantity {sortKey === 'quantity' && (sortDir === 'asc' ? '↑' : '↓')}
+              </th>
+              <th className="py-2 px-2 font-semibold text-xs">
+                Est. Unit Value
+              </th>
+              <th 
+                className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('totalValue')}
+              >
+                Total Value {sortKey === 'totalValue' && (sortDir === 'asc' ? '↑' : '↓')}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedItems.map((item, idx) => {
+              const unitValue = estimateItemValue(item.id)
+              const totalValue = item.quantity * unitValue
+              const isReward = item.status === 'reward'
+
+              return (
+                <tr key={idx} className="border-b border-gray-200 dark:border-slate-700">
+                  <td className="py-2 px-2 text-xs">{item.id}</td>
+                  <td className="py-2 px-2 text-xs">
+                    <span className={`px-2 py-0.5 rounded ${isReward ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>
+                      {item.status}
+                    </span>
+                  </td>
+                  <td className="py-2 px-2 text-xs">{item.quantity}</td>
+                  <td className="py-2 px-2 text-xs">{formatCurrency(unitValue)}</td>
+                  <td className={`py-2 px-2 text-xs font-semibold ${isReward ? 'text-blue-600' : 'text-red-600'}`}>
+                    {formatCurrency(totalValue)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-4 text-xs text-gray-600 dark:text-gray-400">
+        💡 <strong>Note:</strong> Item values are estimates. Set up Inventory Management for accurate costs.
+      </div>
     </div>
   )
 }

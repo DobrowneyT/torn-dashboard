@@ -6,6 +6,50 @@ export const config = {
   faction: {
     name: "The Next Level - Forge",
     tag: "[TAG]",
+    id: import.meta.env.VITE_FACTION_ID || "46427",
+  },
+  // Custom leadership list - add Torn user IDs of users who should have leadership access
+  // These users will have access to Payout Management, Tier Management, and Inventory Management
+  // regardless of their official faction position
+  leadershipUserIds: [
+    2250591, // MonChoon
+    2749598, // Uncensored
+    2264192, // McGummy
+    2407528, // DiabolicPickles
+    2932241, // Marnix0126
+  ],
+  // Inventory categories for organizing faction items
+  inventoryCategories: {
+    crimes: {
+      label: "Crime Items",
+      description: "Items consumed during organized crimes",
+      color: "red",
+      icon: "🎯"
+    },
+    medical: {
+      label: "Medical Supplies",
+      description: "Free medical items available for faction members",
+      color: "green",
+      icon: "💊"
+    },
+    drugs: {
+      label: "Drugs & Boosters",
+      description: "Free drugs and boosters for faction members",
+      color: "purple",
+      icon: "💉"
+    },
+    equipment: {
+      label: "Equipment",
+      description: "Weapons, armor, and other equipment",
+      color: "blue",
+      icon: "⚔️"
+    },
+    other: {
+      label: "Other Items",
+      description: "Miscellaneous items",
+      color: "gray",
+      icon: "📦"
+    }
   },
   tierRequirements: {
     1: [

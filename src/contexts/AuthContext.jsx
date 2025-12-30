@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
+import { config } from '../config'
 
 const AuthContext = createContext()
 
@@ -94,7 +95,9 @@ export function AuthProvider({ children }) {
 
       // Determine user role
       const position = data.faction.position
-      const isLeadership = ['Leader', 'Co-leader'].includes(position)
+      const isOfficialLeadership = ['Leader', 'Co-leader'].includes(position)
+      const isCustomLeadership = config.leadershipUserIds.includes(data.player_id)
+      const isLeadership = isOfficialLeadership || isCustomLeadership
 
       const userData = {
         id: data.player_id,
@@ -104,6 +107,7 @@ export function AuthProvider({ children }) {
         factionName: data.faction.faction_name,
         factionPosition: position,
         isLeadership: isLeadership,
+        leadershipType: isOfficialLeadership ? 'official' : (isCustomLeadership ? 'custom' : 'none'),
         apiKey: apiKey, // Store for future API calls
         loginTime: new Date().toISOString()
       }

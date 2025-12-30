@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ViewStateProvider } from './contexts/ViewStateContext'
 import LoginModal from './components/LoginModal'
 import ProtectedRoute from './components/ProtectedRoute'
 import Header from './components/Header'
@@ -12,6 +13,7 @@ import TierRequirementsView from './views/TierRequirementsView'
 import PayoutsView from './views/PayoutsView'
 import PayoutManagement from './components/PayoutManagement'
 import TierManagement from './components/TierManagement'
+import InventoryManagement from './components/InventoryManagement'
 import { config } from './config'
 
 function AppContent() {
@@ -104,7 +106,8 @@ function AppContent() {
     { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
     { id: 'payouts', label: 'Payout History', roles: ['member', 'leadership'] },
     { id: 'payout-mgmt', label: 'Payout Management', roles: ['leadership'] },
-    { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] }
+    { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
+    { id: 'inventory', label: 'Inventory', roles: ['leadership'] }
   ]
 
   const availableTabs = tabs.filter(tab => 
@@ -132,6 +135,7 @@ function AppContent() {
           <ProtectedRoute requireLeadership={true}>
             {activeTab === 'payout-mgmt' && <PayoutManagement cprData={cprData} crimesData={crimesData} />}
             {activeTab === 'tier-mgmt' && <TierManagement cprData={cprData} />}
+            {activeTab === 'inventory' && <InventoryManagement />}
           </ProtectedRoute>
         </div>
       </div>
@@ -143,7 +147,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AppContent />
+        <ViewStateProvider>
+          <AppContent />
+        </ViewStateProvider>
       </AuthProvider>
     </ThemeProvider>
   )
