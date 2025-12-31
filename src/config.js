@@ -17,6 +17,7 @@ export const config = {
     2264192, // McGummy
     2407528, // DiabolicPickles
     2932241, // Marnix0126
+    2015160, // Andrew_616
   ],
   // Inventory categories for organizing faction items
   inventoryCategories: {
