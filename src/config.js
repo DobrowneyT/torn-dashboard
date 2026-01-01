@@ -5,8 +5,8 @@ export const config = {
   },
   faction: {
     name: "The Next Level - Forge",
-    tag: "[TAG]",
-    id: import.meta.env.VITE_FACTION_ID || "46427",
+    tag: "TNL-F",
+    id: import.meta.env.VITE_FACTION_ID || "10739",
   },
   // Custom leadership list - add Torn user IDs of users who should have leadership access
   // These users will have access to Payout Management, Tier Management, and Inventory Management
@@ -19,37 +19,60 @@ export const config = {
     2932241, // Marnix0126
     2015160, // Andrew_616
   ],
-  // Inventory categories for organizing faction items
+  // Crime items that are consumed during organized crimes
+  crimeItemIds: [
+    66, 67, 68, 69, 70, 71, 72, 74, 159, 213, 568, 579, 981, 1080, 1203,
+    1258, 1284, 1331, 1350, 1362, 1380, 1383, 73, 103, 158, 172, 188, 190,
+    201, 222, 226, 256, 567, 576, 643, 856, 1012, 1094, 1223, 1230, 884, 1361,
+    1379, 1381, 1429, 1430, 1461, 1431
+  ],
+  // Inventory categories - these match API categories
   inventoryCategories: {
     crimes: {
       label: "Crime Items",
-      description: "Items consumed during organized crimes",
+      description: "Items consumed during organized crimes (filter view)",
       color: "red",
-      icon: "🎯"
+      isPseudoCategory: true // Special filter category, not a real item type
     },
     medical: {
-      label: "Medical Supplies",
-      description: "Free medical items available for faction members",
-      color: "green",
-      icon: "💊"
+      label: "Medical",
+      description: "Medical items",
+      color: "green"
     },
     drugs: {
-      label: "Drugs & Boosters",
-      description: "Free drugs and boosters for faction members",
-      color: "purple",
-      icon: "💉"
+      label: "Drugs",
+      description: "Drugs and boosters",
+      color: "purple"
     },
-    equipment: {
-      label: "Equipment",
-      description: "Weapons, armor, and other equipment",
-      color: "blue",
-      icon: "⚔️"
+    weapons: {
+      label: "Weapons",
+      description: "Weapons and ammunition",
+      color: "red"
     },
-    other: {
-      label: "Other Items",
-      description: "Miscellaneous items",
-      color: "gray",
-      icon: "📦"
+    armor: {
+      label: "Armor",
+      description: "Armor and protective gear",
+      color: "blue"
+    },
+    temporary: {
+      label: "Temporary",
+      description: "Temporary items (grenades, etc)",
+      color: "orange"
+    },
+    utilities: {
+      label: "Utilities",
+      description: "Tools and utility items",
+      color: "gray"
+    },
+    caches: {
+      label: "Caches",
+      description: "Item caches",
+      color: "yellow"
+    },
+    cesium: {
+      label: "Cesium",
+      description: "Cesium items",
+      color: "cyan"
     }
   },
   tierRequirements: {

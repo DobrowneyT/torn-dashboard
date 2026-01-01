@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { config } from '../config'
 
 export default function TierManagement({ cprData }) {
@@ -6,6 +6,17 @@ export default function TierManagement({ cprData }) {
   const [editingMember, setEditingMember] = useState(null)
   const [newTier, setNewTier] = useState(null)
   const [saveSuccess, setSaveSuccess] = useState(null)
+  
+  // Load tier overrides from localStorage
+  const [tierOverrides, setTierOverrides] = useState(() => {
+    const saved = localStorage.getItem('memberTierOverrides')
+    return saved ? JSON.parse(saved) : {}
+  })
+
+  // Save tier overrides to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('memberTierOverrides', JSON.stringify(tierOverrides))
+  }, [tierOverrides])
 
   const members = useMemo(() => {
     if (!cprData?.members) return []
@@ -13,6 +24,8 @@ export default function TierManagement({ cprData }) {
     let filtered = Object.entries(cprData.members).map(([id, data]) => ({
       id,
       ...data,
+      // Use override tier if exists, otherwise use data tier
+      tier: tierOverrides[id] !== undefined ? tierOverrides[id] : data.tier,
       avgCpr: calculateAvgCpr(data)
     }))
 
@@ -24,7 +37,7 @@ export default function TierManagement({ cprData }) {
     }
     
     return filtered.sort((a, b) => (a.tier || 6) - (b.tier || 6))
-  }, [cprData, searchTerm])
+  }, [cprData, searchTerm, tierOverrides])
 
   function handleEditTier(member) {
     setEditingMember(member)
@@ -38,9 +51,13 @@ export default function TierManagement({ cprData }) {
   }
 
   function handleSaveTier() {
-    // In production, this would call an API to update the tier
-    // For now, we'll simulate success and show instructions
-    console.log(`Updating member ${editingMember.id} to tier ${newTier}`)
+    // Save tier override to localStorage
+    const updatedOverrides = {
+      ...tierOverrides,
+      [editingMember.id]: newTier
+    }
+    
+    setTierOverrides(updatedOverrides)
     
     setSaveSuccess(`${editingMember.name} tier updated to ${newTier}`)
     setEditingMember(null)

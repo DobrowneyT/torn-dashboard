@@ -1,38 +1,86 @@
+import { useState, useEffect } from 'react'
+import { useAuth } from '../contexts/AuthContext'
+import { config } from '../config'
+
 export default function StatsOverview({ cprData, crimesData }) {
-  const members = cprData?.members || {}
-  const crimes = crimesData?.crimes || {}
+  const { user } = useAuth()
+  const [currentMemberCount, setCurrentMemberCount] = useState(null)
+  const [lastOCPayout, setLastOCPayout] = useState(null)
+  const [lastWarPay, setLastWarPay] = useState(null)
 
-  const totalMembers = Object.keys(members).length
-  
-  // Count completed crimes by checking for success/completed statuses
-  const completedCrimes = Object.values(crimes).filter(c => {
-    const status = c.status?.toLowerCase()
-    return status === 'successful' || status === 'success' || status === 'completed'
-  })
-  
-  const totalCrimes = completedCrimes.length
-  const totalPayout = completedCrimes.reduce((sum, c) => sum + (c.rewards?.money || 0), 0)
-
-  let totalCpr = 0, cprCount = 0
-  Object.values(members).forEach(member => {
-    const cprByRole = member.cpr_by_role || {}
-    Object.values(cprByRole).forEach(level => {
-      Object.values(level).forEach(cpr => {
-        if (typeof cpr === 'number') {
-          totalCpr += cpr
-          cprCount++
+  // Fetch current faction member count
+  useEffect(() => {
+    async function fetchFactionMembers() {
+      try {
+        const factionId = config.faction.id
+        const apiKey = user?.apiKey
+        
+        if (!apiKey) {
+          setCurrentMemberCount(null)
+          return
         }
-      })
-    })
-  })
-  const avgCpr = cprCount > 0 ? (totalCpr / cprCount).toFixed(1) : 0
+
+        const response = await fetch(
+          `https://api.torn.com/faction/${factionId}?selections=basic&key=${apiKey}`
+        )
+        
+        if (response.ok) {
+          const data = await response.json()
+          const memberCount = Object.keys(data.members || {}).length
+          setCurrentMemberCount(memberCount)
+        }
+      } catch (error) {
+        console.error('Error fetching faction members:', error)
+        setCurrentMemberCount(null)
+      }
+    }
+
+    fetchFactionMembers()
+  }, [user])
+
+  // Get last OC payout from localStorage
+  useEffect(() => {
+    try {
+      const savedPayouts = JSON.parse(localStorage.getItem('savedPayouts') || '[]')
+      
+      if (savedPayouts.length > 0) {
+        // Sort by saved_at to get most recent
+        const sorted = savedPayouts.sort((a, b) => 
+          new Date(b.saved_at) - new Date(a.saved_at)
+        )
+        const mostRecent = sorted[0]
+        setLastOCPayout(mostRecent.week_ending)
+      }
+    } catch (error) {
+      console.error('Error loading last payout:', error)
+      setLastOCPayout(null)
+    }
+  }, [])
+
+  // Placeholder for last war pay (will be implemented later)
+  useEffect(() => {
+    // TODO: Implement war pay tracking
+    setLastWarPay('Not tracked yet')
+  }, [])
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard label="Total Members" value={totalMembers} />
-      <StatCard label="Crimes Completed" value={totalCrimes.toLocaleString()} />
-      <StatCard label="Total Payout" value={`$${(totalPayout / 1e6).toFixed(1)}M`} />
-      <StatCard label="Average CPR" value={avgCpr} />
+      <StatCard 
+        label="Current Members" 
+        value={currentMemberCount !== null ? currentMemberCount : '...'} 
+      />
+      <StatCard 
+        label="Last OC Payout" 
+        value={lastOCPayout || 'No payouts saved'} 
+      />
+      <StatCard 
+        label="Last War Pay" 
+        value={lastWarPay || 'Not available'} 
+      />
+      <StatCard 
+        label="Faction" 
+        value={config.faction.name.split(' - ')[1] || config.faction.name} 
+      />
     </div>
   )
 }
