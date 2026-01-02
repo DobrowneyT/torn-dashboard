@@ -2,7 +2,7 @@
   "members": {
     "49580": {
       "name": "DMagnusV",
-      "tier": 3,
+      "tier": 2,
       "cpr_by_role": {
         "1": {
           "Looter": 97
@@ -68,7 +68,7 @@
         }
       },
       "last_scraped": "2026-01-02T16:42:56.191581",
-      "tier_last_updated": "2025-12-27T15:47:53.292986"
+      "tier_last_updated": "2026-01-02T16:43:32.131666"
     },
     "50716": {
       "name": "Honey-Badger",
@@ -1333,7 +1333,7 @@
     },
     "1723047": {
       "name": "DJStone",
-      "tier": 3,
+      "tier": 2,
       "cpr_by_role": {
         "5": {
           "Techie": 89
@@ -1349,7 +1349,7 @@
         }
       },
       "last_scraped": "2025-09-27T06:54:05.000Z",
-      "tier_last_updated": "2025-12-27T15:47:53.296693"
+      "tier_last_updated": "2026-01-02T16:43:32.134846"
     },
     "1853567": {
       "name": "El_Colonel",
@@ -2802,7 +2802,7 @@
     },
     "2327067": {
       "name": "Goodkid",
-      "tier": 3,
+      "tier": 1,
       "cpr_by_role": {
         "2": {
           "Thief": 95,
@@ -2817,7 +2817,7 @@
         }
       },
       "last_scraped": "2025-09-14T20:16:05.000Z",
-      "tier_last_updated": "2025-12-27T15:47:53.296882"
+      "tier_last_updated": "2026-01-02T16:43:32.134998"
     },
     "2328830": {
       "name": "Beks",
@@ -8525,7 +8525,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-01-02T16:43:30.899322",
+    "last_updated": "2026-01-02T16:43:32.135224",
     "total_members": 144
   }
 }
