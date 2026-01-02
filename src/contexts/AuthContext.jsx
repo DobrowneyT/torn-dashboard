@@ -1,144 +1,189 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
 import { config } from '../config'
+import { getTornErrorMessage } from '../utils/apiUtils'
 
-const AuthContext = createContext()
-
-export function useAuth() {
-  return useContext(AuthContext)
-}
+const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
 
-  // Load saved session on mount
+  // Check for existing session on mount
   useEffect(() => {
-    const savedUser = localStorage.getItem('tornForgeUser')
+    const savedUser = localStorage.getItem('tornUser')
     if (savedUser) {
       try {
         const userData = JSON.parse(savedUser)
-        // Verify the session is still valid
-        verifySession(userData)
+        setUser(userData)
       } catch (err) {
-        console.error('Failed to restore session:', err)
-        localStorage.removeItem('tornForgeUser')
-        setLoading(false)
+        console.error('Error loading saved user:', err)
+        localStorage.removeItem('tornUser')
       }
-    } else {
-      setLoading(false)
     }
+    setLoading(false)
   }, [])
 
-  async function verifySession(userData) {
-    try {
-      // Re-verify with Torn API
-      const response = await fetch(
-        `https://api.torn.com/user/?selections=profile,discord&key=${userData.apiKey}`
-      )
-      
-      if (!response.ok) {
-        throw new Error('Session expired or invalid API key')
-      }
-
-      const data = await response.json()
-      
-      // Check if still in faction
-      if (data.faction.faction_id !== parseInt(import.meta.env.VITE_FACTION_ID || '46427')) {
-        throw new Error('You are no longer in the faction')
-      }
-
-      // Update user data with fresh info
-      const updatedUser = {
-        ...userData,
-        name: data.name,
-        factionPosition: data.faction.position,
-        level: data.level
-      }
-
-      setUser(updatedUser)
-      localStorage.setItem('tornForgeUser', JSON.stringify(updatedUser))
-    } catch (err) {
-      console.error('Session verification failed:', err)
-      logout()
-    } finally {
-      setLoading(false)
-    }
-  }
-
   async function login(apiKey) {
-    setLoading(true)
-    setError(null)
-
     try {
-      // Fetch user data from Torn API
-      const response = await fetch(
-        `https://api.torn.com/user/?selections=profile,discord&key=${apiKey}`
-      )
+      // Validate API key format (should be 16 characters)
+      if (!apiKey || apiKey.length !== 16) {
+        return {
+          success: false,
+          error: 'Invalid API key format. API keys must be exactly 16 characters.'
+        }
+      }
 
+      // Fetch key info from Torn API v2
+      const response = await fetch(`https://api.torn.com/v2/key/info?key=${apiKey}`)
+      
       if (!response.ok) {
-        throw new Error('Invalid API key')
+        return {
+          success: false,
+          error: 'Failed to connect to Torn API. Please try again.'
+        }
       }
 
       const data = await response.json()
 
-      // Check for API error
+      // Check for Torn API errors
       if (data.error) {
-        throw new Error(data.error.error || 'API error')
+        return {
+          success: false,
+          error: getTornErrorMessage(data.error)
+        }
       }
 
-      // Verify user is in the correct faction
-      const factionId = parseInt(import.meta.env.VITE_FACTION_ID || '46427')
-      if (data.faction.faction_id !== factionId) {
-        throw new Error('You are not a member of this faction')
+      // Get user ID and check leadership status FIRST
+      const userId = data.info.user.id
+      const isLeader = config.leadershipUserIds.includes(userId)
+
+      // Get faction info
+      const userFactionId = data.info?.user?.faction_id
+      const requiredFactionId = parseInt(config.faction.id)
+
+      // LEADERSHIP USERS: Skip all permission checks
+      if (isLeader) {
+        console.log(`Leadership user ${userId} detected - bypassing all permission checks`)
+        
+        // Fetch user details for name and faction position
+        const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
+        const userData = await userResponse.json()
+
+        if (userData.error) {
+          return {
+            success: false,
+            error: getTornErrorMessage(userData.error)
+          }
+        }
+
+        // Create user object for leadership user
+        const userObj = {
+          id: userId,
+          name: userData.name,
+          factionId: userFactionId || null,
+          factionPosition: userData.faction?.position || 'Leadership',
+          apiKey: apiKey,
+          accessLevel: data.info?.access?.level || 1,
+          isLeadership: true,
+          lastLogin: new Date().toISOString()
+        }
+
+        // Save to state and localStorage
+        setUser(userObj)
+        localStorage.setItem('tornUser', JSON.stringify(userObj))
+
+        return {
+          success: true,
+          user: userObj
+        }
       }
 
-      // Determine user role
-      const position = data.faction.position
-      const isOfficialLeadership = ['Leader', 'Co-leader'].includes(position)
-      const isCustomLeadership = config.leadershipUserIds.includes(data.player_id)
-      const isLeadership = isOfficialLeadership || isCustomLeadership
-
-      const userData = {
-        id: data.player_id,
-        name: data.name,
-        level: data.level,
-        factionId: data.faction.faction_id,
-        factionName: data.faction.faction_name,
-        factionPosition: position,
-        isLeadership: isLeadership,
-        leadershipType: isOfficialLeadership ? 'official' : (isCustomLeadership ? 'custom' : 'none'),
-        apiKey: apiKey, // Store for future API calls
-        loginTime: new Date().toISOString()
+      // NON-LEADERSHIP USERS: Validate faction membership
+      if (!userFactionId) {
+        return {
+          success: false,
+          error: 'You are not currently in a faction. Please join The Next Level - Forge to access this dashboard.'
+        }
       }
 
-      setUser(userData)
-      localStorage.setItem('tornForgeUser', JSON.stringify(userData))
-      
-      return { success: true, user: userData }
+      if (userFactionId !== requiredFactionId) {
+        return {
+          success: false,
+          error: `Incorrect faction. This dashboard is for ${config.faction.name} members only.`
+        }
+      }
+
+      // NON-LEADERSHIP USERS: Validate API access level
+      const accessLevel = data.info?.access?.level
+      const hasFactionAccess = data.info?.access?.faction
+
+      if (!hasFactionAccess) {
+        return {
+          success: false,
+          error: 'Insufficient permissions. Your API key does not have faction access enabled. Please create a new API key with faction permissions.'
+        }
+      }
+
+      if (accessLevel < 2) {
+        return {
+          success: false,
+          error: 'Insufficient permissions. Your API key has limited access. Please create a Full Access or Limited Access API key.'
+        }
+      }
+
+      // NON-LEADERSHIP USERS: Fetch user details for name and faction position
+      const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
+      const userData = await userResponse.json()
+
+      if (userData.error) {
+        return {
+          success: false,
+          error: getTornErrorMessage(userData.error)
+        }
+      }
+
+      // Create user object for non-leadership user
+      const userObj = {
+        id: userId,
+        name: userData.name,
+        factionId: userFactionId,
+        factionPosition: userData.faction?.position || 'Member',
+        apiKey: apiKey,
+        accessLevel: accessLevel,
+        isLeadership: false,
+        lastLogin: new Date().toISOString()
+      }
+
+      // Save to state and localStorage
+      setUser(userObj)
+      localStorage.setItem('tornUser', JSON.stringify(userObj))
+
+      return {
+        success: true,
+        user: userObj
+      }
+
     } catch (err) {
-      const errorMessage = err.message || 'Authentication failed'
-      setError(errorMessage)
-      return { success: false, error: errorMessage }
-    } finally {
-      setLoading(false)
+      console.error('Login error:', err)
+      return {
+        success: false,
+        error: 'An unexpected error occurred during login. Please try again.'
+      }
     }
   }
 
   function logout() {
     setUser(null)
-    setError(null)
-    localStorage.removeItem('tornForgeUser')
+    localStorage.removeItem('tornUser')
   }
 
   const value = {
     user,
-    loading,
-    error,
-    login,
-    logout,
     isAuthenticated: !!user,
-    isLeadership: user?.isLeadership || false
+    isLeadership: user?.isLeadership || false,
+    loading,
+    login,
+    logout
   }
 
   return (
@@ -146,4 +191,12 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   )
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext)
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
 }

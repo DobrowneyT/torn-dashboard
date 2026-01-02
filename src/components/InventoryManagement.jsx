@@ -2,30 +2,23 @@ import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { config } from '../config'
 import { formatCurrency } from '../utils/payoutCalculations'
+import { getTornErrorMessage } from '../utils/apiUtils'
+import { supabase } from '../utils/supabase'
 
 export default function InventoryManagement() {
   const { user } = useAuth()
   
-  // Create Set from config crime item IDs for fast lookup
   const CRIME_ITEM_IDS = useMemo(() => new Set(config.crimeItemIds), [])
   
-  // Inventory data from Torn API
-  const [factionItems, setFactionItems] = useState(null)
+  const [inventoryItems, setInventoryItems] = useState([])
+  const [pricingBatches, setPricingBatches] = useState([])
   const [factionMembers, setFactionMembers] = useState({})
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState(null)
   const [lastSync, setLastSync] = useState(null)
   
-  // Batch pricing data with quantity tracking
-  const [itemPricing, setItemPricing] = useState(() => {
-    const saved = localStorage.getItem('factionInventoryPricing')
-    return saved ? JSON.parse(saved) : {}
-  })
-  
-  // Loaned items dialog
   const [loanedDialog, setLoanedDialog] = useState(null)
-  
-  // UI state
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' })
@@ -33,14 +26,42 @@ export default function InventoryManagement() {
   const [newBatchPrice, setNewBatchPrice] = useState('')
   const [newBatchQuantity, setNewBatchQuantity] = useState(0)
   
-  // Fetch faction armoury data and members
   useEffect(() => {
-    fetchFactionInventory()
+    loadInventoryFromSupabase()
   }, [])
   
-  async function fetchFactionInventory() {
+  async function loadInventoryFromSupabase() {
     try {
       setLoading(true)
+      setError(null)
+      
+      const [itemsResult, batchesResult, metadataResult] = await Promise.all([
+        supabase.from('inventory_items').select('*'),
+        supabase.from('pricing_batches').select('*'),
+        supabase.from('sync_metadata').select('*').eq('data_type', 'inventory').order('last_sync', { ascending: false }).limit(1)
+      ])
+      
+      if (itemsResult.error) throw itemsResult.error
+      if (batchesResult.error) throw batchesResult.error
+      
+      setInventoryItems(itemsResult.data || [])
+      setPricingBatches(batchesResult.data || [])
+      
+      if (metadataResult.data && metadataResult.data.length > 0) {
+        setLastSync(new Date(metadataResult.data[0].last_sync))
+      }
+      
+    } catch (err) {
+      console.error('Error loading from Supabase:', err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  async function syncWithTornAPI() {
+    try {
+      setSyncing(true)
       setError(null)
       
       const factionId = config.faction.id
@@ -50,9 +71,8 @@ export default function InventoryManagement() {
         throw new Error('API key not available')
       }
       
-      // Fetch items and members in parallel
       const [itemsResponse, membersResponse] = await Promise.all([
-        fetch(`https://api.torn.com/faction/${factionId}?selections=temporary,medical,utilities,drugs,armor,weapons,caches,cesium&key=${apiKey}&comment=Dashboard-Inventory-Management`),
+        fetch(`https://api.torn.com/faction/${factionId}?selections=temporary,medical,utilities,drugs,armor,weapons,caches,cesium&key=${apiKey}&comment=Dashboard-Inventory-Sync`),
         fetch(`https://api.torn.com/faction/${factionId}?selections=basic&key=${apiKey}`)
       ])
       
@@ -63,67 +83,197 @@ export default function InventoryManagement() {
       const itemsData = await itemsResponse.json()
       const membersData = await membersResponse.json()
       
-      if (itemsData.error || membersData.error) {
-        throw new Error(itemsData.error?.error || membersData.error?.error || 'API error')
+      if (itemsData.error) {
+        throw new Error(getTornErrorMessage(itemsData.error))
       }
       
-      // Store members for name lookup
+      if (membersData.error) {
+        throw new Error(getTornErrorMessage(membersData.error))
+      }
+      
       const members = {}
       Object.entries(membersData.members || {}).forEach(([id, memberData]) => {
         members[id] = memberData.name
       })
       setFactionMembers(members)
       
-      // Process all categories from API response
-      const items = {}
+      const itemsToUpsert = []
       const categories = ['temporary', 'medical', 'utilities', 'drugs', 'armor', 'weapons', 'caches', 'cesium']
       
       categories.forEach(category => {
         if (itemsData[category] && Array.isArray(itemsData[category])) {
           itemsData[category].forEach(item => {
-            const itemId = item.ID.toString()
-            items[itemId] = {
-              id: itemId,
+            const loanedToString = item.loaned_to 
+              ? (typeof item.loaned_to === 'string' ? item.loaned_to : JSON.stringify(item.loaned_to))
+              : null
+            
+            itemsToUpsert.push({
+              id: item.ID.toString(),
               name: item.name || `Item ${item.ID}`,
               quantity: item.quantity || 0,
               available: item.available || 0,
               loaned: item.loaned || 0,
-              loanedTo: item.loaned_to,
-              apiType: item.type || category,
-              category: category
-            }
-            
-            // Detect quantity increase (new batch)
-            const oldPricing = itemPricing[itemId]
-            if (oldPricing && oldPricing.totalQuantity < item.quantity) {
-              // Quantity increased - there's a new batch
-              const newBatchQty = item.quantity - oldPricing.totalQuantity
-              console.log(`New batch detected for ${item.name}: ${newBatchQty} items`)
-            }
+              loaned_to: loanedToString,
+              api_type: item.type || category,
+              category: category,
+              last_synced: new Date().toISOString()
+            })
           })
         }
       })
       
-      setFactionItems(items)
-      setLastSync(new Date())
+      const { error: upsertError } = await supabase
+        .from('inventory_items')
+        .upsert(itemsToUpsert, { onConflict: 'id' })
+      
+      if (upsertError) {
+        throw new Error(`Failed to save inventory: ${upsertError.message}`)
+      }
+      
+      const { error: metadataError } = await supabase
+        .from('sync_metadata')
+        .insert({
+          data_type: 'inventory',
+          last_sync: new Date().toISOString(),
+          synced_by: user.name
+        })
+      
+      if (metadataError) {
+        console.warn('Failed to save sync metadata:', metadataError)
+      }
+      
+      await loadInventoryFromSupabase()
       
     } catch (err) {
-      console.error('Error fetching faction inventory:', err)
+      console.error('Error syncing inventory:', err)
       setError(err.message)
     } finally {
-      setLoading(false)
+      setSyncing(false)
     }
   }
   
-  // Save pricing data to localStorage
-  function savePricing(updatedPricing) {
-    localStorage.setItem('factionInventoryPricing', JSON.stringify(updatedPricing))
-    setItemPricing(updatedPricing)
+  async function handleUpdateItem(itemId) {
+    const item = inventoryItems.find(i => i.id === itemId)
+    const price = parseFloat(newBatchPrice)
+    const quantity = parseInt(newBatchQuantity) || item.quantity
+    
+    if (isNaN(price) || price < 0) {
+      alert('Please enter a valid price')
+      return
+    }
+    
+    if (quantity <= 0 || quantity > item.quantity) {
+      alert(`Please enter a quantity between 1 and ${item.quantity}`)
+      return
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('pricing_batches')
+        .insert({
+          item_id: itemId,
+          price: Math.floor(price),
+          quantity: quantity,
+          added_by: user.name
+        })
+      
+      if (error) {
+        throw new Error(`Failed to save pricing: ${error.message}`)
+      }
+      
+      await loadInventoryFromSupabase()
+      
+      setEditingItem(null)
+      setNewBatchPrice('')
+      setNewBatchQuantity(0)
+      
+    } catch (err) {
+      console.error('Error saving pricing:', err)
+      alert(err.message)
+    }
   }
   
-  // Calculate weighted average price from batches
-  function calculateWeightedAverage(batches) {
-    if (!batches || batches.length === 0) return 0
+  function handleEditItem(itemId) {
+    const item = inventoryItems.find(i => i.id === itemId)
+    const itemBatches = pricingBatches.filter(b => b.item_id === itemId)
+    const totalBatchedQty = itemBatches.reduce((sum, b) => sum + b.quantity, 0)
+    
+    setEditingItem(itemId)
+    setNewBatchPrice('')
+    
+    if (totalBatchedQty < item.quantity) {
+      setNewBatchQuantity(item.quantity - totalBatchedQty)
+    } else {
+      setNewBatchQuantity(item.quantity)
+    }
+  }
+  
+  function handleCancelEdit() {
+    setEditingItem(null)
+    setNewBatchPrice('')
+    setNewBatchQuantity(0)
+  }
+  
+  function handleShowLoanedItems(item) {
+    if (!item.loaned_to || item.loaned === 0) return
+    
+    let loanedTo = item.loaned_to
+    
+    if (typeof loanedTo === 'string' && loanedTo.startsWith('{')) {
+      try {
+        loanedTo = JSON.parse(loanedTo)
+      } catch (e) {
+        // Keep as string if parsing fails
+      }
+    }
+    
+    let userIds = []
+    
+    if (Array.isArray(loanedTo)) {
+      userIds = loanedTo.map(id => id.toString())
+    } else if (typeof loanedTo === 'number') {
+      userIds = [loanedTo.toString()]
+    } else if (typeof loanedTo === 'string') {
+      userIds = loanedTo.split(',').filter(id => id.trim())
+    } else if (typeof loanedTo === 'object' && loanedTo !== null) {
+      Object.entries(loanedTo).forEach(([userId, count]) => {
+        for (let i = 0; i < count; i++) {
+          userIds.push(userId)
+        }
+      })
+    }
+    
+    const loanCounts = {}
+    userIds.forEach(id => {
+      const userId = id.toString().trim()
+      if (userId) {
+        loanCounts[userId] = (loanCounts[userId] || 0) + 1
+      }
+    })
+    
+    const loanData = Object.entries(loanCounts)
+      .map(([userId, count]) => ({
+        userId,
+        name: factionMembers[userId] || 'Unknown',
+        count
+      }))
+      .sort((a, b) => b.count - a.count)
+    
+    const totalCounted = loanData.reduce((sum, loan) => sum + loan.count, 0)
+    
+    setLoanedDialog({
+      itemName: item.name,
+      totalLoaned: item.loaned,
+      totalCounted: totalCounted,
+      loans: loanData,
+      hasMismatch: totalCounted !== item.loaned
+    })
+  }
+  
+  function calculateWeightedAverage(itemId) {
+    const batches = pricingBatches.filter(b => b.item_id === itemId)
+    
+    if (batches.length === 0) return 0
     
     let totalValue = 0
     let totalQuantity = 0
@@ -136,133 +286,41 @@ export default function InventoryManagement() {
     return totalQuantity > 0 ? totalValue / totalQuantity : 0
   }
   
-  // Update item pricing with new batch
-  function handleUpdateItem(itemId) {
-    const item = factionItems[itemId]
-    const price = parseFloat(newBatchPrice)
-    const quantity = parseInt(newBatchQuantity) || item.quantity
-    
-    if (isNaN(price) || price < 0) {
-      alert('Please enter a valid price')
-      return
-    }
-    
-    const oldPricing = itemPricing[itemId]
-    const batches = oldPricing?.batches || []
-    
-    // Add new batch
-    const newBatch = {
-      price: price,
-      quantity: quantity,
-      addedAt: new Date().toISOString(),
-      addedBy: user.name
-    }
-    
-    const updatedBatches = [...batches, newBatch]
-    const averagePrice = calculateWeightedAverage(updatedBatches)
-    
-    const updatedPricing = {
-      ...itemPricing,
-      [itemId]: {
-        currentPrice: averagePrice,
-        totalQuantity: item.quantity,
-        batches: updatedBatches,
-        lastUpdated: new Date().toISOString(),
-        lastUpdatedBy: user.name
-      }
-    }
-    
-    savePricing(updatedPricing)
-    setEditingItem(null)
-    setNewBatchPrice('')
-    setNewBatchQuantity(0)
+  function getTotalBatchedQuantity(itemId) {
+    return pricingBatches
+      .filter(b => b.item_id === itemId)
+      .reduce((sum, b) => sum + b.quantity, 0)
   }
   
-  // Start editing an item
-  function handleEditItem(itemId) {
-    const item = factionItems[itemId]
-    const pricing = itemPricing[itemId]
-    
-    setEditingItem(itemId)
-    setNewBatchPrice('')
-    
-    // Calculate new batch quantity if this is a quantity increase
-    if (pricing && pricing.totalQuantity < item.quantity) {
-      setNewBatchQuantity(item.quantity - pricing.totalQuantity)
-    } else {
-      setNewBatchQuantity(item.quantity)
-    }
-  }
-  
-  // Cancel editing
-  function handleCancelEdit() {
-    setEditingItem(null)
-    setNewBatchPrice('')
-    setNewBatchQuantity(0)
-  }
-  
-  // Parse loaned_to string and show dialog
-  function handleShowLoanedItems(item) {
-    if (!item.loanedTo || item.loaned === 0) return
-    
-    // Parse comma-separated user IDs
-    const userIds = item.loanedTo.split(',').filter(id => id.trim())
-    
-    // Count items per user
-    const loanCounts = {}
-    userIds.forEach(id => {
-      const userId = id.trim()
-      loanCounts[userId] = (loanCounts[userId] || 0) + 1
-    })
-    
-    // Build loan data with member names
-    const loanData = Object.entries(loanCounts).map(([userId, count]) => ({
-      userId,
-      name: factionMembers[userId] || 'Unknown',
-      count
-    }))
-    
-    setLoanedDialog({
-      itemName: item.name,
-      totalLoaned: item.loaned,
-      loans: loanData
-    })
-  }
-  
-  // Get item with pricing info
-  function getEnrichedItems() {
-    if (!factionItems) return []
-    
-    return Object.values(factionItems).map(item => {
-      const pricing = itemPricing[item.id] || {}
-      const hasNewBatch = pricing.totalQuantity && pricing.totalQuantity < item.quantity
-      const newBatchQty = hasNewBatch ? item.quantity - pricing.totalQuantity : 0
+  const enrichedItems = useMemo(() => {
+    return inventoryItems.map(item => {
+      const avgPrice = calculateWeightedAverage(item.id)
+      const batchedQty = getTotalBatchedQuantity(item.id)
+      const hasNewBatch = batchedQty < item.quantity
+      const newBatchQty = hasNewBatch ? item.quantity - batchedQty : 0
       
       return {
         ...item,
-        currentPrice: pricing.currentPrice || 0,
-        totalValue: (pricing.currentPrice || 0) * item.quantity,
-        batches: pricing.batches || [],
+        currentPrice: avgPrice,
+        totalValue: avgPrice * item.quantity,
+        batchedQuantity: batchedQty,
         hasNewBatch,
         newBatchQty,
-        needsPricing: !pricing.currentPrice || hasNewBatch,
+        needsPricing: avgPrice === 0 || hasNewBatch,
         isCrimeItem: CRIME_ITEM_IDS.has(parseInt(item.id))
       }
     })
-  }
+  }, [inventoryItems, pricingBatches, CRIME_ITEM_IDS])
   
-  // Filter and sort items
   const filteredItems = useMemo(() => {
-    let items = getEnrichedItems()
+    let items = [...enrichedItems]
     
-    // Filter by category
     if (selectedCategory === 'crimes') {
       items = items.filter(item => item.isCrimeItem)
     } else if (selectedCategory !== 'all') {
       items = items.filter(item => item.category === selectedCategory)
     }
     
-    // Filter by search term
     if (searchTerm) {
       items = items.filter(item =>
         item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -270,7 +328,6 @@ export default function InventoryManagement() {
       )
     }
     
-    // Sort
     items.sort((a, b) => {
       let aVal = a[sortConfig.key]
       let bVal = b[sortConfig.key]
@@ -293,45 +350,37 @@ export default function InventoryManagement() {
     })
     
     return items
-  }, [factionItems, itemPricing, selectedCategory, searchTerm, sortConfig])
+  }, [enrichedItems, selectedCategory, searchTerm, sortConfig])
   
-  // Calculate totals
   const totals = useMemo(() => {
-    const items = getEnrichedItems()
-    const byCategory = {}
-    
+    const categoryStats = {}
     Object.keys(config.inventoryCategories).forEach(cat => {
-      byCategory[cat] = {
-        count: 0,
-        quantity: 0,
-        value: 0
-      }
+      categoryStats[cat] = { count: 0, quantity: 0, value: 0 }
     })
     
-    items.forEach(item => {
-      const cat = item.category
-      if (byCategory[cat]) {
-        byCategory[cat].count++
-        byCategory[cat].quantity += item.quantity
-        byCategory[cat].value += item.totalValue
+    enrichedItems.forEach(item => {
+      if (categoryStats[item.category]) {
+        categoryStats[item.category].count++
+        categoryStats[item.category].quantity += item.quantity
+        categoryStats[item.category].value += item.totalValue
       }
       
-      if (item.isCrimeItem && byCategory['crimes']) {
-        byCategory['crimes'].count++
-        byCategory['crimes'].quantity += item.quantity
-        byCategory['crimes'].value += item.totalValue
+      if (item.isCrimeItem && categoryStats['crimes']) {
+        categoryStats['crimes'].count++
+        categoryStats['crimes'].quantity += item.quantity
+        categoryStats['crimes'].value += item.totalValue
       }
     })
     
     return {
-      totalItems: items.length,
-      totalQuantity: items.reduce((sum, i) => sum + i.quantity, 0),
-      totalValue: items.reduce((sum, i) => sum + i.totalValue, 0),
-      itemsWithPricing: items.filter(i => i.currentPrice > 0 && !i.hasNewBatch).length,
-      itemsNeedingPricing: items.filter(i => i.needsPricing).length,
-      byCategory
+      totalItems: enrichedItems.length,
+      totalQuantity: enrichedItems.reduce((sum, i) => sum + i.quantity, 0),
+      totalValue: enrichedItems.reduce((sum, i) => sum + i.totalValue, 0),
+      itemsWithPricing: enrichedItems.filter(i => i.currentPrice > 0 && !i.hasNewBatch).length,
+      itemsNeedingPricing: enrichedItems.filter(i => i.needsPricing).length,
+      byCategory: categoryStats
     }
-  }, [factionItems, itemPricing])
+  }, [enrichedItems])
   
   const handleSort = (key) => {
     let direction = 'asc'
@@ -352,25 +401,25 @@ export default function InventoryManagement() {
     )
   }
   
-  if (loading && !factionItems) {
+  if (loading && inventoryItems.length === 0) {
     return (
       <div className="card">
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading faction inventory...</p>
+          <p className="text-gray-600 dark:text-gray-400">Loading inventory from database...</p>
         </div>
       </div>
     )
   }
   
-  if (error && !factionItems) {
+  if (error && inventoryItems.length === 0) {
     return (
       <div className="card">
         <div className="text-center py-8">
           <h3 className="text-lg font-semibold text-red-600 mb-2">Error Loading Inventory</h3>
           <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
           <button
-            onClick={fetchFactionInventory}
+            onClick={loadInventoryFromSupabase}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             Retry
@@ -382,7 +431,6 @@ export default function InventoryManagement() {
   
   return (
     <div className="space-y-6">
-      {/* Loaned Items Dialog */}
       {loanedDialog && (
         <LoanedItemsDialog 
           data={loanedDialog} 
@@ -390,13 +438,12 @@ export default function InventoryManagement() {
         />
       )}
       
-      {/* Header with Sync Button */}
       <div className="card">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold">Faction Inventory Management</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              Manage faction armoury items with batch pricing
+              Manage faction armoury with batch pricing system
             </p>
             {lastSync && (
               <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
@@ -404,26 +451,33 @@ export default function InventoryManagement() {
               </p>
             )}
           </div>
-          <button
-            onClick={fetchFactionInventory}
-            disabled={loading}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {loading ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                Syncing...
-              </>
-            ) : (
-              <>
-                Sync with Torn API
-              </>
-            )}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={syncWithTornAPI}
+              disabled={syncing}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {syncing ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Syncing...
+                </>
+              ) : (
+                <>
+                  Sync with Torn API
+                </>
+              )}
+            </button>
+          </div>
         </div>
+        
+        {error && (
+          <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          </div>
+        )}
       </div>
       
-      {/* Summary Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card border-l-4 border-blue-500">
           <div className="text-sm text-gray-600 dark:text-gray-400">Total Items</div>
@@ -443,12 +497,11 @@ export default function InventoryManagement() {
         </div>
       </div>
       
-      {/* Category Stats */}
       <div className="card">
         <h3 className="font-semibold mb-4">Inventory by Category</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {Object.entries(config.inventoryCategories).map(([key, cat]) => {
-            const stats = totals.byCategory[key]
+            const stats = totals.byCategory[key] || { count: 0, quantity: 0, value: 0 }
             return (
               <div
                 key={key}
@@ -470,7 +523,6 @@ export default function InventoryManagement() {
         </div>
       </div>
       
-      {/* Filters */}
       <div className="card">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
@@ -499,7 +551,6 @@ export default function InventoryManagement() {
         </div>
       </div>
       
-      {/* Items Table */}
       <div className="card">
         <h3 className="font-semibold mb-4">
           Items List 
@@ -562,7 +613,7 @@ export default function InventoryManagement() {
               {filteredItems.length === 0 ? (
                 <tr>
                   <td colSpan="9" className="py-8 text-center text-gray-500">
-                    No items found matching the current filters.
+                    {inventoryItems.length === 0 ? 'No inventory data. Click "Sync with Torn API" to load items.' : 'No items found.'}
                   </td>
                 </tr>
               ) : (
@@ -616,11 +667,18 @@ export default function InventoryManagement() {
                               placeholder="Price"
                               min="0"
                             />
-                            {item.hasNewBatch && (
-                              <div className="text-xs text-blue-600">
-                                New: {newBatchQuantity} items
-                              </div>
-                            )}
+                            <input
+                              type="number"
+                              value={newBatchQuantity}
+                              onChange={(e) => setNewBatchQuantity(parseInt(e.target.value) || 0)}
+                              className="input py-1 px-2 text-xs w-24"
+                              placeholder="Qty"
+                              min="1"
+                              max={item.quantity}
+                            />
+                            <div className="text-xs text-gray-500">
+                              of {item.quantity} total
+                            </div>
                           </div>
                         ) : (
                           <div>
@@ -663,7 +721,7 @@ export default function InventoryManagement() {
                                 : 'bg-blue-600 hover:bg-blue-700'
                             }`}
                           >
-                            {item.hasNewBatch ? 'Price New' : 'Edit'}
+                            {item.hasNewBatch ? 'Price New' : 'Add Batch'}
                           </button>
                         )}
                       </td>
@@ -676,30 +734,29 @@ export default function InventoryManagement() {
         </div>
       </div>
       
-      {/* Info Box */}
       <div className="card bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
         <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
-          How Batch Pricing Works
+          Batch Pricing System
         </h3>
         <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1 list-disc list-inside">
-          <li><strong>Initial Pricing:</strong> Set price for all current items</li>
-          <li><strong>New Batches:</strong> When quantity increases, set price for only the new items</li>
-          <li><strong>Weighted Average:</strong> Overall price is calculated as weighted average of all batches</li>
-          <li><strong>Example:</strong> 100 items at $13M + 100 items at $15M = Average $14M</li>
-          <li><strong>Loaned Items:</strong> Click loaned count to see which members have items</li>
-          <li><strong>Crime Items:</strong> Items marked with 🎯 are used in organized crimes</li>
+          <li>All data stored in Supabase PostgreSQL database</li>
+          <li>Click "Sync with Torn API" to update inventory from game</li>
+          <li>Set prices in batches (e.g., 20 items at $50k, 30 at $60k)</li>
+          <li>System calculates weighted average automatically</li>
+          <li>Example: 20@$50k + 30@$60k = $56k average</li>
+          <li>Loaned items: click count to see who has items</li>
+          <li>Crime items marked with 🎯</li>
         </ul>
       </div>
     </div>
   )
 }
 
-// Loaned Items Dialog Component
 function LoanedItemsDialog({ data, onClose }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full">
-        <div className="p-4 border-b border-gray-200 dark:border-slate-700">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full max-h-[90vh] flex flex-col">
+        <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex-shrink-0">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">Loaned Items</h3>
             <button
@@ -716,14 +773,26 @@ function LoanedItemsDialog({ data, onClose }) {
           </div>
         </div>
         
-        <div className="p-4">
+        <div className="p-4 flex-1 overflow-y-auto">
           <div className="mb-3">
             <div className="text-sm text-gray-600 dark:text-gray-400">
               Total Loaned: <span className="font-semibold text-orange-600">{data.totalLoaned}</span>
             </div>
+            {data.hasMismatch && (
+              <div className="mt-2 text-xs bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-2">
+                <span className="text-yellow-800 dark:text-yellow-400">
+                  Warning: Counted {data.totalCounted} items but Torn shows {data.totalLoaned}. 
+                  This may indicate incomplete loan data from the API.
+                </span>
+              </div>
+            )}
           </div>
           
-          <div className="space-y-2">
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+            {data.loans.length} {data.loans.length === 1 ? 'person has' : 'people have'} items
+          </div>
+          
+          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
             {data.loans.map((loan, idx) => (
               <div 
                 key={idx}
@@ -741,7 +810,7 @@ function LoanedItemsDialog({ data, onClose }) {
           </div>
         </div>
         
-        <div className="p-4 border-t border-gray-200 dark:border-slate-700">
+        <div className="p-4 border-t border-gray-200 dark:border-slate-700 flex-shrink-0">
           <button
             onClick={onClose}
             className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
