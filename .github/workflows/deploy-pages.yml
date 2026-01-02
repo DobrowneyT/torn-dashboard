@@ -37,6 +37,8 @@ jobs:
           VITE_CRIMES_DATA_URL: https://dobrowneyt.github.io/torn-forge-oc-system/data/crimes_database.json
           VITE_TORN_API_KEY: ${{ secrets.VITE_TORN_API_KEY }}
           VITE_FACTION_ID: ${{ secrets.VITE_FACTION_ID }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
