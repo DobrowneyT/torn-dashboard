@@ -2,6 +2,8 @@ export const config = {
   dataSource: {
     cprData: import.meta.env.VITE_CPR_DATA_URL || '/torn-forge-oc-system/data/cpr_database.json',
     crimesData: import.meta.env.VITE_CRIMES_DATA_URL || '/torn-forge-oc-system/data/crimes_database.json',
+    inventoryData: import.meta.env.VITE_INVENTORY_DATA_URL || '/torn-forge-oc-system/data/inventory_database.json',
+    pricingHistory: import.meta.env.VITE_PRICING_HISTORY_URL || '/torn-forge-oc-system/data/pricing_history.json',
   },
   faction: {
     name: "The Next Level - Forge",
