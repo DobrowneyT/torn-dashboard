@@ -1,36 +1,109 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
+import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../utils/supabase'
+import { syncCrimesFromAPI, getSyncStatusMessage } from '../utils/syncCrimesFromAPI'
 import { 
   getCrimeStatusLabel, 
   getCrimeStatusColor, 
   CrimeStatusBadge,
-  getCrimeStatusIcon,
-  CRIME_STATUS_OPTIONS,
-  isCrimeActive,
-  isCrimeCompleted
+  CRIME_STATUS_OPTIONS
 } from '../utils/crimeStatusUtils'
+import { config } from '../config'
 
 export default function CrimesView({ crimesData }) {
+  const { user } = useAuth()
   const [persistedState, setPersistedState] = useViewState('crimes')
   
-  const [statusFilter, setStatusFilter] = useState(
-    persistedState.statusFilter || 'all'
-  )
+  const [statusFilter, setStatusFilter] = useState(persistedState.statusFilter || 'all')
   const [sortConfig, setSortConfig] = useState(
     persistedState.sortConfig || { key: 'executed_at', direction: 'desc' }
   )
+  
+  // Sync state
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState(null)
+  const [syncError, setSyncError] = useState(null)
+  
+  // Database crimes (overrides JSON if available)
+  const [dbCrimes, setDbCrimes] = useState(null)
+  const [loadingDb, setLoadingDb] = useState(true)
 
   useEffect(() => {
-    setPersistedState({
-      statusFilter,
-      sortConfig
-    })
+    setPersistedState({ statusFilter, sortConfig })
   }, [statusFilter, sortConfig, setPersistedState])
 
-  const filteredCrimes = useMemo(() => {
-    if (!crimesData?.crimes) return []
+  // Load crimes from database
+  useEffect(() => {
+    loadCrimesFromDatabase()
+  }, [])
 
-    let crimes = Object.entries(crimesData.crimes).map(([id, crime]) => ({
+  async function loadCrimesFromDatabase() {
+    try {
+      setLoadingDb(true)
+      const { data, error } = await supabase
+        .from('crimes')
+        .select('*')
+        .order('executed_at', { ascending: false, nullsFirst: false })
+      
+      if (error) throw error
+      
+      // Convert to same format as JSON for compatibility
+      const crimesMap = {}
+      data.forEach(crime => {
+        crimesMap[crime.crime_id] = crime
+      })
+      
+      setDbCrimes({ crimes: crimesMap })
+    } catch (err) {
+      console.error('Error loading crimes from database:', err)
+      setDbCrimes(null)
+    } finally {
+      setLoadingDb(false)
+    }
+  }
+
+  async function handleSyncWithAPI() {
+    try {
+      setSyncing(true)
+      setSyncMessage(null)
+      setSyncError(null)
+      
+      const apiKey = user.apiKey || import.meta.env.VITE_TORN_API_KEY
+      const factionId = config.faction.id
+      
+      if (!apiKey) {
+        throw new Error('No API key available')
+      }
+      
+      const result = await syncCrimesFromAPI(apiKey, factionId)
+      
+      if (result.success) {
+        setSyncMessage(getSyncStatusMessage(result))
+        // Reload crimes from database
+        await loadCrimesFromDatabase()
+        // Auto-dismiss success message
+        setTimeout(() => setSyncMessage(null), 5000)
+      } else {
+        setSyncError(result.error)
+        setTimeout(() => setSyncError(null), 10000)
+      }
+      
+    } catch (err) {
+      setSyncError(err.message)
+      setTimeout(() => setSyncError(null), 10000)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  // Use database crimes if available, otherwise fall back to JSON prop
+  const activeCrimesData = dbCrimes || crimesData
+
+  const filteredCrimes = useMemo(() => {
+    if (!activeCrimesData?.crimes) return []
+
+    let crimes = Object.entries(activeCrimesData.crimes).map(([id, crime]) => ({
       id,
       ...crime
     }))
@@ -56,10 +129,10 @@ export default function CrimesView({ crimesData }) {
     })
 
     return crimes
-  }, [crimesData, statusFilter, sortConfig])
+  }, [activeCrimesData, statusFilter, sortConfig])
 
   const statusCounts = useMemo(() => {
-    if (!crimesData?.crimes) return {}
+    if (!activeCrimesData?.crimes) return {}
 
     const counts = {
       'Success': 0,
@@ -69,7 +142,7 @@ export default function CrimesView({ crimesData }) {
       'total': 0
     }
 
-    Object.values(crimesData.crimes).forEach(crime => {
+    Object.values(activeCrimesData.crimes).forEach(crime => {
       const normalizedStatus = getCrimeStatusLabel(crime.status)
       if (counts[normalizedStatus] !== undefined) {
         counts[normalizedStatus]++
@@ -78,7 +151,7 @@ export default function CrimesView({ crimesData }) {
     })
 
     return counts
-  }, [crimesData])
+  }, [activeCrimesData])
 
   const handleSort = (key) => {
     let direction = 'desc'
@@ -102,6 +175,17 @@ export default function CrimesView({ crimesData }) {
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return 'N/A'
     return new Date(timestamp * 1000).toLocaleString()
+  }
+
+  if (loadingDb && !crimesData) {
+    return (
+      <div className="card">
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading crimes...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -149,7 +233,44 @@ export default function CrimesView({ crimesData }) {
               ))}
             </select>
           </div>
+          
+          <div className="ml-auto flex gap-2 items-center">
+            <button
+              onClick={handleSyncWithAPI}
+              disabled={syncing}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {syncing ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Syncing...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Sync with Torn API
+                </>
+              )}
+            </button>
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              State persisted
+            </div>
+          </div>
         </div>
+        
+        {syncMessage && (
+          <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+            <p className="text-sm text-green-600 dark:text-green-400">{syncMessage}</p>
+          </div>
+        )}
+        
+        {syncError && (
+          <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+            <p className="text-sm text-red-600 dark:text-red-400">{syncError}</p>
+          </div>
+        )}
       </div>
 
       <div className="card">
@@ -213,7 +334,7 @@ export default function CrimesView({ crimesData }) {
                     className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50"
                   >
                     <td className="py-2 px-2 font-medium text-xs">
-                      {crime.id}
+                      {crime.id || crime.crime_id}
                     </td>
                     <td className="py-2 px-2 text-xs">
                       {crime.name}
@@ -231,9 +352,9 @@ export default function CrimesView({ crimesData }) {
                       {formatTimestamp(crime.executed_at)}
                     </td>
                     <td className="py-2 px-2 text-xs">
-                      {crime.rewards?.money ? (
+                      {crime.rewards_money || crime.rewards?.money ? (
                         <span className="text-green-600 dark:text-green-400">
-                          ${crime.rewards.money.toLocaleString()}
+                          ${(crime.rewards_money || crime.rewards?.money || 0).toLocaleString()}
                         </span>
                       ) : (
                         <span className="text-gray-400">—</span>
@@ -249,6 +370,11 @@ export default function CrimesView({ crimesData }) {
         {filteredCrimes.length > 0 && (
           <div className="mt-4 text-sm text-gray-600 dark:text-gray-400">
             Showing {filteredCrimes.length} of {statusCounts.total} crimes
+            {dbCrimes && (
+              <span className="ml-2 text-blue-600 dark:text-blue-400">
+                (Live from database)
+              </span>
+            )}
           </div>
         )}
       </div>

@@ -140,43 +140,70 @@ class SupabaseSync:
                     'name': crime_data.get('name', 'Unknown'),
                     'difficulty': crime_data.get('difficulty', 1),
                     'status': crime_data.get('status', 'Unknown'),
+                    'previous_crime_id': str(crime_data.get('previous_crime_id')) if crime_data.get('previous_crime_id') else None,
                     'created_at': crime_data.get('created_at'),
+                    'planning_at': crime_data.get('planning_at'),
                     'executed_at': crime_data.get('executed_at'),
+                    'ready_at': crime_data.get('ready_at'),
+                    'expired_at': crime_data.get('expired_at'),
                     'total_slots': crime_data.get('total_slots', 0),
                     'filled_slots': crime_data.get('filled_slots', 0),
-                    'rewards_money': crime_data.get('rewards', {}).get('money', 0),
-                    'rewards_respect': crime_data.get('rewards', {}).get('respect', 0),
-                    'rewards_items': json.dumps(crime_data.get('rewards', {}).get('items', [])),
+                    'rewards_money': crime_data.get('rewards', {}).get('money', 0) if crime_data.get('rewards') else 0,
+                    'rewards_respect': crime_data.get('rewards', {}).get('respect', 0) if crime_data.get('rewards') else 0,
+                    'rewards_items': json.dumps(crime_data.get('rewards', {}).get('items', [])) if crime_data.get('rewards') else None,
+                    'last_updated': crime_data.get('last_updated'),
+                    'first_seen': crime_data.get('first_seen'),
                     'updated_at': datetime.now().isoformat()
                 }, on_conflict='crime_id').execute()
                 
                 crimes_count += 1
                 
-                # Delete old slots and insert new ones
-                self.client.table('crime_slots').delete().eq('crime_id', crime_id).execute()
-                
+                # UPSERT slots instead of delete/insert
+                # This only updates changed slots, much faster
                 slots = crime_data.get('slots', [])
                 slot_records = []
                 
                 for slot in slots:
+                    # Safely handle null/missing user and item_requirement
+                    user = slot.get('user') or {}
+                    item_req = slot.get('item_requirement') or {}
+                    item_outcome = user.get('item_outcome') or {}
+                    
                     slot_record = {
                         'crime_id': crime_id,
                         'position': slot.get('position'),
-                        'user_id': str(slot.get('user', {}).get('id')) if slot.get('user', {}).get('id') else None,
-                        'user_name': slot.get('user', {}).get('name'),
-                        'joined_at': slot.get('user', {}).get('joined_at'),
+                        'position_id': slot.get('position_id'),
+                        'position_number': slot.get('position_number'),
                         'checkpoint_pass_rate': slot.get('checkpoint_pass_rate'),
-                        'item_requirement_id': str(slot.get('item_requirement', {}).get('id')) if slot.get('item_requirement', {}).get('id') else None,
-                        'item_requirement_name': slot.get('item_requirement', {}).get('name'),
-                        'item_requirement_is_reusable': slot.get('item_requirement', {}).get('is_reusable', False),
-                        'item_outcome_id': str(slot.get('user', {}).get('item_outcome', {}).get('item_id')) if slot.get('user', {}).get('item_outcome', {}).get('item_id') else None,
-                        'item_outcome_outcome': slot.get('user', {}).get('item_outcome', {}).get('outcome'),
+                        
+                        # User info (may be null for empty slots)
+                        'user_id': str(user.get('id')) if user.get('id') else None,
+                        'user_name': user.get('name'),
+                        'joined_at': user.get('joined_at'),
+                        'user_outcome': user.get('outcome'),
+                        'user_progress': user.get('progress'),
+                        
+                        # Item requirement
+                        'item_requirement_id': str(item_req.get('id')) if item_req.get('id') else None,
+                        'item_requirement_name': item_req.get('name'),
+                        'item_requirement_is_reusable': item_req.get('is_reusable', False) if item_req else False,
+                        'item_requirement_is_available': item_req.get('is_available', False) if item_req else False,
+                        
+                        # Item outcome
+                        'item_outcome_id': str(item_outcome.get('item_id')) if item_outcome.get('item_id') else None,
+                        'item_outcome_outcome': item_outcome.get('outcome'),
+                        
                         'updated_at': datetime.now().isoformat()
                     }
                     slot_records.append(slot_record)
                 
                 if slot_records:
-                    slots_result = self.client.table('crime_slots').insert(slot_records).execute()
+                    # UPSERT: Updates existing slots, inserts new ones
+                    # Much more efficient than delete/insert
+                    slots_result = self.client.table('crime_slots').upsert(
+                        slot_records,
+                        on_conflict='crime_id,position_id'
+                    ).execute()
                     slots_count += len(slot_records)
                 
                 if crimes_count % 50 == 0:
