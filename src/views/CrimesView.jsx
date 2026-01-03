@@ -11,10 +11,8 @@ import {
 } from '../utils/crimeStatusUtils'
 
 export default function CrimesView({ crimesData }) {
-  // Get persisted state
   const [persistedState, setPersistedState] = useViewState('crimes')
   
-  // Initialize from persisted state or defaults
   const [statusFilter, setStatusFilter] = useState(
     persistedState.statusFilter || 'all'
   )
@@ -22,15 +20,13 @@ export default function CrimesView({ crimesData }) {
     persistedState.sortConfig || { key: 'executed_at', direction: 'desc' }
   )
 
-  // Persist state changes - setPersistedState is now stable, no need to include it
   useEffect(() => {
     setPersistedState({
       statusFilter,
       sortConfig
     })
-  }, [statusFilter, sortConfig])
+  }, [statusFilter, sortConfig, setPersistedState])
 
-  // Filter and sort crimes
   const filteredCrimes = useMemo(() => {
     if (!crimesData?.crimes) return []
 
@@ -39,7 +35,6 @@ export default function CrimesView({ crimesData }) {
       ...crime
     }))
 
-    // Apply status filter
     if (statusFilter !== 'all') {
       crimes = crimes.filter(crime => {
         const normalizedStatus = getCrimeStatusLabel(crime.status)
@@ -47,7 +42,6 @@ export default function CrimesView({ crimesData }) {
       })
     }
 
-    // Sort
     crimes.sort((a, b) => {
       let aVal = a[sortConfig.key]
       let bVal = b[sortConfig.key]
@@ -64,7 +58,6 @@ export default function CrimesView({ crimesData }) {
     return crimes
   }, [crimesData, statusFilter, sortConfig])
 
-  // Status counts
   const statusCounts = useMemo(() => {
     if (!crimesData?.crimes) return {}
 
@@ -113,7 +106,6 @@ export default function CrimesView({ crimesData }) {
 
   return (
     <div className="space-y-6">
-      {/* Status Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="card">
           <div className="text-sm text-gray-600 dark:text-gray-400">Total Crimes</div>
@@ -141,7 +133,6 @@ export default function CrimesView({ crimesData }) {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="card">
         <div className="flex flex-wrap gap-4 items-center">
           <div>
@@ -158,13 +149,9 @@ export default function CrimesView({ crimesData }) {
               ))}
             </select>
           </div>
-          <div className="ml-auto text-sm text-gray-500 dark:text-gray-400">
-            💾 State persisted
-          </div>
         </div>
       </div>
 
-      {/* Crimes Table */}
       <div className="card">
         <h2 className="text-xl font-semibold mb-4">Crimes List</h2>
         <div className="overflow-x-auto">
@@ -279,6 +266,8 @@ function DifficultyBadge({ difficulty }) {
     6: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
     7: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
     8: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400',
+    9: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400',
+    10: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
   }
 
   const colorClass = colors[difficulty] || colors[1]

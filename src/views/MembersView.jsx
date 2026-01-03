@@ -180,9 +180,6 @@ export default function MembersView({ cprData, crimesData }) {
             <option value="all">All Tiers</option>
             {[1,2,3,4,5,6].map(t => <option key={t} value={t}>Tier {t}</option>)}
           </select>
-          <div className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-            💾 Persisted
-          </div>
         </div>
       </div>
       <div className="overflow-x-auto">
