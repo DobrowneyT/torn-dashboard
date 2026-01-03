@@ -1,32 +1,26 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { config } from '../config'
+import { supabase } from '../utils/supabase'
 import {
   getCurrentWeekRange,
   getPreviousWeekRange,
-  getCustomRange,
   calculatePayoutsWithItems,
-  formatTimeSpent,
   formatCurrency,
   formatPercent,
   exportPayoutsToCSV,
-  exportPayoutsToJSON,
   generateBatchPayoutURL
 } from '../utils/payoutCalculations'
 
 export default function PayoutManagement({ cprData, crimesData }) {
   const { user } = useAuth()
   
-  // Date range state
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [fromTimestamp, setFromTimestamp] = useState(null)
   const [toTimestamp, setToTimestamp] = useState(null)
-  
-  // Faction cut state (editable)
   const [factionCutPercent, setFactionCutPercent] = useState(20)
   
-  // UI state
   const [hasCalculated, setHasCalculated] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -34,10 +28,13 @@ export default function PayoutManagement({ cprData, crimesData }) {
   const [showBatchURL, setShowBatchURL] = useState(false)
   const [showItemDetails, setShowItemDetails] = useState(false)
   
-  // Sorting state
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' })
+  
+  const [historicalPayouts, setHistoricalPayouts] = useState([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [importingCSV, setImportingCSV] = useState(false)
 
-  // Initialize with current week on mount
   useEffect(() => {
     const currentWeek = getCurrentWeekRange()
     setFromDate(currentWeek.monday.toISOString().split('T')[0])
@@ -46,7 +43,33 @@ export default function PayoutManagement({ cprData, crimesData }) {
     setToTimestamp(currentWeek.sundayTimestamp)
   }, [])
 
-  // Calculate payouts
+  useEffect(() => {
+    if (showHistory) {
+      loadHistoricalPayouts()
+    }
+  }, [showHistory])
+
+  async function loadHistoricalPayouts() {
+    try {
+      setLoadingHistory(true)
+      
+      const { data, error } = await supabase
+        .from('oc_payout_weeks')
+        .select('*')
+        .order('week_end', { ascending: false })
+        .limit(20)
+      
+      if (error) throw error
+      
+      setHistoricalPayouts(data || [])
+    } catch (err) {
+      console.error('Error loading historical payouts:', err)
+      alert(`Failed to load history: ${err.message}`)
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
   const payoutResults = useMemo(() => {
     if (!hasCalculated || !fromTimestamp || !toTimestamp || !cprData || !crimesData) {
       return {
@@ -65,24 +88,14 @@ export default function PayoutManagement({ cprData, crimesData }) {
       }
     }
 
-    console.log('=== PAYOUT CALCULATION DEBUG ===')
-    console.log('Date range:', new Date(fromTimestamp * 1000), 'to', new Date(toTimestamp * 1000))
-    console.log('Faction cut:', factionCutPercent + '%')
-    
-    const results = calculatePayoutsWithItems(
+    return calculatePayoutsWithItems(
       crimesData,
       cprData,
       fromTimestamp,
       toTimestamp,
       config,
-      factionCutPercent / 100 // Pass as decimal
+      factionCutPercent / 100
     )
-    
-    console.log('Item details:', results.itemDetails)
-    console.log('Item reward:', results.itemReward)
-    console.log('Item cost:', results.itemCost)
-    
-    return results
   }, [cprData, crimesData, fromTimestamp, toTimestamp, hasCalculated, factionCutPercent])
 
   const { 
@@ -95,10 +108,12 @@ export default function PayoutManagement({ cprData, crimesData }) {
     participatingMembers,
     payoutPerMember,
     crimesProcessed,
-    itemDetails
+    itemDetails,
+    totalTimeSpent,
+    averageTime,
+    totalAdjustedTickets
   } = payoutResults
 
-  // Sorted members
   const sortedMembers = useMemo(() => {
     if (!sortConfig.key) {
       return members
@@ -114,7 +129,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
       }
       
       if (sortConfig.key === 'timePercent') {
-        const totalTime = payoutResults.totalTimeSpent || 1
+        const totalTime = totalTimeSpent || 1
         aVal = a.timeSpent / totalTime
         bVal = b.timeSpent / totalTime
       }
@@ -129,7 +144,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
     })
 
     return sorted
-  }, [members, sortConfig, payoutResults.totalTimeSpent])
+  }, [members, sortConfig, totalTimeSpent])
 
   const handleSort = (key) => {
     let direction = 'desc'
@@ -194,9 +209,8 @@ export default function PayoutManagement({ cprData, crimesData }) {
     const value = parseFloat(e.target.value)
     if (!isNaN(value) && value >= 0 && value <= 100) {
       setFactionCutPercent(value)
-      // Trigger recalculation if already calculated
       if (hasCalculated) {
-        setHasCalculated(true) // Force recalc
+        setHasCalculated(true)
       }
     }
   }
@@ -221,17 +235,75 @@ export default function PayoutManagement({ cprData, crimesData }) {
     setSaveSuccess(false)
 
     try {
-      const payoutData = exportPayoutsToJSON(members, payoutResults, user.name)
+      const weekStart = new Date(fromTimestamp * 1000).toISOString().split('T')[0]
+      const weekEnd = new Date(toTimestamp * 1000).toISOString().split('T')[0]
       
-      const existingPayouts = JSON.parse(localStorage.getItem('savedPayouts') || '[]')
-      existingPayouts.push(payoutData)
-      localStorage.setItem('savedPayouts', JSON.stringify(existingPayouts))
-
-      console.log('Payout data saved:', payoutData)
+      const { data: weekData, error: weekError } = await supabase
+        .from('oc_payout_weeks')
+        .upsert({
+          week_start: weekStart,
+          week_end: weekEnd,
+          week_start_timestamp: fromTimestamp,
+          week_end_timestamp: toTimestamp,
+          total_money_reward: totalMoneyReward,
+          total_item_reward: itemReward,
+          total_item_cost: itemCost,
+          net_item_value: itemReward - itemCost,
+          faction_cut_percent: factionCutPercent,
+          faction_cut_amount: factionCut,
+          member_payout_total: memberPayout,
+          crimes_processed: crimesProcessed,
+          total_time_spent: totalTimeSpent,
+          average_time_spent: averageTime,
+          total_adjusted_tickets: totalAdjustedTickets,
+          min_time_for_full_tickets: 432000,
+          min_time_for_any_payout: 172800,
+          saved_by: user.name,
+          updated_at: new Date().toISOString()
+        }, { 
+          onConflict: 'week_start,week_end',
+          returning: 'representation'
+        })
+        .select()
+        .single()
+      
+      if (weekError) throw weekError
+      
+      const weekId = weekData.id
+      
+      const memberRecords = members.map(m => ({
+        week_id: weekId,
+        member_id: m.userId.toString(),
+        member_name: m.name,
+        tier: m.tier,
+        base_tickets: m.baseTickets,
+        sit_out_penalty: m.sitOutPenalty,
+        adjusted_tickets: m.adjustedTickets,
+        time_spent: m.timeSpent,
+        time_percent: (m.timeSpent / totalTimeSpent) * 100,
+        share_percent: m.sharePercent * 100,
+        crimes_count: m.crimesCount,
+        payout: m.payout
+      }))
+      
+      const { error: deleteError } = await supabase
+        .from('oc_payout_members')
+        .delete()
+        .eq('week_id', weekId)
+      
+      if (deleteError) console.warn('Error deleting old member records:', deleteError)
+      
+      const { error: membersError } = await supabase
+        .from('oc_payout_members')
+        .insert(memberRecords)
+      
+      if (membersError) throw membersError
+      
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 5000)
 
     } catch (err) {
+      console.error('Error saving payout:', err)
       setSaveError(err.message || 'Failed to save payout data')
     } finally {
       setIsSaving(false)
@@ -247,19 +319,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
     const a = document.createElement('a')
     a.href = url
     a.download = `payouts_${weekEnding}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
-  }
-
-  function handleExportJSON() {
-    const jsonData = exportPayoutsToJSON(sortedMembers, payoutResults, user.name)
-    const weekEnding = toDate
-    
-    const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `payouts_${weekEnding}.json`
     a.click()
     window.URL.revokeObjectURL(url)
   }
@@ -281,14 +340,135 @@ export default function PayoutManagement({ cprData, crimesData }) {
     })
   }
 
+  async function handleImportCSV(event) {
+    const file = event.target.files[0]
+    if (!file) return
+
+    setImportingCSV(true)
+    
+    try {
+      const text = await file.text()
+      const lines = text.trim().split('\n')
+      
+      if (lines.length < 2) {
+        throw new Error('CSV file is empty or invalid')
+      }
+      
+      const headers = lines[0].split(',')
+      
+      let totalMemberPayout = 0
+      const memberRecords = []
+      
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',')
+        
+        if (values.length < 9) continue
+        
+        const memberName = values[0]
+        const memberId = values[1]
+        const timeSpent = parseInt(values[2]) || 0
+        const timePercent = parseFloat(values[3].replace('%', '')) || 0
+        const tier = parseInt(values[4]) || 6
+        const baseTickets = parseInt(values[5]) || 0
+        const sitOutPenalty = parseFloat(values[6]) || 0
+        const sharePercent = parseFloat(values[7].replace('%', '')) || 0
+        const payoutStr = values[8].replace(/[$,"]/g, '')
+        const payout = parseInt(payoutStr) || 0
+        
+        if (!memberId || isNaN(parseInt(memberId))) continue
+        
+        const adjustedTickets = baseTickets + sitOutPenalty
+        
+        memberRecords.push({
+          member_id: memberId,
+          member_name: memberName,
+          tier: tier,
+          base_tickets: baseTickets,
+          sit_out_penalty: sitOutPenalty,
+          adjusted_tickets: adjustedTickets,
+          time_spent: timeSpent,
+          time_percent: timePercent,
+          share_percent: sharePercent,
+          crimes_count: 0,
+          payout: payout
+        })
+        
+        totalMemberPayout += payout
+      }
+      
+      if (memberRecords.length === 0) {
+        throw new Error('No valid member records found in CSV')
+      }
+      
+      const weekStart = fromDate
+      const weekEnd = toDate
+      
+      const { data: weekData, error: weekError } = await supabase
+        .from('oc_payout_weeks')
+        .upsert({
+          week_start: weekStart,
+          week_end: weekEnd,
+          week_start_timestamp: fromTimestamp,
+          week_end_timestamp: toTimestamp,
+          total_money_reward: 0,
+          total_item_reward: 0,
+          total_item_cost: 0,
+          net_item_value: 0,
+          faction_cut_percent: factionCutPercent,
+          faction_cut_amount: 0,
+          member_payout_total: totalMemberPayout,
+          crimes_processed: 0,
+          total_time_spent: memberRecords.reduce((sum, m) => sum + m.time_spent, 0),
+          average_time_spent: 0,
+          total_adjusted_tickets: memberRecords.reduce((sum, m) => sum + m.adjusted_tickets, 0),
+          min_time_for_full_tickets: 432000,
+          min_time_for_any_payout: 172800,
+          saved_by: user.name + ' (CSV Import)',
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'week_start,week_end',
+          returning: 'representation'
+        })
+        .select()
+        .single()
+      
+      if (weekError) throw weekError
+      
+      const weekId = weekData.id
+      
+      const { error: deleteError } = await supabase
+        .from('oc_payout_members')
+        .delete()
+        .eq('week_id', weekId)
+      
+      if (deleteError) console.warn('Error deleting old records:', deleteError)
+      
+      const membersWithWeekId = memberRecords.map(m => ({ ...m, week_id: weekId }))
+      
+      const { error: insertError } = await supabase
+        .from('oc_payout_members')
+        .insert(membersWithWeekId)
+      
+      if (insertError) throw insertError
+      
+      alert(`Successfully imported ${memberRecords.length} member payouts for week ${weekStart}`)
+      
+      event.target.value = ''
+      
+    } catch (err) {
+      console.error('Error importing CSV:', err)
+      alert(`Failed to import CSV: ${err.message}`)
+    } finally {
+      setImportingCSV(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Date Range Selector */}
       <div className="card">
         <h2 className="text-xl font-semibold mb-4">Payout Analysis Window</h2>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
-          {/* From Date */}
           <div>
             <label className="block text-sm font-medium mb-2" style={{color: '#22c55e'}}>From Timestamp:</label>
             <div className="grid grid-cols-2 gap-2">
@@ -310,7 +490,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
             </div>
           </div>
 
-          {/* To Date */}
           <div>
             <label className="block text-sm font-medium mb-2" style={{color: '#22c55e'}}>To Timestamp:</label>
             <div className="grid grid-cols-2 gap-2">
@@ -332,7 +511,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
             </div>
           </div>
 
-          {/* Faction Cut */}
           <div>
             <label className="block text-sm font-medium mb-2" style={{color: '#8b5cf6'}}>Faction Cut (%):</label>
             <input
@@ -348,7 +526,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
           </div>
         </div>
 
-        {/* Status */}
         <div className="mb-4">
           <label className="block text-sm font-medium mb-2">Status:</label>
           <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -356,7 +533,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
           </div>
         </div>
 
-        {/* Quick Select Buttons */}
         <div className="flex flex-wrap gap-2 mb-4">
           <button
             onClick={handleSetCurrentWeek}
@@ -370,9 +546,24 @@ export default function PayoutManagement({ cprData, crimesData }) {
           >
             Previous Week
           </button>
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+          >
+            {showHistory ? 'Hide' : 'View'} History
+          </button>
+          <label className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm cursor-pointer">
+            {importingCSV ? 'Importing...' : 'Import CSV'}
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleImportCSV}
+              className="hidden"
+              disabled={importingCSV}
+            />
+          </label>
         </div>
 
-        {/* Run Payout Button */}
         <button
           onClick={handleRunPayout}
           disabled={!fromTimestamp || !toTimestamp}
@@ -382,14 +573,20 @@ export default function PayoutManagement({ cprData, crimesData }) {
         </button>
       </div>
 
-      {/* Payout Summary Dashboard */}
+      {showHistory && (
+        <HistoricalPayoutsView 
+          payouts={historicalPayouts} 
+          loading={loadingHistory}
+          onRefresh={loadHistoricalPayouts}
+        />
+      )}
+
       {hasCalculated && (
         <>
           <div className="card bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-700 border-2 border-blue-200 dark:border-blue-700">
             <h2 className="text-xl font-semibold mb-4">Payout Summary</h2>
             
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {/* Faction Cut - Editable */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-purple-200 dark:border-purple-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Faction Cut</div>
                 <div className="text-xl font-bold text-purple-600 dark:text-purple-400">
@@ -397,7 +594,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Money Reward */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Money Reward</div>
                 <div className="text-lg font-bold text-orange-600 dark:text-orange-400">
@@ -405,7 +601,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Item Reward - Clickable */}
               <div 
                 className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600 cursor-pointer hover:border-blue-400 transition-colors"
                 onClick={() => setShowItemDetails(!showItemDetails)}
@@ -419,7 +614,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Item Cost - Clickable */}
               <div 
                 className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600 cursor-pointer hover:border-red-400 transition-colors"
                 onClick={() => setShowItemDetails(!showItemDetails)}
@@ -433,7 +627,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Member Payout */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Member Payout</div>
                 <div className="text-lg font-bold text-purple-600 dark:text-purple-400">
@@ -441,7 +634,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Participating Members */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Participating Members</div>
                 <div className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
@@ -449,7 +641,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Payout Per Member */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Payout Per Member</div>
                 <div className="text-lg font-bold text-teal-600 dark:text-teal-400">
@@ -457,7 +648,6 @@ export default function PayoutManagement({ cprData, crimesData }) {
                 </div>
               </div>
 
-              {/* Crimes Completed */}
               <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border-2 border-gray-200 dark:border-slate-600">
                 <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Crimes Completed</div>
                 <div className="text-xl font-bold text-gray-700 dark:text-gray-300">
@@ -467,46 +657,37 @@ export default function PayoutManagement({ cprData, crimesData }) {
             </div>
           </div>
 
-          {/* Item Details Expandable Section */}
           {showItemDetails && itemDetails && itemDetails.length > 0 && (
             <ItemDetailsView itemDetails={itemDetails} />
           )}
 
-          {/* Action Buttons */}
           <div className="card">
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={handleExportCSV}
                 className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
               >
-                📊 Export CSV
-              </button>
-              <button
-                onClick={handleExportJSON}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-              >
-                📄 Export JSON
+                Export CSV
               </button>
               <button
                 onClick={handleCopyBatchURL}
                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
               >
-                🔗 Copy Batch URL
+                Copy Batch URL
               </button>
               <button
                 onClick={handleSaveWeek}
                 disabled={isSaving || members.length === 0}
                 className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSaving ? 'Saving...' : '💾 Save Week'}
+                {isSaving ? 'Saving...' : 'Save to Database'}
               </button>
             </div>
 
-            {/* Success/Error Messages */}
             {saveSuccess && (
               <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
                 <p className="text-sm text-green-600 dark:text-green-400">
-                  ✅ Week saved successfully!
+                  Week saved successfully to Supabase!
                 </p>
               </div>
             )}
@@ -520,13 +701,12 @@ export default function PayoutManagement({ cprData, crimesData }) {
             {showBatchURL && (
               <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                 <p className="text-sm text-blue-600 dark:text-blue-400">
-                  ✅ Batch payout URL copied to clipboard!
+                  Batch payout URL copied to clipboard!
                 </p>
               </div>
             )}
           </div>
 
-          {/* Member Payout Table */}
           <div className="card">
             <h3 className="text-lg font-semibold mb-4">Member Payouts</h3>
             <div className="overflow-x-auto">
@@ -598,8 +778,8 @@ export default function PayoutManagement({ cprData, crimesData }) {
                     </tr>
                   ) : (
                     sortedMembers.map((member) => {
-                      const timePercent = payoutResults.totalTimeSpent > 0 
-                        ? ((member.timeSpent / payoutResults.totalTimeSpent) * 100)
+                      const timePercent = totalTimeSpent > 0 
+                        ? ((member.timeSpent / totalTimeSpent) * 100)
                         : 0
                       
                       return (
@@ -609,7 +789,7 @@ export default function PayoutManagement({ cprData, crimesData }) {
                             {member.userId}
                           </td>
                           <td className="py-2 px-2 text-xs">
-                            {formatTimeSpent(member.timeSpent)}
+                            {member.timeSpent}
                           </td>
                           <td className="py-2 px-2 text-xs">
                             {isNaN(timePercent) ? 'NaN%' : `${timePercent.toFixed(2)}%`}
@@ -652,20 +832,19 @@ export default function PayoutManagement({ cprData, crimesData }) {
         </>
       )}
 
-      {/* Instructions */}
-      {!hasCalculated && (
+      {!hasCalculated && !showHistory && (
         <div className="card bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
           <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
-            📋 How to Use
+            How to Use
           </h3>
           <ol className="text-sm text-blue-800 dark:text-blue-200 space-y-2 list-decimal list-inside">
             <li>Select date range (or use Current/Previous Week buttons)</li>
             <li>Adjust Faction Cut % if needed (default: 20%)</li>
             <li>Click <strong>"Run Payout"</strong> to calculate payouts</li>
             <li>Review the Payout Summary dashboard</li>
-            <li>Click Item Reward/Cost boxes to see item details</li>
-            <li>Check member payouts - click any column header to sort</li>
-            <li>Use action buttons to export or copy batch URL</li>
+            <li>Click "Save to Database" to store in Supabase</li>
+            <li>Use "Import CSV" to import historical payouts</li>
+            <li>Click "View History" to see past weeks</li>
           </ol>
         </div>
       )}
@@ -673,44 +852,78 @@ export default function PayoutManagement({ cprData, crimesData }) {
   )
 }
 
-// Item Details Component
-function ItemDetailsView({ itemDetails }) {
-  const [sortKey, setSortKey] = useState('totalValue')
-  const [sortDir, setSortDir] = useState('desc')
-
-  const sortedItems = useMemo(() => {
-    return [...itemDetails].sort((a, b) => {
-      const getValue = (item) => {
-        switch (sortKey) {
-          case 'name': return item.id
-          case 'status': return item.status
-          case 'quantity': return item.quantity
-          case 'totalValue': return item.quantity * estimateItemValue(item.id)
-          default: return 0
-        }
-      }
-
-      const aVal = getValue(a)
-      const bVal = getValue(b)
-
-      if (sortDir === 'asc') {
-        return aVal > bVal ? 1 : -1
-      } else {
-        return aVal < bVal ? 1 : -1
-      }
-    })
-  }, [itemDetails, sortKey, sortDir])
-
-  const handleSort = (key) => {
-    if (sortKey === key) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortKey(key)
-      setSortDir('desc')
-    }
+function HistoricalPayoutsView({ payouts, loading, onRefresh }) {
+  if (loading) {
+    return (
+      <div className="card">
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading historical payouts...</p>
+        </div>
+      </div>
+    )
   }
 
-  // Temporary estimate - will be replaced with inventory lookup
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold">Historical Payouts</h3>
+        <button
+          onClick={onRefresh}
+          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+        >
+          Refresh
+        </button>
+      </div>
+      
+      {payouts.length === 0 ? (
+        <p className="text-center text-gray-500 py-8">No historical payouts found</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b-2 border-gray-200 dark:border-slate-700">
+              <tr className="text-left">
+                <th className="py-2 px-2 font-semibold text-xs">Week</th>
+                <th className="py-2 px-2 font-semibold text-xs">Total Payout</th>
+                <th className="py-2 px-2 font-semibold text-xs">Members</th>
+                <th className="py-2 px-2 font-semibold text-xs">Crimes</th>
+                <th className="py-2 px-2 font-semibold text-xs">Faction Cut</th>
+                <th className="py-2 px-2 font-semibold text-xs">Saved By</th>
+                <th className="py-2 px-2 font-semibold text-xs">Saved At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payouts.map((payout) => (
+                <tr key={payout.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                  <td className="py-2 px-2 text-xs">
+                    {payout.week_start} to {payout.week_end}
+                  </td>
+                  <td className="py-2 px-2 text-xs font-semibold text-blue-600">
+                    {formatCurrency(payout.member_payout_total)}
+                  </td>
+                  <td className="py-2 px-2 text-xs">
+                    {payout.total_adjusted_tickets ? 
+                      Math.round(payout.total_adjusted_tickets / 40) : 'N/A'}
+                  </td>
+                  <td className="py-2 px-2 text-xs">{payout.crimes_processed}</td>
+                  <td className="py-2 px-2 text-xs">
+                    {payout.faction_cut_percent.toFixed(0)}%
+                  </td>
+                  <td className="py-2 px-2 text-xs">{payout.saved_by}</td>
+                  <td className="py-2 px-2 text-xs text-gray-500">
+                    {new Date(payout.saved_at).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ItemDetailsView({ itemDetails }) {
   function estimateItemValue(itemId) {
     const commonValues = {
       '1361': 50000,
@@ -722,11 +935,11 @@ function ItemDetailsView({ itemDetails }) {
     return commonValues[itemId] || 50000
   }
 
-  const totalReward = sortedItems
+  const totalReward = itemDetails
     .filter(i => i.status === 'reward')
     .reduce((sum, i) => sum + (i.quantity * estimateItemValue(i.id)), 0)
 
-  const totalUsed = sortedItems
+  const totalUsed = itemDetails
     .filter(i => i.status === 'used')
     .reduce((sum, i) => sum + (i.quantity * estimateItemValue(i.id)), 0)
 
@@ -734,7 +947,6 @@ function ItemDetailsView({ itemDetails }) {
     <div className="card bg-gradient-to-br from-purple-50 to-pink-50 dark:from-slate-800 dark:to-slate-700 border-2 border-purple-200 dark:border-purple-700">
       <h3 className="text-lg font-semibold mb-4">Item Details</h3>
       
-      {/* Summary */}
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-blue-200">
           <div className="text-xs text-gray-600 dark:text-gray-400">Items Rewarded</div>
@@ -750,42 +962,19 @@ function ItemDetailsView({ itemDetails }) {
         </div>
       </div>
 
-      {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-b-2 border-gray-200 dark:border-slate-700">
             <tr className="text-left">
-              <th 
-                className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('name')}
-              >
-                Item ID {sortKey === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
-              </th>
-              <th 
-                className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('status')}
-              >
-                Type {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}
-              </th>
-              <th 
-                className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('quantity')}
-              >
-                Quantity {sortKey === 'quantity' && (sortDir === 'asc' ? '↑' : '↓')}
-              </th>
-              <th className="py-2 px-2 font-semibold text-xs">
-                Est. Unit Value
-              </th>
-              <th 
-                className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('totalValue')}
-              >
-                Total Value {sortKey === 'totalValue' && (sortDir === 'asc' ? '↑' : '↓')}
-              </th>
+              <th className="py-2 px-2 font-semibold text-xs">Item ID</th>
+              <th className="py-2 px-2 font-semibold text-xs">Type</th>
+              <th className="py-2 px-2 font-semibold text-xs">Quantity</th>
+              <th className="py-2 px-2 font-semibold text-xs">Est. Unit Value</th>
+              <th className="py-2 px-2 font-semibold text-xs">Total Value</th>
             </tr>
           </thead>
           <tbody>
-            {sortedItems.map((item, idx) => {
+            {itemDetails.map((item, idx) => {
               const unitValue = estimateItemValue(item.id)
               const totalValue = item.quantity * unitValue
               const isReward = item.status === 'reward'
@@ -808,10 +997,6 @@ function ItemDetailsView({ itemDetails }) {
             })}
           </tbody>
         </table>
-      </div>
-
-      <div className="mt-4 text-xs text-gray-600 dark:text-gray-400">
-        💡 <strong>Note:</strong> Item values are estimates. Set up Inventory Management for accurate costs.
       </div>
     </div>
   )

@@ -59,6 +59,14 @@ jobs:
         GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
       run: |
         python scripts/daily_crime_update.py
+    
+    - name: Sync crimes data to Supabase
+      env:
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      run: |
+        echo "Syncing crimes data to Supabase database..."
+        python scripts/sync_to_supabase.py crimes
         
     - name: Upload logs as artifact
       if: always()
@@ -71,7 +79,6 @@ jobs:
     - name: Sync data to public folder
       run: |
         mkdir -p public/data
-        # Copy all JSON files from data/ to public/data/
         cp data/*.json public/data/ 2>/dev/null || true
         
     - name: Commit and push changes
@@ -80,7 +87,7 @@ jobs:
         git config user.email "actions@github.com"
         git add data/*.json public/data/*.json
         if ! git diff --staged --quiet; then
-          git commit -m "Update data files [skip ci]"
+          git commit -m "Update crimes data [skip ci]"
           git push
         else
           echo "No changes to commit"

@@ -14,6 +14,7 @@ import PayoutsView from './views/PayoutsView'
 import PayoutManagement from './components/PayoutManagement'
 import TierManagement from './components/TierManagement'
 import InventoryManagement from './components/InventoryManagement'
+import DataImportUtility from './components/DataImportUtility'
 import { config } from './config'
 
 function AppContent() {
@@ -107,7 +108,8 @@ function AppContent() {
     { id: 'payouts', label: 'Payout History', roles: ['member', 'leadership'] },
     { id: 'payout-mgmt', label: 'Payout Management', roles: ['leadership'] },
     { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
-    { id: 'inventory', label: 'Inventory', roles: ['leadership'] }
+    { id: 'inventory', label: 'Inventory', roles: ['leadership'] },
+    { id: 'data-import', label: 'Data Import', roles: ['leadership'] }  
   ]
 
   const availableTabs = tabs.filter(tab => 
@@ -136,6 +138,7 @@ function AppContent() {
             {activeTab === 'payout-mgmt' && <PayoutManagement cprData={cprData} crimesData={crimesData} />}
             {activeTab === 'tier-mgmt' && <TierManagement cprData={cprData} />}
             {activeTab === 'inventory' && <InventoryManagement />}
+            {activeTab === 'data-import' && <DataImportUtility />}
           </ProtectedRoute>
         </div>
       </div>

@@ -1,43 +1,107 @@
 import { useState, useMemo, useEffect } from 'react'
-import { config } from '../config'
+import { supabase } from '../utils/supabase'
 
-export default function TierManagement({ cprData }) {
+export default function TierManagement() {
   const [searchTerm, setSearchTerm] = useState('')
   const [editingMember, setEditingMember] = useState(null)
   const [newTier, setNewTier] = useState(null)
   const [saveSuccess, setSaveSuccess] = useState(null)
   
-  // Load tier overrides from localStorage
-  const [tierOverrides, setTierOverrides] = useState(() => {
-    const saved = localStorage.getItem('memberTierOverrides')
-    return saved ? JSON.parse(saved) : {}
-  })
+  const [members, setMembers] = useState([])
+  const [tierRequirements, setTierRequirements] = useState({})
+  const [payoutTickets, setPayoutTickets] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  // Save tier overrides to localStorage whenever they change
   useEffect(() => {
-    localStorage.setItem('memberTierOverrides', JSON.stringify(tierOverrides))
-  }, [tierOverrides])
+    loadData()
+  }, [])
 
-  const members = useMemo(() => {
-    if (!cprData?.members) return []
-    
-    let filtered = Object.entries(cprData.members).map(([id, data]) => ({
-      id,
-      ...data,
-      // Use override tier if exists, otherwise use data tier
-      tier: tierOverrides[id] !== undefined ? tierOverrides[id] : data.tier,
-      avgCpr: calculateAvgCpr(data)
-    }))
+  async function loadData() {
+    try {
+      setLoading(true)
+      setError(null)
 
-    if (searchTerm) {
-      filtered = filtered.filter(m => 
-        m.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        m.id.toString().includes(searchTerm)
-      )
+      const { data: membersData, error: membersError } = await supabase
+        .from('members')
+        .select('*')
+        .order('member_name')
+
+      if (membersError) throw membersError
+
+      const { data: cprData, error: cprError } = await supabase
+        .from('member_cpr')
+        .select('*')
+
+      if (cprError) throw cprError
+
+      const membersWithCpr = membersData.map(member => {
+        const memberCprRecords = cprData.filter(c => c.member_id === member.member_id)
+        
+        const cpr_by_role = {}
+        memberCprRecords.forEach(record => {
+          if (!cpr_by_role[record.difficulty_level]) {
+            cpr_by_role[record.difficulty_level] = {}
+          }
+          cpr_by_role[record.difficulty_level][record.role_name] = record.cpr_value
+        })
+
+        return {
+          id: member.member_id,
+          name: member.member_name,
+          tier: member.tier_override || member.tier,
+          hasOverride: member.tier_override !== null,
+          cpr_by_role,
+          avgCpr: calculateAvgCpr({ cpr_by_role }),
+          last_scraped: member.last_scraped
+        }
+      })
+
+      setMembers(membersWithCpr)
+
+      const { data: requirementsData, error: reqError } = await supabase
+        .from('tier_requirements')
+        .select('*')
+        .order('tier, requirement_index')
+
+      if (reqError) throw reqError
+
+      const requirementsByTier = {}
+      const ticketsByTier = {}
+      
+      requirementsData.forEach(req => {
+        if (!requirementsByTier[req.tier]) {
+          requirementsByTier[req.tier] = []
+          // Get tickets from first requirement of each tier
+          ticketsByTier[req.tier] = req.payout_tickets
+        }
+        requirementsByTier[req.tier].push({
+          level: req.difficulty_level,
+          role: req.role_name,
+          minCpr: req.min_cpr,
+          isAverage: req.is_average
+        })
+      })
+      
+      setTierRequirements(requirementsByTier)
+      setPayoutTickets(ticketsByTier)
+
+    } catch (err) {
+      console.error('Error loading data:', err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
     }
-    
-    return filtered.sort((a, b) => (a.tier || 6) - (b.tier || 6))
-  }, [cprData, searchTerm, tierOverrides])
+  }
+
+  const filteredMembers = useMemo(() => {
+    if (!searchTerm) return members
+
+    return members.filter(m =>
+      m.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      m.id.toString().includes(searchTerm)
+    )
+  }, [members, searchTerm])
 
   function handleEditTier(member) {
     setEditingMember(member)
@@ -50,52 +114,87 @@ export default function TierManagement({ cprData }) {
     setNewTier(null)
   }
 
-  function handleSaveTier() {
-    // Save tier override to localStorage
-    const updatedOverrides = {
-      ...tierOverrides,
-      [editingMember.id]: newTier
-    }
-    
-    setTierOverrides(updatedOverrides)
-    
-    setSaveSuccess(`${editingMember.name} tier updated to ${newTier}`)
-    setEditingMember(null)
-    setNewTier(null)
+  async function handleSaveTier() {
+    try {
+      const { error } = await supabase
+        .from('members')
+        .update({
+          tier_override: newTier,
+          updated_at: new Date().toISOString()
+        })
+        .eq('member_id', editingMember.id)
 
-    // Auto-dismiss success message
-    setTimeout(() => setSaveSuccess(null), 5000)
+      if (error) throw error
+
+      setMembers(prev => prev.map(m =>
+        m.id === editingMember.id
+          ? { ...m, tier: newTier, hasOverride: true }
+          : m
+      ))
+
+      setSaveSuccess(`${editingMember.name} tier updated to ${newTier}`)
+      setEditingMember(null)
+      setNewTier(null)
+
+      setTimeout(() => setSaveSuccess(null), 5000)
+
+    } catch (err) {
+      console.error('Error saving tier:', err)
+      alert(`Failed to save tier: ${err.message}`)
+    }
   }
 
   function getMeetsRequirements(member, tier) {
-    const requirements = config.tierRequirements[tier] || []
+    const requirements = tierRequirements[tier] || []
     const cprByRole = member.cpr_by_role || {}
-    
+
     let metCount = 0
     requirements.forEach(req => {
       const levelData = cprByRole[req.level] || {}
-      
+
       if (req.isAverage) {
-        // Check average CPR for this level
         const cprValues = Object.values(levelData).filter(v => typeof v === 'number')
-        const avg = cprValues.length > 0 
-          ? cprValues.reduce((sum, v) => sum + v, 0) / cprValues.length 
+        const avg = cprValues.length > 0
+          ? cprValues.reduce((sum, v) => sum + v, 0) / cprValues.length
           : 0
         if (avg >= req.minCpr) metCount++
       } else {
-        // Check specific role
         const cpr = levelData[req.role]
         if (cpr && cpr >= req.minCpr) metCount++
       }
     })
 
-    const requiredCount = Math.ceil(requirements.length * (2/3))
+    const requiredCount = Math.ceil(requirements.length * (2 / 3))
     return { metCount, requiredCount, meetsRequirement: metCount >= requiredCount }
+  }
+
+  if (loading) {
+    return (
+      <div className="card">
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading members...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="card">
+        <div className="text-center py-8">
+          <h3 className="text-lg font-semibold text-red-600 mb-2">Error Loading Data</h3>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
+          <button onClick={loadData} className="btn-primary">
+            Retry
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="card">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
@@ -104,7 +203,7 @@ export default function TierManagement({ cprData }) {
               Manage member tier assignments
             </p>
           </div>
-          <div>
+          <div className="flex gap-2">
             <input
               type="text"
               placeholder="Search members..."
@@ -112,6 +211,13 @@ export default function TierManagement({ cprData }) {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="input w-64"
             />
+            <button
+              onClick={loadData}
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              title="Refresh data"
+            >
+              Refresh
+            </button>
           </div>
         </div>
 
@@ -127,7 +233,6 @@ export default function TierManagement({ cprData }) {
         )}
       </div>
 
-      {/* Members Table */}
       <div className="card">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -141,14 +246,14 @@ export default function TierManagement({ cprData }) {
               </tr>
             </thead>
             <tbody>
-              {members.length === 0 ? (
+              {filteredMembers.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="py-8 text-center text-gray-500">
                     No members found
                   </td>
                 </tr>
               ) : (
-                members.map(member => {
+                filteredMembers.map(member => {
                   const currentTier = member.tier || 6
                   const qualification = getMeetsRequirements(member, currentTier)
                   const isEditing = editingMember?.id === member.id
@@ -158,7 +263,14 @@ export default function TierManagement({ cprData }) {
                       <td className="py-3 px-4">
                         <div>
                           <div className="font-medium">{member.name || `Member ${member.id}`}</div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">ID: {member.id}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            ID: {member.id}
+                            {member.hasOverride && (
+                              <span className="ml-2 px-2 py-0.5 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 rounded text-xs">
+                                Override
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="py-3 px-4">
@@ -178,7 +290,7 @@ export default function TierManagement({ cprData }) {
                       </td>
                       <td className="py-3 px-4">{member.avgCpr}</td>
                       <td className="py-3 px-4">
-                        <QualificationBadge 
+                        <QualificationBadge
                           metCount={qualification.metCount}
                           requiredCount={qualification.requiredCount}
                           meetsRequirement={qualification.meetsRequirement}
@@ -218,20 +330,26 @@ export default function TierManagement({ cprData }) {
         </div>
       </div>
 
-      {/* Tier Requirements Reference */}
       <div className="card">
         <h3 className="text-lg font-semibold mb-4">Tier Requirements Reference</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Object.entries(config.tierRequirements).map(([tier, requirements]) => (
+          {Object.entries(tierRequirements).map(([tier, requirements]) => (
             <div key={tier} className="border border-gray-200 dark:border-slate-700 rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
                 <TierBadge tier={parseInt(tier)} />
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {config.payoutTickets[tier]} tickets
+                  {payoutTickets[tier]} tickets
                 </span>
               </div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">
-                Must meet {Math.ceil(requirements.length * (2/3))} of {requirements.length} requirements
+              <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                Must meet {Math.ceil(requirements.length * (2 / 3))} of {requirements.length} requirements
+              </div>
+              <div className="space-y-1">
+                {requirements.map((req, idx) => (
+                  <div key={idx} className="text-xs text-gray-500 dark:text-gray-500">
+                    L{req.level} {req.role}: {req.minCpr}+ CPR
+                  </div>
+                ))}
               </div>
             </div>
           ))}
@@ -242,7 +360,7 @@ export default function TierManagement({ cprData }) {
 }
 
 function TierBadge({ tier }) {
-  const colors = {1:'bg-tier-1',2:'bg-tier-2',3:'bg-tier-3',4:'bg-tier-4',5:'bg-tier-5',6:'bg-tier-6'}
+  const colors = { 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3', 4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6' }
   return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold text-sm ${colors[tier]}`}>Tier {tier}</span>
 }
 
