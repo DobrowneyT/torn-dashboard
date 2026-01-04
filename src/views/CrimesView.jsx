@@ -254,9 +254,6 @@ export default function CrimesView({ crimesData }) {
                 </>
               )}
             </button>
-            <div className="text-sm text-gray-500 dark:text-gray-400">
-              State persisted
-            </div>
           </div>
         </div>
         
