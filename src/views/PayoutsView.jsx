@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
+import { supabase } from '../utils/supabase'
 
 export default function PayoutsView({ cprData }) {
   // Get persisted state
@@ -11,27 +12,84 @@ export default function PayoutsView({ cprData }) {
   const [payoutData, setPayoutData] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Persist state changes - setPersistedState is now stable, no need to include it
+  // Persist state changes
   useEffect(() => {
     setPersistedState({
       period,
       sortBy
     })
-  }, [period, sortBy])
+  }, [period, sortBy, setPersistedState])
 
   useEffect(() => {
     async function loadPayouts() {
       try {
         setLoading(true)
-        const response = await fetch('/torn-forge-oc-system/data/payouts.json')
-        if (response.ok) {
-          const data = await response.json()
-          setPayoutData(data)
-        } else {
-          console.error('Failed to load payout data')
+        
+        // Load all weeks and member payouts from Supabase
+        const [weeksResult, membersResult] = await Promise.all([
+          supabase
+            .from('oc_payout_weeks')
+            .select('*')
+            .order('week_start', { ascending: false }),
+          supabase
+            .from('oc_payout_members')
+            .select('*')
+            .order('week_start', { ascending: false })
+        ])
+        
+        if (weeksResult.error) {
+          console.error('Error loading weeks:', weeksResult.error)
+          setPayoutData(null)
+          return
         }
+        
+        if (membersResult.error) {
+          console.error('Error loading members:', membersResult.error)
+          setPayoutData(null)
+          return
+        }
+        
+        const weeks = weeksResult.data || []
+        const memberPayouts = membersResult.data || []
+        
+        // Transform database data into expected format
+        const membersMap = {}
+        
+        memberPayouts.forEach(record => {
+          const memberId = record.member_id
+          
+          if (!membersMap[memberId]) {
+            membersMap[memberId] = {
+              member_id: memberId,
+              member_name: record.member_name,
+              current_tier: record.tier,
+              weekly_payouts: []
+            }
+          }
+          
+          membersMap[memberId].weekly_payouts.push({
+            week_ending: record.week_end,
+            week_start: record.week_start,
+            payout: record.payout
+          })
+        })
+        
+        // Calculate total payout across all weeks
+        const totalPayoutAllTime = memberPayouts.reduce((sum, p) => sum + p.payout, 0)
+        
+        const transformedData = {
+          metadata: {
+            total_weeks: weeks.length,
+            total_payout_all_time: totalPayoutAllTime
+          },
+          members: membersMap
+        }
+        
+        setPayoutData(transformedData)
+        
       } catch (error) {
         console.error('Error loading payouts:', error)
+        setPayoutData(null)
       } finally {
         setLoading(false)
       }
@@ -148,7 +206,7 @@ export default function PayoutsView({ cprData }) {
               <option value="avg">Sort by Average</option>
             </select>
             <div className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-              💾 Persisted
+              ðŸ’¾ Persisted
             </div>
           </div>
         </div>
