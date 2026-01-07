@@ -1017,3 +1017,175 @@ function TierBadge({ tier }) {
     </span>
   )
 }
+
+// Handles CSV imports with week dates from filename
+
+async function handleImportCSV(event) {
+  const file = event.target.files[0]
+  if (!file) return
+
+  try {
+    setImporting(true)
+    setImportError(null)
+
+    // Parse week start from filename: "20251215-Forge_OC_Payout.csv"
+    const dateMatch = file.name.match(/^(\d{8})/)
+    if (!dateMatch) {
+      throw new Error('Filename must start with date in YYYYMMDD format (e.g., 20251215-Forge_OC_Payout.csv)')
+    }
+
+    const dateStr = dateMatch[1]
+    const year = parseInt(dateStr.substring(0, 4))
+    const month = parseInt(dateStr.substring(4, 6)) - 1 // JS months are 0-indexed
+    const day = parseInt(dateStr.substring(6, 8))
+
+    const weekStart = new Date(year, month, day)
+    weekStart.setHours(0, 0, 0, 0)
+
+    // Week ends on Sunday (6 days later)
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekEnd.getDate() + 6)
+    weekEnd.setHours(23, 59, 59, 999)
+
+    // Verify it's a Monday
+    if (weekStart.getDay() !== 1) {
+      const confirm = window.confirm(
+        `Warning: ${dateStr} is not a Monday. Week start should be Monday. Continue anyway?`
+      )
+      if (!confirm) {
+        setImporting(false)
+        return
+      }
+    }
+
+    const text = await file.text()
+    const lines = text.trim().split('\n')
+    
+    if (lines.length < 2) {
+      throw new Error('CSV file is empty or invalid')
+    }
+
+    // Parse header
+    const headers = lines[0].split(',').map(h => h.trim())
+    
+    // Find required columns
+    const memberCol = headers.findIndex(h => h.toLowerCase().includes('member'))
+    const idCol = headers.findIndex(h => h.toLowerCase() === 'id')
+    const timeCol = headers.findIndex(h => h.toLowerCase().includes('time spent in'))
+    const tierCol = headers.findIndex(h => h.toLowerCase() === 'tier')
+    const ticketsCol = headers.findIndex(h => h.toLowerCase() === 'tickets')
+    const penaltyCol = headers.findIndex(h => h.toLowerCase().includes('penalty'))
+    const shareCol = headers.findIndex(h => h.toLowerCase().includes('share'))
+    const payoutCol = headers.findIndex(h => h.toLowerCase().includes('payout'))
+
+    if (memberCol === -1 || idCol === -1 || payoutCol === -1) {
+      throw new Error('CSV must have Member, ID, and OC Payout columns')
+    }
+
+    // Parse member data
+    const members = []
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!line) continue
+
+      const values = line.split(',').map(v => v.trim())
+      
+      const payoutStr = values[payoutCol].replace(/[$,"]/g, '')
+      const payout = parseInt(payoutStr)
+      
+      if (isNaN(payout) || payout === 0) continue
+
+      const timeSpent = timeCol !== -1 ? parseInt(values[timeCol]) : 0
+      const tier = tierCol !== -1 ? parseInt(values[tierCol]) : 6
+      const tickets = ticketsCol !== -1 ? parseInt(values[ticketsCol]) : 0
+      const penalty = penaltyCol !== -1 ? parseFloat(values[penaltyCol]) : 0
+      const share = shareCol !== -1 ? parseFloat(values[shareCol].replace('%', '')) : 0
+
+      members.push({
+        member_id: values[idCol],
+        member_name: values[memberCol],
+        tier: tier,
+        base_tickets: tickets,
+        sit_out_penalty: penalty,
+        adjusted_tickets: tickets + penalty,
+        share_percent: share / 100,
+        time_spent: timeSpent,
+        payout: payout,
+        week_start: weekStart.toISOString().split('T')[0],
+        week_end: weekEnd.toISOString().split('T')[0]
+      })
+    }
+
+    if (members.length === 0) {
+      throw new Error('No valid member data found in CSV')
+    }
+
+    // Calculate totals
+    const totalPayout = members.reduce((sum, m) => sum + m.payout, 0)
+    const totalTime = members.reduce((sum, m) => sum + m.time_spent, 0)
+    const avgTime = totalTime / members.length
+    const totalTickets = members.reduce((sum, m) => sum + m.adjusted_tickets, 0)
+
+    // Save week summary
+    const { data: weekData, error: weekError } = await supabase
+      .from('oc_payout_weeks')
+      .upsert({
+        week_start: weekStart.toISOString().split('T')[0],
+        week_end: weekEnd.toISOString().split('T')[0],
+        week_start_timestamp: Math.floor(weekStart.getTime() / 1000),
+        week_end_timestamp: Math.floor(weekEnd.getTime() / 1000),
+        member_payout_total: totalPayout,
+        total_member_payout: totalPayout, // Alias for compatibility
+        member_count: members.length,
+        total_time_spent: totalTime,
+        average_time_spent: Math.floor(avgTime),
+        total_adjusted_tickets: totalTickets,
+        faction_cut_percent: 20, // Default, adjust as needed
+        faction_cut_amount: 0,
+        total_money_reward: 0,
+        total_item_reward: 0,
+        total_item_cost: 0,
+        net_item_value: 0,
+        crimes_processed: 0,
+        min_time_for_full_tickets: 432000,
+        min_time_for_any_payout: 172800,
+        saved_by: user.name,
+        saved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'week_start,week_end'
+      })
+      .select()
+      .single()
+
+    if (weekError) throw weekError
+
+    // Save member payouts
+    const membersWithWeekId = members.map(m => ({
+      ...m,
+      week_id: weekData.id,
+      crimes_count: 0, // Will be populated when linked to crimes data
+      updated_at: new Date().toISOString()
+    }))
+
+    const { error: membersError } = await supabase
+      .from('oc_payout_members')
+      .upsert(membersWithWeekId, {
+        onConflict: 'week_id,member_id'
+      })
+
+    if (membersError) throw membersError
+
+    setImportSuccess(`Successfully imported ${members.length} member payouts for week ${weekStart.toLocaleDateString()}`)
+    setTimeout(() => setImportSuccess(null), 5000)
+
+    // Reload saved payouts
+    loadSavedPayouts()
+
+  } catch (err) {
+    setImportError(err.message)
+  } finally {
+    setImporting(false)
+    event.target.value = '' // Reset file input
+  }
+}

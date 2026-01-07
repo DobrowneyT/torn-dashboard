@@ -74,8 +74,8 @@ export default function PayoutsView({ cprData }) {
           })
         })
         
-        // Calculate total payout across all weeks
-        const totalPayoutAllTime = memberPayouts.reduce((sum, p) => sum + p.payout, 0)
+        // Calculate totals
+        const totalPayoutAllTime = memberPayouts.reduce((sum, p) => sum + (p.payout || 0), 0)
         
         const transformedData = {
           metadata: {
