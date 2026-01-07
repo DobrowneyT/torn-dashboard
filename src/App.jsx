@@ -14,11 +14,12 @@ import PayoutsView from './views/PayoutsView'
 import PayoutManagement from './components/PayoutManagement'
 import TierManagement from './components/TierManagement'
 import InventoryManagement from './components/InventoryManagement'
-import DataImportUtility from './components/DataImportUtility'
+import DataManagement from './views/DataManagement'
+import { isAdmin } from './config'
 import { config } from './config'
 
 function AppContent() {
-  const { isAuthenticated, isLeadership, loading: authLoading } = useAuth()
+  const { isAuthenticated, isLeadership, user, loading: authLoading } = useAuth()
   const [activeTab, setActiveTab] = useState('members')
   const [cprData, setCprData] = useState(null)
   const [crimesData, setCrimesData] = useState(null)
@@ -100,6 +101,9 @@ function AppContent() {
     )
   }
 
+  // Check if current user is admin
+  const userIsAdmin = isAdmin(user?.id)
+
   // Define navigation tabs based on user role
   const tabs = [
     { id: 'members', label: 'Member Tiers', roles: ['member', 'leadership'] },
@@ -109,16 +113,19 @@ function AppContent() {
     { id: 'payout-mgmt', label: 'Payout Management', roles: ['leadership'] },
     { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
     { id: 'inventory', label: 'Inventory', roles: ['leadership'] },
-    { id: 'data-import', label: 'Data Import', roles: ['leadership'] }  
+    { id: 'data-mgmt', label: 'Data Management', roles: ['admin'] }
   ]
 
-  const availableTabs = tabs.filter(tab => 
-    tab.roles.includes('member') || (isLeadership && tab.roles.includes('leadership'))
-  )
+  const availableTabs = tabs.filter(tab => {
+    if (tab.roles.includes('admin')) {
+      return userIsAdmin
+    }
+    return tab.roles.includes('member') || (isLeadership && tab.roles.includes('leadership'))
+  })
 
   return (
     <div className="min-h-screen">
-      <Header />
+      <Header onNavigate={setActiveTab} />
       <div className="max-w-7xl mx-auto px-4 py-6">
         <StatsOverview cprData={cprData} crimesData={crimesData} />
         <Navigation 
@@ -138,8 +145,10 @@ function AppContent() {
             {activeTab === 'payout-mgmt' && <PayoutManagement cprData={cprData} crimesData={crimesData} />}
             {activeTab === 'tier-mgmt' && <TierManagement cprData={cprData} />}
             {activeTab === 'inventory' && <InventoryManagement />}
-            {activeTab === 'data-import' && <DataImportUtility />}
           </ProtectedRoute>
+
+          {/* Admin-only Data Management */}
+          {userIsAdmin && activeTab === 'data-mgmt' && <DataManagement />}
         </div>
       </div>
     </div>
