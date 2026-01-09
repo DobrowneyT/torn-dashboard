@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import SettingsDropdown from '../components/SettingsDropdown'
 import { config } from '../config'
 
-export default function Header() {
+export default function Header({ onNavigate, viewAsRole, setViewAsRole, canViewAs }) {
   const { theme, toggleTheme } = useTheme()
   const { user, logout, isLeadership } = useAuth()
 
@@ -14,12 +14,11 @@ export default function Header() {
           <div>
             <h1 className="text-3xl font-bold">Torn Forge OC Dashboard</h1>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              {config.faction.name} • Performance Tracking
+              {config.faction.name} - Performance Tracking
             </p>
           </div>
           
           <div className="flex items-center gap-4">
-            {/* User Info */}
             {user && (
               <div className="hidden md:block text-right">
                 <div className="font-semibold text-sm">{user.name}</div>
@@ -34,12 +33,15 @@ export default function Header() {
               </div>
             )}
 
-            {/* Settings Dropdown */}
             {user && (
-              <SettingsDropdown />
+              <SettingsDropdown 
+                onNavigate={onNavigate}
+                viewAsRole={viewAsRole}
+                setViewAsRole={setViewAsRole}
+                canViewAs={canViewAs}
+              />
             )}
 
-            {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg border border-gray-300 dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700"
