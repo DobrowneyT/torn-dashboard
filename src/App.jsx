@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ViewStateProvider } from './contexts/ViewStateContext'
@@ -15,11 +16,51 @@ import PayoutManagement from './components/PayoutManagement'
 import TierManagement from './components/TierManagement'
 import InventoryManagement from './components/InventoryManagement'
 import DataManagement from './views/DataManagement'
+import AhView from './views/AhView'
 import { isAdmin } from './config'
 import { config } from './config'
 
-function AppContent() {
+
+// Public layout for unauthenticated pages
+function PublicLayout({ children }) {
+  return (
+    <ThemeProvider>
+      <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
+        {children}
+      </div>
+    </ThemeProvider>
+  )
+}
+
+
+// Public Auction House page - no authentication required
+function PublicAhPage() {
+  return (
+    <PublicLayout>
+      <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+              Torn Auction House Database
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Historical auction listings data
+            </p>
+          </div>
+        </div>
+      </header>
+      <main className="max-w-7xl mx-auto px-4 py-6">
+        <AhView />
+      </main>
+    </PublicLayout>
+  )
+}
+
+
+// Protected dashboard content
+function DashboardContent() {
   const { isAuthenticated, isLeadership, user, loading: authLoading } = useAuth()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('members')
   const [cprData, setCprData] = useState(null)
   const [crimesData, setCrimesData] = useState(null)
@@ -38,7 +79,8 @@ function AppContent() {
     ? isLeadership 
     : (viewAsRole === 'leadership' || viewAsRole === 'admin')
 
-  // Navigation tabs - data-mgmt is NOT included here (accessed via hamburger menu only)
+
+  // Navigation tabs
   const tabs = [
     { id: 'members', label: 'Member Tiers', roles: ['member', 'leadership'] },
     { id: 'crimes', label: 'OC 2.0 History', roles: ['member', 'leadership'] },
@@ -56,6 +98,7 @@ function AppContent() {
     return tab.roles.includes('member')
   })
 
+
   // Load data when authenticated
   useEffect(() => {
     if (isAuthenticated) {
@@ -63,10 +106,12 @@ function AppContent() {
     }
   }, [isAuthenticated])
 
+
   // Reset viewAsRole when user changes
   useEffect(() => {
     setViewAsRole(null)
   }, [user?.id])
+
 
   // Reset to members tab if current tab becomes unavailable due to viewAs change
   useEffect(() => {
@@ -75,6 +120,7 @@ function AppContent() {
       setActiveTab('members')
     }
   }, [viewAsRole, availableTabs, activeTab])
+
 
   async function loadData() {
     try {
@@ -104,10 +150,12 @@ function AppContent() {
     }
   }
 
-  // Early returns AFTER all hooks
+
+  // Show login if not authenticated
   if (!isAuthenticated && !authLoading) {
     return <LoginModal />
   }
+
 
   if (authLoading) {
     return (
@@ -120,6 +168,7 @@ function AppContent() {
     )
   }
 
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -130,6 +179,7 @@ function AppContent() {
       </div>
     )
   }
+
 
   if (error) {
     return (
@@ -143,10 +193,20 @@ function AppContent() {
     )
   }
 
+
+  const handleNavigate = (tab) => {
+    if (tab === 'ah') {
+      navigate('/ah')
+    } else {
+      setActiveTab(tab)
+    }
+  }
+
+
   return (
     <div className="min-h-screen">
       <Header 
-        onNavigate={setActiveTab} 
+        onNavigate={handleNavigate} 
         viewAsRole={viewAsRole}
         setViewAsRole={setViewAsRole}
         canViewAs={userIsAdmin}
@@ -185,14 +245,14 @@ function AppContent() {
             {activeTab === 'payouts' && <PayoutsView cprData={cprData} crimesData={crimesData} />}
           </ProtectedRoute>
 
-          {/* Leadership-only views - use actual permissions, not effective */}
+          {/* Leadership-only views */}
           <ProtectedRoute requireLeadership={true}>
             {activeTab === 'payout-mgmt' && <PayoutManagement cprData={cprData} crimesData={crimesData} />}
             {activeTab === 'tier-mgmt' && <TierManagement cprData={cprData} />}
             {activeTab === 'inventory' && <InventoryManagement />}
           </ProtectedRoute>
 
-          {/* Admin-only Data Management - use actual permissions */}
+          {/* Admin-only Data Management */}
           {userIsAdmin && activeTab === 'data-mgmt' && <DataManagement />}
         </div>
       </div>
@@ -200,14 +260,32 @@ function AppContent() {
   )
 }
 
-export default function App() {
+
+// Protected dashboard wrapper
+function ProtectedDashboard() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <ViewStateProvider>
-          <AppContent />
+          <DashboardContent />
         </ViewStateProvider>
       </AuthProvider>
     </ThemeProvider>
+  )
+}
+
+
+// Main App with routing
+export default function App() {
+  return (
+    <HashRouter>
+      <Routes>
+        {/* Public route - no authentication */}
+        <Route path="/ah" element={<PublicAhPage />} />
+        
+        {/* Protected routes - require authentication */}
+        <Route path="/*" element={<ProtectedDashboard />} />
+      </Routes>
+    </HashRouter>
   )
 }

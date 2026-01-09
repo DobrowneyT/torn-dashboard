@@ -8,6 +8,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class TornAPI:
         """
         self.api_key = api_key
         self.session = requests.Session()
-        self.rate_limit_delay = 1  # Seconds between requests
+        self.rate_limit_delay = 0.6  # ~100 requests per minute
         self.last_request_time = 0
         
     def _wait_for_rate_limit(self):
@@ -82,6 +83,156 @@ class TornAPI:
             logger.error(f"JSON decode error: {e}")
             raise TornAPIError(f"Invalid JSON response: {e}")
     
+    def get_auction_house_listings(
+        self,
+        item_id: int,
+        from_timestamp: Optional[int] = None,
+        to_timestamp: Optional[int] = None,
+        sort: str = "ASC",
+        limit: int = 100,
+        comment: str = "AH_Listing_Scrape"
+    ) -> Dict:
+        """
+        Get auction house listings for a specific item
+        
+        Args:
+            item_id: Item ID to get listings for
+            from_timestamp: Start timestamp for filtering
+            to_timestamp: End timestamp for filtering
+            sort: Sort order (ASC or DESC)
+            limit: Number of results per request (max 100)
+            comment: API comment for tracking
+            
+        Returns:
+            Dict with auctionhouse data and metadata
+        """
+        url = f"{self.BASE_URL}/market/{item_id}/auctionhouse"
+        
+        params = {
+            "limit": limit,
+            "sort": sort,
+            "key": self.api_key,
+            "comment": comment
+        }
+        
+        if from_timestamp is not None:
+            params["from"] = from_timestamp
+        if to_timestamp is not None:
+            params["to"] = to_timestamp
+        
+        return self._make_request(url, params)
+    
+    def get_all_auction_house_listings_paginated(
+        self,
+        item_id: int,
+        from_timestamp: Optional[int] = None,
+        to_timestamp: Optional[int] = None,
+        sort: str = "ASC"
+    ) -> List[Dict]:
+        """
+        Get all auction house listings with automatic pagination
+        
+        Args:
+            item_id: Item ID to get listings for
+            from_timestamp: Start timestamp
+            to_timestamp: End timestamp
+            sort: Sort order
+            
+        Returns:
+            List of all auction listing objects
+        """
+        all_listings = []
+        current_from = from_timestamp
+        processed_auction_ids = set()
+        page = 1
+        
+        logger.info(f"Starting paginated AH fetch for item {item_id}")
+        logger.info(f"From: {from_timestamp}, To: {to_timestamp}")
+        
+        while True:
+            response = self.get_auction_house_listings(
+                item_id=item_id,
+                from_timestamp=current_from,
+                to_timestamp=to_timestamp,
+                sort=sort
+            )
+            
+            listings = response.get('auctionhouse', [])
+            
+            if not listings:
+                logger.info("No more listings to fetch")
+                break
+            
+            logger.info(f"Page {page}: Fetched {len(listings)} listings")
+            
+            # Add new listings (avoid duplicates by auction_id)
+            new_listings_count = 0
+            for listing in listings:
+                auction_id = listing['id']
+                
+                # Skip if already processed
+                if auction_id in processed_auction_ids:
+                    continue
+                
+                # Stop if we've exceeded the to_timestamp
+                if to_timestamp and listing['timestamp'] > to_timestamp:
+                    logger.info(f"Reached listings beyond to_timestamp: {to_timestamp}")
+                    return all_listings
+                
+                all_listings.append(listing)
+                processed_auction_ids.add(auction_id)
+                new_listings_count += 1
+                
+                # Update pagination marker
+                if listing['timestamp'] > (current_from or 0):
+                    current_from = listing['timestamp']
+            
+            logger.info(f"  Added {new_listings_count} new listings (total: {len(all_listings)})")
+            
+            # If no new listings were added, we're done
+            if new_listings_count == 0:
+                break
+            
+            # Check if there are more pages (got exactly 100 listings)
+            if len(listings) < 100:
+                logger.info("Received less than 100 listings - reached end")
+                break
+            
+            # Check for next page link
+            next_link = response.get('_metadata', {}).get('links', {}).get('next')
+            if not next_link:
+                logger.info("No next page available")
+                break
+            
+            page += 1
+        
+        logger.info(f"Completed pagination: fetched {len(all_listings)} total listings")
+        return all_listings
+    
+    def get_item_info(self, item_id: int, comment: str = "Item_Info") -> Dict:
+        """
+        Get item information from Torn API
+        
+        Args:
+            item_id: Item ID to get info for
+            
+        Returns:
+            Dict with item data
+        """
+        url = f"https://api.torn.com/torn/{item_id}"
+        
+        params = {
+            "selections": "items",
+            "key": self.api_key,
+            "comment": comment
+        }
+        
+        response = self._make_request(url, params)
+        items = response.get('items', {})
+        
+        # Return the specific item info
+        return items.get(str(item_id), {})
+    
     def get_faction_crimes(
         self,
         category: str = "all",
@@ -90,7 +241,7 @@ class TornAPI:
         to_timestamp: Optional[int] = None,
         offset: int = 0,
         sort: str = "ASC",
-        comment: str = "Forge_OC2_Faction_Crimes"
+        comment: str = "Faction_Crimes"
     ) -> Dict:
         """
         Get faction crimes from API
@@ -126,129 +277,6 @@ class TornAPI:
         
         return self._make_request(url, params)
     
-    def get_all_faction_crimes_paginated(
-        self,
-        category: str = "all",
-        filters: str = "created_at",
-        from_timestamp: Optional[int] = None,
-        to_timestamp: Optional[int] = None,
-        sort: str = "ASC"
-    ) -> List[Dict]:
-        """
-        Get all faction crimes with automatic pagination
-        
-        Args:
-            category: Crime category
-            filters: Filter field
-            from_timestamp: Start timestamp
-            to_timestamp: End timestamp
-            sort: Sort order
-            
-        Returns:
-            List of all crime objects
-        """
-        all_crimes = []
-        last_created_at = from_timestamp
-        processed_crime_ids = set()
-        
-        logger.info(f"Starting paginated crime fetch from timestamp: {from_timestamp}")
-        
-        while True:
-            response = self.get_faction_crimes(
-                category=category,
-                filters=filters,
-                from_timestamp=last_created_at,
-                to_timestamp=to_timestamp,
-                sort=sort
-            )
-            
-            crimes = response.get('crimes', [])
-            
-            if not crimes:
-                logger.info("No more crimes to fetch")
-                break
-            
-            # Add new crimes (avoid duplicates)
-            new_crimes_count = 0
-            for crime in crimes:
-                crime_id = crime['id']
-                
-                # Skip if already processed
-                if crime_id in processed_crime_ids:
-                    continue
-                
-                # Stop if we've exceeded the to_timestamp
-                if to_timestamp and crime['created_at'] > to_timestamp:
-                    logger.info(f"Reached crimes beyond to_timestamp: {to_timestamp}")
-                    return all_crimes
-                
-                all_crimes.append(crime)
-                processed_crime_ids.add(crime_id)
-                new_crimes_count += 1
-                
-                # Update pagination marker
-                if crime['created_at'] > last_created_at:
-                    last_created_at = crime['created_at']
-            
-            logger.info(f"Fetched {new_crimes_count} new crimes (total: {len(all_crimes)})")
-            
-            # If no new crimes were added, we're done
-            if new_crimes_count == 0:
-                break
-            
-            # Check if there are more pages
-            next_link = response.get('_metadata', {}).get('links', {}).get('next')
-            if not next_link:
-                logger.info("No next page available")
-                break
-        
-        logger.info(f"Completed pagination: fetched {len(all_crimes)} total crimes")
-        return all_crimes
-    
-    def get_faction_members(
-        self,
-        comment: str = "Forge_OC2_Member_Sync"
-    ) -> Dict:
-        """
-        Get faction members from API
-        
-        Returns:
-            Dict with members list and metadata
-        """
-        url = f"{self.BASE_URL}/faction/members"
-        
-        params = {
-            "key": self.api_key,
-            "comment": comment
-        }
-        
-        return self._make_request(url, params)
-    
-    def get_item_data(self, item_ids: List[int]) -> Dict:
-        """
-        Get item information from Torn API
-        
-        Args:
-            item_ids: List of item IDs
-            
-        Returns:
-            Dict with item data keyed by item ID
-        """
-        if not item_ids:
-            return {}
-        
-        item_ids_str = ','.join(str(id) for id in item_ids)
-        url = f"https://api.torn.com/torn/{item_ids_str}"
-        
-        params = {
-            "selections": "items",
-            "key": self.api_key,
-            "comment": "Forge_OC2_Item_Data"
-        }
-        
-        response = self._make_request(url, params)
-        return response.get('items', {})
-    
     def test_connection(self) -> bool:
         """
         Test API connection
@@ -257,13 +285,10 @@ class TornAPI:
             True if connection successful, False otherwise
         """
         try:
-            # Simple API call to verify key works
-            url = f"{self.BASE_URL}/faction/crimes"
+            url = f"{self.BASE_URL}/user"
             params = {
-                "cat": "completed",
-                "offset": 0,
                 "key": self.api_key,
-                "comment": "Forge_OC2_System_Test"
+                "comment": "Connection_Test"
             }
             
             self._make_request(url, params)
@@ -311,13 +336,5 @@ if __name__ == "__main__":
     print("Testing API connection...")
     if api.test_connection():
         print("✓ Connection successful")
-        
-        print("\nFetching recent crimes...")
-        result = api.get_faction_crimes(category="completed", offset=0)
-        crimes = result.get('crimes', [])
-        print(f"✓ Fetched {len(crimes)} crimes")
-        
-        if crimes:
-            print(f"\nSample crime: {crimes[0]['name']} (Level {crimes[0]['difficulty']})")
     else:
         print("✗ Connection failed")

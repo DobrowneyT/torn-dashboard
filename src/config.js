@@ -5,6 +5,10 @@ export const config = {
     inventoryData: import.meta.env.VITE_INVENTORY_DATA_URL || '/torn-forge-oc-system/data/inventory_database.json',
     pricingHistory: import.meta.env.VITE_PRICING_HISTORY_URL || '/torn-forge-oc-system/data/pricing_history.json',
   },
+  supabase: {
+    url: import.meta.env.VITE_SUPABASE_URL,
+    anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+  },
   faction: {
     name: "The Next Level - Forge",
     tag: "TNL-F",
