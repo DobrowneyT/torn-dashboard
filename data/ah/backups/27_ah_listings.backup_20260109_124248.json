@@ -1,0 +1,386 @@
+{
+  "item_info": {
+    "id": 27,
+    "name": "M4A1 Colt Carbine",
+    "type": "Weapon",
+    "sub_type": "Rifle"
+  },
+  "metadata": {
+    "last_updated": "2026-01-09T12:40:07.169620",
+    "total_listings": 10,
+    "oldest_timestamp": 1766745499,
+    "newest_timestamp": 1767130550,
+    "scrape_history": [
+      {
+        "timestamp": "2026-01-09T12:40:07.169594",
+        "from_timestamp": 1766642400,
+        "to_timestamp": 1767160800,
+        "fetched": 10,
+        "new_listings": 10,
+        "duplicates": 0
+      }
+    ]
+  },
+  "listings": {
+    "468907": {
+      "id": 468907,
+      "seller": {
+        "id": 1839760,
+        "name": "mijoELfeo"
+      },
+      "buyer": {
+        "id": 3326364,
+        "name": "Mcaria"
+      },
+      "timestamp": 1766745499,
+      "price": 74000001,
+      "bids": 12,
+      "item": {
+        "id": 27,
+        "uid": 17258037120,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 64.9,
+          "accuracy": 51.74,
+          "armor": null,
+          "quality": 146.34
+        },
+        "bonuses": [
+          {
+            "id": 66,
+            "title": "Puncture",
+            "description": "22% chance of ignoring armor",
+            "value": 22
+          }
+        ],
+        "rarity": "yellow"
+      }
+    },
+    "469557": {
+      "id": 469557,
+      "seller": {
+        "id": 3054822,
+        "name": "Baozi"
+      },
+      "buyer": {
+        "id": 2743814,
+        "name": "Cfee"
+      },
+      "timestamp": 1766804484,
+      "price": 198151778,
+      "bids": 8,
+      "item": {
+        "id": 27,
+        "uid": 17300193622,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 67.79,
+          "accuracy": 56.92,
+          "armor": null,
+          "quality": 227.12
+        },
+        "bonuses": [
+          {
+            "id": 46,
+            "title": "Weaken",
+            "description": "29% chance to Weaken opponent reducing Defense by 25% (x3)",
+            "value": 29
+          }
+        ],
+        "rarity": "orange"
+      }
+    },
+    "469595": {
+      "id": 469595,
+      "seller": {
+        "id": 3639464,
+        "name": "CrasherDire"
+      },
+      "buyer": {
+        "id": 2991808,
+        "name": "GeneralMatter"
+      },
+      "timestamp": 1766821654,
+      "price": 64935001,
+      "bids": 6,
+      "item": {
+        "id": 27,
+        "uid": 17306525053,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 60.65,
+          "accuracy": 51.07,
+          "armor": null,
+          "quality": 97.16
+        },
+        "bonuses": [
+          {
+            "id": 66,
+            "title": "Puncture",
+            "description": "25% chance of ignoring armor",
+            "value": 25
+          }
+        ],
+        "rarity": "yellow"
+      }
+    },
+    "469816": {
+      "id": 469816,
+      "seller": {
+        "id": 3761470,
+        "name": "ZeDuckyBadger"
+      },
+      "buyer": {
+        "id": 1913794,
+        "name": "Manly"
+      },
+      "timestamp": 1766896840,
+      "price": 66045001,
+      "bids": 7,
+      "item": {
+        "id": 27,
+        "uid": 17316394448,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 61.35,
+          "accuracy": 52.05,
+          "armor": null,
+          "quality": 113.91
+        },
+        "bonuses": [
+          {
+            "id": 86,
+            "title": "Disarm",
+            "description": "Disables an opponent's weapon upon a hand or arm hit for 3 turns",
+            "value": 3
+          }
+        ],
+        "rarity": "yellow"
+      }
+    },
+    "469597": {
+      "id": 469597,
+      "seller": {
+        "id": 3826154,
+        "name": "TNAM"
+      },
+      "buyer": {
+        "id": 2931007,
+        "name": "Snorkachu"
+      },
+      "timestamp": 1766908234,
+      "price": 198135001,
+      "bids": 9,
+      "item": {
+        "id": 27,
+        "uid": 8605926205,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 64.84,
+          "accuracy": 54.63,
+          "armor": null,
+          "quality": 174.67
+        },
+        "bonuses": [
+          {
+            "id": 68,
+            "title": "Powerful",
+            "description": "25% increased damage",
+            "value": 25
+          }
+        ],
+        "rarity": "orange"
+      }
+    },
+    "469971": {
+      "id": 469971,
+      "seller": {
+        "id": 3916970,
+        "name": "Aiker26"
+      },
+      "buyer": {
+        "id": 3113719,
+        "name": "DADDYDABZALOT"
+      },
+      "timestamp": 1766954867,
+      "price": 66665778,
+      "bids": 8,
+      "item": {
+        "id": 27,
+        "uid": 17323102615,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 60.17,
+          "accuracy": 51.22,
+          "armor": null,
+          "quality": 93.87
+        },
+        "bonuses": [
+          {
+            "id": 101,
+            "title": "Penetrate",
+            "description": "Ignores 26% of armor mitigation",
+            "value": 26
+          }
+        ],
+        "rarity": "yellow"
+      }
+    },
+    "469991": {
+      "id": 469991,
+      "seller": {
+        "id": 3282883,
+        "name": "MarkStark"
+      },
+      "buyer": {
+        "id": 2991808,
+        "name": "GeneralMatter"
+      },
+      "timestamp": 1766959864,
+      "price": 66045001,
+      "bids": 6,
+      "item": {
+        "id": 27,
+        "uid": 16917063371,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 62.5,
+          "accuracy": 50.76,
+          "armor": null,
+          "quality": 112.56
+        },
+        "bonuses": [
+          {
+            "id": 63,
+            "title": "Deadeye",
+            "description": "36% increased critical hit damage",
+            "value": 36
+          }
+        ],
+        "rarity": "yellow"
+      }
+    },
+    "470004": {
+      "id": 470004,
+      "seller": {
+        "id": 3326364,
+        "name": "Mcaria"
+      },
+      "buyer": {
+        "id": 4013220,
+        "name": "TM34535"
+      },
+      "timestamp": 1766964656,
+      "price": 66665778,
+      "bids": 9,
+      "item": {
+        "id": 27,
+        "uid": 17258037120,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 64.9,
+          "accuracy": 51.74,
+          "armor": null,
+          "quality": 146.34
+        },
+        "bonuses": [
+          {
+            "id": 66,
+            "title": "Puncture",
+            "description": "22% chance of ignoring armor",
+            "value": 22
+          }
+        ],
+        "rarity": "yellow"
+      }
+    },
+    "470193": {
+      "id": 470193,
+      "seller": {
+        "id": 3892326,
+        "name": "Checkbox"
+      },
+      "buyer": {
+        "id": 2991808,
+        "name": "GeneralMatter"
+      },
+      "timestamp": 1767030116,
+      "price": 64500001,
+      "bids": 8,
+      "item": {
+        "id": 27,
+        "uid": 17325002507,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 62.63,
+          "accuracy": 52.56,
+          "armor": null,
+          "quality": 131.86
+        },
+        "bonuses": [
+          {
+            "id": 68,
+            "title": "Powerful",
+            "description": "15% increased damage",
+            "value": 15
+          }
+        ],
+        "rarity": "yellow"
+      }
+    },
+    "470527": {
+      "id": 470527,
+      "seller": {
+        "id": 1604343,
+        "name": "bobert2422"
+      },
+      "buyer": {
+        "id": 2991808,
+        "name": "GeneralMatter"
+      },
+      "timestamp": 1767130550,
+      "price": 61000001,
+      "bids": 5,
+      "item": {
+        "id": 27,
+        "uid": 17213393454,
+        "name": "M4A1 Colt Carbine",
+        "type": "Weapon",
+        "sub_type": "Rifle",
+        "stats": {
+          "damage": 64.16,
+          "accuracy": 50.95,
+          "armor": null,
+          "quality": 131.12
+        },
+        "bonuses": [
+          {
+            "id": 86,
+            "title": "Disarm",
+            "description": "Disables an opponent's weapon upon a hand or arm hit for 3 turns",
+            "value": 3
+          }
+        ],
+        "rarity": "yellow"
+      }
+    }
+  }
+}

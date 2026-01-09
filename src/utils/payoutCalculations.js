@@ -1,7 +1,10 @@
 /**
- * Enhanced Payout Calculation Utilities - FIXED PENALTY LOGIC
+ * Payout Calculation Utilities - Supabase Version
  * 
- * Key fix: Penalty based on ABSOLUTE threshold (120 hours), not relative to average
+ * Calculates member payouts based on tier, time spent, and crime participation.
+ * Works directly with data loaded from Supabase.
+ * 
+ * All times use TCT (Torn City Time) which is UTC/GMT.
  */
 
 const TIER_TICKETS = {
@@ -13,401 +16,434 @@ const TIER_TICKETS = {
   6: 2
 }
 
-// CRITICAL: Time thresholds for penalty calculation
-const MIN_TIME_FOR_FULL_TICKETS = 120 * 3600 // 120 hours = 432,000 seconds (no penalty)
-const MIN_TIME_FOR_ANY_PAYOUT = 48 * 3600   // 48 hours = 172,800 seconds (full penalty below this)
+// Time thresholds for penalty calculation (in seconds)
+const MIN_TIME_FOR_FULL_TICKETS = 120 * 3600  // 120 hours = 432,000 seconds
+const MIN_TIME_FOR_ANY_PAYOUT = 48 * 3600     // 48 hours = 172,800 seconds
 
+/**
+ * Get week range from a date (Monday 00:00:00 UTC to Sunday 23:59:59 UTC)
+ * Uses TCT (UTC) exclusively
+ */
 export function getWeekRangeFromDate(date) {
+  // Create date in UTC
   const d = new Date(date)
-  const dayOfWeek = d.getDay()
   
+  // Get day of week in UTC (0 = Sunday, 1 = Monday, etc.)
+  const dayOfWeek = d.getUTCDay()
+  
+  // Calculate Monday of this week in UTC
   const monday = new Date(d)
-  monday.setDate(d.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
-  monday.setHours(0, 0, 0, 0)
+  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+  monday.setUTCDate(d.getUTCDate() - daysToSubtract)
+  monday.setUTCHours(0, 0, 0, 0)
   
+  // Sunday is 6 days after Monday, ends at 23:59:59.999
   const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  sunday.setHours(23, 59, 59, 999)
+  sunday.setUTCDate(monday.getUTCDate() + 6)
+  sunday.setUTCHours(23, 59, 59, 999)
   
   return {
     monday,
     sunday,
+    // Use >= fromTimestamp and < toTimestamp+1 to avoid overlap
+    // Monday 00:00:00 UTC timestamp
     mondayTimestamp: Math.floor(monday.getTime() / 1000),
+    // Sunday 23:59:59 UTC timestamp (we'll use < next Monday for filtering)
     sundayTimestamp: Math.floor(sunday.getTime() / 1000)
   }
 }
 
+/**
+ * Get current week range in TCT (UTC)
+ */
 export function getCurrentWeekRange() {
   return getWeekRangeFromDate(new Date())
 }
 
+/**
+ * Get previous week range in TCT (UTC)
+ */
 export function getPreviousWeekRange() {
   const currentWeek = getCurrentWeekRange()
-  const previousWeek = new Date(currentWeek.monday)
-  previousWeek.setDate(previousWeek.getDate() - 7)
-  return getWeekRangeFromDate(previousWeek)
-}
-
-export function getCustomRange(fromDate, toDate) {
-  const from = new Date(fromDate)
-  from.setHours(0, 0, 0, 0)
-  
-  const to = new Date(toDate)
-  to.setHours(23, 59, 59, 999)
-  
-  return {
-    monday: from,
-    sunday: to,
-    mondayTimestamp: Math.floor(from.getTime() / 1000),
-    sundayTimestamp: Math.floor(to.getTime() / 1000)
-  }
-}
-
-export function calculateTimeSpent(joinedAt, timeReference, from, to) {
-  if (joinedAt > to) {
-    return 0
-  }
-  
-  const effectiveStartTime = Math.max(joinedAt, from)
-  const effectiveEndTime = Math.min(timeReference, to)
-  
-  if (effectiveStartTime >= effectiveEndTime) {
-    return 0
-  }
-  
-  return effectiveEndTime - effectiveStartTime
+  const previousMonday = new Date(currentWeek.monday)
+  previousMonday.setUTCDate(previousMonday.getUTCDate() - 7)
+  return getWeekRangeFromDate(previousMonday)
 }
 
 /**
- * Process item outcomes and requirements from crime slots
- * Tracks both items used (costs) and items rewarded
+ * Format a date to YYYY-MM-DD in UTC
  */
-function processItemOutcomes(crime, itemTransactions, crimeId) {
-  const slots = crime.slots || []
-  
-  // Process each slot
-  slots.forEach(slot => {
-    // Check if slot has a user (filled position)
-    if (slot.user) {
-      // Track items that were used
-      if (slot.item_requirement && !slot.item_requirement.is_reusable) {
-        // Non-reusable item was consumed
-        itemTransactions.push({
-          id: slot.item_requirement.id.toString(),
-          quantity: 1,
-          status: 'used',
-          crimeId: crimeId,
-          position: slot.position,
-          userId: slot.user.id
-        })
-      }
-      
-      // Track item outcome (if item was consumed or returned as different item)
-      if (slot.user.item_outcome) {
-        const outcome = slot.user.item_outcome
-        
-        // Only count if outcome is "used" (consumed)
-        // Don't double-count if we already counted from item_requirement
-        if (outcome.outcome === 'used' && 
-            (!slot.item_requirement || slot.item_requirement.id !== outcome.item_id)) {
-          itemTransactions.push({
-            id: outcome.item_id.toString(),
-            quantity: 1,
-            status: 'used',
-            crimeId: crimeId,
-            position: slot.position,
-            userId: slot.user.id
-          })
-        }
-      }
-    }
-  })
-  
-  // Process crime-level item rewards
-  if (crime.rewards?.items && Array.isArray(crime.rewards.items)) {
-    crime.rewards.items.forEach(item => {
-      itemTransactions.push({
-        id: item.id ? item.id.toString() : item.toString(),
-        quantity: item.quantity || 1,
-        status: 'reward',
-        crimeId: crimeId
-      })
-    })
-  }
-}
-
-function estimateItemValue(itemId) {
-  const commonValues = {
-    '1361': 50000,
-    '1362': 100000,
-    '1203': 75000,
-    '71': 25000,
-    '579': 50000,
-  }
-  
-  return commonValues[itemId] || 50000
-}
-
-function calculateItemValues(itemTransactions) {
-  const itemSummary = {}
-  
-  for (const transaction of itemTransactions) {
-    const key = `${transaction.id}_${transaction.status}`
-    if (!itemSummary[key]) {
-      itemSummary[key] = {
-        id: transaction.id,
-        status: transaction.status,
-        quantity: 0
-      }
-    }
-    itemSummary[key].quantity += transaction.quantity
-  }
-  
-  let totalRewardValue = 0
-  let totalUsedValue = 0
-  
-  for (const key in itemSummary) {
-    const summary = itemSummary[key]
-    const marketValue = estimateItemValue(summary.id)
-    const totalValue = marketValue * summary.quantity
-    
-    if (summary.status === 'reward') {
-      totalRewardValue += totalValue
-    } else if (summary.status === 'used') {
-      totalUsedValue += totalValue
-    }
-  }
-  
-  return {
-    itemReward: totalRewardValue,
-    itemCost: totalUsedValue,
-    netItemValue: totalRewardValue - totalUsedValue,
-    itemDetails: Object.values(itemSummary)
-  }
+export function formatDateUTC(date) {
+  const d = new Date(date)
+  const year = d.getUTCFullYear()
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 /**
- * Calculate sit-out penalty based on ABSOLUTE time thresholds
+ * Parse a YYYY-MM-DD string as UTC midnight
+ */
+export function parseDateAsUTC(dateStr) {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0))
+}
+
+/**
+ * Calculate time spent in a crime for a specific member
+ * @param {number} joinedAt - When the member joined (Unix timestamp)
+ * @param {number} timeReference - End time reference (executed_at or toTimestamp)
+ * @param {number} fromTimestamp - Start of payout period
+ * @param {number} toTimestamp - End of payout period
+ * @returns {number} Time spent in seconds
+ */
+export function calculateTimeSpent(joinedAt, timeReference, fromTimestamp, toTimestamp) {
+  if (!joinedAt || joinedAt > toTimestamp) {
+    return 0
+  }
+  
+  // Clamp to the payout window
+  const effectiveStart = Math.max(joinedAt, fromTimestamp)
+  const effectiveEnd = Math.min(timeReference, toTimestamp)
+  
+  if (effectiveStart >= effectiveEnd) {
+    return 0
+  }
+  
+  return effectiveEnd - effectiveStart
+}
+
+/**
+ * Calculate sit-out penalty based on absolute time thresholds
  * 
- * THRESHOLDS:
- * - >= 120 hours (432,000s): NO penalty (full tickets)
- * - < 48 hours (172,800s): FULL penalty ($0 payout)
- * - Between 48-120 hours: Sliding scale penalty
+ * >= 120 hours: NO penalty (full tickets)
+ * < 48 hours: FULL penalty ($0 payout)
+ * 48-120 hours: Sliding scale
  */
 function calculateSitOutPenalty(timeSpent, baseTickets) {
-  // NO PENALTY: >= 120 hours (5 days)
   if (timeSpent >= MIN_TIME_FOR_FULL_TICKETS) {
     return 0
   }
   
-  // FULL PENALTY: < 48 hours (2 days) - lose ALL tickets
   if (timeSpent < MIN_TIME_FOR_ANY_PAYOUT) {
-    // Remove ALL tickets → adjusted = 0, payout = $0
     return -baseTickets
   }
   
-  // SLIDING SCALE: Between 48-120 hours
-  // Linear interpolation from full penalty at 48h to no penalty at 120h
-  const timeRange = MIN_TIME_FOR_FULL_TICKETS - MIN_TIME_FOR_ANY_PAYOUT // 72 hours
+  // Sliding scale between 48-120 hours
+  const timeRange = MIN_TIME_FOR_FULL_TICKETS - MIN_TIME_FOR_ANY_PAYOUT
   const timeAboveMin = timeSpent - MIN_TIME_FOR_ANY_PAYOUT
   const percentOfRange = timeAboveMin / timeRange
   
-  // At 48h: percentOfRange = 0 → penalty = -baseTickets (full penalty)
-  // At 120h: percentOfRange = 1 → penalty = 0 (no penalty)
-  // At 84h (middle): percentOfRange = 0.5 → penalty = -0.5 * baseTickets (half penalty)
-  const penalty = -(1 - percentOfRange) * baseTickets
-  
-  return penalty
+  return -(1 - percentOfRange) * baseTickets
 }
 
-function processParticipantsFromSlots(crime, timeReference, from, to, members, cprData) {
-  const slots = crime.slots || []
+/**
+ * Calculate theoretical payout for a member (equal share of participated crimes AFTER faction cut)
+ * 
+ * For each crime the member participated in:
+ * 1. Take total crime value (money + item rewards - item costs)
+ * 2. Subtract faction cut (e.g., 20%)
+ * 3. Divide remaining equally among all members who participated in that crime
+ * 
+ * @param {string} memberId - Member ID
+ * @param {Object} crimesMap - Crimes data
+ * @param {number} fromTimestamp - Start of period (only count crimes executed >= this)
+ * @param {number} toTimestamp - End of period (only count crimes executed < this)
+ * @param {number} factionCutPercent - Faction cut as decimal (e.g., 0.20)
+ */
+function calculateTheoreticalPayout(memberId, crimesMap, fromTimestamp, toTimestamp, factionCutPercent) {
+  let total = 0
   
-  slots.forEach(slot => {
-    if (!slot.user || !slot.user.id) {
-      return
-    }
+  for (const crime of Object.values(crimesMap)) {
+    // Only count successful crimes executed within the time range
+    if (crime.status !== 'Successful') continue
     
-    const userId = slot.user.id.toString()
-    const joinedAt = slot.user.joined_at
-    const position = slot.position
-    const cpr = slot.checkpoint_pass_rate || 0
+    const executedAt = crime.executed_at || 0
+    // Use >= fromTimestamp and < toTimestamp to avoid double-counting at boundaries
+    if (executedAt < fromTimestamp || executedAt >= toTimestamp) continue
     
-    if (!members[userId]) {
-      const memberData = cprData.members?.[userId] || {}
-      members[userId] = {
-        userId: slot.user.id,
-        name: memberData.name || `Member ${userId}`,
-        tier: memberData.tier || 6,
-        crimesCount: 0,
-        timeSpent: 0,
-        positions: []
+    const slots = crime.slots || []
+    const memberSlot = slots.find(s => 
+      s.user && s.user.id && s.user.id.toString() === memberId.toString()
+    )
+    
+    if (memberSlot) {
+      const filledSlots = slots.filter(s => s.user).length
+      if (filledSlots > 0) {
+        // Calculate crime value
+        const crimeValue = (crime.rewards?.money || 0) + 
+                          (crime.item_reward_value || 0) - 
+                          (crime.item_cost_value || 0)
+        
+        // Apply faction cut FIRST, then split among members
+        const afterFactionCut = crimeValue * (1 - factionCutPercent)
+        const memberShare = afterFactionCut / filledSlots
+        
+        total += memberShare
       }
-    }
-    
-    const timeSpent = calculateTimeSpent(joinedAt, timeReference, from, to)
-    
-    members[userId].crimesCount++
-    members[userId].timeSpent += timeSpent
-    members[userId].positions.push({
-      difficulty: crime.difficulty,
-      position: position,
-      cpr: cpr
-    })
-  })
-}
-
-export function calculatePayoutsWithItems(crimesData, cprData, fromTimestamp, toTimestamp, tierConfig, customFactionCut = null) {
-  console.log('\n===========================================')
-  console.log('PAYOUT CALCULATION START')
-  console.log('===========================================')
-  console.log('Time thresholds:')
-  console.log('  - Full tickets (no penalty): >= 120 hours (432,000 seconds)')
-  console.log('  - Sliding penalty range: 48-120 hours (172,800 - 432,000 seconds)')
-  console.log('  - Full penalty ($0): < 48 hours (172,800 seconds)')
-  
-  if (!crimesData?.crimes || !cprData?.members) {
-    console.log('❌ Missing data')
-    return {
-      members: [],
-      totalMoneyReward: 0,
-      itemReward: 0,
-      itemCost: 0,
-      factionCut: 0,
-      factionCutPercent: 0,
-      memberPayout: 0,
-      participatingMembers: 0,
-      crimesProcessed: 0,
-      totalTimeSpent: 0
     }
   }
   
-  const members = {}
-  const itemTransactions = []
+  return Math.floor(total)
+}
+
+/**
+ * Main payout calculation function
+ * Works with data loaded from Supabase via payoutDataLoader.js
+ * 
+ * IMPORTANT: Uses >= fromTimestamp and < toTimestamp to avoid overlaps
+ * 
+ * @param {Object} crimesData - { crimes: { [crime_id]: crimeObject } }
+ * @param {Object} membersData - { members: { [member_id]: memberObject } }
+ * @param {number} fromTimestamp - Start of payout period (inclusive)
+ * @param {number} toTimestamp - End of payout period (exclusive for filtering, but use full range for time)
+ * @param {number} factionCutPercent - Faction cut as decimal (e.g., 0.20 for 20%)
+ * @returns {Object} Payout calculation results
+ */
+export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent = 0.20) {
+  console.log('\n===========================================')
+  console.log('PAYOUT CALCULATION START (Supabase)')
+  console.log('===========================================')
+  console.log('Time range:', new Date(fromTimestamp * 1000).toISOString(), 'to', new Date(toTimestamp * 1000).toISOString())
+  console.log('Faction cut:', (factionCutPercent * 100).toFixed(1) + '%')
+  
+  const crimes = crimesData?.crimes || {}
+  const members = membersData?.members || {}
+  
+  if (Object.keys(crimes).length === 0) {
+    console.log('No crimes data available')
+    return createEmptyResult()
+  }
+  
+  // Track participating members
+  const participatingMembers = {}
+  
+  // Track totals - ONLY for crimes executed within range
   let totalMoneyReward = 0
+  let totalItemReward = 0
+  let totalItemCost = 0
   let crimesProcessed = 0
+  const crimeIds = []
   
-  const dataFrom = fromTimestamp - (604800 * 3)
+  // Item details for display
+  const rewardItemDetails = []
+  const consumedItemDetails = []
   
-  console.log('Date range:', new Date(fromTimestamp * 1000), 'to', new Date(toTimestamp * 1000))
-  console.log('Total crimes in database:', Object.keys(crimesData.crimes).length)
+  // Crime statistics - ONLY for crimes executed within range
+  const crimesByDifficulty = {}
+  const crimesByStatus = { Successful: 0, Failed: 0, Planning: 0, Recruiting: 0 }
   
-  Object.entries(crimesData.crimes).forEach(([crimeId, crime]) => {
+  // Process each crime
+  for (const [crimeId, crime] of Object.entries(crimes)) {
     const status = crime.status
-    const createdAt = crime.created_at || 0
     const executedAt = crime.executed_at || 0
+    const createdAt = crime.created_at || 0
+    const difficulty = crime.difficulty || 1
     
-    if (createdAt > 0 && createdAt < dataFrom) {
-      return
+    // Determine time reference for this crime
+    let timeReference
+    if (status === 'Successful' || status === 'Failed' || status === 'Failure') {
+      timeReference = executedAt
+    } else {
+      timeReference = toTimestamp
     }
     
-    if (status === 'Successful') {
-      if (executedAt >= fromTimestamp && executedAt < toTimestamp) {
-        crimesProcessed++
-        
-        const moneyReward = crime.rewards?.money || 0
-        totalMoneyReward += moneyReward
-        
-        processItemOutcomes(crime, itemTransactions, crimeId)
-        processParticipantsFromSlots(crime, executedAt, fromTimestamp, toTimestamp, members, cprData)
-      } else if (executedAt >= fromTimestamp) {
-        processParticipantsFromSlots(crime, toTimestamp, fromTimestamp, toTimestamp, members, cprData)
+    // Check if crime was executed within our window
+    // Use >= fromTimestamp and < toTimestamp to avoid double-counting at boundaries
+    const inTimeWindow = executedAt >= fromTimestamp && executedAt < toTimestamp
+    
+    // Process successful crimes for rewards (only if in time window)
+    if (status === 'Successful' && inTimeWindow) {
+      crimesProcessed++
+      crimeIds.push(crimeId)
+      
+      totalMoneyReward += crime.rewards?.money || 0
+      totalItemReward += crime.item_reward_value || 0
+      totalItemCost += crime.item_cost_value || 0
+      
+      crimesByStatus.Successful++
+      
+      // Initialize difficulty tracking
+      if (!crimesByDifficulty[difficulty]) {
+        crimesByDifficulty[difficulty] = { success: 0, failed: 0, total: 0 }
       }
-    }
-    else if (status === 'Failure') {
-      if (executedAt >= fromTimestamp && executedAt < toTimestamp) {
-        processItemOutcomes(crime, itemTransactions, crimeId)
-        processParticipantsFromSlots(crime, executedAt, fromTimestamp, toTimestamp, members, cprData)
-      } else if (executedAt >= fromTimestamp) {
-        processParticipantsFromSlots(crime, toTimestamp, fromTimestamp, toTimestamp, members, cprData)
+      crimesByDifficulty[difficulty].success++
+      crimesByDifficulty[difficulty].total++
+      
+      // Collect reward item details
+      if (crime.reward_items && crime.reward_items.length > 0) {
+        for (const item of crime.reward_items) {
+          rewardItemDetails.push({
+            crimeId,
+            crimeName: crime.name,
+            itemId: item.item_id,
+            itemName: item.item_name,
+            quantity: item.quantity,
+            unitValue: item.unit_value || 0,
+            totalValue: (item.unit_value || 0) * (item.quantity || 1)
+          })
+        }
       }
+      
+      // Collect consumed item details
+      if (crime.required_items && crime.required_items.length > 0) {
+        for (const item of crime.required_items) {
+          if (item.was_consumed) {
+            consumedItemDetails.push({
+              crimeId,
+              crimeName: crime.name,
+              itemId: item.item_id,
+              itemName: item.item_name,
+              userId: item.user_id,
+              unitValue: item.unit_value || 0,
+              outcome: item.outcome
+            })
+          }
+        }
+      }
+    } else if ((status === 'Failed' || status === 'Failure') && inTimeWindow) {
+      crimeIds.push(crimeId)
+      crimesByStatus.Failed++
+      
+      if (!crimesByDifficulty[difficulty]) {
+        crimesByDifficulty[difficulty] = { success: 0, failed: 0, total: 0 }
+      }
+      crimesByDifficulty[difficulty].failed++
+      crimesByDifficulty[difficulty].total++
     }
-    else if (status === 'Planning' || status === 'Recruiting') {
-      processParticipantsFromSlots(crime, toTimestamp, fromTimestamp, toTimestamp, members, cprData)
+    // Note: Planning and Recruiting crimes are counted but not in time window stats
+    
+    // Process slots for time tracking (all crimes, not just successful ones)
+    const slots = crime.slots || []
+    
+    for (const slot of slots) {
+      if (!slot.user || !slot.user.id) continue
+      
+      const userId = slot.user.id.toString()
+      const joinedAt = slot.user.joined_at
+      
+      // Skip if joined after our time window
+      if (joinedAt > toTimestamp) continue
+      
+      // Get member data
+      const memberData = members[userId] || {}
+      
+      // Initialize member tracking
+      if (!participatingMembers[userId]) {
+        participatingMembers[userId] = {
+          userId: slot.user.id,
+          name: slot.user.name || memberData.name || `Member ${userId}`,
+          tier: memberData.tier || 6,
+          crimesCount: 0,
+          timeSpent: 0,
+          crimeIds: [],
+          positions: []
+        }
+      }
+      
+      // Calculate time spent in this crime within the payout window
+      const timeSpent = calculateTimeSpent(joinedAt, timeReference, fromTimestamp, toTimestamp)
+      
+      participatingMembers[userId].timeSpent += timeSpent
+      participatingMembers[userId].crimeIds.push(crimeId)
+      
+      // Only count as participated if crime is successful and in time window
+      if (status === 'Successful' && inTimeWindow) {
+        participatingMembers[userId].crimesCount++
+      }
+      
+      participatingMembers[userId].positions.push({
+        crimeId,
+        difficulty,
+        position: slot.position,
+        cpr: slot.checkpoint_pass_rate || 0,
+        status
+      })
     }
-  })
+  }
   
-  console.log('✅ Successful crimes processed:', crimesProcessed)
-  console.log('💰 Total money reward:', totalMoneyReward)
+  console.log('Crimes processed (successful in window):', crimesProcessed)
+  console.log('Total money reward:', totalMoneyReward)
+  console.log('Total item reward:', totalItemReward)
+  console.log('Total item cost:', totalItemCost)
+  console.log('Participating members:', Object.keys(participatingMembers).length)
   
-  const itemValues = calculateItemValues(itemTransactions)
+  // Calculate total pool after faction cut
+  const grossTotal = totalMoneyReward + totalItemReward - totalItemCost
+  const factionCut = Math.floor(grossTotal * factionCutPercent)
+  const memberPayoutTotal = grossTotal - factionCut
   
-  const factionCutPercent = customFactionCut !== null ? customFactionCut : 0.20
-  const memberPayoutTotal = (totalMoneyReward + itemValues.itemReward - itemValues.itemCost) * (1 - factionCutPercent)
-  const factionCut = totalMoneyReward * factionCutPercent
-  
-  const memberArray = Object.values(members)
-  
-  console.log('👥 Members found:', memberArray.length)
-  console.log('⏱️ Members with time > 0:', memberArray.filter(m => m.timeSpent > 0).length)
+  // Convert to array and calculate tickets/penalties
+  const memberArray = Object.values(participatingMembers)
   
   if (memberArray.length === 0) {
-    console.log('❌ No members found!')
-    return {
-      members: [],
-      totalMoneyReward,
-      itemReward: itemValues.itemReward,
-      itemCost: itemValues.itemCost,
-      netItemValue: itemValues.netItemValue,
-      factionCut,
-      factionCutPercent: factionCutPercent * 100,
-      memberPayout: memberPayoutTotal,
-      participatingMembers: 0,
-      payoutPerMember: 0,
-      crimesProcessed,
-      totalTimeSpent: 0
-    }
+    console.log('No participating members found')
+    return createEmptyResult()
   }
   
   const totalTimeSpent = memberArray.reduce((sum, m) => sum + m.timeSpent, 0)
-  console.log('⏱️ Total time spent:', totalTimeSpent, 'seconds')
-  
   const averageTime = totalTimeSpent / memberArray.length
-  console.log('⏱️ Average time per member:', averageTime, 'seconds (', (averageTime / 3600).toFixed(2), 'hours)')
   
-  // Calculate penalties based on absolute 120-hour threshold
-  memberArray.forEach(member => {
+  // Calculate tickets and penalties for each member
+  for (const member of memberArray) {
     const baseTickets = TIER_TICKETS[member.tier] || TIER_TICKETS[6]
     const sitOutPenalty = calculateSitOutPenalty(member.timeSpent, baseTickets)
     
     member.baseTickets = baseTickets
     member.sitOutPenalty = sitOutPenalty
-    member.adjustedTickets = baseTickets + sitOutPenalty
-  })
+    member.adjustedTickets = Math.max(0, baseTickets + sitOutPenalty)
+    
+    // Calculate theoretical payout (equal share of participated crimes AFTER faction cut)
+    member.theoreticalPayout = calculateTheoreticalPayout(
+      member.userId.toString(), 
+      crimes, 
+      fromTimestamp, 
+      toTimestamp, 
+      factionCutPercent
+    )
+  }
   
+  // Calculate total adjusted tickets
   const totalAdjustedTickets = memberArray.reduce((sum, m) => sum + m.adjustedTickets, 0)
-  console.log('🎫 Total adjusted tickets:', totalAdjustedTickets)
   
-  memberArray.forEach(member => {
-    member.sharePercent = member.adjustedTickets / totalAdjustedTickets
-    member.payout = Math.floor(member.sharePercent * memberPayoutTotal)
-  })
+  // Calculate share and payout for each member
+  for (const member of memberArray) {
+    if (totalAdjustedTickets > 0) {
+      member.sharePercent = member.adjustedTickets / totalAdjustedTickets
+      member.payout = Math.floor(member.sharePercent * memberPayoutTotal)
+    } else {
+      member.sharePercent = 0
+      member.payout = 0
+    }
+    
+    // Calculate time percentage
+    member.timePercent = totalTimeSpent > 0 ? (member.timeSpent / totalTimeSpent) * 100 : 0
+  }
   
+  // Sort by payout descending
   memberArray.sort((a, b) => b.payout - a.payout)
   
-  console.log('\n📊 Sample member results (first 5):')
-  memberArray.slice(0, 5).forEach(m => {
-    const hours = (m.timeSpent / 3600).toFixed(2)
-    const penalty = m.sitOutPenalty.toFixed(2)
-    console.log(`${m.name}: ${m.timeSpent}s (${hours}h), penalty: ${penalty}, ${m.crimesCount} crimes, $${m.payout.toLocaleString()}`)
-  })
+  // Calculate crime statistics
+  const totalCrimes = crimesByStatus.Successful + crimesByStatus.Failed
+  const successRate = totalCrimes > 0 ? (crimesByStatus.Successful / totalCrimes) * 100 : 0
   
-  console.log('\n===========================================')
-  console.log('PAYOUT CALCULATION COMPLETE')
+  console.log('Crime stats - Successful:', crimesByStatus.Successful, 'Failed:', crimesByStatus.Failed)
+  console.log('Success rate:', successRate.toFixed(1) + '%')
   console.log('===========================================\n')
   
   return {
     members: memberArray,
     totalMoneyReward,
-    itemReward: itemValues.itemReward,
-    itemCost: itemValues.itemCost,
-    netItemValue: itemValues.netItemValue,
+    totalItemReward,
+    totalItemCost,
+    grossTotal,
     factionCut,
     factionCutPercent: factionCutPercent * 100,
-    memberPayout: memberPayoutTotal,
+    memberPayoutTotal,
     participatingMembers: memberArray.length,
-    payoutPerMember: memberArray.length > 0 ? memberPayoutTotal / memberArray.length : 0,
+    payoutPerMember: memberArray.length > 0 ? Math.floor(memberPayoutTotal / memberArray.length) : 0,
     crimesProcessed,
+    crimeIds,
     totalTimeSpent,
     averageTime,
     totalAdjustedTickets,
@@ -415,24 +451,121 @@ export function calculatePayoutsWithItems(crimesData, cprData, fromTimestamp, to
     minTimeForAnyPayout: MIN_TIME_FOR_ANY_PAYOUT,
     windowStart: fromTimestamp,
     windowEnd: toTimestamp,
-    itemDetails: itemValues.itemDetails
+    // Crime statistics
+    crimeStats: {
+      successful: crimesByStatus.Successful,
+      failed: crimesByStatus.Failed,
+      planning: crimesByStatus.Planning,
+      recruiting: crimesByStatus.Recruiting,
+      total: totalCrimes,
+      successRate,
+      totalMoneyFromCrimes: totalMoneyReward,
+      byDifficulty: crimesByDifficulty
+    },
+    // Item details for display
+    rewardItemDetails,
+    consumedItemDetails
   }
 }
 
-// Format as raw seconds (no conversion)
-export function formatTimeSpent(seconds) {
-  return seconds
+/**
+ * Create empty result object
+ */
+function createEmptyResult() {
+  return {
+    members: [],
+    totalMoneyReward: 0,
+    totalItemReward: 0,
+    totalItemCost: 0,
+    grossTotal: 0,
+    factionCut: 0,
+    factionCutPercent: 20,
+    memberPayoutTotal: 0,
+    participatingMembers: 0,
+    payoutPerMember: 0,
+    crimesProcessed: 0,
+    crimeIds: [],
+    totalTimeSpent: 0,
+    averageTime: 0,
+    totalAdjustedTickets: 0,
+    minTimeForFullTickets: MIN_TIME_FOR_FULL_TICKETS,
+    minTimeForAnyPayout: MIN_TIME_FOR_ANY_PAYOUT,
+    windowStart: 0,
+    windowEnd: 0,
+    crimeStats: {
+      successful: 0,
+      failed: 0,
+      planning: 0,
+      recruiting: 0,
+      total: 0,
+      successRate: 0,
+      totalMoneyFromCrimes: 0,
+      byDifficulty: {}
+    },
+    rewardItemDetails: [],
+    consumedItemDetails: []
+  }
 }
 
-// Format currency with full value, no abbreviations
+/**
+ * Format currency with full value (no abbreviation)
+ * e.g., $2,020,221,000
+ */
 export function formatCurrency(amount) {
-  return `$${Math.floor(amount).toLocaleString()}`
+  if (amount === null || amount === undefined) return '$0'
+  return '$' + Math.floor(amount).toLocaleString()
 }
 
+/**
+ * Format currency short (with abbreviation for display where space is limited)
+ * e.g., $2.02B
+ */
+export function formatCurrencyShort(amount) {
+  if (amount === null || amount === undefined) return '$0'
+  
+  const absAmount = Math.abs(amount)
+  const sign = amount < 0 ? '-' : ''
+  
+  if (absAmount >= 1e9) {
+    return sign + '$' + (absAmount / 1e9).toFixed(2) + 'B'
+  } else if (absAmount >= 1e6) {
+    return sign + '$' + (absAmount / 1e6).toFixed(2) + 'M'
+  } else if (absAmount >= 1e3) {
+    return sign + '$' + (absAmount / 1e3).toFixed(1) + 'K'
+  }
+  return sign + '$' + Math.floor(absAmount).toLocaleString()
+}
+
+/**
+ * Format percentage
+ */
 export function formatPercent(value) {
-  return `${value.toFixed(2)}%`
+  if (value === null || value === undefined) return '0%'
+  return value.toFixed(2) + '%'
 }
 
+/**
+ * Format time in hours
+ */
+export function formatTimeHours(seconds) {
+  if (!seconds) return '0h'
+  const hours = seconds / 3600
+  return hours.toFixed(1) + 'h'
+}
+
+/**
+ * Format time in hours and minutes
+ */
+export function formatTimeHM(seconds) {
+  if (!seconds) return '0h 0m'
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  return `${hours}h ${minutes}m`
+}
+
+/**
+ * Export payouts to CSV
+ */
 export function exportPayoutsToCSV(members, metadata) {
   const headers = [
     'Member',
@@ -445,7 +578,8 @@ export function exportPayoutsToCSV(members, metadata) {
     'Adjusted Tickets',
     'OC Share %',
     'Crimes',
-    'OC Payout'
+    'OC Payout',
+    'Theoretical'
   ]
   
   const totalTime = metadata.totalTimeSpent || 1
@@ -461,52 +595,16 @@ export function exportPayoutsToCSV(members, metadata) {
     (m.adjustedTickets || 0).toFixed(4),
     ((m.sharePercent || 0) * 100).toFixed(6) + '%',
     m.crimesCount,
-    Math.floor(m.payout)
+    Math.floor(m.payout),
+    Math.floor(m.theoreticalPayout || 0)
   ])
   
   return [headers.join(','), ...rows.map(row => row.join(','))].join('\n')
 }
 
-export function exportPayoutsToJSON(members, metadata, savedBy = 'Unknown') {
-  const weekEnding = new Date(metadata.windowEnd * 1000).toISOString().split('T')[0]
-  const weekStart = new Date(metadata.windowStart * 1000).toISOString().split('T')[0]
-  
-  return {
-    week_ending: weekEnding,
-    week_start: weekStart,
-    saved_by: savedBy,
-    saved_at: new Date().toISOString(),
-    total_money_reward: metadata.totalMoneyReward,
-    faction_cut: metadata.factionCut,
-    faction_cut_percent: metadata.factionCutPercent,
-    member_payout: metadata.memberPayout,
-    item_reward: metadata.itemReward,
-    item_cost: metadata.itemCost,
-    net_item_value: metadata.netItemValue,
-    member_count: members.length,
-    crimes_processed: metadata.crimesProcessed,
-    average_time: metadata.averageTime,
-    min_time_for_full_tickets: metadata.minTimeForFullTickets,
-    min_time_for_any_payout: metadata.minTimeForAnyPayout,
-    total_adjusted_tickets: metadata.totalAdjustedTickets,
-    members: members.reduce((acc, m) => {
-      acc[m.userId] = {
-        member_id: m.userId,
-        member_name: m.name,
-        tier: m.tier,
-        base_tickets: m.baseTickets,
-        sit_out_penalty: m.sitOutPenalty,
-        adjusted_tickets: m.adjustedTickets,
-        share_percent: m.sharePercent,
-        time_spent: m.timeSpent,
-        crimes_count: m.crimesCount,
-        payout: m.payout
-      }
-      return acc
-    }, {})
-  }
-}
-
+/**
+ * Generate batch payout URL for Torn
+ */
 export function generateBatchPayoutURL(members) {
   const validMembers = members.filter(m => m.payout > 0)
   
@@ -518,4 +616,89 @@ export function generateBatchPayoutURL(members) {
   const amounts = validMembers.map(m => Math.floor(m.payout)).join(',')
   
   return `https://www.torn.com/factions.php?step=your#/tab=controls&batbal_uids=${uids}&batbal_amounts=${amounts}`
+}
+
+/**
+ * Parse payout CSV for import
+ */
+export function parsePayoutCSV(csvText, weekStart, weekEnd) {
+  const lines = csvText.trim().split('\n')
+  
+  if (lines.length < 2) {
+    throw new Error('CSV file is empty or invalid')
+  }
+  
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+  
+  // Find column indexes
+  const memberCol = headers.findIndex(h => h.includes('member'))
+  const idCol = headers.findIndex(h => h === 'id')
+  const timeCol = headers.findIndex(h => h.includes('time spent') && !h.includes('%'))
+  const timePercentCol = headers.findIndex(h => h.includes('time') && h.includes('%'))
+  const tierCol = headers.findIndex(h => h === 'tier')
+  const ticketsCol = headers.findIndex(h => h === 'tickets' || h.includes('base tickets'))
+  const penaltyCol = headers.findIndex(h => h.includes('penalty'))
+  const shareCol = headers.findIndex(h => h.includes('share'))
+  const payoutCol = headers.findIndex(h => h.includes('payout'))
+  const theoreticalCol = headers.findIndex(h => h.includes('theoretical'))
+  
+  if (idCol === -1 || payoutCol === -1) {
+    throw new Error('CSV must have ID and Payout columns')
+  }
+  
+  const members = []
+  let totalPayout = 0
+  let totalTime = 0
+  let totalTickets = 0
+  
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+    
+    const values = line.split(',').map(v => v.trim())
+    
+    const payoutStr = values[payoutCol]?.replace(/[$,"]/g, '') || '0'
+    const payout = parseInt(payoutStr) || 0
+    
+    if (payout === 0) continue
+    
+    const memberId = values[idCol]
+    if (!memberId || memberId === 'undefined') continue
+    
+    const timeSpent = timeCol !== -1 ? parseInt(values[timeCol]) || 0 : 0
+    const timePercent = timePercentCol !== -1 ? parseFloat(values[timePercentCol]?.replace('%', '')) || 0 : 0
+    const tier = tierCol !== -1 ? parseInt(values[tierCol]) || 6 : 6
+    const baseTickets = ticketsCol !== -1 ? parseInt(values[ticketsCol]) || 0 : 0
+    const penalty = penaltyCol !== -1 ? parseFloat(values[penaltyCol]) || 0 : 0
+    const sharePercent = shareCol !== -1 ? parseFloat(values[shareCol]?.replace('%', '')) || 0 : 0
+    const theoretical = theoreticalCol !== -1 ? parseInt(values[theoreticalCol]?.replace(/[$,"]/g, '')) || 0 : 0
+    
+    members.push({
+      member_id: memberId,
+      member_name: memberCol !== -1 ? values[memberCol] : `Member ${memberId}`,
+      tier,
+      base_tickets: baseTickets,
+      sit_out_penalty: penalty,
+      adjusted_tickets: baseTickets + penalty,
+      time_spent: timeSpent,
+      time_spent_percent: timePercent,
+      share_percent: sharePercent,
+      payout,
+      theoretical_payout: theoretical,
+      week_start: weekStart,
+      week_end: weekEnd
+    })
+    
+    totalPayout += payout
+    totalTime += timeSpent
+    totalTickets += (baseTickets + penalty)
+  }
+  
+  return {
+    members,
+    totalPayout,
+    totalTime,
+    totalTickets,
+    memberCount: members.length
+  }
 }

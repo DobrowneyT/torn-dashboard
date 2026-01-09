@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ViewStateProvider } from './contexts/ViewStateContext'
@@ -14,23 +15,112 @@ import PayoutsView from './views/PayoutsView'
 import PayoutManagement from './components/PayoutManagement'
 import TierManagement from './components/TierManagement'
 import InventoryManagement from './components/InventoryManagement'
-import DataImportUtility from './components/DataImportUtility'
+import DataManagement from './views/DataManagement'
+import AhView from './views/AhView'
+import { isAdmin } from './config'
 import { config } from './config'
 
-function AppContent() {
-  const { isAuthenticated, isLeadership, loading: authLoading } = useAuth()
+
+// Public layout for unauthenticated pages
+function PublicLayout({ children }) {
+  return (
+    <ThemeProvider>
+      <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
+        {children}
+      </div>
+    </ThemeProvider>
+  )
+}
+
+
+// Public Auction House page - no authentication required
+function PublicAhPage() {
+  return (
+    <PublicLayout>
+      <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+              Torn Auction House Database
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Historical auction listings data
+            </p>
+          </div>
+        </div>
+      </header>
+      <main className="max-w-7xl mx-auto px-4 py-6">
+        <AhView />
+      </main>
+    </PublicLayout>
+  )
+}
+
+
+// Protected dashboard content
+function DashboardContent() {
+  const { isAuthenticated, isLeadership, user, loading: authLoading } = useAuth()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('members')
   const [cprData, setCprData] = useState(null)
   const [crimesData, setCrimesData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  
+  // View As feature for admins - null means normal view
+  const [viewAsRole, setViewAsRole] = useState(null)
 
+  // Actual permissions (for functionality that must be restricted)
+  const userIsAdmin = isAdmin(user?.id)
+  
+  // Effective permissions (for UI display, affected by viewAsRole)
+  const effectiveIsAdmin = viewAsRole === null ? userIsAdmin : viewAsRole === 'admin'
+  const effectiveIsLeadership = viewAsRole === null 
+    ? isLeadership 
+    : (viewAsRole === 'leadership' || viewAsRole === 'admin')
+
+
+  // Navigation tabs
+  const tabs = [
+    { id: 'members', label: 'Member Tiers', roles: ['member', 'leadership'] },
+    { id: 'crimes', label: 'OC 2.0 History', roles: ['member', 'leadership'] },
+    { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
+    { id: 'payouts', label: 'OC 2.0 Payouts', roles: ['member', 'leadership'] },
+    { id: 'payout-mgmt', label: 'OC 2.0 Payout Management', roles: ['leadership'] },
+    { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
+    { id: 'inventory', label: 'Inventory', roles: ['leadership'] }
+  ]
+
+  const availableTabs = tabs.filter(tab => {
+    if (tab.roles.includes('leadership') && !tab.roles.includes('member')) {
+      return effectiveIsLeadership
+    }
+    return tab.roles.includes('member')
+  })
+
+
+  // Load data when authenticated
   useEffect(() => {
-    // Only load data if authenticated
     if (isAuthenticated) {
       loadData()
     }
   }, [isAuthenticated])
+
+
+  // Reset viewAsRole when user changes
+  useEffect(() => {
+    setViewAsRole(null)
+  }, [user?.id])
+
+
+  // Reset to members tab if current tab becomes unavailable due to viewAs change
+  useEffect(() => {
+    const tabIds = availableTabs.map(t => t.id)
+    if (!tabIds.includes(activeTab) && activeTab !== 'data-mgmt') {
+      setActiveTab('members')
+    }
+  }, [viewAsRole, availableTabs, activeTab])
+
 
   async function loadData() {
     try {
@@ -60,12 +150,13 @@ function AppContent() {
     }
   }
 
-  // Show login modal if not authenticated
+
+  // Show login if not authenticated
   if (!isAuthenticated && !authLoading) {
     return <LoginModal />
   }
 
-  // Show loading state while checking authentication
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -77,6 +168,7 @@ function AppContent() {
     )
   }
 
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -87,6 +179,7 @@ function AppContent() {
       </div>
     )
   }
+
 
   if (error) {
     return (
@@ -100,25 +193,42 @@ function AppContent() {
     )
   }
 
-  // Define navigation tabs based on user role
-  const tabs = [
-    { id: 'members', label: 'Member Tiers', roles: ['member', 'leadership'] },
-    { id: 'crimes', label: 'Crime History', roles: ['member', 'leadership'] },
-    { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
-    { id: 'payouts', label: 'Payout History', roles: ['member', 'leadership'] },
-    { id: 'payout-mgmt', label: 'Payout Management', roles: ['leadership'] },
-    { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
-    { id: 'inventory', label: 'Inventory', roles: ['leadership'] },
-    { id: 'data-import', label: 'Data Import', roles: ['leadership'] }  
-  ]
 
-  const availableTabs = tabs.filter(tab => 
-    tab.roles.includes('member') || (isLeadership && tab.roles.includes('leadership'))
-  )
+  const handleNavigate = (tab) => {
+    if (tab === 'ah') {
+      navigate('/ah')
+    } else {
+      setActiveTab(tab)
+    }
+  }
+
 
   return (
     <div className="min-h-screen">
-      <Header />
+      <Header 
+        onNavigate={handleNavigate} 
+        viewAsRole={viewAsRole}
+        setViewAsRole={setViewAsRole}
+        canViewAs={userIsAdmin}
+      />
+      
+      {/* View As indicator banner */}
+      {viewAsRole && (
+        <div className="bg-yellow-100 dark:bg-yellow-900/30 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <span className="text-sm text-yellow-800 dark:text-yellow-200">
+              Viewing as: <strong className="capitalize">{viewAsRole}</strong>
+            </span>
+            <button
+              onClick={() => setViewAsRole(null)}
+              className="text-sm text-yellow-800 dark:text-yellow-200 hover:underline"
+            >
+              Exit View As
+            </button>
+          </div>
+        </div>
+      )}
+      
       <div className="max-w-7xl mx-auto px-4 py-6">
         <StatsOverview cprData={cprData} crimesData={crimesData} />
         <Navigation 
@@ -127,6 +237,7 @@ function AppContent() {
           tabs={availableTabs}
         />
         <div className="mt-6">
+          {/* Member-accessible views */}
           <ProtectedRoute>
             {activeTab === 'members' && <MembersView cprData={cprData} crimesData={crimesData} />}
             {activeTab === 'crimes' && <CrimesView crimesData={crimesData} />}
@@ -134,26 +245,47 @@ function AppContent() {
             {activeTab === 'payouts' && <PayoutsView cprData={cprData} crimesData={crimesData} />}
           </ProtectedRoute>
 
+          {/* Leadership-only views */}
           <ProtectedRoute requireLeadership={true}>
             {activeTab === 'payout-mgmt' && <PayoutManagement cprData={cprData} crimesData={crimesData} />}
             {activeTab === 'tier-mgmt' && <TierManagement cprData={cprData} />}
             {activeTab === 'inventory' && <InventoryManagement />}
-            {activeTab === 'data-import' && <DataImportUtility />}
           </ProtectedRoute>
+
+          {/* Admin-only Data Management */}
+          {userIsAdmin && activeTab === 'data-mgmt' && <DataManagement />}
         </div>
       </div>
     </div>
   )
 }
 
-export default function App() {
+
+// Protected dashboard wrapper
+function ProtectedDashboard() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <ViewStateProvider>
-          <AppContent />
+          <DashboardContent />
         </ViewStateProvider>
       </AuthProvider>
     </ThemeProvider>
+  )
+}
+
+
+// Main App with routing
+export default function App() {
+  return (
+    <HashRouter>
+      <Routes>
+        {/* Public route - no authentication */}
+        <Route path="/ah" element={<PublicAhPage />} />
+        
+        {/* Protected routes - require authentication */}
+        <Route path="/*" element={<ProtectedDashboard />} />
+      </Routes>
+    </HashRouter>
   )
 }

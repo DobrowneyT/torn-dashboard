@@ -5,21 +5,30 @@ export const config = {
     inventoryData: import.meta.env.VITE_INVENTORY_DATA_URL || '/torn-forge-oc-system/data/inventory_database.json',
     pricingHistory: import.meta.env.VITE_PRICING_HISTORY_URL || '/torn-forge-oc-system/data/pricing_history.json',
   },
+  supabase: {
+    url: import.meta.env.VITE_SUPABASE_URL,
+    anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+  },
   faction: {
     name: "The Next Level - Forge",
     tag: "TNL-F",
     id: import.meta.env.VITE_FACTION_ID || "10739",
   },
-  // Custom leadership list - add Torn user IDs of users who should have leadership access
-  // These users will have access to Payout Management, Tier Management, and Inventory Management
-  // regardless of their official faction position
-  leadershipUserIds: [
-    2250591, // MonChoon
-    2749598, // Uncensored
-    2264192, // McGummy
-    2407528, // DiabolicPickles
-    2932241, // Marnix0126
-    2015160, // Andrew_616
+
+  // Admin/Data Management permissions
+  admins: [
+    '2250591', // MonChoon
+    // Add other admin user IDs here
+  ],
+  
+  // Leadership permissions 
+  leadership: [
+    '2250591', // MonChoon
+    '2749598', // Uncensored
+    '2264192', // McGummy
+    '2407528', // DiabolicPickles
+    '2932241', // Marnix0126
+    '2015160', // Andrew_616
   ],
   // Crime items that are consumed during organized crimes
   crimeItemIds: [
@@ -116,4 +125,14 @@ export const config = {
   payoutTickets: {
     1: 40, 2: 30, 3: 15, 4: 7, 5: 3, 6: 2
   },
+}
+
+// Helper function to check if user is admin
+export function isAdmin(userId) {
+  return config.admins.includes(String(userId))
+}
+
+// Helper function to check if user is leader
+export function isLeader(userId) {
+  return config.leadership.includes(String(userId))
 }

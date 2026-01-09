@@ -1,8 +1,9 @@
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
+import SettingsDropdown from '../components/SettingsDropdown'
 import { config } from '../config'
 
-export default function Header() {
+export default function Header({ onNavigate, viewAsRole, setViewAsRole, canViewAs }) {
   const { theme, toggleTheme } = useTheme()
   const { user, logout, isLeadership } = useAuth()
 
@@ -13,12 +14,11 @@ export default function Header() {
           <div>
             <h1 className="text-3xl font-bold">Torn Forge OC Dashboard</h1>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              {config.faction.name} • Performance Tracking
+              {config.faction.name} - Performance Tracking
             </p>
           </div>
           
           <div className="flex items-center gap-4">
-            {/* User Info */}
             {user && (
               <div className="hidden md:block text-right">
                 <div className="font-semibold text-sm">{user.name}</div>
@@ -33,20 +33,15 @@ export default function Header() {
               </div>
             )}
 
-            {/* Logout Button */}
             {user && (
-              <button
-                onClick={logout}
-                className="p-2 rounded-lg border border-gray-300 dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-                title="Logout"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-              </button>
+              <SettingsDropdown 
+                onNavigate={onNavigate}
+                viewAsRole={viewAsRole}
+                setViewAsRole={setViewAsRole}
+                canViewAs={canViewAs}
+              />
             )}
 
-            {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg border border-gray-300 dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700"
