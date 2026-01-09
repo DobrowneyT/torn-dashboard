@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback, Fragment } from 'react'
+import { useEffect, useState, useCallback, Fragment } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { config } from '../config'
 
@@ -9,9 +9,57 @@ const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null
 
-// Item type options - must match exactly what's in the database
-const ITEM_TYPES = [
-  { value: '', label: 'All Types' },
+// Item ID to Category mapping
+const ITEM_CATEGORIES = {
+  melee: new Set([
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 110, 111, 146, 147, 170, 173, 217, 224, 227,
+    234, 235, 236, 237, 238, 245, 247, 250, 251, 289, 290, 291, 292, 346, 359, 360,
+    387, 391, 395, 397, 400, 401, 402, 438, 439, 440, 539, 599, 600, 604, 605, 614,
+    615, 632, 790, 792, 805, 832, 839, 846, 850, 871, 1053, 1055, 1158, 1159, 1231,
+    1255, 1257
+  ]),
+  primary: new Set([
+    22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 63, 76, 98, 100, 108, 174, 219, 223, 225,
+    228, 231, 232, 241, 249, 252, 382, 398, 399, 484, 487, 488, 545, 546, 547, 548,
+    549, 612, 830, 837, 874, 1155, 1156, 1157
+  ]),
+  secondary: new Set([
+    12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 99, 109, 175, 177, 189, 218, 230, 233,
+    240, 243, 244, 248, 253, 254, 255, 388, 393, 483, 485, 486, 489, 490, 613, 831,
+    838, 844, 1152, 1153, 1154
+  ]),
+  armor: new Set([
+    32, 33, 34, 49, 50, 176, 178, 332, 333, 334, 348, 538, 640, 641, 642, 643, 644,
+    645, 646, 647, 648, 649, 650, 651, 652, 653, 654, 655, 656, 657, 658, 659, 660,
+    661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672, 673, 674, 675, 676,
+    677, 678, 679, 680, 681, 682, 683, 684, 848, 1164, 1165, 1166, 1167, 1168, 1174,
+    1307, 1308, 1309, 1310, 1311, 1355, 1356, 1357, 1358, 1359
+  ])
+}
+
+// Get category for an item ID
+function getCategoryForItem(itemId) {
+  if (ITEM_CATEGORIES.melee.has(itemId)) return 'Melee'
+  if (ITEM_CATEGORIES.primary.has(itemId)) return 'Primary'
+  if (ITEM_CATEGORIES.secondary.has(itemId)) return 'Secondary'
+  if (ITEM_CATEGORIES.armor.has(itemId)) return 'Armor'
+  return 'Unknown'
+}
+
+// Get all item IDs for a category
+function getItemIdsForCategory(category) {
+  switch (category) {
+    case 'Melee': return Array.from(ITEM_CATEGORIES.melee)
+    case 'Primary': return Array.from(ITEM_CATEGORIES.primary)
+    case 'Secondary': return Array.from(ITEM_CATEGORIES.secondary)
+    case 'Armor': return Array.from(ITEM_CATEGORIES.armor)
+    default: return []
+  }
+}
+
+// Category options for filter
+const CATEGORY_OPTIONS = [
+  { value: '', label: 'All Categories' },
   { value: 'Primary', label: 'Primary Weapons' },
   { value: 'Secondary', label: 'Secondary Weapons' },
   { value: 'Melee', label: 'Melee Weapons' },
@@ -21,9 +69,9 @@ const ITEM_TYPES = [
 // Rarity options
 const RARITIES = [
   { value: '', label: 'All Rarities' },
-  { value: 'yellow', label: 'Yellow', color: 'text-yellow-500' },
-  { value: 'orange', label: 'Orange', color: 'text-orange-500' },
-  { value: 'red', label: 'Red', color: 'text-red-500' },
+  { value: 'yellow', label: 'Yellow' },
+  { value: 'orange', label: 'Orange' },
+  { value: 'red', label: 'Red' },
 ]
 
 // Format price with commas
@@ -46,15 +94,15 @@ function formatDate(ts) {
 // Debounce hook for search input
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value)
-  
+
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedValue(value)
     }, delay)
-    
+
     return () => clearTimeout(handler)
   }, [value, delay])
-  
+
   return debouncedValue
 }
 
@@ -82,10 +130,10 @@ function getRarityClass(rarity) {
 // Stats display component
 function StatsDisplay({ stats }) {
   if (!stats) return <span className="text-gray-400">-</span>
-  
+
   const parsed = parseJson(stats)
   if (!parsed) return <span className="text-gray-400">-</span>
-  
+
   return (
     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
       {parsed.damage !== undefined && (
@@ -107,12 +155,12 @@ function StatsDisplay({ stats }) {
 // Bonuses display component
 function BonusesDisplay({ bonuses }) {
   if (!bonuses) return <span className="text-gray-400">None</span>
-  
+
   const parsed = parseJson(bonuses)
   if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
     return <span className="text-gray-400">None</span>
   }
-  
+
   return (
     <div className="space-y-1">
       {parsed.map((bonus, idx) => (
@@ -127,10 +175,10 @@ function BonusesDisplay({ bonuses }) {
 }
 
 // Expanded row component
-function ExpandedRow({ row }) {
+function ExpandedRow({ row, category }) {
   return (
     <tr className="bg-gray-50 dark:bg-slate-700/30">
-      <td colSpan={9} className="px-4 py-4">
+      <td colSpan={10} className="px-4 py-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Item Info */}
           <div>
@@ -138,17 +186,17 @@ function ExpandedRow({ row }) {
             <div className="space-y-1 text-sm">
               <div><span className="text-gray-500">Item ID:</span> <span className="font-mono">{row.item_id}</span></div>
               <div><span className="text-gray-500">UID:</span> <span className="font-mono">{row.item_uid}</span></div>
-              <div><span className="text-gray-500">Sub-type:</span> {row.item_sub_type || '-'}</div>
+              <div><span className="text-gray-500">Category:</span> {category}</div>
               <div><span className="text-gray-500">Rarity:</span> <span className={getRarityClass(row.item_rarity)}>{row.item_rarity || 'None'}</span></div>
             </div>
           </div>
-          
+
           {/* Stats */}
           <div>
             <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Stats</h4>
             <StatsDisplay stats={row.item_stats} />
           </div>
-          
+
           {/* Bonuses */}
           <div>
             <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Bonuses</h4>
@@ -170,7 +218,7 @@ function getQuality(row) {
 export default function AhView() {
   // Filter state
   const [filters, setFilters] = useState({
-    itemType: '',
+    category: '',
     itemSearch: '',
     minPrice: '',
     maxPrice: '',
@@ -178,27 +226,23 @@ export default function AhView() {
     dateFrom: '',
     dateTo: '',
   })
-  
+
   // Data state
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(false)
   const [initialLoad, setInitialLoad] = useState(true)
   const [error, setError] = useState(null)
   const [totalCount, setTotalCount] = useState(0)
-  
-  // Stats state
-  const [stats, setStats] = useState({ total: 0, avg: null, min: null, max: null, median: null })
-  const [statsLoading, setStatsLoading] = useState(false)
-  
+
   // Table state
   const [sortColumn, setSortColumn] = useState('timestamp')
   const [sortDirection, setSortDirection] = useState('desc')
   const [currentPage, setCurrentPage] = useState(1)
   const [perPage, setPerPage] = useState(100)
-  
+
   // Expanded rows
   const [expandedRows, setExpandedRows] = useState(new Set())
-  
+
   // Debounce search input
   const debouncedSearch = useDebounce(filters.itemSearch, 300)
 
@@ -206,12 +250,16 @@ export default function AhView() {
   useEffect(() => {
     setCurrentPage(1)
     setExpandedRows(new Set())
-  }, [filters.itemType, debouncedSearch, filters.minPrice, filters.maxPrice, filters.rarity, filters.dateFrom, filters.dateTo])
+  }, [filters.category, debouncedSearch, filters.minPrice, filters.maxPrice, filters.rarity, filters.dateFrom, filters.dateTo])
 
   // Build base query with filters
   const applyFilters = useCallback((query) => {
-    if (filters.itemType) {
-      query = query.eq('item_type', filters.itemType)
+    // Category filter - uses item_id IN clause
+    if (filters.category) {
+      const itemIds = getItemIdsForCategory(filters.category)
+      if (itemIds.length > 0) {
+        query = query.in('item_id', itemIds)
+      }
     }
 
     if (debouncedSearch.trim()) {
@@ -248,7 +296,7 @@ export default function AhView() {
     }
 
     return query
-  }, [filters.itemType, debouncedSearch, filters.minPrice, filters.maxPrice, filters.rarity, filters.dateFrom, filters.dateTo])
+  }, [filters.category, debouncedSearch, filters.minPrice, filters.maxPrice, filters.rarity, filters.dateFrom, filters.dateTo])
 
   // Fetch paginated data
   const fetchData = useCallback(async () => {
@@ -289,78 +337,10 @@ export default function AhView() {
     }
   }, [applyFilters, currentPage, perPage, sortColumn, sortDirection])
 
-  // Fetch stats (separate query to get aggregates)
-  const fetchStats = useCallback(async () => {
-    if (!supabase) return
-
-    setStatsLoading(true)
-
-    try {
-      // First get count
-      let countQuery = supabase
-        .from('auction_listings')
-        .select('*', { count: 'exact', head: true })
-      
-      countQuery = applyFilters(countQuery)
-      const { count, error: countError } = await countQuery
-      
-      if (countError) throw countError
-
-      if (!count || count === 0) {
-        setStats({ total: 0, avg: null, min: null, max: null, median: null })
-        setStatsLoading(false)
-        return
-      }
-
-      // For stats, we need to fetch prices - limit to reasonable amount for calculation
-      let priceQuery = supabase
-        .from('auction_listings')
-        .select('price')
-      
-      priceQuery = applyFilters(priceQuery)
-      
-      // Fetch up to 50000 prices for stats calculation
-      const { data: priceData, error: priceError } = await priceQuery.limit(50000)
-      
-      if (priceError) throw priceError
-
-      const prices = (priceData || []).map(r => r.price).filter(p => p > 0)
-      
-      if (!prices.length) {
-        setStats({ total: count, avg: null, min: null, max: null, median: null })
-        setStatsLoading(false)
-        return
-      }
-
-      const sum = prices.reduce((a, b) => a + b, 0)
-      const sorted = [...prices].sort((a, b) => a - b)
-      const median = sorted.length % 2 === 0
-        ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
-        : sorted[Math.floor(sorted.length / 2)]
-
-      setStats({
-        total: count,
-        avg: Math.round(sum / prices.length),
-        min: Math.min(...prices),
-        max: Math.max(...prices),
-        median: Math.round(median),
-      })
-    } catch (err) {
-      console.error('Error fetching stats:', err)
-    } finally {
-      setStatsLoading(false)
-    }
-  }, [applyFilters])
-
   // Load data on mount and when dependencies change
   useEffect(() => {
     fetchData()
   }, [fetchData])
-
-  // Load stats when filters change
-  useEffect(() => {
-    fetchStats()
-  }, [fetchStats])
 
   // Handle column sort
   function handleSort(col) {
@@ -381,7 +361,7 @@ export default function AhView() {
   // Clear all filters
   function clearFilters() {
     setFilters({
-      itemType: '',
+      category: '',
       itemSearch: '',
       minPrice: '',
       maxPrice: '',
@@ -426,7 +406,7 @@ export default function AhView() {
             </button>
           )}
         </div>
-        
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Item Search */}
           <div>
@@ -441,23 +421,23 @@ export default function AhView() {
               placeholder="Search by name or ID..."
             />
           </div>
-          
-          {/* Item Type */}
+
+          {/* Category */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Item Type
+              Category
             </label>
             <select
               className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              value={filters.itemType}
-              onChange={e => handleFilterChange('itemType', e.target.value)}
+              value={filters.category}
+              onChange={e => handleFilterChange('category', e.target.value)}
             >
-              {ITEM_TYPES.map(type => (
-                <option key={type.value} value={type.value}>{type.label}</option>
+              {CATEGORY_OPTIONS.map(cat => (
+                <option key={cat.value} value={cat.value}>{cat.label}</option>
               ))}
             </select>
           </div>
-          
+
           {/* Rarity */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -473,7 +453,7 @@ export default function AhView() {
               ))}
             </select>
           </div>
-          
+
           {/* Price Range */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -496,7 +476,7 @@ export default function AhView() {
               />
             </div>
           </div>
-          
+
           {/* Date From */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -509,7 +489,7 @@ export default function AhView() {
               onChange={e => handleFilterChange('dateFrom', e.target.value)}
             />
           </div>
-          
+
           {/* Date To */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -522,40 +502,6 @@ export default function AhView() {
               onChange={e => handleFilterChange('dateTo', e.target.value)}
             />
           </div>
-        </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 p-4 text-center">
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {statsLoading ? '...' : stats.total.toLocaleString()}
-          </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">Total Listings</div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 p-4 text-center">
-          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-            {statsLoading ? '...' : (stats.avg ? formatPrice(stats.avg) : '-')}
-          </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">Average Price</div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {statsLoading ? '...' : (stats.median ? formatPrice(stats.median) : '-')}
-          </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">Median Price</div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 p-4 text-center">
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {statsLoading ? '...' : (stats.min ? formatPrice(stats.min) : '-')}
-          </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">Min Price</div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 p-4 text-center">
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {statsLoading ? '...' : (stats.max ? formatPrice(stats.max) : '-')}
-          </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">Max Price</div>
         </div>
       </div>
 
@@ -609,7 +555,7 @@ export default function AhView() {
                   { key: 'timestamp', label: 'Date' },
                   { key: 'item_name', label: 'Item' },
                   { key: 'item_uid', label: 'UID' },
-                  { key: 'item_type', label: 'Type' },
+                  { key: 'item_id', label: 'Category' },
                   { key: 'price', label: 'Price' },
                   { key: 'bids', label: 'Bids' },
                   { key: 'seller_name', label: 'Seller' },
@@ -669,10 +615,11 @@ export default function AhView() {
                   const quality = getQuality(row)
                   const isExpanded = expandedRows.has(row.auction_id)
                   const hasDetails = row.item_stats || row.item_bonuses
-                  
+                  const category = getCategoryForItem(row.item_id)
+
                   return (
                     <Fragment key={row.auction_id}>
-                      <tr 
+                      <tr
                         className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${hasDetails ? 'cursor-pointer' : ''} ${isExpanded ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                         onClick={() => hasDetails && toggleExpanded(row.auction_id)}
                       >
@@ -693,7 +640,7 @@ export default function AhView() {
                           {row.item_uid || '-'}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                          {row.item_type || '-'}
+                          {category}
                         </td>
                         <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
                           {formatPrice(row.price)}
@@ -711,7 +658,7 @@ export default function AhView() {
                           {quality || '-'}
                         </td>
                       </tr>
-                      {isExpanded && <ExpandedRow row={row} />}
+                      {isExpanded && <ExpandedRow row={row} category={category} />}
                     </Fragment>
                   )
                 })
@@ -776,9 +723,9 @@ export default function AhView() {
             </code>
           </div>
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Filter by item type:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Filter by item ID:</p>
             <code className="block text-xs bg-gray-100 dark:bg-slate-900 p-2 rounded overflow-x-auto text-gray-800 dark:text-gray-200">
-              GET https://uyqkwxopbsoeukfbvsap.supabase.co/rest/v1/auction_listings?item_type=eq.Primary
+              GET https://uyqkwxopbsoeukfbvsap.supabase.co/rest/v1/auction_listings?item_id=eq.27
             </code>
           </div>
           <div>
