@@ -8978,7 +8978,7 @@
     },
     "2927319": {
       "name": "Member_2927319",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Looter": 97,
@@ -9012,11 +9012,11 @@
         }
       },
       "last_scraped": "2026-01-09T13:52:19.582486",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-01-09T13:52:22.527179"
     },
     "3194951": {
       "name": "Member_3194951",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Looter": 97,
@@ -9050,11 +9050,11 @@
         }
       },
       "last_scraped": "2026-01-09T13:52:19.885075",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-01-09T13:52:22.527210"
     },
     "3187170": {
       "name": "Member_3187170",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Looter": 97,
@@ -9088,11 +9088,11 @@
         }
       },
       "last_scraped": "2026-01-09T13:52:20.306962",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-01-09T13:52:22.527233"
     },
     "3323412": {
       "name": "Member_3323412",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Looter": 96,
@@ -9126,11 +9126,11 @@
         }
       },
       "last_scraped": "2026-01-09T13:52:20.629850",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-01-09T13:52:22.527252"
     },
     "3352315": {
       "name": "Member_3352315",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Looter": 96,
@@ -9164,12 +9164,12 @@
         }
       },
       "last_scraped": "2026-01-09T13:52:20.929402",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-01-09T13:52:22.527296"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-01-09T13:52:20.929489",
+    "last_updated": "2026-01-09T13:52:22.527451",
     "total_members": 149
   }
 }
