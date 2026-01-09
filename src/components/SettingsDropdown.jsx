@@ -2,17 +2,18 @@ import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { isAdmin } from '../config'
 
-export default function SettingsDropdown({ onNavigate }) {
+export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole, canViewAs }) {
   const { user, logout } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [showApiKeyModal, setShowApiKeyModal] = useState(false)
+  const [showViewAsMenu, setShowViewAsMenu] = useState(false)
   const dropdownRef = useRef(null)
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setIsOpen(false)
+        setShowViewAsMenu(false)
       }
     }
     
@@ -37,6 +38,14 @@ export default function SettingsDropdown({ onNavigate }) {
     setIsOpen(false)
   }
 
+  const handleViewAsSelect = (role) => {
+    if (setViewAsRole) {
+      setViewAsRole(role)
+    }
+    setShowViewAsMenu(false)
+    setIsOpen(false)
+  }
+
   const userIsAdmin = isAdmin(user?.id)
 
   return (
@@ -47,7 +56,6 @@ export default function SettingsDropdown({ onNavigate }) {
           className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
           aria-label="Settings"
         >
-          {/* Hamburger Menu Icon */}
           <svg 
             className="w-6 h-6 text-gray-700 dark:text-gray-300" 
             fill="none" 
@@ -63,7 +71,6 @@ export default function SettingsDropdown({ onNavigate }) {
           </svg>
         </button>
 
-        {/* Dropdown Menu */}
         {isOpen && (
           <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden z-50">
             {/* User Info */}
@@ -93,6 +100,71 @@ export default function SettingsDropdown({ onNavigate }) {
                 Change API Key
               </button>
 
+              {/* View As option - only for admins */}
+              {canViewAs && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowViewAsMenu(!showViewAsMenu)}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center justify-between"
+                  >
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      View As
+                    </span>
+                    <svg className={`w-4 h-4 transition-transform ${showViewAsMenu ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                  
+                  {showViewAsMenu && (
+                    <div className="bg-gray-50 dark:bg-slate-700/50 py-1">
+                      <button
+                        onClick={() => handleViewAsSelect(null)}
+                        className={`w-full text-left px-8 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-600 flex items-center gap-2 ${
+                          viewAsRole === null ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
+                        }`}
+                      >
+                        {viewAsRole === null && (
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                        <span className={viewAsRole === null ? '' : 'ml-6'}>Normal (Admin)</span>
+                      </button>
+                      <button
+                        onClick={() => handleViewAsSelect('leadership')}
+                        className={`w-full text-left px-8 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-600 flex items-center gap-2 ${
+                          viewAsRole === 'leadership' ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
+                        }`}
+                      >
+                        {viewAsRole === 'leadership' && (
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                        <span className={viewAsRole === 'leadership' ? '' : 'ml-6'}>Leadership</span>
+                      </button>
+                      <button
+                        onClick={() => handleViewAsSelect('member')}
+                        className={`w-full text-left px-8 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-600 flex items-center gap-2 ${
+                          viewAsRole === 'member' ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
+                        }`}
+                      >
+                        {viewAsRole === 'member' && (
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                        <span className={viewAsRole === 'member' ? '' : 'ml-6'}>Member</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {userIsAdmin && (
                 <button
                   onClick={handleDataManagement}
@@ -121,7 +193,6 @@ export default function SettingsDropdown({ onNavigate }) {
         )}
       </div>
 
-      {/* API Key Modal */}
       {showApiKeyModal && (
         <ApiKeyModal onClose={() => setShowApiKeyModal(false)} />
       )}
@@ -130,8 +201,8 @@ export default function SettingsDropdown({ onNavigate }) {
 }
 
 function ApiKeyModal({ onClose }) {
-  const { user, updateApiKey } = useAuth()
-  const [apiKey, setApiKey] = useState(user?.apiKey || '')
+  const { user, login } = useAuth()
+  const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -140,16 +211,13 @@ function ApiKeyModal({ onClose }) {
       setSaving(true)
       setError(null)
       
-      // Verify API key works
-      const response = await fetch(`https://api.torn.com/v2/user/${user.id}?key=${apiKey}`)
-      const data = await response.json()
+      // Re-login with new API key
+      const result = await login(apiKey)
       
-      if (data.error) {
-        throw new Error(data.error.error || 'Invalid API key')
+      if (!result.success) {
+        throw new Error(result.error || 'Invalid API key')
       }
       
-      // Save to auth context
-      updateApiKey(apiKey)
       onClose()
     } catch (err) {
       setError(err.message)
@@ -178,7 +246,7 @@ function ApiKeyModal({ onClose }) {
               placeholder="Enter your Torn API key"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Get your API key from Torn Settings → API
+              Get your API key from Torn Settings &gt; API
             </p>
           </div>
 

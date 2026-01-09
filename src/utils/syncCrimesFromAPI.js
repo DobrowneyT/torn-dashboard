@@ -1,6 +1,6 @@
 /**
  * Sync crimes from Torn API to Supabase
- * Can be called from frontend to get latest crime data
+ * Handles the API response correctly (array format) and populates item tables
  */
 
 import { supabase } from './supabase'
@@ -13,7 +13,6 @@ import { supabase } from './supabase'
  */
 export async function syncCrimesFromAPI(apiKey, factionId) {
   try {
-    // Fetch crimes from Torn API
     const response = await fetch(
       `https://api.torn.com/v2/faction/${factionId}/crimes?key=${apiKey}`
     )
@@ -28,17 +27,20 @@ export async function syncCrimesFromAPI(apiKey, factionId) {
       throw new Error(data.error.error || 'API error')
     }
     
-    const crimes = data.crimes || {}
-    const crimeIds = Object.keys(crimes)
+    // API returns crimes as an array, not an object
+    const crimesArray = data.crimes || []
     
     let crimesUpdated = 0
     let slotsUpdated = 0
+    let rewardItemsUpdated = 0
+    let requiredItemsUpdated = 0
     const errors = []
     
-    // Process each crime
-    for (const [crimeId, crimeData] of Object.entries(crimes)) {
+    for (const crimeData of crimesArray) {
       try {
-        // Upsert crime
+        const crimeId = crimeData.id.toString()
+        
+        // Upsert crime record
         const { error: crimeError } = await supabase
           .from('crimes')
           .upsert({
@@ -56,7 +58,6 @@ export async function syncCrimesFromAPI(apiKey, factionId) {
             filled_slots: crimeData.filled_slots || 0,
             rewards_money: crimeData.rewards?.money || 0,
             rewards_respect: crimeData.rewards?.respect || 0,
-            rewards_items: crimeData.rewards?.items ? JSON.stringify(crimeData.rewards.items) : null,
             last_updated: new Date().toISOString(),
             first_seen: crimeData.first_seen || new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -84,24 +85,17 @@ export async function syncCrimesFromAPI(apiKey, factionId) {
             position_id: slot.position_id,
             position_number: slot.position_number,
             checkpoint_pass_rate: slot.checkpoint_pass_rate,
-            
-            // User info
             user_id: user.id?.toString() || null,
             user_name: user.name || null,
             joined_at: user.joined_at || null,
             user_outcome: user.outcome || null,
             user_progress: user.progress || null,
-            
-            // Item requirement
             item_requirement_id: itemReq.id?.toString() || null,
             item_requirement_name: itemReq.name || null,
             item_requirement_is_reusable: itemReq.is_reusable || false,
             item_requirement_is_available: itemReq.is_available || false,
-            
-            // Item outcome
             item_outcome_id: itemOutcome.item_id?.toString() || null,
             item_outcome_outcome: itemOutcome.outcome || null,
-            
             updated_at: new Date().toISOString()
           }
         })
@@ -120,16 +114,133 @@ export async function syncCrimesFromAPI(apiKey, factionId) {
           }
         }
         
+        // Process REWARD items (from rewards.items array)
+        const rewardItems = crimeData.rewards?.items || []
+        for (const rewardItem of rewardItems) {
+          const itemId = rewardItem.id?.toString()
+          if (!itemId) continue
+          
+          // Check if record already exists
+          const { data: existing } = await supabase
+            .from('crime_reward_items')
+            .select('id, unit_value')
+            .eq('crime_id', crimeId)
+            .eq('item_id', itemId)
+            .single()
+          
+          if (!existing) {
+            // Create new record with value = 0
+            const { error: rewardError } = await supabase
+              .from('crime_reward_items')
+              .insert({
+                crime_id: crimeId,
+                item_id: itemId,
+                item_name: rewardItem.name || null,
+                quantity: rewardItem.quantity || 1,
+                unit_value: 0,
+                total_value: 0,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+            
+            if (rewardError) {
+              errors.push(`Reward item ${itemId} for crime ${crimeId}: ${rewardError.message}`)
+            } else {
+              rewardItemsUpdated++
+            }
+          } else {
+            // Record exists - only update quantity if changed, preserve value
+            const { error: updateError } = await supabase
+              .from('crime_reward_items')
+              .update({
+                quantity: rewardItem.quantity || 1,
+                item_name: rewardItem.name || existing.item_name,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existing.id)
+            
+            if (!updateError) rewardItemsUpdated++
+          }
+        }
+        
+        // Process REQUIRED items (from slots with item_requirement)
+        for (const slot of slots) {
+          const itemReq = slot.item_requirement
+          if (!itemReq || !itemReq.id) continue
+          
+          const itemId = itemReq.id.toString()
+          const user = slot.user || {}
+          const itemOutcome = user.item_outcome || {}
+          const wasConsumed = itemOutcome.outcome === 'used'
+          
+          // Check if record already exists
+          const { data: existing } = await supabase
+            .from('crime_required_items')
+            .select('id, unit_value')
+            .eq('crime_id', crimeId)
+            .eq('position_id', slot.position_id)
+            .single()
+          
+          if (!existing) {
+            // Create new record with value = 0
+            const { error: reqError } = await supabase
+              .from('crime_required_items')
+              .insert({
+                crime_id: crimeId,
+                position: slot.position,
+                position_id: slot.position_id,
+                position_number: slot.position_number,
+                item_id: itemId,
+                item_name: itemReq.name || null,
+                is_reusable: itemReq.is_reusable || false,
+                is_available: itemReq.is_available || false,
+                user_id: user.id?.toString() || null,
+                outcome_owned_by: itemOutcome.owned_by || null,
+                outcome_item_id: itemOutcome.item_id?.toString() || null,
+                outcome_item_uid: itemOutcome.item_uid?.toString() || null,
+                outcome: itemOutcome.outcome || null,
+                was_consumed: wasConsumed,
+                unit_value: 0,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+            
+            if (reqError) {
+              errors.push(`Required item for crime ${crimeId} slot ${slot.position_id}: ${reqError.message}`)
+            } else {
+              requiredItemsUpdated++
+            }
+          } else {
+            // Record exists - update outcome fields but preserve value
+            const { error: updateError } = await supabase
+              .from('crime_required_items')
+              .update({
+                user_id: user.id?.toString() || null,
+                outcome_owned_by: itemOutcome.owned_by || null,
+                outcome_item_id: itemOutcome.item_id?.toString() || null,
+                outcome_item_uid: itemOutcome.item_uid?.toString() || null,
+                outcome: itemOutcome.outcome || null,
+                was_consumed: wasConsumed,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existing.id)
+            
+            if (!updateError) requiredItemsUpdated++
+          }
+        }
+        
       } catch (err) {
-        errors.push(`Crime ${crimeId}: ${err.message}`)
+        errors.push(`Crime ${crimeData.id}: ${err.message}`)
       }
     }
     
     return {
       success: true,
-      crimesTotal: crimeIds.length,
+      crimesTotal: crimesArray.length,
       crimesUpdated,
       slotsUpdated,
+      rewardItemsUpdated,
+      requiredItemsUpdated,
       errors
     }
     
@@ -139,6 +250,8 @@ export async function syncCrimesFromAPI(apiKey, factionId) {
       error: error.message,
       crimesUpdated: 0,
       slotsUpdated: 0,
+      rewardItemsUpdated: 0,
+      requiredItemsUpdated: 0,
       errors: [error.message]
     }
   }
@@ -152,9 +265,15 @@ export function getSyncStatusMessage(result) {
     return `Sync failed: ${result.error}`
   }
   
-  if (result.errors.length > 0) {
-    return `Synced ${result.crimesUpdated} crimes with ${result.errors.length} errors`
+  let msg = `Synced ${result.crimesUpdated} crimes, ${result.slotsUpdated} slots`
+  
+  if (result.rewardItemsUpdated > 0 || result.requiredItemsUpdated > 0) {
+    msg += `, ${result.rewardItemsUpdated} reward items, ${result.requiredItemsUpdated} required items`
   }
   
-  return `Successfully synced ${result.crimesUpdated} crimes and ${result.slotsUpdated} slots`
+  if (result.errors && result.errors.length > 0) {
+    msg += ` (${result.errors.length} errors)`
+  }
+  
+  return msg
 }

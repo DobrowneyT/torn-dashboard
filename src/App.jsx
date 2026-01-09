@@ -25,13 +25,56 @@ function AppContent() {
   const [crimesData, setCrimesData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  
+  // View As feature for admins - null means normal view
+  const [viewAsRole, setViewAsRole] = useState(null)
 
+  // Actual permissions (for functionality that must be restricted)
+  const userIsAdmin = isAdmin(user?.id)
+  
+  // Effective permissions (for UI display, affected by viewAsRole)
+  const effectiveIsAdmin = viewAsRole === null ? userIsAdmin : viewAsRole === 'admin'
+  const effectiveIsLeadership = viewAsRole === null 
+    ? isLeadership 
+    : (viewAsRole === 'leadership' || viewAsRole === 'admin')
+
+  // Navigation tabs - data-mgmt is NOT included here (accessed via hamburger menu only)
+  const tabs = [
+    { id: 'members', label: 'Member Tiers', roles: ['member', 'leadership'] },
+    { id: 'crimes', label: 'OC 2.0 History', roles: ['member', 'leadership'] },
+    { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
+    { id: 'payouts', label: 'OC 2.0 Payouts', roles: ['member', 'leadership'] },
+    { id: 'payout-mgmt', label: 'OC 2.0 Payout Management', roles: ['leadership'] },
+    { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
+    { id: 'inventory', label: 'Inventory', roles: ['leadership'] }
+  ]
+
+  const availableTabs = tabs.filter(tab => {
+    if (tab.roles.includes('leadership') && !tab.roles.includes('member')) {
+      return effectiveIsLeadership
+    }
+    return tab.roles.includes('member')
+  })
+
+  // Load data when authenticated
   useEffect(() => {
-    // Only load data if authenticated
     if (isAuthenticated) {
       loadData()
     }
   }, [isAuthenticated])
+
+  // Reset viewAsRole when user changes
+  useEffect(() => {
+    setViewAsRole(null)
+  }, [user?.id])
+
+  // Reset to members tab if current tab becomes unavailable due to viewAs change
+  useEffect(() => {
+    const tabIds = availableTabs.map(t => t.id)
+    if (!tabIds.includes(activeTab) && activeTab !== 'data-mgmt') {
+      setActiveTab('members')
+    }
+  }, [viewAsRole, availableTabs, activeTab])
 
   async function loadData() {
     try {
@@ -61,12 +104,11 @@ function AppContent() {
     }
   }
 
-  // Show login modal if not authenticated
+  // Early returns AFTER all hooks
   if (!isAuthenticated && !authLoading) {
     return <LoginModal />
   }
 
-  // Show loading state while checking authentication
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -101,31 +143,32 @@ function AppContent() {
     )
   }
 
-  // Check if current user is admin
-  const userIsAdmin = isAdmin(user?.id)
-
-  // Define navigation tabs based on user role
-  const tabs = [
-    { id: 'members', label: 'Member Tiers', roles: ['member', 'leadership'] },
-    { id: 'crimes', label: 'Crime History', roles: ['member', 'leadership'] },
-    { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
-    { id: 'payouts', label: 'Payout History', roles: ['member', 'leadership'] },
-    { id: 'payout-mgmt', label: 'Payout Management', roles: ['leadership'] },
-    { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
-    { id: 'inventory', label: 'Inventory', roles: ['leadership'] },
-    { id: 'data-mgmt', label: 'Data Management', roles: ['admin'] }
-  ]
-
-  const availableTabs = tabs.filter(tab => {
-    if (tab.roles.includes('admin')) {
-      return userIsAdmin
-    }
-    return tab.roles.includes('member') || (isLeadership && tab.roles.includes('leadership'))
-  })
-
   return (
     <div className="min-h-screen">
-      <Header onNavigate={setActiveTab} />
+      <Header 
+        onNavigate={setActiveTab} 
+        viewAsRole={viewAsRole}
+        setViewAsRole={setViewAsRole}
+        canViewAs={userIsAdmin}
+      />
+      
+      {/* View As indicator banner */}
+      {viewAsRole && (
+        <div className="bg-yellow-100 dark:bg-yellow-900/30 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <span className="text-sm text-yellow-800 dark:text-yellow-200">
+              Viewing as: <strong className="capitalize">{viewAsRole}</strong>
+            </span>
+            <button
+              onClick={() => setViewAsRole(null)}
+              className="text-sm text-yellow-800 dark:text-yellow-200 hover:underline"
+            >
+              Exit View As
+            </button>
+          </div>
+        </div>
+      )}
+      
       <div className="max-w-7xl mx-auto px-4 py-6">
         <StatsOverview cprData={cprData} crimesData={crimesData} />
         <Navigation 
@@ -134,6 +177,7 @@ function AppContent() {
           tabs={availableTabs}
         />
         <div className="mt-6">
+          {/* Member-accessible views */}
           <ProtectedRoute>
             {activeTab === 'members' && <MembersView cprData={cprData} crimesData={crimesData} />}
             {activeTab === 'crimes' && <CrimesView crimesData={crimesData} />}
@@ -141,13 +185,14 @@ function AppContent() {
             {activeTab === 'payouts' && <PayoutsView cprData={cprData} crimesData={crimesData} />}
           </ProtectedRoute>
 
+          {/* Leadership-only views - use actual permissions, not effective */}
           <ProtectedRoute requireLeadership={true}>
             {activeTab === 'payout-mgmt' && <PayoutManagement cprData={cprData} crimesData={crimesData} />}
             {activeTab === 'tier-mgmt' && <TierManagement cprData={cprData} />}
             {activeTab === 'inventory' && <InventoryManagement />}
           </ProtectedRoute>
 
-          {/* Admin-only Data Management */}
+          {/* Admin-only Data Management - use actual permissions */}
           {userIsAdmin && activeTab === 'data-mgmt' && <DataManagement />}
         </div>
       </div>
