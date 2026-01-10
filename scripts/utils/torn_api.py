@@ -8,15 +8,12 @@ import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 class TornAPIError(Exception):
     """Custom exception for Torn API errors"""
     pass
-
 
 class TornAPI:
     """Wrapper for Torn City API v2"""
@@ -82,6 +79,8 @@ class TornAPI:
         except ValueError as e:
             logger.error(f"JSON decode error: {e}")
             raise TornAPIError(f"Invalid JSON response: {e}")
+    
+    # ==================== AUCTION HOUSE METHODS ====================
     
     def get_auction_house_listings(
         self,
@@ -209,29 +208,7 @@ class TornAPI:
         logger.info(f"Completed pagination: fetched {len(all_listings)} total listings")
         return all_listings
     
-    def get_item_info(self, item_id: int, comment: str = "Item_Info") -> Dict:
-        """
-        Get item information from Torn API
-        
-        Args:
-            item_id: Item ID to get info for
-            
-        Returns:
-            Dict with item data
-        """
-        url = f"https://api.torn.com/torn/{item_id}"
-        
-        params = {
-            "selections": "items",
-            "key": self.api_key,
-            "comment": comment
-        }
-        
-        response = self._make_request(url, params)
-        items = response.get('items', {})
-        
-        # Return the specific item info
-        return items.get(str(item_id), {})
+    # ==================== FACTION CRIMES METHODS ====================
     
     def get_faction_crimes(
         self,
@@ -241,7 +218,7 @@ class TornAPI:
         to_timestamp: Optional[int] = None,
         offset: int = 0,
         sort: str = "ASC",
-        comment: str = "Faction_Crimes"
+        comment: str = "Forge_OC2_Faction_Crimes"
     ) -> Dict:
         """
         Get faction crimes from API
@@ -277,6 +254,159 @@ class TornAPI:
         
         return self._make_request(url, params)
     
+    def get_all_faction_crimes_paginated(
+        self,
+        category: str = "all",
+        filters: str = "created_at",
+        from_timestamp: Optional[int] = None,
+        to_timestamp: Optional[int] = None,
+        sort: str = "ASC"
+    ) -> List[Dict]:
+        """
+        Get all faction crimes with automatic pagination
+        
+        Args:
+            category: Crime category
+            filters: Filter field
+            from_timestamp: Start timestamp
+            to_timestamp: End timestamp
+            sort: Sort order
+            
+        Returns:
+            List of all crime objects
+        """
+        all_crimes = []
+        last_created_at = from_timestamp
+        processed_crime_ids = set()
+        
+        logger.info(f"Starting paginated crime fetch from timestamp: {from_timestamp}")
+        
+        while True:
+            response = self.get_faction_crimes(
+                category=category,
+                filters=filters,
+                from_timestamp=last_created_at,
+                to_timestamp=to_timestamp,
+                sort=sort
+            )
+            
+            crimes = response.get('crimes', [])
+            
+            if not crimes:
+                logger.info("No more crimes to fetch")
+                break
+            
+            # Add new crimes (avoid duplicates)
+            new_crimes_count = 0
+            for crime in crimes:
+                crime_id = crime['id']
+                
+                # Skip if already processed
+                if crime_id in processed_crime_ids:
+                    continue
+                
+                # Stop if we've exceeded the to_timestamp
+                if to_timestamp and crime['created_at'] > to_timestamp:
+                    logger.info(f"Reached crimes beyond to_timestamp: {to_timestamp}")
+                    return all_crimes
+                
+                all_crimes.append(crime)
+                processed_crime_ids.add(crime_id)
+                new_crimes_count += 1
+                
+                # Update pagination marker
+                if crime['created_at'] > last_created_at:
+                    last_created_at = crime['created_at']
+            
+            logger.info(f"Fetched {new_crimes_count} new crimes (total: {len(all_crimes)})")
+            
+            # If no new crimes were added, we're done
+            if new_crimes_count == 0:
+                break
+            
+            # Check if there are more pages
+            next_link = response.get('_metadata', {}).get('links', {}).get('next')
+            if not next_link:
+                logger.info("No next page available")
+                break
+        
+        logger.info(f"Completed pagination: fetched {len(all_crimes)} total crimes")
+        return all_crimes
+    
+    # ==================== FACTION MEMBERS METHODS ====================
+    
+    def get_faction_members(
+        self,
+        comment: str = "Forge_OC2_Member_Sync"
+    ) -> Dict:
+        """
+        Get faction members from API
+        
+        Returns:
+            Dict with members list and metadata
+        """
+        url = f"{self.BASE_URL}/faction/members"
+        
+        params = {
+            "key": self.api_key,
+            "comment": comment
+        }
+        
+        return self._make_request(url, params)
+    
+    # ==================== ITEM DATA METHODS ====================
+    
+    def get_item_data(self, item_ids: List[int]) -> Dict:
+        """
+        Get item information from Torn API (bulk lookup)
+        
+        Args:
+            item_ids: List of item IDs
+            
+        Returns:
+            Dict with item data keyed by item ID
+        """
+        if not item_ids:
+            return {}
+        
+        item_ids_str = ','.join(str(id) for id in item_ids)
+        url = f"https://api.torn.com/torn/{item_ids_str}"
+        
+        params = {
+            "selections": "items",
+            "key": self.api_key,
+            "comment": "Forge_OC2_Item_Data"
+        }
+        
+        response = self._make_request(url, params)
+        return response.get('items', {})
+    
+    def get_item_info(self, item_id: int, comment: str = "Item_Info") -> Dict:
+        """
+        Get item information from Torn API (single item)
+        
+        Args:
+            item_id: Item ID to get info for
+            
+        Returns:
+            Dict with item data
+        """
+        url = f"https://api.torn.com/torn/{item_id}"
+        
+        params = {
+            "selections": "items",
+            "key": self.api_key,
+            "comment": comment
+        }
+        
+        response = self._make_request(url, params)
+        items = response.get('items', {})
+        
+        # Return the specific item info
+        return items.get(str(item_id), {})
+    
+    # ==================== CONNECTION TEST ====================
+    
     def test_connection(self) -> bool:
         """
         Test API connection
@@ -285,10 +415,13 @@ class TornAPI:
             True if connection successful, False otherwise
         """
         try:
-            url = f"{self.BASE_URL}/user"
+            # Simple API call to verify key works
+            url = f"{self.BASE_URL}/faction/crimes"
             params = {
+                "cat": "completed",
+                "offset": 0,
                 "key": self.api_key,
-                "comment": "Connection_Test"
+                "comment": "Forge_OC2_System_Test"
             }
             
             self._make_request(url, params)
@@ -336,5 +469,13 @@ if __name__ == "__main__":
     print("Testing API connection...")
     if api.test_connection():
         print("✓ Connection successful")
+        
+        print("\nFetching recent crimes...")
+        result = api.get_faction_crimes(category="completed", offset=0)
+        crimes = result.get('crimes', [])
+        print(f"✓ Fetched {len(crimes)} crimes")
+        
+        if crimes:
+            print(f"\nSample crime: {crimes[0]['name']} (Level {crimes[0]['difficulty']})")
     else:
         print("✗ Connection failed")
