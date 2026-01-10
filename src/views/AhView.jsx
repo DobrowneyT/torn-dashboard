@@ -226,6 +226,9 @@ export default function AhView() {
     dateFrom: '',
     dateTo: '',
   })
+  
+  // Current owners toggle - shows only most recent auction per unique item
+  const [currentOwnersOnly, setCurrentOwnersOnly] = useState(false)
 
   // Data state
   const [data, setData] = useState([])
@@ -250,7 +253,7 @@ export default function AhView() {
   useEffect(() => {
     setCurrentPage(1)
     setExpandedRows(new Set())
-  }, [filters.category, debouncedSearch, filters.minPrice, filters.maxPrice, filters.rarity, filters.dateFrom, filters.dateTo])
+  }, [filters.category, debouncedSearch, filters.minPrice, filters.maxPrice, filters.rarity, filters.dateFrom, filters.dateTo, currentOwnersOnly])
 
   // Build base query with filters
   const applyFilters = useCallback((query) => {
@@ -313,8 +316,11 @@ export default function AhView() {
       const from = (currentPage - 1) * perPage
       const to = from + perPage - 1
 
+      // Use current_owners view when toggle is on, otherwise use full table
+      const tableName = currentOwnersOnly ? 'current_owners' : 'auction_listings'
+      
       let query = supabase
-        .from('auction_listings')
+        .from(tableName)
         .select('*', { count: 'exact' })
 
       query = applyFilters(query)
@@ -335,7 +341,7 @@ export default function AhView() {
       setLoading(false)
       setInitialLoad(false)
     }
-  }, [applyFilters, currentPage, perPage, sortColumn, sortDirection])
+  }, [applyFilters, currentPage, perPage, sortColumn, sortDirection, currentOwnersOnly])
 
   // Load data on mount and when dependencies change
   useEffect(() => {
@@ -397,14 +403,35 @@ export default function AhView() {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
             Search Auctions
           </h2>
-          {hasActiveFilters && (
-            <button
-              onClick={clearFilters}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              Clear all filters
-            </button>
-          )}
+          <div className="flex items-center gap-4">
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
+        </div>
+        
+        {/* Current Owners Toggle */}
+        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={currentOwnersOnly}
+              onChange={e => setCurrentOwnersOnly(e.target.checked)}
+              className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div>
+              <span className="font-medium text-gray-900 dark:text-white">Current Owners Only</span>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Show only the most recent auction for each unique item (by UID). 
+                {currentOwnersOnly && <span className="text-blue-600 dark:text-blue-400 ml-1">Active</span>}
+              </p>
+            </div>
+          </label>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -516,7 +543,8 @@ export default function AhView() {
               'No results'
             ) : (
               <>
-                Showing {((currentPage - 1) * perPage) + 1}-{Math.min(currentPage * perPage, totalCount)} of {totalCount.toLocaleString()} results
+                Showing {((currentPage - 1) * perPage) + 1}-{Math.min(currentPage * perPage, totalCount)} of {totalCount.toLocaleString()} {currentOwnersOnly ? 'unique items' : 'results'}
+                {currentOwnersOnly && <span className="ml-2 text-blue-600 dark:text-blue-400">(Current Owners Mode)</span>}
               </>
             )}
           </div>
@@ -552,14 +580,14 @@ export default function AhView() {
             <thead className="bg-gray-50 dark:bg-slate-700/50">
               <tr>
                 {[
-                  { key: 'timestamp', label: 'Date' },
+                  { key: 'timestamp', label: currentOwnersOnly ? 'Last Sale' : 'Date' },
                   { key: 'item_name', label: 'Item' },
                   { key: 'item_uid', label: 'UID' },
                   { key: 'item_id', label: 'Category' },
-                  { key: 'price', label: 'Price' },
+                  { key: 'price', label: currentOwnersOnly ? 'Last Price' : 'Price' },
                   { key: 'bids', label: 'Bids' },
-                  { key: 'seller_name', label: 'Seller' },
-                  { key: 'buyer_name', label: 'Buyer' },
+                  { key: 'seller_name', label: currentOwnersOnly ? 'Previous Owner' : 'Seller' },
+                  { key: 'buyer_name', label: currentOwnersOnly ? 'Current Owner' : 'Buyer' },
                 ].map(col => (
                   <th
                     key={col.key}
