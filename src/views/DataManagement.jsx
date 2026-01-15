@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { isAdmin } from '../config'
 import { supabase } from '../utils/supabase'
 import { syncCrimesFromAPI } from '../utils/syncCrimesFromAPI'
+import * as adminApi from '../utils/adminApi'
 
 export default function DataManagement() {
   const { user } = useAuth()
@@ -115,6 +116,7 @@ function ImportTab() {
 }
 
 function CprDataImport() {
+  const { user } = useAuth()
   const [file, setFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
@@ -132,46 +134,13 @@ function CprDataImport() {
       // Handle both formats: { members: {...} } or just {...}
       const membersData = data.members || data
 
-      let membersCount = 0
-      let cprRecordsCount = 0
-
-      for (const [memberId, memberData] of Object.entries(membersData)) {
-        // Upsert member
-        const { error: memberError } = await supabase.from('members').upsert({
-          member_id: memberId,
-          member_name: memberData.name || `Member ${memberId}`,
-          tier: memberData.tier || 6,
-          last_scraped: memberData.last_scraped,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'member_id' })
-
-        if (memberError) {
-          console.error(`Error inserting member ${memberId}:`, memberError)
-          continue
-        }
-
-        membersCount++
-
-        // Upsert CPR records - handle both cpr_data and cpr_by_role keys
-        const cprData = memberData.cpr_data || memberData.cpr_by_role || {}
-        for (const [level, roles] of Object.entries(cprData)) {
-          for (const [role, value] of Object.entries(roles)) {
-            if (typeof value === 'number') {
-              const { error: cprError } = await supabase.from('member_cpr').upsert({
-                member_id: memberId,
-                difficulty_level: parseInt(level),
-                role_name: role,
-                cpr_value: value,
-                updated_at: new Date().toISOString()
-              }, { onConflict: 'member_id,difficulty_level,role_name' })
-
-              if (!cprError) cprRecordsCount++
-            }
-          }
-        }
+      const response = await adminApi.importCprData(membersData, user.apiKey)
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Import failed')
       }
 
-      setResult({ success: true, membersCount, cprRecordsCount })
+      setResult({ success: true, membersCount: response.membersCount, cprRecordsCount: response.cprRecordsCount })
     } catch (err) {
       setResult({ success: false, error: err.message })
     } finally {
@@ -226,6 +195,7 @@ function CprDataImport() {
 }
 
 function CrimesDataImport() {
+  const { user } = useAuth()
   const [file, setFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
@@ -243,119 +213,19 @@ function CrimesDataImport() {
       // Handle both formats: { crimes: {...} } or just {...}
       const crimesData = data.crimes || data
 
-      let crimesCount = 0
-      let slotsCount = 0
-      let rewardItemsCount = 0
-      let requiredItemsCount = 0
-
-      for (const [crimeId, crimeData] of Object.entries(crimesData)) {
-        // Upsert crime
-        const { error: crimeError } = await supabase.from('crimes').upsert({
-          crime_id: crimeId,
-          name: crimeData.name || 'Unknown',
-          difficulty: crimeData.difficulty || 1,
-          status: crimeData.status || 'Unknown',
-          previous_crime_id: crimeData.previous_crime_id?.toString() || null,
-          created_at: crimeData.created_at || null,
-          planning_at: crimeData.planning_at || null,
-          executed_at: crimeData.executed_at || null,
-          ready_at: crimeData.ready_at || null,
-          expired_at: crimeData.expired_at || null,
-          total_slots: crimeData.total_slots || 0,
-          filled_slots: crimeData.filled_slots || 0,
-          rewards_money: crimeData.rewards?.money || 0,
-          rewards_respect: crimeData.rewards?.respect || 0,
-          last_updated: crimeData.last_updated || new Date().toISOString(),
-          first_seen: crimeData.first_seen || new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'crime_id' })
-
-        if (crimeError) {
-          console.error(`Error inserting crime ${crimeId}:`, crimeError)
-          continue
-        }
-
-        crimesCount++
-
-        // Process slots
-        const slots = crimeData.slots || []
-        for (const slot of slots) {
-          const user = slot.user || {}
-          const itemReq = slot.item_requirement || {}
-          const itemOutcome = user.item_outcome || {}
-
-          const { error: slotError } = await supabase.from('crime_slots').upsert({
-            crime_id: crimeId,
-            position: slot.position,
-            position_id: slot.position_id,
-            position_number: slot.position_number,
-            checkpoint_pass_rate: slot.checkpoint_pass_rate,
-            user_id: user.id?.toString() || null,
-            user_name: user.name || null,
-            joined_at: user.joined_at || null,
-            user_outcome: user.outcome || null,
-            user_progress: user.progress || null,
-            item_requirement_id: itemReq.id?.toString() || null,
-            item_requirement_name: itemReq.name || null,
-            item_requirement_is_reusable: itemReq.is_reusable || false,
-            item_requirement_is_available: itemReq.is_available || false,
-            item_outcome_id: itemOutcome.item_id?.toString() || null,
-            item_outcome_outcome: itemOutcome.outcome || null,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'crime_id,position_id' })
-
-          if (!slotError) slotsCount++
-
-          // Insert required item if exists
-          if (itemReq.id) {
-            const wasConsumed = itemOutcome.outcome === 'used'
-            
-            const { error: reqItemError } = await supabase.from('crime_required_items').upsert({
-              crime_id: crimeId,
-              position: slot.position,
-              position_id: slot.position_id,
-              position_number: slot.position_number,
-              item_id: itemReq.id.toString(),
-              item_name: itemReq.name || null,
-              is_reusable: itemReq.is_reusable || false,
-              is_available: itemReq.is_available || false,
-              user_id: user.id?.toString() || null,
-              outcome_owned_by: itemOutcome.owned_by || null,
-              outcome_item_id: itemOutcome.item_id?.toString() || null,
-              outcome_item_uid: itemOutcome.item_uid?.toString() || null,
-              outcome: itemOutcome.outcome || null,
-              was_consumed: wasConsumed,
-              unit_value: 0,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'crime_id,position_id' })
-
-            if (!reqItemError) requiredItemsCount++
-          }
-        }
-
-        // Process reward items
-        const rewardItems = crimeData.rewards?.items || []
-        for (const rewardItem of rewardItems) {
-          const itemId = rewardItem.id?.toString()
-          if (!itemId) continue
-
-          const { error: rewardError } = await supabase.from('crime_reward_items').upsert({
-            crime_id: crimeId,
-            item_id: itemId,
-            item_name: rewardItem.name || null,
-            quantity: rewardItem.quantity || 1,
-            unit_value: 0,
-            total_value: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'crime_id,item_id' })
-
-          if (!rewardError) rewardItemsCount++
-        }
+      const response = await adminApi.importCrimesData(crimesData, user.apiKey)
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Import failed')
       }
 
-      setResult({ success: true, crimesCount, slotsCount, rewardItemsCount, requiredItemsCount })
+      setResult({ 
+        success: true, 
+        crimesCount: response.crimesCount, 
+        slotsCount: response.slotsCount, 
+        rewardItemsCount: response.rewardItemsCount, 
+        requiredItemsCount: response.requiredItemsCount 
+      })
     } catch (err) {
       setResult({ success: false, error: err.message })
     } finally {
@@ -794,6 +664,7 @@ function SyncTab() {
 }
 
 function ClearDataTab() {
+  const { user } = useAuth()
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [clearing, setClearing] = useState(false)
   const [result, setResult] = useState(null)
@@ -837,35 +708,13 @@ function ClearDataTab() {
       const deletedCounts = {}
 
       for (const table of option.tables) {
-        const { count, error } = await supabase
-          .from(table)
-          .delete()
-          .neq('id', -1) // This trick deletes all rows
-          .select('*', { count: 'exact', head: true })
-
-        if (error) {
-          // Try alternative delete method
-          const { error: error2 } = await supabase
-            .from(table)
-            .delete()
-            .gte('id', 0)
-
-          if (error2) {
-            // For tables without numeric id, try deleting with a broader condition
-            const { error: error3 } = await supabase
-              .from(table)
-              .delete()
-              .not('created_at', 'is', null)
-
-            if (error3) {
-              console.error(`Error clearing ${table}:`, error3)
-              deletedCounts[table] = 'error'
-              continue
-            }
-          }
+        try {
+          const response = await adminApi.adminClearTable(table, user.apiKey)
+          deletedCounts[table] = response.success ? 'cleared' : 'error'
+        } catch (err) {
+          console.error(`Error clearing ${table}:`, err)
+          deletedCounts[table] = 'error'
         }
-
-        deletedCounts[table] = 'cleared'
       }
 
       setResult({

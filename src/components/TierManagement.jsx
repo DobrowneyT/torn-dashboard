@@ -1,7 +1,10 @@
 import { useState, useMemo, useEffect } from 'react'
 import { supabase } from '../utils/supabase'
+import { useAuth } from '../contexts/AuthContext'
+import * as adminApi from '../utils/adminApi'
 
 export default function TierManagement() {
+  const { user } = useAuth()
   const [searchTerm, setSearchTerm] = useState('')
   const [editingMember, setEditingMember] = useState(null)
   const [newTier, setNewTier] = useState(null)
@@ -116,15 +119,19 @@ export default function TierManagement() {
 
   async function handleSaveTier() {
     try {
-      const { error } = await supabase
-        .from('members')
-        .update({
+      const response = await adminApi.adminUpdate(
+        'members',
+        {
           tier_override: newTier,
           updated_at: new Date().toISOString()
-        })
-        .eq('member_id', editingMember.id)
+        },
+        { member_id: editingMember.id },
+        user.apiKey
+      )
 
-      if (error) throw error
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to update tier')
+      }
 
       setMembers(prev => prev.map(m =>
         m.id === editingMember.id

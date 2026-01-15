@@ -8,6 +8,7 @@ export const config = {
   supabase: {
     url: import.meta.env.VITE_SUPABASE_URL,
     anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+    serviceKey: import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
   },
   faction: {
     name: "The Next Level - Forge",
@@ -16,13 +17,13 @@ export const config = {
   },
 
   // Admin/Data Management permissions
-  admins: [
+  adminsUserIds: [
     '2250591', // MonChoon
     // Add other admin user IDs here
   ],
   
   // Leadership permissions 
-  leadership: [
+  leadershipUserIds: [
     '2250591', // MonChoon
     '2749598', // Uncensored
     '2264192', // McGummy
@@ -129,10 +130,10 @@ export const config = {
 
 // Helper function to check if user is admin
 export function isAdmin(userId) {
-  return config.admins.includes(String(userId))
+  return config.adminsUserIds.includes(String(userId))
 }
 
 // Helper function to check if user is leader
 export function isLeader(userId) {
-  return config.leadership.includes(String(userId))
+  return config.leadershipUserIds.includes(String(userId))
 }

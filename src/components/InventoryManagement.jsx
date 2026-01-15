@@ -4,6 +4,7 @@ import { config } from '../config'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { getTornErrorMessage } from '../utils/apiUtils'
 import { supabase } from '../utils/supabase'
+import * as adminApi from '../utils/adminApi'
 
 export default function InventoryManagement() {
   const { user } = useAuth()
@@ -122,25 +123,17 @@ export default function InventoryManagement() {
         }
       })
       
-      const { error: upsertError } = await supabase
-        .from('inventory_items')
-        .upsert(itemsToUpsert, { onConflict: 'id' })
+      const upsertResponse = await adminApi.adminUpsert('inventory_items', itemsToUpsert, 'id', user.apiKey)
       
-      if (upsertError) {
-        throw new Error(`Failed to save inventory: ${upsertError.message}`)
+      if (!upsertResponse.success) {
+        throw new Error(`Failed to save inventory: ${upsertResponse.error}`)
       }
       
-      const { error: metadataError } = await supabase
-        .from('sync_metadata')
-        .insert({
-          data_type: 'inventory',
-          last_sync: new Date().toISOString(),
-          synced_by: user.name
-        })
-      
-      if (metadataError) {
-        console.warn('Failed to save sync metadata:', metadataError)
-      }
+      await adminApi.adminInsert('sync_metadata', {
+        data_type: 'inventory',
+        last_sync: new Date().toISOString(),
+        synced_by: user.name
+      }, user.apiKey)
       
       await loadInventoryFromSupabase()
       
@@ -168,17 +161,15 @@ export default function InventoryManagement() {
     }
     
     try {
-      const { error } = await supabase
-        .from('pricing_batches')
-        .insert({
-          item_id: itemId,
-          price: Math.floor(price),
-          quantity: quantity,
-          added_by: user.name
-        })
+      const response = await adminApi.adminInsert('pricing_batches', {
+        item_id: itemId,
+        price: Math.floor(price),
+        quantity: quantity,
+        added_by: user.name
+      }, user.apiKey)
       
-      if (error) {
-        throw new Error(`Failed to save pricing: ${error.message}`)
+      if (!response.success) {
+        throw new Error(`Failed to save pricing: ${response.error}`)
       }
       
       await loadInventoryFromSupabase()
@@ -392,11 +383,11 @@ export default function InventoryManagement() {
   
   const SortIcon = ({ columnKey }) => {
     if (sortConfig.key !== columnKey) {
-      return <span className="ml-1 text-gray-400">⇅</span>
+      return <span className="ml-1 text-gray-400">â‡…</span>
     }
     return (
       <span className="ml-1">
-        {sortConfig.direction === 'asc' ? '↑' : '↓'}
+        {sortConfig.direction === 'asc' ? 'â†‘' : 'â†“'}
       </span>
     )
   }
@@ -515,7 +506,7 @@ export default function InventoryManagement() {
                   </span>
                 </div>
                 <div className="text-xs text-gray-600 dark:text-gray-400">
-                  {stats.quantity.toLocaleString()} units • {formatCurrency(stats.value)}
+                  {stats.quantity.toLocaleString()} units â€¢ {formatCurrency(stats.value)}
                 </div>
               </div>
             )
@@ -630,7 +621,7 @@ export default function InventoryManagement() {
                       <td className="py-2 px-2 text-xs">
                         {item.name}
                         {item.isCrimeItem && (
-                          <span className="ml-1 text-red-500" title="Crime Item">🎯</span>
+                          <span className="ml-1 text-red-500" title="Crime Item">ðŸŽ¯</span>
                         )}
                       </td>
                       <td className="py-2 px-2 text-xs">
@@ -745,7 +736,7 @@ export default function InventoryManagement() {
           <li>System calculates weighted average automatically</li>
           <li>Example: 20@$50k + 30@$60k = $56k average</li>
           <li>Loaned items: click count to see who has items</li>
-          <li>Crime items marked with 🎯</li>
+          <li>Crime items marked with ðŸŽ¯</li>
         </ul>
       </div>
     </div>

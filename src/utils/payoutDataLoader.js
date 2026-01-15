@@ -9,6 +9,7 @@
  */
 
 import { supabase } from './supabase'
+import * as adminApi from './adminApi'
 
 /**
  * Load all crimes and related data for a given time range
@@ -462,56 +463,40 @@ export async function loadMemberLoanedItems(memberId) {
  * @param {Array} memberData - Array of member payout data
  * @param {Array} crimeIds - Array of crime IDs included in this payout
  * @param {string} savedBy - Username who saved this
+ * @param {string} apiKey - Torn API key for authentication
  * @returns {Promise<Object>} Saved week data
  */
-export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy) {
+export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, apiKey) {
   try {
-    // Upsert the payout week
-    const { data: week, error: weekError } = await supabase
-      .from('oc_payout_weeks')
-      .upsert({
-        week_start: weekData.week_start,
-        week_end: weekData.week_end,
-        week_start_timestamp: weekData.week_start_timestamp,
-        week_end_timestamp: weekData.week_end_timestamp,
-        total_money_reward: weekData.total_money_reward || 0,
-        total_item_reward: weekData.total_item_reward || 0,
-        total_item_cost: weekData.total_item_cost || 0,
-        net_item_value: weekData.net_item_value || 0,
-        faction_cut_percent: weekData.faction_cut_percent || 20,
-        faction_cut_amount: weekData.faction_cut_amount || 0,
-        member_payout_total: weekData.member_payout_total || 0,
-        total_member_payout: weekData.member_payout_total || 0,
-        member_count: memberData.length,
-        crimes_processed: weekData.crimes_processed || 0,
-        total_time_spent: weekData.total_time_spent || 0,
-        average_time_spent: weekData.average_time_spent || 0,
-        total_adjusted_tickets: weekData.total_adjusted_tickets || 0,
-        crime_ids: crimeIds || [],
-        min_time_for_full_tickets: 432000,
-        min_time_for_any_payout: 172800,
-        saved_by: savedBy,
-        saved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'week_start,week_end'
-      })
-      .select()
-      .single()
+    // Prepare week record
+    const weekRecord = {
+      week_start: weekData.week_start,
+      week_end: weekData.week_end,
+      week_start_timestamp: weekData.week_start_timestamp,
+      week_end_timestamp: weekData.week_end_timestamp,
+      total_money_reward: weekData.total_money_reward || 0,
+      total_item_reward: weekData.total_item_reward || 0,
+      total_item_cost: weekData.total_item_cost || 0,
+      net_item_value: weekData.net_item_value || 0,
+      faction_cut_percent: weekData.faction_cut_percent || 20,
+      faction_cut_amount: weekData.faction_cut_amount || 0,
+      member_payout_total: weekData.member_payout_total || 0,
+      total_member_payout: weekData.member_payout_total || 0,
+      member_count: memberData.length,
+      crimes_processed: weekData.crimes_processed || 0,
+      total_time_spent: weekData.total_time_spent || 0,
+      average_time_spent: weekData.average_time_spent || 0,
+      total_adjusted_tickets: weekData.total_adjusted_tickets || 0,
+      crime_ids: crimeIds || [],
+      min_time_for_full_tickets: 432000,
+      min_time_for_any_payout: 172800,
+      saved_by: savedBy,
+      saved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
 
-    if (weekError) throw weekError
-
-    const weekId = week.id
-
-    // Delete existing member records for this week
-    await supabase
-      .from('oc_payout_members')
-      .delete()
-      .eq('week_id', weekId)
-
-    // Insert member payout records
+    // Prepare member records
     const memberRecords = memberData.map(m => ({
-      week_id: weekId,
       week_start: weekData.week_start,
       week_end: weekData.week_end,
       member_id: m.member_id || m.userId?.toString(),
@@ -530,25 +515,27 @@ export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy) {
       updated_at: new Date().toISOString()
     }))
 
-    const { error: membersError } = await supabase
-      .from('oc_payout_members')
-      .insert(memberRecords)
+    // Call Edge Function to save payout data
+    const response = await adminApi.importPayoutData(weekRecord, memberRecords, apiKey)
 
-    if (membersError) throw membersError
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to save payout week')
+    }
 
-    // Update crimes to link to this payout week
-    if (crimeIds && crimeIds.length > 0) {
-      const { error: crimesError } = await supabase
-        .from('crimes')
-        .update({ payout_week_id: weekId })
-        .in('crime_id', crimeIds)
-
-      if (crimesError) {
-        console.warn('Error linking crimes to payout week:', crimesError)
+    // If we have crime IDs to link, update them
+    if (crimeIds && crimeIds.length > 0 && response.weekId) {
+      // Update crimes to link to this payout week
+      for (const crimeId of crimeIds) {
+        await adminApi.adminUpdate(
+          'crimes',
+          { payout_week_id: response.weekId },
+          { crime_id: crimeId },
+          apiKey
+        )
       }
     }
 
-    return week
+    return { id: response.weekId, ...weekRecord }
     
   } catch (error) {
     console.error('Error saving payout week:', error)

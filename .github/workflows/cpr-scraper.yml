@@ -98,6 +98,7 @@ jobs:
       env:
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
       run: |
         echo "Syncing CPR data to Supabase database..."
         python scripts/sync_to_supabase.py cpr
