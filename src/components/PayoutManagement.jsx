@@ -239,7 +239,7 @@ export default function PayoutManagement() {
         crimes_participated: m.crimeIds
       }))
       
-      await savePayoutWeek(weekData, memberData, payoutResults.crimeIds, user.name)
+      await savePayoutWeek(weekData, memberData, payoutResults.crimeIds, user.name, user.apiKey)
       
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 5000)
@@ -377,7 +377,7 @@ export default function PayoutManagement() {
         total_adjusted_tickets: parsed.totalTickets
       }
       
-      await savePayoutWeek(weekData, parsed.members, crimeIds, `${user.name} (CSV Import)`)
+      await savePayoutWeek(weekData, parsed.members, crimeIds, `${user.name} (CSV Import)`, user.apiKey)
       
       alert(`Successfully imported ${parsed.memberCount} member payouts for week of ${weekStart.toLocaleDateString()}`)
       
