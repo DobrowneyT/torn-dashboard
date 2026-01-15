@@ -199,7 +199,7 @@ class JSONStorageManager:
             
         except subprocess.CalledProcessError as e:
             logger.error(f"Git operation failed: {e}")
-            raise JSONStorageError(f"Git operation failed: {e}")
+            raise JSONStorageError(f"Git operation failed: {e}")x
         except Exception as e:
             logger.error(f"Error during git commit: {e}")
             # Don't raise - file was still written successfully
