@@ -53,9 +53,10 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // Get user ID and check leadership status FIRST
+      // Get user ID and check permissions FIRST
       const userId = data.info.user.id
-      const isLeader = config.leadershipUserIds.includes(userId)
+      const isLeader = config.leadershipUserIds.includes(String(userId))
+      const isAdminUser = config.adminsUserIds.includes(String(userId))
 
       // Get faction info
       const userFactionId = data.info?.user?.faction_id
@@ -85,6 +86,7 @@ export function AuthProvider({ children }) {
           apiKey: apiKey,
           accessLevel: data.info?.access?.level || 1,
           isLeadership: true,
+          isAdmin: isAdminUser,
           lastLogin: new Date().toISOString()
         }
 
@@ -98,7 +100,43 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // NON-LEADERSHIP USERS: Validate faction membership
+      // ADMIN USERS: Skip faction validation
+      if (isAdminUser) {
+        console.log(`Admin user ${userId} detected - bypassing faction checks`)
+        
+        // Fetch user details for name
+        const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
+        const userData = await userResponse.json()
+
+        if (userData.error) {
+          return {
+            success: false,
+            error: getTornErrorMessage(userData.error)
+          }
+        }
+
+        // Create user object for admin user
+        const userObj = {
+          id: userId,
+          name: userData.name,
+          factionId: userFactionId || null,
+          factionPosition: userData.faction?.position || 'Admin',
+          apiKey: apiKey,
+          accessLevel: data.info?.access?.level || 1,
+          isLeadership: isLeader,
+          isAdmin: true,
+          lastLogin: new Date().toISOString()
+        }
+
+        setUser(userObj)
+        localStorage.setItem('tornUser', JSON.stringify(userObj))
+
+        return {
+          success: true,
+          user: userObj
+        }
+      }
+      
       if (!userFactionId) {
         return {
           success: false,
@@ -150,7 +188,8 @@ export function AuthProvider({ children }) {
         factionPosition: userData.faction?.position || 'Member',
         apiKey: apiKey,
         accessLevel: accessLevel,
-        isLeadership: false,
+        isLeadership: isLeader,
+        isAdmin: false,
         lastLogin: new Date().toISOString()
       }
 
@@ -181,6 +220,7 @@ export function AuthProvider({ children }) {
     user,
     isAuthenticated: !!user,
     isLeadership: user?.isLeadership || false,
+    isAdmin: user?.isAdmin || false,
     loading,
     login,
     logout
