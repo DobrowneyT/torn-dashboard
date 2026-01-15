@@ -24,10 +24,10 @@ class SupabaseSync:
     
     def __init__(self):
         self.supabase_url = os.environ.get('VITE_SUPABASE_URL')
-        self.supabase_key = os.environ.get('VITE_SUPABASE_ANON_KEY')
+        self.supabase_key = os.environ.get('VITE_SUPABASE_SERVICE_ROLE_KEY')
         
         if not self.supabase_url or not self.supabase_key:
-            raise ValueError("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY environment variables")
+            raise ValueError("Missing VITE_SUPABASE_URL or VITE_SUPABASE_SERVICE_ROLE_KEY environment variables")
         
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
         logger.info("✓ Supabase client initialized")
