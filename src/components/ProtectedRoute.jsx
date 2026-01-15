@@ -1,7 +1,7 @@
 import { useAuth } from '../contexts/AuthContext'
 
 export default function ProtectedRoute({ children, requireLeadership = false }) {
-  const { user, isLeadership } = useAuth()
+  const { user, isLeadership, isAdmin } = useAuth()
 
   // Check authentication
   if (!user) {
@@ -20,8 +20,8 @@ export default function ProtectedRoute({ children, requireLeadership = false }) 
     )
   }
 
-  // Check leadership access if required
-  if (requireLeadership && !isLeadership) {
+  // Check leadership access if required (admins have all leadership permissions)
+  if (requireLeadership && !isLeadership && !isAdmin) {
     return (
       <div className="card max-w-2xl mx-auto mt-8">
         <div className="text-center py-8">
