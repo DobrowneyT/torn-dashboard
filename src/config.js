@@ -1,14 +1,11 @@
 export const config = {
-  dataSource: {
-    cprData: import.meta.env.VITE_CPR_DATA_URL || '/torn-forge-oc-system/data/cpr_database.json',
-    crimesData: import.meta.env.VITE_CRIMES_DATA_URL || '/torn-forge-oc-system/data/crimes_database.json',
-    inventoryData: import.meta.env.VITE_INVENTORY_DATA_URL || '/torn-forge-oc-system/data/inventory_database.json',
-    pricingHistory: import.meta.env.VITE_PRICING_HISTORY_URL || '/torn-forge-oc-system/data/pricing_history.json',
-  },
   supabase: {
     url: import.meta.env.VITE_SUPABASE_URL,
     anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
     serviceKey: import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
+  },
+  torn: {
+    apiKey: import.meta.env.VITE_TORN_API_KEY,
   },
   faction: {
     name: "The Next Level - Forge",
@@ -16,13 +13,10 @@ export const config = {
     id: import.meta.env.VITE_FACTION_ID || "10739",
   },
 
-  // Admin/Data Management permissions
   adminsUserIds: [
     '2250591', // MonChoon
-    // Add other admin user IDs here
   ],
   
-  // Leadership permissions 
   leadershipUserIds: [
     '2250591', // MonChoon
     '2749598', // Uncensored
@@ -31,62 +25,31 @@ export const config = {
     '2932241', // Marnix0126
     '2015160', // Andrew_616
   ],
-  // Crime items that are consumed during organized crimes
+
   crimeItemIds: [
     66, 67, 68, 69, 70, 71, 72, 74, 159, 213, 568, 579, 981, 1080, 1203,
     1258, 1284, 1331, 1350, 1362, 1380, 1383, 73, 103, 158, 172, 188, 190,
     201, 222, 226, 256, 567, 576, 643, 856, 1012, 1094, 1223, 1230, 884, 1361,
     1379, 1381, 1429, 1430, 1461, 1431
   ],
-  // Inventory categories - these match API categories
+
   inventoryCategories: {
     crimes: {
       label: "Crime Items",
       description: "Items consumed during organized crimes (filter view)",
       color: "red",
-      isPseudoCategory: true // Special filter category, not a real item type
+      isPseudoCategory: true
     },
-    medical: {
-      label: "Medical",
-      description: "Medical items",
-      color: "green"
-    },
-    drugs: {
-      label: "Drugs",
-      description: "Drugs and boosters",
-      color: "purple"
-    },
-    weapons: {
-      label: "Weapons",
-      description: "Weapons and ammunition",
-      color: "red"
-    },
-    armor: {
-      label: "Armor",
-      description: "Armor and protective gear",
-      color: "blue"
-    },
-    temporary: {
-      label: "Temporary",
-      description: "Temporary items (grenades, etc)",
-      color: "orange"
-    },
-    utilities: {
-      label: "Utilities",
-      description: "Tools and utility items",
-      color: "gray"
-    },
-    caches: {
-      label: "Caches",
-      description: "Item caches",
-      color: "yellow"
-    },
-    cesium: {
-      label: "Cesium",
-      description: "Cesium items",
-      color: "cyan"
-    }
+    medical: { label: "Medical", description: "Medical items", color: "green" },
+    drugs: { label: "Drugs", description: "Drugs and boosters", color: "purple" },
+    weapons: { label: "Weapons", description: "Weapons and ammunition", color: "red" },
+    armor: { label: "Armor", description: "Armor and protective gear", color: "blue" },
+    temporary: { label: "Temporary", description: "Temporary items (grenades, etc)", color: "orange" },
+    utilities: { label: "Utilities", description: "Tools and utility items", color: "gray" },
+    caches: { label: "Caches", description: "Item caches", color: "yellow" },
+    cesium: { label: "Cesium", description: "Cesium items", color: "cyan" }
   },
+  
   tierRequirements: {
     1: [
       { level: 8, role: "Imitator", minCpr: 70 },
@@ -123,17 +86,16 @@ export const config = {
       { level: 4, role: "Average", minCpr: 75, isAverage: true }
     ]
   },
+  
   payoutTickets: {
     1: 40, 2: 30, 3: 15, 4: 7, 5: 3, 6: 2
   },
 }
 
-// Helper function to check if user is admin
 export function isAdmin(userId) {
   return config.adminsUserIds.includes(String(userId))
 }
 
-// Helper function to check if user is leader
 export function isLeader(userId) {
   return config.leadershipUserIds.includes(String(userId))
 }

@@ -27,21 +27,21 @@ const MIN_TIME_FOR_ANY_PAYOUT = 48 * 3600     // 48 hours = 172,800 seconds
 export function getWeekRangeFromDate(date) {
   // Create date in UTC
   const d = new Date(date)
-  
+
   // Get day of week in UTC (0 = Sunday, 1 = Monday, etc.)
   const dayOfWeek = d.getUTCDay()
-  
+
   // Calculate Monday of this week in UTC
   const monday = new Date(d)
   const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1
   monday.setUTCDate(d.getUTCDate() - daysToSubtract)
   monday.setUTCHours(0, 0, 0, 0)
-  
+
   // Sunday is 6 days after Monday, ends at 23:59:59.999
   const sunday = new Date(monday)
   sunday.setUTCDate(monday.getUTCDate() + 6)
   sunday.setUTCHours(23, 59, 59, 999)
-  
+
   return {
     monday,
     sunday,
@@ -101,15 +101,15 @@ export function calculateTimeSpent(joinedAt, timeReference, fromTimestamp, toTim
   if (!joinedAt || joinedAt > toTimestamp) {
     return 0
   }
-  
+
   // Clamp to the payout window
   const effectiveStart = Math.max(joinedAt, fromTimestamp)
   const effectiveEnd = Math.min(timeReference, toTimestamp)
-  
+
   if (effectiveStart >= effectiveEnd) {
     return 0
   }
-  
+
   return effectiveEnd - effectiveStart
 }
 
@@ -124,16 +124,16 @@ function calculateSitOutPenalty(timeSpent, baseTickets) {
   if (timeSpent >= MIN_TIME_FOR_FULL_TICKETS) {
     return 0
   }
-  
+
   if (timeSpent < MIN_TIME_FOR_ANY_PAYOUT) {
     return -baseTickets
   }
-  
+
   // Sliding scale between 48-120 hours
   const timeRange = MIN_TIME_FOR_FULL_TICKETS - MIN_TIME_FOR_ANY_PAYOUT
   const timeAboveMin = timeSpent - MIN_TIME_FOR_ANY_PAYOUT
   const percentOfRange = timeAboveMin / timeRange
-  
+
   return -(1 - percentOfRange) * baseTickets
 }
 
@@ -153,37 +153,37 @@ function calculateSitOutPenalty(timeSpent, baseTickets) {
  */
 function calculateTheoreticalPayout(memberId, crimesMap, fromTimestamp, toTimestamp, factionCutPercent) {
   let total = 0
-  
+
   for (const crime of Object.values(crimesMap)) {
     // Only count successful crimes executed within the time range
     if (crime.status !== 'Successful') continue
-    
+
     const executedAt = crime.executed_at || 0
     // Use >= fromTimestamp and < toTimestamp to avoid double-counting at boundaries
     if (executedAt < fromTimestamp || executedAt >= toTimestamp) continue
-    
+
     const slots = crime.slots || []
-    const memberSlot = slots.find(s => 
+    const memberSlot = slots.find(s =>
       s.user && s.user.id && s.user.id.toString() === memberId.toString()
     )
-    
+
     if (memberSlot) {
       const filledSlots = slots.filter(s => s.user).length
       if (filledSlots > 0) {
         // Calculate crime value
-        const crimeValue = (crime.rewards?.money || 0) + 
-                          (crime.item_reward_value || 0) - 
-                          (crime.item_cost_value || 0)
-        
+        const crimeValue = (crime.rewards?.money || 0) +
+          (crime.item_reward_value || 0) -
+          (crime.item_cost_value || 0)
+
         // Apply faction cut FIRST, then split among members
         const afterFactionCut = crimeValue * (1 - factionCutPercent)
         const memberShare = afterFactionCut / filledSlots
-        
+
         total += memberShare
       }
     }
   }
-  
+
   return Math.floor(total)
 }
 
@@ -206,40 +206,40 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   console.log('===========================================')
   console.log('Time range:', new Date(fromTimestamp * 1000).toISOString(), 'to', new Date(toTimestamp * 1000).toISOString())
   console.log('Faction cut:', (factionCutPercent * 100).toFixed(1) + '%')
-  
+
   const crimes = crimesData?.crimes || {}
   const members = membersData?.members || {}
-  
+
   if (Object.keys(crimes).length === 0) {
     console.log('No crimes data available')
     return createEmptyResult()
   }
-  
+
   // Track participating members
   const participatingMembers = {}
-  
+
   // Track totals - ONLY for crimes executed within range
   let totalMoneyReward = 0
   let totalItemReward = 0
   let totalItemCost = 0
   let crimesProcessed = 0
   const crimeIds = []
-  
+
   // Item details for display
   const rewardItemDetails = []
   const consumedItemDetails = []
-  
+
   // Crime statistics - ONLY for crimes executed within range
   const crimesByDifficulty = {}
   const crimesByStatus = { Successful: 0, Failed: 0, Planning: 0, Recruiting: 0 }
-  
+
   // Process each crime
   for (const [crimeId, crime] of Object.entries(crimes)) {
     const status = crime.status
     const executedAt = crime.executed_at || 0
     const createdAt = crime.created_at || 0
     const difficulty = crime.difficulty || 1
-    
+
     // Determine time reference for this crime
     let timeReference
     if (status === 'Successful' || status === 'Failed' || status === 'Failure') {
@@ -247,29 +247,29 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     } else {
       timeReference = toTimestamp
     }
-    
+
     // Check if crime was executed within our window
     // Use >= fromTimestamp and < toTimestamp to avoid double-counting at boundaries
     const inTimeWindow = executedAt >= fromTimestamp && executedAt < toTimestamp
-    
+
     // Process successful crimes for rewards (only if in time window)
     if (status === 'Successful' && inTimeWindow) {
       crimesProcessed++
       crimeIds.push(crimeId)
-      
+
       totalMoneyReward += crime.rewards?.money || 0
       totalItemReward += crime.item_reward_value || 0
       totalItemCost += crime.item_cost_value || 0
-      
+
       crimesByStatus.Successful++
-      
+
       // Initialize difficulty tracking
       if (!crimesByDifficulty[difficulty]) {
         crimesByDifficulty[difficulty] = { success: 0, failed: 0, total: 0 }
       }
       crimesByDifficulty[difficulty].success++
       crimesByDifficulty[difficulty].total++
-      
+
       // Collect reward item details
       if (crime.reward_items && crime.reward_items.length > 0) {
         for (const item of crime.reward_items) {
@@ -284,7 +284,7 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
           })
         }
       }
-      
+
       // Collect consumed item details
       if (crime.required_items && crime.required_items.length > 0) {
         for (const item of crime.required_items) {
@@ -304,7 +304,7 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     } else if ((status === 'Failed' || status === 'Failure') && inTimeWindow) {
       crimeIds.push(crimeId)
       crimesByStatus.Failed++
-      
+
       if (!crimesByDifficulty[difficulty]) {
         crimesByDifficulty[difficulty] = { success: 0, failed: 0, total: 0 }
       }
@@ -312,27 +312,30 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
       crimesByDifficulty[difficulty].total++
     }
     // Note: Planning and Recruiting crimes are counted but not in time window stats
-    
+
     // Process slots for time tracking (all crimes, not just successful ones)
     const slots = crime.slots || []
-    
+
     for (const slot of slots) {
       if (!slot.user || !slot.user.id) continue
-      
+
       const userId = slot.user.id.toString()
       const joinedAt = slot.user.joined_at
-      
+
       // Skip if joined after our time window
       if (joinedAt > toTimestamp) continue
-      
+
       // Get member data
       const memberData = members[userId] || {}
-      
+
       // Initialize member tracking
       if (!participatingMembers[userId]) {
+        const memberName = slot.user.name || memberData.name || 'Unknown'
+        const displayName = memberName !== 'Unknown' ? `${memberName} [${userId}]` : `User ${userId}`
+
         participatingMembers[userId] = {
           userId: slot.user.id,
-          name: slot.user.name || memberData.name || `Member ${userId}`,
+          name: displayName,
           tier: memberData.tier || 6,
           crimesCount: 0,
           timeSpent: 0,
@@ -340,18 +343,18 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
           positions: []
         }
       }
-      
+
       // Calculate time spent in this crime within the payout window
       const timeSpent = calculateTimeSpent(joinedAt, timeReference, fromTimestamp, toTimestamp)
-      
+
       participatingMembers[userId].timeSpent += timeSpent
       participatingMembers[userId].crimeIds.push(crimeId)
-      
+
       // Only count as participated if crime is successful and in time window
       if (status === 'Successful' && inTimeWindow) {
         participatingMembers[userId].crimesCount++
       }
-      
+
       participatingMembers[userId].positions.push({
         crimeId,
         difficulty,
@@ -361,51 +364,64 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
       })
     }
   }
-  
+
   console.log('Crimes processed (successful in window):', crimesProcessed)
   console.log('Total money reward:', totalMoneyReward)
   console.log('Total item reward:', totalItemReward)
   console.log('Total item cost:', totalItemCost)
   console.log('Participating members:', Object.keys(participatingMembers).length)
-  
+
   // Calculate total pool after faction cut
   const grossTotal = totalMoneyReward + totalItemReward - totalItemCost
   const factionCut = Math.floor(grossTotal * factionCutPercent)
   const memberPayoutTotal = grossTotal - factionCut
-  
+
   // Convert to array and calculate tickets/penalties
-  const memberArray = Object.values(participatingMembers)
-  
+  let memberArray = Object.values(participatingMembers)
+
+  // Filter to only include members who participated in successful crimes during the window
+  // OR are current members (who should see $0 if they didn't participate)
+  memberArray = memberArray.filter(member => {
+    // Check if member participated in any successful crime during the window
+    const participatedInWindow = member.crimesCount > 0
+
+    // Check if member is current
+    const memberData = members[member.userId.toString()]
+    const isCurrent = memberData?.is_current === true
+
+    return participatedInWindow || isCurrent
+  })
+
   if (memberArray.length === 0) {
     console.log('No participating members found')
     return createEmptyResult()
   }
-  
+
   const totalTimeSpent = memberArray.reduce((sum, m) => sum + m.timeSpent, 0)
   const averageTime = totalTimeSpent / memberArray.length
-  
+
   // Calculate tickets and penalties for each member
   for (const member of memberArray) {
     const baseTickets = TIER_TICKETS[member.tier] || TIER_TICKETS[6]
     const sitOutPenalty = calculateSitOutPenalty(member.timeSpent, baseTickets)
-    
+
     member.baseTickets = baseTickets
     member.sitOutPenalty = sitOutPenalty
     member.adjustedTickets = Math.max(0, baseTickets + sitOutPenalty)
-    
+
     // Calculate theoretical payout (equal share of participated crimes AFTER faction cut)
     member.theoreticalPayout = calculateTheoreticalPayout(
-      member.userId.toString(), 
-      crimes, 
-      fromTimestamp, 
-      toTimestamp, 
+      member.userId.toString(),
+      crimes,
+      fromTimestamp,
+      toTimestamp,
       factionCutPercent
     )
   }
-  
+
   // Calculate total adjusted tickets
   const totalAdjustedTickets = memberArray.reduce((sum, m) => sum + m.adjustedTickets, 0)
-  
+
   // Calculate share and payout for each member
   for (const member of memberArray) {
     if (totalAdjustedTickets > 0) {
@@ -415,27 +431,63 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
       member.sharePercent = 0
       member.payout = 0
     }
-    
+
     // Calculate time percentage
     member.timePercent = totalTimeSpent > 0 ? (member.timeSpent / totalTimeSpent) * 100 : 0
   }
-  
+
   // Sort by payout descending
   memberArray.sort((a, b) => b.payout - a.payout)
-  
+
   // Calculate crime statistics
   const totalCrimes = crimesByStatus.Successful + crimesByStatus.Failed
   const successRate = totalCrimes > 0 ? (crimesByStatus.Successful / totalCrimes) * 100 : 0
-  
+
   console.log('Crime stats - Successful:', crimesByStatus.Successful, 'Failed:', crimesByStatus.Failed)
   console.log('Success rate:', successRate.toFixed(1) + '%')
   console.log('===========================================\n')
-  
+
+  // Create item breakdown structure
+  const itemBreakdown = {
+    rewards: {},
+    costs: {}
+  }
+
+  // Aggregate reward items
+  for (const item of rewardItemDetails) {
+    if (!itemBreakdown.rewards[item.itemId]) {
+      itemBreakdown.rewards[item.itemId] = {
+        name: item.itemName || `Item ${item.itemId}`,
+        quantity: 0,
+        totalValue: 0
+      }
+    }
+    itemBreakdown.rewards[item.itemId].quantity += item.quantity
+    itemBreakdown.rewards[item.itemId].totalValue += item.totalValue
+  }
+
+  // Aggregate consumed items
+  for (const item of consumedItemDetails) {
+    if (!itemBreakdown.costs[item.itemId]) {
+      itemBreakdown.costs[item.itemId] = {
+        name: item.itemName || `Item ${item.itemId}`,
+        quantity: 0,
+        totalValue: 0
+      }
+    }
+    itemBreakdown.costs[item.itemId].quantity += 1
+    itemBreakdown.costs[item.itemId].totalValue += item.unitValue
+  }
+
+  console.log('Item breakdown - Rewards:', Object.keys(itemBreakdown.rewards).length, 'unique items')
+  console.log('Item breakdown - Costs:', Object.keys(itemBreakdown.costs).length, 'unique items')
+
   return {
     members: memberArray,
     totalMoneyReward,
     totalItemReward,
     totalItemCost,
+    netItemValue: totalItemReward - totalItemCost,
     grossTotal,
     factionCut,
     factionCutPercent: factionCutPercent * 100,
@@ -443,6 +495,7 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     participatingMembers: memberArray.length,
     payoutPerMember: memberArray.length > 0 ? Math.floor(memberPayoutTotal / memberArray.length) : 0,
     crimesProcessed,
+    totalCrimes,  // Add total crimes (successful + failed)
     crimeIds,
     totalTimeSpent,
     averageTime,
@@ -464,7 +517,8 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     },
     // Item details for display
     rewardItemDetails,
-    consumedItemDetails
+    consumedItemDetails,
+    itemBreakdown
   }
 }
 
@@ -522,10 +576,10 @@ export function formatCurrency(amount) {
  */
 export function formatCurrencyShort(amount) {
   if (amount === null || amount === undefined) return '$0'
-  
+
   const absAmount = Math.abs(amount)
   const sign = amount < 0 ? '-' : ''
-  
+
   if (absAmount >= 1e9) {
     return sign + '$' + (absAmount / 1e9).toFixed(2) + 'B'
   } else if (absAmount >= 1e6) {
@@ -581,9 +635,9 @@ export function exportPayoutsToCSV(members, metadata) {
     'OC Payout',
     'Theoretical'
   ]
-  
+
   const totalTime = metadata.totalTimeSpent || 1
-  
+
   const rows = members.map(m => [
     m.name,
     m.userId,
@@ -598,7 +652,7 @@ export function exportPayoutsToCSV(members, metadata) {
     Math.floor(m.payout),
     Math.floor(m.theoreticalPayout || 0)
   ])
-  
+
   return [headers.join(','), ...rows.map(row => row.join(','))].join('\n')
 }
 
@@ -607,14 +661,14 @@ export function exportPayoutsToCSV(members, metadata) {
  */
 export function generateBatchPayoutURL(members) {
   const validMembers = members.filter(m => m.payout > 0)
-  
+
   if (validMembers.length === 0) {
     return ''
   }
-  
+
   const uids = validMembers.map(m => m.userId).join(',')
   const amounts = validMembers.map(m => Math.floor(m.payout)).join(',')
-  
+
   return `https://www.torn.com/factions.php?step=your#/tab=controls&batbal_uids=${uids}&batbal_amounts=${amounts}`
 }
 
@@ -623,13 +677,13 @@ export function generateBatchPayoutURL(members) {
  */
 export function parsePayoutCSV(csvText, weekStart, weekEnd) {
   const lines = csvText.trim().split('\n')
-  
+
   if (lines.length < 2) {
     throw new Error('CSV file is empty or invalid')
   }
-  
+
   const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
-  
+
   // Find column indexes
   const memberCol = headers.findIndex(h => h.includes('member'))
   const idCol = headers.findIndex(h => h === 'id')
@@ -641,30 +695,30 @@ export function parsePayoutCSV(csvText, weekStart, weekEnd) {
   const shareCol = headers.findIndex(h => h.includes('share'))
   const payoutCol = headers.findIndex(h => h.includes('payout'))
   const theoreticalCol = headers.findIndex(h => h.includes('theoretical'))
-  
+
   if (idCol === -1 || payoutCol === -1) {
     throw new Error('CSV must have ID and Payout columns')
   }
-  
+
   const members = []
   let totalPayout = 0
   let totalTime = 0
   let totalTickets = 0
-  
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
-    
+
     const values = line.split(',').map(v => v.trim())
-    
+
     const payoutStr = values[payoutCol]?.replace(/[$,"]/g, '') || '0'
     const payout = parseInt(payoutStr) || 0
-    
+
     if (payout === 0) continue
-    
+
     const memberId = values[idCol]
     if (!memberId || memberId === 'undefined') continue
-    
+
     const timeSpent = timeCol !== -1 ? parseInt(values[timeCol]) || 0 : 0
     const timePercent = timePercentCol !== -1 ? parseFloat(values[timePercentCol]?.replace('%', '')) || 0 : 0
     const tier = tierCol !== -1 ? parseInt(values[tierCol]) || 6 : 6
@@ -672,7 +726,7 @@ export function parsePayoutCSV(csvText, weekStart, weekEnd) {
     const penalty = penaltyCol !== -1 ? parseFloat(values[penaltyCol]) || 0 : 0
     const sharePercent = shareCol !== -1 ? parseFloat(values[shareCol]?.replace('%', '')) || 0 : 0
     const theoretical = theoreticalCol !== -1 ? parseInt(values[theoreticalCol]?.replace(/[$,"]/g, '')) || 0 : 0
-    
+
     members.push({
       member_id: memberId,
       member_name: memberCol !== -1 ? values[memberCol] : `Member ${memberId}`,
@@ -688,12 +742,12 @@ export function parsePayoutCSV(csvText, weekStart, weekEnd) {
       week_start: weekStart,
       week_end: weekEnd
     })
-    
+
     totalPayout += payout
     totalTime += timeSpent
     totalTickets += (baseTickets + penalty)
   }
-  
+
   return {
     members,
     totalPayout,
@@ -701,4 +755,82 @@ export function parsePayoutCSV(csvText, weekStart, weekEnd) {
     totalTickets,
     memberCount: members.length
   }
+}
+
+/**
+ * Get crime statistics from crimes data
+ * @param {Object} crimes - Crimes object with crime data
+ * @returns {Object} Statistics about crimes
+ */
+export function getCrimeStats(crimes) {
+  const stats = {
+    totals: {
+      count: 0,
+      success: 0,
+      failed: 0,
+      totalMoney: 0
+    },
+    byDifficulty: {},
+    crimesList: []
+  }
+
+  if (!crimes) return stats
+
+  Object.values(crimes).forEach(crime => {
+    const isSuccess = crime.status === 'Successful' || crime.status === 'Success'
+    const isFailed = crime.status === 'Failed' || crime.status === 'Failure'
+    const isPending = crime.status === 'Planning' || crime.status === 'Recruiting'
+
+    stats.totals.count++
+
+    // Count by status
+    if (isSuccess) {
+      stats.totals.success++
+      stats.totals.totalMoney += crime.rewards?.money || crime.rewards_money || 0
+    } else if (isFailed) {
+      stats.totals.failed++
+    }
+
+    // Count by difficulty - ONLY for executed crimes (success or failed)
+    const difficulty = crime.difficulty || 1
+    if (!stats.byDifficulty[difficulty]) {
+      stats.byDifficulty[difficulty] = {
+        total: 0,
+        success: 0,
+        failed: 0
+      }
+    }
+
+    // Only count in difficulty stats if the crime was executed (not pending)
+    if (!isPending) {
+      stats.byDifficulty[difficulty].total++
+      if (isSuccess) {
+        stats.byDifficulty[difficulty].success++
+      } else if (isFailed) {
+        stats.byDifficulty[difficulty].failed++
+      }
+    }
+
+    // Extract participant IDs from slots
+    const participantIds = (crime.slots || [])
+      .filter(slot => slot.user && slot.user.id)
+      .map(slot => slot.user.id)
+
+    // Add to crimes list for expandable view
+    stats.crimesList.push({
+      id: crime.crime_id,
+      name: crime.name,
+      difficulty: crime.difficulty,
+      status: crime.status,
+      moneyReward: crime.rewards?.money || crime.rewards_money || 0,
+      executed_at: crime.executed_at,
+      slots: crime.slots || [],
+      participants: participantIds
+    })
+  })
+
+  // Sort crimes list by execution time (most recent first)
+  stats.crimesList.sort((a, b) => (b.executed_at || 0) - (a.executed_at || 0))
+
+  return stats
 }

@@ -13,22 +13,31 @@ import * as adminApi from './adminApi'
 
 /**
  * Load all crimes and related data for a given time range
- * 
+ *
  * Filtering logic:
+ * - Load crimes created up to 3 weeks before the analysis window to capture
+ *   crimes that were created earlier but members joined/participated during our window
+ * - This ensures accurate time tracking for members who joined crimes before
+ *   the payout period but the crime executed during the period
  * - Successful/Failed crimes: executed_at >= fromTimestamp AND executed_at < toTimestamp
  * - Planning/Recruiting crimes: Always included for time tracking purposes
- * 
+ *
  * @param {number} fromTimestamp - Start of period (Unix timestamp, inclusive)
  * @param {number} toTimestamp - End of period (Unix timestamp, exclusive)
  * @returns {Promise<Object>} Crimes data with slots and items
  */
 export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
   try {
-    // Load crimes in two queries:
-    // 1. Executed crimes within the time window (>= from AND < to)
-    // 2. In-progress crimes (Planning/Recruiting) for time tracking
-    
-    // Query 1: Crimes executed within time window
+    // Calculate lookback window (3 weeks = 1,814,400 seconds)
+    const THREE_WEEKS = 604800 * 3
+    const dataFromTimestamp = fromTimestamp - THREE_WEEKS
+
+    // Load crimes in multiple queries:
+    // 1. Crimes created during lookback window that were executed in our analysis window
+    // 2. Crimes created during lookback window that are still in progress
+    // 3. In-progress crimes (Planning/Recruiting) - regardless of creation time
+
+    // Query 1: Executed crimes (created in lookback window OR executed in analysis window)
     const { data: executedCrimes, error: executedError } = await supabase
       .from('crimes')
       .select('*')
@@ -38,7 +47,18 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
 
     if (executedError) throw executedError
 
-    // Query 2: In-progress crimes (for time tracking)
+    // Query 2: Crimes created before our window but might have member activity during our window
+    // Only get crimes that don't have executed_at yet or executed after our lookback starts
+    const { data: lookbackCrimes, error: lookbackError } = await supabase
+      .from('crimes')
+      .select('*')
+      .gte('created_at', dataFromTimestamp)
+      .lt('created_at', fromTimestamp)
+      .order('created_at', { ascending: false })
+
+    if (lookbackError) throw lookbackError
+
+    // Query 3: In-progress crimes (for ongoing time tracking)
     const { data: inProgressCrimes, error: inProgressError } = await supabase
       .from('crimes')
       .select('*')
@@ -47,19 +67,25 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
 
     if (inProgressError) throw inProgressError
 
-    // Combine and deduplicate (in case a Planning crime has an executed_at somehow)
+    // Combine and deduplicate
     const crimeMap = new Map()
-    
+
     for (const crime of (executedCrimes || [])) {
       crimeMap.set(crime.crime_id, crime)
     }
-    
+
+    for (const crime of (lookbackCrimes || [])) {
+      if (!crimeMap.has(crime.crime_id)) {
+        crimeMap.set(crime.crime_id, crime)
+      }
+    }
+
     for (const crime of (inProgressCrimes || [])) {
       if (!crimeMap.has(crime.crime_id)) {
         crimeMap.set(crime.crime_id, crime)
       }
     }
-    
+
     const crimes = Array.from(crimeMap.values())
 
     if (crimes.length === 0) {
@@ -95,20 +121,34 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
     // Transform crimes array into object keyed by crime_id
     // Also attach slots, reward items, and required items to each crime
     const crimesMap = {}
-    
+
     for (const crime of crimes) {
       const crimeId = crime.crime_id
-      
+
       // Get slots for this crime
       const crimeSlots = (slots || []).filter(s => s.crime_id === crimeId)
-      
+
       // Get reward items for this crime
       const crimeRewardItems = (rewardItems || []).filter(r => r.crime_id === crimeId)
-      
+
       // Get required items for this crime
       const crimeRequiredItems = (requiredItems || []).filter(r => r.crime_id === crimeId)
-      
-      // Transform slots to match expected format
+
+      // Load members data for name enrichment if not already loaded
+      let membersMap = {}
+      if (Object.keys(membersMap).length === 0) {
+        const { data: membersData, error: membersError } = await supabase
+          .from('members')
+          .select('member_id, member_name')
+
+        if (!membersError && membersData) {
+          membersData.forEach(m => {
+            membersMap[m.member_id] = m.member_name
+          })
+        }
+      }
+
+      // Transform slots to match expected format with enriched member names
       const transformedSlots = crimeSlots.map(slot => ({
         position: slot.position,
         position_id: slot.position_id,
@@ -116,7 +156,7 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
         checkpoint_pass_rate: parseFloat(slot.checkpoint_pass_rate) || 0,
         user: slot.user_id ? {
           id: parseInt(slot.user_id),
-          name: slot.user_name,
+          name: membersMap[slot.user_id] || slot.user_name || `User ${slot.user_id}`,
           joined_at: slot.joined_at,
           outcome: slot.user_outcome,
           progress: slot.user_progress,
@@ -132,17 +172,17 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
           is_available: slot.item_requirement_is_available
         } : null
       }))
-      
+
       // Calculate total item reward value
       const itemRewardValue = crimeRewardItems.reduce((sum, item) => {
         return sum + ((item.unit_value || 0) * (item.quantity || 1))
       }, 0)
-      
+
       // Calculate total consumed item cost
       const itemCostValue = crimeRequiredItems
         .filter(item => item.was_consumed)
         .reduce((sum, item) => sum + (item.unit_value || 0), 0)
-      
+
       crimesMap[crimeId] = {
         id: crimeId,
         crime_id: crimeId,
@@ -180,7 +220,10 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
 
     console.log(`Loaded ${Object.keys(crimesMap).length} crimes for payout calculation`)
     console.log(`  - Executed in window: ${(executedCrimes || []).length}`)
+    console.log(`  - Lookback crimes (created before window): ${(lookbackCrimes || []).length}`)
     console.log(`  - In-progress: ${(inProgressCrimes || []).length}`)
+    console.log(`  - Analysis window: ${new Date(fromTimestamp * 1000).toISOString()} to ${new Date(toTimestamp * 1000).toISOString()}`)
+    console.log(`  - Data collection starts: ${new Date(dataFromTimestamp * 1000).toISOString()}`)
 
     return {
       crimes: crimesMap,
@@ -188,7 +231,7 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
       rewardItems: rewardItems || [],
       requiredItems: requiredItems || []
     }
-    
+
   } catch (error) {
     console.error('Error loading crimes for payout:', error)
     throw error
@@ -216,10 +259,10 @@ export async function loadMembers() {
 
     // Transform to expected format
     const membersMap = {}
-    
+
     for (const member of (members || [])) {
       const memberCpr = (cprData || []).filter(c => c.member_id === member.member_id)
-      
+
       // Build cpr_by_role structure
       const cprByRole = {}
       for (const cpr of memberCpr) {
@@ -228,7 +271,7 @@ export async function loadMembers() {
         }
         cprByRole[cpr.difficulty_level][cpr.role_name] = parseFloat(cpr.cpr_value)
       }
-      
+
       membersMap[member.member_id] = {
         id: member.member_id,
         name: member.member_name,
@@ -239,7 +282,7 @@ export async function loadMembers() {
     }
 
     return { members: membersMap }
-    
+
   } catch (error) {
     console.error('Error loading members:', error)
     throw error
@@ -261,7 +304,7 @@ export async function loadPayoutWeeks(limit = 20) {
 
     if (error) throw error
     return data || []
-    
+
   } catch (error) {
     console.error('Error loading payout weeks:', error)
     throw error
@@ -283,7 +326,7 @@ export async function loadWeekMembers(weekId) {
 
     if (error) throw error
     return data || []
-    
+
   } catch (error) {
     console.error('Error loading week members:', error)
     throw error
@@ -305,7 +348,7 @@ export async function loadWeekCrimes(weekId) {
 
     if (error) throw error
     return data || []
-    
+
   } catch (error) {
     console.error('Error loading week crimes:', error)
     throw error
@@ -335,7 +378,7 @@ export async function loadMemberPayoutHistory(memberId) {
 
     if (error) throw error
     return data || []
-    
+
   } catch (error) {
     console.error('Error loading member payout history:', error)
     throw error
@@ -366,7 +409,7 @@ export async function loadMemberCrimeHistory(memberId, limit = 100) {
 
     // Get the crime details
     const crimeIds = [...new Set(slots.map(s => s.crime_id))]
-    
+
     const { data: crimes, error: crimesError } = await supabase
       .from('crimes')
       .select('*')
@@ -388,7 +431,7 @@ export async function loadMemberCrimeHistory(memberId, limit = 100) {
     })
 
     return crimesWithSlotInfo
-    
+
   } catch (error) {
     console.error('Error loading member crime history:', error)
     throw error
@@ -412,12 +455,12 @@ export async function loadMemberLoanedItems(memberId) {
 
     // Filter to items loaned to this specific member
     const memberItems = []
-    
+
     for (const item of (items || [])) {
       if (!item.loaned_to) continue
-      
+
       let loanedTo = item.loaned_to
-      
+
       // Parse loaned_to if it's a string
       if (typeof loanedTo === 'string') {
         try {
@@ -431,16 +474,16 @@ export async function loadMemberLoanedItems(memberId) {
           }
         }
       }
-      
+
       // Check if member has any of these items
       let memberLoanCount = 0
-      
+
       if (Array.isArray(loanedTo)) {
         memberLoanCount = loanedTo.filter(id => id.toString() === memberId.toString()).length
       } else if (typeof loanedTo === 'object') {
         memberLoanCount = loanedTo[memberId] || 0
       }
-      
+
       if (memberLoanCount > 0) {
         memberItems.push({
           ...item,
@@ -450,7 +493,7 @@ export async function loadMemberLoanedItems(memberId) {
     }
 
     return memberItems
-    
+
   } catch (error) {
     console.error('Error loading member loaned items:', error)
     throw error
@@ -536,7 +579,7 @@ export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, ap
     }
 
     return { id: response.weekId, ...weekRecord }
-    
+
   } catch (error) {
     console.error('Error saving payout week:', error)
     throw error

@@ -18,7 +18,6 @@ import InventoryManagement from './components/InventoryManagement'
 import DataManagement from './views/DataManagement'
 import AhView from './views/AhView'
 import { isAdmin } from './config'
-import { config } from './config'
 
 
 // Public layout for unauthenticated pages
@@ -62,10 +61,6 @@ function DashboardContent() {
   const { isAuthenticated, isLeadership, user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('members')
-  const [cprData, setCprData] = useState(null)
-  const [crimesData, setCrimesData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
   
   // View As feature for admins - null means normal view
   const [viewAsRole, setViewAsRole] = useState(null)
@@ -79,10 +74,9 @@ function DashboardContent() {
     ? isLeadership 
     : (viewAsRole === 'leadership' || viewAsRole === 'admin')
 
-
   // Navigation tabs
   const tabs = [
-    { id: 'members', label: 'Member Tiers', roles: ['member', 'leadership'] },
+    { id: 'members', label: 'Members', roles: ['member', 'leadership'] },
     { id: 'crimes', label: 'OC 2.0 History', roles: ['member', 'leadership'] },
     { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
     { id: 'payouts', label: 'OC 2.0 Payouts', roles: ['member', 'leadership'] },
@@ -98,20 +92,10 @@ function DashboardContent() {
     return tab.roles.includes('member')
   })
 
-
-  // Load data when authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadData()
-    }
-  }, [isAuthenticated])
-
-
   // Reset viewAsRole when user changes
   useEffect(() => {
     setViewAsRole(null)
   }, [user?.id])
-
 
   // Reset to members tab if current tab becomes unavailable due to viewAs change
   useEffect(() => {
@@ -121,41 +105,10 @@ function DashboardContent() {
     }
   }, [viewAsRole, availableTabs, activeTab])
 
-
-  async function loadData() {
-    try {
-      setLoading(true)
-      setError(null)
-
-      const cprResponse = await fetch(config.dataSource.cprData)
-      if (!cprResponse.ok) throw new Error('Failed to load CPR data')
-      const cprJson = await cprResponse.json()
-      setCprData(cprJson)
-
-      try {
-        const crimesResponse = await fetch(config.dataSource.crimesData)
-        if (crimesResponse.ok) {
-          const crimesJson = await crimesResponse.json()
-          setCrimesData(crimesJson)
-        } else {
-          setCrimesData({ crimes: {} })
-        }
-      } catch {
-        setCrimesData({ crimes: {} })
-      }
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-
   // Show login if not authenticated
   if (!isAuthenticated && !authLoading) {
     return <LoginModal />
   }
-
 
   if (authLoading) {
     return (
@@ -168,32 +121,6 @@ function DashboardContent() {
     )
   }
 
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading data...</p>
-        </div>
-      </div>
-    )
-  }
-
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="card max-w-md">
-          <h2 className="text-xl font-semibold text-red-600 mb-2">Error Loading Data</h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
-          <button onClick={loadData} className="btn-primary">Retry</button>
-        </div>
-      </div>
-    )
-  }
-
-
   const handleNavigate = (tab) => {
     if (tab === 'ah') {
       navigate('/ah')
@@ -201,7 +128,6 @@ function DashboardContent() {
       setActiveTab(tab)
     }
   }
-
 
   return (
     <div className="min-h-screen">
@@ -230,7 +156,7 @@ function DashboardContent() {
       )}
       
       <div className="max-w-7xl mx-auto px-4 py-6">
-        <StatsOverview cprData={cprData} crimesData={crimesData} />
+        {/* <StatsOverview /> */}
         <Navigation 
           activeTab={activeTab} 
           onTabChange={setActiveTab}
@@ -239,16 +165,16 @@ function DashboardContent() {
         <div className="mt-6">
           {/* Member-accessible views */}
           <ProtectedRoute>
-            {activeTab === 'members' && <MembersView cprData={cprData} crimesData={crimesData} />}
-            {activeTab === 'crimes' && <CrimesView crimesData={crimesData} />}
+            {activeTab === 'members' && <MembersView />}
+            {activeTab === 'crimes' && <CrimesView />}
             {activeTab === 'requirements' && <TierRequirementsView />}
-            {activeTab === 'payouts' && <PayoutsView cprData={cprData} crimesData={crimesData} />}
+            {activeTab === 'payouts' && <PayoutsView />}
           </ProtectedRoute>
 
           {/* Leadership-only views */}
           <ProtectedRoute requireLeadership={true}>
-            {activeTab === 'payout-mgmt' && <PayoutManagement cprData={cprData} crimesData={crimesData} />}
-            {activeTab === 'tier-mgmt' && <TierManagement cprData={cprData} />}
+            {activeTab === 'payout-mgmt' && <PayoutManagement />}
+            {activeTab === 'tier-mgmt' && <TierManagement />}
             {activeTab === 'inventory' && <InventoryManagement />}
           </ProtectedRoute>
 
@@ -282,7 +208,7 @@ export default function App() {
       <Routes>
         {/* Public route - no authentication */}
         <Route path="/ah" element={<PublicAhPage />} />
-        
+
         {/* Protected routes - require authentication */}
         <Route path="/*" element={<ProtectedDashboard />} />
       </Routes>
