@@ -430,12 +430,48 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   console.log('Crime stats - Successful:', crimesByStatus.Successful, 'Failed:', crimesByStatus.Failed)
   console.log('Success rate:', successRate.toFixed(1) + '%')
   console.log('===========================================\n')
-  
+
+  // Create item breakdown structure
+  const itemBreakdown = {
+    rewards: {},
+    costs: {}
+  }
+
+  // Aggregate reward items
+  for (const item of rewardItemDetails) {
+    if (!itemBreakdown.rewards[item.itemId]) {
+      itemBreakdown.rewards[item.itemId] = {
+        name: item.itemName || `Item ${item.itemId}`,
+        quantity: 0,
+        totalValue: 0
+      }
+    }
+    itemBreakdown.rewards[item.itemId].quantity += item.quantity
+    itemBreakdown.rewards[item.itemId].totalValue += item.totalValue
+  }
+
+  // Aggregate consumed items
+  for (const item of consumedItemDetails) {
+    if (!itemBreakdown.costs[item.itemId]) {
+      itemBreakdown.costs[item.itemId] = {
+        name: item.itemName || `Item ${item.itemId}`,
+        quantity: 0,
+        totalValue: 0
+      }
+    }
+    itemBreakdown.costs[item.itemId].quantity += 1
+    itemBreakdown.costs[item.itemId].totalValue += item.unitValue
+  }
+
+  console.log('Item breakdown - Rewards:', Object.keys(itemBreakdown.rewards).length, 'unique items')
+  console.log('Item breakdown - Costs:', Object.keys(itemBreakdown.costs).length, 'unique items')
+
   return {
     members: memberArray,
     totalMoneyReward,
     totalItemReward,
     totalItemCost,
+    netItemValue: totalItemReward - totalItemCost,
     grossTotal,
     factionCut,
     factionCutPercent: factionCutPercent * 100,
@@ -443,6 +479,7 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     participatingMembers: memberArray.length,
     payoutPerMember: memberArray.length > 0 ? Math.floor(memberPayoutTotal / memberArray.length) : 0,
     crimesProcessed,
+    totalCrimes,  // Add total crimes (successful + failed)
     crimeIds,
     totalTimeSpent,
     averageTime,
@@ -464,7 +501,8 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     },
     // Item details for display
     rewardItemDetails,
-    consumedItemDetails
+    consumedItemDetails,
+    itemBreakdown
   }
 }
 
@@ -701,4 +739,82 @@ export function parsePayoutCSV(csvText, weekStart, weekEnd) {
     totalTickets,
     memberCount: members.length
   }
+}
+
+/**
+ * Get crime statistics from crimes data
+ * @param {Object} crimes - Crimes object with crime data
+ * @returns {Object} Statistics about crimes
+ */
+export function getCrimeStats(crimes) {
+  const stats = {
+    totals: {
+      count: 0,
+      success: 0,
+      failed: 0,
+      totalMoney: 0
+    },
+    byDifficulty: {},
+    crimesList: []
+  }
+
+  if (!crimes) return stats
+
+  Object.values(crimes).forEach(crime => {
+    const isSuccess = crime.status === 'Successful' || crime.status === 'Success'
+    const isFailed = crime.status === 'Failed' || crime.status === 'Failure'
+    const isPending = crime.status === 'Planning' || crime.status === 'Recruiting'
+
+    stats.totals.count++
+
+    // Count by status
+    if (isSuccess) {
+      stats.totals.success++
+      stats.totals.totalMoney += crime.rewards?.money || crime.rewards_money || 0
+    } else if (isFailed) {
+      stats.totals.failed++
+    }
+
+    // Count by difficulty - ONLY for executed crimes (success or failed)
+    const difficulty = crime.difficulty || 1
+    if (!stats.byDifficulty[difficulty]) {
+      stats.byDifficulty[difficulty] = {
+        total: 0,
+        success: 0,
+        failed: 0
+      }
+    }
+
+    // Only count in difficulty stats if the crime was executed (not pending)
+    if (!isPending) {
+      stats.byDifficulty[difficulty].total++
+      if (isSuccess) {
+        stats.byDifficulty[difficulty].success++
+      } else if (isFailed) {
+        stats.byDifficulty[difficulty].failed++
+      }
+    }
+
+    // Extract participant IDs from slots
+    const participantIds = (crime.slots || [])
+      .filter(slot => slot.user && slot.user.id)
+      .map(slot => slot.user.id)
+
+    // Add to crimes list for expandable view
+    stats.crimesList.push({
+      id: crime.crime_id,
+      name: crime.name,
+      difficulty: crime.difficulty,
+      status: crime.status,
+      moneyReward: crime.rewards?.money || crime.rewards_money || 0,
+      executed_at: crime.executed_at,
+      slots: crime.slots || [],
+      participants: participantIds
+    })
+  })
+
+  // Sort crimes list by execution time (most recent first)
+  stats.crimesList.sort((a, b) => (b.executed_at || 0) - (a.executed_at || 0))
+
+  return stats
 }

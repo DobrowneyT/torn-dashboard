@@ -1,140 +1,197 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
+import { supabase } from '../utils/supabase'
+import { formatCurrency } from '../utils/payoutCalculations'
 
-export default function MembersView({ cprData, crimesData }) {
-  // Get persisted state
+export default function MembersView() {
   const [persistedState, setPersistedState] = useViewState('members')
-  
-  // Initialize from persisted state or defaults
+
   const [searchTerm, setSearchTerm] = useState(persistedState.searchTerm || '')
   const [tierFilter, setTierFilter] = useState(persistedState.tierFilter || 'all')
   const [sortConfig, setSortConfig] = useState(
     persistedState.sortConfig || { key: 'tier', direction: 'asc' }
   )
-  const [currentFactionMembers, setCurrentFactionMembers] = useState(null)
+  const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [selectedMember, setSelectedMember] = useState(null)
+  const [memberCrimes, setMemberCrimes] = useState([])
+  const [memberPayouts, setMemberPayouts] = useState([])
+  const [loadingDetails, setLoadingDetails] = useState(false)
+  const [showCrimes, setShowCrimes] = useState(false)
+  const [showPayouts, setShowPayouts] = useState(false)
 
-  // Persist state changes - setPersistedState is now stable, no need to include it
   useEffect(() => {
     setPersistedState({
       searchTerm,
       tierFilter,
       sortConfig
     })
-  }, [searchTerm, tierFilter, sortConfig])
+  }, [searchTerm, tierFilter, sortConfig, setPersistedState])
 
-  // Fetch current faction members from Torn API
   useEffect(() => {
-    async function fetchFactionMembers() {
+    async function fetchMembers() {
       try {
         setLoading(true)
-        const factionId = import.meta.env.VITE_FACTION_ID || '46427'
-        const apiKey = import.meta.env.VITE_TORN_API_KEY || ''
-        
-        if (!apiKey) {
-          console.warn('No Torn API key configured, showing all members')
-          setCurrentFactionMembers(null)
-          setLoading(false)
-          return
+
+        // Get current members with their basic info
+        const { data, error } = await supabase
+          .from('members')
+          .select('member_id, member_name, tier, tier_override, last_scraped')
+          .eq('is_current', true)
+
+        if (error) {
+          console.error('Supabase error:', error)
+          throw error
         }
 
-        const response = await fetch(
-          `https://api.torn.com/faction/${factionId}?selections=basic&key=${apiKey}`
-        )
-        
-        if (response.ok) {
-          const data = await response.json()
-          const memberIds = new Set(Object.keys(data.members || {}).map(id => id.toString()))
-          setCurrentFactionMembers(memberIds)
-        } else {
-          console.error('Failed to fetch faction members')
-          setCurrentFactionMembers(null)
-        }
+        // Get CPR averages
+        const { data: cprData } = await supabase
+          .from('member_cpr')
+          .select('member_id, cpr_value')
+
+        // Calculate average CPR per member
+        const cprByMember = {}
+        cprData?.forEach(record => {
+          if (!cprByMember[record.member_id]) {
+            cprByMember[record.member_id] = []
+          }
+          cprByMember[record.member_id].push(record.cpr_value)
+        })
+
+        const formattedMembers = (data || []).map(m => ({
+          id: m.member_id,
+          name: m.member_name,
+          tier: m.tier,
+          hasOverride: m.tier_override !== null,
+          lastScraped: m.last_scraped,
+          avgCpr: cprByMember[m.member_id]
+            ? cprByMember[m.member_id].reduce((a, b) => a + b, 0) / cprByMember[m.member_id].length
+            : 0,
+          roleCount: cprByMember[m.member_id]?.length || 0
+        }))
+
+        setMembers(formattedMembers)
       } catch (error) {
-        console.error('Error fetching faction members:', error)
-        setCurrentFactionMembers(null)
+        console.error('Error fetching members:', error)
+        setMembers([])
       } finally {
         setLoading(false)
       }
     }
 
-    fetchFactionMembers()
+    fetchMembers()
   }, [])
 
-  const members = useMemo(() => {
-    if (!cprData?.members) return []
-    
-    let filtered = Object.entries(cprData.members).map(([id, data]) => ({
-      id,
-      ...data,
-      avgCpr: calculateAvgCpr(data),
-      totalCrimes: calculateTotalCrimes(id, crimesData)
-    }))
-
-    // Filter to only current faction members if we have that data
-    if (currentFactionMembers) {
-      filtered = filtered.filter(m => currentFactionMembers.has(m.id.toString()))
-    }
+  const filteredMembers = useMemo(() => {
+    let filtered = [...members]
 
     if (searchTerm) {
-      filtered = filtered.filter(m => 
+      filtered = filtered.filter(m =>
         m.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         m.id.toString().includes(searchTerm)
       )
     }
-    
+
     if (tierFilter !== 'all') {
       filtered = filtered.filter(m => m.tier === parseInt(tierFilter))
     }
-    
-    // Apply sorting
+
     return filtered.sort((a, b) => {
       let aVal = a[sortConfig.key]
       let bVal = b[sortConfig.key]
-      
-      // Handle special cases
+
       if (sortConfig.key === 'name') {
         aVal = (aVal || '').toLowerCase()
         bVal = (bVal || '').toLowerCase()
       } else if (sortConfig.key === 'id') {
-        // Parse IDs as integers for proper numeric sorting
         aVal = parseInt(aVal) || 0
         bVal = parseInt(bVal) || 0
-      } else if (sortConfig.key === 'avgCpr') {
-        aVal = aVal === 'N/A' ? -1 : parseFloat(aVal)
-        bVal = bVal === 'N/A' ? -1 : parseFloat(bVal)
-      } else if (sortConfig.key === 'tier') {
-        aVal = aVal || 6
-        bVal = bVal || 6
       }
-      
-      if (aVal < bVal) {
-        return sortConfig.direction === 'asc' ? -1 : 1
-      }
-      if (aVal > bVal) {
-        return sortConfig.direction === 'asc' ? 1 : -1
-      }
+
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
       return 0
     })
-  }, [cprData, crimesData, searchTerm, tierFilter, currentFactionMembers, sortConfig])
+  }, [members, searchTerm, tierFilter, sortConfig])
 
   const handleSort = (key) => {
-    let direction = 'asc'
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc'
-    }
-    setSortConfig({ key, direction })
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }))
   }
 
-  const SortIcon = ({ columnKey }) => {
-    if (sortConfig.key !== columnKey) {
-      return <span className="ml-1 text-gray-400">⇅</span>
+  async function handleViewCrimes(memberId, memberName) {
+    setSelectedMember({ id: memberId, name: memberName })
+    setShowCrimes(true)
+    setShowPayouts(false)
+    setLoadingDetails(true)
+
+    try {
+      // Get all crimes this member participated in
+      const { data: slots, error } = await supabase
+        .from('crime_slots')
+        .select('crime_id, position, checkpoint_pass_rate, joined_at')
+        .eq('user_id', memberId)
+        .order('joined_at', { ascending: false })
+
+      if (error) throw error
+
+      // Get crime details
+      const crimeIds = [...new Set(slots?.map(s => s.crime_id) || [])]
+
+      if (crimeIds.length > 0) {
+        const { data: crimes, error: crimesError } = await supabase
+          .from('crimes')
+          .select('crime_id, name, difficulty, status, executed_at, rewards_money')
+          .in('crime_id', crimeIds)
+
+        if (crimesError) throw crimesError
+
+        // Combine slot and crime data
+        const crimesWithSlots = crimes?.map(crime => {
+          const slot = slots.find(s => s.crime_id === crime.crime_id)
+          return {
+            ...crime,
+            position: slot?.position,
+            cpr: slot?.checkpoint_pass_rate,
+            joined_at: slot?.joined_at
+          }
+        }) || []
+
+        setMemberCrimes(crimesWithSlots)
+      } else {
+        setMemberCrimes([])
+      }
+    } catch (error) {
+      console.error('Error loading crimes:', error)
+      setMemberCrimes([])
+    } finally {
+      setLoadingDetails(false)
     }
-    return (
-      <span className="ml-1">
-        {sortConfig.direction === 'asc' ? '↑' : '↓'}
-      </span>
-    )
+  }
+
+  async function handleViewPayouts(memberId, memberName) {
+    setSelectedMember({ id: memberId, name: memberName })
+    setShowPayouts(true)
+    setShowCrimes(false)
+    setLoadingDetails(true)
+
+    try {
+      const { data, error } = await supabase
+        .from('oc_payout_members')
+        .select('week_id, week_start, week_end, tier, payout, theoretical_payout, time_spent, crimes_count')
+        .eq('member_id', memberId)
+        .order('week_end', { ascending: false })
+
+      if (error) throw error
+      setMemberPayouts(data || [])
+    } catch (error) {
+      console.error('Error loading payouts:', error)
+      setMemberPayouts([])
+    } finally {
+      setLoadingDetails(false)
+    }
   }
 
   if (loading) {
@@ -142,135 +199,344 @@ export default function MembersView({ cprData, crimesData }) {
       <div className="card">
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading faction members...</p>
+          <p className="text-gray-600 dark:text-gray-400">Loading members...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="card">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-        <div>
-          <h2 className="text-xl font-semibold">Member Performance by Tier</h2>
-          {currentFactionMembers && (
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              Showing {members.length} current faction members
-            </p>
-          )}
-          {!currentFactionMembers && (
-            <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-1">
-              ⚠ Showing all members (configure VITE_TORN_API_KEY to filter current faction)
-            </p>
-          )}
-        </div>
-        <div className="flex gap-2 items-center">
+    <>
+      <div className="card">
+        <div className="mb-6 flex flex-col sm:flex-row gap-4">
           <input
             type="text"
-            placeholder="Search members..."
+            placeholder="Search by name or ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="input flex-1 md:w-64"
+            className="flex-1 px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
           />
-          <select 
-            value={tierFilter} 
-            onChange={(e) => setTierFilter(e.target.value)} 
-            className="input"
+
+          <select
+            value={tierFilter}
+            onChange={(e) => setTierFilter(e.target.value)}
+            className="px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
           >
             <option value="all">All Tiers</option>
-            {[1,2,3,4,5,6].map(t => <option key={t} value={t}>Tier {t}</option>)}
+            <option value="1">Tier 1</option>
+            <option value="2">Tier 2</option>
+            <option value="3">Tier 3</option>
+            <option value="4">Tier 4</option>
+            <option value="5">Tier 5</option>
+            <option value="6">Tier 6</option>
           </select>
         </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="border-b-2 border-gray-200 dark:border-slate-700">
-            <tr className="text-left">
-              <th 
-                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
-                onClick={() => handleSort('name')}
-              >
-                Member <SortIcon columnKey="name" />
-              </th>
-              <th 
-                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
-                onClick={() => handleSort('id')}
-              >
-                ID <SortIcon columnKey="id" />
-              </th>
-              <th 
-                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
-                onClick={() => handleSort('tier')}
-              >
-                Tier <SortIcon columnKey="tier" />
-              </th>
-              <th 
-                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
-                onClick={() => handleSort('totalCrimes')}
-              >
-                Crimes <SortIcon columnKey="totalCrimes" />
-              </th>
-              <th 
-                className="py-3 px-4 font-semibold text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
-                onClick={() => handleSort('avgCpr')}
-              >
-                Avg CPR <SortIcon columnKey="avgCpr" />
-              </th>
-              <th className="py-3 px-4 font-semibold text-sm">Top Roles</th>
-            </tr>
-          </thead>
-          <tbody>
-            {members.length === 0 ? (
-              <tr><td colSpan="6" className="py-8 text-center text-gray-500">No members found</td></tr>
-            ) : (
-              members.map(m => (
-                <tr key={m.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50">
-                  <td className="py-3 px-4 font-medium">{m.name || `Member ${m.id}`}</td>
-                  <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{m.id}</td>
-                  <td className="py-3 px-4"><TierBadge tier={m.tier || 6} /></td>
-                  <td className="py-3 px-4">{m.totalCrimes}</td>
-                  <td className="py-3 px-4">{m.avgCpr}</td>
-                  <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{getTopRoles(m)}</td>
+
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="border-b-2 border-gray-200 dark:border-slate-700">
+              <tr>
+                <th
+                  className="text-left py-3 px-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700"
+                  onClick={() => handleSort('name')}
+                >
+                  <div className="flex items-center gap-2">
+                    Member
+                    {sortConfig.key === 'name' && (
+                      <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+                <th
+                  className="text-left py-3 px-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700"
+                  onClick={() => handleSort('tier')}
+                >
+                  <div className="flex items-center gap-2">
+                    Tier
+                    {sortConfig.key === 'tier' && (
+                      <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+                <th className="text-left py-3 px-4">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredMembers.length === 0 ? (
+                <tr>
+                  <td colSpan="3" className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    No members found
+                  </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                filteredMembers.map((member) => (
+                  <tr
+                    key={member.id}
+                    className="border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/50"
+                  >
+                    <td className="py-3 px-4">
+                      <a
+                        href={`https://www.torn.com/profiles.php?XID=${member.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                      >
+                        {member.name} [{member.id}]
+                      </a>
+                    </td>
+                    <td className="py-3 px-4">
+                      <TierBadge tier={member.tier} override={member.hasOverride} />
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleViewCrimes(member.id, member.name)}
+                          className="text-sm px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300"
+                        >
+                          Crimes
+                        </button>
+                        <button
+                          onClick={() => handleViewPayouts(member.id, member.name)}
+                          className="text-sm px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 dark:bg-green-900 dark:text-green-300"
+                        >
+                          OC 2.0 Payouts
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 text-sm text-gray-600 dark:text-gray-400">
+          Showing {filteredMembers.length} of {members.length} current faction members
+        </div>
+      </div>
+
+      {/* Crimes Modal */}
+      {showCrimes && (
+        <CrimesModal
+          member={selectedMember}
+          crimes={memberCrimes}
+          loading={loadingDetails}
+          onClose={() => setShowCrimes(false)}
+        />
+      )}
+
+      {/* Payouts Modal */}
+      {showPayouts && (
+        <PayoutsModal
+          member={selectedMember}
+          payouts={memberPayouts}
+          loading={loadingDetails}
+          onClose={() => setShowPayouts(false)}
+        />
+      )}
+    </>
+  )
+}
+
+function TierBadge({ tier, override }) {
+  const colors = {
+    1: 'bg-tier-1',
+    2: 'bg-tier-2',
+    3: 'bg-tier-3',
+    4: 'bg-tier-4',
+    5: 'bg-tier-5',
+    6: 'bg-tier-6'
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-white font-semibold text-xs ${colors[tier]}`}>
+      T{tier}
+      {override && <span title="Tier Override">*</span>}
+    </span>
+  )
+}
+
+function CrimesModal({ member, crimes, loading, onClose }) {
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+        <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">Crimes - {member.name}</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              {crimes.length} crimes found
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
+          {crimes.length === 0 ? (
+            <p className="text-center text-gray-500 py-8">No crimes found</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
+                <tr className="text-left">
+                  <th className="py-2 px-2 text-xs font-semibold">Crime</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Level</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Status</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Position</th>
+                  <th className="py-2 px-2 text-xs font-semibold">CPR</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Reward</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Executed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {crimes.map((crime) => (
+                  <tr key={crime.crime_id} className="border-b border-gray-100 dark:border-slate-800">
+                    <td className="py-2 px-2 text-xs font-medium">{crime.name}</td>
+                    <td className="py-2 px-2 text-xs">{crime.difficulty}</td>
+                    <td className="py-2 px-2 text-xs">
+                      <StatusBadge status={crime.status} />
+                    </td>
+                    <td className="py-2 px-2 text-xs">{crime.position}</td>
+                    <td className="py-2 px-2 text-xs">{(crime.cpr || 0).toFixed(1)}%</td>
+                    <td className="py-2 px-2 text-xs font-semibold text-green-600">
+                      {crime.status === 'Successful' ? formatCurrency(crime.rewards_money || 0) : '-'}
+                    </td>
+                    <td className="py-2 px-2 text-xs text-gray-600">
+                      {crime.executed_at ? new Date(crime.executed_at * 1000).toLocaleDateString() : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function TierBadge({ tier }) {
-  const colors = {1:'bg-tier-1',2:'bg-tier-2',3:'bg-tier-3',4:'bg-tier-4',5:'bg-tier-5',6:'bg-tier-6'}
-  return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold text-sm ${colors[tier]}`}>Tier {tier}</span>
+function PayoutsModal({ member, payouts, loading, onClose }) {
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    )
+  }
+
+  const totalPayout = payouts.reduce((sum, p) => sum + (p.payout || 0), 0)
+  const totalTheoretical = payouts.reduce((sum, p) => sum + (p.theoretical_payout || 0), 0)
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+        <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">Payouts - {member.name}</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              {payouts.length} payout weeks | Total: {formatCurrency(totalPayout)}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
+          {payouts.length === 0 ? (
+            <p className="text-center text-gray-500 py-8">No payouts found</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
+                <tr className="text-left">
+                  <th className="py-2 px-2 text-xs font-semibold">Week</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Tier</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Crimes</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Time</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Payout</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Diff</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payouts.map((payout) => {
+                  const diff = (payout.payout || 0) - (payout.theoretical_payout || 0)
+                  return (
+                    <tr key={payout.week_id} className="border-b border-gray-100 dark:border-slate-800">
+                      <td className="py-2 px-2 text-xs">
+                        {payout.week_start} to {payout.week_end}
+                      </td>
+                      <td className="py-2 px-2">
+                        <TierBadge tier={payout.tier} />
+                      </td>
+                      <td className="py-2 px-2 text-xs">{payout.crimes_count || 0}</td>
+                      <td className="py-2 px-2 text-xs">
+                        {((payout.time_spent || 0) / 3600).toFixed(1)}h
+                      </td>
+                      <td className="py-2 px-2 text-xs font-semibold text-blue-600">
+                        {formatCurrency(payout.payout || 0)}
+                      </td>
+                      <td className="py-2 px-2 text-xs text-gray-600">
+                        {formatCurrency(payout.theoretical_payout || 0)}
+                      </td>
+                      <td className="py-2 px-2 text-xs">
+                        <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          {diff >= 0 ? '+' : ''}{formatCurrency(diff)}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot className="border-t-2 border-gray-300 dark:border-slate-600">
+                <tr className="font-bold">
+                  <td colSpan="4" className="py-2 px-2 text-right text-xs">TOTAL:</td>
+                  <td className="py-2 px-2 text-xs text-blue-600">{formatCurrency(totalPayout)}</td>
+                  <td className="py-2 px-2 text-xs text-gray-600">{formatCurrency(totalTheoretical)}</td>
+                  <td className="py-2 px-2 text-xs">
+                    <span className={(totalPayout - totalTheoretical) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      {(totalPayout - totalTheoretical) >= 0 ? '+' : ''}{formatCurrency(totalPayout - totalTheoretical)}
+                    </span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
-function calculateAvgCpr(memberData) {
-  const cprByRole = memberData.cpr_by_role || {}
-  let total = 0, count = 0
-  Object.values(cprByRole).forEach(level => {
-    Object.values(level).forEach(cpr => {
-      if (typeof cpr === 'number') { total += cpr; count++ }
-    })
-  })
-  return count > 0 ? (total / count).toFixed(1) : 'N/A'
-}
+function StatusBadge({ status }) {
+  const colors = {
+    'Successful': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+    'Success': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+    'Failed': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+    'Failure': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+    'Planning': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+    'Recruiting': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+  }
 
-function calculateTotalCrimes(memberId, crimesData) {
-  if (!crimesData?.crimes) return 0
-  return Object.values(crimesData.crimes).filter(crime => 
-    (crime.participant_ids || []).includes(parseInt(memberId))
-  ).length
-}
-
-function getTopRoles(memberData) {
-  const cprByRole = memberData.cpr_by_role || {}
-  const allRoles = []
-  Object.entries(cprByRole).forEach(([level, roles]) => {
-    Object.entries(roles).forEach(([role, cpr]) => {
-      if (typeof cpr === 'number') allRoles.push({ level, role, cpr })
-    })
-  })
-  return allRoles.sort((a,b) => b.cpr - a.cpr).slice(0,3).map(r => `L${r.level} ${r.role}`).join(', ') || 'No data'
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
+      {status}
+    </span>
+  )
 }

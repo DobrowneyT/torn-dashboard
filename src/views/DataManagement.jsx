@@ -3,6 +3,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { isAdmin } from '../config'
 import { supabase } from '../utils/supabase'
 import { syncCrimesFromAPI } from '../utils/syncCrimesFromAPI'
+import { syncItemsFromAPI } from '../utils/syncItemsFromAPI'
+import { syncMembersFromAPI } from '../utils/syncMembersFromAPI'
 import * as adminApi from '../utils/adminApi'
 
 export default function DataManagement() {
@@ -591,17 +593,28 @@ function ViewTab() {
 function SyncTab() {
   const { user } = useAuth()
   const [syncing, setSyncing] = useState(false)
+  const [syncingItems, setSyncingItems] = useState(false)
+  const [syncingMembers, setSyncingMembers] = useState(false)
   const [result, setResult] = useState(null)
+  const [itemsResult, setItemsResult] = useState(null)
+  const [membersResult, setMembersResult] = useState(null)
 
-  const handleSync = async () => {
+  const handleSyncCrimes = async () => {
     try {
       setSyncing(true)
       setResult(null)
 
-      const apiKey = user.apiKey || import.meta.env.VITE_TORN_API_KEY
-      const factionId = import.meta.env.VITE_FACTION_ID || '10739'
+      const apiKey = user?.apiKey
+      
+      if (!apiKey) {
+        setResult({ 
+          success: false, 
+          error: 'No API key found. Please log out and log back in.'
+        })
+        return
+      }
 
-      const syncResult = await syncCrimesFromAPI(apiKey, factionId)
+      const syncResult = await syncCrimesFromAPI(apiKey, null)
       setResult(syncResult)
     } catch (err) {
       setResult({ success: false, error: err.message })
@@ -610,8 +623,102 @@ function SyncTab() {
     }
   }
 
+  const handleSyncItems = async () => {
+    try {
+      setSyncingItems(true)
+      setItemsResult(null)
+
+      const apiKey = user?.apiKey
+      
+      if (!apiKey) {
+        setItemsResult({ 
+          success: false, 
+          error: 'No API key found. Please log out and log back in.',
+          itemsCount: 0
+        })
+        return
+      }
+
+      const syncResult = await syncItemsFromAPI(apiKey)
+      setItemsResult(syncResult)
+    } catch (err) {
+      setItemsResult({ success: false, error: err.message, itemsCount: 0 })
+    } finally {
+      setSyncingItems(false)
+    }
+  }
+
+  const handleSyncMembers = async () => {
+    try {
+      setSyncingMembers(true)
+      setMembersResult(null)
+
+      const apiKey = user?.apiKey
+      
+      if (!apiKey) {
+        setMembersResult({ 
+          success: false, 
+          error: 'No API key found. Please log out and log back in.',
+          totalMembers: 0
+        })
+        return
+      }
+
+      const syncResult = await syncMembersFromAPI(apiKey)
+      setMembersResult(syncResult)
+    } catch (err) {
+      setMembersResult({ success: false, error: err.message, totalMembers: 0 })
+    } finally {
+      setSyncingMembers(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
+      <div className="card border border-green-200 dark:border-green-900/30">
+        <h3 className="text-lg font-semibold mb-4">Sync Members from Torn API</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          Fetch current faction members and update the database. Sets inactive members to is_current=false.
+        </p>
+
+        <button
+          onClick={handleSyncMembers}
+          disabled={syncingMembers}
+          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+        >
+          {syncingMembers ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              Syncing...
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Sync Members Now
+            </>
+          )}
+        </button>
+
+        {membersResult && (
+          <div className={`mt-4 p-4 rounded-lg ${membersResult.success ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
+            {membersResult.success ? (
+              <div className="text-sm text-green-600 dark:text-green-400">
+                <p>Successfully synced members</p>
+                <p>{membersResult.totalMembers} current faction members</p>
+                <p>{membersResult.membersUpdated} existing members updated</p>
+                {membersResult.membersCreated > 0 && <p>{membersResult.membersCreated} new members added</p>}
+              </div>
+            ) : (
+              <p className="text-sm text-red-600 dark:text-red-400">
+                Error: {membersResult.error}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="card border border-blue-200 dark:border-blue-900/30">
         <h3 className="text-lg font-semibold mb-4">Sync Crimes from Torn API</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
@@ -619,7 +726,7 @@ function SyncTab() {
         </p>
 
         <button
-          onClick={handleSync}
+          onClick={handleSyncCrimes}
           disabled={syncing}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
         >
@@ -654,6 +761,47 @@ function SyncTab() {
             ) : (
               <p className="text-sm text-red-600 dark:text-red-400">
                 Error: {result.error}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="card border border-purple-200 dark:border-purple-900/30">
+        <h3 className="text-lg font-semibold mb-4">Sync Items from Torn API</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          Fetch all item data from Torn API and update the items database (typically 1500+ items).
+        </p>
+
+        <button
+          onClick={handleSyncItems}
+          disabled={syncingItems}
+          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+        >
+          {syncingItems ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              Syncing...
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Sync Items Now
+            </>
+          )}
+        </button>
+
+        {itemsResult && (
+          <div className={`mt-4 p-4 rounded-lg ${itemsResult.success ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
+            {itemsResult.success ? (
+              <div className="text-sm text-green-600 dark:text-green-400">
+                <p>Successfully synced {itemsResult.itemsCount} items</p>
+              </div>
+            ) : (
+              <p className="text-sm text-red-600 dark:text-red-400">
+                Error: {itemsResult.error}
               </p>
             )}
           </div>

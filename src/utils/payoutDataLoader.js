@@ -13,22 +13,31 @@ import * as adminApi from './adminApi'
 
 /**
  * Load all crimes and related data for a given time range
- * 
+ *
  * Filtering logic:
+ * - Load crimes created up to 3 weeks before the analysis window to capture
+ *   crimes that were created earlier but members joined/participated during our window
+ * - This ensures accurate time tracking for members who joined crimes before
+ *   the payout period but the crime executed during the period
  * - Successful/Failed crimes: executed_at >= fromTimestamp AND executed_at < toTimestamp
  * - Planning/Recruiting crimes: Always included for time tracking purposes
- * 
+ *
  * @param {number} fromTimestamp - Start of period (Unix timestamp, inclusive)
  * @param {number} toTimestamp - End of period (Unix timestamp, exclusive)
  * @returns {Promise<Object>} Crimes data with slots and items
  */
 export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
   try {
-    // Load crimes in two queries:
-    // 1. Executed crimes within the time window (>= from AND < to)
-    // 2. In-progress crimes (Planning/Recruiting) for time tracking
-    
-    // Query 1: Crimes executed within time window
+    // Calculate lookback window (3 weeks = 1,814,400 seconds)
+    const THREE_WEEKS = 604800 * 3
+    const dataFromTimestamp = fromTimestamp - THREE_WEEKS
+
+    // Load crimes in multiple queries:
+    // 1. Crimes created during lookback window that were executed in our analysis window
+    // 2. Crimes created during lookback window that are still in progress
+    // 3. In-progress crimes (Planning/Recruiting) - regardless of creation time
+
+    // Query 1: Executed crimes (created in lookback window OR executed in analysis window)
     const { data: executedCrimes, error: executedError } = await supabase
       .from('crimes')
       .select('*')
@@ -38,7 +47,18 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
 
     if (executedError) throw executedError
 
-    // Query 2: In-progress crimes (for time tracking)
+    // Query 2: Crimes created before our window but might have member activity during our window
+    // Only get crimes that don't have executed_at yet or executed after our lookback starts
+    const { data: lookbackCrimes, error: lookbackError } = await supabase
+      .from('crimes')
+      .select('*')
+      .gte('created_at', dataFromTimestamp)
+      .lt('created_at', fromTimestamp)
+      .order('created_at', { ascending: false })
+
+    if (lookbackError) throw lookbackError
+
+    // Query 3: In-progress crimes (for ongoing time tracking)
     const { data: inProgressCrimes, error: inProgressError } = await supabase
       .from('crimes')
       .select('*')
@@ -47,19 +67,25 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
 
     if (inProgressError) throw inProgressError
 
-    // Combine and deduplicate (in case a Planning crime has an executed_at somehow)
+    // Combine and deduplicate
     const crimeMap = new Map()
-    
+
     for (const crime of (executedCrimes || [])) {
       crimeMap.set(crime.crime_id, crime)
     }
-    
+
+    for (const crime of (lookbackCrimes || [])) {
+      if (!crimeMap.has(crime.crime_id)) {
+        crimeMap.set(crime.crime_id, crime)
+      }
+    }
+
     for (const crime of (inProgressCrimes || [])) {
       if (!crimeMap.has(crime.crime_id)) {
         crimeMap.set(crime.crime_id, crime)
       }
     }
-    
+
     const crimes = Array.from(crimeMap.values())
 
     if (crimes.length === 0) {
@@ -116,7 +142,7 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
         checkpoint_pass_rate: parseFloat(slot.checkpoint_pass_rate) || 0,
         user: slot.user_id ? {
           id: parseInt(slot.user_id),
-          name: slot.user_name,
+          name: slot.user_name || `User ${slot.user_id}`,
           joined_at: slot.joined_at,
           outcome: slot.user_outcome,
           progress: slot.user_progress,
@@ -180,7 +206,10 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
 
     console.log(`Loaded ${Object.keys(crimesMap).length} crimes for payout calculation`)
     console.log(`  - Executed in window: ${(executedCrimes || []).length}`)
+    console.log(`  - Lookback crimes (created before window): ${(lookbackCrimes || []).length}`)
     console.log(`  - In-progress: ${(inProgressCrimes || []).length}`)
+    console.log(`  - Analysis window: ${new Date(fromTimestamp * 1000).toISOString()} to ${new Date(toTimestamp * 1000).toISOString()}`)
+    console.log(`  - Data collection starts: ${new Date(dataFromTimestamp * 1000).toISOString()}`)
 
     return {
       crimes: crimesMap,

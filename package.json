@@ -6,11 +6,13 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && gh-pages -d dist"
+    "deploy": "npm run build && gh-pages -d dist",
+    "sync:items": "node src/scripts/syncItemsFromAPI.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.90.1",
     "date-fns": "^3.0.0",
+    "dotenv": "^17.2.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.12.0"

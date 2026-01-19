@@ -1,40 +1,25 @@
-/**
- * Sync crimes from Torn API to Supabase via Edge Function
- * All write operations go through the admin-db Edge Function for RLS compliance
- */
+import { supabase } from './supabase'
 
-const EDGE_FUNCTION_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/admin-db'
-
-/**
- * Sync crimes from Torn API to Supabase
- * @param {string} apiKey - Torn API key (used for both Torn API auth and Edge Function auth)
- * @param {string} factionId - Faction ID (not used - faction is configured in Edge Function)
- * @returns {Promise<Object>} Sync results
- */
 export async function syncCrimesFromAPI(apiKey, factionId) {
   try {
-    const response = await fetch(EDGE_FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-torn-api-key': apiKey,
-      },
-      body: JSON.stringify({
+    const { data, error } = await supabase.functions.invoke('admin-db', {
+      body: {
         action: 'sync_crimes'
-      })
+      },
+      headers: {
+        'x-torn-api-key': apiKey,
+      }
     })
 
-    const data = await response.json()
-
-    if (!response.ok) {
+    if (error) {
       return {
         success: false,
-        error: data.error || `Request failed: ${response.status}`,
+        error: error.message || 'Unknown error',
         crimesUpdated: 0,
         slotsUpdated: 0,
         rewardItemsUpdated: 0,
         requiredItemsUpdated: 0,
-        errors: [data.error || 'Unknown error']
+        errors: [error.message || 'Unknown error']
       }
     }
 
@@ -53,9 +38,6 @@ export async function syncCrimesFromAPI(apiKey, factionId) {
   }
 }
 
-/**
- * Get sync status message
- */
 export function getSyncStatusMessage(result) {
   if (!result.success) {
     return `Sync failed: ${result.error}`

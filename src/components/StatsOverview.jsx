@@ -1,96 +1,76 @@
 import { useState, useEffect } from 'react'
-import { useAuth } from '../contexts/AuthContext'
-import { config } from '../config'
+import { supabase } from '../utils/supabase'
 
-export default function StatsOverview({ cprData, crimesData }) {
-  const { user } = useAuth()
-  const [currentMemberCount, setCurrentMemberCount] = useState(null)
-  const [lastOCPayout, setLastOCPayout] = useState(null)
-  const [lastWarPay, setLastWarPay] = useState(null)
+export default function StatsOverview() {
+  const [stats, setStats] = useState({
+    totalMembers: 0,
+    totalCrimes: 0,
+    successRate: 0
+  })
 
-  // Fetch current faction member count
   useEffect(() => {
-    async function fetchFactionMembers() {
+    async function loadStats() {
       try {
-        const factionId = config.faction.id
-        const apiKey = user?.apiKey
-        
-        if (!apiKey) {
-          setCurrentMemberCount(null)
-          return
-        }
+        // Get current member count
+        const { count: memberCount } = await supabase
+          .from('members')
+          .select('*', { count: 'exact', head: true })
+          .eq('is_current', true)
 
-        const response = await fetch(
-          `https://api.torn.com/faction/${factionId}?selections=basic&key=${apiKey}`
-        )
-        
-        if (response.ok) {
-          const data = await response.json()
-          const memberCount = Object.keys(data.members || {}).length
-          setCurrentMemberCount(memberCount)
-        }
+        // Get crime stats
+        const { data: crimeStats } = await supabase
+          .from('crime_stats')
+          .select('*')
+
+        const totalCrimes = crimeStats?.reduce((sum, s) => sum + (s.count || 0), 0) || 0
+        const successfulCrimes = crimeStats
+          ?.filter(s => s.status === 'Successful' || s.status === 'Success')
+          .reduce((sum, s) => sum + (s.count || 0), 0) || 0
+        const successRate = totalCrimes > 0 ? (successfulCrimes / totalCrimes) * 100 : 0
+
+        setStats({
+          totalMembers: memberCount || 0,
+          totalCrimes,
+          successRate
+        })
       } catch (error) {
-        console.error('Error fetching faction members:', error)
-        setCurrentMemberCount(null)
+        console.error('Error loading stats:', error)
       }
     }
 
-    fetchFactionMembers()
-  }, [user])
-
-  // Get last OC payout from localStorage
-  useEffect(() => {
-    try {
-      const savedPayouts = JSON.parse(localStorage.getItem('savedPayouts') || '[]')
-      
-      if (savedPayouts.length > 0) {
-        // Sort by saved_at to get most recent
-        const sorted = savedPayouts.sort((a, b) => 
-          new Date(b.saved_at) - new Date(a.saved_at)
-        )
-        const mostRecent = sorted[0]
-        setLastOCPayout(mostRecent.week_ending)
-      }
-    } catch (error) {
-      console.error('Error loading last payout:', error)
-      setLastOCPayout(null)
-    }
-  }, [])
-
-  // Placeholder for last war pay (will be implemented later)
-  useEffect(() => {
-    // TODO: Implement war pay tracking
-    setLastWarPay('Not tracked yet')
+    loadStats()
   }, [])
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard 
-        label="Current Members" 
-        value={currentMemberCount !== null ? currentMemberCount : '...'} 
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <StatCard
+        label="Active Members"
+        value={stats.totalMembers}
+        icon="👥"
       />
-      <StatCard 
-        label="Last OC Payout" 
-        value={lastOCPayout || 'No payouts saved'} 
+      <StatCard
+        label="Total Crimes"
+        value={stats.totalCrimes}
+        icon="🎯"
       />
-      <StatCard 
-        label="Last War Pay" 
-        value={lastWarPay || 'Not available'} 
-      />
-      <StatCard 
-        label="Faction" 
-        value={config.faction.name.split(' - ')[1] || config.faction.name} 
+      <StatCard
+        label="Success Rate"
+        value={`${stats.successRate.toFixed(1)}%`}
+        icon="✓"
       />
     </div>
   )
 }
 
-function StatCard({ label, value }) {
+function StatCard({ label, value, icon }) {
   return (
-    <div className="card hover:shadow-md transition-shadow">
-      <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</div>
-      <div className="text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wide mt-1">
-        {label}
+    <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{label}</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{value}</p>
+        </div>
+        <div className="text-4xl">{icon}</div>
       </div>
     </div>
   )
