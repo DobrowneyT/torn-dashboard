@@ -2,6 +2,53 @@
 // Deploy command: npx supabase functions deploy admin-db --no-verify-jwt
 // This function uses custom Torn API key authentication instead of Supabase JWT
 
+
+// Command to get DB schema for all tables as well as RLS policies:
+// SELECT 
+//     t.table_name,
+//     c.column_name,
+//     c.data_type,
+//     c.character_maximum_length,
+//     c.is_nullable,
+//     c.column_default,
+//     c.ordinal_position
+// FROM information_schema.tables t
+// JOIN information_schema.columns c 
+//     ON t.table_name = c.table_name 
+//     AND t.table_schema = c.table_schema
+// WHERE t.table_schema = 'public'
+//     AND t.table_type = 'BASE TABLE'
+// ORDER BY t.table_name, c.ordinal_position;
+
+
+// SELECT 
+//     schemaname,
+//     tablename,
+//     policyname,
+//     permissive,
+//     roles,
+//     cmd,
+//     qual,
+//     with_check
+// FROM pg_policies
+// WHERE schemaname = 'public'
+// ORDER BY tablename, policyname;
+
+
+// SELECT 
+//     t.tablename,
+//     t.rowsecurity AS rls_enabled,
+//     COUNT(p.policyname) AS policy_count,
+//     string_agg(p.policyname, ', ') AS policy_names
+// FROM pg_tables t
+// LEFT JOIN pg_policies p 
+//     ON t.tablename = p.tablename 
+//     AND t.schemaname = p.schemaname
+// WHERE t.schemaname = 'public'
+// GROUP BY t.tablename, t.rowsecurity
+// ORDER BY t.tablename;
+
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 

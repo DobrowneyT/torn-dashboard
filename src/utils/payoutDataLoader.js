@@ -121,20 +121,34 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
     // Transform crimes array into object keyed by crime_id
     // Also attach slots, reward items, and required items to each crime
     const crimesMap = {}
-    
+
     for (const crime of crimes) {
       const crimeId = crime.crime_id
-      
+
       // Get slots for this crime
       const crimeSlots = (slots || []).filter(s => s.crime_id === crimeId)
-      
+
       // Get reward items for this crime
       const crimeRewardItems = (rewardItems || []).filter(r => r.crime_id === crimeId)
-      
+
       // Get required items for this crime
       const crimeRequiredItems = (requiredItems || []).filter(r => r.crime_id === crimeId)
-      
-      // Transform slots to match expected format
+
+      // Load members data for name enrichment if not already loaded
+      let membersMap = {}
+      if (Object.keys(membersMap).length === 0) {
+        const { data: membersData, error: membersError } = await supabase
+          .from('members')
+          .select('member_id, member_name')
+
+        if (!membersError && membersData) {
+          membersData.forEach(m => {
+            membersMap[m.member_id] = m.member_name
+          })
+        }
+      }
+
+      // Transform slots to match expected format with enriched member names
       const transformedSlots = crimeSlots.map(slot => ({
         position: slot.position,
         position_id: slot.position_id,
@@ -142,7 +156,7 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
         checkpoint_pass_rate: parseFloat(slot.checkpoint_pass_rate) || 0,
         user: slot.user_id ? {
           id: parseInt(slot.user_id),
-          name: slot.user_name || `User ${slot.user_id}`,
+          name: membersMap[slot.user_id] || slot.user_name || `User ${slot.user_id}`,
           joined_at: slot.joined_at,
           outcome: slot.user_outcome,
           progress: slot.user_progress,
@@ -158,17 +172,17 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
           is_available: slot.item_requirement_is_available
         } : null
       }))
-      
+
       // Calculate total item reward value
       const itemRewardValue = crimeRewardItems.reduce((sum, item) => {
         return sum + ((item.unit_value || 0) * (item.quantity || 1))
       }, 0)
-      
+
       // Calculate total consumed item cost
       const itemCostValue = crimeRequiredItems
         .filter(item => item.was_consumed)
         .reduce((sum, item) => sum + (item.unit_value || 0), 0)
-      
+
       crimesMap[crimeId] = {
         id: crimeId,
         crime_id: crimeId,
@@ -217,7 +231,7 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
       rewardItems: rewardItems || [],
       requiredItems: requiredItems || []
     }
-    
+
   } catch (error) {
     console.error('Error loading crimes for payout:', error)
     throw error
@@ -245,10 +259,10 @@ export async function loadMembers() {
 
     // Transform to expected format
     const membersMap = {}
-    
+
     for (const member of (members || [])) {
       const memberCpr = (cprData || []).filter(c => c.member_id === member.member_id)
-      
+
       // Build cpr_by_role structure
       const cprByRole = {}
       for (const cpr of memberCpr) {
@@ -257,7 +271,7 @@ export async function loadMembers() {
         }
         cprByRole[cpr.difficulty_level][cpr.role_name] = parseFloat(cpr.cpr_value)
       }
-      
+
       membersMap[member.member_id] = {
         id: member.member_id,
         name: member.member_name,
@@ -268,7 +282,7 @@ export async function loadMembers() {
     }
 
     return { members: membersMap }
-    
+
   } catch (error) {
     console.error('Error loading members:', error)
     throw error
@@ -290,7 +304,7 @@ export async function loadPayoutWeeks(limit = 20) {
 
     if (error) throw error
     return data || []
-    
+
   } catch (error) {
     console.error('Error loading payout weeks:', error)
     throw error
@@ -312,7 +326,7 @@ export async function loadWeekMembers(weekId) {
 
     if (error) throw error
     return data || []
-    
+
   } catch (error) {
     console.error('Error loading week members:', error)
     throw error
@@ -334,7 +348,7 @@ export async function loadWeekCrimes(weekId) {
 
     if (error) throw error
     return data || []
-    
+
   } catch (error) {
     console.error('Error loading week crimes:', error)
     throw error
@@ -364,7 +378,7 @@ export async function loadMemberPayoutHistory(memberId) {
 
     if (error) throw error
     return data || []
-    
+
   } catch (error) {
     console.error('Error loading member payout history:', error)
     throw error
@@ -395,7 +409,7 @@ export async function loadMemberCrimeHistory(memberId, limit = 100) {
 
     // Get the crime details
     const crimeIds = [...new Set(slots.map(s => s.crime_id))]
-    
+
     const { data: crimes, error: crimesError } = await supabase
       .from('crimes')
       .select('*')
@@ -417,7 +431,7 @@ export async function loadMemberCrimeHistory(memberId, limit = 100) {
     })
 
     return crimesWithSlotInfo
-    
+
   } catch (error) {
     console.error('Error loading member crime history:', error)
     throw error
@@ -441,12 +455,12 @@ export async function loadMemberLoanedItems(memberId) {
 
     // Filter to items loaned to this specific member
     const memberItems = []
-    
+
     for (const item of (items || [])) {
       if (!item.loaned_to) continue
-      
+
       let loanedTo = item.loaned_to
-      
+
       // Parse loaned_to if it's a string
       if (typeof loanedTo === 'string') {
         try {
@@ -460,16 +474,16 @@ export async function loadMemberLoanedItems(memberId) {
           }
         }
       }
-      
+
       // Check if member has any of these items
       let memberLoanCount = 0
-      
+
       if (Array.isArray(loanedTo)) {
         memberLoanCount = loanedTo.filter(id => id.toString() === memberId.toString()).length
       } else if (typeof loanedTo === 'object') {
         memberLoanCount = loanedTo[memberId] || 0
       }
-      
+
       if (memberLoanCount > 0) {
         memberItems.push({
           ...item,
@@ -479,7 +493,7 @@ export async function loadMemberLoanedItems(memberId) {
     }
 
     return memberItems
-    
+
   } catch (error) {
     console.error('Error loading member loaned items:', error)
     throw error
@@ -565,7 +579,7 @@ export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, ap
     }
 
     return { id: response.weekId, ...weekRecord }
-    
+
   } catch (error) {
     console.error('Error saving payout week:', error)
     throw error
