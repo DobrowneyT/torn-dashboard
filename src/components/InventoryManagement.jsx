@@ -36,17 +36,15 @@ export default function InventoryManagement() {
       setLoading(true)
       setError(null)
       
-      const [itemsResult, batchesResult, metadataResult] = await Promise.all([
-        supabase.from('inventory_items').select('*'),
-        supabase.from('pricing_batches').select('*'),
+      // Use the view instead of manually calculating
+      const [itemsResult, metadataResult] = await Promise.all([
+        supabase.from('inventory_items_with_prices').select('*'),
         supabase.from('sync_metadata').select('*').eq('data_type', 'inventory').order('last_sync', { ascending: false }).limit(1)
       ])
       
       if (itemsResult.error) throw itemsResult.error
-      if (batchesResult.error) throw batchesResult.error
       
       setInventoryItems(itemsResult.data || [])
-      setPricingBatches(batchesResult.data || [])
       
       if (metadataResult.data && metadataResult.data.length > 0) {
         setLastSync(new Date(metadataResult.data[0].last_sync))
@@ -146,7 +144,7 @@ export default function InventoryManagement() {
   }
   
   async function handleUpdateItem(itemId) {
-    const item = inventoryItems.find(i => i.id === itemId)
+    const item = inventoryItems.find(i => i.item_id === itemId)
     const price = parseFloat(newBatchPrice)
     const quantity = parseInt(newBatchQuantity) || item.quantity
     
@@ -185,15 +183,14 @@ export default function InventoryManagement() {
   }
   
   function handleEditItem(itemId) {
-    const item = inventoryItems.find(i => i.id === itemId)
-    const itemBatches = pricingBatches.filter(b => b.item_id === itemId)
-    const totalBatchedQty = itemBatches.reduce((sum, b) => sum + b.quantity, 0)
+    const item = inventoryItems.find(i => i.item_id === itemId)
     
     setEditingItem(itemId)
     setNewBatchPrice('')
     
-    if (totalBatchedQty < item.quantity) {
-      setNewBatchQuantity(item.quantity - totalBatchedQty)
+    const unbatchedQty = item.quantity - (item.total_batched_quantity || 0)
+    if (unbatchedQty > 0) {
+      setNewBatchQuantity(unbatchedQty)
     } else {
       setNewBatchQuantity(item.quantity)
     }
@@ -253,7 +250,7 @@ export default function InventoryManagement() {
     const totalCounted = loanData.reduce((sum, loan) => sum + loan.count, 0)
     
     setLoanedDialog({
-      itemName: item.name,
+      itemName: item.item_name,
       totalLoaned: item.loaned,
       totalCounted: totalCounted,
       loans: loanData,
@@ -261,47 +258,34 @@ export default function InventoryManagement() {
     })
   }
   
-  function calculateWeightedAverage(itemId) {
-    const batches = pricingBatches.filter(b => b.item_id === itemId)
-    
-    if (batches.length === 0) return 0
-    
-    let totalValue = 0
-    let totalQuantity = 0
-    
-    batches.forEach(batch => {
-      totalValue += batch.price * batch.quantity
-      totalQuantity += batch.quantity
-    })
-    
-    return totalQuantity > 0 ? totalValue / totalQuantity : 0
-  }
-  
-  function getTotalBatchedQuantity(itemId) {
-    return pricingBatches
-      .filter(b => b.item_id === itemId)
-      .reduce((sum, b) => sum + b.quantity, 0)
-  }
-  
   const enrichedItems = useMemo(() => {
     return inventoryItems.map(item => {
-      const avgPrice = calculateWeightedAverage(item.id)
-      const batchedQty = getTotalBatchedQuantity(item.id)
+      const avgPrice = parseFloat(item.weighted_avg_price) || 0
+      const totalValue = parseFloat(item.total_value) || 0
+      const batchedQty = parseInt(item.total_batched_quantity) || 0
       const hasNewBatch = batchedQty < item.quantity
       const newBatchQty = hasNewBatch ? item.quantity - batchedQty : 0
       
       return {
-        ...item,
+        id: item.item_id,
+        item_id: item.item_id,
+        name: item.item_name,
+        quantity: item.quantity,
+        available: item.available,
+        loaned: item.loaned,
+        loaned_to: item.loaned_to,
+        category: item.category,
         currentPrice: avgPrice,
-        totalValue: avgPrice * item.quantity,
+        totalValue: totalValue,
         batchedQuantity: batchedQty,
         hasNewBatch,
         newBatchQty,
         needsPricing: avgPrice === 0 || hasNewBatch,
-        isCrimeItem: CRIME_ITEM_IDS.has(parseInt(item.id))
+        isCrimeItem: CRIME_ITEM_IDS.has(parseInt(item.item_id)),
+        last_price_update: item.last_price_update
       }
     })
-  }, [inventoryItems, pricingBatches, CRIME_ITEM_IDS])
+  }, [inventoryItems, CRIME_ITEM_IDS])
   
   const filteredItems = useMemo(() => {
     let items = [...enrichedItems]
@@ -383,11 +367,11 @@ export default function InventoryManagement() {
   
   const SortIcon = ({ columnKey }) => {
     if (sortConfig.key !== columnKey) {
-      return <span className="ml-1 text-gray-400">â‡…</span>
+      return <span className="ml-1 text-gray-400">⇅</span>
     }
     return (
       <span className="ml-1">
-        {sortConfig.direction === 'asc' ? 'â†‘' : 'â†“'}
+        {sortConfig.direction === 'asc' ? '↑' : '↓'}
       </span>
     )
   }
@@ -506,7 +490,7 @@ export default function InventoryManagement() {
                   </span>
                 </div>
                 <div className="text-xs text-gray-600 dark:text-gray-400">
-                  {stats.quantity.toLocaleString()} units â€¢ {formatCurrency(stats.value)}
+                  {stats.quantity.toLocaleString()} units • {formatCurrency(stats.value)}
                 </div>
               </div>
             )
@@ -621,7 +605,7 @@ export default function InventoryManagement() {
                       <td className="py-2 px-2 text-xs">
                         {item.name}
                         {item.isCrimeItem && (
-                          <span className="ml-1 text-red-500" title="Crime Item">ðŸŽ¯</span>
+                          <span className="ml-1 text-red-500" title="Crime Item">🎯</span>
                         )}
                       </td>
                       <td className="py-2 px-2 text-xs">
@@ -730,13 +714,13 @@ export default function InventoryManagement() {
           Batch Pricing System
         </h3>
         <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1 list-disc list-inside">
-          <li>All data stored in Supabase PostgreSQL database</li>
+          <li>All data stored in Supabase PostgreSQL database with automatic calculations</li>
           <li>Click "Sync with Torn API" to update inventory from game</li>
           <li>Set prices in batches (e.g., 20 items at $50k, 30 at $60k)</li>
-          <li>System calculates weighted average automatically</li>
+          <li>Weighted averages calculated automatically by database views</li>
           <li>Example: 20@$50k + 30@$60k = $56k average</li>
           <li>Loaned items: click count to see who has items</li>
-          <li>Crime items marked with ðŸŽ¯</li>
+          <li>Crime items marked with 🎯</li>
         </ul>
       </div>
     </div>

@@ -42,6 +42,10 @@ export default function PayoutManagement() {
   const [hasCalculated, setHasCalculated] = useState(false)
   const [payoutResults, setPayoutResults] = useState(null)
 
+  // Add to state declarations (around line 38)
+  const [penaltyOverrides, setPenaltyOverrides] = useState({})
+  const [editingPenalty, setEditingPenalty] = useState(null)
+
   // Save state
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -194,12 +198,81 @@ export default function PayoutManagement() {
         factionCutPercent / 100
       )
 
-      enrichItemBreakdown(results.itemBreakdown).then(enriched => {
-        setPayoutResults({ ...results, itemBreakdown: enriched })
+      // Apply penalty overrides
+      results.members = results.members.map(member => {
+        const override = penaltyOverrides[member.userId]
+        if (override !== undefined) {
+          const oldPenalty = member.sitOutPenalty
+          const newAdjustedTickets = member.baseTickets + override
+          return {
+            ...member,
+            sitOutPenalty: override,
+            adjustedTickets: Math.max(0, newAdjustedTickets),
+            penaltyOverridden: true
+          }
+        }
+        return member
+      })
+
+      // Recalculate shares after penalty overrides
+      const totalAdjustedTickets = results.members.reduce((sum, m) => sum + m.adjustedTickets, 0)
+      const memberPayoutTotal = results.memberPayoutTotal
+
+      results.members = results.members.map(member => {
+        if (totalAdjustedTickets > 0) {
+          member.sharePercent = member.adjustedTickets / totalAdjustedTickets
+          member.payout = Math.floor(member.sharePercent * memberPayoutTotal)
+        }
+        return member
+      })
+
+      // Enrich item breakdown and recalculate totals
+      enrichItemBreakdown(results.itemBreakdown, user.apiKey).then(enriched => {
+        // Calculate new totals from enriched item data
+        const newTotalItemReward = Object.values(enriched.rewards || {}).reduce(
+          (sum, item) => sum + (item.totalValue || 0),
+          0
+        )
+
+        const newTotalItemCost = Object.values(enriched.costs || {}).reduce(
+          (sum, item) => sum + (item.totalValue || 0),
+          0
+        )
+
+        const newNetItemValue = newTotalItemReward - newTotalItemCost
+
+        // Recalculate gross total and faction cut with new item values
+        const newGrossTotal = results.totalMoneyReward + newTotalItemReward - newTotalItemCost
+        const newFactionCut = Math.floor(newGrossTotal * (factionCutPercent / 100))
+        const newMemberPayoutTotal = newGrossTotal - newFactionCut
+
+        // Recalculate member payouts with new total
+        const recalculatedMembers = results.members.map(member => {
+          if (totalAdjustedTickets > 0) {
+            member.sharePercent = member.adjustedTickets / totalAdjustedTickets
+            member.payout = Math.floor(member.sharePercent * newMemberPayoutTotal)
+          }
+          return member
+        })
+
+        // Update results with enriched data and recalculated totals
+        const updatedResults = {
+          ...results,
+          itemBreakdown: enriched,
+          totalItemReward: newTotalItemReward,
+          totalItemCost: newTotalItemCost,
+          netItemValue: newNetItemValue,
+          grossTotal: newGrossTotal,
+          factionCut: newFactionCut,
+          memberPayoutTotal: newMemberPayoutTotal,
+          members: recalculatedMembers
+        }
+
+        setPayoutResults(updatedResults)
         setHasCalculated(true)
       })
     }
-  }, [crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent])
+  }, [crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent, penaltyOverrides, user.apiKey])
 
   async function handleSaveWeek() {
     if (!payoutResults || payoutResults.members.length === 0) {
@@ -593,7 +666,7 @@ export default function PayoutManagement() {
               />
               <StatCard label="Net Total" value={formatCurrency(payoutResults.totalMoneyReward + payoutResults.netItemValue)} color="green" />
 
-              <StatCard label="Faction Cut" value={`${factionCutPercent}%`} color="purple" />
+              <StatCard label="Faction Cut" value={`${formatCurrency(payoutResults.factionCut)} [${factionCutPercent}%]`} color="purple" />
               <StatCard label="Member Pool" value={formatCurrency(payoutResults.memberPayoutTotal)} color="indigo" />
               <StatCard label="Members" value={payoutResults.participatingMembers} color="teal" />
               <StatCard label="Crimes" value={payoutResults.totalCrimes || payoutResults.crimesProcessed} color="gray" />
@@ -814,9 +887,56 @@ export default function PayoutManagement() {
                         <td className="py-2 px-2"><TierBadge tier={member.tier} /></td>
                         <td className="py-2 px-2 text-xs">{member.baseTickets}</td>
                         <td className="py-2 px-2 text-xs">
-                          <span className={member.sitOutPenalty < 0 ? 'text-red-600' : ''}>
-                            {member.sitOutPenalty.toFixed(0)}
-                          </span>
+                          {editingPenalty?.userId === member.userId ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                value={editingPenalty.value}
+                                onChange={(e) => setEditingPenalty({ ...editingPenalty, value: e.target.value })}
+                                className="input py-0 px-1 text-xs w-16"
+                                step="0.1"
+                              />
+                              <button
+                                onClick={() => handleSavePenalty(member.userId)}
+                                className="px-1 py-0 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                                title="Save"
+                              >
+                                ✓
+                              </button>
+                              <button
+                                onClick={handleCancelPenalty}
+                                className="px-1 py-0 bg-gray-600 text-white rounded text-xs hover:bg-gray-700"
+                                title="Cancel"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <span className={member.sitOutPenalty < 0 ? 'text-red-600' : ''}>
+                                {member.sitOutPenalty.toFixed(0)}
+                              </span>
+                              {member.penaltyOverridden && (
+                                <span className="text-blue-600" title="Override applied">*</span>
+                              )}
+                              <button
+                                onClick={() => handleEditPenalty(member.userId, member.sitOutPenalty)}
+                                className="px-1 py-0 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 ml-1"
+                                title="Edit penalty"
+                              >
+                                ✎
+                              </button>
+                              {member.penaltyOverridden && (
+                                <button
+                                  onClick={() => handleResetPenalty(member.userId)}
+                                  className="px-1 py-0 bg-orange-600 text-white rounded text-xs hover:bg-orange-700"
+                                  title="Reset to calculated"
+                                >
+                                  ↻
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="py-2 px-2 text-xs">{(member.sharePercent * 100).toFixed(4)}%</td>
                         <td className="py-2 px-2 font-semibold text-blue-600 dark:text-blue-400 text-xs">
@@ -1077,10 +1197,10 @@ function CrimeStatsView({ stats, fromTimestamp, toTimestamp, onClose }) {
                     </span>
                   )}
                   <span className={`px-2 py-1 rounded text-xs font-medium ${isSuccess
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                      : isPending
-                        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                    : isPending
+                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                      : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
                     }`}>
                     {crime.status}
                   </span>
@@ -1110,7 +1230,7 @@ function CrimeStatsView({ stats, fromTimestamp, toTimestamp, onClose }) {
                                   {displayName} - {positionLabel}
                                 </span>
                                 <span className="text-gray-500">
-                                  CPR: {(slot.checkpoint_pass_rate || 0).toFixed(1)}%
+                                  CPR: {(slot.checkpoint_pass_rate || 0)}%
                                 </span>
                               </div>
                             )
@@ -1192,4 +1312,26 @@ function HistoricalPayoutsView({ payouts, loading, onRefresh }) {
       )}
     </div>
   )
+}
+
+function handleEditPenalty(userId, currentPenalty) {
+  setEditingPenalty({ userId, value: currentPenalty.toString() })
+}
+
+function handleSavePenalty(userId) {
+  const newPenalty = parseFloat(editingPenalty.value) || 0
+  setPenaltyOverrides(prev => ({ ...prev, [userId]: newPenalty }))
+  setEditingPenalty(null)
+}
+
+function handleCancelPenalty() {
+  setEditingPenalty(null)
+}
+
+function handleResetPenalty(userId) {
+  setPenaltyOverrides(prev => {
+    const updated = { ...prev }
+    delete updated[userId]
+    return updated
+  })
 }
