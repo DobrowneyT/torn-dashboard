@@ -245,7 +245,9 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     if (status === 'Successful' || status === 'Failed' || status === 'Failure') {
       timeReference = executedAt
     } else {
-      timeReference = toTimestamp
+      // For in-progress crimes, use current time, not toTimestamp
+      // This prevents showing 168h for crimes still in progress
+      timeReference = Math.min(Math.floor(Date.now() / 1000), toTimestamp)
     }
 
     // Check if crime was executed within our window
@@ -833,4 +835,45 @@ export function getCrimeStats(crimes) {
   stats.crimesList.sort((a, b) => (b.executed_at || 0) - (a.executed_at || 0))
 
   return stats
+}
+
+/**
+ * Fetch market prices for items from Torn API
+ * @param {Array} itemIds - Array of item IDs to fetch
+ * @param {string} apiKey - Torn API key
+ * @returns {Promise<Object>} Map of itemId -> market_price
+ */
+export async function fetchItemMarketPrices(itemIds, apiKey) {
+  if (!itemIds || itemIds.length === 0) return {}
+
+  const uniqueIds = [...new Set(itemIds)]
+  const idsString = uniqueIds.join(',')
+
+  try {
+    const response = await fetch(
+      `https://api.torn.com/v2/torn/${idsString}/items?sort=ASC&key=${apiKey}`
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch item prices from Torn API')
+    }
+
+    const data = await response.json()
+
+    if (data.error) {
+      throw new Error(data.error.error || 'Unknown API error')
+    }
+
+    const priceMap = {}
+    if (data.items) {
+      data.items.forEach(item => {
+        priceMap[item.id.toString()] = item.value?.market_price || 0
+      })
+    }
+
+    return priceMap
+  } catch (error) {
+    console.error('Error fetching item market prices:', error)
+    return {}
+  }
 }
