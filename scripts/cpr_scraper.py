@@ -210,6 +210,49 @@ class CPRScraper:
         
         return cpr_by_level
 
+    def _extract_cpr_from_available_crimes_all_members(self, crimes_data: Dict) -> Dict[str, Dict[str, Dict[str, int]]]:
+        """
+        Extract CPR data for ALL members from available crimes (even without their API keys)
+        
+        Args:
+            crimes_data: Raw crimes data from faction API
+            
+        Returns:
+            Dictionary: {member_id: {difficulty_level: {position: cpr_value}}}
+        """
+        member_cpr_data = {}
+        
+        if not crimes_data or 'crimes' not in crimes_data:
+            return member_cpr_data
+        
+        for crime in crimes_data['crimes']:
+            difficulty = str(crime['difficulty'])
+            crime_name = crime.get('name', 'Unknown')
+            
+            # Check all slots for filled positions
+            for slot in crime.get('slots', []):
+                user_data = slot.get('user')
+                
+                # Only process slots with users (filled positions)
+                if user_data and user_data.get('id'):
+                    member_id = str(user_data['id'])
+                    position = slot.get('position', 'Unknown')
+                    cpr = slot.get('checkpoint_pass_rate', 0)
+                    
+                    # Initialize nested structure if needed
+                    if member_id not in member_cpr_data:
+                        member_cpr_data[member_id] = {}
+                    if difficulty not in member_cpr_data[member_id]:
+                        member_cpr_data[member_id][difficulty] = {}
+                    
+                    # Take highest CPR seen for this position/level for this member
+                    current_cpr = member_cpr_data[member_id][difficulty].get(position, 0)
+                    if cpr > current_cpr:
+                        member_cpr_data[member_id][difficulty][position] = cpr
+                        logger.debug(f"Member {member_id}: {crime_name} Lvl {difficulty} - {position} = {cpr} CPR (from available crimes)")
+        
+        return member_cpr_data
+
     def _update_member_cpr(self, cpr_data: Dict, member_id: str, member_name: str, new_cpr: Dict[str, Dict[str, int]]) -> int:
         """
         Update a member's CPR data (API data is always source of truth)
@@ -315,22 +358,30 @@ class CPRScraper:
 
     def scrape_all_members(self) -> Dict:
         """
-        Scrape CPR data for all members with API keys
-        Ensures ALL current faction members exist in CPR database
+        Scrape CPR data for all members using multi-stage approach:
+        1. Get all current faction members (skeleton)
+        2. Extract CPR from available crimes (all visible members)
+        3. Merge existing CPR database data
+        4. Scrape individual members with API keys
         
         Returns:
             CPR database with updated data
         """
-        logger.info(f"Starting CPR scrape for members with validated API keys")
+        logger.info(f"Starting multi-stage CPR scrape")
         
-        # Load existing CPR database (includes tier data)
+        # Load existing CPR database
         cpr_data = self._load_cpr_database()
         
-        # Get current faction members - this is our source of truth for who should be in the database
+        # Get current faction members - this is our source of truth
         torn_api_key = os.environ.get('TORN_API_KEY')
         if not torn_api_key:
             logger.error("TORN_API_KEY not found - cannot fetch current faction members")
             return cpr_data
+        
+        # STAGE 1: Get current faction members
+        logger.info("\n" + "="*70)
+        logger.info("STAGE 1: Fetching current faction members")
+        logger.info("="*70)
         
         try:
             api = TornAPI(torn_api_key)
@@ -341,13 +392,12 @@ class CPRScraper:
             logger.error(f"Failed to fetch faction members: {e}")
             return cpr_data
         
-        # STEP 1: Ensure ALL current faction members exist in CPR database
-        logger.info("\nEnsuring all faction members exist in CPR database...")
+        # Initialize structure for all current members
+        logger.info("\nInitializing CPR database entries for all faction members...")
         new_members_added = 0
         
         for member_id, member_name in current_members.items():
             if member_id not in cpr_data.get('members', {}):
-                # Add new member with empty structure
                 if 'members' not in cpr_data:
                     cpr_data['members'] = {}
                 
@@ -358,29 +408,77 @@ class CPRScraper:
                     'last_scraped': '',
                     'tier_last_updated': ''
                 }
-                logger.info(f"Added new member to CPR database: {member_name} ({member_id})")
+                logger.info(f"Added new member skeleton: {member_name} ({member_id})")
                 new_members_added += 1
             else:
-                # Update name in case it changed
+                # Update name if it changed
                 if cpr_data['members'][member_id].get('name') != member_name:
                     old_name = cpr_data['members'][member_id].get('name', 'Unknown')
                     cpr_data['members'][member_id]['name'] = member_name
                     logger.info(f"Updated member name: {old_name} → {member_name} ({member_id})")
         
-        if new_members_added > 0:
-            logger.info(f"Added {new_members_added} new members to CPR database")
+        logger.info(f"Stage 1 complete: {new_members_added} new member skeletons added")
         
-        # Stats tracking
+        # STAGE 2: Extract CPR from available crimes
+        logger.info("\n" + "="*70)
+        logger.info("STAGE 2: Extracting CPR data from available crimes")
+        logger.info("="*70)
+        
+        try:
+            crimes_response = api.get_faction_crimes(
+                category="available",
+                filters="created_at",
+                offset=0,
+                sort="DESC",
+                comment="TNL Forge CPR Scraper - Available Crimes Scan"
+            )
+            
+            available_crimes_cpr = self._extract_cpr_from_available_crimes_all_members(crimes_response)
+            logger.info(f"Extracted CPR data for {len(available_crimes_cpr)} members from available crimes")
+            
+            # Merge this data into CPR database
+            members_updated_from_crimes = 0
+            for member_id, difficulty_data in available_crimes_cpr.items():
+                if member_id in cpr_data.get('members', {}):
+                    member_name = cpr_data['members'][member_id]['name']
+                    existing_cpr = cpr_data['members'][member_id].get('cpr_by_role', {})
+                    
+                    # Merge the data - keep highest CPR for each role
+                    for difficulty, roles in difficulty_data.items():
+                        if difficulty not in existing_cpr:
+                            existing_cpr[difficulty] = {}
+                        
+                        for role, new_cpr in roles.items():
+                            old_cpr = existing_cpr[difficulty].get(role, 0)
+                            if new_cpr > old_cpr:
+                                existing_cpr[difficulty][role] = new_cpr
+                                if old_cpr == 0:
+                                    logger.info(f"Member {member_name} ({member_id}): NEW from available crimes - Lvl {difficulty} {role} = {new_cpr}")
+                                else:
+                                    logger.info(f"Member {member_name} ({member_id}): UPDATE from available crimes - Lvl {difficulty} {role} = {new_cpr} ↑ (was {old_cpr})")
+                    
+                    cpr_data['members'][member_id]['cpr_by_role'] = existing_cpr
+                    members_updated_from_crimes += 1
+            
+            logger.info(f"Stage 2 complete: Updated {members_updated_from_crimes} members from available crimes")
+            
+        except Exception as e:
+            logger.error(f"Failed to extract CPR from available crimes: {e}")
+            logger.warning("Continuing with individual member scrapes...")
+        
+        # STAGE 3: Individual member scrapes with API keys
+        logger.info("\n" + "="*70)
+        logger.info(f"STAGE 3: Scraping {len(self.member_api_keys)} members with API keys")
+        logger.info("="*70)
+        
         stats = {
             'successful_scrapes': 0,
             'failed_scrapes': 0,
             'total_updates': 0,
             'members_scraped': [],
-            'new_members_added': new_members_added
+            'new_members_added': new_members_added,
+            'members_updated_from_crimes': members_updated_from_crimes
         }
-        
-        # STEP 2: Scrape CPR data for members with API keys
-        logger.info(f"\nScraping CPR data for {len(self.member_api_keys)} members with API keys...")
         
         for i, (member_id, api_key) in enumerate(self.member_api_keys.items(), 1):
             # Get member name from current faction members (guaranteed to exist now)
@@ -409,80 +507,14 @@ class CPRScraper:
         # Save the updated CPR database
         self._save_cpr_database(cpr_data)
         
+        logger.info("\n" + "="*70)
+        logger.info("CPR SCRAPE SUMMARY")
         logger.info("="*70)
-        logger.info(f"CPR scrape complete:")
-        logger.info(f"  New members added: {stats['new_members_added']}")
-        logger.info(f"  Successful scrapes: {stats['successful_scrapes']}")
-        logger.info(f"  Total CPR updates: {stats['total_updates']}")
-        logger.info(f"  Total members in database: {len(cpr_data.get('members', {}))}")
-        logger.info("="*70)
-        
-        return cpr_data
-
-        """
-        Scrape CPR data for all members with API keys
-        
-        Returns:
-            CPR database with updated data
-        """
-        logger.info(f"Starting CPR scrape for {len(self.member_api_keys)} members with validated API keys")
-        
-        # Load existing CPR database (includes tier data)
-        cpr_data = self._load_cpr_database()
-        
-        # Get current faction members for name lookup
-        torn_api_key = os.environ.get('TORN_API_KEY')
-        current_members = {}
-        if torn_api_key:
-            try:
-                api = TornAPI(torn_api_key)
-                faction_response = api.get_faction_members()
-                current_members = {str(m['id']): m['name'] for m in faction_response.get('members', [])}
-                logger.info(f"Retrieved {len(current_members)} current faction members for name lookup")
-            except Exception as e:
-                logger.warning(f"Could not fetch faction members for name lookup: {e}")
-        
-        # Stats tracking
-        stats = {
-            'successful_scrapes': 0,
-            'failed_scrapes': 0,
-            'total_updates': 0,
-            'members_scraped': []
-        }
-        
-        # Scrape each member with valid API key
-        for i, (member_id, api_key) in enumerate(self.member_api_keys.items(), 1):
-            # Get member name from current faction members, fall back to CPR database, then to ID
-            if member_id in current_members:
-                member_name = current_members[member_id]
-            else:
-                member_name = cpr_data.get('members', {}).get(member_id, {}).get('name', f"Member_{member_id}")
-            
-            logger.info(f"Processing {i}/{len(self.member_api_keys)}: {member_name} ({member_id})")
-            
-            try:
-                success, updates, error_msg = self.scrape_member(member_id, api_key, member_name, cpr_data)
-                
-                if success:
-                    stats['successful_scrapes'] += 1
-                    stats['total_updates'] += updates
-                    stats['members_scraped'].append(member_id)
-                else:
-                    stats['failed_scrapes'] += 1
-                
-            except Exception as e:
-                logger.error(f"Member {member_name} ({member_id}): Unexpected error - {e}")
-                stats['failed_scrapes'] += 1
-            
-            # Rate limiting
-            if i < len(self.member_api_keys):
-                time.sleep(0.01)
-        
-        # Save the updated CPR database
-        self._save_cpr_database(cpr_data)
-        
-        logger.info("="*70)
-        logger.info(f"CPR scrape complete: {stats['successful_scrapes']} successful, {stats['total_updates']} updates")
+        logger.info(f"Stage 1 - New member skeletons: {stats['new_members_added']}")
+        logger.info(f"Stage 2 - Members updated from available crimes: {stats['members_updated_from_crimes']}")
+        logger.info(f"Stage 3 - Successful API key scrapes: {stats['successful_scrapes']}")
+        logger.info(f"Stage 3 - Total CPR updates from API keys: {stats['total_updates']}")
+        logger.info(f"Total members in database: {len(cpr_data.get('members', {}))}")
         logger.info("="*70)
         
         return cpr_data
