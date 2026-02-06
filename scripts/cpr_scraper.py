@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.utils.json_storage import JSONStorageManager
 from scripts.utils.google_sheets import GoogleSheetsManager
+from scripts.assign_tiers import TierAssignment
 from scripts.utils.torn_api import TornAPI, TornAPIError
 from scripts.utils.gist_updater import update_gist
 
@@ -315,6 +316,111 @@ class CPRScraper:
     def scrape_all_members(self) -> Dict:
         """
         Scrape CPR data for all members with API keys
+        Ensures ALL current faction members exist in CPR database
+        
+        Returns:
+            CPR database with updated data
+        """
+        logger.info(f"Starting CPR scrape for members with validated API keys")
+        
+        # Load existing CPR database (includes tier data)
+        cpr_data = self._load_cpr_database()
+        
+        # Get current faction members - this is our source of truth for who should be in the database
+        torn_api_key = os.environ.get('TORN_API_KEY')
+        if not torn_api_key:
+            logger.error("TORN_API_KEY not found - cannot fetch current faction members")
+            return cpr_data
+        
+        try:
+            api = TornAPI(torn_api_key)
+            faction_response = api.get_faction_members()
+            current_members = {str(m['id']): m['name'] for m in faction_response.get('members', [])}
+            logger.info(f"Retrieved {len(current_members)} current faction members")
+        except Exception as e:
+            logger.error(f"Failed to fetch faction members: {e}")
+            return cpr_data
+        
+        # STEP 1: Ensure ALL current faction members exist in CPR database
+        logger.info("\nEnsuring all faction members exist in CPR database...")
+        new_members_added = 0
+        
+        for member_id, member_name in current_members.items():
+            if member_id not in cpr_data.get('members', {}):
+                # Add new member with empty structure
+                if 'members' not in cpr_data:
+                    cpr_data['members'] = {}
+                
+                cpr_data['members'][member_id] = {
+                    'name': member_name,
+                    'tier': -1,
+                    'cpr_by_role': {},
+                    'last_scraped': '',
+                    'tier_last_updated': ''
+                }
+                logger.info(f"Added new member to CPR database: {member_name} ({member_id})")
+                new_members_added += 1
+            else:
+                # Update name in case it changed
+                if cpr_data['members'][member_id].get('name') != member_name:
+                    old_name = cpr_data['members'][member_id].get('name', 'Unknown')
+                    cpr_data['members'][member_id]['name'] = member_name
+                    logger.info(f"Updated member name: {old_name} → {member_name} ({member_id})")
+        
+        if new_members_added > 0:
+            logger.info(f"Added {new_members_added} new members to CPR database")
+        
+        # Stats tracking
+        stats = {
+            'successful_scrapes': 0,
+            'failed_scrapes': 0,
+            'total_updates': 0,
+            'members_scraped': [],
+            'new_members_added': new_members_added
+        }
+        
+        # STEP 2: Scrape CPR data for members with API keys
+        logger.info(f"\nScraping CPR data for {len(self.member_api_keys)} members with API keys...")
+        
+        for i, (member_id, api_key) in enumerate(self.member_api_keys.items(), 1):
+            # Get member name from current faction members (guaranteed to exist now)
+            member_name = current_members.get(member_id, f"Member_{member_id}")
+            
+            logger.info(f"Processing {i}/{len(self.member_api_keys)}: {member_name} ({member_id})")
+            
+            try:
+                success, updates, error_msg = self.scrape_member(member_id, api_key, member_name, cpr_data)
+                
+                if success:
+                    stats['successful_scrapes'] += 1
+                    stats['total_updates'] += updates
+                    stats['members_scraped'].append(member_id)
+                else:
+                    stats['failed_scrapes'] += 1
+                
+            except Exception as e:
+                logger.error(f"Member {member_name} ({member_id}): Unexpected error - {e}")
+                stats['failed_scrapes'] += 1
+            
+            # Rate limiting
+            if i < len(self.member_api_keys):
+                time.sleep(0.01)
+        
+        # Save the updated CPR database
+        self._save_cpr_database(cpr_data)
+        
+        logger.info("="*70)
+        logger.info(f"CPR scrape complete:")
+        logger.info(f"  New members added: {stats['new_members_added']}")
+        logger.info(f"  Successful scrapes: {stats['successful_scrapes']}")
+        logger.info(f"  Total CPR updates: {stats['total_updates']}")
+        logger.info(f"  Total members in database: {len(cpr_data.get('members', {}))}")
+        logger.info("="*70)
+        
+        return cpr_data
+
+        """
+        Scrape CPR data for all members with API keys
         
         Returns:
             CPR database with updated data
@@ -496,7 +602,6 @@ def main():
         # Step 2: Run tier assignment algorithm
         logger.info("\nRunning tier assignment algorithm...")
         try:
-            from scripts.assign_tiers import TierAssignment
             tier_system = TierAssignment()
             
             # Generate new tier assignments based on CPR data
