@@ -142,7 +142,7 @@
     },
     "117315": {
       "name": "JBF89",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 96,
@@ -210,7 +210,7 @@
         }
       },
       "last_scraped": "2026-02-06T22:51:46.807979",
-      "tier_last_updated": "2025-12-27T15:47:53.293040"
+      "tier_last_updated": "2026-02-06T22:52:14.704180"
     },
     "227273": {
       "name": "Webster",
@@ -4800,7 +4800,7 @@
     },
     "2763324": {
       "name": "yerodaktuilos",
-      "tier": 4,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Looter": 97,
@@ -4870,7 +4870,7 @@
         }
       },
       "last_scraped": "2026-02-06T22:51:59.252384",
-      "tier_last_updated": "2025-12-27T15:47:53.294412"
+      "tier_last_updated": "2026-02-06T22:52:14.705662"
     },
     "2778101": {
       "name": "Erectangle",
@@ -9429,14 +9429,14 @@
     },
     "1959568": {
       "name": "Vivke",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "7": {
           "Muscle": 67
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-02-06T04:26:46.685621"
+      "tier_last_updated": "2026-02-06T22:52:14.707396"
     },
     "2881245": {
       "name": "Psycho-Panda",
@@ -9463,7 +9463,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-02-06T22:52:13.481092",
+    "last_updated": "2026-02-06T22:52:14.707597",
     "total_members": 154
   }
 }
