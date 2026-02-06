@@ -56,18 +56,27 @@ class SupabaseSync:
         
         for member_id, member_data in data['members'].items():
             try:
+                # Parse last_scraped - handle empty strings
+                last_scraped = member_data.get('last_scraped', '')
+                if last_scraped and last_scraped.strip():
+                    # Valid timestamp string
+                    last_scraped_value = last_scraped
+                else:
+                    # Empty or missing - use NULL
+                    last_scraped_value = None
+                
                 # Upsert member
                 member_result = self.client.table('members').upsert({
                     'member_id': member_id,
                     'member_name': member_data.get('name', f'Member {member_id}'),
-                    'tier': member_data.get('tier', 6),
-                    'last_scraped': member_data.get('last_scraped', datetime.now().isoformat()),
+                    'tier': member_data.get('tier', -1),  # Use -1 for members with no data
+                    'last_scraped': last_scraped_value,
                     'updated_at': datetime.now().isoformat()
                 }, on_conflict='member_id').execute()
                 
                 members_count += 1
                 
-                # Upsert CPR records
+                # Upsert CPR records (only if they exist)
                 cpr_by_role = member_data.get('cpr_by_role', {})
                 cpr_records = []
                 
