@@ -4635,7 +4635,7 @@
     },
     "2743617": {
       "name": "Jjsmad",
-      "tier": 6,
+      "tier": 5,
       "cpr_by_role": {
         "3": {
           "Muscle": 90
@@ -4645,7 +4645,7 @@
         }
       },
       "last_scraped": "2026-01-29T20:09:06.000Z",
-      "tier_last_updated": "2026-02-06T03:34:51.278200"
+      "tier_last_updated": "2026-02-06T04:26:46.686074"
     },
     "2749598": {
       "name": "Uncensored",
@@ -9432,34 +9432,34 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-02-06T04:06:07.908530"
+      "tier_last_updated": "2026-02-06T04:26:46.685621"
     },
     "2881245": {
       "name": "Psycho-Panda",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "7": {
           "Engineer": 69
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-02-06T04:06:07.908561"
+      "tier_last_updated": "2026-02-06T04:26:46.686178"
     },
     "3308221": {
       "name": "DeweyCox69",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "8": {
           "Thief": 59
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-02-06T04:06:07.908584"
+      "tier_last_updated": "2026-02-06T04:26:46.686211"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-02-06T04:26:46.096101",
+    "last_updated": "2026-02-06T04:26:46.686420",
     "total_members": 154
   }
 }
