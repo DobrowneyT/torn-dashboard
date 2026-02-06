@@ -3352,7 +3352,7 @@
     },
     "2477183": {
       "name": "User_2477183",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "5": {
           "Negotiator": 82
@@ -3362,7 +3362,7 @@
         }
       },
       "last_scraped": "2026-01-27T03:07:06.000Z",
-      "tier_last_updated": null
+      "tier_last_updated": "2026-02-06T03:34:51.280532"
     },
     "2478585": {
       "name": "Gekents",
@@ -4634,14 +4634,14 @@
     },
     "2743617": {
       "name": "User_2743617",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "3": {
           "Muscle": 90
         }
       },
       "last_scraped": "2026-01-29T20:09:06.000Z",
-      "tier_last_updated": null
+      "tier_last_updated": "2026-02-06T03:34:51.278200"
     },
     "2749598": {
       "name": "Uncensored",
@@ -6597,7 +6597,7 @@
     },
     "3208951": {
       "name": "Sour-Deez",
-      "tier": 4,
+      "tier": 3,
       "cpr_by_role": {
         "1": {
           "Muscle": 96,
@@ -6667,11 +6667,11 @@
         }
       },
       "last_scraped": "2026-02-06T03:34:42.130215",
-      "tier_last_updated": "2025-12-27T15:47:53.294930"
+      "tier_last_updated": "2026-02-06T03:34:51.278967"
     },
     "3225628": {
       "name": "Polio",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 96,
@@ -6744,7 +6744,7 @@
         }
       },
       "last_scraped": "2026-02-06T03:34:42.400045",
-      "tier_last_updated": "2025-12-27T15:47:53.294956"
+      "tier_last_updated": "2026-02-06T03:34:51.279001"
     },
     "3228747": {
       "name": "-Jesse-",
@@ -7276,7 +7276,7 @@
     },
     "3291056": {
       "name": "Helios-",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 96,
@@ -7346,7 +7346,7 @@
         }
       },
       "last_scraped": "2026-02-06T03:34:43.879833",
-      "tier_last_updated": "2025-12-27T15:47:53.295094"
+      "tier_last_updated": "2026-02-06T03:34:51.279246"
     },
     "3291843": {
       "name": "CouchMonster",
@@ -7504,7 +7504,7 @@
     },
     "3323412": {
       "name": "stresas_",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 96,
@@ -7564,7 +7564,7 @@
         }
       },
       "last_scraped": "2026-02-06T03:34:50.379401",
-      "tier_last_updated": "2026-01-09T13:52:22.527252"
+      "tier_last_updated": "2026-02-06T03:34:51.279334"
     },
     "3349449": {
       "name": "Mysdreavus",
@@ -7641,7 +7641,7 @@
     },
     "3352315": {
       "name": "LadyLolita",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 96,
@@ -7701,7 +7701,7 @@
         }
       },
       "last_scraped": "2026-02-06T03:34:50.638863",
-      "tier_last_updated": "2026-01-09T13:52:22.527296"
+      "tier_last_updated": "2026-02-06T03:34:51.279393"
     },
     "3355589": {
       "name": "Noodle2113",
@@ -9426,7 +9426,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-02-06T03:34:50.638953",
+    "last_updated": "2026-02-06T03:34:51.280805",
     "total_members": 151
   }
 }
