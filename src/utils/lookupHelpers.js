@@ -5,6 +5,8 @@ import { supabase } from './supabase'
  * - Reward items: Use Torn API market prices
  * - Cost items: Use weighted average from inventory_items_with_prices view
  * - Item names: Lookup from items table
+ *
+ * All three data sources are fetched in parallel for performance.
  */
 export async function enrichItemBreakdown(itemBreakdown, apiKey) {
   if (!itemBreakdown) return itemBreakdown
@@ -17,38 +19,34 @@ export async function enrichItemBreakdown(itemBreakdown, apiKey) {
     
     if (allIds.length === 0) return itemBreakdown
     
-    // Fetch item names from items table
-    const { data: itemsData } = await supabase
-      .from('items')
-      .select('id, name')
-      .in('id', allIds)
-    
+    // Fetch all data sources in parallel
+    const [itemsResult, marketPrices, costPricesResult] = await Promise.all([
+      // Item names from items table
+      supabase.from('items').select('id, name').in('id', allIds),
+      // Market prices from Torn API for reward items
+      (rewardIds.length > 0 && apiKey)
+        ? fetchItemMarketPrices(rewardIds, apiKey)
+        : Promise.resolve({}),
+      // Weighted averages from database view for cost items
+      (costIds.length > 0)
+        ? supabase.from('inventory_items_with_prices').select('item_id, weighted_avg_price').in('item_id', costIds)
+        : Promise.resolve({ data: null })
+    ])
+
+    // Build item names map
     const itemNames = {}
-    if (itemsData) {
-      itemsData.forEach(item => {
+    if (itemsResult.data) {
+      itemsResult.data.forEach(item => {
         itemNames[item.id.toString()] = item.name
       })
     }
-    
-    // Fetch market prices from Torn API for reward items
-    let marketPrices = {}
-    if (rewardIds.length > 0 && apiKey) {
-      marketPrices = await fetchItemMarketPrices(rewardIds, apiKey)
-    }
-    
-    // Fetch weighted averages from database view for cost items
-    let costPrices = {}
-    if (costIds.length > 0) {
-      const { data: inventoryPrices } = await supabase
-        .from('inventory_items_with_prices')
-        .select('item_id, weighted_avg_price')
-        .in('item_id', costIds)
-      
-      if (inventoryPrices) {
-        inventoryPrices.forEach(item => {
-          costPrices[item.item_id] = parseFloat(item.weighted_avg_price) || 0
-        })
-      }
+
+    // Build cost prices map
+    const costPrices = {}
+    if (costPricesResult.data) {
+      costPricesResult.data.forEach(item => {
+        costPrices[item.item_id] = parseFloat(item.weighted_avg_price) || 0
+      })
     }
     
     // Update reward items with market prices and names

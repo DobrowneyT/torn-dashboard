@@ -674,90 +674,86 @@ export function generateBatchPayoutURL(members) {
   return `https://www.torn.com/factions.php?step=your#/tab=controls&batbal_uids=${uids}&batbal_amounts=${amounts}`
 }
 
-/**
- * Parse payout CSV for import
- */
-export function parsePayoutCSV(csvText, weekStart, weekEnd) {
-  const lines = csvText.trim().split('\n')
+// /**
+//  * Parse payout CSV for import
+//  */
+// export function parsePayoutCSV(csvText) {
+//   const lines = csvText.trim().split('\n')
 
-  if (lines.length < 2) {
-    throw new Error('CSV file is empty or invalid')
-  }
+//   if (lines.length < 2) {
+//     throw new Error('CSV file is empty or invalid')
+//   }
 
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+//   const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
 
-  // Find column indexes
-  const memberCol = headers.findIndex(h => h.includes('member'))
-  const idCol = headers.findIndex(h => h === 'id')
-  const timeCol = headers.findIndex(h => h.includes('time spent') && !h.includes('%'))
-  const timePercentCol = headers.findIndex(h => h.includes('time') && h.includes('%'))
-  const tierCol = headers.findIndex(h => h === 'tier')
-  const ticketsCol = headers.findIndex(h => h === 'tickets' || h.includes('base tickets'))
-  const penaltyCol = headers.findIndex(h => h.includes('penalty'))
-  const shareCol = headers.findIndex(h => h.includes('share'))
-  const payoutCol = headers.findIndex(h => h.includes('payout'))
-  const theoreticalCol = headers.findIndex(h => h.includes('theoretical'))
+//   // Find column indexes - based on actual CSV structure
+//   const memberCol = headers.findIndex(h => h.includes('member'))
+//   const idCol = headers.findIndex(h => h === 'id')
+//   const timeCol = headers.findIndex(h => h.includes('time spent') && !h.includes('%'))
+//   const timePercentCol = headers.findIndex(h => h.includes('time') && h.includes('%'))
+//   const tierCol = headers.findIndex(h => h === 'tier')
+//   const ticketsCol = headers.findIndex(h => h.includes('tickets') && !h.includes('adjusted'))
+//   const penaltyCol = headers.findIndex(h => h.includes('penalty'))
+//   const shareCol = headers.findIndex(h => h.includes('share'))
+//   const payoutCol = headers.findIndex(h => h.includes('payout') && !h.includes('theoretical'))
 
-  if (idCol === -1 || payoutCol === -1) {
-    throw new Error('CSV must have ID and Payout columns')
-  }
+//   if (idCol === -1 || payoutCol === -1) {
+//     throw new Error('CSV must have ID and Payout columns')
+//   }
 
-  const members = []
-  let totalPayout = 0
-  let totalTime = 0
-  let totalTickets = 0
+//   const members = []
+//   let totalPayout = 0
+//   let totalTime = 0
+//   let totalTickets = 0
 
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
+//   for (let i = 1; i < lines.length; i++) {
+//     const line = lines[i].trim()
+//     if (!line) continue
 
-    const values = line.split(',').map(v => v.trim())
+//     const values = line.split(',').map(v => v.trim())
 
-    const payoutStr = values[payoutCol]?.replace(/[$,"]/g, '') || '0'
-    const payout = parseInt(payoutStr) || 0
+//     const memberId = values[idCol]
+//     if (!memberId || memberId === 'undefined') continue
 
-    if (payout === 0) continue
+//     const payoutStr = values[payoutCol]?.replace(/[$,"]/g, '') || '0'
+//     const payout = parseInt(payoutStr) || 0
 
-    const memberId = values[idCol]
-    if (!memberId || memberId === 'undefined') continue
+//     const timeSpent = timeCol !== -1 ? parseInt(values[timeCol]) || 0 : 0
+//     const timePercent = timePercentCol !== -1 ? parseFloat(values[timePercentCol]?.replace('%', '')) || 0 : 0
+//     const tier = tierCol !== -1 ? parseInt(values[tierCol]) || 6 : 6
+//     const baseTickets = ticketsCol !== -1 ? parseInt(values[ticketsCol]) || 0 : 0
+//     const penalty = penaltyCol !== -1 ? parseFloat(values[penaltyCol]) || 0 : 0
+//     const sharePercent = shareCol !== -1 ? parseFloat(values[shareCol]?.replace('%', '')) || 0 : 0
 
-    const timeSpent = timeCol !== -1 ? parseInt(values[timeCol]) || 0 : 0
-    const timePercent = timePercentCol !== -1 ? parseFloat(values[timePercentCol]?.replace('%', '')) || 0 : 0
-    const tier = tierCol !== -1 ? parseInt(values[tierCol]) || 6 : 6
-    const baseTickets = ticketsCol !== -1 ? parseInt(values[ticketsCol]) || 0 : 0
-    const penalty = penaltyCol !== -1 ? parseFloat(values[penaltyCol]) || 0 : 0
-    const sharePercent = shareCol !== -1 ? parseFloat(values[shareCol]?.replace('%', '')) || 0 : 0
-    const theoretical = theoreticalCol !== -1 ? parseInt(values[theoreticalCol]?.replace(/[$,"]/g, '')) || 0 : 0
+//     members.push({
+//       member_id: memberId,
+//       member_name: memberCol !== -1 ? values[memberCol] : `Member ${memberId}`,
+//       tier,
+//       base_tickets: baseTickets,
+//       sit_out_penalty: penalty,
+//       adjusted_tickets: baseTickets + penalty,
+//       time_spent: timeSpent,
+//       time_spent_percent: timePercent,
+//       share_percent: sharePercent,
+//       payout,
+//       theoretical_payout: 0, // Not in CSV, will be recalculated if needed
+//       crimes_count: 0, // Will be filled by import function
+//       crimes_participated: [] // Will be filled by import function
+//     })
 
-    members.push({
-      member_id: memberId,
-      member_name: memberCol !== -1 ? values[memberCol] : `Member ${memberId}`,
-      tier,
-      base_tickets: baseTickets,
-      sit_out_penalty: penalty,
-      adjusted_tickets: baseTickets + penalty,
-      time_spent: timeSpent,
-      time_spent_percent: timePercent,
-      share_percent: sharePercent,
-      payout,
-      theoretical_payout: theoretical,
-      week_start: weekStart,
-      week_end: weekEnd
-    })
+//     totalPayout += payout
+//     totalTime += timeSpent
+//     totalTickets += (baseTickets + penalty)
+//   }
 
-    totalPayout += payout
-    totalTime += timeSpent
-    totalTickets += (baseTickets + penalty)
-  }
-
-  return {
-    members,
-    totalPayout,
-    totalTime,
-    totalTickets,
-    memberCount: members.length
-  }
-}
+//   return {
+//     members,
+//     totalPayout,
+//     totalTime,
+//     totalTickets,
+//     memberCount: members.length
+//   }
+// }
 
 /**
  * Get crime statistics from crimes data
@@ -835,6 +831,312 @@ export function getCrimeStats(crimes) {
   stats.crimesList.sort((a, b) => (b.executed_at || 0) - (a.executed_at || 0))
 
   return stats
+}
+
+/**
+ * Parse a single CSV line respecting quoted fields.
+ * Handles values like "$15,170,274" where commas appear inside quotes.
+ */
+function parseCSVLine(line) {
+  const values = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      inQuotes = !inQuotes
+    } else if (ch === ',' && !inQuotes) {
+      values.push(current.trim())
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  values.push(current.trim())
+  return values
+}
+
+/**
+ * Find a column index using flexible matching against multiple possible header names.
+ * Returns -1 if no match found.
+ */
+function findColumn(headers, ...patterns) {
+  for (const pattern of patterns) {
+    const idx = headers.findIndex(h => {
+      if (typeof pattern === 'function') return pattern(h)
+      return h === pattern || h.includes(pattern)
+    })
+    if (idx !== -1) return idx
+  }
+  return -1
+}
+
+/**
+ * Clean a numeric string by removing currency symbols, commas, quotes, and percent signs.
+ */
+function cleanNumeric(val) {
+  if (val === null || val === undefined || val === '') return 0
+  const cleaned = String(val).replace(/[$,"%]/g, '').trim()
+  return cleaned
+}
+
+/**
+ * Parse payout CSV for import.
+ * Handles both system-exported CSVs and Google Sheets-exported CSVs.
+ * Properly parses quoted fields with embedded commas.
+ * Includes all members (even those with 0 payout).
+ */
+export function parsePayoutCSV(csvText, weekStart, weekEnd) {
+  const lines = csvText.trim().split('\n')
+
+  if (lines.length < 2) {
+    throw new Error('CSV file is empty or invalid')
+  }
+
+  const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase())
+
+  // Flexible column detection supporting both system-export and Google Sheets formats
+  const memberCol = findColumn(headers, 'member', 'name')
+  const idCol = findColumn(headers, h => h === 'id', 'member id', 'user_id')
+  const timeCol = findColumn(headers,
+    h => h.includes('time spent') && !h.includes('%'),
+    h => h.includes('time') && h.includes('oc') && !h.includes('%'),
+    'time_in_crimes'
+  )
+  const timePercentCol = findColumn(headers,
+    h => h.includes('time') && h.includes('%'),
+    'time spent %', 'time_pct'
+  )
+  const tierCol = findColumn(headers, h => h === 'tier')
+  const ticketsCol = findColumn(headers, 'base tickets', h => h === 'tickets')
+  const adjustedTicketsCol = findColumn(headers, 'adjusted tickets', 'adj tickets')
+  const penaltyCol = findColumn(headers, 'penalty', 'sit-out', 'sitout', 'sit_out')
+  const shareCol = findColumn(headers, 'share', 'oc share')
+  const payoutCol = findColumn(headers, 'oc payout', 'payout')
+  const theoreticalCol = findColumn(headers, 'theoretical')
+  const crimesCol = findColumn(headers, h => h === 'crimes', 'crime_count', 'crimes_count')
+
+  if (idCol === -1) {
+    throw new Error('CSV must have an ID column')
+  }
+  if (payoutCol === -1) {
+    throw new Error('CSV must have a Payout column (e.g., "OC Payout")')
+  }
+
+  const members = []
+  let totalPayout = 0
+  let totalTime = 0
+  let totalTickets = 0
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+
+    const values = parseCSVLine(line)
+
+    const memberId = values[idCol]?.replace(/['"]/g, '').trim()
+    if (!memberId || memberId === 'undefined' || memberId === '') continue
+
+    const payout = parseInt(cleanNumeric(values[payoutCol])) || 0
+    const timeSpent = timeCol !== -1 ? parseInt(cleanNumeric(values[timeCol])) || 0 : 0
+    const timePercent = timePercentCol !== -1 ? parseFloat(cleanNumeric(values[timePercentCol])) || 0 : 0
+    const tier = tierCol !== -1 ? parseInt(cleanNumeric(values[tierCol])) || 6 : 6
+    const baseTickets = ticketsCol !== -1 ? parseFloat(cleanNumeric(values[ticketsCol])) || 0 : 0
+    const penalty = penaltyCol !== -1 ? parseFloat(cleanNumeric(values[penaltyCol])) || 0 : 0
+    const adjustedTickets = adjustedTicketsCol !== -1
+      ? parseFloat(cleanNumeric(values[adjustedTicketsCol])) || 0
+      : Math.max(0, baseTickets + penalty)
+    const sharePercent = shareCol !== -1 ? parseFloat(cleanNumeric(values[shareCol])) || 0 : 0
+    const theoretical = theoreticalCol !== -1 ? parseInt(cleanNumeric(values[theoreticalCol])) || 0 : 0
+    const crimesCount = crimesCol !== -1 ? parseInt(cleanNumeric(values[crimesCol])) || 0 : 0
+
+    // Extract clean member name (strip bracketed ID if present, e.g., "Pierce [2163818]")
+    let memberName = memberCol !== -1 ? values[memberCol]?.trim() : `Member ${memberId}`
+    memberName = memberName.replace(/\s*\[\d+\]\s*$/, '')
+
+    members.push({
+      member_id: memberId,
+      member_name: memberName,
+      tier,
+      base_tickets: baseTickets,
+      sit_out_penalty: penalty,
+      adjusted_tickets: adjustedTickets,
+      time_spent: timeSpent,
+      time_spent_percent: timePercent,
+      share_percent: sharePercent,
+      payout,
+      theoretical_payout: theoretical,
+      crimes_count: crimesCount,
+      week_start: weekStart,
+      week_end: weekEnd
+    })
+
+    totalPayout += payout
+    totalTime += timeSpent
+    totalTickets += adjustedTickets
+  }
+
+  return {
+    members,
+    totalPayout,
+    totalTime,
+    totalTickets,
+    memberCount: members.length
+  }
+}
+
+/**
+ * Parse an XLSX file's Payout_Calculator sheet for import.
+ * Also extracts item_outcomes data if present.
+ *
+ * @param {Array<Array>} payoutRows - 2D array of the Payout_Calculator sheet (with headers in row 0)
+ * @param {Array<Array>|null} itemRows - 2D array of the item_outcomes sheet (optional)
+ * @param {string} weekStart - Week start date string (YYYY-MM-DD)
+ * @param {string} weekEnd - Week end date string (YYYY-MM-DD)
+ * @returns {Object} Parsed payout data
+ */
+export function parsePayoutXLSX(payoutRows, itemRows, weekStart, weekEnd) {
+  if (!payoutRows || payoutRows.length < 2) {
+    throw new Error('Payout_Calculator sheet is empty or invalid')
+  }
+
+  const headers = payoutRows[0].map(h => (h || '').toString().trim().toLowerCase())
+
+  const memberCol = findColumn(headers, 'member', 'name')
+  const idCol = findColumn(headers, h => h === 'id', 'member id', 'user_id')
+  const timeCol = findColumn(headers,
+    h => h.includes('time spent') && !h.includes('%'),
+    h => h.includes('time') && h.includes('oc') && !h.includes('%')
+  )
+  const timePercentCol = findColumn(headers, h => h.includes('time') && h.includes('%'))
+  const tierCol = findColumn(headers, h => h === 'tier')
+  const ticketsCol = findColumn(headers, 'base tickets', h => h === 'tickets')
+  const penaltyCol = findColumn(headers, 'penalty', 'sit-out', 'sitout')
+  const shareCol = findColumn(headers, 'share', 'oc share')
+  const payoutCol = findColumn(headers, 'oc payout', 'payout')
+
+  if (idCol === -1) {
+    throw new Error('Payout_Calculator sheet must have an ID column')
+  }
+  if (payoutCol === -1) {
+    throw new Error('Payout_Calculator sheet must have a Payout column')
+  }
+
+  const members = []
+  let totalPayout = 0
+  let totalTime = 0
+  let totalTickets = 0
+
+  for (let i = 1; i < payoutRows.length; i++) {
+    const row = payoutRows[i]
+    if (!row) continue
+
+    const rawId = row[idCol]
+    if (rawId === null || rawId === undefined || rawId === '') continue
+
+    const memberId = String(Math.floor(Number(rawId)))
+    if (!memberId || memberId === 'NaN' || memberId === '0') continue
+
+    const payout = Math.floor(Number(row[payoutCol]) || 0)
+    const timeSpent = Math.floor(Number(row[timeCol]) || 0)
+    const tier = Math.floor(Number(row[tierCol]) || 6)
+    const baseTickets = Number(row[ticketsCol]) || 0
+    const penalty = Number(row[penaltyCol]) || 0
+    const adjustedTickets = Math.max(0, baseTickets + penalty)
+
+    // Share percent: XLSX stores as decimal (e.g., 0.02134), convert to percentage
+    let sharePercent = Number(row[shareCol]) || 0
+    if (sharePercent > 0 && sharePercent < 1) {
+      sharePercent = sharePercent * 100
+    }
+
+    let timePercent = Number(row[timePercentCol]) || 0
+    if (timePercent > 0 && timePercent < 1) {
+      timePercent = timePercent * 100
+    }
+
+    let memberName = memberCol !== -1 ? String(row[memberCol] || '').trim() : `Member ${memberId}`
+    memberName = memberName.replace(/\s*\[\d+\]\s*$/, '')
+
+    members.push({
+      member_id: memberId,
+      member_name: memberName,
+      tier,
+      base_tickets: baseTickets,
+      sit_out_penalty: penalty,
+      adjusted_tickets: adjustedTickets,
+      time_spent: timeSpent,
+      time_spent_percent: timePercent,
+      share_percent: sharePercent,
+      payout,
+      theoretical_payout: 0,
+      crimes_count: 0,
+      week_start: weekStart,
+      week_end: weekEnd
+    })
+
+    totalPayout += payout
+    totalTime += timeSpent
+    totalTickets += adjustedTickets
+  }
+
+  // Parse item outcomes if available
+  let itemOutcomes = null
+  if (itemRows && itemRows.length > 1) {
+    itemOutcomes = {
+      items: [],
+      netTotal: 0,
+      rewardsTotal: 0,
+      usedTotal: 0
+    }
+
+    const itemHeaders = itemRows[0].map(h => (h || '').toString().trim().toLowerCase())
+    const itemIdCol = findColumn(itemHeaders, h => h === 'id')
+    const itemNameCol = findColumn(itemHeaders, 'name')
+    const itemStatusCol = findColumn(itemHeaders, 'status')
+    const itemValueCol = findColumn(itemHeaders, 'market value', 'value')
+    const itemQtyCol = findColumn(itemHeaders, 'quantity', 'qty')
+    const itemTotalCol = findColumn(itemHeaders, 'total price', 'total')
+
+    for (let i = 1; i < itemRows.length; i++) {
+      const row = itemRows[i]
+      if (!row || !row[itemIdCol]) continue
+
+      const id = Number(row[itemIdCol])
+      if (isNaN(id) || id === 0) continue
+
+      const status = String(row[itemStatusCol] || '').trim().toLowerCase()
+      const marketValue = Number(row[itemValueCol]) || 0
+      const quantity = Number(row[itemQtyCol]) || 0
+      const totalPrice = itemTotalCol !== -1 ? Number(row[itemTotalCol]) || 0 : 0
+
+      itemOutcomes.items.push({
+        id,
+        name: String(row[itemNameCol] || ''),
+        status,
+        marketValue,
+        quantity,
+        totalPrice
+      })
+
+      if (status === 'reward') {
+        itemOutcomes.rewardsTotal += Math.abs(totalPrice)
+      } else if (status === 'used') {
+        itemOutcomes.usedTotal += Math.abs(totalPrice)
+      }
+    }
+    itemOutcomes.netTotal = itemOutcomes.rewardsTotal - itemOutcomes.usedTotal
+  }
+
+  return {
+    members,
+    totalPayout,
+    totalTime,
+    totalTickets,
+    memberCount: members.length,
+    itemOutcomes
+  }
 }
 
 /**

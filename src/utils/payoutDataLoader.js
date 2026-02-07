@@ -32,55 +32,49 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
     const THREE_WEEKS = 604800 * 3
     const dataFromTimestamp = fromTimestamp - THREE_WEEKS
 
-    // Load crimes in multiple queries:
-    // 1. Crimes created during lookback window that were executed in our analysis window
-    // 2. Crimes created during lookback window that are still in progress
-    // 3. In-progress crimes (Planning/Recruiting) - regardless of creation time
+    // Phase 1: Load all crime queries in parallel
+    const [executedResult, lookbackResult, inProgressResult] = await Promise.all([
+      supabase
+        .from('crimes')
+        .select('*')
+        .gte('executed_at', fromTimestamp)
+        .lt('executed_at', toTimestamp)
+        .order('executed_at', { ascending: false }),
+      supabase
+        .from('crimes')
+        .select('*')
+        .gte('created_at', dataFromTimestamp)
+        .lt('created_at', fromTimestamp)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('crimes')
+        .select('*')
+        .in('status', ['Planning', 'Recruiting'])
+        .order('created_at', { ascending: false })
+    ])
 
-    // Query 1: Executed crimes (created in lookback window OR executed in analysis window)
-    const { data: executedCrimes, error: executedError } = await supabase
-      .from('crimes')
-      .select('*')
-      .gte('executed_at', fromTimestamp)
-      .lt('executed_at', toTimestamp)
-      .order('executed_at', { ascending: false })
+    if (executedResult.error) throw executedResult.error
+    if (lookbackResult.error) throw lookbackResult.error
+    if (inProgressResult.error) throw inProgressResult.error
 
-    if (executedError) throw executedError
-
-    // Query 2: Crimes created before our window but might have member activity during our window
-    // Only get crimes that don't have executed_at yet or executed after our lookback starts
-    const { data: lookbackCrimes, error: lookbackError } = await supabase
-      .from('crimes')
-      .select('*')
-      .gte('created_at', dataFromTimestamp)
-      .lt('created_at', fromTimestamp)
-      .order('created_at', { ascending: false })
-
-    if (lookbackError) throw lookbackError
-
-    // Query 3: In-progress crimes (for ongoing time tracking)
-    const { data: inProgressCrimes, error: inProgressError } = await supabase
-      .from('crimes')
-      .select('*')
-      .in('status', ['Planning', 'Recruiting'])
-      .order('created_at', { ascending: false })
-
-    if (inProgressError) throw inProgressError
+    const executedCrimes = executedResult.data || []
+    const lookbackCrimes = lookbackResult.data || []
+    const inProgressCrimes = inProgressResult.data || []
 
     // Combine and deduplicate
     const crimeMap = new Map()
 
-    for (const crime of (executedCrimes || [])) {
+    for (const crime of executedCrimes) {
       crimeMap.set(crime.crime_id, crime)
     }
 
-    for (const crime of (lookbackCrimes || [])) {
+    for (const crime of lookbackCrimes) {
       if (!crimeMap.has(crime.crime_id)) {
         crimeMap.set(crime.crime_id, crime)
       }
     }
 
-    for (const crime of (inProgressCrimes || [])) {
+    for (const crime of inProgressCrimes) {
       if (!crimeMap.has(crime.crime_id)) {
         crimeMap.set(crime.crime_id, crime)
       }
@@ -94,59 +88,59 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
 
     const crimeIds = crimes.map(c => c.crime_id)
 
-    // Load slots for these crimes
-    const { data: slots, error: slotsError } = await supabase
-      .from('crime_slots')
-      .select('*')
-      .in('crime_id', crimeIds)
+    // Phase 2: Load all related data + members in parallel
+    const [slotsResult, rewardResult, requiredResult, membersResult] = await Promise.all([
+      supabase.from('crime_slots').select('*').in('crime_id', crimeIds),
+      supabase.from('crime_reward_items').select('*').in('crime_id', crimeIds),
+      supabase.from('crime_required_items').select('*').in('crime_id', crimeIds),
+      supabase.from('members').select('member_id, member_name')
+    ])
 
-    if (slotsError) throw slotsError
+    if (slotsResult.error) throw slotsResult.error
+    if (rewardResult.error) throw rewardResult.error
+    if (requiredResult.error) throw requiredResult.error
 
-    // Load reward items for these crimes
-    const { data: rewardItems, error: rewardError } = await supabase
-      .from('crime_reward_items')
-      .select('*')
-      .in('crime_id', crimeIds)
+    const slots = slotsResult.data || []
+    const rewardItems = rewardResult.data || []
+    const requiredItems = requiredResult.data || []
 
-    if (rewardError) throw rewardError
+    // Build member name lookup map (loaded once, used for all crimes)
+    const membersMap = {}
+    if (!membersResult.error && membersResult.data) {
+      membersResult.data.forEach(m => {
+        membersMap[m.member_id] = m.member_name
+      })
+    }
 
-    // Load required items for these crimes
-    const { data: requiredItems, error: requiredError } = await supabase
-      .from('crime_required_items')
-      .select('*')
-      .in('crime_id', crimeIds)
+    // Pre-index related data by crime_id for O(1) lookup instead of O(n) filtering
+    const slotsByCrime = new Map()
+    for (const slot of slots) {
+      if (!slotsByCrime.has(slot.crime_id)) slotsByCrime.set(slot.crime_id, [])
+      slotsByCrime.get(slot.crime_id).push(slot)
+    }
 
-    if (requiredError) throw requiredError
+    const rewardsByCrime = new Map()
+    for (const item of rewardItems) {
+      if (!rewardsByCrime.has(item.crime_id)) rewardsByCrime.set(item.crime_id, [])
+      rewardsByCrime.get(item.crime_id).push(item)
+    }
+
+    const requiredByCrime = new Map()
+    for (const item of requiredItems) {
+      if (!requiredByCrime.has(item.crime_id)) requiredByCrime.set(item.crime_id, [])
+      requiredByCrime.get(item.crime_id).push(item)
+    }
 
     // Transform crimes array into object keyed by crime_id
-    // Also attach slots, reward items, and required items to each crime
     const crimesMap = {}
 
     for (const crime of crimes) {
       const crimeId = crime.crime_id
 
-      // Get slots for this crime
-      const crimeSlots = (slots || []).filter(s => s.crime_id === crimeId)
-
-      // Get reward items for this crime
-      const crimeRewardItems = (rewardItems || []).filter(r => r.crime_id === crimeId)
-
-      // Get required items for this crime
-      const crimeRequiredItems = (requiredItems || []).filter(r => r.crime_id === crimeId)
-
-      // Load members data for name enrichment if not already loaded
-      let membersMap = {}
-      if (Object.keys(membersMap).length === 0) {
-        const { data: membersData, error: membersError } = await supabase
-          .from('members')
-          .select('member_id, member_name')
-
-        if (!membersError && membersData) {
-          membersData.forEach(m => {
-            membersMap[m.member_id] = m.member_name
-          })
-        }
-      }
+      // O(1) lookups from pre-indexed maps
+      const crimeSlots = slotsByCrime.get(crimeId) || []
+      const crimeRewardItems = rewardsByCrime.get(crimeId) || []
+      const crimeRequiredItems = requiredByCrime.get(crimeId) || []
 
       // Transform slots to match expected format with enriched member names
       const transformedSlots = crimeSlots.map(slot => ({
@@ -219,17 +213,17 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
     }
 
     console.log(`Loaded ${Object.keys(crimesMap).length} crimes for payout calculation`)
-    console.log(`  - Executed in window: ${(executedCrimes || []).length}`)
-    console.log(`  - Lookback crimes (created before window): ${(lookbackCrimes || []).length}`)
-    console.log(`  - In-progress: ${(inProgressCrimes || []).length}`)
+    console.log(`  - Executed in window: ${executedCrimes.length}`)
+    console.log(`  - Lookback crimes (created before window): ${lookbackCrimes.length}`)
+    console.log(`  - In-progress: ${inProgressCrimes.length}`)
     console.log(`  - Analysis window: ${new Date(fromTimestamp * 1000).toISOString()} to ${new Date(toTimestamp * 1000).toISOString()}`)
     console.log(`  - Data collection starts: ${new Date(dataFromTimestamp * 1000).toISOString()}`)
 
     return {
       crimes: crimesMap,
-      slots: slots || [],
-      rewardItems: rewardItems || [],
-      requiredItems: requiredItems || []
+      slots: slots,
+      rewardItems: rewardItems,
+      requiredItems: requiredItems
     }
 
   } catch (error) {
@@ -244,24 +238,30 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
  */
 export async function loadMembers() {
   try {
-    const { data: members, error: membersError } = await supabase
-      .from('members')
-      .select('*')
+    // Load members and CPR data in parallel
+    const [membersResult, cprResult] = await Promise.all([
+      supabase.from('members').select('*'),
+      supabase.from('member_cpr').select('*')
+    ])
 
-    if (membersError) throw membersError
+    if (membersResult.error) throw membersResult.error
+    if (cprResult.error) throw cprResult.error
 
-    // Also load CPR data
-    const { data: cprData, error: cprError } = await supabase
-      .from('member_cpr')
-      .select('*')
+    const members = membersResult.data || []
+    const cprData = cprResult.data || []
 
-    if (cprError) throw cprError
+    // Pre-index CPR data by member_id for O(1) lookup
+    const cprByMember = new Map()
+    for (const cpr of cprData) {
+      if (!cprByMember.has(cpr.member_id)) cprByMember.set(cpr.member_id, [])
+      cprByMember.get(cpr.member_id).push(cpr)
+    }
 
     // Transform to expected format
     const membersMap = {}
 
-    for (const member of (members || [])) {
-      const memberCpr = (cprData || []).filter(c => c.member_id === member.member_id)
+    for (const member of members) {
+      const memberCpr = cprByMember.get(member.member_id) || []
 
       // Build cpr_by_role structure
       const cprByRole = {}
@@ -418,9 +418,15 @@ export async function loadMemberCrimeHistory(memberId, limit = 100) {
 
     if (crimesError) throw crimesError
 
+    // Pre-index slots by crime_id for efficient merging
+    const slotsByCrime = new Map()
+    for (const slot of slots) {
+      if (!slotsByCrime.has(slot.crime_id)) slotsByCrime.set(slot.crime_id, slot)
+    }
+
     // Merge crime details with slot info
     const crimesWithSlotInfo = (crimes || []).map(crime => {
-      const memberSlot = slots.find(s => s.crime_id === crime.crime_id)
+      const memberSlot = slotsByCrime.get(crime.crime_id)
       return {
         ...crime,
         member_position: memberSlot?.position,
@@ -502,6 +508,9 @@ export async function loadMemberLoanedItems(memberId) {
 
 /**
  * Save payout week and link crimes
+ * Now sends crimeIds to the Edge Function so crime linking happens server-side
+ * in a single bulk update instead of N individual round-trips.
+ *
  * @param {Object} weekData - Week summary data
  * @param {Array} memberData - Array of member payout data
  * @param {Array} crimeIds - Array of crime IDs included in this payout
@@ -532,16 +541,13 @@ export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, ap
       total_adjusted_tickets: weekData.total_adjusted_tickets || 0,
       crime_ids: crimeIds || [],
       min_time_for_full_tickets: 432000,
-      min_time_for_any_payout: 172800,
-      saved_by: savedBy,
-      saved_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      min_time_for_any_payout: 172800
     }
 
     // Prepare member records
     const memberRecords = memberData.map(m => ({
-      week_start: weekData.week_start,
-      week_end: weekData.week_end,
+      week_start: weekRecord.week_start,
+      week_end: weekRecord.week_end,
       member_id: m.member_id || m.userId?.toString(),
       member_name: m.member_name || m.name,
       tier: m.tier,
@@ -554,31 +560,26 @@ export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, ap
       payout: m.payout || 0,
       theoretical_payout: m.theoretical_payout || m.theoreticalPayout || 0,
       crimes_count: m.crimes_count || m.crimesCount || 0,
-      crimes_participated: m.crimes_participated || m.crimeIds || [],
-      updated_at: new Date().toISOString()
+      crimes_participated: m.crimes_participated || m.crimeIds || []
     }))
 
-    // Call Edge Function to save payout data
-    const response = await adminApi.importPayoutData(weekRecord, memberRecords, apiKey)
+    // Single Edge Function call: saves week, members, AND links crimes
+    const response = await adminApi.importPayoutData(
+      weekRecord,
+      memberRecords,
+      apiKey,
+      crimeIds && crimeIds.length > 0 ? crimeIds : null
+    )
 
     if (!response.success) {
       throw new Error(response.error || 'Failed to save payout week')
     }
 
-    // If we have crime IDs to link, update them
-    if (crimeIds && crimeIds.length > 0 && response.weekId) {
-      // Update crimes to link to this payout week
-      for (const crimeId of crimeIds) {
-        await adminApi.adminUpdate(
-          'crimes',
-          { payout_week_id: response.weekId },
-          { crime_id: crimeId },
-          apiKey
-        )
-      }
-    }
+    const weekId = response.weekId
 
-    return { id: response.weekId, ...weekRecord }
+    console.log(`Saved payout week ${weekId} with ${memberRecords.length} members and ${(crimeIds || []).length} crimes`)
+
+    return { id: weekId, ...weekRecord }
 
   } catch (error) {
     console.error('Error saving payout week:', error)

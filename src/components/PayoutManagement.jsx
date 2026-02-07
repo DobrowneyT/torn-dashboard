@@ -18,9 +18,11 @@ import {
   exportPayoutsToCSV,
   generateBatchPayoutURL,
   parsePayoutCSV,
+  parsePayoutXLSX,
   getCrimeStats
 } from '../utils/payoutCalculations'
 import { enrichItemBreakdown } from '../utils/lookupHelpers'
+import { importPayoutCSV } from '../utils/csvPayoutImport'
 
 export default function PayoutManagement() {
   const { user } = useAuth()
@@ -147,8 +149,8 @@ export default function PayoutManagement() {
     const newDate = e.target.value
     setFromDate(newDate)
     if (newDate) {
-      const date = new Date(newDate)
-      date.setHours(0, 0, 0, 0)
+      const [y, m, d] = newDate.split('-').map(Number)
+      const date = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0))
       setFromTimestamp(Math.floor(date.getTime() / 1000))
     }
     setHasCalculated(false)
@@ -159,8 +161,8 @@ export default function PayoutManagement() {
     const newDate = e.target.value
     setToDate(newDate)
     if (newDate) {
-      const date = new Date(newDate)
-      date.setHours(23, 59, 59, 999)
+      const [y, m, d] = newDate.split('-').map(Number)
+      const date = new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999))
       setToTimestamp(Math.floor(date.getTime() / 1000))
     }
     setHasCalculated(false)
@@ -364,42 +366,88 @@ export default function PayoutManagement() {
     })
   }
 
-  async function handleImportCSV(event) {
+  async function handleImportFile(event) {
     const file = event.target.files[0]
     if (!file) return
 
     setImportingCSV(true)
 
     try {
-      // Parse week start from filename: "20251215-Forge_OC_Payout.csv"
-      const dateMatch = file.name.match(/^(\d{8})/)
-      if (!dateMatch) {
-        throw new Error('Filename must start with date in YYYYMMDD format (e.g., 20251215-Forge_OC_Payout.csv)')
+      // Parse week start from filename: "20251215-..." or "2025-12-15-..."
+      let year, month, day
+      const dateMatch8 = file.name.match(/^(\d{4})(\d{2})(\d{2})/)
+      const dateMatchDash = file.name.match(/^(\d{4})-(\d{2})-(\d{2})/)
+
+      if (dateMatch8) {
+        year = parseInt(dateMatch8[1])
+        month = parseInt(dateMatch8[2]) - 1
+        day = parseInt(dateMatch8[3])
+      } else if (dateMatchDash) {
+        year = parseInt(dateMatchDash[1])
+        month = parseInt(dateMatchDash[2]) - 1
+        day = parseInt(dateMatchDash[3])
+      } else {
+        throw new Error('Filename must start with a date in YYYYMMDD or YYYY-MM-DD format')
       }
 
-      const dateStr = dateMatch[1]
-      const year = parseInt(dateStr.substring(0, 4))
-      const month = parseInt(dateStr.substring(4, 6)) - 1
-      const day = parseInt(dateStr.substring(6, 8))
-
-      const weekStart = new Date(year, month, day)
-      weekStart.setHours(0, 0, 0, 0)
-
+      const weekStart = new Date(Date.UTC(year, month, day, 0, 0, 0, 0))
       const weekEnd = new Date(weekStart)
-      weekEnd.setDate(weekEnd.getDate() + 6)
-      weekEnd.setHours(23, 59, 59, 999)
+      weekEnd.setUTCDate(weekEnd.getUTCDate() + 6)
+      weekEnd.setUTCHours(23, 59, 59, 999)
 
-      const text = await file.text()
-      const parsed = parsePayoutCSV(text)
-
-      if (parsed.members.length === 0) {
-        throw new Error('No valid member data found in CSV')
-      }
-
-      // Find crimes executed in this date range to link
+      const weekStartStr = weekStart.toISOString().split('T')[0]
+      const weekEndStr = weekEnd.toISOString().split('T')[0]
       const weekStartTs = Math.floor(weekStart.getTime() / 1000)
       const weekEndTs = Math.floor(weekEnd.getTime() / 1000)
 
+      let parsed
+      const isXLSX = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')
+
+      if (isXLSX) {
+        // Dynamic import of SheetJS for XLSX parsing
+        const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs')
+        const arrayBuffer = await file.arrayBuffer()
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+
+        // Find the Payout_Calculator sheet
+        const payoutSheetName = workbook.SheetNames.find(
+          n => n.toLowerCase().includes('payout') && n.toLowerCase().includes('calc')
+        ) || workbook.SheetNames.find(
+          n => n.toLowerCase().includes('payout')
+        )
+
+        if (!payoutSheetName) {
+          throw new Error('Could not find a Payout_Calculator sheet in the workbook. Available sheets: ' + workbook.SheetNames.join(', '))
+        }
+
+        const payoutSheet = workbook.Sheets[payoutSheetName]
+        const payoutRows = XLSX.utils.sheet_to_json(payoutSheet, { header: 1, defval: null })
+
+        // Try to find item_outcomes sheet
+        const itemSheetName = workbook.SheetNames.find(
+          n => n.toLowerCase().includes('item_outcome')
+        ) || workbook.SheetNames.find(
+          n => n.toLowerCase() === 'items'
+        )
+
+        let itemRows = null
+        if (itemSheetName) {
+          const itemSheet = workbook.Sheets[itemSheetName]
+          itemRows = XLSX.utils.sheet_to_json(itemSheet, { header: 1, defval: null })
+        }
+
+        parsed = parsePayoutXLSX(payoutRows, itemRows, weekStartStr, weekEndStr)
+      } else {
+        // CSV parsing
+        const text = await file.text()
+        parsed = parsePayoutCSV(text, weekStartStr, weekEndStr)
+      }
+
+      if (parsed.members.length === 0) {
+        throw new Error('No valid member data found in the file')
+      }
+
+      // Find crimes executed in this date range to link
       const { data: weekCrimes } = await supabase
         .from('crimes')
         .select('crime_id')
@@ -409,39 +457,35 @@ export default function PayoutManagement() {
 
       const crimeIds = (weekCrimes || []).map(c => c.crime_id)
 
-      // Calculate totals from crimes if available
+      // Calculate totals from crimes if available (parallel queries)
       let totalMoneyReward = 0
       let totalItemReward = 0
       let totalItemCost = 0
 
       if (crimeIds.length > 0) {
-        const { data: crimes } = await supabase
-          .from('crimes')
-          .select('rewards_money')
-          .in('crime_id', crimeIds)
+        const [crimesResult, rewardResult, requiredResult] = await Promise.all([
+          supabase.from('crimes').select('rewards_money').in('crime_id', crimeIds),
+          supabase.from('crime_reward_items').select('unit_value, quantity').in('crime_id', crimeIds),
+          supabase.from('crime_required_items').select('unit_value, was_consumed').in('crime_id', crimeIds).eq('was_consumed', true)
+        ])
 
-        totalMoneyReward = (crimes || []).reduce((sum, c) => sum + (c.rewards_money || 0), 0)
-
-        // Get item values
-        const { data: rewardItems } = await supabase
-          .from('crime_reward_items')
-          .select('unit_value, quantity')
-          .in('crime_id', crimeIds)
-
-        totalItemReward = (rewardItems || []).reduce((sum, i) => sum + (i.unit_value * i.quantity), 0)
-
-        const { data: requiredItems } = await supabase
-          .from('crime_required_items')
-          .select('unit_value, was_consumed')
-          .in('crime_id', crimeIds)
-          .eq('was_consumed', true)
-
-        totalItemCost = (requiredItems || []).reduce((sum, i) => sum + (i.unit_value || 0), 0)
+        totalMoneyReward = (crimesResult.data || []).reduce((sum, c) => sum + (c.rewards_money || 0), 0)
+        totalItemReward = (rewardResult.data || []).reduce((sum, i) => sum + (i.unit_value * i.quantity), 0)
+        totalItemCost = (requiredResult.data || []).reduce((sum, i) => sum + (i.unit_value || 0), 0)
       }
 
+      // If XLSX had item outcomes and we didn't get data from Supabase, use XLSX values
+      if (parsed.itemOutcomes && totalItemReward === 0 && totalItemCost === 0) {
+        totalItemReward = parsed.itemOutcomes.rewardsTotal || 0
+        totalItemCost = parsed.itemOutcomes.usedTotal || 0
+      }
+
+      const grossTotal = totalMoneyReward + totalItemReward - totalItemCost
+      const factionCutAmount = Math.floor(grossTotal * 0.20)
+
       const weekData = {
-        week_start: weekStart.toISOString().split('T')[0],
-        week_end: weekEnd.toISOString().split('T')[0],
+        week_start: weekStartStr,
+        week_end: weekEndStr,
         week_start_timestamp: weekStartTs,
         week_end_timestamp: weekEndTs,
         total_money_reward: totalMoneyReward,
@@ -449,7 +493,7 @@ export default function PayoutManagement() {
         total_item_cost: totalItemCost,
         net_item_value: totalItemReward - totalItemCost,
         faction_cut_percent: 20,
-        faction_cut_amount: 0,
+        faction_cut_amount: factionCutAmount,
         member_payout_total: parsed.totalPayout,
         crimes_processed: crimeIds.length,
         total_time_spent: parsed.totalTime,
@@ -457,9 +501,10 @@ export default function PayoutManagement() {
         total_adjusted_tickets: parsed.totalTickets
       }
 
-      await savePayoutWeek(weekData, parsed.members, crimeIds, `${user.name} (CSV Import)`, user.apiKey)
+      await savePayoutWeek(weekData, parsed.members, crimeIds, `${user.name} (${isXLSX ? 'XLSX' : 'CSV'} Import)`, user.apiKey)
 
-      alert(`Successfully imported ${parsed.memberCount} member payouts for week of ${weekStart.toLocaleDateString()}`)
+      const fileType = isXLSX ? 'XLSX' : 'CSV'
+      alert(`Successfully imported ${parsed.memberCount} member payouts from ${fileType} for week of ${weekStartStr}`)
 
       // Refresh history if showing
       if (showHistory) {
@@ -467,11 +512,85 @@ export default function PayoutManagement() {
       }
 
     } catch (err) {
-      console.error('Error importing CSV:', err)
-      alert(`Failed to import CSV: ${err.message}`)
+      console.error('Error importing file:', err)
+      alert(`Failed to import file: ${err.message}`)
     } finally {
       setImportingCSV(false)
       event.target.value = ''
+    }
+  }
+
+  async function handleLoadHistoricalWeek(weekId) {
+    try {
+      // Load the week data
+      const { data: weekData, error: weekError } = await supabase
+        .from('oc_payout_weeks')
+        .select('*')
+        .eq('id', weekId)
+        .single()
+
+      if (weekError) throw weekError
+
+      // Load member payouts for this week
+      const { data: members, error: membersError } = await supabase
+        .from('oc_payout_members')
+        .select('*')
+        .eq('week_id', weekId)
+        .order('payout', { ascending: false })
+
+      if (membersError) throw membersError
+
+      // Set the date range
+      setFromDate(weekData.week_start)
+      setToDate(weekData.week_end)
+      setFromTimestamp(weekData.week_start_timestamp)
+      setToTimestamp(weekData.week_end_timestamp)
+      setFactionCutPercent(weekData.faction_cut_percent || 20)
+
+      // Transform member data to match expected format
+      const transformedMembers = members.map(m => ({
+        userId: m.member_id,
+        name: m.member_name,
+        tier: m.tier,
+        baseTickets: m.base_tickets || 0,
+        sitOutPenalty: m.sit_out_penalty || 0,
+        adjustedTickets: m.adjusted_tickets || 0,
+        timeSpent: m.time_spent || 0,
+        timePercent: m.time_spent_percent || 0,
+        sharePercent: (m.share_percent || 0) / 100,
+        payout: m.payout || 0,
+        theoreticalPayout: m.theoretical_payout || 0,
+        crimesCount: m.crimes_count || 0,
+        crimeIds: m.crimes_participated || []
+      }))
+
+      // Set the payout results
+      const results = {
+        members: transformedMembers,
+        totalMoneyReward: weekData.total_money_reward || 0,
+        totalItemReward: weekData.total_item_reward || 0,
+        totalItemCost: weekData.total_item_cost || 0,
+        netItemValue: weekData.net_item_value || 0,
+        grossTotal: (weekData.total_money_reward || 0) + (weekData.net_item_value || 0),
+        factionCut: weekData.faction_cut_amount || 0,
+        factionCutPercent: weekData.faction_cut_percent || 20,
+        memberPayoutTotal: weekData.member_payout_total || weekData.total_member_payout || 0,
+        participatingMembers: members.length,
+        crimesProcessed: weekData.crimes_processed || 0,
+        crimeIds: weekData.crime_ids || [],
+        totalTimeSpent: weekData.total_time_spent || 0,
+        averageTime: weekData.average_time_spent || 0,
+        totalAdjustedTickets: weekData.total_adjusted_tickets || 0,
+        itemBreakdown: { rewards: {}, costs: {} }
+      }
+
+      setPayoutResults(results)
+      setHasCalculated(true)
+      setShowHistory(false)
+
+    } catch (error) {
+      console.error('Error loading historical week:', error)
+      alert(`Failed to load historical week: ${error.message}`)
     }
   }
 
@@ -599,11 +718,11 @@ export default function PayoutManagement() {
             {showHistory ? 'Hide' : 'View'} History
           </button>
           <label className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm cursor-pointer">
-            {importingCSV ? 'Importing...' : 'Import CSV'}
+            {importingCSV ? 'Importing...' : 'Import CSV/XLSX'}
             <input
               type="file"
-              accept=".csv"
-              onChange={handleImportCSV}
+              accept=".csv,.xlsx,.xls"
+              onChange={handleImportFile}
               className="hidden"
               disabled={importingCSV}
             />
@@ -638,6 +757,7 @@ export default function PayoutManagement() {
           payouts={historicalPayouts}
           loading={loadingHistory}
           onRefresh={loadHistoricalPayouts}
+          onLoadWeek={handleLoadHistoricalWeek}
         />
       )}
 
@@ -1250,7 +1370,7 @@ function CrimeStatsView({ stats, fromTimestamp, toTimestamp, onClose }) {
   )
 }
 
-function HistoricalPayoutsView({ payouts, loading, onRefresh }) {
+function HistoricalPayoutsView({ payouts, loading, onRefresh, onLoadWeek }) {
   if (loading) {
     return (
       <div className="card">
@@ -1287,13 +1407,19 @@ function HistoricalPayoutsView({ payouts, loading, onRefresh }) {
                 <th className="py-2 px-2 font-semibold text-xs">Crimes</th>
                 <th className="py-2 px-2 font-semibold text-xs">Faction Cut</th>
                 <th className="py-2 px-2 font-semibold text-xs">Saved By</th>
+                <th className="py-2 px-2 font-semibold text-xs">Actions</th>
               </tr>
             </thead>
             <tbody>
               {payouts.map((payout) => (
                 <tr key={payout.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50">
                   <td className="py-2 px-2 text-xs">
-                    {payout.week_start} to {payout.week_end}
+                    <button
+                      onClick={() => onLoadWeek(payout.id)}
+                      className="text-blue-600 hover:underline font-medium"
+                    >
+                      {payout.week_start} to {payout.week_end}
+                    </button>
                   </td>
                   <td className="py-2 px-2 text-xs font-semibold text-blue-600">
                     {formatCurrencyShort(payout.member_payout_total || payout.total_member_payout || 0)}
@@ -1304,6 +1430,14 @@ function HistoricalPayoutsView({ payouts, loading, onRefresh }) {
                   </td>
                   <td className="py-2 px-2 text-xs">{payout.faction_cut_percent?.toFixed(0) || 20}%</td>
                   <td className="py-2 px-2 text-xs text-gray-500">{payout.saved_by}</td>
+                  <td className="py-2 px-2 text-xs">
+                    <button
+                      onClick={() => onLoadWeek(payout.id)}
+                      className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                    >
+                      Load
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1314,24 +1448,25 @@ function HistoricalPayoutsView({ payouts, loading, onRefresh }) {
   )
 }
 
-function handleEditPenalty(userId, currentPenalty) {
-  setEditingPenalty({ userId, value: currentPenalty.toString() })
-}
+// function handleEditPenalty(userId, currentPenalty) {
+//   setEditingPenalty({ userId, value: currentPenalty.toString() })
+// }
 
-function handleSavePenalty(userId) {
-  const newPenalty = parseFloat(editingPenalty.value) || 0
-  setPenaltyOverrides(prev => ({ ...prev, [userId]: newPenalty }))
-  setEditingPenalty(null)
-}
+// function handleSavePenalty(userId) {
+//   const newPenalty = parseFloat(editingPenalty.value) || 0
+//   setPenaltyOverrides(prev => ({ ...prev, [userId]: newPenalty }))
+//   setEditingPenalty(null)
+// }
 
-function handleCancelPenalty() {
-  setEditingPenalty(null)
-}
+// function handleCancelPenalty() {
+//   setEditingPenalty(null)
+// }
 
-function handleResetPenalty(userId) {
-  setPenaltyOverrides(prev => {
-    const updated = { ...prev }
-    delete updated[userId]
-    return updated
-  })
-}
+// function handleResetPenalty(userId) {
+//   setPenaltyOverrides(prev => {
+//     const updated = { ...prev }
+//     delete updated[userId]
+//     return updated
+//   })
+// }
+
