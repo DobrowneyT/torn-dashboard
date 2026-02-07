@@ -5,6 +5,7 @@ import { supabase } from '../utils/supabase'
 import { syncCrimesFromAPI } from '../utils/syncCrimesFromAPI'
 import { syncItemsFromAPI } from '../utils/syncItemsFromAPI'
 import { syncMembersFromAPI } from '../utils/syncMembersFromAPI'
+import { importPayoutCSV } from '../utils/csvPayoutImport'
 import * as adminApi from '../utils/adminApi'
 
 export default function DataManagement() {
@@ -55,41 +56,37 @@ export default function DataManagement() {
           <nav className="-mb-px flex gap-6">
             <button
               onClick={() => setActiveTab('import')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'import'
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'import'
                   ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300'
-              }`}
+                }`}
             >
               Import Data
             </button>
             <button
               onClick={() => setActiveTab('view')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'view'
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'view'
                   ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300'
-              }`}
+                }`}
             >
               View Data
             </button>
             <button
               onClick={() => setActiveTab('sync')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'sync'
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'sync'
                   ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300'
-              }`}
+                }`}
             >
               API Sync
             </button>
             <button
               onClick={() => setActiveTab('clear')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'clear'
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'clear'
                   ? 'border-red-500 text-red-600 dark:text-red-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300'
-              }`}
+                }`}
             >
               Clear Data
             </button>
@@ -113,6 +110,7 @@ function ImportTab() {
       <CprDataImport />
       <CrimesDataImport />
       <PayoutCsvImport />
+      <SinglePayoutDelete />
     </div>
   )
 }
@@ -137,7 +135,7 @@ function CprDataImport() {
       const membersData = data.members || data
 
       const response = await adminApi.importCprData(membersData, user.apiKey)
-      
+
       if (!response.success) {
         throw new Error(response.error || 'Import failed')
       }
@@ -216,17 +214,17 @@ function CrimesDataImport() {
       const crimesData = data.crimes || data
 
       const response = await adminApi.importCrimesData(crimesData, user.apiKey)
-      
+
       if (!response.success) {
         throw new Error(response.error || 'Import failed')
       }
 
-      setResult({ 
-        success: true, 
-        crimesCount: response.crimesCount, 
-        slotsCount: response.slotsCount, 
-        rewardItemsCount: response.rewardItemsCount, 
-        requiredItemsCount: response.requiredItemsCount 
+      setResult({
+        success: true,
+        crimesCount: response.crimesCount,
+        slotsCount: response.slotsCount,
+        rewardItemsCount: response.rewardItemsCount,
+        requiredItemsCount: response.requiredItemsCount
       })
     } catch (err) {
       setResult({ success: false, error: err.message })
@@ -297,135 +295,18 @@ function PayoutCsvImport() {
       setImporting(true)
       setResult(null)
 
-      // Parse week dates from filename: 20251215-Forge_OC_Payout.csv
-      const dateMatch = file.name.match(/^(\d{8})/)
-      if (!dateMatch) {
-        throw new Error('Filename must start with YYYYMMDD date (e.g., 20251215-Forge_OC_Payout.csv)')
-      }
+      const importResult = await importPayoutCSV(file, user.apiKey, `${user.name} (Data Management)`)
 
-      const dateStr = dateMatch[1]
-      const year = parseInt(dateStr.substring(0, 4))
-      const month = parseInt(dateStr.substring(4, 6)) - 1
-      const day = parseInt(dateStr.substring(6, 8))
-
-      const weekStart = new Date(year, month, day)
-      weekStart.setHours(0, 0, 0, 0)
-
-      const weekEnd = new Date(weekStart)
-      weekEnd.setDate(weekEnd.getDate() + 6)
-      weekEnd.setHours(23, 59, 59, 999)
-
-      const text = await file.text()
-      const lines = text.trim().split('\n')
-
-      if (lines.length < 2) {
-        throw new Error('CSV file is empty')
-      }
-
-      const headers = lines[0].split(',').map(h => h.trim())
-      
-      // Find column indexes
-      const cols = {
-        member: headers.findIndex(h => h.toLowerCase().includes('member')),
-        id: headers.findIndex(h => h.toLowerCase() === 'id'),
-        timeSpent: headers.findIndex(h => h.toLowerCase().includes('time spent in')),
-        timePercent: headers.findIndex(h => h.toLowerCase().includes('time spent %')),
-        tier: headers.findIndex(h => h.toLowerCase() === 'tier'),
-        tickets: headers.findIndex(h => h.toLowerCase() === 'tickets'),
-        penalty: headers.findIndex(h => h.toLowerCase().includes('penalty')),
-        share: headers.findIndex(h => h.toLowerCase().includes('share')),
-        payout: headers.findIndex(h => h.toLowerCase().includes('payout'))
-      }
-
-      const members = []
-      let totalPayout = 0
-      let totalTime = 0
-      let totalTickets = 0
-
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim()
-        if (!line) continue
-
-        const values = line.split(',').map(v => v.trim())
-        
-        const payoutStr = values[cols.payout]?.replace(/[$,"]/g, '') || '0'
-        const payout = parseInt(payoutStr) || 0
-        
-        const timeSpent = cols.timeSpent !== -1 ? parseInt(values[cols.timeSpent]) || 0 : 0
-        const timePercent = cols.timePercent !== -1 ? parseFloat(values[cols.timePercent]?.replace('%', '')) || 0 : 0
-        const tier = cols.tier !== -1 ? parseInt(values[cols.tier]) || 6 : 6
-        const tickets = cols.tickets !== -1 ? parseInt(values[cols.tickets]) || 0 : 0
-        const penalty = cols.penalty !== -1 ? parseFloat(values[cols.penalty]) || 0 : 0
-        const share = cols.share !== -1 ? parseFloat(values[cols.share]?.replace('%', '')) || 0 : 0
-
-        members.push({
-          member_id: values[cols.id],
-          member_name: values[cols.member],
-          tier,
-          base_tickets: tickets,
-          sit_out_penalty: penalty,
-          adjusted_tickets: tickets + penalty,
-          time_spent: timeSpent,
-          time_spent_percent: timePercent,
-          share_percent: share,
-          payout
-        })
-
-        totalPayout += payout
-        totalTime += timeSpent
-        totalTickets += (tickets + penalty)
-      }
-
-      // Save week summary
-      const { data: weekData, error: weekError } = await supabase
-        .from('oc_payout_weeks')
-        .upsert({
-          week_start: weekStart.toISOString().split('T')[0],
-          week_end: weekEnd.toISOString().split('T')[0],
-          week_start_timestamp: Math.floor(weekStart.getTime() / 1000),
-          week_end_timestamp: Math.floor(weekEnd.getTime() / 1000),
-          member_payout_total: totalPayout,
-          total_member_payout: totalPayout,
-          member_count: members.length,
-          total_time_spent: totalTime,
-          average_time_spent: Math.floor(totalTime / members.length),
-          total_adjusted_tickets: totalTickets,
-          total_time_spent_percent: members.reduce((sum, m) => sum + m.time_spent_percent, 0),
-          saved_by: user.name,
-          saved_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'week_start,week_end' })
-        .select()
-        .single()
-
-      if (weekError) throw weekError
-
-      // Save member payouts
-      const membersWithWeekId = members.map(m => ({
-        ...m,
-        week_id: weekData.id,
-        week_start: weekStart.toISOString().split('T')[0],
-        week_end: weekEnd.toISOString().split('T')[0],
-        updated_at: new Date().toISOString()
-      }))
-
-      const { error: membersError } = await supabase
-        .from('oc_payout_members')
-        .upsert(membersWithWeekId, { onConflict: 'week_id,member_id' })
-
-      if (membersError) throw membersError
-
-      setResult({ 
-        success: true, 
-        weekStart: weekStart.toLocaleDateString(),
-        memberCount: members.length,
-        totalPayout 
+      setResult({
+        success: true,
+        weekStart: importResult.weekStart,
+        memberCount: importResult.memberCount,
+        crimesLinked: importResult.crimesLinked
       })
     } catch (err) {
       setResult({ success: false, error: err.message })
     } finally {
       setImporting(false)
-      setFile(null)
     }
   }
 
@@ -470,7 +351,7 @@ function PayoutCsvImport() {
             <div className="text-sm text-green-600 dark:text-green-400">
               <p>Imported week of {result.weekStart}</p>
               <p>{result.memberCount} members</p>
-              <p>${(result.totalPayout / 1e6).toFixed(2)}M total payout</p>
+              <p>{result.crimesLinked} crimes linked</p>
             </div>
           ) : (
             <p className="text-sm text-red-600 dark:text-red-400">
@@ -510,7 +391,7 @@ function ViewTab() {
         .from(table)
         .select('*')
         .limit(limit)
-      
+
       if (error) throw error
       setData(result || [])
     } catch (err) {
@@ -524,8 +405,8 @@ function ViewTab() {
   return (
     <div className="space-y-4">
       <div className="flex gap-4 items-center flex-wrap">
-        <select 
-          value={table} 
+        <select
+          value={table}
           onChange={(e) => setTable(e.target.value)}
           className="input"
         >
@@ -534,8 +415,8 @@ function ViewTab() {
           ))}
         </select>
 
-        <select 
-          value={limit} 
+        <select
+          value={limit}
           onChange={(e) => setLimit(parseInt(e.target.value))}
           className="input"
         >
@@ -605,10 +486,10 @@ function SyncTab() {
       setResult(null)
 
       const apiKey = user?.apiKey
-      
+
       if (!apiKey) {
-        setResult({ 
-          success: false, 
+        setResult({
+          success: false,
           error: 'No API key found. Please log out and log back in.'
         })
         return
@@ -629,10 +510,10 @@ function SyncTab() {
       setItemsResult(null)
 
       const apiKey = user?.apiKey
-      
+
       if (!apiKey) {
-        setItemsResult({ 
-          success: false, 
+        setItemsResult({
+          success: false,
           error: 'No API key found. Please log out and log back in.',
           itemsCount: 0
         })
@@ -654,10 +535,10 @@ function SyncTab() {
       setMembersResult(null)
 
       const apiKey = user?.apiKey
-      
+
       if (!apiKey) {
-        setMembersResult({ 
-          success: false, 
+        setMembersResult({
+          success: false,
           error: 'No API key found. Please log out and log back in.',
           totalMembers: 0
         })
@@ -840,6 +721,14 @@ function ClearDataTab() {
       color: 'yellow'
     },
     {
+      id: 'single_payout',
+      label: 'Delete Single Payout Week',
+      description: 'Delete a specific payout week and its member records',
+      tables: [],
+      color: 'blue',
+      requiresSelection: true
+    },
+    {
       id: 'inventory',
       label: 'Clear All Inventory',
       description: 'Deletes all data from: inventory_items, pricing_batches, sync_metadata',
@@ -900,7 +789,7 @@ function ClearDataTab() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {clearOptions.map(option => (
-          <div 
+          <div
             key={option.id}
             className={`card border-2 border-${option.color}-200 dark:border-${option.color}-900/50`}
           >
@@ -913,9 +802,9 @@ function ClearDataTab() {
               disabled={clearing}
               className={`px-4 py-2 bg-${option.color}-600 text-white rounded-lg hover:bg-${option.color}-700 disabled:opacity-50`}
               style={{
-                backgroundColor: option.color === 'red' ? '#dc2626' : 
-                                 option.color === 'orange' ? '#ea580c' :
-                                 option.color === 'yellow' ? '#ca8a04' : '#9333ea'
+                backgroundColor: option.color === 'red' ? '#dc2626' :
+                  option.color === 'orange' ? '#ea580c' :
+                    option.color === 'yellow' ? '#ca8a04' : '#9333ea'
               }}
             >
               Clear Data
@@ -988,6 +877,126 @@ function ClearDataTab() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SinglePayoutDelete() {
+  const { user } = useAuth()
+  const [payouts, setPayouts] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const loadPayouts = async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('oc_payout_weeks')
+        .select('*')
+        .order('week_end', { ascending: false })
+        .limit(20)
+
+      if (error) throw error
+      setPayouts(data || [])
+    } catch (err) {
+      console.error('Error loading payouts:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+const handleDelete = async (weekId) => {
+  if (!confirm('Are you sure you want to delete this payout week? This cannot be undone.')) {
+    return
+  }
+
+  setDeleting(true)
+  setResult(null)
+
+  try {
+    // First, unlink any crimes that reference this payout week
+    await adminApi.adminUpdate(
+      'crimes',
+      { payout_week_id: null },
+      { payout_week_id: weekId },
+      user.apiKey
+    )
+
+    // Delete member records
+    await adminApi.adminDelete('oc_payout_members', { week_id: weekId }, user.apiKey)
+    
+    // Delete week record
+    await adminApi.adminDelete('oc_payout_weeks', { id: weekId }, user.apiKey)
+
+    setResult({ success: true, message: 'Payout week deleted successfully' })
+    
+    // Reload list
+    loadPayouts()
+  } catch (err) {
+    setResult({ success: false, error: err.message })
+  } finally {
+    setDeleting(false)
+  }
+}
+
+  return (
+    <div className="card border border-blue-200 dark:border-blue-900/30">
+      <h3 className="font-semibold text-lg mb-2">Delete Single Payout Week</h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        Select a specific payout week to delete from the database
+      </p>
+
+      <button
+        onClick={loadPayouts}
+        disabled={loading}
+        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 mb-4"
+      >
+        {loading ? 'Loading...' : 'Load Payout Weeks'}
+      </button>
+
+      {payouts.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b-2 border-gray-200 dark:border-slate-700">
+              <tr className="text-left">
+                <th className="py-2 px-2 font-semibold text-xs">Week</th>
+                <th className="py-2 px-2 font-semibold text-xs">Total Payout</th>
+                <th className="py-2 px-2 font-semibold text-xs">Members</th>
+                <th className="py-2 px-2 font-semibold text-xs">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payouts.map((payout) => (
+                <tr key={payout.id} className="border-b border-gray-200 dark:border-slate-700">
+                  <td className="py-2 px-2 text-xs">
+                    {payout.week_start} to {payout.week_end}
+                  </td>
+                  <td className="py-2 px-2 text-xs font-semibold">
+                    ${((payout.member_payout_total || 0) / 1e6).toFixed(2)}M
+                  </td>
+                  <td className="py-2 px-2 text-xs">{payout.member_count || 0}</td>
+                  <td className="py-2 px-2 text-xs">
+                    <button
+                      onClick={() => handleDelete(payout.id)}
+                      disabled={deleting}
+                      className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {result && (
+        <div className={`mt-4 p-4 rounded-lg ${result.success ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
+          <p className="text-sm">{result.success ? result.message : `Error: ${result.error}`}</p>
         </div>
       )}
     </div>

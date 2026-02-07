@@ -15,6 +15,7 @@ const EDGE_FUNCTION_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/adm
  */
 async function callAdminApi(action, payload, tornApiKey) {
   if (!tornApiKey) {
+    console.error('callAdminApi called without API key')
     throw new Error('Torn API key required for database writes')
   }
 
@@ -33,6 +34,7 @@ async function callAdminApi(action, payload, tornApiKey) {
   const data = await response.json()
 
   if (!response.ok) {
+    console.error('Admin API error:', response.status, data)
     throw new Error(data.error || `Request failed: ${response.status}`)
   }
 
@@ -96,10 +98,23 @@ export async function importCrimesData(crimesData, tornApiKey) {
 }
 
 /**
- * Import payout data
+ * Import payout data (week + members + optional crime linking in one call)
  */
-export async function importPayoutData(weekData, memberRecords, tornApiKey) {
-  return callAdminApi('import_payout', { data: { weekData, memberRecords } }, tornApiKey)
+export async function importPayoutData(weekData, memberRecords, tornApiKey, crimeIds = null) {
+  return callAdminApi('import_payout', { 
+    data: { 
+      weekData, 
+      memberRecords,
+      crimeIds
+    } 
+  }, tornApiKey)
+}
+
+/**
+ * Batch link crimes to a payout week (single call instead of N calls)
+ */
+export async function batchLinkCrimes(crimeIds, weekId, tornApiKey) {
+  return callAdminApi('batch_link_crimes', { crimeIds, weekId }, tornApiKey)
 }
 
 /**
