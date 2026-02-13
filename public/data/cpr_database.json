@@ -167,12 +167,13 @@
           "Sniper": 90,
           "Muscle": 89,
           "Enforcer": 88,
-          "Lookout": 89
+          "Lookout": 89,
+          "Robber": 90
         },
         "5": {
           "Enforcer": 83,
           "Hustler": 82,
-          "Engineer": 84,
+          "Engineer": 86,
           "Techie": 85,
           "Robber": 86,
           "Looter": 84,
@@ -184,13 +185,13 @@
         "6": {
           "Hacker": 79,
           "Muscle": 83,
-          "Techie": 75,
+          "Techie": 78,
           "Robber": 75,
           "Driver": 63,
           "Bomber": 71,
           "Enforcer": 67,
-          "Imitator": 67,
-          "Pickpocket": 76,
+          "Imitator": 71,
+          "Pickpocket": 77,
           "Negotiator": 63
         },
         "7": {
@@ -210,7 +211,7 @@
           "Thief": 51
         }
       },
-      "last_scraped": "2026-02-12T18:53:54.980295",
+      "last_scraped": "2026-02-13T17:54:16.813646",
       "tier_last_updated": "2026-02-06T22:52:14.704180"
     },
     "227273": {
@@ -322,14 +323,15 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
           "Techie": 91,
           "Negotiator": 90,
           "Imitator": 90,
           "Hustler": 92,
-          "Engineer": 90,
+          "Engineer": 91,
           "Car Thief": 88,
           "Enforcer": 92,
           "Robber": 92,
@@ -344,10 +346,10 @@
           "Robber": 88,
           "Enforcer": 87,
           "Muscle": 91,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 89,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 88
         },
         "7": {
@@ -367,7 +369,7 @@
           "Cleaner": 76
         }
       },
-      "last_scraped": "2026-02-12T18:53:55.407441",
+      "last_scraped": "2026-02-13T17:54:17.088677",
       "tier_last_updated": "2025-12-27T15:47:53.293063"
     },
     "428286": {
@@ -397,10 +399,11 @@
           "Lookout": 95,
           "Sniper": 95,
           "Hustler": 94,
-          "Imitator": 94
+          "Imitator": 94,
+          "Robber": 94
         },
         "5": {
-          "Engineer": 92,
+          "Engineer": 93,
           "Enforcer": 93,
           "Hustler": 93,
           "Robber": 93,
@@ -419,10 +422,10 @@
           "Driver": 86,
           "Bomber": 89,
           "Enforcer": 89,
-          "Imitator": 89,
+          "Imitator": 90,
           "Pickpocket": 90,
           "Hacker": 90,
-          "Techie": 89,
+          "Techie": 90,
           "Negotiator": 89
         },
         "7": {
@@ -442,7 +445,7 @@
           "Robber": 74
         }
       },
-      "last_scraped": "2026-02-12T18:53:55.695392",
+      "last_scraped": "2026-02-13T17:54:17.378313",
       "tier_last_updated": "2025-12-27T15:47:53.293087"
     },
     "430470": {
@@ -475,10 +478,11 @@
           "Lookout": 93,
           "Sniper": 94,
           "Hustler": 89,
-          "Imitator": 90
+          "Imitator": 90,
+          "Robber": 93
         },
         "5": {
-          "Engineer": 89,
+          "Engineer": 91,
           "Enforcer": 89,
           "Hustler": 87,
           "Robber": 91,
@@ -497,10 +501,10 @@
           "Bomber": 83,
           "Muscle": 89,
           "Enforcer": 83,
-          "Imitator": 83,
+          "Imitator": 84,
           "Pickpocket": 87,
-          "Hacker": 87,
-          "Techie": 86,
+          "Hacker": 88,
+          "Techie": 87,
           "Negotiator": 83
         },
         "7": {
@@ -520,7 +524,7 @@
           "Assassin": 64
         }
       },
-      "last_scraped": "2026-02-12T18:53:55.958480",
+      "last_scraped": "2026-02-13T17:54:17.759780",
       "tier_last_updated": "2025-12-27T15:47:53.293110"
     },
     "447982": {
@@ -620,11 +624,12 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
           "Techie": 91,
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 92,
           "Hustler": 92,
           "Robber": 91,
@@ -665,7 +670,7 @@
           "Robber": 69
         }
       },
-      "last_scraped": "2026-02-12T18:53:56.369473",
+      "last_scraped": "2026-02-13T17:54:18.030425",
       "tier_last_updated": "2025-12-27T15:47:53.293159"
     },
     "479620": {
@@ -709,14 +714,15 @@
           "Enforcer": 94,
           "Hustler": 93,
           "Imitator": 93,
-          "Sniper": 94
+          "Sniper": 94,
+          "Robber": 94
         },
         "5": {
           "Robber": 92,
           "Looter": 92,
           "Hacker": 92,
           "Picklock": 92,
-          "Engineer": 91,
+          "Engineer": 92,
           "Enforcer": 92,
           "Hustler": 92,
           "Car Thief": 88,
@@ -731,10 +737,10 @@
           "Robber": 88,
           "Driver": 85,
           "Bomber": 88,
-          "Imitator": 88,
+          "Imitator": 89,
           "Pickpocket": 89,
           "Hacker": 89,
-          "Techie": 88,
+          "Techie": 89,
           "Negotiator": 88
         },
         "7": {
@@ -754,7 +760,7 @@
           "Assassin": 74
         }
       },
-      "last_scraped": "2026-02-12T18:53:56.664900",
+      "last_scraped": "2026-02-13T17:54:18.316353",
       "tier_last_updated": "2025-12-27T15:47:53.293206"
     },
     "672082": {
@@ -798,10 +804,11 @@
           "Lookout": 94,
           "Sniper": 95,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
-          "Engineer": 91,
+          "Engineer": 92,
           "Enforcer": 92,
           "Hustler": 92,
           "Robber": 92,
@@ -820,10 +827,10 @@
           "Bomber": 89,
           "Muscle": 91,
           "Enforcer": 88,
-          "Imitator": 88,
+          "Imitator": 89,
           "Pickpocket": 89,
           "Hacker": 89,
-          "Techie": 88,
+          "Techie": 89,
           "Negotiator": 89
         },
         "7": {
@@ -843,7 +850,7 @@
           "Imitator": 78
         }
       },
-      "last_scraped": "2026-02-12T18:53:57.015921",
+      "last_scraped": "2026-02-13T17:54:18.574999",
       "tier_last_updated": "2025-12-27T15:47:53.293237"
     },
     "865783": {
@@ -887,10 +894,11 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
-          "Engineer": 90,
+          "Engineer": 92,
           "Enforcer": 92,
           "Hustler": 92,
           "Robber": 92,
@@ -932,7 +940,7 @@
           "Robber": 70
         }
       },
-      "last_scraped": "2026-02-12T18:53:57.452796",
+      "last_scraped": "2026-02-13T17:54:18.840948",
       "tier_last_updated": "2025-12-27T15:47:53.293268"
     },
     "900727": {
@@ -1083,10 +1091,11 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
-          "Engineer": 91,
+          "Engineer": 92,
           "Enforcer": 92,
           "Hustler": 92,
           "Robber": 92,
@@ -1105,10 +1114,10 @@
           "Driver": 85,
           "Bomber": 88,
           "Enforcer": 88,
-          "Imitator": 88,
+          "Imitator": 89,
           "Pickpocket": 89,
           "Hacker": 89,
-          "Techie": 88,
+          "Techie": 89,
           "Negotiator": 88
         },
         "7": {
@@ -1128,7 +1137,7 @@
           "Assassin": 71
         }
       },
-      "last_scraped": "2026-02-12T18:53:57.721346",
+      "last_scraped": "2026-02-13T17:54:19.196496",
       "tier_last_updated": "2025-12-27T15:47:53.293326"
     },
     "1654809": {
@@ -1161,10 +1170,11 @@
           "Imitator": 86,
           "Enforcer": 88,
           "Sniper": 90,
-          "Hustler": 84
+          "Hustler": 84,
+          "Robber": 90
         },
         "5": {
-          "Engineer": 85,
+          "Engineer": 87,
           "Looter": 86,
           "Techie": 83,
           "Enforcer": 84,
@@ -1183,10 +1193,10 @@
           "Driver": 67,
           "Bomber": 68,
           "Enforcer": 68,
-          "Imitator": 69,
+          "Imitator": 73,
           "Pickpocket": 73,
           "Hacker": 72,
-          "Techie": 70,
+          "Techie": 74,
           "Negotiator": 63
         },
         "7": {
@@ -1199,14 +1209,14 @@
         "8": {
           "Muscle": 51,
           "Thief": 55,
-          "Cat Burglar": 57,
+          "Cat Burglar": 58,
           "Assassin": 55,
           "Robber": 52,
           "Cleaner": 59,
           "Imitator": 48
         }
       },
-      "last_scraped": "2026-02-12T18:53:58.069518",
+      "last_scraped": "2026-02-13T17:54:19.525762",
       "tier_last_updated": "2025-12-27T15:47:53.293352"
     },
     "1656752": {
@@ -1305,7 +1315,8 @@
           "Lookout": 93,
           "Sniper": 94,
           "Hustler": 92,
-          "Imitator": 92
+          "Imitator": 92,
+          "Robber": 93
         },
         "5": {
           "Looter": 91,
@@ -1313,7 +1324,7 @@
           "Negotiator": 89,
           "Imitator": 90,
           "Hustler": 91,
-          "Engineer": 89,
+          "Engineer": 91,
           "Car Thief": 86,
           "Enforcer": 91,
           "Robber": 91,
@@ -1327,10 +1338,10 @@
           "Driver": 81,
           "Enforcer": 86,
           "Muscle": 90,
-          "Imitator": 86,
+          "Imitator": 87,
           "Pickpocket": 88,
           "Hacker": 87,
-          "Techie": 86,
+          "Techie": 87,
           "Negotiator": 86
         },
         "7": {
@@ -1350,7 +1361,7 @@
           "Cat Burglar": 72
         }
       },
-      "last_scraped": "2026-02-12T18:53:58.353435",
+      "last_scraped": "2026-02-13T17:54:19.801032",
       "tier_last_updated": "2025-12-27T15:47:53.293378"
     },
     "1712182": {
@@ -1475,14 +1486,15 @@
           "Muscle": 94,
           "Enforcer": 93,
           "Lookout": 93,
-          "Sniper": 94
+          "Sniper": 94,
+          "Robber": 93
         },
         "5": {
           "Robber": 91,
           "Looter": 91,
           "Hacker": 90,
           "Picklock": 91,
-          "Engineer": 89,
+          "Engineer": 91,
           "Techie": 90,
           "Negotiator": 90,
           "Imitator": 89,
@@ -1494,8 +1506,8 @@
         "6": {
           "Enforcer": 86,
           "Muscle": 90,
-          "Imitator": 86,
-          "Techie": 86,
+          "Imitator": 87,
+          "Techie": 87,
           "Pickpocket": 88,
           "Driver": 82,
           "Robber": 87,
@@ -1514,13 +1526,13 @@
           "Robber": 67,
           "Muscle": 66,
           "Thief": 67,
-          "Imitator": 72,
+          "Imitator": 73,
           "Cat Burglar": 73,
           "Assassin": 68,
           "Cleaner": 74
         }
       },
-      "last_scraped": "2026-02-12T18:53:58.706106",
+      "last_scraped": "2026-02-13T17:54:20.094056",
       "tier_last_updated": "2025-12-27T15:47:53.293436"
     },
     "1884523": {
@@ -1600,14 +1612,15 @@
           "Muscle": 94,
           "Enforcer": 94,
           "Lookout": 94,
-          "Sniper": 94
+          "Sniper": 94,
+          "Robber": 94
         },
         "5": {
           "Techie": 90,
           "Negotiator": 90,
           "Imitator": 90,
           "Hustler": 92,
-          "Engineer": 90,
+          "Engineer": 91,
           "Car Thief": 89,
           "Enforcer": 92,
           "Robber": 91,
@@ -1622,10 +1635,10 @@
           "Driver": 85,
           "Bomber": 88,
           "Robber": 88,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 88,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 87
         },
         "7": {
@@ -1645,7 +1658,7 @@
           "Thief": 70
         }
       },
-      "last_scraped": "2026-02-12T18:53:59.108065",
+      "last_scraped": "2026-02-13T17:54:20.357618",
       "tier_last_updated": "2025-12-27T15:47:53.293495"
     },
     "2058023": {
@@ -1957,11 +1970,12 @@
           "Enforcer": 87,
           "Sniper": 87,
           "Lookout": 89,
-          "Imitator": 85
+          "Imitator": 85,
+          "Robber": 86
         },
         "5": {
           "Looter": 85,
-          "Engineer": 82,
+          "Engineer": 85,
           "Imitator": 77,
           "Enforcer": 82,
           "Hustler": 81,
@@ -1975,14 +1989,14 @@
         },
         "6": {
           "Muscle": 82,
-          "Imitator": 64,
+          "Imitator": 68,
           "Bomber": 63,
           "Pickpocket": 71,
           "Robber": 64,
           "Driver": 60,
           "Enforcer": 63,
           "Hacker": 64,
-          "Techie": 63,
+          "Techie": 67,
           "Negotiator": 56
         },
         "7": {
@@ -2002,7 +2016,7 @@
           "Imitator": 44
         }
       },
-      "last_scraped": "2026-02-12T18:53:59.454780",
+      "last_scraped": "2026-02-13T17:54:20.695010",
       "tier_last_updated": "2025-12-27T15:47:53.293581"
     },
     "2162161": {
@@ -2105,14 +2119,15 @@
           "Muscle": 93,
           "Enforcer": 93,
           "Lookout": 92,
-          "Sniper": 93
+          "Sniper": 93,
+          "Robber": 93
         },
         "5": {
           "Robber": 91,
           "Looter": 90,
           "Hacker": 91,
           "Picklock": 91,
-          "Engineer": 88,
+          "Engineer": 90,
           "Techie": 90,
           "Negotiator": 90,
           "Imitator": 89,
@@ -2124,8 +2139,8 @@
         "6": {
           "Enforcer": 86,
           "Muscle": 89,
-          "Imitator": 86,
-          "Techie": 86,
+          "Imitator": 87,
+          "Techie": 87,
           "Pickpocket": 86,
           "Driver": 79,
           "Robber": 87,
@@ -2150,7 +2165,7 @@
           "Assassin": 65
         }
       },
-      "last_scraped": "2026-02-12T18:53:59.840771",
+      "last_scraped": "2026-02-13T17:54:20.995080",
       "tier_last_updated": "2026-01-30T04:06:21.175539"
     },
     "2168406": {
@@ -2459,14 +2474,15 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
           "Techie": 91,
           "Negotiator": 91,
           "Imitator": 90,
           "Hustler": 92,
-          "Engineer": 90,
+          "Engineer": 91,
           "Car Thief": 87,
           "Enforcer": 92,
           "Robber": 91,
@@ -2481,10 +2497,10 @@
           "Bomber": 88,
           "Enforcer": 87,
           "Muscle": 90,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 88,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 88
         },
         "7": {
@@ -2504,7 +2520,7 @@
           "Robber": 69
         }
       },
-      "last_scraped": "2026-02-12T18:54:00.119289",
+      "last_scraped": "2026-02-13T17:54:21.327846",
       "tier_last_updated": "2025-12-27T15:47:53.293685"
     },
     "2214797": {
@@ -2534,10 +2550,11 @@
           "Lookout": 93,
           "Sniper": 93,
           "Hustler": 92,
-          "Imitator": 92
+          "Imitator": 92,
+          "Robber": 93
         },
         "5": {
-          "Engineer": 89,
+          "Engineer": 90,
           "Enforcer": 91,
           "Hustler": 91,
           "Robber": 90,
@@ -2556,10 +2573,10 @@
           "Bomber": 86,
           "Robber": 86,
           "Enforcer": 86,
-          "Imitator": 86,
+          "Imitator": 87,
           "Pickpocket": 87,
           "Hacker": 87,
-          "Techie": 86,
+          "Techie": 87,
           "Negotiator": 87
         },
         "7": {
@@ -2579,7 +2596,7 @@
           "Imitator": 71
         }
       },
-      "last_scraped": "2026-02-12T18:54:00.453937",
+      "last_scraped": "2026-02-13T17:54:21.674502",
       "tier_last_updated": "2026-01-30T04:06:21.175694"
     },
     "2250591": {
@@ -2683,12 +2700,13 @@
           "Muscle": 94,
           "Lookout": 94,
           "Sniper": 94,
-          "Hustler": 92
+          "Hustler": 92,
+          "Robber": 93
         },
         "5": {
           "Car Thief": 87,
           "Hacker": 91,
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 91,
           "Hustler": 91,
           "Robber": 91,
@@ -2705,10 +2723,10 @@
           "Muscle": 90,
           "Enforcer": 87,
           "Driver": 83,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 88,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 87
         },
         "7": {
@@ -2728,7 +2746,7 @@
           "Cat Burglar": 75
         }
       },
-      "last_scraped": "2026-02-12T18:54:00.994790",
+      "last_scraped": "2026-02-13T17:54:22.138798",
       "tier_last_updated": "2025-12-27T15:47:53.293769"
     },
     "2264192": {
@@ -2761,12 +2779,13 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
           "Car Thief": 88,
           "Imitator": 90,
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 92,
           "Hustler": 92,
           "Robber": 92,
@@ -2783,10 +2802,10 @@
           "Bomber": 88,
           "Muscle": 91,
           "Enforcer": 87,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 89,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 88
         },
         "7": {
@@ -2806,7 +2825,7 @@
           "Robber": 70
         }
       },
-      "last_scraped": "2026-02-12T18:54:01.290993",
+      "last_scraped": "2026-02-13T17:54:22.397916",
       "tier_last_updated": "2025-12-27T15:47:53.293795"
     },
     "2271177": {
@@ -2862,12 +2881,13 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
           "Robber": 92,
           "Hacker": 92,
-          "Engineer": 91,
+          "Engineer": 92,
           "Enforcer": 92,
           "Hustler": 92,
           "Looter": 92,
@@ -2884,10 +2904,10 @@
           "Bomber": 88,
           "Muscle": 91,
           "Enforcer": 88,
-          "Imitator": 88,
+          "Imitator": 89,
           "Pickpocket": 89,
           "Hacker": 89,
-          "Techie": 88,
+          "Techie": 89,
           "Negotiator": 88
         },
         "7": {
@@ -2907,7 +2927,7 @@
           "Robber": 71
         }
       },
-      "last_scraped": "2026-02-12T18:54:01.606263",
+      "last_scraped": "2026-02-13T17:54:22.817971",
       "tier_last_updated": "2025-12-27T15:47:53.293825"
     },
     "2327020": {
@@ -2937,12 +2957,13 @@
           "Hustler": 92,
           "Enforcer": 94,
           "Lookout": 94,
-          "Sniper": 94
+          "Sniper": 94,
+          "Robber": 93
         },
         "5": {
           "Robber": 91,
           "Hustler": 91,
-          "Engineer": 90,
+          "Engineer": 91,
           "Car Thief": 86,
           "Techie": 90,
           "Enforcer": 91,
@@ -2957,8 +2978,8 @@
           "Muscle": 90,
           "Imitator": 87,
           "Pickpocket": 88,
-          "Hacker": 87,
-          "Techie": 87,
+          "Hacker": 88,
+          "Techie": 88,
           "Robber": 87,
           "Driver": 82,
           "Bomber": 87,
@@ -2982,7 +3003,7 @@
           "Assassin": 66
         }
       },
-      "last_scraped": "2026-02-12T18:54:01.888966",
+      "last_scraped": "2026-02-13T17:54:23.073891",
       "tier_last_updated": "2025-12-27T15:47:53.293852"
     },
     "2327067": {
@@ -3326,10 +3347,11 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
-          "Engineer": 90,
+          "Engineer": 91,
           "Techie": 90,
           "Negotiator": 90,
           "Imitator": 90,
@@ -3348,10 +3370,10 @@
           "Muscle": 90,
           "Robber": 88,
           "Bomber": 88,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 89,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 87
         },
         "7": {
@@ -3371,7 +3393,7 @@
           "Imitator": 75
         }
       },
-      "last_scraped": "2026-02-12T18:54:02.425947",
+      "last_scraped": "2026-02-13T17:54:23.577938",
       "tier_last_updated": "2025-12-27T15:47:53.293904"
     },
     "2477183": {
@@ -3422,12 +3444,13 @@
           "Lookout": 89,
           "Sniper": 90,
           "Hustler": 89,
-          "Imitator": 89
+          "Imitator": 89,
+          "Robber": 91
         },
         "5": {
           "Picklock": 88,
           "Car Thief": 81,
-          "Engineer": 83,
+          "Engineer": 85,
           "Enforcer": 87,
           "Hustler": 87,
           "Robber": 88,
@@ -3442,12 +3465,12 @@
           "Robber": 78,
           "Bomber": 71,
           "Muscle": 86,
-          "Imitator": 76,
+          "Imitator": 80,
           "Hacker": 79,
           "Driver": 65,
           "Enforcer": 76,
-          "Pickpocket": 72,
-          "Techie": 76,
+          "Pickpocket": 73,
+          "Techie": 79,
           "Negotiator": 77
         },
         "7": {
@@ -3463,11 +3486,11 @@
           "Cat Burglar": 55,
           "Assassin": 50,
           "Robber": 56,
-          "Cleaner": 60,
+          "Cleaner": 61,
           "Imitator": 59
         }
       },
-      "last_scraped": "2026-02-12T18:54:02.668809",
+      "last_scraped": "2026-02-13T17:54:23.840779",
       "tier_last_updated": "2025-12-28T12:40:51.342995"
     },
     "2482317": {
@@ -3567,13 +3590,14 @@
           "Hustler": 88,
           "Sniper": 90,
           "Enforcer": 90,
-          "Muscle": 89
+          "Muscle": 89,
+          "Robber": 89
         },
         "5": {
           "Hacker": 86,
           "Techie": 85,
           "Enforcer": 87,
-          "Engineer": 84,
+          "Engineer": 86,
           "Hustler": 87,
           "Imitator": 82,
           "Car Thief": 80,
@@ -3590,16 +3614,16 @@
           "Driver": 66,
           "Bomber": 67,
           "Muscle": 83,
-          "Imitator": 72,
-          "Pickpocket": 77,
-          "Techie": 74,
+          "Imitator": 76,
+          "Pickpocket": 78,
+          "Techie": 77,
           "Negotiator": 68
         },
         "7": {
           "Picklock": 65,
           "Hacker": 66,
           "Muscle": 60,
-          "Engineer": 62,
+          "Engineer": 63,
           "Bomber": 55
         },
         "8": {
@@ -3608,11 +3632,11 @@
           "Cat Burglar": 56,
           "Assassin": 49,
           "Robber": 52,
-          "Cleaner": 54,
+          "Cleaner": 55,
           "Imitator": 55
         }
       },
-      "last_scraped": "2026-02-12T18:54:03.007110",
+      "last_scraped": "2026-02-13T17:54:24.143558",
       "tier_last_updated": "2025-12-27T15:47:53.293955"
     },
     "2620570": {
@@ -3714,10 +3738,11 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
-          "Engineer": 90,
+          "Engineer": 91,
           "Car Thief": 88,
           "Techie": 91,
           "Negotiator": 91,
@@ -3736,10 +3761,10 @@
           "Bomber": 88,
           "Muscle": 90,
           "Robber": 88,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 89,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 88
         },
         "7": {
@@ -3759,7 +3784,7 @@
           "Imitator": 75
         }
       },
-      "last_scraped": "2026-02-12T18:54:03.398669",
+      "last_scraped": "2026-02-13T17:54:24.468128",
       "tier_last_updated": "2025-12-27T15:47:53.294004"
     },
     "2632966": {
@@ -3789,14 +3814,15 @@
           "Muscle": 94,
           "Enforcer": 94,
           "Lookout": 94,
-          "Sniper": 94
+          "Sniper": 94,
+          "Robber": 93
         },
         "5": {
           "Techie": 90,
           "Negotiator": 90,
           "Imitator": 89,
           "Hustler": 91,
-          "Engineer": 89,
+          "Engineer": 91,
           "Car Thief": 87,
           "Enforcer": 91,
           "Robber": 91,
@@ -3811,10 +3837,10 @@
           "Enforcer": 86,
           "Bomber": 87,
           "Robber": 87,
-          "Imitator": 86,
+          "Imitator": 87,
           "Pickpocket": 88,
           "Hacker": 87,
-          "Techie": 86,
+          "Techie": 87,
           "Negotiator": 87
         },
         "7": {
@@ -3834,7 +3860,7 @@
           "Thief": 68
         }
       },
-      "last_scraped": "2026-02-12T18:54:03.687683",
+      "last_scraped": "2026-02-13T17:54:24.819390",
       "tier_last_updated": "2025-12-27T15:47:53.294034"
     },
     "2642228": {
@@ -3864,10 +3890,11 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 92,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 93
         },
         "5": {
-          "Engineer": 90,
+          "Engineer": 91,
           "Enforcer": 91,
           "Hustler": 91,
           "Robber": 91,
@@ -3886,10 +3913,10 @@
           "Driver": 83,
           "Bomber": 87,
           "Enforcer": 87,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 88,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 87
         },
         "7": {
@@ -3909,7 +3936,7 @@
           "Assassin": 67
         }
       },
-      "last_scraped": "2026-02-12T18:54:03.958925",
+      "last_scraped": "2026-02-13T17:54:25.256463",
       "tier_last_updated": "2025-12-27T15:47:53.294061"
     },
     "2672100": {
@@ -3939,10 +3966,11 @@
           "Lookout": 93,
           "Sniper": 93,
           "Hustler": 92,
-          "Imitator": 92
+          "Imitator": 92,
+          "Robber": 93
         },
         "5": {
-          "Engineer": 89,
+          "Engineer": 90,
           "Techie": 90,
           "Negotiator": 88,
           "Imitator": 90,
@@ -3961,10 +3989,10 @@
           "Bomber": 85,
           "Enforcer": 87,
           "Muscle": 90,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 87,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 85
         },
         "7": {
@@ -3984,7 +4012,7 @@
           "Cleaner": 66
         }
       },
-      "last_scraped": "2026-02-12T18:54:04.245713",
+      "last_scraped": "2026-02-13T17:54:25.534252",
       "tier_last_updated": "2025-12-27T15:47:53.294088"
     },
     "2672505": {
@@ -4017,12 +4045,13 @@
           "Enforcer": 93,
           "Muscle": 93,
           "Hustler": 92,
-          "Imitator": 92
+          "Imitator": 92,
+          "Robber": 93
         },
         "5": {
           "Enforcer": 91,
           "Hustler": 91,
-          "Engineer": 89,
+          "Engineer": 91,
           "Robber": 91,
           "Looter": 91,
           "Hacker": 90,
@@ -4036,11 +4065,11 @@
         "6": {
           "Bomber": 87,
           "Muscle": 89,
-          "Techie": 86,
+          "Techie": 87,
           "Driver": 83,
           "Robber": 87,
           "Enforcer": 86,
-          "Imitator": 86,
+          "Imitator": 87,
           "Pickpocket": 88,
           "Hacker": 87,
           "Negotiator": 87
@@ -4062,7 +4091,7 @@
           "Robber": 66
         }
       },
-      "last_scraped": "2026-02-12T18:54:04.512164",
+      "last_scraped": "2026-02-13T17:54:25.837393",
       "tier_last_updated": "2025-12-27T15:47:53.294114"
     },
     "2672536": {
@@ -4165,14 +4194,15 @@
           "Lookout": 93,
           "Sniper": 93,
           "Hustler": 92,
-          "Imitator": 92
+          "Imitator": 92,
+          "Robber": 93
         },
         "5": {
           "Techie": 90,
           "Negotiator": 89,
           "Imitator": 89,
           "Hustler": 91,
-          "Engineer": 89,
+          "Engineer": 90,
           "Car Thief": 86,
           "Enforcer": 91,
           "Robber": 91,
@@ -4182,22 +4212,22 @@
           "Muscle": 89
         },
         "6": {
-          "Bomber": 86,
+          "Bomber": 87,
           "Enforcer": 86,
           "Muscle": 89,
           "Driver": 81,
           "Robber": 86,
-          "Imitator": 86,
+          "Imitator": 87,
           "Pickpocket": 87,
           "Hacker": 87,
-          "Techie": 86,
+          "Techie": 87,
           "Negotiator": 87
         },
         "7": {
           "Bomber": 80,
           "Muscle": 80,
           "Picklock": 80,
-          "Hacker": 79,
+          "Hacker": 80,
           "Engineer": 78
         },
         "8": {
@@ -4210,7 +4240,7 @@
           "Assassin": 68
         }
       },
-      "last_scraped": "2026-02-12T18:54:04.844594",
+      "last_scraped": "2026-02-13T17:54:26.147711",
       "tier_last_updated": "2025-12-27T15:47:53.294140"
     },
     "2683506": {
@@ -4323,14 +4353,15 @@
           "Lookout": 92,
           "Sniper": 93,
           "Hustler": 91,
-          "Imitator": 91
+          "Imitator": 91,
+          "Robber": 92
         },
         "5": {
           "Techie": 88,
           "Negotiator": 87,
           "Imitator": 87,
           "Hustler": 89,
-          "Engineer": 87,
+          "Engineer": 89,
           "Car Thief": 85,
           "Enforcer": 89,
           "Robber": 89,
@@ -4345,10 +4376,10 @@
           "Bomber": 83,
           "Enforcer": 82,
           "Muscle": 88,
-          "Imitator": 83,
+          "Imitator": 85,
           "Pickpocket": 86,
           "Hacker": 85,
-          "Techie": 83,
+          "Techie": 85,
           "Negotiator": 82
         },
         "7": {
@@ -4363,12 +4394,12 @@
           "Cat Burglar": 66,
           "Assassin": 60,
           "Cleaner": 66,
-          "Imitator": 65,
+          "Imitator": 66,
           "Robber": 61,
           "Muscle": 59
         }
       },
-      "last_scraped": "2026-02-12T18:54:05.195343",
+      "last_scraped": "2026-02-13T17:54:26.465550",
       "tier_last_updated": "2025-12-27T15:47:53.294213"
     },
     "2720023": {
@@ -4401,7 +4432,8 @@
           "Enforcer": 93,
           "Lookout": 93,
           "Hustler": 91,
-          "Imitator": 91
+          "Imitator": 91,
+          "Robber": 92
         },
         "5": {
           "Looter": 90,
@@ -4409,7 +4441,7 @@
           "Negotiator": 89,
           "Imitator": 88,
           "Hustler": 90,
-          "Engineer": 88,
+          "Engineer": 90,
           "Car Thief": 85,
           "Enforcer": 90,
           "Robber": 90,
@@ -4423,10 +4455,10 @@
           "Driver": 79,
           "Robber": 85,
           "Bomber": 85,
-          "Imitator": 84,
+          "Imitator": 86,
           "Pickpocket": 87,
-          "Hacker": 80,
-          "Techie": 81,
+          "Hacker": 81,
+          "Techie": 83,
           "Negotiator": 85
         },
         "7": {
@@ -4434,7 +4466,7 @@
           "Picklock": 78,
           "Muscle": 77,
           "Engineer": 75,
-          "Hacker": 68
+          "Hacker": 69
         },
         "8": {
           "Cat Burglar": 68,
@@ -4446,7 +4478,7 @@
           "Cleaner": 67
         }
       },
-      "last_scraped": "2026-02-12T18:54:05.440711",
+      "last_scraped": "2026-02-13T17:54:26.714506",
       "tier_last_updated": "2025-12-27T15:47:53.294246"
     },
     "2733351": {
@@ -4475,11 +4507,12 @@
           "Imitator": 82,
           "Enforcer": 86,
           "Lookout": 88,
-          "Sniper": 87
+          "Sniper": 87,
+          "Robber": 86
         },
         "5": {
           "Enforcer": 81,
-          "Engineer": 79,
+          "Engineer": 84,
           "Robber": 80,
           "Hacker": 84,
           "Picklock": 80,
@@ -4489,15 +4522,15 @@
           "Techie": 80
         },
         "6": {
-          "Pickpocket": 64,
+          "Pickpocket": 65,
           "Hacker": 72,
           "Enforcer": 58,
           "Muscle": 78,
           "Driver": 55,
-          "Imitator": 59,
+          "Imitator": 63,
           "Robber": 63,
           "Bomber": 60,
-          "Techie": 67,
+          "Techie": 71,
           "Negotiator": 52
         },
         "7": {
@@ -4517,7 +4550,7 @@
           "Robber": 41
         }
       },
-      "last_scraped": "2026-02-12T18:54:05.703439",
+      "last_scraped": "2026-02-13T17:54:26.995003",
       "tier_last_updated": "2025-12-27T15:47:53.294273"
     },
     "2736995": {
@@ -4550,7 +4583,8 @@
           "Lookout": 93,
           "Sniper": 93,
           "Hustler": 91,
-          "Imitator": 91
+          "Imitator": 91,
+          "Robber": 93
         },
         "5": {
           "Imitator": 88,
@@ -4558,7 +4592,7 @@
           "Techie": 89,
           "Negotiator": 89,
           "Hustler": 90,
-          "Engineer": 88,
+          "Engineer": 90,
           "Enforcer": 90,
           "Robber": 90,
           "Looter": 90,
@@ -4572,10 +4606,10 @@
           "Bomber": 86,
           "Driver": 80,
           "Robber": 86,
-          "Imitator": 85,
+          "Imitator": 86,
           "Pickpocket": 87,
           "Hacker": 86,
-          "Techie": 85,
+          "Techie": 86,
           "Negotiator": 86
         },
         "7": {
@@ -4591,11 +4625,11 @@
           "Thief": 65,
           "Robber": 64,
           "Imitator": 68,
-          "Assassin": 63,
+          "Assassin": 64,
           "Cleaner": 69
         }
       },
-      "last_scraped": "2026-02-12T18:54:05.957921",
+      "last_scraped": "2026-02-13T17:54:27.270286",
       "tier_last_updated": "2025-12-27T15:47:53.294299"
     },
     "2739056": {
@@ -4628,14 +4662,15 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 93
         },
         "5": {
           "Techie": 90,
           "Negotiator": 90,
           "Imitator": 90,
           "Hustler": 92,
-          "Engineer": 90,
+          "Engineer": 91,
           "Car Thief": 87,
           "Enforcer": 92,
           "Robber": 91,
@@ -4648,12 +4683,12 @@
           "Enforcer": 87,
           "Robber": 87,
           "Driver": 83,
-          "Imitator": 87,
+          "Imitator": 88,
           "Muscle": 90,
           "Bomber": 87,
           "Pickpocket": 88,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 88
         },
         "7": {
@@ -4673,7 +4708,7 @@
           "Robber": 69
         }
       },
-      "last_scraped": "2026-02-12T18:54:06.257005",
+      "last_scraped": "2026-02-13T17:54:27.572623",
       "tier_last_updated": "2025-12-27T15:47:53.294329"
     },
     "2743617": {
@@ -4717,14 +4752,15 @@
           "Lookout": 94,
           "Sniper": 94,
           "Hustler": 93,
-          "Imitator": 93
+          "Imitator": 93,
+          "Robber": 94
         },
         "5": {
           "Techie": 91,
           "Negotiator": 90,
           "Imitator": 90,
           "Hustler": 92,
-          "Engineer": 90,
+          "Engineer": 91,
           "Car Thief": 87,
           "Enforcer": 92,
           "Robber": 91,
@@ -4739,10 +4775,10 @@
           "Robber": 88,
           "Driver": 84,
           "Enforcer": 87,
-          "Imitator": 87,
+          "Imitator": 88,
           "Pickpocket": 89,
           "Hacker": 88,
-          "Techie": 87,
+          "Techie": 88,
           "Negotiator": 88
         },
         "7": {
@@ -4762,7 +4798,7 @@
           "Imitator": 75
         }
       },
-      "last_scraped": "2026-02-12T18:54:06.646814",
+      "last_scraped": "2026-02-13T17:54:27.846371",
       "tier_last_updated": "2025-12-27T15:47:53.294360"
     },
     "2750555": {
@@ -4869,11 +4905,12 @@
           "Enforcer": 91,
           "Lookout": 90,
           "Sniper": 91,
-          "Hustler": 90
+          "Hustler": 90,
+          "Robber": 91
         },
         "5": {
           "Hacker": 87,
-          "Engineer": 85,
+          "Engineer": 87,
           "Picklock": 88,
           "Negotiator": 86,
           "Enforcer": 88,
@@ -4888,10 +4925,10 @@
         "6": {
           "Enforcer": 78,
           "Muscle": 86,
-          "Imitator": 78,
-          "Techie": 78,
+          "Imitator": 81,
+          "Techie": 81,
           "Pickpocket": 81,
-          "Hacker": 81,
+          "Hacker": 82,
           "Driver": 69,
           "Robber": 79,
           "Bomber": 79,
@@ -4914,7 +4951,7 @@
           "Robber": 57
         }
       },
-      "last_scraped": "2026-02-12T18:54:06.938508",
+      "last_scraped": "2026-02-13T17:54:28.222615",
       "tier_last_updated": "2026-02-06T22:52:14.705662"
     },
     "2778101": {
@@ -4944,7 +4981,8 @@
           "Lookout": 93,
           "Sniper": 94,
           "Hustler": 92,
-          "Imitator": 92
+          "Imitator": 92,
+          "Robber": 93
         },
         "5": {
           "Picklock": 91,
@@ -4952,7 +4990,7 @@
           "Negotiator": 90,
           "Imitator": 89,
           "Hustler": 91,
-          "Engineer": 89,
+          "Engineer": 91,
           "Car Thief": 86,
           "Enforcer": 91,
           "Robber": 91,
@@ -4966,10 +5004,10 @@
           "Driver": 83,
           "Bomber": 87,
           "Enforcer": 86,
-          "Imitator": 86,
+          "Imitator": 87,
           "Pickpocket": 88,
           "Hacker": 87,
-          "Techie": 86,
+          "Techie": 87,
           "Negotiator": 87
         },
         "7": {
@@ -4989,7 +5027,7 @@
           "Muscle": 66
         }
       },
-      "last_scraped": "2026-02-12T18:54:07.258877",
+      "last_scraped": "2026-02-13T17:54:28.601152",
       "tier_last_updated": "2025-12-27T15:47:53.294438"
     },
     "2781975": {
@@ -5019,12 +5057,13 @@
           "Enforcer": 87,
           "Hustler": 83,
           "Imitator": 85,
-          "Sniper": 86
+          "Sniper": 86,
+          "Robber": 86
         },
         "5": {
           "Imitator": 78,
           "Robber": 82,
-          "Engineer": 79,
+          "Engineer": 83,
           "Hustler": 81,
           "Enforcer": 83,
           "Techie": 79,
@@ -5037,12 +5076,12 @@
         },
         "6": {
           "Muscle": 84,
-          "Techie": 63,
+          "Techie": 67,
           "Enforcer": 63,
           "Robber": 64,
           "Driver": 55,
           "Bomber": 64,
-          "Imitator": 63,
+          "Imitator": 67,
           "Pickpocket": 63,
           "Hacker": 63,
           "Negotiator": 56
@@ -5064,7 +5103,7 @@
           "Cleaner": 45
         }
       },
-      "last_scraped": "2026-02-12T18:54:07.520142",
+      "last_scraped": "2026-02-13T17:54:28.860211",
       "tier_last_updated": "2025-12-27T15:47:53.294464"
     },
     "2799525": {
@@ -5094,14 +5133,15 @@
           "Lookout": 91,
           "Sniper": 92,
           "Hustler": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Robber": 91
         },
         "5": {
           "Techie": 87,
           "Robber": 88,
           "Hacker": 88,
           "Picklock": 89,
-          "Engineer": 86,
+          "Engineer": 88,
           "Negotiator": 87,
           "Looter": 88,
           "Enforcer": 88,
@@ -5116,16 +5156,16 @@
           "Robber": 80,
           "Driver": 73,
           "Bomber": 79,
-          "Imitator": 80,
+          "Imitator": 83,
           "Pickpocket": 83,
-          "Hacker": 82,
-          "Techie": 80,
+          "Hacker": 83,
+          "Techie": 83,
           "Negotiator": 80
         },
         "7": {
           "Picklock": 73,
           "Engineer": 69,
-          "Bomber": 69,
+          "Bomber": 70,
           "Hacker": 71,
           "Muscle": 71
         },
@@ -5139,7 +5179,7 @@
           "Imitator": 62
         }
       },
-      "last_scraped": "2026-02-12T18:54:07.778876",
+      "last_scraped": "2026-02-13T17:54:29.136404",
       "tier_last_updated": "2025-12-27T15:47:53.294490"
     },
     "2808985": {
@@ -5169,10 +5209,11 @@
           "Lookout": 93,
           "Sniper": 93,
           "Hustler": 89,
-          "Imitator": 90
+          "Imitator": 90,
+          "Robber": 93
         },
         "5": {
-          "Engineer": 89,
+          "Engineer": 90,
           "Enforcer": 88,
           "Hustler": 87,
           "Robber": 90,
@@ -5191,10 +5232,10 @@
           "Driver": 81,
           "Bomber": 82,
           "Enforcer": 82,
-          "Imitator": 82,
+          "Imitator": 83,
           "Pickpocket": 87,
           "Hacker": 87,
-          "Techie": 86,
+          "Techie": 87,
           "Negotiator": 81
         },
         "7": {
@@ -5214,7 +5255,7 @@
           "Imitator": 62
         }
       },
-      "last_scraped": "2026-02-12T18:54:08.065507",
+      "last_scraped": "2026-02-13T17:54:29.494380",
       "tier_last_updated": "2025-12-27T15:47:53.294516"
     },
     "2816329": {
@@ -5317,12 +5358,13 @@
           "Lookout": 92,
           "Sniper": 93,
           "Hustler": 91,
-          "Imitator": 91
+          "Imitator": 91,
+          "Robber": 92
         },
         "5": {
           "Looter": 89,
           "Robber": 90,
-          "Engineer": 87,
+          "Engineer": 89,
           "Enforcer": 90,
           "Hustler": 90,
           "Hacker": 84,
@@ -5338,11 +5380,11 @@
           "Bomber": 84,
           "Enforcer": 83,
           "Robber": 84,
-          "Imitator": 83,
+          "Imitator": 85,
           "Driver": 77,
           "Pickpocket": 86,
-          "Hacker": 82,
-          "Techie": 81,
+          "Hacker": 83,
+          "Techie": 84,
           "Negotiator": 84
         },
         "7": {
@@ -5362,7 +5404,7 @@
           "Imitator": 66
         }
       },
-      "last_scraped": "2026-02-12T18:54:08.309632",
+      "last_scraped": "2026-02-13T17:54:29.756875",
       "tier_last_updated": "2025-12-27T15:47:53.294545"
     },
     "2852673": {
@@ -5407,11 +5449,12 @@
           "Hustler": 89,
           "Enforcer": 91,
           "Lookout": 92,
-          "Sniper": 93
+          "Sniper": 93,
+          "Robber": 93
         },
         "5": {
           "Hustler": 87,
-          "Engineer": 87,
+          "Engineer": 89,
           "Car Thief": 86,
           "Techie": 89,
           "Enforcer": 88,
@@ -5430,9 +5473,9 @@
           "Driver": 79,
           "Bomber": 86,
           "Enforcer": 82,
-          "Imitator": 82,
+          "Imitator": 83,
           "Pickpocket": 86,
-          "Techie": 86,
+          "Techie": 87,
           "Negotiator": 81
         },
         "7": {
@@ -5452,7 +5495,7 @@
           "Muscle": 64
         }
       },
-      "last_scraped": "2026-02-12T18:54:08.550802",
+      "last_scraped": "2026-02-13T17:54:30.009290",
       "tier_last_updated": "2025-12-27T15:47:53.294572"
     },
     "2864154": {
@@ -5482,11 +5525,12 @@
           "Lookout": 90,
           "Enforcer": 88,
           "Hustler": 85,
-          "Imitator": 86
+          "Imitator": 86,
+          "Robber": 90
         },
         "5": {
           "Hacker": 87,
-          "Engineer": 85,
+          "Engineer": 87,
           "Techie": 86,
           "Picklock": 87,
           "Negotiator": 78,
@@ -5499,7 +5543,7 @@
           "Muscle": 85
         },
         "6": {
-          "Techie": 76,
+          "Techie": 79,
           "Pickpocket": 80,
           "Hacker": 80,
           "Enforcer": 69,
@@ -5507,7 +5551,7 @@
           "Driver": 68,
           "Robber": 77,
           "Bomber": 77,
-          "Imitator": 69,
+          "Imitator": 74,
           "Negotiator": 68
         },
         "7": {
@@ -5527,7 +5571,7 @@
           "Cat Burglar": 59
         }
       },
-      "last_scraped": "2026-02-12T18:54:08.832751",
+      "last_scraped": "2026-02-13T17:54:30.277854",
       "tier_last_updated": "2026-01-30T04:06:21.176464"
     },
     "2882851": {
@@ -5557,10 +5601,11 @@
           "Lookout": 93,
           "Sniper": 93,
           "Hustler": 92,
-          "Imitator": 92
+          "Imitator": 92,
+          "Robber": 93
         },
         "5": {
-          "Engineer": 89,
+          "Engineer": 90,
           "Enforcer": 91,
           "Hustler": 91,
           "Robber": 90,
@@ -5579,10 +5624,10 @@
           "Bomber": 86,
           "Muscle": 89,
           "Enforcer": 86,
-          "Imitator": 86,
+          "Imitator": 87,
           "Pickpocket": 87,
           "Hacker": 87,
-          "Techie": 86,
+          "Techie": 87,
           "Negotiator": 87
         },
         "7": {
@@ -5602,7 +5647,7 @@
           "Imitator": 71
         }
       },
-      "last_scraped": "2026-02-12T18:54:09.105411",
+      "last_scraped": "2026-02-13T17:54:30.565174",
       "tier_last_updated": "2025-12-28T12:40:51.343550"
     },
     "2906032": {
@@ -5705,14 +5750,15 @@
           "Enforcer": 92,
           "Hustler": 91,
           "Imitator": 91,
-          "Sniper": 93
+          "Sniper": 93,
+          "Robber": 92
         },
         "5": {
           "Robber": 89,
           "Looter": 89,
           "Hacker": 89,
           "Picklock": 90,
-          "Engineer": 87,
+          "Engineer": 89,
           "Enforcer": 89,
           "Hustler": 89,
           "Car Thief": 84,
@@ -5727,10 +5773,10 @@
           "Enforcer": 83,
           "Robber": 84,
           "Bomber": 84,
-          "Imitator": 83,
+          "Imitator": 85,
           "Pickpocket": 86,
           "Hacker": 85,
-          "Techie": 83,
+          "Techie": 85,
           "Negotiator": 83
         },
         "7": {
@@ -5750,7 +5796,7 @@
           "Cleaner": 65
         }
       },
-      "last_scraped": "2026-02-12T18:54:09.414766",
+      "last_scraped": "2026-02-13T17:54:30.964470",
       "tier_last_updated": "2025-12-27T15:47:53.294680"
     },
     "2927319": {
@@ -5841,11 +5887,12 @@
           "Lookout": 93,
           "Sniper": 94,
           "Hustler": 92,
-          "Imitator": 92
+          "Imitator": 92,
+          "Robber": 93
         },
         "5": {
           "Robber": 91,
-          "Engineer": 89,
+          "Engineer": 90,
           "Enforcer": 91,
           "Hustler": 91,
           "Looter": 91,
@@ -5863,10 +5910,10 @@
           "Robber": 87,
           "Driver": 83,
           "Bomber": 87,
-          "Imitator": 86,
+          "Imitator": 87,
           "Pickpocket": 88,
           "Hacker": 87,
-          "Techie": 86,
+          "Techie": 87,
           "Negotiator": 87
         },
         "7": {
@@ -5879,14 +5926,14 @@
         "8": {
           "Thief": 67,
           "Cleaner": 71,
-          "Cat Burglar": 71,
+          "Cat Burglar": 72,
           "Muscle": 65,
           "Assassin": 70,
           "Robber": 66,
           "Imitator": 71
         }
       },
-      "last_scraped": "2026-02-12T18:54:09.585506",
+      "last_scraped": "2026-02-13T17:54:31.143399",
       "tier_last_updated": "2025-12-27T15:47:53.294705"
     },
     "2983319": {
@@ -5971,14 +6018,15 @@
           "Muscle": 93,
           "Enforcer": 93,
           "Lookout": 93,
-          "Sniper": 93
+          "Sniper": 93,
+          "Robber": 93
         },
         "5": {
           "Robber": 90,
           "Looter": 90,
           "Hacker": 90,
           "Picklock": 91,
-          "Engineer": 88,
+          "Engineer": 90,
           "Techie": 89,
           "Negotiator": 89,
           "Imitator": 88,
@@ -5990,8 +6038,8 @@
         "6": {
           "Enforcer": 85,
           "Muscle": 89,
-          "Imitator": 85,
-          "Techie": 85,
+          "Imitator": 86,
+          "Techie": 86,
           "Pickpocket": 87,
           "Driver": 81,
           "Robber": 86,
@@ -6016,7 +6064,7 @@
           "Assassin": 70
         }
       },
-      "last_scraped": "2026-02-12T18:54:09.873756",
+      "last_scraped": "2026-02-13T17:54:31.397463",
       "tier_last_updated": "2025-12-27T15:47:53.294729"
     },
     "3015831": {
@@ -6046,7 +6094,8 @@
           "Lookout": 92,
           "Sniper": 92,
           "Hustler": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Robber": 92
         },
         "5": {
           "Picklock": 89,
@@ -6054,7 +6103,7 @@
           "Negotiator": 87,
           "Imitator": 87,
           "Hustler": 89,
-          "Engineer": 87,
+          "Engineer": 88,
           "Car Thief": 83,
           "Enforcer": 89,
           "Robber": 89,
@@ -6068,10 +6117,10 @@
           "Robber": 82,
           "Driver": 76,
           "Bomber": 82,
-          "Imitator": 81,
-          "Pickpocket": 84,
+          "Imitator": 84,
+          "Pickpocket": 85,
           "Hacker": 84,
-          "Techie": 81,
+          "Techie": 84,
           "Negotiator": 82
         },
         "7": {
@@ -6091,7 +6140,7 @@
           "Muscle": 57
         }
       },
-      "last_scraped": "2026-02-12T18:54:10.166828",
+      "last_scraped": "2026-02-13T17:54:31.722054",
       "tier_last_updated": "2025-12-27T15:47:53.294753"
     },
     "3058543": {
@@ -6124,10 +6173,11 @@
           "Lookout": 93,
           "Sniper": 93,
           "Hustler": 92,
-          "Imitator": 91
+          "Imitator": 91,
+          "Robber": 93
         },
         "5": {
-          "Engineer": 88,
+          "Engineer": 90,
           "Enforcer": 90,
           "Hustler": 90,
           "Robber": 90,
@@ -6146,10 +6196,10 @@
           "Bomber": 86,
           "Driver": 83,
           "Robber": 86,
-          "Imitator": 84,
+          "Imitator": 85,
           "Pickpocket": 87,
           "Hacker": 86,
-          "Techie": 85,
+          "Techie": 87,
           "Negotiator": 86
         },
         "7": {
@@ -6169,7 +6219,7 @@
           "Robber": 65
         }
       },
-      "last_scraped": "2026-02-12T18:54:10.440157",
+      "last_scraped": "2026-02-13T17:54:31.985421",
       "tier_last_updated": "2026-01-30T04:06:21.176633"
     },
     "3120070": {
@@ -6199,14 +6249,15 @@
           "Muscle": 91,
           "Enforcer": 91,
           "Lookout": 91,
-          "Sniper": 92
+          "Sniper": 92,
+          "Robber": 91
         },
         "5": {
           "Robber": 88,
           "Looter": 88,
           "Hacker": 88,
           "Picklock": 88,
-          "Engineer": 86,
+          "Engineer": 88,
           "Techie": 87,
           "Negotiator": 87,
           "Imitator": 86,
@@ -6217,14 +6268,14 @@
         },
         "6": {
           "Muscle": 86,
-          "Imitator": 80,
+          "Imitator": 83,
           "Enforcer": 80,
           "Driver": 74,
           "Robber": 81,
           "Bomber": 81,
-          "Pickpocket": 83,
+          "Pickpocket": 84,
           "Hacker": 83,
-          "Techie": 80,
+          "Techie": 83,
           "Negotiator": 81
         },
         "7": {
@@ -6244,7 +6295,7 @@
           "Cat Burglar": 63
         }
       },
-      "last_scraped": "2026-02-12T18:54:10.750455",
+      "last_scraped": "2026-02-13T17:54:32.237475",
       "tier_last_updated": "2025-12-27T15:47:53.294803"
     },
     "3130493": {
@@ -6277,10 +6328,11 @@
           "Lookout": 91,
           "Sniper": 92,
           "Hustler": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Robber": 91
         },
         "5": {
-          "Engineer": 86,
+          "Engineer": 88,
           "Hacker": 88,
           "Techie": 87,
           "Imitator": 87,
@@ -6300,9 +6352,9 @@
           "Muscle": 87,
           "Pickpocket": 83,
           "Driver": 74,
-          "Imitator": 79,
-          "Hacker": 82,
-          "Techie": 80,
+          "Imitator": 82,
+          "Hacker": 83,
+          "Techie": 83,
           "Negotiator": 79
         },
         "7": {
@@ -6322,7 +6374,7 @@
           "Imitator": 62
         }
       },
-      "last_scraped": "2026-02-12T18:54:11.015238",
+      "last_scraped": "2026-02-13T17:54:32.508158",
       "tier_last_updated": "2026-01-01T15:43:24.770351"
     },
     "3136837": {
@@ -6352,13 +6404,14 @@
           "Enforcer": 91,
           "Muscle": 91,
           "Lookout": 91,
-          "Imitator": 90
+          "Imitator": 90,
+          "Robber": 91
         },
         "5": {
           "Car Thief": 82,
           "Negotiator": 87,
           "Imitator": 86,
-          "Engineer": 86,
+          "Engineer": 88,
           "Techie": 87,
           "Enforcer": 88,
           "Hustler": 88,
@@ -6372,9 +6425,9 @@
           "Bomber": 80,
           "Muscle": 86,
           "Robber": 80,
-          "Imitator": 79,
-          "Pickpocket": 82,
-          "Techie": 79,
+          "Imitator": 82,
+          "Pickpocket": 83,
+          "Techie": 82,
           "Enforcer": 79,
           "Driver": 72,
           "Hacker": 82,
@@ -6397,7 +6450,7 @@
           "Muscle": 54
         }
       },
-      "last_scraped": "2026-02-12T18:54:11.335562",
+      "last_scraped": "2026-02-13T17:54:32.778496",
       "tier_last_updated": "2026-01-10T13:23:23.838792"
     },
     "3187170": {
@@ -6613,7 +6666,8 @@
           "Lookout": 91,
           "Hustler": 90,
           "Imitator": 90,
-          "Sniper": 91
+          "Sniper": 91,
+          "Robber": 91
         },
         "5": {
           "Car Thief": 84,
@@ -6621,7 +6675,7 @@
           "Looter": 87,
           "Hacker": 88,
           "Picklock": 88,
-          "Engineer": 86,
+          "Engineer": 88,
           "Enforcer": 88,
           "Hustler": 89,
           "Techie": 87,
@@ -6633,8 +6687,8 @@
           "Muscle": 86,
           "Bomber": 81,
           "Driver": 75,
-          "Techie": 80,
-          "Imitator": 80,
+          "Techie": 83,
+          "Imitator": 83,
           "Robber": 81,
           "Enforcer": 80,
           "Pickpocket": 83,
@@ -6658,7 +6712,7 @@
           "Cleaner": 62
         }
       },
-      "last_scraped": "2026-02-12T18:54:11.863315",
+      "last_scraped": "2026-02-13T17:54:33.036590",
       "tier_last_updated": "2026-01-01T15:43:24.770423"
     },
     "3208951": {
@@ -6688,10 +6742,11 @@
           "Hustler": 89,
           "Lookout": 91,
           "Sniper": 91,
-          "Imitator": 89
+          "Imitator": 89,
+          "Robber": 91
         },
         "5": {
-          "Engineer": 86,
+          "Engineer": 88,
           "Car Thief": 83,
           "Enforcer": 88,
           "Techie": 87,
@@ -6708,9 +6763,9 @@
           "Robber": 80,
           "Enforcer": 78,
           "Bomber": 80,
-          "Techie": 79,
-          "Imitator": 79,
-          "Pickpocket": 82,
+          "Techie": 82,
+          "Imitator": 82,
+          "Pickpocket": 83,
           "Muscle": 86,
           "Driver": 74,
           "Hacker": 82,
@@ -6733,7 +6788,7 @@
           "Robber": 56
         }
       },
-      "last_scraped": "2026-02-12T18:54:12.131450",
+      "last_scraped": "2026-02-13T17:54:33.292242",
       "tier_last_updated": "2026-02-06T03:34:51.278967"
     },
     "3225628": {
@@ -6766,10 +6821,11 @@
           "Lookout": 90,
           "Sniper": 91,
           "Hustler": 88,
-          "Imitator": 88
+          "Imitator": 88,
+          "Robber": 90
         },
         "5": {
-          "Engineer": 84,
+          "Engineer": 86,
           "Picklock": 87,
           "Enforcer": 87,
           "Hacker": 86,
@@ -6785,12 +6841,12 @@
         "6": {
           "Robber": 75,
           "Enforcer": 73,
-          "Techie": 73,
+          "Techie": 77,
           "Pickpocket": 78,
           "Bomber": 72,
           "Muscle": 84,
           "Driver": 65,
-          "Imitator": 74,
+          "Imitator": 77,
           "Hacker": 77,
           "Negotiator": 68
         },
@@ -6811,7 +6867,7 @@
           "Imitator": 57
         }
       },
-      "last_scraped": "2026-02-12T18:54:12.406930",
+      "last_scraped": "2026-02-13T17:54:33.626373",
       "tier_last_updated": "2026-02-06T03:34:51.279001"
     },
     "3228747": {
@@ -6841,11 +6897,12 @@
           "Muscle": 90,
           "Enforcer": 90,
           "Lookout": 90,
-          "Sniper": 91
+          "Sniper": 91,
+          "Robber": 90
         },
         "5": {
           "Imitator": 84,
-          "Engineer": 84,
+          "Engineer": 86,
           "Negotiator": 81,
           "Hustler": 87,
           "Techie": 85,
@@ -6863,16 +6920,16 @@
           "Enforcer": 74,
           "Bomber": 73,
           "Pickpocket": 78,
-          "Techie": 74,
-          "Imitator": 74,
+          "Techie": 77,
+          "Imitator": 77,
           "Driver": 65,
-          "Hacker": 77,
+          "Hacker": 78,
           "Negotiator": 70
         },
         "7": {
           "Muscle": 65,
           "Picklock": 67,
-          "Hacker": 65,
+          "Hacker": 66,
           "Engineer": 63,
           "Bomber": 64
         },
@@ -6886,7 +6943,7 @@
           "Muscle": 52
         }
       },
-      "last_scraped": "2026-02-12T18:54:12.695470",
+      "last_scraped": "2026-02-13T17:54:34.003919",
       "tier_last_updated": "2026-01-30T04:06:21.176793"
     },
     "3247125": {
@@ -6919,12 +6976,13 @@
           "Lookout": 91,
           "Sniper": 91,
           "Hustler": 89,
-          "Imitator": 89
+          "Imitator": 89,
+          "Robber": 91
         },
         "5": {
           "Techie": 86,
           "Picklock": 88,
-          "Engineer": 85,
+          "Engineer": 87,
           "Negotiator": 86,
           "Imitator": 85,
           "Hustler": 88,
@@ -6941,10 +6999,10 @@
           "Muscle": 85,
           "Driver": 73,
           "Robber": 79,
-          "Imitator": 77,
+          "Imitator": 80,
           "Pickpocket": 82,
           "Hacker": 81,
-          "Techie": 78,
+          "Techie": 81,
           "Negotiator": 79
         },
         "7": {
@@ -6964,7 +7022,7 @@
           "Cat Burglar": 60
         }
       },
-      "last_scraped": "2026-02-12T18:54:12.939930",
+      "last_scraped": "2026-02-13T17:54:34.361509",
       "tier_last_updated": "2025-12-27T15:47:53.295015"
     },
     "3249124": {
@@ -7208,7 +7266,8 @@
           "Lookout": 90,
           "Hustler": 88,
           "Imitator": 88,
-          "Sniper": 90
+          "Sniper": 90,
+          "Robber": 89
         },
         "5": {
           "Hacker": 86,
@@ -7216,7 +7275,7 @@
           "Robber": 86,
           "Looter": 86,
           "Picklock": 86,
-          "Engineer": 84,
+          "Engineer": 86,
           "Enforcer": 86,
           "Hustler": 86,
           "Car Thief": 80,
@@ -7232,8 +7291,8 @@
           "Enforcer": 74,
           "Driver": 68,
           "Bomber": 74,
-          "Imitator": 75,
-          "Techie": 73,
+          "Imitator": 78,
+          "Techie": 77,
           "Negotiator": 73
         },
         "7": {
@@ -7253,7 +7312,7 @@
           "Cleaner": 57
         }
       },
-      "last_scraped": "2026-02-12T18:54:13.191312",
+      "last_scraped": "2026-02-13T17:54:34.642751",
       "tier_last_updated": "2026-01-30T04:06:21.176903"
     },
     "3279714": {
@@ -7298,10 +7357,11 @@
           "Lookout": 91,
           "Sniper": 92,
           "Hustler": 90,
-          "Imitator": 89
+          "Imitator": 89,
+          "Robber": 91
         },
         "5": {
-          "Engineer": 86,
+          "Engineer": 88,
           "Car Thief": 83,
           "Enforcer": 88,
           "Hustler": 88,
@@ -7321,9 +7381,9 @@
           "Bomber": 80,
           "Pickpocket": 83,
           "Driver": 74,
-          "Imitator": 79,
+          "Imitator": 82,
           "Hacker": 82,
-          "Techie": 79,
+          "Techie": 82,
           "Negotiator": 77
         },
         "7": {
@@ -7343,7 +7403,7 @@
           "Imitator": 61
         }
       },
-      "last_scraped": "2026-02-12T18:54:13.446791",
+      "last_scraped": "2026-02-13T17:54:34.886072",
       "tier_last_updated": "2026-02-08T18:54:03.563363"
     },
     "3291056": {
@@ -7369,11 +7429,12 @@
         },
         "4": {
           "Enforcer": 90,
-          "Hustler": 88,
+          "Hustler": 89,
           "Muscle": 89,
           "Lookout": 89,
           "Sniper": 90,
-          "Imitator": 88
+          "Imitator": 88,
+          "Robber": 89
         },
         "5": {
           "Hacker": 79,
@@ -7382,7 +7443,7 @@
           "Imitator": 82,
           "Techie": 80,
           "Negotiator": 77,
-          "Engineer": 82,
+          "Engineer": 85,
           "Car Thief": 77,
           "Enforcer": 86,
           "Looter": 85,
@@ -7395,10 +7456,10 @@
           "Bomber": 72,
           "Enforcer": 71,
           "Muscle": 82,
-          "Imitator": 71,
-          "Pickpocket": 74,
-          "Hacker": 65,
-          "Techie": 65,
+          "Imitator": 74,
+          "Pickpocket": 75,
+          "Hacker": 67,
+          "Techie": 69,
           "Negotiator": 64
         },
         "7": {
@@ -7418,7 +7479,7 @@
           "Thief": 53
         }
       },
-      "last_scraped": "2026-02-12T18:54:13.712173",
+      "last_scraped": "2026-02-13T17:54:35.138134",
       "tier_last_updated": "2026-02-06T03:34:51.279246"
     },
     "3291843": {
@@ -7451,10 +7512,11 @@
           "Lookout": 91,
           "Sniper": 92,
           "Hustler": 90,
-          "Imitator": 90
+          "Imitator": 90,
+          "Robber": 91
         },
         "5": {
-          "Engineer": 86,
+          "Engineer": 88,
           "Techie": 87,
           "Car Thief": 83,
           "Negotiator": 87,
@@ -7471,10 +7533,10 @@
           "Enforcer": 80,
           "Muscle": 87,
           "Bomber": 81,
-          "Techie": 81,
+          "Techie": 83,
           "Robber": 81,
-          "Driver": 74,
-          "Imitator": 81,
+          "Driver": 75,
+          "Imitator": 83,
           "Pickpocket": 84,
           "Hacker": 83,
           "Negotiator": 81
@@ -7496,7 +7558,7 @@
           "Thief": 60
         }
       },
-      "last_scraped": "2026-02-12T18:54:13.944711",
+      "last_scraped": "2026-02-13T17:54:35.415036",
       "tier_last_updated": "2025-12-27T15:47:53.295120"
     },
     "3292192": {
@@ -7602,13 +7664,14 @@
           "Muscle": 90,
           "Lookout": 87,
           "Sniper": 89,
-          "Enforcer": 89
+          "Enforcer": 89,
+          "Robber": 90
         },
         "5": {
           "Robber": 86,
           "Hacker": 83,
           "Picklock": 87,
-          "Engineer": 80,
+          "Engineer": 83,
           "Enforcer": 85,
           "Hustler": 85,
           "Muscle": 84,
@@ -7619,10 +7682,10 @@
           "Muscle": 84,
           "Enforcer": 71,
           "Driver": 58,
-          "Imitator": 71,
+          "Imitator": 75,
           "Robber": 74,
           "Bomber": 74,
-          "Techie": 70,
+          "Techie": 74,
           "Negotiator": 68,
           "Pickpocket": 74,
           "Hacker": 73
@@ -7644,7 +7707,7 @@
           "Robber": 53
         }
       },
-      "last_scraped": "2026-02-12T18:54:18.751398",
+      "last_scraped": "2026-02-13T17:54:40.525279",
       "tier_last_updated": "2026-02-06T03:34:51.279334"
     },
     "3349449": {
@@ -7745,13 +7808,14 @@
           "Muscle": 90,
           "Sniper": 89,
           "Lookout": 87,
-          "Enforcer": 89
+          "Enforcer": 89,
+          "Robber": 90
         },
         "5": {
           "Robber": 86,
           "Hacker": 85,
           "Picklock": 86,
-          "Engineer": 80,
+          "Engineer": 83,
           "Enforcer": 85,
           "Hustler": 85,
           "Muscle": 84,
@@ -7762,10 +7826,10 @@
           "Muscle": 84,
           "Enforcer": 71,
           "Driver": 58,
-          "Imitator": 71,
+          "Imitator": 75,
           "Robber": 74,
           "Bomber": 73,
-          "Techie": 71,
+          "Techie": 75,
           "Negotiator": 66,
           "Pickpocket": 74,
           "Hacker": 74
@@ -7787,7 +7851,7 @@
           "Robber": 53
         }
       },
-      "last_scraped": "2026-02-12T18:54:18.988176",
+      "last_scraped": "2026-02-13T17:54:40.828428",
       "tier_last_updated": "2026-02-06T03:34:51.279393"
     },
     "3355589": {
@@ -7976,12 +8040,13 @@
           "Muscle": 91,
           "Sniper": 92,
           "Lookout": 91,
-          "Imitator": 89
+          "Imitator": 89,
+          "Robber": 91
         },
         "5": {
           "Enforcer": 88,
           "Picklock": 88,
-          "Engineer": 86,
+          "Engineer": 88,
           "Hustler": 88,
           "Robber": 88,
           "Looter": 88,
@@ -7998,10 +8063,10 @@
           "Bomber": 80,
           "Muscle": 86,
           "Enforcer": 79,
-          "Imitator": 79,
+          "Imitator": 82,
           "Pickpocket": 83,
           "Hacker": 82,
-          "Techie": 79,
+          "Techie": 82,
           "Negotiator": 77
         },
         "7": {
@@ -8021,7 +8086,7 @@
           "Imitator": 61
         }
       },
-      "last_scraped": "2026-02-12T18:54:14.360388",
+      "last_scraped": "2026-02-13T17:54:35.758105",
       "tier_last_updated": "2026-02-08T18:54:03.563559"
     },
     "3386225": {
@@ -8113,11 +8178,12 @@
           "Lookout": 89,
           "Sniper": 90,
           "Hustler": 87,
-          "Imitator": 87
+          "Imitator": 87,
+          "Robber": 90
         },
         "5": {
           "Techie": 84,
-          "Engineer": 83,
+          "Engineer": 85,
           "Picklock": 86,
           "Looter": 86,
           "Negotiator": 81,
@@ -8131,9 +8197,9 @@
         },
         "6": {
           "Muscle": 83,
-          "Imitator": 71,
-          "Pickpocket": 77,
-          "Techie": 72,
+          "Imitator": 75,
+          "Pickpocket": 78,
+          "Techie": 75,
           "Robber": 75,
           "Bomber": 75,
           "Driver": 66,
@@ -8158,7 +8224,7 @@
           "Thief": 54
         }
       },
-      "last_scraped": "2026-02-12T18:54:14.719474",
+      "last_scraped": "2026-02-13T17:54:36.098394",
       "tier_last_updated": "2026-01-30T04:06:21.177117"
     },
     "3411597": {
@@ -8249,10 +8315,11 @@
           "Hustler": 87,
           "Muscle": 88,
           "Lookout": 89,
-          "Sniper": 90
+          "Sniper": 90,
+          "Robber": 89
         },
         "5": {
-          "Engineer": 82,
+          "Engineer": 85,
           "Looter": 85,
           "Robber": 85,
           "Hustler": 86,
@@ -8266,15 +8333,15 @@
           "Muscle": 81
         },
         "6": {
-          "Pickpocket": 75,
+          "Pickpocket": 76,
           "Robber": 73,
           "Enforcer": 70,
           "Muscle": 81,
           "Driver": 64,
           "Bomber": 70,
-          "Imitator": 70,
-          "Hacker": 74,
-          "Techie": 71,
+          "Imitator": 73,
+          "Hacker": 75,
+          "Techie": 75,
           "Negotiator": 65
         },
         "7": {
@@ -8294,7 +8361,7 @@
           "Muscle": 45
         }
       },
-      "last_scraped": "2026-02-12T18:54:14.964620",
+      "last_scraped": "2026-02-13T17:54:36.504158",
       "tier_last_updated": "2026-02-12T18:54:19.731993"
     },
     "3447837": {
@@ -8327,10 +8394,11 @@
           "Lookout": 84,
           "Sniper": 83,
           "Hustler": 73,
-          "Imitator": 75
+          "Imitator": 75,
+          "Robber": 83
         },
         "5": {
-          "Engineer": 67,
+          "Engineer": 74,
           "Enforcer": 68,
           "Hustler": 65,
           "Robber": 67,
@@ -8349,10 +8417,10 @@
           "Bomber": 45,
           "Muscle": 66,
           "Enforcer": 44,
-          "Imitator": 45,
+          "Imitator": 49,
           "Pickpocket": 60,
           "Hacker": 45,
-          "Techie": 45,
+          "Techie": 49,
           "Negotiator": 37
         },
         "7": {
@@ -8372,7 +8440,7 @@
           "Imitator": 31
         }
       },
-      "last_scraped": "2026-02-12T18:54:15.228698",
+      "last_scraped": "2026-02-13T17:54:36.755317",
       "tier_last_updated": "2025-12-27T15:47:53.295286"
     },
     "3452212": {
@@ -8402,7 +8470,8 @@
           "Hustler": 87,
           "Enforcer": 88,
           "Lookout": 88,
-          "Sniper": 88
+          "Sniper": 88,
+          "Robber": 88
         },
         "5": {
           "Enforcer": 84,
@@ -8410,7 +8479,7 @@
           "Looter": 81,
           "Hacker": 76,
           "Car Thief": 73,
-          "Engineer": 79,
+          "Engineer": 85,
           "Robber": 82,
           "Picklock": 82,
           "Techie": 75,
@@ -8421,20 +8490,20 @@
         "6": {
           "Robber": 67,
           "Muscle": 78,
-          "Imitator": 68,
-          "Pickpocket": 70,
+          "Imitator": 71,
+          "Pickpocket": 71,
           "Enforcer": 67,
-          "Techie": 58,
+          "Techie": 62,
           "Driver": 55,
           "Bomber": 63,
-          "Hacker": 59,
+          "Hacker": 60,
           "Negotiator": 61
         },
         "7": {
           "Engineer": 57,
           "Picklock": 60,
           "Hacker": 43,
-          "Bomber": 54,
+          "Bomber": 53,
           "Muscle": 56
         },
         "8": {
@@ -8447,7 +8516,7 @@
           "Cleaner": 48
         }
       },
-      "last_scraped": "2026-02-12T18:54:15.478646",
+      "last_scraped": "2026-02-13T17:54:37.055789",
       "tier_last_updated": "2025-12-27T15:47:53.295313"
     },
     "3459507": {
@@ -8572,10 +8641,11 @@
           "Enforcer": 87,
           "Lookout": 87,
           "Hustler": 84,
-          "Imitator": 84
+          "Imitator": 84,
+          "Robber": 86
         },
         "5": {
-          "Engineer": 78,
+          "Engineer": 84,
           "Looter": 81,
           "Techie": 79,
           "Enforcer": 82,
@@ -8594,10 +8664,10 @@
           "Bomber": 63,
           "Muscle": 76,
           "Enforcer": 62,
-          "Imitator": 63,
-          "Pickpocket": 68,
-          "Hacker": 68,
-          "Techie": 65,
+          "Imitator": 67,
+          "Pickpocket": 69,
+          "Hacker": 69,
+          "Techie": 69,
           "Negotiator": 58
         },
         "7": {
@@ -8614,10 +8684,10 @@
           "Assassin": 39,
           "Robber": 41,
           "Cleaner": 50,
-          "Imitator": 45
+          "Imitator": 46
         }
       },
-      "last_scraped": "2026-02-12T18:54:15.728839",
+      "last_scraped": "2026-02-13T17:54:37.311893",
       "tier_last_updated": "2025-12-27T15:47:53.295342"
     },
     "3547685": {
@@ -8714,10 +8784,11 @@
           "Imitator": 82,
           "Enforcer": 85,
           "Lookout": 87,
-          "Sniper": 88
+          "Sniper": 88,
+          "Robber": 88
         },
         "5": {
-          "Engineer": 78,
+          "Engineer": 83,
           "Looter": 81,
           "Techie": 80,
           "Robber": 82,
@@ -8731,11 +8802,11 @@
           "Muscle": 77
         },
         "6": {
-          "Techie": 67,
+          "Techie": 71,
           "Muscle": 77,
           "Robber": 68,
           "Enforcer": 57,
-          "Imitator": 63,
+          "Imitator": 67,
           "Pickpocket": 71,
           "Driver": 56,
           "Bomber": 59,
@@ -8759,7 +8830,7 @@
           "Cleaner": 49
         }
       },
-      "last_scraped": "2026-02-12T18:54:15.974334",
+      "last_scraped": "2026-02-13T17:54:37.560581",
       "tier_last_updated": "2025-12-27T15:47:53.295395"
     },
     "3572617": {
@@ -8804,11 +8875,12 @@
           "Hustler": 79,
           "Imitator": 80,
           "Enforcer": 83,
-          "Sniper": 86
+          "Sniper": 86,
+          "Robber": 86
         },
         "5": {
           "Looter": 76,
-          "Engineer": 72,
+          "Engineer": 79,
           "Enforcer": 74,
           "Hustler": 72,
           "Robber": 76,
@@ -8826,10 +8898,10 @@
           "Bomber": 51,
           "Muscle": 71,
           "Enforcer": 50,
-          "Imitator": 57,
+          "Imitator": 61,
           "Pickpocket": 64,
-          "Hacker": 52,
-          "Techie": 51,
+          "Hacker": 53,
+          "Techie": 55,
           "Negotiator": 50
         },
         "7": {
@@ -8849,7 +8921,7 @@
           "Imitator": 41
         }
       },
-      "last_scraped": "2026-02-12T18:54:16.295416",
+      "last_scraped": "2026-02-13T17:54:37.817082",
       "tier_last_updated": "2025-12-27T15:47:53.295420"
     },
     "3624845": {
@@ -8879,14 +8951,15 @@
           "Enforcer": 85,
           "Lookout": 86,
           "Imitator": 82,
-          "Sniper": 88
+          "Sniper": 88,
+          "Robber": 88
         },
         "5": {
           "Hustler": 77,
           "Picklock": 82,
           "Imitator": 70,
           "Techie": 79,
-          "Engineer": 76,
+          "Engineer": 82,
           "Robber": 82,
           "Looter": 80,
           "Hacker": 79,
@@ -8901,10 +8974,10 @@
           "Robber": 67,
           "Driver": 55,
           "Enforcer": 57,
-          "Imitator": 57,
+          "Imitator": 61,
           "Pickpocket": 69,
-          "Hacker": 67,
-          "Techie": 64,
+          "Hacker": 68,
+          "Techie": 68,
           "Negotiator": 51
         },
         "7": {
@@ -8924,7 +8997,7 @@
           "Cleaner": 49
         }
       },
-      "last_scraped": "2026-02-12T18:54:16.531445",
+      "last_scraped": "2026-02-13T17:54:38.082734",
       "tier_last_updated": "2025-12-28T12:40:51.344140"
     },
     "3629708": {
@@ -8958,10 +9031,11 @@
           "Enforcer": 84,
           "Hustler": 80,
           "Imitator": 81,
-          "Lookout": 86
+          "Lookout": 86,
+          "Robber": 86
         },
         "5": {
-          "Engineer": 74,
+          "Engineer": 81,
           "Enforcer": 76,
           "Robber": 79,
           "Negotiator": 61,
@@ -8980,10 +9054,10 @@
           "Bomber": 57,
           "Muscle": 73,
           "Enforcer": 52,
-          "Imitator": 53,
-          "Pickpocket": 65,
-          "Hacker": 56,
-          "Techie": 54,
+          "Imitator": 58,
+          "Pickpocket": 66,
+          "Hacker": 57,
+          "Techie": 59,
           "Negotiator": 47
         },
         "7": {
@@ -9003,7 +9077,7 @@
           "Robber": 44
         }
       },
-      "last_scraped": "2026-02-12T18:54:16.794614",
+      "last_scraped": "2026-02-13T17:54:38.332063",
       "tier_last_updated": "2025-12-27T15:47:53.295476"
     },
     "3642824": {
@@ -9033,10 +9107,11 @@
           "Sniper": 83,
           "Lookout": 84,
           "Hustler": 76,
-          "Enforcer": 82
+          "Enforcer": 82,
+          "Robber": 84
         },
         "5": {
-          "Engineer": 69,
+          "Engineer": 76,
           "Enforcer": 70,
           "Robber": 70,
           "Looter": 71,
@@ -9052,12 +9127,12 @@
         "6": {
           "Enforcer": 47,
           "Muscle": 67,
-          "Imitator": 46,
-          "Techie": 51,
-          "Pickpocket": 59,
+          "Imitator": 51,
+          "Techie": 55,
+          "Pickpocket": 60,
           "Driver": 41,
           "Robber": 56,
-          "Bomber": 47,
+          "Bomber": 48,
           "Hacker": 54,
           "Negotiator": 41
         },
@@ -9078,7 +9153,7 @@
           "Cleaner": 28
         }
       },
-      "last_scraped": "2026-02-12T18:54:17.100856",
+      "last_scraped": "2026-02-13T17:54:38.594014",
       "tier_last_updated": "2025-12-27T15:47:53.295503"
     },
     "3655519": {
@@ -9108,7 +9183,8 @@
           "Lookout": 85,
           "Enforcer": 87,
           "Hustler": 85,
-          "Sniper": 86
+          "Sniper": 86,
+          "Robber": 86
         },
         "5": {
           "Hustler": 80,
@@ -9116,8 +9192,8 @@
           "Picklock": 78,
           "Robber": 76,
           "Hacker": 69,
-          "Engineer": 73,
-          "Enforcer": 79,
+          "Engineer": 79,
+          "Enforcer": 81,
           "Car Thief": 68,
           "Techie": 71,
           "Negotiator": 66,
@@ -9130,14 +9206,14 @@
           "Robber": 61,
           "Driver": 50,
           "Bomber": 51,
-          "Imitator": 61,
-          "Pickpocket": 64,
-          "Hacker": 57,
-          "Techie": 55,
+          "Imitator": 65,
+          "Pickpocket": 65,
+          "Hacker": 59,
+          "Techie": 60,
           "Negotiator": 55
         },
         "7": {
-          "Hacker": 44,
+          "Hacker": 45,
           "Engineer": 48,
           "Bomber": 41,
           "Muscle": 48,
@@ -9153,7 +9229,7 @@
           "Cleaner": 46
         }
       },
-      "last_scraped": "2026-02-12T18:54:17.416070",
+      "last_scraped": "2026-02-13T17:54:38.902150",
       "tier_last_updated": "2025-12-27T15:47:53.295530"
     },
     "3663303": {
@@ -9186,7 +9262,8 @@
           "Imitator": 81,
           "Sniper": 86,
           "Hustler": 84,
-          "Enforcer": 86
+          "Enforcer": 86,
+          "Robber": 86
         },
         "5": {
           "Robber": 78,
@@ -9194,7 +9271,7 @@
           "Negotiator": 59,
           "Imitator": 62,
           "Hustler": 79,
-          "Engineer": 73,
+          "Engineer": 80,
           "Car Thief": 67,
           "Enforcer": 79,
           "Looter": 77,
@@ -9208,10 +9285,10 @@
           "Bomber": 55,
           "Enforcer": 60,
           "Muscle": 70,
-          "Imitator": 59,
+          "Imitator": 63,
           "Pickpocket": 66,
-          "Hacker": 55,
-          "Techie": 54,
+          "Hacker": 56,
+          "Techie": 58,
           "Negotiator": 55
         },
         "7": {
@@ -9231,7 +9308,7 @@
           "Thief": 47
         }
       },
-      "last_scraped": "2026-02-12T18:54:17.669001",
+      "last_scraped": "2026-02-13T17:54:39.309053",
       "tier_last_updated": "2025-12-27T15:47:53.295555"
     },
     "3680626": {
@@ -9264,11 +9341,12 @@
           "Sniper": 87,
           "Enforcer": 84,
           "Hustler": 81,
-          "Imitator": 81
+          "Imitator": 81,
+          "Robber": 86
         },
         "5": {
           "Looter": 78,
-          "Engineer": 73,
+          "Engineer": 80,
           "Enforcer": 76,
           "Hustler": 75,
           "Robber": 77,
@@ -9286,15 +9364,15 @@
           "Bomber": 52,
           "Muscle": 72,
           "Enforcer": 56,
-          "Imitator": 61,
+          "Imitator": 65,
           "Pickpocket": 66,
           "Hacker": 55,
-          "Techie": 53,
+          "Techie": 57,
           "Negotiator": 54
         },
         "7": {
-          "Picklock": 55,
-          "Muscle": 49,
+          "Picklock": 56,
+          "Muscle": 50,
           "Engineer": 49,
           "Hacker": 39,
           "Bomber": 41
@@ -9309,7 +9387,7 @@
           "Imitator": 46
         }
       },
-      "last_scraped": "2026-02-12T18:54:17.963984",
+      "last_scraped": "2026-02-13T17:54:39.612997",
       "tier_last_updated": "2025-12-27T15:47:53.295582"
     },
     "3687690": {
@@ -9339,12 +9417,13 @@
           "Hustler": 77,
           "Imitator": 78,
           "Enforcer": 83,
-          "Sniper": 83
+          "Sniper": 83,
+          "Robber": 85
         },
         "5": {
           "Looter": 77,
           "Hacker": 68,
-          "Engineer": 72,
+          "Engineer": 79,
           "Robber": 71,
           "Picklock": 70,
           "Techie": 68,
@@ -9359,12 +9438,12 @@
           "Pickpocket": 63,
           "Enforcer": 50,
           "Muscle": 69,
-          "Imitator": 51,
-          "Techie": 52,
+          "Imitator": 55,
+          "Techie": 56,
           "Driver": 50,
           "Robber": 57,
           "Bomber": 50,
-          "Hacker": 54,
+          "Hacker": 55,
           "Negotiator": 44
         },
         "7": {
@@ -9372,19 +9451,19 @@
           "Picklock": 49,
           "Hacker": 40,
           "Bomber": 39,
-          "Muscle": 47
+          "Muscle": 48
         },
         "8": {
           "Robber": 39,
           "Muscle": 38,
           "Thief": 46,
           "Imitator": 34,
-          "Cat Burglar": 43,
+          "Cat Burglar": 44,
           "Assassin": 39,
           "Cleaner": 47
         }
       },
-      "last_scraped": "2026-02-12T18:54:18.223739",
+      "last_scraped": "2026-02-13T17:54:39.951756",
       "tier_last_updated": "2025-12-27T15:47:53.295607"
     },
     "3711308": {
@@ -9478,14 +9557,15 @@
           "Hustler": 53,
           "Imitator": 55,
           "Enforcer": 68,
-          "Sniper": 67
+          "Sniper": 67,
+          "Robber": 70
         },
         "5": {
           "Robber": 46,
           "Looter": 43,
           "Hacker": 40,
           "Picklock": 45,
-          "Engineer": 52,
+          "Engineer": 60,
           "Techie": 46,
           "Negotiator": 29,
           "Imitator": 34,
@@ -9497,13 +9577,13 @@
         "6": {
           "Enforcer": 33,
           "Muscle": 49,
-          "Imitator": 35,
-          "Techie": 32,
-          "Pickpocket": 38,
+          "Imitator": 38,
+          "Techie": 35,
+          "Pickpocket": 39,
           "Driver": 29,
           "Robber": 35,
           "Bomber": 32,
-          "Hacker": 31,
+          "Hacker": 32,
           "Negotiator": 28
         },
         "7": {
@@ -9523,7 +9603,7 @@
           "Cleaner": 37
         }
       },
-      "last_scraped": "2026-02-12T18:54:18.462306",
+      "last_scraped": "2026-02-13T17:54:40.227154",
       "tier_last_updated": "2025-12-27T15:47:53.295632"
     },
     "1959568": {
@@ -9542,7 +9622,8 @@
       "tier": 3,
       "cpr_by_role": {
         "7": {
-          "Engineer": 70
+          "Engineer": 70,
+          "Hacker": 72
         }
       },
       "last_scraped": "",
@@ -9565,7 +9646,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-02-12T18:54:19.733152",
+    "last_updated": "2026-02-13T17:54:41.500702",
     "total_members": 154
   }
 }
