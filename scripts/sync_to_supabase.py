@@ -2,6 +2,11 @@
 """
 Sync JSON data files to Supabase database
 Handles both CPR data and Crimes data
+
+Uses bulk batch upserts for performance:
+- Collects all records into arrays first
+- Upserts in configurable chunk sizes (default 500)
+- Reduces HTTP requests from hundreds to a handful
 """
 
 import os
@@ -18,6 +23,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Max records per upsert call to stay within payload limits
+CHUNK_SIZE = 500
+
+
+def chunked(lst, size):
+    """Yield successive chunks from a list."""
+    for i in range(0, len(lst), size):
+        yield lst[i:i + size]
+
 
 class SupabaseSync:
     """Sync JSON data to Supabase database"""
@@ -30,17 +44,46 @@ class SupabaseSync:
             raise ValueError("Missing VITE_SUPABASE_URL or VITE_SUPABASE_SERVICE_ROLE_KEY environment variables")
         
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
-        logger.info("✓ Supabase client initialized")
+        logger.info("Supabase client initialized")
+    
+    def _bulk_upsert(self, table: str, records: list, on_conflict: str) -> int:
+        """
+        Bulk upsert records in chunks.
+        
+        Args:
+            table: Table name
+            records: List of record dicts
+            on_conflict: Conflict column(s) for upsert
+            
+        Returns:
+            Number of records successfully upserted
+        """
+        if not records:
+            return 0
+        
+        total = 0
+        chunks = list(chunked(records, CHUNK_SIZE))
+        
+        for i, chunk in enumerate(chunks):
+            try:
+                self.client.table(table).upsert(
+                    chunk,
+                    on_conflict=on_conflict
+                ).execute()
+                total += len(chunk)
+                if len(chunks) > 1:
+                    logger.info(f"  {table}: chunk {i+1}/{len(chunks)} ({len(chunk)} records)")
+            except Exception as e:
+                logger.error(f"  {table}: chunk {i+1} failed: {e}")
+        
+        return total
     
     def sync_cpr_data(self, json_path: str) -> dict:
         """
-        Sync CPR data from JSON to Supabase
+        Sync CPR data from JSON to Supabase using bulk upserts.
         
-        Args:
-            json_path: Path to cpr_database.json
-            
-        Returns:
-            dict with sync statistics
+        Collects all member records and CPR records into arrays,
+        then upserts each in bulk (2 HTTP requests instead of hundreds).
         """
         logger.info(f"Reading CPR data from {json_path}")
         
@@ -50,84 +93,69 @@ class SupabaseSync:
         if 'members' not in data:
             raise ValueError("Invalid CPR data format - missing 'members' object")
         
-        members_count = 0
-        cpr_records_count = 0
+        now = datetime.now().isoformat()
+        all_members = []
+        all_cpr_records = []
         errors = []
         
+        # Phase 1: Collect all records into arrays
         for member_id, member_data in data['members'].items():
             try:
-                # Parse last_scraped - handle empty strings
                 last_scraped = member_data.get('last_scraped', '')
-                if last_scraped and last_scraped.strip():
-                    # Valid timestamp string
-                    last_scraped_value = last_scraped
-                else:
-                    # Empty or missing - use NULL
-                    last_scraped_value = None
+                last_scraped_value = last_scraped if last_scraped and last_scraped.strip() else None
                 
-                # Upsert member
-                member_result = self.client.table('members').upsert({
+                all_members.append({
                     'member_id': member_id,
                     'member_name': member_data.get('name', f'Member {member_id}'),
-                    'tier': member_data.get('tier', -1),  # Use -1 for members with no data
+                    'tier': member_data.get('tier', -1),
                     'last_scraped': last_scraped_value,
-                    'updated_at': datetime.now().isoformat()
-                }, on_conflict='member_id').execute()
+                    'updated_at': now
+                })
                 
-                members_count += 1
-                
-                # Upsert CPR records (only if they exist)
                 cpr_by_role = member_data.get('cpr_by_role', {})
-                cpr_records = []
-                
                 for level, roles in cpr_by_role.items():
                     for role, cpr in roles.items():
                         if isinstance(cpr, (int, float)):
-                            cpr_records.append({
+                            all_cpr_records.append({
                                 'member_id': member_id,
                                 'difficulty_level': int(level),
                                 'role_name': role,
                                 'cpr_value': float(cpr),
-                                'updated_at': datetime.now().isoformat()
+                                'updated_at': now
                             })
-                
-                if cpr_records:
-                    cpr_result = self.client.table('member_cpr').upsert(
-                        cpr_records,
-                        on_conflict='member_id,difficulty_level,role_name'
-                    ).execute()
-                    cpr_records_count += len(cpr_records)
-                
-                if members_count % 10 == 0:
-                    logger.info(f"Progress: {members_count} members, {cpr_records_count} CPR records")
-                    
+                            
             except Exception as e:
-                error_msg = f"Error syncing member {member_id}: {str(e)}"
+                error_msg = f"Error processing member {member_id}: {str(e)}"
                 logger.error(error_msg)
                 errors.append(error_msg)
+        
+        logger.info(f"Collected {len(all_members)} members, {len(all_cpr_records)} CPR records")
+        
+        # Phase 2: Bulk upsert
+        members_count = self._bulk_upsert('members', all_members, 'member_id')
+        cpr_count = self._bulk_upsert('member_cpr', all_cpr_records, 'member_id,difficulty_level,role_name')
         
         result = {
             'type': 'CPR',
             'members_synced': members_count,
-            'cpr_records_synced': cpr_records_count,
+            'cpr_records_synced': cpr_count,
             'errors': errors
         }
         
-        logger.info(f"✓ CPR sync complete: {members_count} members, {cpr_records_count} CPR records")
+        logger.info(f"CPR sync complete: {members_count} members, {cpr_count} CPR records")
         if errors:
-            logger.warning(f"⚠ {len(errors)} errors occurred")
+            logger.warning(f"{len(errors)} errors occurred")
         
         return result
     
     def sync_crimes_data(self, json_path: str) -> dict:
         """
-        Sync Crimes data from JSON to Supabase
+        Sync Crimes data from JSON to Supabase using bulk upserts.
         
-        Args:
-            json_path: Path to crimes_database.json
-            
-        Returns:
-            dict with sync statistics
+        Collects all crime, slot, reward item, and required item records
+        into arrays, then upserts each table in bulk.
+        Previous: ~1,586 HTTP requests (793 crimes + 793 slot batches)
+        Now: ~8 HTTP requests (4 tables x ~2 chunks each)
         """
         logger.info(f"Reading crimes data from {json_path}")
         
@@ -137,14 +165,20 @@ class SupabaseSync:
         if 'crimes' not in data:
             raise ValueError("Invalid crimes data format - missing 'crimes' object")
         
-        crimes_count = 0
-        slots_count = 0
+        now = datetime.now().isoformat()
+        all_crimes = []
+        all_slots = []
+        all_reward_items = []
+        all_required_items = []
         errors = []
         
+        # Phase 1: Collect all records into arrays
         for crime_id, crime_data in data['crimes'].items():
             try:
-                # Upsert crime
-                crime_result = self.client.table('crimes').upsert({
+                # Safely extract rewards
+                rewards = crime_data.get('rewards') or {}
+                
+                all_crimes.append({
                     'crime_id': crime_id,
                     'name': crime_data.get('name', 'Unknown'),
                     'difficulty': crime_data.get('difficulty', 1),
@@ -157,82 +191,108 @@ class SupabaseSync:
                     'expired_at': crime_data.get('expired_at'),
                     'total_slots': crime_data.get('total_slots', 0),
                     'filled_slots': crime_data.get('filled_slots', 0),
-                    'rewards_money': crime_data.get('rewards', {}).get('money', 0) if crime_data.get('rewards') else 0,
-                    'rewards_respect': crime_data.get('rewards', {}).get('respect', 0) if crime_data.get('rewards') else 0,
-                    'rewards_items': json.dumps(crime_data.get('rewards', {}).get('items', [])) if crime_data.get('rewards') else None,
+                    'rewards_money': rewards.get('money', 0),
+                    'rewards_respect': rewards.get('respect', 0),
+                    'rewards_items': json.dumps(rewards.get('items', [])) if rewards.get('items') else None,
                     'last_updated': crime_data.get('last_updated'),
                     'first_seen': crime_data.get('first_seen'),
-                    'updated_at': datetime.now().isoformat()
-                }, on_conflict='crime_id').execute()
+                    'updated_at': now
+                })
                 
-                crimes_count += 1
-                
-                # UPSERT slots instead of delete/insert
-                # This only updates changed slots, much faster
+                # Collect slots
                 slots = crime_data.get('slots', [])
-                slot_records = []
-                
                 for slot in slots:
-                    # Safely handle null/missing user and item_requirement
                     user = slot.get('user') or {}
                     item_req = slot.get('item_requirement') or {}
                     item_outcome = user.get('item_outcome') or {}
                     
-                    slot_record = {
+                    all_slots.append({
                         'crime_id': crime_id,
                         'position': slot.get('position'),
                         'position_id': slot.get('position_id'),
                         'position_number': slot.get('position_number'),
                         'checkpoint_pass_rate': slot.get('checkpoint_pass_rate'),
-                        
-                        # User info (may be null for empty slots)
                         'user_id': str(user.get('id')) if user.get('id') else None,
                         'user_name': user.get('name'),
                         'joined_at': user.get('joined_at'),
                         'user_outcome': user.get('outcome'),
                         'user_progress': user.get('progress'),
-                        
-                        # Item requirement
                         'item_requirement_id': str(item_req.get('id')) if item_req.get('id') else None,
                         'item_requirement_name': item_req.get('name'),
                         'item_requirement_is_reusable': item_req.get('is_reusable', False) if item_req else False,
                         'item_requirement_is_available': item_req.get('is_available', False) if item_req else False,
-                        
-                        # Item outcome
                         'item_outcome_id': str(item_outcome.get('item_id')) if item_outcome.get('item_id') else None,
                         'item_outcome_outcome': item_outcome.get('outcome'),
-                        
-                        'updated_at': datetime.now().isoformat()
-                    }
-                    slot_records.append(slot_record)
+                        'updated_at': now
+                    })
+                    
+                    # Collect required items (items needed for crime slots)
+                    if item_req.get('id'):
+                        was_consumed = item_outcome.get('outcome') == 'used'
+                        all_required_items.append({
+                            'crime_id': crime_id,
+                            'position': slot.get('position'),
+                            'position_id': slot.get('position_id'),
+                            'position_number': slot.get('position_number'),
+                            'item_id': str(item_req['id']),
+                            'item_name': item_req.get('name'),
+                            'is_reusable': item_req.get('is_reusable', False),
+                            'is_available': item_req.get('is_available', False),
+                            'user_id': str(user.get('id')) if user.get('id') else None,
+                            'outcome_owned_by': item_outcome.get('owned_by'),
+                            'outcome_item_id': str(item_outcome.get('item_id')) if item_outcome.get('item_id') else None,
+                            'outcome_item_uid': str(item_outcome.get('item_uid')) if item_outcome.get('item_uid') else None,
+                            'outcome': item_outcome.get('outcome'),
+                            'was_consumed': was_consumed,
+                            'unit_value': 0,
+                            'created_at': now,
+                            'updated_at': now
+                        })
                 
-                if slot_records:
-                    # UPSERT: Updates existing slots, inserts new ones
-                    # Much more efficient than delete/insert
-                    slots_result = self.client.table('crime_slots').upsert(
-                        slot_records,
-                        on_conflict='crime_id,position_id'
-                    ).execute()
-                    slots_count += len(slot_records)
-                
-                if crimes_count % 50 == 0:
-                    logger.info(f"Progress: {crimes_count} crimes, {slots_count} slots")
+                # Collect reward items
+                reward_items = rewards.get('items', [])
+                for reward_item in reward_items:
+                    item_id = reward_item.get('id')
+                    if not item_id:
+                        continue
+                    all_reward_items.append({
+                        'crime_id': crime_id,
+                        'item_id': str(item_id),
+                        'item_name': reward_item.get('name'),
+                        'quantity': reward_item.get('quantity', 1),
+                        'unit_value': 0,
+                        'total_value': 0,
+                        'created_at': now,
+                        'updated_at': now
+                    })
                     
             except Exception as e:
-                error_msg = f"Error syncing crime {crime_id}: {str(e)}"
+                error_msg = f"Error processing crime {crime_id}: {str(e)}"
                 logger.error(error_msg)
                 errors.append(error_msg)
+        
+        logger.info(f"Collected {len(all_crimes)} crimes, {len(all_slots)} slots, "
+                     f"{len(all_reward_items)} reward items, {len(all_required_items)} required items")
+        
+        # Phase 2: Bulk upsert all tables
+        crimes_count = self._bulk_upsert('crimes', all_crimes, 'crime_id')
+        slots_count = self._bulk_upsert('crime_slots', all_slots, 'crime_id,position_id')
+        reward_count = self._bulk_upsert('crime_reward_items', all_reward_items, 'crime_id,item_id')
+        required_count = self._bulk_upsert('crime_required_items', all_required_items, 'crime_id,position_id')
         
         result = {
             'type': 'Crimes',
             'crimes_synced': crimes_count,
             'slots_synced': slots_count,
+            'reward_items_synced': reward_count,
+            'required_items_synced': required_count,
             'errors': errors
         }
         
-        logger.info(f"✓ Crimes sync complete: {crimes_count} crimes, {slots_count} slots")
+        logger.info(f"Crimes sync complete: {crimes_count} crimes, {slots_count} slots, "
+                     f"{reward_count} reward items, {required_count} required items")
         if errors:
-            logger.warning(f"⚠ {len(errors)} errors occurred")
+            logger.warning(f"{len(errors)} errors occurred")
         
         return result
 
@@ -277,6 +337,8 @@ def main():
             else:
                 logger.info(f"  Crimes synced: {result['crimes_synced']}")
                 logger.info(f"  Slots synced: {result['slots_synced']}")
+                logger.info(f"  Reward items synced: {result.get('reward_items_synced', 0)}")
+                logger.info(f"  Required items synced: {result.get('required_items_synced', 0)}")
             
             if result['errors']:
                 logger.info(f"  Errors: {len(result['errors'])}")
@@ -287,7 +349,7 @@ def main():
             logger.error(f"Sync completed with {total_errors} errors")
             sys.exit(1)
         else:
-            logger.info("✓ All data synced successfully")
+            logger.info("All data synced successfully")
             sys.exit(0)
             
     except Exception as e:
