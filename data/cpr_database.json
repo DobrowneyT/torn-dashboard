@@ -9161,7 +9161,7 @@
     },
     "3655519": {
       "name": "DerangedEvil",
-      "tier": 6,
+      "tier": 5,
       "cpr_by_role": {
         "1": {
           "Picklock": 94,
@@ -9233,7 +9233,7 @@
         }
       },
       "last_scraped": "2026-02-16T18:43:19.939764",
-      "tier_last_updated": "2025-12-27T15:47:53.295530"
+      "tier_last_updated": "2026-02-16T18:43:22.453871"
     },
     "3663303": {
       "name": "mcswagger",
@@ -9651,19 +9651,19 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-02-15T18:43:18.587634"
+      "tier_last_updated": "2026-02-16T18:43:22.454009"
     },
     "669537": {
       "name": "Nurv",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-02-16T18:43:22.454036"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-02-16T18:43:21.809619",
+    "last_updated": "2026-02-16T18:43:22.454680",
     "total_members": 156
   }
 }
