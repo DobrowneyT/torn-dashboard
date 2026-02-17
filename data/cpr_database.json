@@ -9651,19 +9651,19 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-02-16T18:43:22.454009"
+      "tier_last_updated": "2026-02-17T18:43:29.098576"
     },
     "669537": {
       "name": "Nurv",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-02-16T18:43:22.454036"
+      "tier_last_updated": "2026-02-17T18:43:29.098608"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-02-17T18:43:27.841296",
+    "last_updated": "2026-02-17T18:43:29.099233",
     "total_members": 156
   }
 }
