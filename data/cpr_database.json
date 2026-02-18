@@ -9648,26 +9648,26 @@
     },
     "2453050": {
       "name": "Wraith_Paradox",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "5": {
           "Hacker": 83
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-02-17T18:43:29.098576"
+      "tier_last_updated": "2026-02-18T18:43:29.551579"
     },
     "669537": {
       "name": "Nurv",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-02-17T18:43:29.098608"
+      "tier_last_updated": "2026-02-18T18:43:29.551623"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-02-18T18:43:28.151115",
+    "last_updated": "2026-02-18T18:43:29.552435",
     "total_members": 156
   }
 }
