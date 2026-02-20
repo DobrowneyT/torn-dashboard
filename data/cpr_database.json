@@ -9666,19 +9666,19 @@
     },
     "669537": {
       "name": "Nurv",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "7": {
           "Hacker": 79
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-02-19T18:43:30.020683"
+      "tier_last_updated": "2026-02-20T18:43:38.850625"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-02-20T18:43:37.682217",
+    "last_updated": "2026-02-20T18:43:38.850783",
     "total_members": 156
   }
 }
