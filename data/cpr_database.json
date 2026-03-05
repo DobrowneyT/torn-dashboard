@@ -1142,7 +1142,7 @@
     },
     "1654809": {
       "name": "Reece",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 96,
@@ -1217,7 +1217,7 @@
         }
       },
       "last_scraped": "2026-03-05T18:43:11.895934",
-      "tier_last_updated": "2025-12-27T15:47:53.293352"
+      "tier_last_updated": "2026-03-05T18:43:34.871774"
     },
     "1656752": {
       "name": "GJBP",
@@ -9701,12 +9701,12 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-04T18:43:58.049409"
+      "tier_last_updated": "2026-03-05T18:43:34.874153"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-05T18:43:33.389907",
+    "last_updated": "2026-03-05T18:43:34.874741",
     "total_members": 157
   }
 }
