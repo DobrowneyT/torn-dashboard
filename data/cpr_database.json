@@ -9698,19 +9698,19 @@
     },
     "2443436": {
       "name": "Darkstream",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "5": {
           "Hacker": 86
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-05T18:43:34.874153"
+      "tier_last_updated": "2026-03-06T18:43:19.116439"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-06T18:43:18.298911",
+    "last_updated": "2026-03-06T18:43:19.117084",
     "total_members": 157
   }
 }
