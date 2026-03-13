@@ -9725,19 +9725,19 @@
     },
     "2891014": {
       "name": "bandizzle",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "7": {
           "Hacker": 73
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-12T17:43:26.423828"
+      "tier_last_updated": "2026-03-13T17:43:21.624222"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-13T17:43:20.484524",
+    "last_updated": "2026-03-13T17:43:21.624414",
     "total_members": 158
   }
 }
