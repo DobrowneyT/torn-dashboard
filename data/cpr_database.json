@@ -9743,69 +9743,69 @@
     },
     "3359654": {
       "name": "EdgingGooner",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "7": {
           "Picklock": 70
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-18T17:43:15.803383"
+      "tier_last_updated": "2026-03-19T17:43:19.785734"
     },
     "3521451": {
       "name": "Caz27",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-18T17:43:15.803428"
+      "tier_last_updated": "2026-03-19T17:43:19.785043"
     },
     "3537137": {
       "name": "Leadeatinmaniac",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "3": {
           "Negotiator": 89
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-18T17:43:15.803463"
+      "tier_last_updated": "2026-03-19T17:43:19.785075"
     },
     "3709844": {
       "name": "Slayers",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-18T17:43:15.803494"
+      "tier_last_updated": "2026-03-19T17:43:19.785101"
     },
     "3751400": {
       "name": "Paddeyy",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "3": {
           "Muscle": 89
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-18T17:43:15.803527"
+      "tier_last_updated": "2026-03-19T17:43:19.785125"
     },
     "2892606": {
       "name": "P_R",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-18T17:43:15.803557"
+      "tier_last_updated": "2026-03-19T17:43:19.785170"
     },
     "3110039": {
       "name": "-STIG-",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-18T17:43:15.803591"
+      "tier_last_updated": "2026-03-19T17:43:19.785199"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-19T17:43:18.973445",
+    "last_updated": "2026-03-19T17:43:19.785897",
     "total_members": 165
   }
 }
