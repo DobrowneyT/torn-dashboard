@@ -5204,7 +5204,7 @@
     },
     "2808985": {
       "name": "Sexy-Alexis",
-      "tier": 2,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Looter": 97,
@@ -5276,7 +5276,7 @@
         }
       },
       "last_scraped": "2026-03-20T17:43:11.009800",
-      "tier_last_updated": "2025-12-27T15:47:53.294516"
+      "tier_last_updated": "2026-03-20T17:43:20.392844"
     },
     "2816329": {
       "name": "Crescent57",
@@ -9758,7 +9758,7 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-19T17:43:19.785043"
+      "tier_last_updated": "2026-03-20T17:43:20.394219"
     },
     "3537137": {
       "name": "Leadeatinmaniac",
@@ -9773,14 +9773,14 @@
     },
     "3709844": {
       "name": "Slayers",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "5": {
           "Engineer": 75
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-19T17:43:19.785101"
+      "tier_last_updated": "2026-03-20T17:43:20.394270"
     },
     "3751400": {
       "name": "Paddeyy",
@@ -9795,26 +9795,26 @@
     },
     "2892606": {
       "name": "P_R",
-      "tier": -1,
+      "tier": 3,
       "cpr_by_role": {
         "8": {
           "Robber": 60
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-19T17:43:19.785170"
+      "tier_last_updated": "2026-03-20T17:43:20.394875"
     },
     "3110039": {
       "name": "-STIG-",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-19T17:43:19.785199"
+      "tier_last_updated": "2026-03-20T17:43:20.394317"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-20T17:43:19.314496",
+    "last_updated": "2026-03-20T17:43:20.395035",
     "total_members": 165
   }
 }
