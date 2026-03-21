@@ -1,4 +1,4 @@
-# Torn City OC 2.0 Management System
+# Torn City OC Management System
 
 Automated crime tracking, CPR management, and payout processing for Torn City organized crime factions.
 

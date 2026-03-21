@@ -16,8 +16,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.utils.json_storage import JSONStorageManager
-from scripts.utils.google_sheets import GoogleSheetsManager
 from scripts.utils.torn_api import TornAPI, TornAPIError
+
+SKIP_GOOGLE_SHEETS = os.environ.get('SKIP_GOOGLE_SHEETS', '').lower() in ('true', '1', 'yes')
 
 # Set up logging
 logging.basicConfig(
@@ -36,7 +37,12 @@ class CrimeDataUpdater:
         """Initialize the crime updater"""
         testing_mode = os.environ.get('TESTING_MODE') == 'true'
         self.storage = JSONStorageManager(data_dir='data', auto_commit=not testing_mode)
-        self.sheets = GoogleSheetsManager()
+        self.sheets = None
+        if not SKIP_GOOGLE_SHEETS:
+            from scripts.utils.google_sheets import GoogleSheetsManager
+            self.sheets = GoogleSheetsManager()
+        else:
+            logger.info("Google Sheets integration SKIPPED (SKIP_GOOGLE_SHEETS=true)")
         
         # Get API key
         self.api_key = os.environ.get('TORN_API_KEY')
@@ -417,13 +423,16 @@ class CrimeDataUpdater:
         # Save updated database
         self._save_crimes_database(crimes_db)
         
-        # Update Google Sheets
-        try:
-            self._update_sheets_with_crimes(crimes_db, stats)
-        except Exception as e:
-            logger.error(f"Failed to update Google Sheets: {e}")
-            import traceback
-            traceback.print_exc()
+        # Update Google Sheets (if enabled)
+        if self.sheets:
+            try:
+                self._update_sheets_with_crimes(crimes_db, stats)
+            except Exception as e:
+                logger.error(f"Failed to update Google Sheets: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            logger.info("⏭ Google Sheets update skipped")
         
         # Log summary
         logger.info("="*60)
@@ -877,12 +886,16 @@ class CrimeDataUpdater:
 def main():
     """Main execution function"""
     try:
-        sheets = GoogleSheetsManager()
         api_key = os.environ.get('TORN_API_KEY')
-        
-        # Sync members first
-        logger.info("Syncing faction members...")
-        sheets.sync_faction_members(api_key)
+
+        if not SKIP_GOOGLE_SHEETS:
+            from scripts.utils.google_sheets import GoogleSheetsManager
+            sheets = GoogleSheetsManager()
+            # Sync members first
+            logger.info("Syncing faction members...")
+            sheets.sync_faction_members(api_key)
+        else:
+            logger.info("⏭ Google Sheets member sync skipped")
 
         updater = CrimeDataUpdater()
         stats = updater.update_all_crimes()

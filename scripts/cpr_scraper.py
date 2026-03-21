@@ -17,8 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.utils.json_storage import JSONStorageManager
-from scripts.utils.google_sheets import GoogleSheetsManager
 from scripts.assign_tiers import TierAssignment
+
+SKIP_GOOGLE_SHEETS = os.environ.get('SKIP_GOOGLE_SHEETS', '').lower() in ('true', '1', 'yes')
 from scripts.utils.torn_api import TornAPI, TornAPIError
 from scripts.utils.gist_updater import update_gist
 
@@ -36,7 +37,12 @@ class CPRScraper:
     def __init__(self):
         """Initialize the CPR scraper"""
         self.storage = JSONStorageManager(data_dir='data', auto_commit=True)
-        self.sheets = GoogleSheetsManager()
+        self.sheets = None
+        if not SKIP_GOOGLE_SHEETS:
+            from scripts.utils.google_sheets import GoogleSheetsManager
+            self.sheets = GoogleSheetsManager()
+        else:
+            logger.info("Google Sheets integration SKIPPED (SKIP_GOOGLE_SHEETS=true)")
         self.member_api_keys = self._load_api_keys()
         
         logger.info("CPR Scraper initialized")
@@ -662,25 +668,28 @@ def main():
                         'cpr_by_difficulty': member_data.get('cpr_by_role', {})
                     }
                 
-                scraper.sheets.update_member_cpr_scores(cpr_scores)
-                
-                # Update tier data (extract tier assignments)
-                tier_data = {}
-                for member_id, member_data in cpr_data['members'].items():
-                    tier_data[member_id] = {
-                        'tier': member_data.get('tier', -1),
-                        'previous_tier': member_data.get('tier', -1),  # We don't track this in new system
-                        'changed': False,  # Already processed
-                        'total_crimes': 0,  # Not stored in CPR data
-                        'requirements_met': 0,
-                        'requirements_needed': 0,
-                        'manual_override': False,
-                        'assignment_method': 'upgrade_only',
-                        'last_updated': member_data.get('tier_last_updated', '')
-                    }
-                
-                scraper.sheets.update_member_tier_data(tier_data)
-                logger.info("✓ Google Sheets updated successfully")
+                if scraper.sheets:
+                    scraper.sheets.update_member_cpr_scores(cpr_scores)
+
+                    # Update tier data (extract tier assignments)
+                    tier_data = {}
+                    for member_id, member_data in cpr_data['members'].items():
+                        tier_data[member_id] = {
+                            'tier': member_data.get('tier', -1),
+                            'previous_tier': member_data.get('tier', -1),
+                            'changed': False,
+                            'total_crimes': 0,
+                            'requirements_met': 0,
+                            'requirements_needed': 0,
+                            'manual_override': False,
+                            'assignment_method': 'upgrade_only',
+                            'last_updated': member_data.get('tier_last_updated', '')
+                        }
+
+                    scraper.sheets.update_member_tier_data(tier_data)
+                    logger.info("✓ Google Sheets updated successfully")
+                else:
+                    logger.info("⏭ Google Sheets update skipped")
                 
             except Exception as e:
                 logger.error(f"Error updating Google Sheets: {e}")

@@ -50,12 +50,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Create Google credentials file
-      env:
-        GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
-      run: |
-        echo "$GOOGLE_DRIVE_CREDENTIALS" > google_credentials.json
-    
     - name: Verify API keys configuration
       env:
         MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
@@ -72,24 +66,13 @@ jobs:
           print('⚠ Warning: No member API keys found!')
         "
         
-    - name: Update Sheets status to Processing
-      env:
-        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
-      run: |
-        python -c "
-        from scripts.utils.google_sheets import GoogleSheetsManager
-        sheets = GoogleSheetsManager()
-        sheets.update_status('Processing CPR scrape...')
-        print('✓ Status updated to Processing')
-        "
-        
     - name: Run CPR scraper
       env:
-        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        SKIP_GOOGLE_SHEETS: 'true'
         MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
         MEMBER_FILTER: ${{ github.event.inputs.member_filter }}
-        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}   
-        GIST_TOKEN: ${{ secrets.GIST_TOKEN }}     
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         GIST_ID: ${{ secrets.GIST_ID }}
       run: |
         python scripts/cpr_scraper.py
@@ -102,32 +85,6 @@ jobs:
       run: |
         echo "Syncing CPR data to Supabase database..."
         python scripts/sync_to_supabase.py cpr
-        
-    - name: Update Sheets status to Complete
-      if: success()
-      env:
-        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
-      run: |
-        python -c "
-        from scripts.utils.google_sheets import GoogleSheetsManager
-        from datetime import datetime
-        sheets = GoogleSheetsManager()
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        sheets.update_status(f'✓ CPR scrape completed at {timestamp}')
-        print('✓ Status updated to Complete')
-        "
-        
-    - name: Update Sheets status to Failed
-      if: failure()
-      env:
-        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
-      run: |
-        python -c "
-        from scripts.utils.google_sheets import GoogleSheetsManager
-        sheets = GoogleSheetsManager()
-        sheets.update_status('✗ CPR scrape failed - check GitHub Actions logs')
-        print('✗ Status updated to Failed')
-        "
         
     - name: Upload logs as artifact
       if: always()
