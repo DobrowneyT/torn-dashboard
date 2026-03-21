@@ -9755,14 +9755,14 @@
     },
     "3521451": {
       "name": "Caz27",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "4": {
           "Muscle": 89
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-20T17:43:20.394219"
+      "tier_last_updated": "2026-03-21T17:43:15.722537"
     },
     "3537137": {
       "name": "Leadeatinmaniac",
@@ -9813,12 +9813,12 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-20T17:43:20.394317"
+      "tier_last_updated": "2026-03-21T17:43:15.722628"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-21T17:43:14.420905",
+    "last_updated": "2026-03-21T17:43:15.723314",
     "total_members": 165
   }
 }
