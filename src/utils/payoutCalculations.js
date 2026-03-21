@@ -138,53 +138,81 @@ function calculateSitOutPenalty(timeSpent, baseTickets) {
 }
 
 /**
- * Calculate theoretical payout for a member (equal share of participated crimes AFTER faction cut)
- * 
- * For each crime the member participated in:
- * 1. Take total crime value (money + item rewards - item costs)
- * 2. Subtract faction cut (e.g., 20%)
- * 3. Divide remaining equally among all members who participated in that crime
- * 
- * @param {string} memberId - Member ID
- * @param {Object} crimesMap - Crimes data
- * @param {number} fromTimestamp - Start of period (only count crimes executed >= this)
- * @param {number} toTimestamp - End of period (only count crimes executed < this)
- * @param {number} factionCutPercent - Faction cut as decimal (e.g., 0.20)
+ * Calculate theoretical payout for a member (equal share of the member pool based on crime participation)
+ *
+ * This distributes the member pool proportionally by the number of successful crimes
+ * each member participated in, relative to total participation slots.
+ * The sum of all theoretical payouts equals the member pool.
+ *
+ * @param {number} memberCrimesCount - Number of successful crimes this member participated in
+ * @param {number} totalParticipationSlots - Sum of all members' crime counts
+ * @param {number} memberPayoutTotal - Total pool available for members
+ * @returns {number} Theoretical payout for this member
  */
-function calculateTheoreticalPayout(memberId, crimesMap, fromTimestamp, toTimestamp, factionCutPercent) {
-  let total = 0
+function calculateTheoreticalPayout(memberCrimesCount, totalParticipationSlots, memberPayoutTotal) {
+  if (totalParticipationSlots <= 0 || memberCrimesCount <= 0) return 0
+  return Math.floor((memberCrimesCount / totalParticipationSlots) * memberPayoutTotal)
+}
 
-  for (const crime of Object.values(crimesMap)) {
-    // Only count successful crimes executed within the time range
-    if (crime.status !== 'Successful') continue
+/**
+ * Validate that no member appears in two active (non-completed) crimes at the same time.
+ * Members cannot be in two OC crimes simultaneously in Torn, so any overlap indicates a data issue.
+ *
+ * @param {Object} crimesData - { crimes: { [crime_id]: crimeObject } }
+ * @returns {{ valid: boolean, warnings: string[] }}
+ */
+export function validateNoOverlappingCrimes(crimesData) {
+  const crimes = crimesData?.crimes || {}
+  const warnings = []
 
-    const executedAt = crime.executed_at || 0
-    // Use >= fromTimestamp and < toTimestamp to avoid double-counting at boundaries
-    if (executedAt < fromTimestamp || executedAt >= toTimestamp) continue
+  // Build intervals per member: { userId: [{ crimeId, start, end }] }
+  const memberIntervals = {}
 
+  for (const [crimeId, crime] of Object.entries(crimes)) {
     const slots = crime.slots || []
-    const memberSlot = slots.find(s =>
-      s.user && s.user.id && s.user.id.toString() === memberId.toString()
-    )
+    const executedAt = crime.executed_at || 0
+    const status = crime.status
 
-    if (memberSlot) {
-      const filledSlots = slots.filter(s => s.user).length
-      if (filledSlots > 0) {
-        // Calculate crime value
-        const crimeValue = (crime.rewards?.money || 0) +
-          (crime.item_reward_value || 0) -
-          (crime.item_cost_value || 0)
+    for (const slot of slots) {
+      if (!slot.user || !slot.user.id) continue
+      const userId = slot.user.id.toString()
+      const joinedAt = slot.user.joined_at
+      if (!joinedAt) continue
 
-        // Apply faction cut FIRST, then split among members
-        const afterFactionCut = crimeValue * (1 - factionCutPercent)
-        const memberShare = afterFactionCut / filledSlots
+      // End of participation is when the crime completed (or now if still in progress)
+      let endTime
+      if (status === 'Successful' || status === 'Failed' || status === 'Failure') {
+        endTime = executedAt
+      } else {
+        endTime = Math.floor(Date.now() / 1000)
+      }
 
-        total += memberShare
+      if (!memberIntervals[userId]) memberIntervals[userId] = []
+      memberIntervals[userId].push({ crimeId, start: joinedAt, end: endTime })
+    }
+  }
+
+  // Check for overlaps within each member
+  for (const [userId, intervals] of Object.entries(memberIntervals)) {
+    if (intervals.length < 2) continue
+
+    // Sort by start time
+    const sorted = [...intervals].sort((a, b) => a.start - b.start)
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        if (sorted[j].start < sorted[i].end) {
+          warnings.push(
+            `Member ${userId}: overlap between crime ${sorted[i].crimeId} ` +
+            `(${sorted[i].start}-${sorted[i].end}) and crime ${sorted[j].crimeId} ` +
+            `(${sorted[j].start}-${sorted[j].end})`
+          )
+        }
       }
     }
   }
 
-  return Math.floor(total)
+  return { valid: warnings.length === 0, warnings }
 }
 
 /**
@@ -410,14 +438,17 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     member.baseTickets = baseTickets
     member.sitOutPenalty = sitOutPenalty
     member.adjustedTickets = Math.max(0, baseTickets + sitOutPenalty)
+  }
 
-    // Calculate theoretical payout (equal share of participated crimes AFTER faction cut)
+  // Calculate total participation slots (sum of all members' successful crime counts)
+  const totalParticipationSlots = memberArray.reduce((sum, m) => sum + m.crimesCount, 0)
+
+  // Calculate theoretical payout for each member (proportional share of pool by crime participation)
+  for (const member of memberArray) {
     member.theoreticalPayout = calculateTheoreticalPayout(
-      member.userId.toString(),
-      crimes,
-      fromTimestamp,
-      toTimestamp,
-      factionCutPercent
+      member.crimesCount,
+      totalParticipationSlots,
+      memberPayoutTotal
     )
   }
 

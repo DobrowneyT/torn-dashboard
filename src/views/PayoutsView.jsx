@@ -26,6 +26,12 @@ export default function PayoutsView() {
   const [memberCrimes, setMemberCrimes] = useState([])
   const [loadingMemberCrimes, setLoadingMemberCrimes] = useState(false)
 
+  // Week comparison
+  const [compareMode, setCompareMode] = useState(false)
+  const [compareWeekIds, setCompareWeekIds] = useState([null, null])
+  const [compareData, setCompareData] = useState([null, null])
+  const [loadingCompare, setLoadingCompare] = useState(false)
+
   // Persist state
   useEffect(() => {
     setPersistedState({ viewMode, period, sortBy })
@@ -218,6 +224,37 @@ export default function PayoutsView() {
     }
   }, [payoutWeeks, memberPayouts, aggregatedPayouts, period])
 
+  async function loadCompareWeek(index, weekId) {
+    const newIds = [...compareWeekIds]
+    newIds[index] = weekId
+    setCompareWeekIds(newIds)
+
+    if (!weekId) {
+      const newData = [...compareData]
+      newData[index] = null
+      setCompareData(newData)
+      return
+    }
+
+    setLoadingCompare(true)
+    try {
+      const { data, error } = await supabase
+        .from('oc_payout_members')
+        .select('*')
+        .eq('week_id', weekId)
+        .order('payout', { ascending: false })
+
+      if (error) throw error
+      const newData = [...compareData]
+      newData[index] = data || []
+      setCompareData(newData)
+    } catch (err) {
+      console.error('Error loading compare week:', err)
+    } finally {
+      setLoadingCompare(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="card">
@@ -266,6 +303,67 @@ export default function PayoutsView() {
           </div>
         </div>
       </div>
+
+      {/* Compare Weeks Toggle */}
+      {payoutWeeks.length >= 2 && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => {
+              setCompareMode(!compareMode)
+              if (compareMode) {
+                setCompareWeekIds([null, null])
+                setCompareData([null, null])
+              }
+            }}
+            className={`text-sm px-4 py-2 rounded ${
+              compareMode
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            {compareMode ? 'Exit Compare Mode' : 'Compare Weeks'}
+          </button>
+        </div>
+      )}
+
+      {/* Compare Weeks Section */}
+      {compareMode && (
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Compare Weeks</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {[0, 1].map(i => (
+              <div key={i}>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  Week {i + 1}
+                </label>
+                <select
+                  value={compareWeekIds[i] || ''}
+                  onChange={e => loadCompareWeek(i, e.target.value ? parseInt(e.target.value) : null)}
+                  className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 text-sm"
+                >
+                  <option value="">Select a week...</option>
+                  {payoutWeeks.map(w => (
+                    <option key={w.id} value={w.id}>
+                      {w.week_start} to {w.week_end} — {formatCurrencyShort(w.member_payout_total || 0)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          {loadingCompare && (
+            <div className="text-center py-4 text-gray-500">Loading...</div>
+          )}
+
+          {compareData[0] && compareData[1] && (
+            <CompareTable weekA={compareData[0]} weekB={compareData[1]}
+              labelA={payoutWeeks.find(w => w.id === parseInt(compareWeekIds[0]))?.week_start || 'Week A'}
+              labelB={payoutWeeks.find(w => w.id === parseInt(compareWeekIds[1]))?.week_start || 'Week B'}
+            />
+          )}
+        </div>
+      )}
 
       {/* My Payouts Section */}
       {myPayouts.length > 0 && (
@@ -665,5 +763,84 @@ function StatusBadge({ status }) {
     <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
       {status}
     </span>
+  )
+}
+
+function CompareTable({ weekA, weekB, labelA, labelB }) {
+  // Build a map of all members across both weeks
+  const allMembers = new Map()
+
+  for (const m of weekA) {
+    allMembers.set(m.member_id, {
+      name: m.member_name,
+      a: m,
+      b: null,
+    })
+  }
+  for (const m of weekB) {
+    if (allMembers.has(m.member_id)) {
+      allMembers.get(m.member_id).b = m
+    } else {
+      allMembers.set(m.member_id, {
+        name: m.member_name,
+        a: null,
+        b: m,
+      })
+    }
+  }
+
+  const rows = Array.from(allMembers.values()).sort((a, b) => {
+    const aMax = Math.max(a.a?.payout || 0, a.b?.payout || 0)
+    const bMax = Math.max(b.a?.payout || 0, b.b?.payout || 0)
+    return bMax - aMax
+  })
+
+  function diffCell(valA, valB, formatter = v => v) {
+    const diff = (valB || 0) - (valA || 0)
+    const color = diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'
+    return (
+      <span className={`text-xs ${color}`}>
+        {diff > 0 ? '+' : ''}{formatter(diff)}
+      </span>
+    )
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="border-b-2 border-gray-200 dark:border-gray-700">
+          <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+            <th className="py-2 pr-3">Member</th>
+            <th className="py-2 pr-3 text-right">{labelA}</th>
+            <th className="py-2 pr-3 text-right">{labelB}</th>
+            <th className="py-2 pr-3 text-right">Change</th>
+            <th className="py-2 pr-3 text-center">Tier A/B</th>
+            <th className="py-2 text-right">Time A/B (h)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ name, a, b }) => (
+            <tr key={name} className="border-b border-gray-100 dark:border-gray-700/50">
+              <td className="py-2 pr-3 text-gray-900 dark:text-white">{name}</td>
+              <td className="py-2 pr-3 text-right font-medium">
+                {a ? formatCurrencyShort(a.payout) : '-'}
+              </td>
+              <td className="py-2 pr-3 text-right font-medium">
+                {b ? formatCurrencyShort(b.payout) : '-'}
+              </td>
+              <td className="py-2 pr-3 text-right">
+                {a && b ? diffCell(a.payout, b.payout, v => formatCurrencyShort(v)) : '-'}
+              </td>
+              <td className="py-2 pr-3 text-center text-xs text-gray-500">
+                {a?.tier ?? '-'} / {b?.tier ?? '-'}
+              </td>
+              <td className="py-2 text-right text-xs text-gray-500">
+                {a ? ((a.time_spent || 0) / 3600).toFixed(0) : '-'} / {b ? ((b.time_spent || 0) / 3600).toFixed(0) : '-'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

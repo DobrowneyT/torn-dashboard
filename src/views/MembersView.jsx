@@ -1,10 +1,15 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
+import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../utils/supabase'
 import { formatCurrency } from '../utils/payoutCalculations'
+import { syncMembersFromAPI } from '../utils/syncMembersFromAPI'
+import { loadMemberLoanedItems } from '../utils/payoutDataLoader'
+import { isLeader } from '../config'
 
 export default function MembersView() {
   const [persistedState, setPersistedState] = useViewState('members')
+  const { user } = useAuth()
 
   const [searchTerm, setSearchTerm] = useState(persistedState.searchTerm || '')
   const [tierFilter, setTierFilter] = useState(persistedState.tierFilter || 'all')
@@ -13,12 +18,16 @@ export default function MembersView() {
   )
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState(null)
   const [selectedMember, setSelectedMember] = useState(null)
   const [memberCrimes, setMemberCrimes] = useState([])
   const [memberPayouts, setMemberPayouts] = useState([])
+  const [memberLoanedItems, setMemberLoanedItems] = useState([])
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [showCrimes, setShowCrimes] = useState(false)
   const [showPayouts, setShowPayouts] = useState(false)
+  const [showLoanedItems, setShowLoanedItems] = useState(false)
 
   useEffect(() => {
     setPersistedState({
@@ -29,58 +38,83 @@ export default function MembersView() {
   }, [searchTerm, tierFilter, sortConfig, setPersistedState])
 
   useEffect(() => {
-    async function fetchMembers() {
-      try {
-        setLoading(true)
-
-        // Get current members with their basic info
-        const { data, error } = await supabase
-          .from('members')
-          .select('member_id, member_name, tier, tier_override, last_scraped')
-          .eq('is_current', true)
-
-        if (error) {
-          console.error('Supabase error:', error)
-          throw error
-        }
-
-        // Get CPR averages
-        const { data: cprData } = await supabase
-          .from('member_cpr')
-          .select('member_id, cpr_value')
-
-        // Calculate average CPR per member
-        const cprByMember = {}
-        cprData?.forEach(record => {
-          if (!cprByMember[record.member_id]) {
-            cprByMember[record.member_id] = []
-          }
-          cprByMember[record.member_id].push(record.cpr_value)
-        })
-
-        const formattedMembers = (data || []).map(m => ({
-          id: m.member_id,
-          name: m.member_name,
-          tier: m.tier,
-          hasOverride: m.tier_override !== null,
-          lastScraped: m.last_scraped,
-          avgCpr: cprByMember[m.member_id]
-            ? cprByMember[m.member_id].reduce((a, b) => a + b, 0) / cprByMember[m.member_id].length
-            : 0,
-          roleCount: cprByMember[m.member_id]?.length || 0
-        }))
-
-        setMembers(formattedMembers)
-      } catch (error) {
-        console.error('Error fetching members:', error)
-        setMembers([])
-      } finally {
-        setLoading(false)
-      }
-    }
-
     fetchMembers()
   }, [])
+
+  async function fetchMembers() {
+    try {
+      setLoading(true)
+
+      // Get current members with their basic info
+      const { data, error } = await supabase
+        .from('members')
+        .select('member_id, member_name, tier, tier_override, last_scraped')
+        .eq('is_current', true)
+
+      if (error) {
+        console.error('Supabase error:', error)
+        throw error
+      }
+
+      // Get CPR averages
+      const { data: cprData } = await supabase
+        .from('member_cpr')
+        .select('member_id, cpr_value')
+
+      // Calculate average CPR per member
+      const cprByMember = {}
+      cprData?.forEach(record => {
+        if (!cprByMember[record.member_id]) {
+          cprByMember[record.member_id] = []
+        }
+        cprByMember[record.member_id].push(record.cpr_value)
+      })
+
+      const formattedMembers = (data || []).map(m => ({
+        id: m.member_id,
+        name: m.member_name,
+        tier: m.tier,
+        hasOverride: m.tier_override !== null,
+        lastScraped: m.last_scraped,
+        avgCpr: cprByMember[m.member_id]
+          ? cprByMember[m.member_id].reduce((a, b) => a + b, 0) / cprByMember[m.member_id].length
+          : 0,
+        roleCount: cprByMember[m.member_id]?.length || 0
+      }))
+
+      setMembers(formattedMembers)
+    } catch (error) {
+      console.error('Error fetching members:', error)
+      setMembers([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSyncMembers() {
+    if (!user?.apiKey) {
+      setSyncMessage({ type: 'error', text: 'No API key available. Please log in again.' })
+      return
+    }
+
+    setSyncing(true)
+    setSyncMessage(null)
+
+    try {
+      const result = await syncMembersFromAPI(user.apiKey)
+      if (result.success) {
+        setSyncMessage({ type: 'success', text: `Synced ${result.totalMembers} current faction members.` })
+        // Reload members after sync
+        await fetchMembers()
+      } else {
+        setSyncMessage({ type: 'error', text: result.error || 'Sync failed' })
+      }
+    } catch (error) {
+      setSyncMessage({ type: 'error', text: error.message })
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const filteredMembers = useMemo(() => {
     let filtered = [...members]
@@ -125,6 +159,7 @@ export default function MembersView() {
     setSelectedMember({ id: memberId, name: memberName })
     setShowCrimes(true)
     setShowPayouts(false)
+    setShowLoanedItems(false)
     setLoadingDetails(true)
 
     try {
@@ -175,6 +210,7 @@ export default function MembersView() {
     setSelectedMember({ id: memberId, name: memberName })
     setShowPayouts(true)
     setShowCrimes(false)
+    setShowLoanedItems(false)
     setLoadingDetails(true)
 
     try {
@@ -189,6 +225,24 @@ export default function MembersView() {
     } catch (error) {
       console.error('Error loading payouts:', error)
       setMemberPayouts([])
+    } finally {
+      setLoadingDetails(false)
+    }
+  }
+
+  async function handleViewLoanedItems(memberId, memberName) {
+    setSelectedMember({ id: memberId, name: memberName })
+    setShowLoanedItems(true)
+    setShowCrimes(false)
+    setShowPayouts(false)
+    setLoadingDetails(true)
+
+    try {
+      const items = await loadMemberLoanedItems(memberId)
+      setMemberLoanedItems(items)
+    } catch (error) {
+      console.error('Error loading loaned items:', error)
+      setMemberLoanedItems([])
     } finally {
       setLoadingDetails(false)
     }
@@ -230,7 +284,23 @@ export default function MembersView() {
             <option value="5">Tier 5</option>
             <option value="6">Tier 6</option>
           </select>
+
+          {isLeader(user?.id) && (
+            <button
+              onClick={handleSyncMembers}
+              disabled={syncing}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap"
+            >
+              {syncing ? 'Syncing...' : 'Sync Members'}
+            </button>
+          )}
         </div>
+
+        {syncMessage && (
+          <div className={`mb-4 p-3 rounded-lg text-sm ${syncMessage.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}`}>
+            {syncMessage.text}
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -288,7 +358,7 @@ export default function MembersView() {
                       <TierBadge tier={member.tier} override={member.hasOverride} />
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button
                           onClick={() => handleViewCrimes(member.id, member.name)}
                           className="text-sm px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300"
@@ -299,7 +369,13 @@ export default function MembersView() {
                           onClick={() => handleViewPayouts(member.id, member.name)}
                           className="text-sm px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 dark:bg-green-900 dark:text-green-300"
                         >
-                          OC 2.0 Payouts
+                          OC Payouts
+                        </button>
+                        <button
+                          onClick={() => handleViewLoanedItems(member.id, member.name)}
+                          className="text-sm px-2 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 dark:bg-purple-900 dark:text-purple-300"
+                        >
+                          Items Loaned
                         </button>
                       </div>
                     </td>
@@ -332,6 +408,16 @@ export default function MembersView() {
           payouts={memberPayouts}
           loading={loadingDetails}
           onClose={() => setShowPayouts(false)}
+        />
+      )}
+
+      {/* Loaned Items Modal */}
+      {showLoanedItems && (
+        <LoanedItemsModal
+          member={selectedMember}
+          items={memberLoanedItems}
+          loading={loadingDetails}
+          onClose={() => setShowLoanedItems(false)}
         />
       )}
     </>
@@ -514,6 +600,78 @@ function PayoutsModal({ member, payouts, loading, onClose }) {
                       {(totalPayout - totalTheoretical) >= 0 ? '+' : ''}{formatCurrency(totalPayout - totalTheoretical)}
                     </span>
                   </td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LoanedItemsModal({ member, items, loading, onClose }) {
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    )
+  }
+
+  const totalValue = items.reduce((sum, item) => sum + ((item.market_value || 0) * (item.loaned_to_member || 1)), 0)
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-hidden">
+        <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">Items Loaned - {member.name}</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              {items.length} item{items.length !== 1 ? 's' : ''} loaned
+              {totalValue > 0 && ` | Total value: ${formatCurrency(totalValue)}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
+          {items.length === 0 ? (
+            <p className="text-center text-gray-500 py-8">No items currently loaned to this member</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
+                <tr className="text-left">
+                  <th className="py-2 px-2 text-xs font-semibold">Item</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Qty Loaned</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Market Value</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Total Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item, idx) => (
+                  <tr key={item.item_id || idx} className="border-b border-gray-100 dark:border-slate-800">
+                    <td className="py-2 px-2 text-xs font-medium">{item.item_name || item.name || `Item ${item.item_id}`}</td>
+                    <td className="py-2 px-2 text-xs">{item.loaned_to_member || 1}</td>
+                    <td className="py-2 px-2 text-xs text-gray-600">
+                      {formatCurrency(item.market_value || 0)}
+                    </td>
+                    <td className="py-2 px-2 text-xs font-semibold text-purple-600">
+                      {formatCurrency((item.market_value || 0) * (item.loaned_to_member || 1))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t-2 border-gray-300 dark:border-slate-600">
+                <tr className="font-bold">
+                  <td colSpan="3" className="py-2 px-2 text-right text-xs">TOTAL:</td>
+                  <td className="py-2 px-2 text-xs text-purple-600">{formatCurrency(totalValue)}</td>
                 </tr>
               </tfoot>
             </table>

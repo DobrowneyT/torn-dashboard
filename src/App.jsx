@@ -16,6 +16,7 @@ import PayoutManagement from './components/PayoutManagement'
 import TierManagement from './components/TierManagement'
 import InventoryManagement from './components/InventoryManagement'
 import DataManagement from './views/DataManagement'
+import DashboardView from './views/DashboardView'
 import AhView from './views/AhView'
 import { isAdmin } from './config'
 
@@ -60,7 +61,7 @@ function PublicAhPage() {
 function DashboardContent() {
   const { isAuthenticated, isLeadership, user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('members')
+  const [activeTab, setActiveTab] = useState('dashboard')
   
   // View As feature for admins - null means normal view
   const [viewAsRole, setViewAsRole] = useState(null)
@@ -76,11 +77,12 @@ function DashboardContent() {
 
   // Navigation tabs
   const tabs = [
+    { id: 'dashboard', label: 'Dashboard', roles: ['member', 'leadership'] },
     { id: 'members', label: 'Members', roles: ['member', 'leadership'] },
-    { id: 'crimes', label: 'OC 2.0 History', roles: ['member', 'leadership'] },
+    { id: 'crimes', label: 'OC History', roles: ['member', 'leadership'] },
     { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
-    { id: 'payouts', label: 'OC 2.0 Payouts', roles: ['member', 'leadership'] },
-    { id: 'payout-mgmt', label: 'OC 2.0 Payout Management', roles: ['leadership'] },
+    { id: 'payouts', label: 'OC Payouts', roles: ['member', 'leadership'] },
+    { id: 'payout-mgmt', label: 'OC Payout Management', roles: ['leadership'] },
     { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
     { id: 'inventory', label: 'Inventory', roles: ['leadership'] }
   ]
@@ -101,7 +103,7 @@ function DashboardContent() {
   useEffect(() => {
     const tabIds = availableTabs.map(t => t.id)
     if (!tabIds.includes(activeTab) && activeTab !== 'data-mgmt') {
-      setActiveTab('members')
+      setActiveTab('dashboard')
     }
   }, [viewAsRole, availableTabs, activeTab])
 
@@ -165,6 +167,7 @@ function DashboardContent() {
         <div className="mt-6">
           {/* Member-accessible views */}
           <ProtectedRoute>
+            {activeTab === 'dashboard' && <DashboardView />}
             {activeTab === 'members' && <MembersView />}
             {activeTab === 'crimes' && <CrimesView />}
             {activeTab === 'requirements' && <TierRequirementsView />}

@@ -5,7 +5,8 @@ import {
   loadCrimesForPayout,
   loadMembers,
   loadPayoutWeeks,
-  savePayoutWeek
+  savePayoutWeek,
+  checkExistingWeek
 } from '../utils/payoutDataLoader'
 import {
   getCurrentWeekRange,
@@ -23,6 +24,7 @@ import {
 } from '../utils/payoutCalculations'
 import { enrichItemBreakdown } from '../utils/lookupHelpers'
 import { importPayoutCSV } from '../utils/csvPayoutImport'
+import ImportPreviewModal from './ImportPreviewModal'
 
 export default function PayoutManagement() {
   const { user } = useAuth()
@@ -63,8 +65,9 @@ export default function PayoutManagement() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
 
-  // CSV import
+  // CSV/XLSX import
   const [importingCSV, setImportingCSV] = useState(false)
+  const [importPreviewData, setImportPreviewData] = useState(null)
 
   // Item breakdown state
   const [showItemRewards, setShowItemRewards] = useState(false)
@@ -282,6 +285,23 @@ export default function PayoutManagement() {
       return
     }
 
+    // Check for existing week before saving
+    try {
+      const existing = await checkExistingWeek(fromDate, toDate)
+      if (existing) {
+        const confirmOverwrite = window.confirm(
+          `A payout for this week (${fromDate} to ${toDate}) already exists.\n\n` +
+          `Saved on: ${existing.saved_at ? new Date(existing.saved_at).toLocaleString() : 'unknown'}\n` +
+          `Members: ${existing.member_count || 'N/A'}\n` +
+          `Total payout: $${(existing.member_payout_total || 0).toLocaleString()}\n\n` +
+          `Do you want to overwrite it?`
+        )
+        if (!confirmOverwrite) return
+      }
+    } catch (err) {
+      console.warn('Could not check for existing week, proceeding with save:', err)
+    }
+
     setIsSaving(true)
     setSaveError(null)
     setSaveSuccess(false)
@@ -404,12 +424,10 @@ export default function PayoutManagement() {
       const isXLSX = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')
 
       if (isXLSX) {
-        // Dynamic import of SheetJS for XLSX parsing
         const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs')
         const arrayBuffer = await file.arrayBuffer()
         const workbook = XLSX.read(arrayBuffer, { type: 'array' })
 
-        // Find the Payout_Calculator sheet
         const payoutSheetName = workbook.SheetNames.find(
           n => n.toLowerCase().includes('payout') && n.toLowerCase().includes('calc')
         ) || workbook.SheetNames.find(
@@ -423,7 +441,6 @@ export default function PayoutManagement() {
         const payoutSheet = workbook.Sheets[payoutSheetName]
         const payoutRows = XLSX.utils.sheet_to_json(payoutSheet, { header: 1, defval: null })
 
-        // Try to find item_outcomes sheet
         const itemSheetName = workbook.SheetNames.find(
           n => n.toLowerCase().includes('item_outcome')
         ) || workbook.SheetNames.find(
@@ -438,13 +455,60 @@ export default function PayoutManagement() {
 
         parsed = parsePayoutXLSX(payoutRows, itemRows, weekStartStr, weekEndStr)
       } else {
-        // CSV parsing
         const text = await file.text()
         parsed = parsePayoutCSV(text, weekStartStr, weekEndStr)
       }
 
       if (parsed.members.length === 0) {
         throw new Error('No valid member data found in the file')
+      }
+
+      // Show preview modal instead of saving immediately
+      setImportPreviewData({
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        weekStartTs,
+        weekEndTs,
+        members: parsed.members,
+        totalPayout: parsed.totalPayout,
+        totalTime: parsed.totalTime,
+        totalTickets: parsed.totalTickets,
+        memberCount: parsed.memberCount,
+        itemOutcomes: parsed.itemOutcomes,
+        fileType: isXLSX ? 'XLSX' : 'CSV',
+      })
+
+    } catch (err) {
+      console.error('Error importing file:', err)
+      alert(`Failed to import file: ${err.message}`)
+    } finally {
+      setImportingCSV(false)
+      event.target.value = ''
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!importPreviewData) return
+
+    const {
+      weekStart: weekStartStr, weekEnd: weekEndStr,
+      weekStartTs, weekEndTs,
+      members: parsedMembers, totalPayout, totalTime,
+      totalTickets, memberCount, itemOutcomes, fileType,
+    } = importPreviewData
+
+    try {
+      // Check for existing week
+      const existing = await checkExistingWeek(weekStartStr, weekEndStr)
+      if (existing) {
+        const confirmOverwrite = window.confirm(
+          `A payout for this week (${weekStartStr} to ${weekEndStr}) already exists.\n\n` +
+          `Do you want to overwrite it?`
+        )
+        if (!confirmOverwrite) {
+          setImportPreviewData(null)
+          return
+        }
       }
 
       // Find crimes executed in this date range to link
@@ -457,7 +521,6 @@ export default function PayoutManagement() {
 
       const crimeIds = (weekCrimes || []).map(c => c.crime_id)
 
-      // Calculate totals from crimes if available (parallel queries)
       let totalMoneyReward = 0
       let totalItemReward = 0
       let totalItemCost = 0
@@ -474,10 +537,9 @@ export default function PayoutManagement() {
         totalItemCost = (requiredResult.data || []).reduce((sum, i) => sum + (i.unit_value || 0), 0)
       }
 
-      // If XLSX had item outcomes and we didn't get data from Supabase, use XLSX values
-      if (parsed.itemOutcomes && totalItemReward === 0 && totalItemCost === 0) {
-        totalItemReward = parsed.itemOutcomes.rewardsTotal || 0
-        totalItemCost = parsed.itemOutcomes.usedTotal || 0
+      if (itemOutcomes && totalItemReward === 0 && totalItemCost === 0) {
+        totalItemReward = itemOutcomes.rewardsTotal || 0
+        totalItemCost = itemOutcomes.usedTotal || 0
       }
 
       const grossTotal = totalMoneyReward + totalItemReward - totalItemCost
@@ -494,19 +556,17 @@ export default function PayoutManagement() {
         net_item_value: totalItemReward - totalItemCost,
         faction_cut_percent: 20,
         faction_cut_amount: factionCutAmount,
-        member_payout_total: parsed.totalPayout,
+        member_payout_total: totalPayout,
         crimes_processed: crimeIds.length,
-        total_time_spent: parsed.totalTime,
-        average_time_spent: parsed.memberCount > 0 ? Math.floor(parsed.totalTime / parsed.memberCount) : 0,
-        total_adjusted_tickets: parsed.totalTickets
+        total_time_spent: totalTime,
+        average_time_spent: memberCount > 0 ? Math.floor(totalTime / memberCount) : 0,
+        total_adjusted_tickets: totalTickets
       }
 
-      await savePayoutWeek(weekData, parsed.members, crimeIds, `${user.name} (${isXLSX ? 'XLSX' : 'CSV'} Import)`, user.apiKey)
+      await savePayoutWeek(weekData, parsedMembers, crimeIds, `${user.name} (${fileType} Import)`, user.apiKey)
 
-      const fileType = isXLSX ? 'XLSX' : 'CSV'
-      alert(`Successfully imported ${parsed.memberCount} member payouts from ${fileType} for week of ${weekStartStr}`)
+      alert(`Successfully imported ${memberCount} member payouts from ${fileType} for week of ${weekStartStr}`)
 
-      // Refresh history if showing
       if (showHistory) {
         loadHistoricalPayouts()
       }
@@ -515,8 +575,7 @@ export default function PayoutManagement() {
       console.error('Error importing file:', err)
       alert(`Failed to import file: ${err.message}`)
     } finally {
-      setImportingCSV(false)
-      event.target.value = ''
+      setImportPreviewData(null)
     }
   }
 
@@ -1108,6 +1167,15 @@ export default function PayoutManagement() {
             <li>Use "Import CSV" to import historical payout sheets</li>
           </ol>
         </div>
+      )}
+
+      {/* Import Preview Modal */}
+      {importPreviewData && (
+        <ImportPreviewModal
+          data={importPreviewData}
+          onConfirm={handleConfirmImport}
+          onCancel={() => setImportPreviewData(null)}
+        />
       )}
     </div>
   )

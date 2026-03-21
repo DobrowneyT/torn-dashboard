@@ -507,6 +507,36 @@ export async function loadMemberLoanedItems(memberId) {
 }
 
 /**
+ * Check if a payout week already exists for the given date range.
+ * Used to warn users before overwriting an existing payout.
+ *
+ * @param {string} weekStart - ISO date string (e.g. '2026-03-16')
+ * @param {string} weekEnd - ISO date string (e.g. '2026-03-22')
+ * @returns {Promise<Object|null>} Existing week record or null
+ */
+export async function checkExistingWeek(weekStart, weekEnd) {
+  try {
+    const { data, error } = await supabase
+      .from('oc_payout_weeks')
+      .select('id, week_start, week_end, saved_at, saved_by, member_count, member_payout_total')
+      .eq('week_start', weekStart)
+      .eq('week_end', weekEnd)
+      .limit(1)
+      .single()
+
+    if (error) {
+      // PGRST116 = no rows found, which is expected when no week exists
+      if (error.code === 'PGRST116') return null
+      throw error
+    }
+    return data
+  } catch (error) {
+    console.error('Error checking existing week:', error)
+    return null
+  }
+}
+
+/**
  * Save payout week and link crimes
  * Now sends crimeIds to the Edge Function so crime linking happens server-side
  * in a single bulk update instead of N individual round-trips.

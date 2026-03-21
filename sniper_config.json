@@ -1,0 +1,13 @@
+{
+  "api_key": "DOoVVZvRsY8GSEgj",
+  "watched_items": {
+    "555": "X-Mass Energy Can"
+  },
+  "min_profit": 100,
+  "scan_delay": 5,
+  "top_check": 5,
+  "reference_method": "api_average",
+  "open_browser_on_alert": true,
+  "notifications_enabled": false,
+  "sound_enabled": false
+}

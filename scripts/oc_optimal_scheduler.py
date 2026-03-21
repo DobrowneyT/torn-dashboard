@@ -1,5 +1,5 @@
 """
-OC 2.0 Optimal Crime Scheduler
+OC Optimal Crime Scheduler
 Maximizes expected payout per member-day by intelligently assigning members to crimes
 """
 
@@ -317,7 +317,7 @@ class OCScheduler:
     def run_optimization(self, dry_run: bool = True):
         """Main entry point: run the complete optimization"""
         logger.info("=" * 60)
-        logger.info("OC 2.0 OPTIMAL SCHEDULER")
+        logger.info("OC OPTIMAL SCHEDULER")
         logger.info("=" * 60)
         
         # Get current state
