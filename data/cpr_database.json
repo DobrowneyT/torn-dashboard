@@ -9814,26 +9814,26 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-21T17:43:15.722628"
+      "tier_last_updated": "2026-03-22T17:43:14.406336"
     },
     "3881286": {
       "name": "Kgray1",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-03-22T17:43:14.406364"
     },
     "3958268": {
       "name": "SomTallWhiteGuy",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-03-22T17:43:14.406389"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-22T17:43:13.405995",
+    "last_updated": "2026-03-22T17:43:14.407132",
     "total_members": 167
   }
 }
