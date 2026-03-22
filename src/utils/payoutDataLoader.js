@@ -451,59 +451,94 @@ export async function loadMemberCrimeHistory(memberId, limit = 100) {
  */
 export async function loadMemberLoanedItems(memberId) {
   try {
-    // Query inventory_items where loaned_to contains this member ID
+    // Query the view with prices so we get market_value/weighted_avg_price
     const { data: items, error } = await supabase
-      .from('inventory_items')
+      .from('inventory_items_with_prices')
       .select('*')
       .gt('loaned', 0)
 
-    if (error) throw error
+    if (error) {
+      // Fallback to raw table if view doesn't exist
+      console.warn('Falling back to inventory_items table:', error.message)
+      const { data: rawItems, error: rawError } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .gt('loaned', 0)
 
-    // Filter to items loaned to this specific member
-    const memberItems = []
-
-    for (const item of (items || [])) {
-      if (!item.loaned_to) continue
-
-      let loanedTo = item.loaned_to
-
-      // Parse loaned_to if it's a string
-      if (typeof loanedTo === 'string') {
-        try {
-          loanedTo = JSON.parse(loanedTo)
-        } catch (e) {
-          // If not JSON, might be comma-separated
-          if (loanedTo.includes(',')) {
-            loanedTo = loanedTo.split(',').map(id => id.trim())
-          } else {
-            loanedTo = [loanedTo]
-          }
-        }
-      }
-
-      // Check if member has any of these items
-      let memberLoanCount = 0
-
-      if (Array.isArray(loanedTo)) {
-        memberLoanCount = loanedTo.filter(id => id.toString() === memberId.toString()).length
-      } else if (typeof loanedTo === 'object') {
-        memberLoanCount = loanedTo[memberId] || 0
-      }
-
-      if (memberLoanCount > 0) {
-        memberItems.push({
-          ...item,
-          loaned_to_member: memberLoanCount
-        })
-      }
+      if (rawError) throw rawError
+      return filterItemsForMember(rawItems, memberId)
     }
 
-    return memberItems
+    return filterItemsForMember(items, memberId)
 
   } catch (error) {
     console.error('Error loading member loaned items:', error)
     throw error
   }
+}
+
+/**
+ * Filter inventory items to those loaned to a specific member
+ * @param {Array} items - All loaned inventory items
+ * @param {string} memberId - Member ID to filter for
+ * @returns {Array} Items loaned to this member with normalized fields
+ */
+function filterItemsForMember(items, memberId) {
+  const memberItems = []
+
+  for (const item of (items || [])) {
+    if (!item.loaned_to) continue
+
+    let loanedTo = item.loaned_to
+
+    // Parse loaned_to into an array of user ID strings
+    if (typeof loanedTo === 'string') {
+      // Comma-separated is the most common format from Torn API
+      // e.g. "2250591" or "2250591,2749598,3228747"
+      if (loanedTo.includes(',')) {
+        loanedTo = loanedTo.split(',').map(id => id.trim())
+      } else if (loanedTo.startsWith('{') || loanedTo.startsWith('[')) {
+        // JSON object or array
+        try {
+          loanedTo = JSON.parse(loanedTo)
+        } catch (e) {
+          loanedTo = [loanedTo]
+        }
+      } else {
+        // Single ID as string, e.g. "2250591"
+        loanedTo = [loanedTo]
+      }
+    }
+
+    // Normalize to number → single-element array
+    if (typeof loanedTo === 'number') {
+      loanedTo = [loanedTo.toString()]
+    }
+
+    // Check if member has any of these items
+    let memberLoanCount = 0
+
+    if (Array.isArray(loanedTo)) {
+      memberLoanCount = loanedTo.filter(id => id.toString() === memberId.toString()).length
+    } else if (typeof loanedTo === 'object' && loanedTo !== null) {
+      memberLoanCount = loanedTo[memberId] || 0
+    }
+
+    if (memberLoanCount > 0) {
+      // Normalize field names across table/view differences
+      const itemName = item.item_name || item.name || `Item ${item.item_id || item.id}`
+      const marketValue = parseFloat(item.weighted_avg_price) || parseFloat(item.market_value) || 0
+      memberItems.push({
+        ...item,
+        name: itemName,
+        item_name: itemName,
+        market_value: marketValue,
+        loaned_to_member: memberLoanCount
+      })
+    }
+  }
+
+  return memberItems
 }
 
 /**

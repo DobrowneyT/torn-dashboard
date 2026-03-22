@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+const EDGE_FUNCTION_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/admin-db'
 
 export async function syncMembersFromAPI(apiKey) {
   if (!apiKey) {
@@ -10,33 +10,30 @@ export async function syncMembersFromAPI(apiKey) {
   }
 
   console.log('Syncing members with API key:', apiKey.substring(0, 4) + '...')
-  
+
   try {
-    const { data, error } = await supabase.functions.invoke('admin-db', {
-      body: {
-        action: 'sync_members'
-      },
+    const response = await fetch(EDGE_FUNCTION_URL, {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'x-torn-api-key': apiKey,
-      }
+      },
+      body: JSON.stringify({ action: 'sync_members' })
     })
 
-    console.log('Edge Function response:', { data, error })
+    const data = await response.json()
 
-    if (error) {
-      console.error('Sync members failed:', error)
-      // Try to get more details from the error
-      const errorMessage = error.message || error.msg || JSON.stringify(error)
+    console.log('Sync members response:', response.status, data)
+
+    if (!response.ok) {
       return {
         success: false,
-        error: `Edge Function error: ${errorMessage}`,
+        error: data.error || `Request failed: ${response.status}`,
         totalMembers: 0
       }
     }
 
-    // Check if data itself indicates an error
     if (data && !data.success) {
-      console.error('Function returned error:', data)
       return {
         success: false,
         error: data.error || 'Unknown error from function',
@@ -45,7 +42,7 @@ export async function syncMembersFromAPI(apiKey) {
     }
 
     return data
-    
+
   } catch (error) {
     console.error('Sync members exception:', error)
     return {
