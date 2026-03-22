@@ -295,7 +295,12 @@ function CrimeParticipationCard({ crimes }) {
   const statusCounts = { Successful: 0, Failed: 0, Planning: 0, Recruiting: 0 }
   for (const c of crimes) {
     const s = c.status
-    if (statusCounts[s] !== undefined) statusCounts[s]++
+    // Torn API uses both 'Failed' and 'Failure' for failed crimes
+    if (s === 'Failure') {
+      statusCounts.Failed++
+    } else if (statusCounts[s] !== undefined) {
+      statusCounts[s]++
+    }
   }
 
   const total = statusCounts.Successful + statusCounts.Failed
@@ -348,16 +353,40 @@ function CrimeParticipationCard({ crimes }) {
 }
 
 function LoanedItemsCard({ items }) {
+  const categoryOrder = { armor: 0, weapons: 1, temporary: 2, utilities: 3, medical: 4, drugs: 5, caches: 6, cesium: 7 }
+
+  const sorted = [...items].sort((a, b) => {
+    const catA = categoryOrder[a.category] ?? 99
+    const catB = categoryOrder[b.category] ?? 99
+    if (catA !== catB) return catA - catB
+    return (a.item_name || a.name || '').localeCompare(b.item_name || b.name || '')
+  })
+
+  // Group by category
+  let lastCategory = null
+
   return (
     <div className="card">
       <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Items on Loan</h3>
-      <div className="space-y-2">
-        {items.map((item, i) => (
-          <div key={i} className="flex justify-between text-sm">
-            <span className="text-gray-900 dark:text-white">{item.name}</span>
-            <span className="text-gray-500 dark:text-gray-400">x{item.loaned_to_member}</span>
-          </div>
-        ))}
+      <div className="space-y-1">
+        {sorted.map((item, i) => {
+          const cat = item.category || 'other'
+          const showHeader = cat !== lastCategory
+          lastCategory = cat
+          return (
+            <div key={i}>
+              {showHeader && (
+                <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mt-2 mb-1">
+                  {cat}
+                </p>
+              )}
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-900 dark:text-white">{item.item_name || item.name}</span>
+                <span className="text-gray-500 dark:text-gray-400">x{item.loaned_to_member}</span>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

@@ -154,6 +154,9 @@ serve(async (req: Request) => {
       case 'sync_inventory':
         result = await handleSyncInventory(supabase, tornApiKey, authResult.userId)
         break
+      case 'sync_members':
+        result = await handleSyncMembers(supabase, tornApiKey)
+        break
       default:
         return new Response(
           JSON.stringify({ error: `Unknown action: ${body.action}` }),
@@ -685,12 +688,16 @@ async function handleSyncInventory(supabase: any, apiKey: string, userId: string
   for (const [category, categoryItems] of Object.entries(armory)) {
     if (Array.isArray(categoryItems)) {
       for (const item of categoryItems) {
+        const loanedTo = item.loaned_to
+          ? (typeof item.loaned_to === 'string' ? item.loaned_to : JSON.stringify(item.loaned_to))
+          : null
         items.push({
           id: item.ID?.toString() || item.id?.toString(),
           name: item.name,
           quantity: item.quantity || 1,
           available: item.available || item.quantity || 1,
           loaned: item.loaned || 0,
+          loaned_to: loanedTo,
           api_type: item.type,
           category: category,
           last_synced: new Date().toISOString()
@@ -717,4 +724,51 @@ async function handleSyncInventory(supabase: any, apiKey: string, userId: string
     })
 
   return { success: true, itemCount: items.length }
+}
+
+async function handleSyncMembers(supabase: any, apiKey: string) {
+  // Fetch current faction members from Torn API
+  const response = await fetch(
+    `https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${apiKey}`
+  )
+
+  if (!response.ok) {
+    throw new Error(`Torn API error: ${response.status}`)
+  }
+
+  const data = await response.json()
+
+  if (data.error) {
+    throw new Error(data.error.error || 'API error')
+  }
+
+  const apiMembers = data.members || {}
+  const now = new Date().toISOString()
+
+  // Step 1: Mark all current members as not current
+  const { error: markError } = await supabase
+    .from('members')
+    .update({ is_current: false, last_seen: now })
+    .eq('is_current', true)
+
+  if (markError) {
+    console.error('Error marking members as not current:', markError)
+  }
+
+  // Step 2: Upsert current faction members with is_current = true
+  const memberRecords = Object.entries(apiMembers).map(([memberId, memberData]: [string, any]) => ({
+    member_id: memberId,
+    member_name: memberData.name || `Member ${memberId}`,
+    is_current: true,
+    last_seen: now,
+    updated_at: now,
+  }))
+
+  const upsertedCount = await bulkUpsert(supabase, 'members', memberRecords, 'member_id')
+
+  return {
+    success: true,
+    totalMembers: memberRecords.length,
+    upserted: upsertedCount,
+  }
 }

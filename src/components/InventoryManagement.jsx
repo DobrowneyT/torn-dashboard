@@ -30,26 +30,36 @@ export default function InventoryManagement() {
   useEffect(() => {
     loadInventoryFromSupabase()
   }, [])
-  
+
   async function loadInventoryFromSupabase() {
     try {
       setLoading(true)
       setError(null)
-      
-      // Use the view instead of manually calculating
-      const [itemsResult, metadataResult] = await Promise.all([
+
+      // Load inventory items, sync metadata, and member names in parallel
+      const [itemsResult, metadataResult, membersResult] = await Promise.all([
         supabase.from('inventory_items_with_prices').select('*'),
-        supabase.from('sync_metadata').select('*').eq('data_type', 'inventory').order('last_sync', { ascending: false }).limit(1)
+        supabase.from('sync_metadata').select('*').eq('data_type', 'inventory').order('last_sync', { ascending: false }).limit(1),
+        supabase.from('members').select('member_id, member_name')
       ])
-      
+
       if (itemsResult.error) throw itemsResult.error
-      
+
       setInventoryItems(itemsResult.data || [])
-      
+
       if (metadataResult.data && metadataResult.data.length > 0) {
         setLastSync(new Date(metadataResult.data[0].last_sync))
       }
-      
+
+      // Populate factionMembers map from DB so loaned items show names, not "Unknown"
+      if (!membersResult.error && membersResult.data) {
+        const members = {}
+        membersResult.data.forEach(m => {
+          members[m.member_id] = m.member_name
+        })
+        setFactionMembers(members)
+      }
+
     } catch (err) {
       console.error('Error loading from Supabase:', err)
       setError(err.message)

@@ -621,7 +621,16 @@ function LoanedItemsModal({ member, items, loading, onClose }) {
     )
   }
 
-  const totalValue = items.reduce((sum, item) => sum + ((item.market_value || 0) * (item.loaned_to_member || 1)), 0)
+  const categoryOrder = { armor: 0, weapons: 1, temporary: 2, utilities: 3, medical: 4, drugs: 5, caches: 6, cesium: 7 }
+
+  const sorted = [...items].sort((a, b) => {
+    const catA = categoryOrder[a.category] ?? 99
+    const catB = categoryOrder[b.category] ?? 99
+    if (catA !== catB) return catA - catB
+    return (a.item_name || a.name || '').localeCompare(b.item_name || b.name || '')
+  })
+
+  const totalValue = sorted.reduce((sum, item) => sum + ((item.market_value || 0) * (item.loaned_to_member || 1)), 0)
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -630,7 +639,7 @@ function LoanedItemsModal({ member, items, loading, onClose }) {
           <div>
             <h3 className="text-lg font-semibold">Items Loaned - {member.name}</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              {items.length} item{items.length !== 1 ? 's' : ''} loaned
+              {sorted.length} item{sorted.length !== 1 ? 's' : ''} loaned
               {totalValue > 0 && ` | Total value: ${formatCurrency(totalValue)}`}
             </p>
           </div>
@@ -642,22 +651,24 @@ function LoanedItemsModal({ member, items, loading, onClose }) {
         </div>
 
         <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
-          {items.length === 0 ? (
+          {sorted.length === 0 ? (
             <p className="text-center text-gray-500 py-8">No items currently loaned to this member</p>
           ) : (
             <table className="w-full text-sm">
               <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
                 <tr className="text-left">
                   <th className="py-2 px-2 text-xs font-semibold">Item</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Type</th>
                   <th className="py-2 px-2 text-xs font-semibold">Qty Loaned</th>
                   <th className="py-2 px-2 text-xs font-semibold">Market Value</th>
                   <th className="py-2 px-2 text-xs font-semibold">Total Value</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, idx) => (
+                {sorted.map((item, idx) => (
                   <tr key={item.item_id || idx} className="border-b border-gray-100 dark:border-slate-800">
                     <td className="py-2 px-2 text-xs font-medium">{item.item_name || item.name || `Item ${item.item_id}`}</td>
+                    <td className="py-2 px-2 text-xs text-gray-500 capitalize">{item.category || '-'}</td>
                     <td className="py-2 px-2 text-xs">{item.loaned_to_member || 1}</td>
                     <td className="py-2 px-2 text-xs text-gray-600">
                       {formatCurrency(item.market_value || 0)}
@@ -670,7 +681,7 @@ function LoanedItemsModal({ member, items, loading, onClose }) {
               </tbody>
               <tfoot className="border-t-2 border-gray-300 dark:border-slate-600">
                 <tr className="font-bold">
-                  <td colSpan="3" className="py-2 px-2 text-right text-xs">TOTAL:</td>
+                  <td colSpan="4" className="py-2 px-2 text-right text-xs">TOTAL:</td>
                   <td className="py-2 px-2 text-xs text-purple-600">{formatCurrency(totalValue)}</td>
                 </tr>
               </tfoot>
