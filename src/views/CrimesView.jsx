@@ -11,7 +11,7 @@ import {
 } from '../utils/crimeStatusUtils'
 import { config } from '../config'
 
-export default function CrimesView({ crimesData }) {
+export default function CrimesView({ crimesData, isLeadership }) {
   const { user } = useAuth()
   const [persistedState, setPersistedState] = useViewState('crimes')
   
@@ -234,27 +234,29 @@ export default function CrimesView({ crimesData }) {
             </select>
           </div>
           
-          <div className="ml-auto flex gap-2 items-center">
-            <button
-              onClick={handleSyncWithAPI}
-              disabled={syncing}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {syncing ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Syncing...
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Sync with Torn API
-                </>
-              )}
-            </button>
-          </div>
+          {isLeadership && (
+            <div className="ml-auto flex gap-2 items-center">
+              <button
+                onClick={handleSyncWithAPI}
+                disabled={syncing}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {syncing ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Syncing...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Sync with Torn API
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
         
         {syncMessage && (

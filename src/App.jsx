@@ -168,8 +168,8 @@ function DashboardContent() {
           {/* Member-accessible views */}
           <ProtectedRoute>
             {activeTab === 'dashboard' && <DashboardView />}
-            {activeTab === 'members' && <MembersView />}
-            {activeTab === 'crimes' && <CrimesView />}
+            {activeTab === 'members' && <MembersView isLeadership={effectiveIsLeadership} />}
+            {activeTab === 'crimes' && <CrimesView isLeadership={effectiveIsLeadership} />}
             {activeTab === 'requirements' && <TierRequirementsView />}
             {activeTab === 'payouts' && <PayoutsView />}
           </ProtectedRoute>
