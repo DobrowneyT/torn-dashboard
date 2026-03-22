@@ -171,7 +171,7 @@ function DashboardContent() {
             {activeTab === 'members' && <MembersView isLeadership={effectiveIsLeadership} />}
             {activeTab === 'crimes' && <CrimesView isLeadership={effectiveIsLeadership} />}
             {activeTab === 'requirements' && <TierRequirementsView />}
-            {activeTab === 'payouts' && <PayoutsView />}
+            {activeTab === 'payouts' && <PayoutsView isLeadership={effectiveIsLeadership} />}
           </ProtectedRoute>
 
           {/* Leadership-only views */}
