@@ -5,9 +5,7 @@ import { supabase } from '../utils/supabase'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { syncMembersFromAPI } from '../utils/syncMembersFromAPI'
 import { loadMemberLoanedItems } from '../utils/payoutDataLoader'
-import { isLeader } from '../config'
-
-export default function MembersView() {
+export default function MembersView({ isLeadership }) {
   const [persistedState, setPersistedState] = useViewState('members')
   const { user } = useAuth()
 
@@ -285,7 +283,7 @@ export default function MembersView() {
             <option value="6">Tier 6</option>
           </select>
 
-          {isLeader(user?.id) && (
+          {isLeadership && (
             <button
               onClick={handleSyncMembers}
               disabled={syncing}
