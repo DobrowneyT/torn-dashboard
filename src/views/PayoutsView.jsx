@@ -4,7 +4,7 @@ import { useViewState } from '../contexts/ViewStateContext'
 import { supabase } from '../utils/supabase'
 import { formatCurrency, formatCurrencyShort, formatTimeHours } from '../utils/payoutCalculations'
 
-export default function PayoutsView() {
+export default function PayoutsView({ isLeadership }) {
   const { user } = useAuth()
   const [persistedState, setPersistedState] = useViewState('payouts')
   
@@ -403,8 +403,8 @@ export default function PayoutsView() {
                   <th className="py-2 px-2 text-xs font-semibold">Time</th>
                   <th className="py-2 px-2 text-xs font-semibold">Tickets</th>
                   <th className="py-2 px-2 text-xs font-semibold">Payout</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Difference</th>
+                  {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>}
+                  {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Difference</th>}
                   <th className="py-2 px-2 text-xs font-semibold">Actions</th>
                 </tr>
               </thead>
@@ -422,14 +422,18 @@ export default function PayoutsView() {
                       <td className="py-2 px-2 text-xs font-semibold text-blue-600">
                         {formatCurrency(payout.payout || 0)}
                       </td>
-                      <td className="py-2 px-2 text-xs text-gray-600">
-                        {formatCurrency(payout.theoretical_payout || 0)}
-                      </td>
-                      <td className="py-2 px-2 text-xs">
-                        <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
-                          {diff >= 0 ? '+' : ''}{formatCurrency(diff)}
-                        </span>
-                      </td>
+                      {isLeadership && (
+                        <td className="py-2 px-2 text-xs text-gray-600">
+                          {formatCurrency(payout.theoretical_payout || 0)}
+                        </td>
+                      )}
+                      {isLeadership && (
+                        <td className="py-2 px-2 text-xs">
+                          <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            {diff >= 0 ? '+' : ''}{formatCurrency(diff)}
+                          </span>
+                        </td>
+                      )}
                       <td className="py-2 px-2 text-xs">
                         <button
                           onClick={() => loadMemberCrimes(payout.member_id, payout.week_start, payout.week_end)}
@@ -519,6 +523,7 @@ export default function PayoutsView() {
           loading={loadingWeekDetails}
           onClose={() => setSelectedWeek(null)}
           onMemberClick={(memberId, weekStart, weekEnd) => loadMemberCrimes(memberId, weekStart, weekEnd)}
+          isLeadership={isLeadership}
         />
       )}
 
@@ -545,8 +550,8 @@ export default function PayoutsView() {
                 <th className="py-2 px-2 text-xs font-semibold">Weeks</th>
                 <th className="py-2 px-2 text-xs font-semibold">Total Payout</th>
                 <th className="py-2 px-2 text-xs font-semibold">Avg/Week</th>
-                <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>
-                <th className="py-2 px-2 text-xs font-semibold">Diff</th>
+                {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>}
+                {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Diff</th>}
               </tr>
             </thead>
             <tbody>
@@ -571,14 +576,18 @@ export default function PayoutsView() {
                       {formatCurrencyShort(member.totalPayout)}
                     </td>
                     <td className="py-2 px-2 text-xs">{formatCurrencyShort(member.avgPayout)}</td>
-                    <td className="py-2 px-2 text-xs text-gray-600">
-                      {formatCurrencyShort(member.totalTheoretical)}
-                    </td>
-                    <td className="py-2 px-2 text-xs">
-                      <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
-                        {diff >= 0 ? '+' : ''}{formatCurrencyShort(diff)}
-                      </span>
-                    </td>
+                    {isLeadership && (
+                      <td className="py-2 px-2 text-xs text-gray-600">
+                        {formatCurrencyShort(member.totalTheoretical)}
+                      </td>
+                    )}
+                    {isLeadership && (
+                      <td className="py-2 px-2 text-xs">
+                        <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          {diff >= 0 ? '+' : ''}{formatCurrencyShort(diff)}
+                        </span>
+                      </td>
+                    )}
                   </tr>
                 )
               })}
@@ -595,7 +604,7 @@ function TierBadge({ tier }) {
   return <span className={`inline-block px-2 py-1 rounded text-white font-semibold text-xs ${colors[tier]}`}>T{tier}</span>
 }
 
-function WeekDetailsModal({ weekId, members, loading, onClose, onMemberClick }) {
+function WeekDetailsModal({ weekId, members, loading, onClose, onMemberClick, isLeadership }) {
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -637,7 +646,7 @@ function WeekDetailsModal({ weekId, members, loading, onClose, onMemberClick }) 
                 <th className="py-2 px-2 text-xs font-semibold">Penalty</th>
                 <th className="py-2 px-2 text-xs font-semibold">Share %</th>
                 <th className="py-2 px-2 text-xs font-semibold">Payout</th>
-                <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>
+                {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>}
                 <th className="py-2 px-2 text-xs font-semibold">Actions</th>
               </tr>
             </thead>
@@ -657,9 +666,11 @@ function WeekDetailsModal({ weekId, members, loading, onClose, onMemberClick }) 
                   <td className="py-2 px-2 text-xs font-semibold text-blue-600">
                     {formatCurrency(m.payout || 0)}
                   </td>
-                  <td className="py-2 px-2 text-xs text-gray-600">
-                    {formatCurrency(m.theoretical_payout || 0)}
-                  </td>
+                  {isLeadership && (
+                    <td className="py-2 px-2 text-xs text-gray-600">
+                      {formatCurrency(m.theoretical_payout || 0)}
+                    </td>
+                  )}
                   <td className="py-2 px-2 text-xs">
                     <button
                       onClick={() => onMemberClick(m.member_id, weekStart, weekEnd)}

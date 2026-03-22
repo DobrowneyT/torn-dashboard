@@ -406,6 +406,7 @@ export default function MembersView({ isLeadership }) {
           payouts={memberPayouts}
           loading={loadingDetails}
           onClose={() => setShowPayouts(false)}
+          isLeadership={isLeadership}
         />
       )}
 
@@ -511,7 +512,7 @@ function CrimesModal({ member, crimes, loading, onClose }) {
   )
 }
 
-function PayoutsModal({ member, payouts, loading, onClose }) {
+function PayoutsModal({ member, payouts, loading, onClose, isLeadership }) {
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -554,8 +555,8 @@ function PayoutsModal({ member, payouts, loading, onClose }) {
                   <th className="py-2 px-2 text-xs font-semibold">Crimes</th>
                   <th className="py-2 px-2 text-xs font-semibold">Time</th>
                   <th className="py-2 px-2 text-xs font-semibold">Payout</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Diff</th>
+                  {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>}
+                  {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Diff</th>}
                 </tr>
               </thead>
               <tbody>
@@ -576,14 +577,18 @@ function PayoutsModal({ member, payouts, loading, onClose }) {
                       <td className="py-2 px-2 text-xs font-semibold text-blue-600">
                         {formatCurrency(payout.payout || 0)}
                       </td>
-                      <td className="py-2 px-2 text-xs text-gray-600">
-                        {formatCurrency(payout.theoretical_payout || 0)}
-                      </td>
-                      <td className="py-2 px-2 text-xs">
-                        <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
-                          {diff >= 0 ? '+' : ''}{formatCurrency(diff)}
-                        </span>
-                      </td>
+                      {isLeadership && (
+                        <td className="py-2 px-2 text-xs text-gray-600">
+                          {formatCurrency(payout.theoretical_payout || 0)}
+                        </td>
+                      )}
+                      {isLeadership && (
+                        <td className="py-2 px-2 text-xs">
+                          <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            {diff >= 0 ? '+' : ''}{formatCurrency(diff)}
+                          </span>
+                        </td>
+                      )}
                     </tr>
                   )
                 })}
@@ -592,12 +597,16 @@ function PayoutsModal({ member, payouts, loading, onClose }) {
                 <tr className="font-bold">
                   <td colSpan="4" className="py-2 px-2 text-right text-xs">TOTAL:</td>
                   <td className="py-2 px-2 text-xs text-blue-600">{formatCurrency(totalPayout)}</td>
-                  <td className="py-2 px-2 text-xs text-gray-600">{formatCurrency(totalTheoretical)}</td>
-                  <td className="py-2 px-2 text-xs">
-                    <span className={(totalPayout - totalTheoretical) >= 0 ? 'text-green-600' : 'text-red-600'}>
-                      {(totalPayout - totalTheoretical) >= 0 ? '+' : ''}{formatCurrency(totalPayout - totalTheoretical)}
-                    </span>
-                  </td>
+                  {isLeadership && (
+                    <td className="py-2 px-2 text-xs text-gray-600">{formatCurrency(totalTheoretical)}</td>
+                  )}
+                  {isLeadership && (
+                    <td className="py-2 px-2 text-xs">
+                      <span className={(totalPayout - totalTheoretical) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                        {(totalPayout - totalTheoretical) >= 0 ? '+' : ''}{formatCurrency(totalPayout - totalTheoretical)}
+                      </span>
+                    </td>
+                  )}
                 </tr>
               </tfoot>
             </table>
