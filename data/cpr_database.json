@@ -9832,26 +9832,26 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-23T17:43:18.336928"
+      "tier_last_updated": "2026-03-24T02:37:39.964968"
     },
     "3958268": {
       "name": "SomTallWhiteGuy",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-03-23T17:43:18.336978"
+      "tier_last_updated": "2026-03-24T02:37:39.965043"
     },
     "455068": {
       "name": "jennaTills",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-03-24T02:37:39.965107"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-24T02:37:38.708683",
+    "last_updated": "2026-03-24T02:37:39.967233",
     "total_members": 168
   }
 }
