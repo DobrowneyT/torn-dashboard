@@ -9863,19 +9863,19 @@
     },
     "455068": {
       "name": "jennaTills",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "8": {
           "Muscle": 68
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-26T17:43:20.345288"
+      "tier_last_updated": "2026-03-27T17:43:19.357822"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-27T17:43:18.115014",
+    "last_updated": "2026-03-27T17:43:19.357989",
     "total_members": 168
   }
 }
