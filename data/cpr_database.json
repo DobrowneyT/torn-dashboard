@@ -5782,7 +5782,7 @@
     },
     "2926373": {
       "name": "Apilli",
-      "tier": 3,
+      "tier": 2,
       "cpr_by_role": {
         "1": {
           "Looter": 97,
@@ -5855,7 +5855,7 @@
         }
       },
       "last_scraped": "2026-03-28T11:15:59.053174",
-      "tier_last_updated": "2025-12-27T15:47:53.294680"
+      "tier_last_updated": "2026-03-28T11:16:05.629885"
     },
     "2927319": {
       "name": "Benn",
@@ -9908,7 +9908,7 @@
     },
     "3881286": {
       "name": "Kgray1",
-      "tier": 6,
+      "tier": 5,
       "cpr_by_role": {
         "3": {
           "Looter": 90
@@ -9918,7 +9918,7 @@
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-25T17:43:16.983212"
+      "tier_last_updated": "2026-03-28T11:16:05.631007"
     },
     "3958268": {
       "name": "SomTallWhiteGuy",
@@ -9948,7 +9948,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-28T11:16:04.959037",
+    "last_updated": "2026-03-28T11:16:05.632229",
     "total_members": 168
   }
 }
