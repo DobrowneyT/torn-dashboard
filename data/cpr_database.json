@@ -9959,26 +9959,26 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-03-31T17:43:21.022653"
     },
     "3511228": {
       "name": "Jayturn",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-03-31T17:43:21.022679"
     },
     "4023921": {
       "name": "Vochlu",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": ""
+      "tier_last_updated": "2026-03-31T17:43:21.022700"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-03-31T17:43:19.957221",
+    "last_updated": "2026-03-31T17:43:21.023635",
     "total_members": 171
   }
 }
