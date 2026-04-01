@@ -44,11 +44,18 @@ export function getSyncStatusMessage(result) {
   }
   
   let msg = `Synced ${result.crimesUpdated} crimes, ${result.slotsUpdated} slots`
-  
+
   if (result.rewardItemsUpdated > 0 || result.requiredItemsUpdated > 0) {
     msg += `, ${result.rewardItemsUpdated} reward items, ${result.requiredItemsUpdated} required items`
   }
-  
+
+  const pages = result.pagesFetched || 1
+  msg += ` (${pages} API page${pages > 1 ? 's' : ''} fetched`
+  if (result.fromTimestamp) {
+    msg += `, from timestamp ${result.fromTimestamp}`
+  }
+  msg += ')'
+
   if (result.errors && result.errors.length > 0) {
     msg += ` (${result.errors.length} errors)`
   }

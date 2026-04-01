@@ -134,24 +134,43 @@ function calculateSitOutPenalty(timeSpent, baseTickets) {
   const timeAboveMin = timeSpent - MIN_TIME_FOR_ANY_PAYOUT
   const percentOfRange = timeAboveMin / timeRange
 
-  return -(1 - percentOfRange) * baseTickets
+  return Math.ceil(-(1 - percentOfRange) * baseTickets)
 }
 
 /**
- * Calculate theoretical payout for a member (equal share of the member pool based on crime participation)
+ * Calculate theoretical payouts by splitting each crime's net value equally among its participants.
  *
- * This distributes the member pool proportionally by the number of successful crimes
- * each member participated in, relative to total participation slots.
- * The sum of all theoretical payouts equals the member pool.
+ * For successful crimes: net = (money_reward + item_reward - item_cost) * (1 - factionCut)
+ * For failed crimes: net = -item_cost (no faction cut — there's no reward to cut from)
+ * per_member = floor(net / participant_count)
  *
- * @param {number} memberCrimesCount - Number of successful crimes this member participated in
- * @param {number} totalParticipationSlots - Sum of all members' crime counts
- * @param {number} memberPayoutTotal - Total pool available for members
- * @returns {number} Theoretical payout for this member
+ * Failed crimes charge participants for lost items. Members can have negative theoretical payouts.
+ *
+ * @param {Object} crimeValues - Map of crimeId -> { netValue, successful, participantIds }
+ * @param {number} factionCutPercent - Faction cut as decimal (e.g. 0.20)
+ * @returns {Object} Map of userId -> theoretical payout amount
  */
-function calculateTheoreticalPayout(memberCrimesCount, totalParticipationSlots, memberPayoutTotal) {
-  if (totalParticipationSlots <= 0 || memberCrimesCount <= 0) return 0
-  return Math.floor((memberCrimesCount / totalParticipationSlots) * memberPayoutTotal)
+export function calculateTheoreticalPayouts(crimeValues, factionCutPercent) {
+  const theoreticalByMember = {}
+
+  for (const crime of Object.values(crimeValues)) {
+    const participantCount = crime.participantIds.length
+    if (participantCount === 0) continue
+
+    // Apply faction cut only to successful crimes
+    const netValue = crime.successful
+      ? crime.netValue * (1 - factionCutPercent)
+      : crime.netValue
+
+    const perMember = Math.floor(netValue / participantCount)
+
+    for (const userId of crime.participantIds) {
+      if (!theoreticalByMember[userId]) theoreticalByMember[userId] = 0
+      theoreticalByMember[userId] += perMember
+    }
+  }
+
+  return theoreticalByMember
 }
 
 /**
@@ -257,6 +276,9 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   const rewardItemDetails = []
   const consumedItemDetails = []
 
+  // Per-crime values for theoretical payout calculation
+  const crimeValues = {}
+
   // Crime statistics - ONLY for crimes executed within range
   const crimesByDifficulty = {}
   const crimesByStatus = { Successful: 0, Failed: 0, Planning: 0, Recruiting: 0 }
@@ -287,9 +309,21 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
       crimesProcessed++
       crimeIds.push(crimeId)
 
-      totalMoneyReward += crime.rewards?.money || 0
-      totalItemReward += crime.item_reward_value || 0
-      totalItemCost += crime.item_cost_value || 0
+      const crimeMoneyReward = crime.rewards?.money || 0
+      const crimeItemReward = crime.item_reward_value || 0
+      const crimeItemCost = crime.item_cost_value || 0
+
+      totalMoneyReward += crimeMoneyReward
+      totalItemReward += crimeItemReward
+      totalItemCost += crimeItemCost
+
+      // Track per-crime value for theoretical payout
+      crimeValues[crimeId] = {
+        netValue: crimeMoneyReward + crimeItemReward - crimeItemCost,
+        moneyReward: crimeMoneyReward,
+        successful: true,
+        participantIds: []
+      }
 
       crimesByStatus.Successful++
 
@@ -340,6 +374,34 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
       }
       crimesByDifficulty[difficulty].failed++
       crimesByDifficulty[difficulty].total++
+
+      // Collect consumed items from failed crimes too (items are still lost)
+      let failedItemCost = 0
+      if (crime.required_items && crime.required_items.length > 0) {
+        for (const item of crime.required_items) {
+          if (item.was_consumed) {
+            failedItemCost += item.unit_value || 0
+            totalItemCost += item.unit_value || 0
+            consumedItemDetails.push({
+              crimeId,
+              crimeName: crime.name,
+              itemId: item.item_id,
+              itemName: item.item_name,
+              userId: item.user_id,
+              unitValue: item.unit_value || 0,
+              outcome: item.outcome
+            })
+          }
+        }
+      }
+
+      // Track failed crime for theoretical payout (no rewards, only item cost → negative)
+      crimeValues[crimeId] = {
+        netValue: -failedItemCost,
+        moneyReward: 0,
+        successful: false,
+        participantIds: []
+      }
     }
     // Note: Planning and Recruiting crimes are counted but not in time window stats
 
@@ -385,6 +447,11 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
         participatingMembers[userId].crimesCount++
       }
 
+      // Track participants for theoretical payout (both successful and failed crimes)
+      if (crimeValues[crimeId]) {
+        crimeValues[crimeId].participantIds.push(userId)
+      }
+
       participatingMembers[userId].positions.push({
         crimeId,
         difficulty,
@@ -409,17 +476,18 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   // Convert to array and calculate tickets/penalties
   let memberArray = Object.values(participatingMembers)
 
-  // Filter to only include members who participated in successful crimes during the window
-  // OR are current members (who should see $0 if they didn't participate)
+  // Include any member who has time in any crime during the window (successful,
+  // failed, planning, recruiting, or post-window) — matches Google Sheets behavior.
+  // Also include current faction members even if they had no crime participation.
   memberArray = memberArray.filter(member => {
-    // Check if member participated in any successful crime during the window
-    const participatedInWindow = member.crimesCount > 0
+    // Member had time in at least one crime overlapping the window
+    if (member.timeSpent > 0) return true
 
-    // Check if member is current
+    // Current faction member (should appear with $0 if no participation)
     const memberData = members[member.userId.toString()]
-    const isCurrent = memberData?.is_current === true
+    if (memberData?.is_current === true) return true
 
-    return participatedInWindow || isCurrent
+    return false
   })
 
   if (memberArray.length === 0) {
@@ -440,16 +508,12 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     member.adjustedTickets = Math.max(0, baseTickets + sitOutPenalty)
   }
 
-  // Calculate total participation slots (sum of all members' successful crime counts)
-  const totalParticipationSlots = memberArray.reduce((sum, m) => sum + m.crimesCount, 0)
+  // Calculate theoretical payouts: split each crime's net value equally among participants.
+  // Failed crimes contribute negative values (item costs charged to participants).
+  const theoreticalByMember = calculateTheoreticalPayouts(crimeValues, factionCutPercent)
 
-  // Calculate theoretical payout for each member (proportional share of pool by crime participation)
   for (const member of memberArray) {
-    member.theoreticalPayout = calculateTheoreticalPayout(
-      member.crimesCount,
-      totalParticipationSlots,
-      memberPayoutTotal
-    )
+    member.theoreticalPayout = theoreticalByMember[member.userId.toString()] || 0
   }
 
   // Calculate total adjusted tickets
@@ -551,7 +615,9 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     // Item details for display
     rewardItemDetails,
     consumedItemDetails,
-    itemBreakdown
+    itemBreakdown,
+    // Per-crime values for theoretical recalculation after enrichment
+    crimeValues
   }
 }
 
@@ -590,7 +656,8 @@ function createEmptyResult() {
       byDifficulty: {}
     },
     rewardItemDetails: [],
-    consumedItemDetails: []
+    consumedItemDetails: [],
+    crimeValues: {}
   }
 }
 
