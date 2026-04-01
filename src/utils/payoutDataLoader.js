@@ -33,7 +33,15 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
     const dataFromTimestamp = fromTimestamp - THREE_WEEKS
 
     // Phase 1: Load all crime queries in parallel
-    const [executedResult, lookbackResult, inProgressResult] = await Promise.all([
+    // We need 4 categories to match the Google Sheets algorithm:
+    // 1. Crimes executed within the payout window (for rewards + time)
+    // 2. Crimes created before the window (lookback — members joined early, crime executed in window)
+    // 3. Crimes still in Planning/Recruiting (in-progress — time tracking only)
+    // 4. Crimes created during the window but executed AFTER it (time tracking only)
+    //    These are no longer Planning/Recruiting, so query 3 misses them.
+    //    They weren't executed in the window, so query 1 misses them.
+    //    They weren't created before the window, so query 2 misses them.
+    const [executedResult, lookbackResult, inProgressResult, postWindowResult] = await Promise.all([
       supabase
         .from('crimes')
         .select('*')
@@ -50,16 +58,27 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
         .from('crimes')
         .select('*')
         .in('status', ['Planning', 'Recruiting'])
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false }),
+      // Crimes created during the window that executed after it
+      // (members were sitting in these crimes, accumulating time within the window)
+      supabase
+        .from('crimes')
+        .select('*')
+        .gte('created_at', fromTimestamp)
+        .lt('created_at', toTimestamp)
+        .gte('executed_at', toTimestamp)
+        .order('executed_at', { ascending: false })
     ])
 
     if (executedResult.error) throw executedResult.error
     if (lookbackResult.error) throw lookbackResult.error
     if (inProgressResult.error) throw inProgressResult.error
+    if (postWindowResult.error) throw postWindowResult.error
 
     const executedCrimes = executedResult.data || []
     const lookbackCrimes = lookbackResult.data || []
     const inProgressCrimes = inProgressResult.data || []
+    const postWindowCrimes = postWindowResult.data || []
 
     // Combine and deduplicate
     const crimeMap = new Map()
@@ -75,6 +94,12 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
     }
 
     for (const crime of inProgressCrimes) {
+      if (!crimeMap.has(crime.crime_id)) {
+        crimeMap.set(crime.crime_id, crime)
+      }
+    }
+
+    for (const crime of postWindowCrimes) {
       if (!crimeMap.has(crime.crime_id)) {
         crimeMap.set(crime.crime_id, crime)
       }
@@ -216,6 +241,7 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
     console.log(`  - Executed in window: ${executedCrimes.length}`)
     console.log(`  - Lookback crimes (created before window): ${lookbackCrimes.length}`)
     console.log(`  - In-progress: ${inProgressCrimes.length}`)
+    console.log(`  - Post-window (created during, executed after): ${postWindowCrimes.length}`)
     console.log(`  - Analysis window: ${new Date(fromTimestamp * 1000).toISOString()} to ${new Date(toTimestamp * 1000).toISOString()}`)
     console.log(`  - Data collection starts: ${new Date(dataFromTimestamp * 1000).toISOString()}`)
 
@@ -276,6 +302,7 @@ export async function loadMembers() {
         id: member.member_id,
         name: member.member_name,
         tier: member.tier_override || member.tier || 6,
+        is_current: member.is_current,
         last_scraped: member.last_scraped,
         cpr_by_role: cprByRole
       }
@@ -585,25 +612,25 @@ export async function checkExistingWeek(weekStart, weekEnd) {
  */
 export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, apiKey) {
   try {
-    // Prepare week record
+    // Prepare week record — floor all numeric values to avoid bigint errors
     const weekRecord = {
       week_start: weekData.week_start,
       week_end: weekData.week_end,
       week_start_timestamp: weekData.week_start_timestamp,
       week_end_timestamp: weekData.week_end_timestamp,
-      total_money_reward: weekData.total_money_reward || 0,
-      total_item_reward: weekData.total_item_reward || 0,
-      total_item_cost: weekData.total_item_cost || 0,
-      net_item_value: weekData.net_item_value || 0,
+      total_money_reward: Math.floor(weekData.total_money_reward || 0),
+      total_item_reward: Math.floor(weekData.total_item_reward || 0),
+      total_item_cost: Math.floor(weekData.total_item_cost || 0),
+      net_item_value: Math.floor(weekData.net_item_value || 0),
       faction_cut_percent: weekData.faction_cut_percent || 20,
-      faction_cut_amount: weekData.faction_cut_amount || 0,
-      member_payout_total: weekData.member_payout_total || 0,
-      total_member_payout: weekData.member_payout_total || 0,
+      faction_cut_amount: Math.floor(weekData.faction_cut_amount || 0),
+      member_payout_total: Math.floor(weekData.member_payout_total || 0),
+      total_member_payout: Math.floor(weekData.member_payout_total || 0),
       member_count: memberData.length,
-      crimes_processed: weekData.crimes_processed || 0,
-      total_time_spent: weekData.total_time_spent || 0,
-      average_time_spent: weekData.average_time_spent || 0,
-      total_adjusted_tickets: weekData.total_adjusted_tickets || 0,
+      crimes_processed: Math.floor(weekData.crimes_processed || 0),
+      total_time_spent: Math.floor(weekData.total_time_spent || 0),
+      average_time_spent: Math.floor(weekData.average_time_spent || 0),
+      total_adjusted_tickets: Math.floor(weekData.total_adjusted_tickets || 0),
       crime_ids: crimeIds || [],
       min_time_for_full_tickets: 432000,
       min_time_for_any_payout: 172800
@@ -616,15 +643,15 @@ export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, ap
       member_id: m.member_id || m.userId?.toString(),
       member_name: m.member_name || m.name,
       tier: m.tier,
-      base_tickets: m.base_tickets || m.baseTickets || 0,
-      sit_out_penalty: m.sit_out_penalty || m.sitOutPenalty || 0,
-      adjusted_tickets: m.adjusted_tickets || m.adjustedTickets || 0,
-      time_spent: m.time_spent || m.timeSpent || 0,
+      base_tickets: Math.floor(m.base_tickets || m.baseTickets || 0),
+      sit_out_penalty: Math.floor(m.sit_out_penalty || m.sitOutPenalty || 0),
+      adjusted_tickets: Math.floor(m.adjusted_tickets || m.adjustedTickets || 0),
+      time_spent: Math.floor(m.time_spent || m.timeSpent || 0),
       time_spent_percent: m.time_spent_percent || m.timePercent || 0,
       share_percent: m.share_percent || (m.sharePercent ? m.sharePercent * 100 : 0),
-      payout: m.payout || 0,
-      theoretical_payout: m.theoretical_payout || m.theoreticalPayout || 0,
-      crimes_count: m.crimes_count || m.crimesCount || 0,
+      payout: Math.floor(m.payout || 0),
+      theoretical_payout: Math.floor(m.theoretical_payout || m.theoreticalPayout || 0),
+      crimes_count: Math.floor(m.crimes_count || m.crimesCount || 0),
       crimes_participated: m.crimes_participated || m.crimeIds || []
     }))
 

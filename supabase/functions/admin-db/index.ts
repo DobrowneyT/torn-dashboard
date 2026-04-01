@@ -463,25 +463,101 @@ async function bulkUpsert(supabase: any, table: string, records: any[], onConfli
 }
 
 async function handleSyncCrimes(supabase: any, apiKey: string) {
-  // Fetch crimes from Torn API
-  const response = await fetch(
-    `https://api.torn.com/faction/?selections=crimes&key=${apiKey}`
-  )
-  
-  if (!response.ok) {
-    throw new Error(`Torn API error: ${response.status}`)
-  }
-  
-  const data = await response.json()
-  
-  if (data.error) {
-    throw new Error(data.error.error || 'API error')
+  // Step 1: Determine the start timestamp
+  // Mirrors Python daily_crime_update.py _get_fetch_start_timestamp logic:
+  // - Find all crimes that are incomplete (Planning or Recruiting status)
+  // - Use the OLDEST incomplete crime's created_at as our start point
+  // - This ensures we re-fetch and update all incomplete crimes from that point forward
+  // - If no incomplete crimes exist, use the newest crime's created_at to catch new ones
+  let fromTimestamp = 0
+  let syncReason = 'empty_db'
+
+  // Check if we have any crimes at all
+  const { count } = await supabase
+    .from('crimes')
+    .select('*', { count: 'exact', head: true })
+
+  if (count && count > 0) {
+    // Find the oldest incomplete crime (Planning or Recruiting — no executed_at)
+    const { data: oldestIncomplete } = await supabase
+      .from('crimes')
+      .select('crime_id, created_at, status')
+      .in('status', ['Planning', 'Recruiting'])
+      .order('created_at', { ascending: true })
+      .limit(1)
+
+    if (oldestIncomplete && oldestIncomplete.length > 0) {
+      fromTimestamp = oldestIncomplete[0].created_at
+      syncReason = `oldest_incomplete_${oldestIncomplete[0].crime_id}`
+    } else {
+      // All crimes are complete — use the newest crime's created_at
+      // to check for any brand new crimes since last sync
+      const { data: newestCrime } = await supabase
+        .from('crimes')
+        .select('crime_id, created_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (newestCrime && newestCrime.length > 0) {
+        fromTimestamp = newestCrime[0].created_at
+        syncReason = `newest_complete_${newestCrime[0].crime_id}`
+      }
+    }
   }
 
-  const crimes = data.crimes || {}
-  const { allCrimes, allSlots, allRewardItems, allRequiredItems } = collectCrimeRecords(crimes)
+  // Step 2: Paginated fetch from Torn API
+  // Mirrors Python _fetch_crimes_paginated: fetch with sort=ASC from start timestamp,
+  // continue until we get < 100 crimes (the API's page size)
+  const allApiCrimes: Record<string, any> = {}
+  let currentFrom = fromTimestamp
+  let page = 0
+  const seenIds = new Set<string>()
 
-  // Bulk upsert all records (4 queries instead of hundreds)
+  while (true) {
+    const url = `https://api.torn.com/faction/?selections=crimes&key=${apiKey}&from=${currentFrom}&sort=ASC`
+    const response = await fetch(url)
+
+    if (!response.ok) {
+      throw new Error(`Torn API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (data.error) {
+      throw new Error(data.error.error || 'API error')
+    }
+
+    const crimes = data.crimes || {}
+    const crimeEntries = Object.entries(crimes)
+
+    if (crimeEntries.length === 0) break
+
+    // Deduplicate across pages (overlap can occur at page boundaries)
+    let newCount = 0
+    for (const [id, crime] of crimeEntries) {
+      if (!seenIds.has(id)) {
+        allApiCrimes[id] = crime
+        seenIds.add(id)
+        newCount++
+      }
+    }
+
+    // If we got fewer than 100 crimes, we've reached the end
+    if (crimeEntries.length < 100) break
+
+    // Use the last crime's created_at as the next page's from timestamp
+    const lastCrime = crimeEntries[crimeEntries.length - 1][1] as any
+    currentFrom = lastCrime.created_at
+    page++
+
+    // Safety limit to prevent infinite loops
+    if (page > 50) break
+  }
+
+  // Step 3: Process and upsert all fetched crimes
+  // Upsert = update if exists (by crime_id), insert if new
+  const { allCrimes, allSlots, allRewardItems, allRequiredItems } = collectCrimeRecords(allApiCrimes)
+
   const [crimesUpdated, slotsUpdated, rewardItemsUpdated, requiredItemsUpdated] = await Promise.all([
     bulkUpsert(supabase, 'crimes', allCrimes, 'crime_id'),
     bulkUpsert(supabase, 'crime_slots', allSlots, 'crime_id,position_id'),
@@ -489,12 +565,15 @@ async function handleSyncCrimes(supabase: any, apiKey: string) {
     bulkUpsert(supabase, 'crime_required_items', allRequiredItems, 'crime_id,position_id'),
   ])
 
-  return { 
-    success: true, 
-    crimesUpdated, 
-    slotsUpdated, 
-    rewardItemsUpdated, 
-    requiredItemsUpdated
+  return {
+    success: true,
+    crimesUpdated,
+    slotsUpdated,
+    rewardItemsUpdated,
+    requiredItemsUpdated,
+    pagesFetched: page + 1,
+    syncReason,
+    fromTimestamp
   }
 }
 

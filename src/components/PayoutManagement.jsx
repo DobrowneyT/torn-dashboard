@@ -11,7 +11,9 @@ import {
 import {
   getCurrentWeekRange,
   getPreviousWeekRange,
+  getWeekRangeFromDate,
   calculatePayouts,
+  calculateTheoreticalPayouts,
   formatCurrency,
   formatCurrencyShort,
   formatPercent,
@@ -139,13 +141,61 @@ export default function PayoutManagement() {
   }
 
   function handleSetPreviousWeek() {
-    const previousWeek = getPreviousWeekRange()
-    setFromDate(previousWeek.monday.toISOString().split('T')[0])
-    setToDate(previousWeek.sunday.toISOString().split('T')[0])
-    setFromTimestamp(previousWeek.mondayTimestamp)
-    setToTimestamp(previousWeek.sundayTimestamp)
+    // Navigate one week back from the currently displayed week
+    if (fromTimestamp) {
+      const currentFrom = new Date(fromTimestamp * 1000)
+      currentFrom.setUTCDate(currentFrom.getUTCDate() - 7)
+      const prevWeek = getWeekRangeFromDate(currentFrom)
+      setFromDate(prevWeek.monday.toISOString().split('T')[0])
+      setToDate(prevWeek.sunday.toISOString().split('T')[0])
+      setFromTimestamp(prevWeek.mondayTimestamp)
+      setToTimestamp(prevWeek.sundayTimestamp)
+    } else {
+      const previousWeek = getPreviousWeekRange()
+      setFromDate(previousWeek.monday.toISOString().split('T')[0])
+      setToDate(previousWeek.sunday.toISOString().split('T')[0])
+      setFromTimestamp(previousWeek.mondayTimestamp)
+      setToTimestamp(previousWeek.sundayTimestamp)
+    }
     setHasCalculated(false)
     setPayoutResults(null)
+  }
+
+  function handleSetNextWeek() {
+    // Navigate one week forward from the currently displayed week
+    if (fromTimestamp) {
+      const currentFrom = new Date(fromTimestamp * 1000)
+      currentFrom.setUTCDate(currentFrom.getUTCDate() + 7)
+      const nextWeek = getWeekRangeFromDate(currentFrom)
+      setFromDate(nextWeek.monday.toISOString().split('T')[0])
+      setToDate(nextWeek.sunday.toISOString().split('T')[0])
+      setFromTimestamp(nextWeek.mondayTimestamp)
+      setToTimestamp(nextWeek.sundayTimestamp)
+    }
+    setHasCalculated(false)
+    setPayoutResults(null)
+  }
+
+  function handleEditPenalty(userId, currentPenalty) {
+    setEditingPenalty({ userId, value: currentPenalty.toString() })
+  }
+
+  function handleSavePenalty(userId) {
+    const newPenalty = parseFloat(editingPenalty.value) || 0
+    setPenaltyOverrides(prev => ({ ...prev, [userId]: newPenalty }))
+    setEditingPenalty(null)
+  }
+
+  function handleCancelPenalty() {
+    setEditingPenalty(null)
+  }
+
+  function handleResetPenalty(userId) {
+    setPenaltyOverrides(prev => {
+      const updated = { ...prev }
+      delete updated[userId]
+      return updated
+    })
   }
 
   function handleFromDateChange(e) {
@@ -233,6 +283,16 @@ export default function PayoutManagement() {
 
       // Enrich item breakdown and recalculate totals
       enrichItemBreakdown(results.itemBreakdown, user.apiKey).then(enriched => {
+        // Build enriched price maps (itemId -> unit price)
+        const rewardPrices = {}
+        Object.entries(enriched.rewards || {}).forEach(([itemId, data]) => {
+          rewardPrices[itemId] = data.unitValue || 0
+        })
+        const costPrices = {}
+        Object.entries(enriched.costs || {}).forEach(([itemId, data]) => {
+          costPrices[itemId] = data.unitValue || 0
+        })
+
         // Calculate new totals from enriched item data
         const newTotalItemReward = Object.values(enriched.rewards || {}).reduce(
           (sum, item) => sum + (item.totalValue || 0),
@@ -251,13 +311,45 @@ export default function PayoutManagement() {
         const newFactionCut = Math.floor(newGrossTotal * (factionCutPercent / 100))
         const newMemberPayoutTotal = newGrossTotal - newFactionCut
 
+        // Rebuild per-crime net values with enriched item prices
+        const enrichedCrimeValues = { ...results.crimeValues }
+        // Reset item-based values (keep money rewards from successful crimes, zero out item portions)
+        for (const [crimeId, crime] of Object.entries(enrichedCrimeValues)) {
+          if (crime.successful) {
+            // Start with money reward only (strip out old zero-value items)
+            enrichedCrimeValues[crimeId] = { ...crime, netValue: crime.moneyReward || 0 }
+          } else {
+            // Failed crime: reset to 0, will add item costs below
+            enrichedCrimeValues[crimeId] = { ...crime, netValue: 0 }
+          }
+        }
+        // Add enriched reward item values per crime
+        for (const item of results.rewardItemDetails) {
+          if (enrichedCrimeValues[item.crimeId]) {
+            const price = rewardPrices[item.itemId] || 0
+            enrichedCrimeValues[item.crimeId].netValue += price * (item.quantity || 1)
+          }
+        }
+        // Subtract enriched cost item values per crime
+        for (const item of results.consumedItemDetails) {
+          if (enrichedCrimeValues[item.crimeId]) {
+            const price = costPrices[item.itemId] || 0
+            enrichedCrimeValues[item.crimeId].netValue -= price
+          }
+        }
+
+        // Recalculate theoretical payouts with enriched per-crime values
+        const theoreticalByMember = calculateTheoreticalPayouts(enrichedCrimeValues, factionCutPercent / 100)
+
         // Recalculate member payouts with new total
         const recalculatedMembers = results.members.map(member => {
+          const updated = { ...member }
           if (totalAdjustedTickets > 0) {
-            member.sharePercent = member.adjustedTickets / totalAdjustedTickets
-            member.payout = Math.floor(member.sharePercent * newMemberPayoutTotal)
+            updated.sharePercent = member.adjustedTickets / totalAdjustedTickets
+            updated.payout = Math.floor(updated.sharePercent * newMemberPayoutTotal)
           }
-          return member
+          updated.theoreticalPayout = theoreticalByMember[member.userId.toString()] || 0
+          return updated
         })
 
         // Update results with enriched data and recalculated totals
@@ -270,7 +362,8 @@ export default function PayoutManagement() {
           grossTotal: newGrossTotal,
           factionCut: newFactionCut,
           memberPayoutTotal: newMemberPayoutTotal,
-          members: recalculatedMembers
+          members: recalculatedMembers,
+          crimeValues: enrichedCrimeValues
         }
 
         setPayoutResults(updatedResults)
@@ -380,6 +473,11 @@ export default function PayoutManagement() {
     navigator.clipboard.writeText(batchURL).then(() => {
       setShowBatchURL(true)
       setTimeout(() => setShowBatchURL(false), 3000)
+
+      // Prompt to save the current week to the database
+      if (window.confirm('Batch URL copied! Would you like to save this payout week to the database?')) {
+        handleSaveWeek()
+      }
     }).catch(err => {
       console.error('Failed to copy:', err)
       alert('Failed to copy URL to clipboard')
@@ -599,6 +697,43 @@ export default function PayoutManagement() {
 
       if (membersError) throw membersError
 
+      // Build item breakdown from linked crimes
+      let itemBreakdown = { rewards: {}, costs: {} }
+      const crimeIds = weekData.crime_ids || []
+
+      if (crimeIds.length > 0) {
+        // Fetch reward and cost items for all linked crimes in parallel
+        const [rewardResult, costResult] = await Promise.all([
+          supabase
+            .from('crime_reward_items')
+            .select('item_id, quantity')
+            .in('crime_id', crimeIds),
+          supabase
+            .from('crime_required_items')
+            .select('item_id, was_consumed')
+            .in('crime_id', crimeIds)
+            .eq('was_consumed', true)
+        ])
+
+        // Aggregate reward items by item_id
+        const rewards = {}
+        for (const r of (rewardResult.data || [])) {
+          const id = r.item_id.toString()
+          if (!rewards[id]) rewards[id] = { quantity: 0 }
+          rewards[id].quantity += (r.quantity || 1)
+        }
+
+        // Aggregate cost items by item_id
+        const costs = {}
+        for (const c of (costResult.data || [])) {
+          const id = c.item_id.toString()
+          if (!costs[id]) costs[id] = { quantity: 0 }
+          costs[id].quantity += 1
+        }
+
+        itemBreakdown = { rewards, costs }
+      }
+
       // Set the date range
       setFromDate(weekData.week_start)
       setToDate(weekData.week_end)
@@ -636,16 +771,39 @@ export default function PayoutManagement() {
         memberPayoutTotal: weekData.member_payout_total || weekData.total_member_payout || 0,
         participatingMembers: members.length,
         crimesProcessed: weekData.crimes_processed || 0,
-        crimeIds: weekData.crime_ids || [],
+        crimeIds,
         totalTimeSpent: weekData.total_time_spent || 0,
         averageTime: weekData.average_time_spent || 0,
         totalAdjustedTickets: weekData.total_adjusted_tickets || 0,
-        itemBreakdown: { rewards: {}, costs: {} }
+        itemBreakdown
+      }
+
+      // Enrich item breakdown with real prices
+      if (Object.keys(itemBreakdown.rewards).length > 0 || Object.keys(itemBreakdown.costs).length > 0) {
+        enrichItemBreakdown(itemBreakdown, user.apiKey).then(enriched => {
+          const newTotalItemReward = Object.values(enriched.rewards || {}).reduce(
+            (sum, item) => sum + (item.totalValue || 0), 0
+          )
+          const newTotalItemCost = Object.values(enriched.costs || {}).reduce(
+            (sum, item) => sum + (item.totalValue || 0), 0
+          )
+
+          setPayoutResults(prev => ({
+            ...prev,
+            itemBreakdown: enriched,
+            totalItemReward: newTotalItemReward,
+            totalItemCost: newTotalItemCost,
+            netItemValue: newTotalItemReward - newTotalItemCost
+          }))
+        })
       }
 
       setPayoutResults(results)
       setHasCalculated(true)
       setShowHistory(false)
+      // Clear crimes data so the useEffect doesn't re-trigger calculation
+      setCrimesData(null)
+      setMembersData(null)
 
     } catch (error) {
       console.error('Error loading historical week:', error)
@@ -759,16 +917,22 @@ export default function PayoutManagement() {
 
         <div className="flex flex-wrap gap-2 mb-4">
           <button
+            onClick={handleSetPreviousWeek}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+          >
+            Previous Week
+          </button>
+          <button
             onClick={handleSetCurrentWeek}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
           >
             Current Week
           </button>
           <button
-            onClick={handleSetPreviousWeek}
+            onClick={handleSetNextWeek}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
           >
-            Previous Week
+            Next Week
           </button>
           <button
             onClick={() => setShowHistory(!showHistory)}
@@ -1516,25 +1680,4 @@ function HistoricalPayoutsView({ payouts, loading, onRefresh, onLoadWeek }) {
   )
 }
 
-// function handleEditPenalty(userId, currentPenalty) {
-//   setEditingPenalty({ userId, value: currentPenalty.toString() })
-// }
-
-// function handleSavePenalty(userId) {
-//   const newPenalty = parseFloat(editingPenalty.value) || 0
-//   setPenaltyOverrides(prev => ({ ...prev, [userId]: newPenalty }))
-//   setEditingPenalty(null)
-// }
-
-// function handleCancelPenalty() {
-//   setEditingPenalty(null)
-// }
-
-// function handleResetPenalty(userId) {
-//   setPenaltyOverrides(prev => {
-//     const updated = { ...prev }
-//     delete updated[userId]
-//     return updated
-//   })
-// }
 

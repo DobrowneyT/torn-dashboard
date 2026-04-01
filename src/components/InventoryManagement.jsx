@@ -206,6 +206,44 @@ export default function InventoryManagement() {
     }
   }
   
+  async function handleSetPrice(itemId) {
+    const item = inventoryItems.find(i => i.item_id === itemId)
+    if (!item) return
+
+    const priceStr = window.prompt(
+      `Set price for all ${item.quantity} × ${item.item_name}.\n\nEnter new price per unit:`
+    )
+    if (priceStr === null) return
+
+    const price = parseFloat(priceStr)
+    if (isNaN(price) || price < 0) {
+      alert('Please enter a valid price')
+      return
+    }
+
+    try {
+      // Delete all existing pricing batches for this item
+      await adminApi.adminDelete('pricing_batches', { item_id: itemId }, user.apiKey)
+
+      // Insert a single batch at the new price for the full quantity
+      const response = await adminApi.adminInsert('pricing_batches', {
+        item_id: itemId,
+        price: Math.floor(price),
+        quantity: item.quantity,
+        added_by: user.name
+      }, user.apiKey)
+
+      if (!response.success) {
+        throw new Error(`Failed to save pricing: ${response.error}`)
+      }
+
+      await loadInventoryFromSupabase()
+    } catch (err) {
+      console.error('Error setting price:', err)
+      alert(err.message)
+    }
+  }
+
   function handleCancelEdit() {
     setEditingItem(null)
     setNewBatchPrice('')
@@ -698,16 +736,25 @@ export default function InventoryManagement() {
                             </button>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => handleEditItem(item.id)}
-                            className={`px-2 py-1 text-white rounded text-xs ${
-                              item.hasNewBatch 
-                                ? 'bg-orange-600 hover:bg-orange-700' 
-                                : 'bg-blue-600 hover:bg-blue-700'
-                            }`}
-                          >
-                            {item.hasNewBatch ? 'Price New' : 'Add Batch'}
-                          </button>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handleEditItem(item.id)}
+                              className={`px-2 py-1 text-white rounded text-xs ${
+                                item.hasNewBatch
+                                  ? 'bg-orange-600 hover:bg-orange-700'
+                                  : 'bg-blue-600 hover:bg-blue-700'
+                              }`}
+                            >
+                              {item.hasNewBatch ? 'Price New' : 'Add Batch'}
+                            </button>
+                            <button
+                              onClick={() => handleSetPrice(item.item_id)}
+                              className="px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700"
+                              title="Set price for all items of this type"
+                            >
+                              Set Price
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>

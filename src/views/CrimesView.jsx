@@ -24,10 +24,15 @@ export default function CrimesView({ crimesData, isLeadership }) {
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState(null)
   const [syncError, setSyncError] = useState(null)
-  
+
   // Database crimes (overrides JSON if available)
   const [dbCrimes, setDbCrimes] = useState(null)
   const [loadingDb, setLoadingDb] = useState(true)
+
+  // Participant detail popover
+  const [selectedCrimeId, setSelectedCrimeId] = useState(null)
+  const [crimeSlots, setCrimeSlots] = useState([])
+  const [loadingSlots, setLoadingSlots] = useState(false)
 
   useEffect(() => {
     setPersistedState({ statusFilter, sortConfig })
@@ -41,25 +46,63 @@ export default function CrimesView({ crimesData, isLeadership }) {
   async function loadCrimesFromDatabase() {
     try {
       setLoadingDb(true)
-      const { data, error } = await supabase
-        .from('crimes')
-        .select('*')
-        .order('executed_at', { ascending: false, nullsFirst: false })
-      
-      if (error) throw error
-      
-      // Convert to same format as JSON for compatibility
+
+      // Paginate to load all crimes (Supabase default limit is 1000)
       const crimesMap = {}
-      data.forEach(crime => {
-        crimesMap[crime.crime_id] = crime
-      })
-      
+      const pageSize = 1000
+      let offset = 0
+      let hasMore = true
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('crimes')
+          .select('*')
+          .order('created_at', { ascending: false, nullsFirst: false })
+          .range(offset, offset + pageSize - 1)
+
+        if (error) throw error
+
+        for (const crime of data) {
+          crimesMap[crime.crime_id] = crime
+        }
+
+        hasMore = data.length === pageSize
+        offset += pageSize
+      }
+
       setDbCrimes({ crimes: crimesMap })
     } catch (err) {
       console.error('Error loading crimes from database:', err)
       setDbCrimes(null)
     } finally {
       setLoadingDb(false)
+    }
+  }
+
+  async function handleToggleCrimeDetails(crimeId) {
+    if (selectedCrimeId === crimeId) {
+      setSelectedCrimeId(null)
+      setCrimeSlots([])
+      return
+    }
+
+    setSelectedCrimeId(crimeId)
+    setLoadingSlots(true)
+
+    try {
+      const { data, error } = await supabase
+        .from('crime_slots')
+        .select('user_id, user_name, position, position_number, checkpoint_pass_rate')
+        .eq('crime_id', crimeId)
+        .not('user_id', 'is', null)
+
+      if (error) throw error
+      setCrimeSlots(data || [])
+    } catch (err) {
+      console.error('Error loading crime slots:', err)
+      setCrimeSlots([])
+    } finally {
+      setLoadingSlots(false)
     }
   }
 
@@ -335,8 +378,49 @@ export default function CrimesView({ crimesData, isLeadership }) {
                     <td className="py-2 px-2 font-medium text-xs">
                       {crime.id || crime.crime_id}
                     </td>
-                    <td className="py-2 px-2 text-xs">
-                      {crime.name}
+                    <td className="py-2 px-2 text-xs relative">
+                      <button
+                        onClick={() => handleToggleCrimeDetails(crime.id || crime.crime_id)}
+                        className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer text-left"
+                      >
+                        {crime.name}
+                      </button>
+                      {selectedCrimeId === (crime.id || crime.crime_id) && (
+                        <div className="absolute z-50 left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg p-3 min-w-[280px] max-w-[360px]">
+                          <div className="flex items-center justify-between mb-2">
+                            <h5 className="font-semibold text-xs">Participants</h5>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSelectedCrimeId(null) }}
+                              className="text-gray-400 hover:text-gray-600 text-xs"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          {loadingSlots ? (
+                            <div className="text-xs text-gray-500 py-2">Loading...</div>
+                          ) : crimeSlots.length === 0 ? (
+                            <div className="text-xs text-gray-500 py-2">No participant data</div>
+                          ) : (
+                            <div className="space-y-1">
+                              {crimeSlots.map((slot, idx) => {
+                                const posLabel = slot.position_number
+                                  ? `${slot.position} ${slot.position_number}`
+                                  : slot.position
+                                return (
+                                  <div key={idx} className="text-xs flex justify-between items-center py-0.5">
+                                    <span className="text-gray-700 dark:text-gray-300">
+                                      {slot.user_name || 'Unknown'} [{slot.user_id}] — {posLabel}
+                                    </span>
+                                    <span className="text-gray-500 ml-2 whitespace-nowrap">
+                                      CPR: {slot.checkpoint_pass_rate || 0}%
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 px-2 text-xs">
                       <DifficultyBadge difficulty={crime.difficulty} />
