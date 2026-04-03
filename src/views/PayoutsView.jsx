@@ -353,7 +353,7 @@ export default function PayoutsView({ isLeadership }) {
           </div>
 
           {loadingCompare && (
-            <div className="text-center py-4 text-gray-500">Loading...</div>
+            <div className="text-center py-4 text-gray-500 dark:text-gray-400">Loading...</div>
           )}
 
           {compareData[0] && compareData[1] && (
@@ -423,7 +423,7 @@ export default function PayoutsView({ isLeadership }) {
                         {formatCurrency(payout.payout || 0)}
                       </td>
                       {isLeadership && (
-                        <td className="py-2 px-2 text-xs text-gray-600">
+                        <td className="py-2 px-2 text-xs text-gray-600 dark:text-gray-400">
                           {formatCurrency(payout.theoretical_payout || 0)}
                         </td>
                       )}
@@ -505,7 +505,7 @@ export default function PayoutsView({ isLeadership }) {
                   <div className="text-lg font-bold text-blue-600">
                     {formatCurrencyShort(week.member_payout_total || week.total_member_payout || 0)}
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
                     {week.faction_cut_percent || 20}% faction cut
                   </div>
                 </div>
@@ -628,7 +628,7 @@ function WeekDetailsModal({ weekId, members, loading, onClose, onMemberClick, is
               {weekStart} - {weekEnd} | {members.length} members
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -710,7 +710,7 @@ function MemberCrimesModal({ memberId, crimes, loading, onClose }) {
               {crimes.length} crimes found
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -719,7 +719,7 @@ function MemberCrimesModal({ memberId, crimes, loading, onClose }) {
         
         <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
           {crimes.length === 0 ? (
-            <p className="text-center text-gray-500 py-8">No crimes found for this period</p>
+            <p className="text-center text-gray-500 dark:text-gray-400 py-8">No crimes found for this period</p>
           ) : (
             <table className="w-full text-sm">
               <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
@@ -771,7 +771,7 @@ function StatusBadge({ status }) {
   }
   
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
+    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
       {status}
     </span>
   )
@@ -842,10 +842,10 @@ function CompareTable({ weekA, weekB, labelA, labelB }) {
               <td className="py-2 pr-3 text-right">
                 {a && b ? diffCell(a.payout, b.payout, v => formatCurrencyShort(v)) : '-'}
               </td>
-              <td className="py-2 pr-3 text-center text-xs text-gray-500">
+              <td className="py-2 pr-3 text-center text-xs text-gray-500 dark:text-gray-400">
                 {a?.tier ?? '-'} / {b?.tier ?? '-'}
               </td>
-              <td className="py-2 text-right text-xs text-gray-500">
+              <td className="py-2 text-right text-xs text-gray-500 dark:text-gray-400">
                 {a ? ((a.time_spent || 0) / 3600).toFixed(0) : '-'} / {b ? ((b.time_spent || 0) / 3600).toFixed(0) : '-'}
               </td>
             </tr>

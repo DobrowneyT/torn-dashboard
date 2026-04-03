@@ -132,8 +132,8 @@ function DashboardContent() {
   }
 
   return (
-    <div className="min-h-screen">
-      <Header 
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors duration-200">
+      <Header
         onNavigate={handleNavigate} 
         viewAsRole={viewAsRole}
         setViewAsRole={setViewAsRole}

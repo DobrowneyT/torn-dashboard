@@ -1438,7 +1438,7 @@ function CrimeStatsView({ stats, fromTimestamp, toTimestamp, onClose }) {
     <div className="card">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">Crime Statistics (Pay Period Only)</h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -1446,19 +1446,19 @@ function CrimeStatsView({ stats, fromTimestamp, toTimestamp, onClose }) {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-gray-200">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-gray-200 dark:border-slate-700">
           <div className="text-xs text-gray-600 dark:text-gray-400">Total Crimes</div>
           <div className="text-2xl font-bold">{filteredStats.totals.count}</div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-green-200">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-green-200 dark:border-green-800">
           <div className="text-xs text-gray-600 dark:text-gray-400">Successful</div>
           <div className="text-xl font-bold text-green-600">{filteredStats.totals.success}</div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-red-200">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-red-200 dark:border-red-800">
           <div className="text-xs text-gray-600 dark:text-gray-400">Failed</div>
           <div className="text-xl font-bold text-red-600">{filteredStats.totals.failed}</div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-blue-200">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
           <div className="text-xs text-gray-600 dark:text-gray-400">Total Money</div>
           <div className="text-lg font-bold text-blue-600">{formatCurrency(filteredStats.totals.totalMoney)}</div>
         </div>

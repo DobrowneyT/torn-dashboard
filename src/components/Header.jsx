@@ -12,7 +12,7 @@ export default function Header({ onNavigate, viewAsRole, setViewAsRole, canViewA
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Torn Forge OC Dashboard</h1>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Torn Forge OC Dashboard</h1>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
               {config.faction.name} - Performance Tracking
             </p>
