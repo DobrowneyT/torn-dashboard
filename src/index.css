@@ -6,14 +6,14 @@
   body {
     @apply bg-gray-50 text-gray-900 transition-colors duration-200;
   }
-  body.dark {
+  .dark body {
     @apply bg-slate-900 text-gray-100;
   }
 }
 
 @layer components {
   .card {
-    @apply bg-white border border-gray-200 rounded-lg shadow-sm p-6;
+    @apply bg-white border border-gray-200 rounded-lg shadow-sm p-6 transition-colors duration-200;
   }
   .dark .card {
     @apply bg-slate-800 border-slate-700;
@@ -22,7 +22,7 @@
     @apply px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors;
   }
   .input {
-    @apply px-4 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500;
+    @apply px-4 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200;
   }
   .dark .input {
     @apply bg-slate-700 border-slate-600 text-gray-100;

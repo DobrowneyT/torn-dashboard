@@ -365,7 +365,7 @@ export default function CrimesView({ crimesData, isLeadership }) {
             <tbody>
               {filteredCrimes.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="py-8 text-center text-gray-500">
+                  <td colSpan="7" className="py-8 text-center text-gray-500 dark:text-gray-400">
                     No crimes found matching the current filter.
                   </td>
                 </tr>
@@ -391,15 +391,15 @@ export default function CrimesView({ crimesData, isLeadership }) {
                             <h5 className="font-semibold text-xs">Participants</h5>
                             <button
                               onClick={(e) => { e.stopPropagation(); setSelectedCrimeId(null) }}
-                              className="text-gray-400 hover:text-gray-600 text-xs"
+                              className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 text-xs"
                             >
                               ✕
                             </button>
                           </div>
                           {loadingSlots ? (
-                            <div className="text-xs text-gray-500 py-2">Loading...</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 py-2">Loading...</div>
                           ) : crimeSlots.length === 0 ? (
-                            <div className="text-xs text-gray-500 py-2">No participant data</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 py-2">No participant data</div>
                           ) : (
                             <div className="space-y-1">
                               {crimeSlots.map((slot, idx) => {
@@ -411,7 +411,7 @@ export default function CrimesView({ crimesData, isLeadership }) {
                                     <span className="text-gray-700 dark:text-gray-300">
                                       {slot.user_name || 'Unknown'} [{slot.user_id}] — {posLabel}
                                     </span>
-                                    <span className="text-gray-500 ml-2 whitespace-nowrap">
+                                    <span className="text-gray-500 dark:text-gray-400 ml-2 whitespace-nowrap">
                                       CPR: {slot.checkpoint_pass_rate || 0}%
                                     </span>
                                   </div>
