@@ -9909,7 +9909,7 @@
     },
     "3751400": {
       "name": "Paddeyy",
-      "tier": 6,
+      "tier": 5,
       "cpr_by_role": {
         "3": {
           "Muscle": 89,
@@ -9938,7 +9938,7 @@
         }
       },
       "last_scraped": "2026-04-03T16:18:29.166380",
-      "tier_last_updated": "2026-03-19T17:43:19.785125"
+      "tier_last_updated": "2026-04-03T16:18:30.468284"
     },
     "2892606": {
       "name": "P_R",
@@ -10013,14 +10013,14 @@
     },
     "3158838": {
       "name": "Budgy",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "7": {
           "Looter": 73
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-04-03T14:48:54.942474"
+      "tier_last_updated": "2026-04-03T16:18:30.467634"
     },
     "3511228": {
       "name": "Jayturn",
@@ -10038,12 +10038,12 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-03T14:48:54.942530"
+      "tier_last_updated": "2026-04-03T16:18:30.467666"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-03T16:18:29.630429",
+    "last_updated": "2026-04-03T16:18:30.468554",
     "total_members": 171
   }
 }
