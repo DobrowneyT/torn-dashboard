@@ -26,6 +26,7 @@ export default function MembersView({ isLeadership }) {
   const [showCrimes, setShowCrimes] = useState(false)
   const [showPayouts, setShowPayouts] = useState(false)
   const [showLoanedItems, setShowLoanedItems] = useState(false)
+  const [expandedTier, setExpandedTier] = useState(null)
 
   useEffect(() => {
     setPersistedState({
@@ -113,6 +114,16 @@ export default function MembersView({ isLeadership }) {
       setSyncing(false)
     }
   }
+
+  const tierDistribution = useMemo(() => {
+    const dist = {}
+    members.forEach(m => {
+      const tier = m.tier ?? -1
+      if (!dist[tier]) dist[tier] = []
+      dist[tier].push(m)
+    })
+    return dist
+  }, [members])
 
   const filteredMembers = useMemo(() => {
     let filtered = [...members]
@@ -259,6 +270,54 @@ export default function MembersView({ isLeadership }) {
 
   return (
     <>
+      {!loading && members.length > 0 && (
+        <div className="card mb-4">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Tier Distribution</h3>
+          <div className="flex flex-wrap gap-2">
+            {[-1, 1, 2, 3, 4, 5, 6].map(tier => {
+              const tierMembers = tierDistribution[tier] || []
+              if (tierMembers.length === 0) return null
+              const isExpanded = expandedTier === tier
+              const tierColorClass = tier === -1 ? 'bg-amber-500' : `bg-tier-${tier}`
+              return (
+                <button
+                  key={tier}
+                  onClick={() => setExpandedTier(isExpanded ? null : tier)}
+                  className={`px-4 py-2 rounded-lg text-white font-semibold text-sm cursor-pointer hover:opacity-90 transition-opacity flex items-center gap-2 ${tierColorClass}`}
+                >
+                  <span>{tier === -1 ? 'Review' : `T${tier}`}</span>
+                  <span className="text-lg font-bold leading-none">{tierMembers.length}</span>
+                  <span className="text-xs opacity-75">{isExpanded ? '▲' : '▼'}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {expandedTier !== null && tierDistribution[expandedTier] && (
+            <div className="mt-3 p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
+              <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
+                {expandedTier === -1 ? 'Needs Manual Review' : `Tier ${expandedTier}`} — {tierDistribution[expandedTier].length} members
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {[...tierDistribution[expandedTier]]
+                  .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                  .map(m => (
+                    <a
+                      key={m.id}
+                      href={`https://www.torn.com/profiles.php?XID=${m.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      {m.name} [{m.id}]
+                    </a>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="card">
         <div className="mb-6 flex flex-col sm:flex-row gap-4">
           <input

@@ -394,10 +394,16 @@ class CPRScraper:
             faction_response = api.get_faction_members()
             current_members = {str(m['id']): m['name'] for m in faction_response.get('members', [])}
             logger.info(f"Retrieved {len(current_members)} current faction members")
+
+            # Save current faction member IDs for post-processing summary
+            self.storage.write_json('faction_members.json', {
+                'members': current_members,
+                'fetched_at': datetime.now().isoformat()
+            }, create_backup=False)
         except Exception as e:
             logger.error(f"Failed to fetch faction members: {e}")
             return cpr_data
-        
+
         # Initialize structure for all current members
         logger.info("\nInitializing CPR database entries for all faction members...")
         new_members_added = 0
@@ -624,6 +630,62 @@ class CPRScraper:
         return tier_changes
 
 
+def print_faction_tier_summary(cpr_data: Dict, current_member_ids: set) -> None:
+    """Print tier distribution for current faction members only"""
+    tier_distribution = {}
+    no_data_members = []
+
+    for member_id, member_data in cpr_data.get('members', {}).items():
+        if member_id not in current_member_ids:
+            continue
+
+        tier = member_data.get('tier', -1)
+        name = member_data.get('name', 'Unknown')
+
+        if tier not in tier_distribution:
+            tier_distribution[tier] = []
+        tier_distribution[tier].append((name, member_id))
+
+        if not member_data.get('cpr_by_role'):
+            no_data_members.append((name, member_id))
+
+    logger.info("\n" + "="*60)
+    logger.info("CURRENT FACTION MEMBER TIER DISTRIBUTION")
+    logger.info("="*60)
+    logger.info(f"Total current faction members: {len(current_member_ids)}")
+    logger.info(f"Members found in CPR database: {sum(len(v) for v in tier_distribution.values())}")
+    logger.info("")
+    logger.info("Tier distribution:")
+
+    if -1 in tier_distribution:
+        members = sorted(tier_distribution[-1])
+        logger.info(f"  ⚠️  Tier -1 (NEEDS MANUAL REVIEW): {len(members)} members")
+
+    for tier in range(1, 7):
+        if tier in tier_distribution:
+            members = sorted(tier_distribution[tier])
+            logger.info(f"  Tier {tier}: {len(members)} members")
+
+    logger.info("")
+    logger.info("Member breakdown:")
+
+    for tier in [-1] + list(range(1, 7)):
+        if tier not in tier_distribution:
+            continue
+        label = "⚠️  Tier -1 (NEEDS MANUAL REVIEW)" if tier == -1 else f"Tier {tier}"
+        members = sorted(tier_distribution[tier])
+        logger.info(f"  {label}:")
+        for name, mid in members:
+            logger.info(f"    - {name} [{mid}]")
+
+    if no_data_members:
+        logger.info(f"\n⚠ Members with no CPR data ({len(no_data_members)}):")
+        for name, mid in sorted(no_data_members):
+            logger.info(f"  - {name} [{mid}]")
+
+    logger.info("="*60)
+
+
 def main():
     """Main execution function"""
     logger.info("="*60)
@@ -703,13 +765,23 @@ def main():
                 logger.error(f"Gist update failed: {e}")
             
             logger.info("\n✓ CPR scrape and tier management completed successfully!")
-            
+
         except Exception as e:
             logger.error(f"Tier assignment failed: {e}")
             import traceback
             traceback.print_exc()
             # Don't exit - CPR scrape was successful
-        
+
+        # Print faction tier summary (filtered to current members only)
+        try:
+            faction_data = scraper.storage.read_json('faction_members.json') or {}
+            current_member_ids = set(faction_data.get('members', {}).keys())
+            if current_member_ids:
+                updated_cpr = scraper._load_cpr_database()
+                print_faction_tier_summary(updated_cpr, current_member_ids)
+        except Exception as e:
+            logger.error(f"Error printing faction tier summary: {e}")
+
     except Exception as e:
         logger.error(f"Fatal error in CPR scraper: {e}")
         import traceback
