@@ -9969,30 +9969,30 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-02T17:43:16.639534"
+      "tier_last_updated": "2026-04-03T14:48:54.942474"
     },
     "3511228": {
       "name": "Jayturn",
-      "tier": -1,
+      "tier": 4,
       "cpr_by_role": {
         "7": {
           "Picklock": 66
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-04-02T17:43:16.639564"
+      "tier_last_updated": "2026-04-03T14:48:54.943788"
     },
     "4023921": {
       "name": "Vochlu",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-02T17:43:16.639589"
+      "tier_last_updated": "2026-04-03T14:48:54.942530"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-03T14:48:54.250929",
+    "last_updated": "2026-04-03T14:48:54.944043",
     "total_members": 171
   }
 }
