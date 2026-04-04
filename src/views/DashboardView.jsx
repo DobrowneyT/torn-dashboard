@@ -308,7 +308,7 @@ function CrimeParticipationCard({ crimes }) {
 
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-4">
         <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Crime Participation</h3>
         <div className="flex gap-3 text-xs">
           <span className="text-green-600">{statusCounts.Successful} success</span>

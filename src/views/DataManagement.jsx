@@ -53,7 +53,7 @@ export default function DataManagement() {
       {/* Tabs */}
       <div className="card">
         <div className="border-b border-gray-200 dark:border-slate-700">
-          <nav className="-mb-px flex gap-6">
+          <nav className="-mb-px flex flex-wrap gap-x-6 gap-y-0">
             <button
               onClick={() => setActiveTab('import')}
               className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'import'
@@ -834,8 +834,9 @@ function ClearDataTab() {
 
       {/* Confirmation Dialog */}
       {confirmDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full p-6">
+        <div className="modal-overlay">
+          <div className="modal-dialog sm:max-w-md">
+            <div className="flex-1 overflow-y-auto p-6">
             <div className="flex items-start gap-4">
               <div className="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
                 <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -875,6 +876,7 @@ function ClearDataTab() {
               >
                 {clearing ? 'Clearing...' : 'Yes, Delete All'}
               </button>
+            </div>
             </div>
           </div>
         </div>
