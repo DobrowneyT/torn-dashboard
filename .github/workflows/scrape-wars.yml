@@ -1,27 +1,14 @@
-name: Scrape War Data
+name: Scrape War Data (Manual)
 
 on:
   workflow_dispatch:
   repository_dispatch:
     types: [trigger-war-scrape]
-  workflow_call:
-    secrets:
-      GITHUB_TOKEN:
-        required: false
-      TORN_API_KEY:
-        required: true
-      VITE_SUPABASE_URL:
-        required: true
-      VITE_SUPABASE_ANON_KEY:
-        required: true
-      VITE_SUPABASE_SERVICE_ROLE_KEY:
-        required: true
 
 jobs:
   scrape-wars:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     permissions:
       contents: write
 
@@ -57,18 +44,15 @@ jobs:
     - name: Run war data update
       env:
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
-        SKIP_GOOGLE_SHEETS: 'true'
-      run: |
-        python scripts/war_data_update.py
+        VITE_FACTION_ID: '10739'
+      run: python scripts/war_data_update.py
 
     - name: Sync war data to Supabase
       env:
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
-      run: |
-        echo "Syncing war data to Supabase database..."
-        python scripts/sync_to_supabase.py wars
+      run: python scripts/sync_to_supabase.py wars
 
     - name: Upload logs as artifact
       if: always()
@@ -78,17 +62,13 @@ jobs:
         path: logs/
         retention-days: 30
 
-    - name: Sync data to public folder
-      run: |
-        mkdir -p public/data
-        cp data/war_database.json public/data/ 2>/dev/null || true
-        cp data/war_attacks_database.json public/data/ 2>/dev/null || true
-
     - name: Commit and push changes
       run: |
         git config user.name "GitHub Actions Bot"
         git config user.email "actions@github.com"
-        git add data/war_database.json data/war_attacks_database.json public/data/war_database.json public/data/war_attacks_database.json 2>/dev/null || true
+        mkdir -p public/data
+        cp data/war_database.json public/data/ 2>/dev/null || true
+        git add data/war_database.json public/data/war_database.json
         if ! git diff --staged --quiet; then
           git commit -m "Update war data [skip ci]"
           git push

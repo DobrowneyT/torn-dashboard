@@ -1,4 +1,4 @@
-name: Scrape CPR Data
+name: Scrape CPR Data (Manual)
 
 on:
   repository_dispatch:
@@ -9,36 +9,11 @@ on:
         description: 'Specific member to scrape (optional, leave blank for all)'
         required: false
         default: ''
-  workflow_call:
-    inputs:
-      member_filter:
-        description: 'Specific member to scrape (optional, leave blank for all)'
-        required: false
-        type: string
-        default: ''
-    secrets:
-      GITHUB_TOKEN:
-        required: false
-      TORN_API_KEY:
-        required: true
-      MEMBER_API_KEYS:
-        required: true
-      GIST_TOKEN:
-        required: false
-      GIST_ID:
-        required: false
-      VITE_SUPABASE_URL:
-        required: true
-      VITE_SUPABASE_ANON_KEY:
-        required: true
-      VITE_SUPABASE_SERVICE_ROLE_KEY:
-        required: true
 
 jobs:
   scrape-cpr:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     permissions:
       contents: write
 
@@ -76,10 +51,8 @@ jobs:
         MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
       run: |
         python -c "
-        import os
-        import json
-        keys_json = os.environ.get('MEMBER_API_KEYS', '{}')
-        keys = json.loads(keys_json)
+        import os, json
+        keys = json.loads(os.environ.get('MEMBER_API_KEYS', '{}'))
         print(f'✓ API keys configured for {len(keys)} members')
         if keys:
           print('Members:', ', '.join(keys.keys()))
@@ -91,21 +64,18 @@ jobs:
       env:
         SKIP_GOOGLE_SHEETS: 'true'
         MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
-        MEMBER_FILTER: ${{ github.event.inputs.member_filter || inputs.member_filter }}
+        MEMBER_FILTER: ${{ github.event.inputs.member_filter }}
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         GIST_ID: ${{ secrets.GIST_ID }}
-      run: |
-        python scripts/cpr_scraper.py
+      run: python scripts/cpr_scraper.py
 
     - name: Sync CPR data to Supabase
       env:
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
-      run: |
-        echo "Syncing CPR data to Supabase database..."
-        python scripts/sync_to_supabase.py cpr
+      run: python scripts/sync_to_supabase.py cpr
 
     - name: Upload logs as artifact
       if: always()
@@ -115,15 +85,12 @@ jobs:
         path: logs/
         retention-days: 30
 
-    - name: Sync data to public folder
-      run: |
-        mkdir -p public/data
-        cp data/*.json public/data/ 2>/dev/null || true
-
     - name: Commit and push changes
       run: |
         git config user.name "GitHub Actions Bot"
         git config user.email "actions@github.com"
+        mkdir -p public/data
+        cp data/*.json public/data/ 2>/dev/null || true
         git add data/*.json public/data/*.json
         if ! git diff --staged --quiet; then
           git commit -m "Update CPR data [skip ci]"
