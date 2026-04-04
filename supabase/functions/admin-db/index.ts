@@ -157,6 +157,12 @@ serve(async (req: Request) => {
       case 'sync_members':
         result = await handleSyncMembers(supabase, tornApiKey)
         break
+      case 'save_war_payout':
+        result = await handleSaveWarPayout(supabase, body, authResult.userId)
+        break
+      case 'update_war_is_termed':
+        result = await handleUpdateWarIsTermed(supabase, body)
+        break
       default:
         return new Response(
           JSON.stringify({ error: `Unknown action: ${body.action}` }),
@@ -850,4 +856,89 @@ async function handleSyncMembers(supabase: any, apiKey: string) {
     totalMembers: memberRecords.length,
     upserted: upsertedCount,
   }
+}
+
+async function handleSaveWarPayout(supabase: any, body: RequestBody, userId: string) {
+  const { payoutData, memberRecords } = body.data
+
+  if (!payoutData || !memberRecords) {
+    throw new Error('Missing payoutData or memberRecords')
+  }
+
+  // Check if a payout already exists for this war
+  const { data: existingPayout } = await supabase
+    .from('war_payouts')
+    .select('id')
+    .eq('war_id', payoutData.war_id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  let payoutId
+
+  if (existingPayout) {
+    // Update existing payout record
+    const { error: updateError } = await supabase
+      .from('war_payouts')
+      .update({
+        ...payoutData,
+        created_by: userId,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existingPayout.id)
+
+    if (updateError) throw updateError
+    payoutId = existingPayout.id
+
+    // Delete existing member records for this payout
+    await supabase
+      .from('war_payout_members')
+      .delete()
+      .eq('payout_id', payoutId)
+  } else {
+    // Insert new payout record
+    const { data: newPayout, error: insertError } = await supabase
+      .from('war_payouts')
+      .insert({
+        ...payoutData,
+        created_by: userId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select('id')
+      .single()
+
+    if (insertError) throw insertError
+    payoutId = newPayout.id
+  }
+
+  // Insert member records with payout_id
+  const membersWithPayoutId = memberRecords.map((m: any) => ({
+    ...m,
+    payout_id: payoutId
+  }))
+
+  const { error: membersError } = await supabase
+    .from('war_payout_members')
+    .insert(membersWithPayoutId)
+
+  if (membersError) throw membersError
+
+  return { success: true, payoutId, memberCount: memberRecords.length }
+}
+
+async function handleUpdateWarIsTermed(supabase: any, body: RequestBody) {
+  const { war_id, is_termed } = body.data
+
+  if (war_id === undefined || is_termed === undefined) {
+    throw new Error('Missing war_id or is_termed')
+  }
+
+  const { error } = await supabase
+    .from('ranked_wars')
+    .update({ is_termed, updated_at: new Date().toISOString() })
+    .eq('id', war_id)
+
+  if (error) throw error
+  return { success: true, war_id, is_termed }
 }

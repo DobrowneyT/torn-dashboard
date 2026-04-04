@@ -1,0 +1,50 @@
+name: Scrape Faction Attacks
+
+on:
+  workflow_call:
+    secrets:
+      TORN_API_KEY:
+        required: true
+      VITE_SUPABASE_URL:
+        required: true
+      VITE_SUPABASE_SERVICE_ROLE_KEY:
+        required: true
+  workflow_dispatch:
+  repository_dispatch:
+    types: [trigger-faction-attacks-scrape]
+
+jobs:
+  scrape-faction-attacks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch faction attacks
+        env:
+          TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+          VITE_FACTION_ID: '10739'
+        run: python scripts/faction_attacks_update.py
+
+      - name: Sync to Supabase
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/sync_to_supabase.py attacks
+
+      - name: Commit updated data file
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/faction_attacks_database.json
+          git diff --staged --quiet || git commit -m "Update faction attacks data [skip ci]"
+          git push
