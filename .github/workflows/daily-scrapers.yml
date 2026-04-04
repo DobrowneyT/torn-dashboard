@@ -1,0 +1,24 @@
+name: Daily Scrapers
+
+on:
+  schedule:
+    # Run daily at 6:00 AM UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape-crimes:
+    uses: ./.github/workflows/scrape-crimes.yml
+    secrets: inherit
+
+  scrape-cpr:
+    uses: ./.github/workflows/scrape-cpr.yml
+    secrets: inherit
+
+  scrape-wars:
+    uses: ./.github/workflows/scrape-wars.yml
+    secrets: inherit
+
+  scrape-faction-attacks:
+    uses: ./.github/workflows/scrape-faction-attacks.yml
+    secrets: inherit

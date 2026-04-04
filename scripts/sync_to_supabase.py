@@ -297,10 +297,141 @@ class SupabaseSync:
         return result
 
 
+    def sync_war_data(self, json_path: str) -> dict:
+        """
+        Sync war list and member contributions from war_database.json to Supabase.
+
+        - ranked_wars: one row per war (upsert on id)
+        - war_member_contributions: one row per (war_id, member_id) pair (upsert on war_id,member_id)
+
+        Scraper flags (report_fetched, attacks_fetched) are NOT synced to Supabase.
+        """
+        logger.info(f"Reading war data from {json_path}")
+
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+
+        wars = data.get('wars', {})
+        contributions_by_war = data.get('contributions', {})
+
+        all_wars = []
+        all_contributions = []
+        errors = []
+
+        import json as json_lib  # for JSONB serialization
+
+        for war_id, war in wars.items():
+            try:
+                rewards_items = war.get('rewards_items')
+                all_wars.append({
+                    'id': war['id'],
+                    'start_at': war.get('start_at'),
+                    'end_at': war.get('end_at'),
+                    'opponent_id': war.get('opponent_id'),
+                    'opponent_name': war.get('opponent_name'),
+                    'our_score': war.get('our_score', 0),
+                    'opponent_score': war.get('opponent_score', 0),
+                    'target': war.get('target'),
+                    'winner_faction_id': war.get('winner_faction_id'),
+                    'forfeit': war.get('forfeit', False),
+                    'is_termed': war.get('is_termed', False),
+                    'rewards_items': json_lib.dumps(rewards_items) if rewards_items else None,
+                    'rank_before': war.get('rank_before'),
+                    'rank_after': war.get('rank_after'),
+                })
+            except Exception as e:
+                errors.append(f"War {war_id}: {e}")
+                logger.error(f"Error processing war {war_id}: {e}")
+
+        for war_id, members in contributions_by_war.items():
+            for member in members:
+                try:
+                    all_contributions.append({
+                        'war_id': int(war_id),
+                        'member_id': member['member_id'],
+                        'member_name': member.get('member_name'),
+                        'level': member.get('level'),
+                        'attacks': member.get('attacks', 0),
+                        'score': member.get('score', 0),
+                        'faction_id': member.get('faction_id'),
+                    })
+                except Exception as e:
+                    errors.append(f"Contribution war={war_id} member={member.get('member_id')}: {e}")
+                    logger.error(f"Error processing contribution: {e}")
+
+        logger.info(f"Collected {len(all_wars)} wars, {len(all_contributions)} contributions")
+
+        wars_count = self._bulk_upsert('ranked_wars', all_wars, 'id')
+        contributions_count = self._bulk_upsert('war_member_contributions', all_contributions, 'war_id,member_id')
+
+        result = {
+            'type': 'Wars',
+            'wars_synced': wars_count,
+            'contributions_synced': contributions_count,
+            'errors': errors,
+        }
+        logger.info(f"War sync complete: {wars_count} wars, {contributions_count} contributions")
+        return result
+
+    def sync_faction_attacks(self, json_path: str) -> dict:
+        """
+        Sync all faction attacks from faction_attacks_database.json to Supabase.
+
+        Attacks have no war_id — war windows are applied dynamically at query time
+        using ranked_wars.start_at / end_at. Includes regular attacks, assists,
+        and incoming attacks (is_incoming=True when defender_faction_id = our faction).
+        """
+        logger.info(f"Reading faction attacks from {json_path}")
+
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+
+        attacks_dict = data.get('attacks', {})
+        all_attacks = []
+        errors = []
+
+        for attack_id, attack in attacks_dict.items():
+            try:
+                all_attacks.append({
+                    'attack_id': attack['attack_id'],
+                    'started': attack.get('started'),
+                    'ended': attack.get('ended'),
+                    'attacker_id': attack.get('attacker_id'),
+                    'attacker_name': attack.get('attacker_name'),
+                    'attacker_faction_id': attack.get('attacker_faction_id'),
+                    'defender_id': attack.get('defender_id'),
+                    'defender_name': attack.get('defender_name'),
+                    'defender_faction_id': attack.get('defender_faction_id'),
+                    'result': attack.get('result'),
+                    'respect_gain': attack.get('respect_gain', 0),
+                    'chain': attack.get('chain', 0),
+                    'is_ranked_war': attack.get('is_ranked_war', False),
+                    'fair_fight': attack.get('fair_fight', 1),
+                    'war_modifier': attack.get('war_modifier', 1),
+                    'chain_modifier': attack.get('chain_modifier', 1),
+                    'warlord_modifier': attack.get('warlord_modifier', 1),
+                    'is_incoming': attack.get('is_incoming', False),
+                })
+            except Exception as e:
+                errors.append(f"Attack {attack.get('attack_id')}: {e}")
+                logger.error(f"Error processing attack: {e}")
+
+        logger.info(f"Collected {len(all_attacks)} faction attacks")
+        attacks_count = self._bulk_upsert('faction_attacks', all_attacks, 'attack_id')
+
+        result = {
+            'type': 'Faction Attacks',
+            'attacks_synced': attacks_count,
+            'errors': errors,
+        }
+        logger.info(f"Faction attacks sync complete: {attacks_count} attacks")
+        return result
+
+
 def main():
     """Main entry point"""
     if len(sys.argv) < 2:
-        print("Usage: python sync_to_supabase.py [cpr|crimes|all]")
+        print("Usage: python sync_to_supabase.py [cpr|crimes|wars|attacks|all]")
         sys.exit(1)
 
     sync_type = sys.argv[1].lower()
@@ -327,6 +458,24 @@ def main():
             else:
                 logger.warning(f"Crimes data file not found: {crimes_path}")
 
+        if sync_type in ['wars', 'all']:
+            war_path = 'data/war_database.json'
+            if os.path.exists(war_path):
+                logger.info("=== Syncing War Data ===")
+                result = syncer.sync_war_data(war_path)
+                results.append(result)
+            else:
+                logger.warning(f"War data file not found: {war_path}")
+
+        if sync_type in ['attacks', 'all']:
+            attacks_path = 'data/faction_attacks_database.json'
+            if os.path.exists(attacks_path):
+                logger.info("=== Syncing Faction Attacks ===")
+                result = syncer.sync_faction_attacks(attacks_path)
+                results.append(result)
+            else:
+                logger.warning(f"Faction attacks file not found: {attacks_path}")
+
         # Print summary
         logger.info("\n=== Sync Summary ===")
         for result in results:
@@ -334,6 +483,11 @@ def main():
             if result['type'] == 'CPR':
                 logger.info(f"  Members synced: {result['members_synced']}")
                 logger.info(f"  CPR records synced: {result['cpr_records_synced']}")
+            elif result['type'] == 'Wars':
+                logger.info(f"  Wars synced: {result['wars_synced']}")
+                logger.info(f"  Contributions synced: {result['contributions_synced']}")
+            elif result['type'] == 'Faction Attacks':
+                logger.info(f"  Attacks synced: {result['attacks_synced']}")
             else:
                 logger.info(f"  Crimes synced: {result['crimes_synced']}")
                 logger.info(f"  Slots synced: {result['slots_synced']}")
