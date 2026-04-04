@@ -99,10 +99,10 @@ function TierCard({ tier, requirements, userCpr }) {
 
   return (
     <div className={`card border-l-4 ${borderColors[tier]}`}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+        <div className="flex items-center gap-3 flex-wrap">
           <TierBadge tier={tier} />
-          <h3 className="text-lg font-semibold">Requirements</h3>
+          <h3 className="text-base sm:text-lg font-semibold">Requirements</h3>
           {userCpr && (
             <span className={`text-sm font-medium px-2 py-0.5 rounded ${qualifies ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-400'}`}>
               {passCount}/{requirements.length} met

@@ -13,10 +13,19 @@
 
 @layer components {
   .card {
-    @apply bg-white border border-gray-200 rounded-lg shadow-sm p-6 transition-colors duration-200;
+    @apply bg-white border border-gray-200 rounded-lg shadow-sm p-4 sm:p-6 transition-colors duration-200;
   }
   .dark .card {
     @apply bg-slate-800 border-slate-700;
+  }
+
+  /* Responsive modal overlay — centers on sm+, stacks at bottom on mobile */
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4;
+  }
+  /* Responsive modal dialog — full screen on mobile, windowed on sm+ */
+  .modal-dialog {
+    @apply w-full h-full sm:h-auto sm:max-h-[90vh] sm:rounded-xl bg-white dark:bg-slate-800 shadow-xl flex flex-col overflow-hidden;
   }
   .btn-primary {
     @apply px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors;
