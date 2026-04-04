@@ -12,7 +12,7 @@ export default function MembersView({ isLeadership }) {
   const [searchTerm, setSearchTerm] = useState(persistedState.searchTerm || '')
   const [tierFilter, setTierFilter] = useState(persistedState.tierFilter || 'all')
   const [sortConfig, setSortConfig] = useState(
-    persistedState.sortConfig || { key: 'tier', direction: 'asc' }
+    persistedState.sortConfig || { key: 'tier', direction: 'desc' }
   )
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -26,6 +26,8 @@ export default function MembersView({ isLeadership }) {
   const [showCrimes, setShowCrimes] = useState(false)
   const [showPayouts, setShowPayouts] = useState(false)
   const [showLoanedItems, setShowLoanedItems] = useState(false)
+  const [showCpr, setShowCpr] = useState(false)
+  const [memberCprData, setMemberCprData] = useState([])
   const [expandedTier, setExpandedTier] = useState(null)
 
   useEffect(() => {
@@ -169,6 +171,7 @@ export default function MembersView({ isLeadership }) {
     setShowCrimes(true)
     setShowPayouts(false)
     setShowLoanedItems(false)
+    setShowCpr(false)
     setLoadingDetails(true)
 
     try {
@@ -220,6 +223,7 @@ export default function MembersView({ isLeadership }) {
     setShowPayouts(true)
     setShowCrimes(false)
     setShowLoanedItems(false)
+    setShowCpr(false)
     setLoadingDetails(true)
 
     try {
@@ -244,6 +248,7 @@ export default function MembersView({ isLeadership }) {
     setShowLoanedItems(true)
     setShowCrimes(false)
     setShowPayouts(false)
+    setShowCpr(false)
     setLoadingDetails(true)
 
     try {
@@ -252,6 +257,32 @@ export default function MembersView({ isLeadership }) {
     } catch (error) {
       console.error('Error loading loaned items:', error)
       setMemberLoanedItems([])
+    } finally {
+      setLoadingDetails(false)
+    }
+  }
+
+  async function handleViewCpr(memberId, memberName) {
+    setSelectedMember({ id: memberId, name: memberName })
+    setShowCpr(true)
+    setShowCrimes(false)
+    setShowPayouts(false)
+    setShowLoanedItems(false)
+    setLoadingDetails(true)
+
+    try {
+      const { data, error } = await supabase
+        .from('member_cpr')
+        .select('difficulty_level, role_name, cpr_value')
+        .eq('member_id', memberId)
+        .order('difficulty_level', { ascending: true })
+        .order('role_name', { ascending: true })
+
+      if (error) throw error
+      setMemberCprData(data || [])
+    } catch (error) {
+      console.error('Error loading CPR data:', error)
+      setMemberCprData([])
     } finally {
       setLoadingDetails(false)
     }
@@ -412,7 +443,13 @@ export default function MembersView({ isLeadership }) {
                       </a>
                     </td>
                     <td className="py-3 px-4">
-                      <TierBadge tier={member.tier} override={member.hasOverride} />
+                      <button
+                        onClick={() => handleViewCpr(member.id, member.name)}
+                        title="View CPR data"
+                        className="cursor-pointer hover:opacity-80 transition-opacity"
+                      >
+                        <TierBadge tier={member.tier} override={member.hasOverride} />
+                      </button>
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex gap-2 flex-wrap">
@@ -476,6 +513,16 @@ export default function MembersView({ isLeadership }) {
           items={memberLoanedItems}
           loading={loadingDetails}
           onClose={() => setShowLoanedItems(false)}
+        />
+      )}
+
+      {/* CPR Modal */}
+      {showCpr && (
+        <CprModal
+          member={selectedMember}
+          cprData={memberCprData}
+          loading={loadingDetails}
+          onClose={() => setShowCpr(false)}
         />
       )}
     </>
@@ -752,6 +799,101 @@ function LoanedItemsModal({ member, items, loading, onClose }) {
                 </tr>
               </tfoot>
             </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CprModal({ member, cprData, loading, onClose }) {
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    )
+  }
+
+  // Group rows by difficulty level, sorted numerically
+  const byLevel = {}
+  for (const row of cprData) {
+    const lvl = row.difficulty_level
+    if (!byLevel[lvl]) byLevel[lvl] = []
+    byLevel[lvl].push(row)
+  }
+  const levels = Object.keys(byLevel).sort((a, b) => parseInt(b) - parseInt(a))
+
+  const totalRoles = cprData.length
+  const avgCpr = totalRoles > 0
+    ? (cprData.reduce((sum, r) => sum + parseFloat(r.cpr_value), 0) / totalRoles).toFixed(1)
+    : null
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-hidden">
+        <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">{member.name} — CPR Data</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              {totalRoles} roles across {levels.length} level{levels.length !== 1 ? 's' : ''}
+              {avgCpr !== null && ` · Avg ${avgCpr}%`}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="overflow-y-auto" style={{ maxHeight: 'calc(90vh - 120px)' }}>
+          {levels.length === 0 ? (
+            <p className="text-center text-gray-500 dark:text-gray-400 py-8">No CPR data available</p>
+          ) : (
+            <div className="divide-y divide-gray-100 dark:divide-slate-700">
+              {levels.map(level => {
+                const roles = byLevel[level].sort((a, b) => a.role_name.localeCompare(b.role_name))
+                const levelAvg = (roles.reduce((s, r) => s + parseFloat(r.cpr_value), 0) / roles.length).toFixed(1)
+                return (
+                  <div key={level}>
+                    <div className="px-4 py-2 bg-gray-50 dark:bg-slate-700/50 flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+                        Level {level}
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        avg {levelAvg}% · {roles.length} role{roles.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="px-4 py-1">
+                      {roles.map((row, idx) => {
+                        const val = parseFloat(row.cpr_value)
+                        const barWidth = Math.min(val, 100)
+                        const barColor = val >= 75 ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500'
+                        return (
+                          <div key={idx} className="flex items-center gap-3 py-1.5">
+                            <span className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0 truncate">
+                              {row.role_name}
+                            </span>
+                            <div className="flex-1 bg-gray-100 dark:bg-slate-600 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full ${barColor}`}
+                                style={{ width: `${barWidth}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-mono font-semibold text-gray-800 dark:text-gray-200 w-8 text-right shrink-0">
+                              {Math.round(val)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </div>
       </div>
