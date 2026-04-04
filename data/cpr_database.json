@@ -9931,7 +9931,7 @@
     },
     "3521451": {
       "name": "Caz27",
-      "tier": 6,
+      "tier": 5,
       "cpr_by_role": {
         "4": {
           "Muscle": 89
@@ -9945,7 +9945,7 @@
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-03-21T17:43:15.722537"
+      "tier_last_updated": "2026-04-04T12:21:41.750131"
     },
     "3537137": {
       "name": "Leadeatinmaniac",
@@ -10139,7 +10139,7 @@
     },
     "4023921": {
       "name": "Vochlu",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "3": {},
         "5": {
@@ -10167,12 +10167,12 @@
         }
       },
       "last_scraped": "2026-04-04T12:21:39.801658",
-      "tier_last_updated": "2026-04-03T18:01:29.456266"
+      "tier_last_updated": "2026-04-04T12:21:41.750269"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-04T12:21:40.734129",
+    "last_updated": "2026-04-04T12:21:41.750414",
     "total_members": 171
   }
 }
