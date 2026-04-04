@@ -5,6 +5,7 @@ import { supabase } from '../utils/supabase'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { syncMembersFromAPI } from '../utils/syncMembersFromAPI'
 import { loadMemberLoanedItems } from '../utils/payoutDataLoader'
+import { config } from '../config'
 export default function MembersView({ isLeadership }) {
   const [persistedState, setPersistedState] = useViewState('members')
   const { user } = useAuth()
@@ -817,6 +818,19 @@ function CprModal({ member, cprData, loading, onClose }) {
     )
   }
 
+  // Build lookup: "level:role" -> minCpr threshold from tier requirements
+  const reqThreshold = {}
+  for (const reqs of Object.values(config.tierRequirements)) {
+    for (const req of reqs) {
+      if (req.isAverage) continue
+      const key = `${req.level}:${req.role}`
+      // Keep the lowest threshold (most lenient requirement across all tiers)
+      if (reqThreshold[key] === undefined || req.minCpr < reqThreshold[key]) {
+        reqThreshold[key] = req.minCpr
+      }
+    }
+  }
+
   // Group rows by difficulty level, sorted numerically
   const byLevel = {}
   for (const row of cprData) {
@@ -871,7 +885,10 @@ function CprModal({ member, cprData, loading, onClose }) {
                       {roles.map((row, idx) => {
                         const val = parseFloat(row.cpr_value)
                         const barWidth = Math.min(val, 100)
-                        const barColor = val >= 75 ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500'
+                        const threshold = reqThreshold[`${level}:${row.role_name}`]
+                        const barColor = threshold !== undefined
+                          ? (val >= threshold ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
+                          : (val >= 75 ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
                         return (
                           <div key={idx} className="flex items-center gap-3 py-1.5">
                             <span className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0 truncate">
