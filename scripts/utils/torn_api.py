@@ -405,6 +405,90 @@ class TornAPI:
         # Return the specific item info
         return items.get(str(item_id), {})
     
+    # ==================== RANKED WAR METHODS ====================
+
+    def get_ranked_wars(
+        self,
+        faction_id: str,
+        offset: int = 0,
+        limit: int = 100,
+        comment: str = "Forge_War_Scrape"
+    ) -> Dict:
+        """
+        Get ranked wars list for a faction.
+
+        Args:
+            faction_id: Torn faction ID
+            offset: Pagination offset
+            limit: Results per page (max 100)
+            comment: API comment for tracking
+
+        Returns:
+            Dict with rankedwars list and _metadata
+        """
+        url = f"{self.BASE_URL}/faction/{faction_id}/rankedwars"
+        params = {
+            "offset": offset,
+            "limit": limit,
+            "key": self.api_key,
+            "comment": comment
+        }
+        return self._make_request(url, params)
+
+    def get_ranked_war_report(
+        self,
+        war_id: int,
+        comment: str = "Forge_War_Report"
+    ) -> Dict:
+        """
+        Get the detailed war report for a specific ranked war.
+
+        Args:
+            war_id: Torn ranked war ID
+            comment: API comment for tracking
+
+        Returns:
+            Dict with rankedwarreport data (factions, members, rewards)
+        """
+        url = f"{self.BASE_URL}/faction/{war_id}/rankedwarreport"
+        params = {
+            "key": self.api_key,
+            "comment": comment
+        }
+        return self._make_request(url, params)
+
+    def get_faction_attacks(
+        self,
+        from_timestamp: int,
+        to_timestamp: int,
+        limit: int = 100,
+        sort: str = "DESC",
+        comment: str = "Forge_War_Attacks"
+    ) -> Dict:
+        """
+        Get faction attacks within a time window.
+
+        Args:
+            from_timestamp: Start of window (Unix timestamp)
+            to_timestamp: End of window (Unix timestamp)
+            limit: Results per page (max 100)
+            sort: Sort order — use DESC for backward pagination
+            comment: API comment for tracking
+
+        Returns:
+            Dict with attacks list and _metadata
+        """
+        url = f"{self.BASE_URL}/faction/attacks"
+        params = {
+            "limit": limit,
+            "sort": sort,
+            "from": from_timestamp,
+            "to": to_timestamp,
+            "key": self.api_key,
+            "comment": comment
+        }
+        return self._make_request(url, params)
+
     # ==================== CONNECTION TEST ====================
     
     def test_connection(self) -> bool:

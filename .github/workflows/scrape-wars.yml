@@ -1,0 +1,97 @@
+name: Scrape War Data
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [trigger-war-scrape]
+  workflow_call:
+    secrets:
+      GITHUB_TOKEN:
+        required: false
+      TORN_API_KEY:
+        required: true
+      VITE_SUPABASE_URL:
+        required: true
+      VITE_SUPABASE_ANON_KEY:
+        required: true
+      VITE_SUPABASE_SERVICE_ROLE_KEY:
+        required: true
+
+jobs:
+  scrape-wars:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull latest changes
+      run: |
+        git config pull.rebase true
+        git pull origin main
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run war data update
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        SKIP_GOOGLE_SHEETS: 'true'
+      run: |
+        python scripts/war_data_update.py
+
+    - name: Sync war data to Supabase
+      env:
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+      run: |
+        echo "Syncing war data to Supabase database..."
+        python scripts/sync_to_supabase.py wars
+
+    - name: Upload logs as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: war-scrape-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30
+
+    - name: Sync data to public folder
+      run: |
+        mkdir -p public/data
+        cp data/war_database.json public/data/ 2>/dev/null || true
+        cp data/war_attacks_database.json public/data/ 2>/dev/null || true
+
+    - name: Commit and push changes
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "actions@github.com"
+        git add data/war_database.json data/war_attacks_database.json public/data/war_database.json public/data/war_attacks_database.json 2>/dev/null || true
+        if ! git diff --staged --quiet; then
+          git commit -m "Update war data [skip ci]"
+          git push
+        else
+          echo "No changes to commit"
+        fi

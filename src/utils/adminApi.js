@@ -125,6 +125,38 @@ export async function syncInventory(tornApiKey) {
 }
 
 /**
+ * Sync members from Torn API
+ */
+export async function syncMembers(tornApiKey) {
+  return callAdminApi('sync_members', {}, tornApiKey)
+}
+
+/**
+ * Save war payout (configuration + per-member results) to database.
+ * If a payout already exists for this war_id, it is overwritten.
+ *
+ * @param {object} payoutData - Fields for the war_payouts table
+ * @param {Array} memberRecords - Array of member payout records
+ * @param {string} tornApiKey
+ * @returns {Promise<{success: boolean, payoutId: number, memberCount: number}>}
+ */
+export async function saveWarPayout(payoutData, memberRecords, tornApiKey) {
+  return callAdminApi('save_war_payout', { data: { payoutData, memberRecords } }, tornApiKey)
+}
+
+/**
+ * Toggle the is_termed flag on a war record.
+ * Only the is_termed field is updated — all other war fields are left unchanged.
+ *
+ * @param {number} warId - Torn war ID
+ * @param {boolean} isTermed
+ * @param {string} tornApiKey
+ */
+export async function updateWarIsTermed(warId, isTermed, tornApiKey) {
+  return callAdminApi('update_war_is_termed', { data: { war_id: warId, is_termed: isTermed } }, tornApiKey)
+}
+
+/**
  * Get status message from sync result
  */
 export function getSyncStatusMessage(result) {

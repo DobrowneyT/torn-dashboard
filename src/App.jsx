@@ -18,6 +18,8 @@ import InventoryManagement from './components/InventoryManagement'
 import DataManagement from './views/DataManagement'
 import DashboardView from './views/DashboardView'
 import AhView from './views/AhView'
+import WarHistoryView from './views/WarHistoryView'
+import WarPayoutManagement from './components/WarPayoutManagement'
 import { isAdmin } from './config'
 
 
@@ -83,6 +85,8 @@ function DashboardContent() {
     { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
     { id: 'payouts', label: 'OC Payouts', roles: ['member', 'leadership'] },
     { id: 'payout-mgmt', label: 'OC Payout Management', roles: ['leadership'] },
+    { id: 'war-history', label: 'War History', roles: ['member', 'leadership'] },
+    { id: 'war-payout-mgmt', label: 'War Payout Management', roles: ['leadership'] },
     { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
     { id: 'inventory', label: 'Inventory', roles: ['leadership'] }
   ]
@@ -172,11 +176,13 @@ function DashboardContent() {
             {activeTab === 'crimes' && <CrimesView isLeadership={effectiveIsLeadership} />}
             {activeTab === 'requirements' && <TierRequirementsView />}
             {activeTab === 'payouts' && <PayoutsView isLeadership={effectiveIsLeadership} />}
+            {activeTab === 'war-history' && <WarHistoryView isLeadership={effectiveIsLeadership} />}
           </ProtectedRoute>
 
           {/* Leadership-only views */}
           <ProtectedRoute requireLeadership={true}>
             {activeTab === 'payout-mgmt' && <PayoutManagement />}
+            {activeTab === 'war-payout-mgmt' && <WarPayoutManagement />}
             {activeTab === 'tier-mgmt' && <TierManagement />}
             {activeTab === 'inventory' && <InventoryManagement />}
           </ProtectedRoute>
