@@ -355,7 +355,11 @@ describe('generateWarBatchPayoutURL', () => {
 
   it('excludes ineligible members', () => {
     const url = generateWarBatchPayoutURL(eligibleMembers)
-    expect(url).not.toContain('300')  // Carol is ineligible
+    // Carol (id=300) is ineligible — check UIDs param specifically.
+    // Cannot use toContain('300') on full URL: Bob's payout 300000 also contains '300'.
+    const uidsParam = url.match(/batbal_uids=([^&]+)/)?.[1] ?? ''
+    const uids = uidsParam.split(',').map(Number)
+    expect(uids).not.toContain(300)
   })
 
   it('excludes zero-payout members', () => {

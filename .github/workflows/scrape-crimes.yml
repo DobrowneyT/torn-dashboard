@@ -1,33 +1,14 @@
-name: Scrape Crimes Data
+name: Scrape Crimes Data (Manual)
 
 on:
-  schedule:
-    - cron: '0 6 * * *'
   workflow_dispatch:
   repository_dispatch:
     types: [trigger-crime-scrape]
-  workflow_call:
-    secrets:
-      GITHUB_TOKEN:
-        required: false
-      TORN_API_KEY:
-        required: true
-      GOOGLE_SHEETS_ID:
-        required: false
-      GOOGLE_DRIVE_CREDENTIALS:
-        required: false
-      VITE_SUPABASE_URL:
-        required: true
-      VITE_SUPABASE_ANON_KEY:
-        required: true
-      VITE_SUPABASE_SERVICE_ROLE_KEY:
-        required: true
 
 jobs:
   scrape-crimes:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     permissions:
       contents: write
 
@@ -63,24 +44,20 @@ jobs:
     - name: Create Google credentials file
       env:
         GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
-      run: |
-        echo "$GOOGLE_DRIVE_CREDENTIALS" > google_credentials.json
+      run: echo "$GOOGLE_DRIVE_CREDENTIALS" > google_credentials.json
 
     - name: Run daily crime update
       env:
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
-      run: |
-        python scripts/daily_crime_update.py
+      run: python scripts/daily_crime_update.py
 
     - name: Sync crimes data to Supabase
       env:
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
-      run: |
-        echo "Syncing crimes data to Supabase database..."
-        python scripts/sync_to_supabase.py crimes
+      run: python scripts/sync_to_supabase.py crimes
 
     - name: Upload logs as artifact
       if: always()
@@ -90,15 +67,12 @@ jobs:
         path: logs/
         retention-days: 30
 
-    - name: Sync data to public folder
-      run: |
-        mkdir -p public/data
-        cp data/*.json public/data/ 2>/dev/null || true
-
     - name: Commit and push changes
       run: |
         git config user.name "GitHub Actions Bot"
         git config user.email "actions@github.com"
+        mkdir -p public/data
+        cp data/*.json public/data/ 2>/dev/null || true
         git add data/*.json public/data/*.json
         if ! git diff --staged --quiet; then
           git commit -m "Update crimes data [skip ci]"
