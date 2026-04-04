@@ -82,29 +82,28 @@ SAMPLE_WAR_DB = {
 }
 
 SAMPLE_ATTACKS_DB = {
+    # faction_attacks_database.json: keyed by str(attack_id), flat (no war_id FK)
     'attacks': {
-        '39161': [
-            {
-                'attack_id': 461558711,
-                'war_id': 39161,
-                'started': 1774911246,
-                'ended': 1774911271,
-                'attacker_id': 428286,
-                'attacker_name': 'AlleyCat_616',
-                'attacker_faction_id': 10739,
-                'defender_id': 2666855,
-                'defender_name': 'Gumnut',
-                'defender_faction_id': 41929,
-                'result': 'Hospitalized',
-                'respect_gain': 3.64,
-                'chain': 1,
-                'is_ranked_war': True,
-                'fair_fight': 2.72,
-                'war_modifier': 1.0,
-                'chain_modifier': 1.0,
-                'warlord_modifier': 1.0,
-            }
-        ]
+        '461558711': {
+            'attack_id': 461558711,
+            'started': 1774911246,
+            'ended': 1774911271,
+            'attacker_id': 428286,
+            'attacker_name': 'AlleyCat_616',
+            'attacker_faction_id': 10739,
+            'defender_id': 2666855,
+            'defender_name': 'Gumnut',
+            'defender_faction_id': 41929,
+            'result': 'Hospitalized',
+            'respect_gain': 3.64,
+            'chain': 1,
+            'is_ranked_war': True,
+            'fair_fight': 2.72,
+            'war_modifier': 1.0,
+            'chain_modifier': 1.0,
+            'warlord_modifier': 1.0,
+            'is_incoming': False,
+        }
     },
     'metadata': {'last_updated': '2026-04-04T12:00:00'}
 }
@@ -234,16 +233,16 @@ class TestSyncWarData:
 
 
 # ---------------------------------------------------------------------------
-# Tests: sync_war_attacks
+# Tests: sync_faction_attacks
 # ---------------------------------------------------------------------------
 
-class TestSyncWarAttacks:
+class TestSyncFactionAttacks:
     def test_attack_fields_mapped_correctly(self):
         syncer = make_syncer()
         captured_attacks = []
 
         def capturing_upsert(table, records, on_conflict):
-            if table == 'war_attacks':
+            if table == 'faction_attacks':
                 captured_attacks.extend(records)
             return len(records)
 
@@ -251,57 +250,58 @@ class TestSyncWarAttacks:
 
         path = write_temp_json(SAMPLE_ATTACKS_DB)
         try:
-            syncer.sync_war_attacks(path)
+            syncer.sync_faction_attacks(path)
         finally:
             os.unlink(path)
 
         assert len(captured_attacks) == 1
         attack = captured_attacks[0]
         assert attack['attack_id'] == 461558711
-        assert attack['war_id'] == 39161
         assert attack['attacker_id'] == 428286
         assert attack['result'] == 'Hospitalized'
         assert attack['fair_fight'] == 2.72
         assert attack['is_ranked_war'] is True
+        assert attack['is_incoming'] is False
 
     def test_empty_attacks_db_produces_no_error(self):
         syncer = make_syncer()
         path = write_temp_json({'attacks': {}, 'metadata': {}})
         try:
-            result = syncer.sync_war_attacks(path)
+            result = syncer.sync_faction_attacks(path)
         finally:
             os.unlink(path)
         assert result['attacks_synced'] == 0
         assert result['errors'] == []
 
-    def test_multiple_wars_all_attacks_collected(self):
+    def test_multiple_attacks_all_collected(self):
         syncer = make_syncer()
         captured_attacks = []
 
         def capturing_upsert(table, records, on_conflict):
-            if table == 'war_attacks':
+            if table == 'faction_attacks':
                 captured_attacks.extend(records)
             return len(records)
 
         syncer._bulk_upsert = capturing_upsert
 
-        multi_war_db = {
+        multi_attack_db = {
             'attacks': {
-                '39161': SAMPLE_ATTACKS_DB['attacks']['39161'],
-                '38930': [
-                    {**SAMPLE_ATTACKS_DB['attacks']['39161'][0],
-                     'attack_id': 999999, 'war_id': 38930}
-                ]
+                '461558711': SAMPLE_ATTACKS_DB['attacks']['461558711'],
+                '999999': {
+                    **SAMPLE_ATTACKS_DB['attacks']['461558711'],
+                    'attack_id': 999999,
+                    'is_incoming': True,
+                }
             },
             'metadata': {}
         }
-        path = write_temp_json(multi_war_db)
+        path = write_temp_json(multi_attack_db)
         try:
-            syncer.sync_war_attacks(path)
+            syncer.sync_faction_attacks(path)
         finally:
             os.unlink(path)
 
         assert len(captured_attacks) == 2
-        war_ids = {a['war_id'] for a in captured_attacks}
-        assert 39161 in war_ids
-        assert 38930 in war_ids
+        attack_ids = {a['attack_id'] for a in captured_attacks}
+        assert 461558711 in attack_ids
+        assert 999999 in attack_ids
