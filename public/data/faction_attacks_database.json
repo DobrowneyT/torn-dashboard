@@ -79659,12 +79659,52 @@
       "chain_modifier": 1,
       "warlord_modifier": 1,
       "is_incoming": true
+    },
+    "462711857": {
+      "attack_id": 462711857,
+      "started": 1775327676,
+      "ended": 1775327691,
+      "attacker_id": 3958268,
+      "attacker_name": "SomTallWhiteGuy",
+      "attacker_faction_id": 10739,
+      "defender_id": 3614114,
+      "defender_name": "GattDat",
+      "defender_faction_id": 11062,
+      "result": "Mugged",
+      "respect_gain": 3.36,
+      "chain": 2,
+      "is_ranked_war": false,
+      "fair_fight": 2.82,
+      "war_modifier": 1,
+      "chain_modifier": 1,
+      "warlord_modifier": 1,
+      "is_incoming": false
+    },
+    "462711750": {
+      "attack_id": 462711750,
+      "started": 1775327651,
+      "ended": 1775327658,
+      "attacker_id": 3958268,
+      "attacker_name": "SomTallWhiteGuy",
+      "attacker_faction_id": 10739,
+      "defender_id": 3559479,
+      "defender_name": "NwayOo",
+      "defender_faction_id": 50362,
+      "result": "Mugged",
+      "respect_gain": 2.87,
+      "chain": 1,
+      "is_ranked_war": false,
+      "fair_fight": 2.39,
+      "war_modifier": 1,
+      "chain_modifier": 1,
+      "warlord_modifier": 1,
+      "is_incoming": false
     }
   },
   "metadata": {
-    "last_updated": "2026-04-04T18:19:36.901637",
-    "newest_started": 1775325723,
+    "last_updated": "2026-04-04T18:41:03.918963",
+    "newest_started": 1775327676,
     "oldest_started": 1775031627,
-    "total_attacks": 3983
+    "total_attacks": 3985
   }
 }
