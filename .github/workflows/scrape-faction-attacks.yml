@@ -1,0 +1,77 @@
+name: Scrape Faction Attacks (Manual)
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [trigger-faction-attacks-scrape]
+
+jobs:
+  scrape-faction-attacks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull latest changes
+      run: |
+        git config pull.rebase true
+        git pull origin main
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Fetch faction attacks
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        VITE_FACTION_ID: '10739'
+      run: python scripts/faction_attacks_update.py
+
+    - name: Sync faction attacks to Supabase
+      env:
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+      run: python scripts/sync_to_supabase.py attacks
+
+    - name: Upload logs as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: faction-attacks-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30
+
+    - name: Commit and push changes
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "actions@github.com"
+        mkdir -p public/data
+        cp data/faction_attacks_database.json public/data/ 2>/dev/null || true
+        git add data/faction_attacks_database.json public/data/faction_attacks_database.json
+        if ! git diff --staged --quiet; then
+          git commit -m "Update faction attacks data [skip ci]"
+          git push
+        else
+          echo "No changes to commit"
+        fi

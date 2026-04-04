@@ -18,6 +18,8 @@ import InventoryManagement from './components/InventoryManagement'
 import DataManagement from './views/DataManagement'
 import DashboardView from './views/DashboardView'
 import AhView from './views/AhView'
+import WarHistoryView from './views/WarHistoryView'
+import WarPayoutManagement from './components/WarPayoutManagement'
 import { isAdmin } from './config'
 
 
@@ -38,7 +40,7 @@ function PublicAhPage() {
   return (
     <PublicLayout>
       <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">
               Torn Auction House Database
@@ -49,7 +51,7 @@ function PublicAhPage() {
           </div>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
         <AhView />
       </main>
     </PublicLayout>
@@ -83,6 +85,8 @@ function DashboardContent() {
     { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
     { id: 'payouts', label: 'OC Payouts', roles: ['member', 'leadership'] },
     { id: 'payout-mgmt', label: 'OC Payout Management', roles: ['leadership'] },
+    { id: 'war-history', label: 'War History', roles: ['member', 'leadership'] },
+    { id: 'war-payout-mgmt', label: 'War Payout Management', roles: ['leadership'] },
     { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
     { id: 'inventory', label: 'Inventory', roles: ['leadership'] }
   ]
@@ -143,7 +147,7 @@ function DashboardContent() {
       {/* View As indicator banner */}
       {viewAsRole && (
         <div className="bg-yellow-100 dark:bg-yellow-900/30 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
             <span className="text-sm text-yellow-800 dark:text-yellow-200">
               Viewing as: <strong className="capitalize">{viewAsRole}</strong>
             </span>
@@ -157,7 +161,7 @@ function DashboardContent() {
         </div>
       )}
       
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
         {/* <StatsOverview /> */}
         <Navigation 
           activeTab={activeTab} 
@@ -172,11 +176,13 @@ function DashboardContent() {
             {activeTab === 'crimes' && <CrimesView isLeadership={effectiveIsLeadership} />}
             {activeTab === 'requirements' && <TierRequirementsView />}
             {activeTab === 'payouts' && <PayoutsView isLeadership={effectiveIsLeadership} />}
+            {activeTab === 'war-history' && <WarHistoryView isLeadership={effectiveIsLeadership} />}
           </ProtectedRoute>
 
           {/* Leadership-only views */}
           <ProtectedRoute requireLeadership={true}>
             {activeTab === 'payout-mgmt' && <PayoutManagement />}
+            {activeTab === 'war-payout-mgmt' && <WarPayoutManagement />}
             {activeTab === 'tier-mgmt' && <TierManagement />}
             {activeTab === 'inventory' && <InventoryManagement />}
           </ProtectedRoute>

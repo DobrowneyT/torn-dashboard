@@ -233,7 +233,7 @@ export default function CrimesView({ crimesData, isLeadership }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
         <div className="card">
           <div className="text-sm text-gray-600 dark:text-gray-400">Total Crimes</div>
           <div className="text-2xl font-bold">{statusCounts.total || 0}</div>
@@ -261,13 +261,13 @@ export default function CrimesView({ crimesData, isLeadership }) {
       </div>
 
       <div className="card">
-        <div className="flex flex-wrap gap-4 items-center">
-          <div>
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+          <div className="flex-1">
             <label className="block text-sm font-medium mb-2">Filter by Status:</label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="input min-w-[200px]"
+              className="input w-full sm:w-auto sm:min-w-[200px]"
             >
               {CRIME_STATUS_OPTIONS.map(option => (
                 <option key={option.value} value={option.value}>
@@ -276,9 +276,9 @@ export default function CrimesView({ crimesData, isLeadership }) {
               ))}
             </select>
           </div>
-          
+
           {isLeadership && (
-            <div className="ml-auto flex gap-2 items-center">
+            <div className="flex gap-2 items-center sm:ml-auto">
               <button
                 onClick={handleSyncWithAPI}
                 disabled={syncing}
@@ -386,7 +386,7 @@ export default function CrimesView({ crimesData, isLeadership }) {
                         {crime.name}
                       </button>
                       {selectedCrimeId === (crime.id || crime.crime_id) && (
-                        <div className="absolute z-50 left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg p-3 min-w-[280px] max-w-[360px]">
+                        <div className="absolute z-50 left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg p-3 w-[280px] sm:w-[360px] max-w-[calc(100vw-2rem)]">
                           <div className="flex items-center justify-between mb-2">
                             <h5 className="font-semibold text-xs">Participants</h5>
                             <button
