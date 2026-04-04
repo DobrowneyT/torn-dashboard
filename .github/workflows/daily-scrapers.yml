@@ -6,19 +6,315 @@ on:
     - cron: '0 6 * * *'
   workflow_dispatch:
 
+# All 4 jobs run in parallel and independently — a failure in one does not block others.
+# Failed jobs can be re-run individually from the GitHub Actions UI.
+
 jobs:
   scrape-crimes:
-    uses: ./.github/workflows/scrape-crimes.yml
-    secrets: inherit
+    name: Scrape Crimes Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull latest changes
+      run: |
+        git config pull.rebase true
+        git pull origin main
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Create Google credentials file
+      env:
+        GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+      run: echo "$GOOGLE_DRIVE_CREDENTIALS" > google_credentials.json
+
+    - name: Run daily crime update
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+      run: python scripts/daily_crime_update.py
+
+    - name: Sync crimes data to Supabase
+      env:
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+      run: python scripts/sync_to_supabase.py crimes
+
+    - name: Upload logs as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: crime-scrape-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30
+
+    - name: Commit and push changes
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "actions@github.com"
+        mkdir -p public/data
+        cp data/*.json public/data/ 2>/dev/null || true
+        git add data/*.json public/data/*.json
+        if ! git diff --staged --quiet; then
+          git commit -m "Update crimes data [skip ci]"
+          git push
+        else
+          echo "No changes to commit"
+        fi
+
 
   scrape-cpr:
-    uses: ./.github/workflows/scrape-cpr.yml
-    secrets: inherit
+    name: Scrape CPR Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull latest changes
+      run: |
+        git config pull.rebase true
+        git pull origin main
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Verify API keys configuration
+      env:
+        MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
+      run: |
+        python -c "
+        import os, json
+        keys = json.loads(os.environ.get('MEMBER_API_KEYS', '{}'))
+        print(f'✓ API keys configured for {len(keys)} members')
+        if keys:
+          print('Members:', ', '.join(keys.keys()))
+        else:
+          print('⚠ Warning: No member API keys found!')
+        "
+
+    - name: Run CPR scraper
+      env:
+        SKIP_GOOGLE_SHEETS: 'true'
+        MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+        GIST_ID: ${{ secrets.GIST_ID }}
+      run: python scripts/cpr_scraper.py
+
+    - name: Sync CPR data to Supabase
+      env:
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+      run: python scripts/sync_to_supabase.py cpr
+
+    - name: Upload logs as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cpr-scrape-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30
+
+    - name: Commit and push changes
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "actions@github.com"
+        mkdir -p public/data
+        cp data/*.json public/data/ 2>/dev/null || true
+        git add data/*.json public/data/*.json
+        if ! git diff --staged --quiet; then
+          git commit -m "Update CPR data [skip ci]"
+          git push
+        else
+          echo "No changes to commit"
+        fi
+
 
   scrape-wars:
-    uses: ./.github/workflows/scrape-wars.yml
-    secrets: inherit
+    name: Scrape War Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull latest changes
+      run: |
+        git config pull.rebase true
+        git pull origin main
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run war data update
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        VITE_FACTION_ID: '10739'
+      run: python scripts/war_data_update.py
+
+    - name: Sync war data to Supabase
+      env:
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+      run: python scripts/sync_to_supabase.py wars
+
+    - name: Upload logs as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: war-scrape-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30
+
+    - name: Commit and push changes
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "actions@github.com"
+        mkdir -p public/data
+        cp data/war_database.json public/data/ 2>/dev/null || true
+        git add data/war_database.json public/data/war_database.json
+        if ! git diff --staged --quiet; then
+          git commit -m "Update war data [skip ci]"
+          git push
+        else
+          echo "No changes to commit"
+        fi
+
 
   scrape-faction-attacks:
-    uses: ./.github/workflows/scrape-faction-attacks.yml
-    secrets: inherit
+    name: Scrape Faction Attacks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull latest changes
+      run: |
+        git config pull.rebase true
+        git pull origin main
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Fetch faction attacks
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        VITE_FACTION_ID: '10739'
+      run: python scripts/faction_attacks_update.py
+
+    - name: Sync faction attacks to Supabase
+      env:
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+      run: python scripts/sync_to_supabase.py attacks
+
+    - name: Upload logs as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: faction-attacks-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30
+
+    - name: Commit and push changes
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "actions@github.com"
+        mkdir -p public/data
+        cp data/faction_attacks_database.json public/data/ 2>/dev/null || true
+        git add data/faction_attacks_database.json public/data/faction_attacks_database.json
+        if ! git diff --staged --quiet; then
+          git commit -m "Update faction attacks data [skip ci]"
+          git push
+        else
+          echo "No changes to commit"
+        fi
