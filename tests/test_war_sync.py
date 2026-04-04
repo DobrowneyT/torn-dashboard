@@ -68,6 +68,7 @@ SAMPLE_WAR_DB = {
             # Scraper flags — should NOT appear in Supabase records
             'report_fetched': True,
             'attacks_fetched': True,
+            'report_unavailable': False,
         }
     },
     'contributions': {
@@ -158,6 +159,7 @@ class TestSyncWarData:
             for record in records:
                 assert 'report_fetched' not in record, f"report_fetched found in {table_name} record"
                 assert 'attacks_fetched' not in record, f"attacks_fetched found in {table_name} record"
+                assert 'report_unavailable' not in record, f"report_unavailable found in {table_name} record"
 
     def test_rewards_items_serialized_as_json_string(self):
         syncer = make_syncer()
