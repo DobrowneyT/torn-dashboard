@@ -1,18 +1,17 @@
 """
 Faction Attacks Update Script
-Fetches ALL faction attacks daily (both outgoing and incoming) using an
-incremental cursor. Attacks are stored without a war_id — war windows are
-applied dynamically at query time using ranked_wars.start_at / end_at.
+Fetches ALL faction attacks using incremental ASC forward pagination,
+mirroring the same pattern as daily_crime_update.py.
+
+Pagination:
+  GET /v2/faction/attacks?limit=100&sort=ASC&from={cursor}
+  Cursor starts at newest stored attack's `started` timestamp (or 0 on first run).
+  Each full page advances the cursor: cursor = last_attack_on_page.started
+  Stop when < 100 results are returned.
 
 Data flow:
   Torn API → data/faction_attacks_database.json
            → sync_to_supabase.py attacks → Supabase faction_attacks table
-
-Pagination:
-  GET /v2/faction/attacks?limit=100&sort=DESC&to={cursor}
-  Cursor starts at last stored attack's `started` timestamp.
-  Each page moves the cursor backward: cursor = min(started) - 1
-  Stop when < 100 results returned (end of history for that window).
 """
 
 import os
@@ -34,9 +33,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 FACTION_ID = int(os.environ.get('VITE_FACTION_ID', '10739'))
-
-# How far back to go on the very first run (90 days)
-INITIAL_LOOKBACK_DAYS = 90
 
 
 class FactionAttacksUpdater:
@@ -61,11 +57,10 @@ class FactionAttacksUpdater:
         db = self.storage.read_json('faction_attacks_database.json')
         if not db:
             db = {
-                'attacks': {},          # keyed by str(attack_id)
+                'attacks': {},       # keyed by str(attack_id)
                 'metadata': {
                     'last_updated': None,
-                    'newest_started': None,  # highest started timestamp stored
-                    'oldest_started': None,  # lowest started timestamp stored
+                    'newest_started': None,
                     'total_attacks': 0,
                 }
             }
@@ -76,7 +71,6 @@ class FactionAttacksUpdater:
         if attacks:
             started_values = [a['started'] for a in attacks.values() if a.get('started')]
             db['metadata']['newest_started'] = max(started_values) if started_values else None
-            db['metadata']['oldest_started'] = min(started_values) if started_values else None
             db['metadata']['total_attacks'] = len(attacks)
         db['metadata']['last_updated'] = datetime.utcnow().isoformat()
         self.storage.write_json(
@@ -89,18 +83,17 @@ class FactionAttacksUpdater:
     # API fetcher
     # ------------------------------------------------------------------
 
-    def _fetch_attacks_page(self, to_timestamp: int) -> List[Dict]:
-        """Fetch one page of faction attacks ending at `to_timestamp` (DESC sort)."""
+    def _fetch_attacks_page(self, from_timestamp: int) -> List[Dict]:
+        """Fetch one page of faction attacks starting at from_timestamp (ASC sort)."""
         try:
             response = self.api.get_faction_attacks(
-                from_timestamp=None,
-                to_timestamp=to_timestamp,
+                from_timestamp=from_timestamp,
                 limit=100,
-                sort='DESC'
+                sort='ASC'
             )
             return response.get('attacks', [])
         except TornAPIError as e:
-            logger.error(f"API error fetching attacks (to={to_timestamp}): {e}")
+            logger.error(f"API error fetching attacks (from={from_timestamp}): {e}")
             return []
 
     def _normalize_attack(self, raw: Dict) -> Dict:
@@ -143,9 +136,9 @@ class FactionAttacksUpdater:
 
     def update_attacks(self) -> Dict:
         """
-        Incremental update:
-        - Start cursor at newest_started timestamp (or INITIAL_LOOKBACK_DAYS ago)
-        - Page backward (DESC) until we hit an attack we already have
+        Incremental forward update (ASC):
+        - Start cursor at newest_started timestamp (or 0 on first run)
+        - Page forward until < 100 results are returned
         - Merge new attacks into the database
 
         Returns summary stats.
@@ -159,29 +152,17 @@ class FactionAttacksUpdater:
             'errors': 0,
         }
 
-        # Determine starting cursor
+        # Start from the newest stored attack's timestamp (inclusive overlap is
+        # handled by the existing-ID check below). On first run use 0.
         newest_stored = db['metadata'].get('newest_started')
-        if newest_stored:
-            # Start just ahead of our newest stored attack so we capture anything newer
-            start_cursor = int(newest_stored) + 1
-            # We want attacks from start_cursor onward, but the API uses `to` for DESC.
-            # Fetch from "now" downward and stop when we reach attacks we already have.
-            import time as _time
-            current_to = int(_time.time())
-        else:
-            # First run: go back INITIAL_LOOKBACK_DAYS
-            import time as _time
-            lookback = INITIAL_LOOKBACK_DAYS * 24 * 3600
-            start_cursor = int(_time.time()) - lookback
-            current_to = int(_time.time())
+        current_from = int(newest_stored) if newest_stored else 0
 
-        logger.info(f"Fetching attacks from {start_cursor} to {current_to} (newest stored: {newest_stored})")
+        logger.info(f"Fetching attacks from {current_from} (newest stored: {newest_stored})")
 
         page = 1
-        stop_early = False
 
-        while not stop_early:
-            raw_attacks = self._fetch_attacks_page(current_to)
+        while True:
+            raw_attacks = self._fetch_attacks_page(current_from)
             stats['pages_fetched'] += 1
 
             if not raw_attacks:
@@ -189,43 +170,28 @@ class FactionAttacksUpdater:
                 break
 
             new_this_page = 0
-            oldest_on_page = current_to
-
             for raw in raw_attacks:
                 aid = str(raw.get('id'))
-                started = raw.get('started', 0)
-
-                if started < oldest_on_page:
-                    oldest_on_page = started
-
-                # Once we pass the cursor boundary, stop pagination after this page
-                if started < start_cursor:
-                    stop_early = True
-                    # Don't break — finish processing this page so we don't miss
-                    # attacks on the same page that are newer than start_cursor
-                    continue
-
-                # Skip already-stored attacks (overlap at page boundaries)
                 if aid in existing:
-                    continue
-
+                    continue  # already stored (overlap at page boundary)
                 existing[aid] = self._normalize_attack(raw)
                 new_this_page += 1
 
+            last_started = raw_attacks[-1].get('started', current_from)
             stats['new_attacks'] += new_this_page
             logger.info(f"  Page {page}: {len(raw_attacks)} raw, {new_this_page} new "
-                        f"(oldest started={oldest_on_page})")
+                        f"(last started={last_started})")
 
             if len(raw_attacks) < 100:
-                break  # Last page
+                break  # reached the end
 
-            # Advance cursor backward
-            current_to = oldest_on_page - 1
+            # Advance cursor to last attack's started timestamp
+            current_from = last_started
             page += 1
 
             # Safety limit
-            if page > 200:
-                logger.warning("Hit 200-page safety limit, stopping")
+            if page > 500:
+                logger.warning("Hit 500-page safety limit, stopping")
                 break
 
         db['attacks'] = existing
