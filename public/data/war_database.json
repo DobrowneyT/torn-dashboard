@@ -8,7 +8,7 @@
       "opponent_name": "Hookers n Blow",
       "our_score": 7083,
       "opponent_score": 16047,
-      "target": 10089,
+      "target": 9912,
       "winner_faction_id": null,
       "forfeit": false,
       "is_termed": false,
@@ -12992,7 +12992,7 @@
         "war_id": 37325,
         "member_id": 3179104,
         "member_name": "MichaelFloyd",
-        "level": 75,
+        "level": 76,
         "attacks": 0,
         "score": 0,
         "faction_id": 1149
@@ -16776,7 +16776,7 @@
         "war_id": 36893,
         "member_id": 3303968,
         "member_name": "Saul",
-        "level": 74,
+        "level": 75,
         "attacks": 15,
         "score": 211.22,
         "faction_id": 16335
@@ -28742,7 +28742,7 @@
         "war_id": 34710,
         "member_id": 2179991,
         "member_name": "duelist",
-        "level": 61,
+        "level": 62,
         "attacks": 15,
         "score": 147.65,
         "faction_id": 14821
@@ -35518,7 +35518,7 @@
         "war_id": 33467,
         "member_id": 1703528,
         "member_name": "DVSimpulse",
-        "level": 66,
+        "level": 67,
         "attacks": 2,
         "score": 9.76,
         "faction_id": 15446
@@ -102616,7 +102616,7 @@
         "war_id": 20780,
         "member_id": 3303968,
         "member_name": "Saul",
-        "level": 74,
+        "level": 75,
         "attacks": 19,
         "score": 205.99,
         "faction_id": 16335
@@ -192221,6 +192221,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-04-05T14:57:55.393817"
+    "last_updated": "2026-04-05T15:35:55.613462"
   }
 }
