@@ -480,20 +480,21 @@ class TornAPI:
 
     def get_faction_attacks(
         self,
-        from_timestamp: int,
-        to_timestamp: int,
+        from_timestamp: int = 0,
+        to_timestamp: Optional[int] = None,
         limit: int = 100,
-        sort: str = "DESC",
+        sort: str = "ASC",
         comment: str = "Forge_War_Attacks"
     ) -> Dict:
         """
-        Get faction attacks within a time window.
+        Get faction attacks.
 
         Args:
-            from_timestamp: Start of window (Unix timestamp)
-            to_timestamp: End of window (Unix timestamp)
+            from_timestamp: Start timestamp (inclusive). Use 0 or last stored
+                            attack's started value to page forward (ASC).
+            to_timestamp: Optional end timestamp. Omit for open-ended ASC fetch.
             limit: Results per page (max 100)
-            sort: Sort order — use DESC for backward pagination
+            sort: Sort order — ASC for forward incremental pagination
             comment: API comment for tracking
 
         Returns:
@@ -504,10 +505,11 @@ class TornAPI:
             "limit": limit,
             "sort": sort,
             "from": from_timestamp,
-            "to": to_timestamp,
             "key": self.api_key,
             "comment": comment
         }
+        if to_timestamp is not None:
+            params["to"] = to_timestamp
         return self._make_request(url, params)
 
     # ==================== CONNECTION TEST ====================
