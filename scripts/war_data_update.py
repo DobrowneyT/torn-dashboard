@@ -11,7 +11,6 @@ Data flow:
 
 import os
 import sys
-import time
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -93,10 +92,9 @@ class WarDataUpdater:
         return all_wars
 
     # Torn API error codes that mean the report will never be accessible.
+    # Transient codes (5=too many requests, 16=maintenance, 17=simultaneous) are NOT listed
+    # here — the API wrapper retries error 5 automatically; others retry on the next run.
     PERMANENT_API_ERROR_CODES = {'2', '7', '13', '14'}
-    # Error 5 = too many requests — sleep and retry up to this many times.
-    RATE_LIMIT_SLEEP = 60
-    RATE_LIMIT_MAX_RETRIES = 3
 
     def _fetch_war_report(self, war_id: int) -> tuple:
         """
@@ -109,38 +107,20 @@ class WarDataUpdater:
             (e.g. war too old, wrong ID) — the caller should mark the war
             report_unavailable so future runs skip it.
         """
-        retries = 0
-        while True:
-            try:
-                response = self.api.get_ranked_war_report(war_id)
-                return response.get('rankedwarreport'), False
-            except TornAPIError as e:
-                error_str = str(e)
-
-                # Rate limit: sleep and retry
-                if 'API Error 5:' in error_str:
-                    retries += 1
-                    if retries <= self.RATE_LIMIT_MAX_RETRIES:
-                        logger.warning(
-                            f"Rate limited on war {war_id} — sleeping {self.RATE_LIMIT_SLEEP}s "
-                            f"(retry {retries}/{self.RATE_LIMIT_MAX_RETRIES})..."
-                        )
-                        time.sleep(self.RATE_LIMIT_SLEEP)
-                        continue
-                    else:
-                        logger.error(f"War {war_id} still rate limited after {self.RATE_LIMIT_MAX_RETRIES} retries, skipping")
-                        return None, False  # transient, will retry on next run
-
-                # Permanent errors — mark unavailable so we never retry
-                is_permanent = any(
-                    f"API Error {code}:" in error_str
-                    for code in self.PERMANENT_API_ERROR_CODES
-                )
-                if is_permanent:
-                    logger.warning(f"War {war_id} report permanently unavailable: {e}")
-                else:
-                    logger.error(f"Failed to fetch war report for war {war_id}: {e}")
-                return None, is_permanent
+        try:
+            response = self.api.get_ranked_war_report(war_id)
+            return response.get('rankedwarreport'), False
+        except TornAPIError as e:
+            error_str = str(e)
+            is_permanent = any(
+                f"API Error {code}:" in error_str
+                for code in self.PERMANENT_API_ERROR_CODES
+            )
+            if is_permanent:
+                logger.warning(f"War {war_id} report permanently unavailable: {e}")
+            else:
+                logger.error(f"Failed to fetch war report for war {war_id}: {e}")
+            return None, is_permanent
 
     # ------------------------------------------------------------------
     # Data normalizers
