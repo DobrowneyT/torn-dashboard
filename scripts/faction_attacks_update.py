@@ -198,10 +198,12 @@ class FactionAttacksUpdater:
                 if started < oldest_on_page:
                     oldest_on_page = started
 
-                # Stop if we've reached attacks older than our starting cursor
+                # Once we pass the cursor boundary, stop pagination after this page
                 if started < start_cursor:
                     stop_early = True
-                    break
+                    # Don't break — finish processing this page so we don't miss
+                    # attacks on the same page that are newer than start_cursor
+                    continue
 
                 # Skip already-stored attacks (overlap at page boundaries)
                 if aid in existing:
