@@ -7,7 +7,7 @@ import { formatWarDateRange } from '../utils/warPayoutCalculations'
 const OUR_FACTION_ID = 10739
 const PAGE_SIZE = 10
 
-export default function WarHistoryView({ isLeadership }) {
+export default function WarHistoryView({ isLeadership, isAdmin }) {
   const { user } = useAuth()
 
   const [wars, setWars] = useState([])
@@ -21,6 +21,56 @@ export default function WarHistoryView({ isLeadership }) {
   const [expandedWarId, setExpandedWarId] = useState(null)
   const [contributions, setContributions] = useState({})   // keyed by warId
   const [loadingContributions, setLoadingContributions] = useState({})
+
+  // Contributions table sort — keyed by warId
+  const [contribSort, setContribSort] = useState({})  // { [warId]: { col, dir } }
+
+  function getContribSort(warId) {
+    return contribSort[warId] || { col: 'score', dir: 'desc' }
+  }
+
+  function handleContribSort(warId, col) {
+    setContribSort(prev => {
+      const cur = prev[warId] || { col: 'score', dir: 'desc' }
+      return {
+        ...prev,
+        [warId]: {
+          col,
+          dir: cur.col === col ? (cur.dir === 'asc' ? 'desc' : 'asc') : 'desc',
+        },
+      }
+    })
+  }
+
+  function sortedContribs(warId, contribs) {
+    const { col, dir } = getContribSort(warId)
+    const d = dir === 'asc' ? 1 : -1
+    return contribs.slice().sort((a, b) => {
+      switch (col) {
+        case 'name':    return d * (a.member_name || '').localeCompare(b.member_name || '')
+        case 'level':   return d * ((a.level || 0) - (b.level || 0))
+        case 'score':   return d * (Number(a.score) - Number(b.score))
+        case 'attacks': return d * ((a.attacks || 0) - (b.attacks || 0))
+        default:        return d * (Number(a.score) - Number(b.score))
+      }
+    })
+  }
+
+  function SortHeaderSmall({ warId, col, label, className = '' }) {
+    const { col: activeCol, dir } = getContribSort(warId)
+    const active = activeCol === col
+    return (
+      <th
+        className={`pb-1 pr-4 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors ${className}`}
+        onClick={() => handleContribSort(warId, col)}
+      >
+        {label}
+        <span className="ml-1 text-gray-400">
+          {active ? (dir === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </th>
+    )
+  }
 
   // Toggle termed/real
   const [updatingWarId, setUpdatingWarId] = useState(null)
@@ -77,11 +127,11 @@ export default function WarHistoryView({ isLeadership }) {
 
   async function handleToggleTermed(e, war) {
     e.stopPropagation()
-    if (!user?.tornApiKey) return
+    if (!user?.apiKey) return
 
     setUpdatingWarId(war.id)
     try {
-      await updateWarIsTermed(war.id, !war.is_termed, user.tornApiKey)
+      await updateWarIsTermed(war.id, !war.is_termed, user.apiKey)
       setWars(prev => prev.map(w =>
         w.id === war.id ? { ...w, is_termed: !w.is_termed } : w
       ))
@@ -218,14 +268,18 @@ export default function WarHistoryView({ isLeadership }) {
                     </span>
                   </div>
 
-                  {/* Leadership toggle */}
-                  {isLeadership && result !== 'ongoing' && (
+                  {/* Admin-only termed toggle */}
+                  {isAdmin && result !== 'ongoing' && (
                     <button
                       onClick={(e) => handleToggleTermed(e, war)}
                       disabled={isUpdating}
-                      className="flex-shrink-0 text-xs px-2 py-1 rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                      className={`flex-shrink-0 text-xs px-2 py-1 rounded border transition-colors disabled:opacity-50 ${
+                        war.is_termed
+                          ? 'border-purple-400 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:border-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                          : 'border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:border-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50'
+                      }`}
                     >
-                      {isUpdating ? '...' : `Mark as ${war.is_termed ? 'Real' : 'Termed'}`}
+                      {isUpdating ? '···' : war.is_termed ? '⇄ Set Real' : '⇄ Set Termed'}
                     </button>
                   )}
                 </div>
@@ -251,14 +305,14 @@ export default function WarHistoryView({ isLeadership }) {
                           <table className="w-full text-sm">
                             <thead>
                               <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                                <th className="pb-1 pr-4 font-medium">Member</th>
-                                <th className="pb-1 pr-4 font-medium text-right">Level</th>
-                                <th className="pb-1 pr-4 font-medium text-right">Score</th>
-                                <th className="pb-1 font-medium text-right">Attacks</th>
+                                <SortHeaderSmall warId={war.id} col="name" label="Member" />
+                                <SortHeaderSmall warId={war.id} col="level" label="Level" className="text-right" />
+                                <SortHeaderSmall warId={war.id} col="score" label="Score" className="text-right" />
+                                <SortHeaderSmall warId={war.id} col="attacks" label="Attacks" className="text-right last:pr-0" />
                               </tr>
                             </thead>
                             <tbody>
-                              {ourContribs.map(c => (
+                              {sortedContribs(war.id, ourContribs).map(c => (
                                 <tr key={c.member_id} className="border-b border-gray-100 dark:border-slate-700/50 last:border-0">
                                   <td className="py-1 pr-4 text-gray-900 dark:text-white font-medium">
                                     {c.member_name}

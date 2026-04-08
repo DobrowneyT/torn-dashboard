@@ -148,7 +148,7 @@ function DashboardContent() {
             {activeTab === 'crimes' && <CrimesView isLeadership={effectiveIsLeadership} />}
             {activeTab === 'requirements' && <TierRequirementsView />}
             {activeTab === 'payouts' && <PayoutsView isLeadership={effectiveIsLeadership} />}
-            {activeTab === 'war-history' && <WarHistoryView isLeadership={effectiveIsLeadership} />}
+            {activeTab === 'war-history' && <WarHistoryView isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />}
           </ProtectedRoute>
 
           {/* Leadership-only views */}
