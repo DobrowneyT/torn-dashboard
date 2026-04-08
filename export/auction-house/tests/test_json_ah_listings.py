@@ -26,7 +26,7 @@ from scripts.ah_listing_by_itemid import AuctionHouseScraper
 # ============================================================================
 
 # Your Torn API key (or set TORN_API_KEY environment variable)
-API_KEY = "225eKmgnVTCUxeaS"  # Set to your key string, or leave None to use env var
+API_KEY = None  # Set your TORN_API_KEY here or use env var  # Set to your key string, or leave None to use env var
 
 # Item ID to scrape
 # Common weapon IDs:

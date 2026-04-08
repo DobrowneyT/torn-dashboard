@@ -31,9 +31,9 @@ from scripts.ah_listing_by_itemid import AuctionHouseScraper
 # API Keys - Set these OR use environment variables
 # NOTE: For Supabase with RLS enabled, use the SERVICE ROLE KEY (not anon key)
 # Find it in Supabase Dashboard -> Settings -> API -> service_role (secret)
-TORN_API_KEY = "225eKmgnVTCUxeaS"  # Set to your key, or leave None to use env var TORN_API_KEY
-SUPABASE_URL = "https://uyqkwxopbsoeukfbvsap.supabase.co"  # Set to your URL, or leave None to use env var SUPABASE_URL
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5cWt3eG9wYnNvZXVrZmJ2c2FwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzMwODU5MCwiZXhwIjoyMDgyODg0NTkwfQ.I_pf7Nl8CgaTGSCr31OH2e0LhLL6ZtvpDe0VAefvfq0"  # Set to your key, or leave None to use env var SUPABASE_KEY
+TORN_API_KEY = None  # Set your TORN_API_KEY here or use env var  # Set to your key, or leave None to use env var TORN_API_KEY
+SUPABASE_URL = None  # Set your SUPABASE_URL here or use env var  # Set to your URL, or leave None to use env var SUPABASE_URL
+SUPABASE_KEY = None  # Set your SUPABASE_SERVICE_ROLE_KEY here or use env var  # Set to your key, or leave None to use env var SUPABASE_KEY
 
 # Timestamp range
 # For daily updates: Set FROM_TIMESTAMP to a date in the past (will be auto-adjusted)
