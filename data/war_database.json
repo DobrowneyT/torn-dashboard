@@ -5291,6 +5291,23 @@
       "rank_before": "Unranked",
       "rank_after": "Unranked",
       "report_fetched": true
+    },
+    "40023": {
+      "id": 40023,
+      "start_at": 1775941200,
+      "end_at": null,
+      "opponent_id": 9420,
+      "opponent_name": "The Pusheen Army",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 13300,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -193873,6 +193890,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-04-06T07:56:42.018069"
+    "last_updated": "2026-04-08T07:47:23.484177"
   }
 }
