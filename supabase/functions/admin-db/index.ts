@@ -387,12 +387,13 @@ function collectCrimeRecords(crimes: Record<string, any>) {
       const user = slot.user || {}
       const itemReq = slot.item_requirement || {}
       const itemOutcome = user.item_outcome || {}
+      const pi = slot.position_info ?? {}
 
       allSlots.push({
         crime_id: crimeId,
         position: slot.position,
-        position_id: slot.position_id,
-        position_number: slot.position_number,
+        position_id:     pi.id     ?? slot.position_id,
+        position_number: pi.number ?? slot.position_number,
         checkpoint_pass_rate: slot.checkpoint_pass_rate,
         user_id: user.id?.toString() || null,
         user_name: user.name || null,
@@ -413,8 +414,8 @@ function collectCrimeRecords(crimes: Record<string, any>) {
         allRequiredItems.push({
           crime_id: crimeId,
           position: slot.position,
-          position_id: slot.position_id,
-          position_number: slot.position_number,
+          position_id:     pi.id     ?? slot.position_id,
+          position_number: pi.number ?? slot.position_number,
           item_id: itemReq.id.toString(),
           item_name: itemReq.name || null,
           is_reusable: itemReq.is_reusable || false,

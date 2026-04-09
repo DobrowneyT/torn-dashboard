@@ -1,6 +1,62 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
+function ApiKeyUsageInfo() {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="mt-4 border border-gray-200 dark:border-slate-600 rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+      >
+        <span className="flex items-center gap-1.5 font-medium">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          How is my API key used?
+        </span>
+        <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 space-y-2 bg-white dark:bg-slate-800">
+          <p className="font-semibold text-gray-700 dark:text-gray-300">Torn API ToS Compliance</p>
+          <table className="w-full text-xs border-collapse">
+            <tbody>
+              <tr className="border-b border-gray-100 dark:border-slate-700">
+                <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300 w-1/3">Storage</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400">Browser localStorage only — never on our servers</td>
+              </tr>
+              <tr className="border-b border-gray-100 dark:border-slate-700">
+                <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">Sharing</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400">Not shared — visible only to you on your device</td>
+              </tr>
+              <tr className="border-b border-gray-100 dark:border-slate-700">
+                <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">Purpose</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400">Verify faction membership &amp; determine access level</td>
+              </tr>
+              <tr className="border-b border-gray-100 dark:border-slate-700">
+                <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">API Calls</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400"><code className="font-mono">GET /v2/key/info</code>, <code className="font-mono">GET /user/profile</code></td>
+              </tr>
+              <tr>
+                <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">Access Level</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400">Limited Access (with Faction permission)</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="text-gray-500 dark:text-gray-500 italic">
+            Your key is cleared from storage when you log out. You can revoke access at any time by generating a new key in{' '}
+            <a href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">Torn Preferences</a>.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function LoginModal() {
   const [apiKey, setApiKey] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -97,6 +153,7 @@ export default function LoginModal() {
             <li>• Your API key is stored locally and never shared</li>
             <li>• You can revoke access by generating a new key in Torn</li>
           </ul>
+          <ApiKeyUsageInfo />
         </div>
       </div>
     </div>

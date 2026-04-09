@@ -310,6 +310,38 @@ localStorage.removeItem('theme')
 4. Push to branch (`git push origin feature/amazing-feature`)
 5. Open Pull Request
 
+## Torn API Terms of Service Compliance
+
+This application collects and uses Torn API keys in accordance with [Torn's API Terms of Service](https://www.torn.com/wiki.php#chapter=Terms-of-Service). The following table summarises how member API keys are used, per the Torn ToS Example No. 2 format:
+
+### Login API Key (entered at login)
+
+| Category | Detail |
+|---|---|
+| **Data Storage** | Persistent — stored in your browser's `localStorage` only. Never transmitted to our servers. |
+| **Data Sharing** | Not shared. Your API key is visible only to you on your own device. |
+| **Purpose** | (1) Verify you are a member of the faction. (2) Determine your access level (member vs. leadership). (3) Fetch your name and faction position for display. |
+| **Key Calls Made** | `GET /v2/key/info` — verify key validity and access level. `GET /user/?selections=profile` — fetch name and faction position. |
+| **Access Level Required** | Limited Access (with Faction permission enabled) |
+
+Your login key is **never stored on any server**. It lives only in your browser's localStorage and is cleared when you log out or generate a new Torn API key.
+
+### CPR Scraper Key (optional — for faction leadership to add)
+
+Members may voluntarily provide a separate **Limited Access** Torn API key to be added to the CPR scraper roster. If added:
+
+| Category | Detail |
+|---|---|
+| **Data Storage** | Persistent — stored encrypted as a GitHub Secret (`MEMBER_API_KEYS`). Accessible only to repository administrators. |
+| **Data Sharing** | The key itself is not shared. The CPR statistics derived from it are shared with faction members. |
+| **Purpose** | Automated nightly scripts fetch your Checkpoint Pass Rate (CPR) statistics to assist with OC slot assignment optimisation. |
+| **Key Calls Made** | Torn API calls to retrieve your OC crime history and CPR data. |
+| **Access Level Required** | Limited Access |
+
+Members can revoke access at any time by generating a new Torn API key (which invalidates the old one) and notifying leadership to remove the old key from the roster.
+
+---
+
 ## License
 
 MIT License - feel free to use for your faction!
