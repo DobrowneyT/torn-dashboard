@@ -316,7 +316,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: data-attacks
-        path: data/faction_attacks_database.json
+        path: data/faction_attacks_database_*.json
         retention-days: 1
         if-no-files-found: warn
 
@@ -379,7 +379,8 @@ jobs:
         git config user.name "GitHub Actions Bot"
         git config user.email "actions@github.com"
         mkdir -p public/data
-        cp data/*.json public/data/ 2>/dev/null || true
+        # Copy all JSON files except backups (chunk files are included via the glob)
+        find data -maxdepth 1 -name "*.json" -exec cp {} public/data/ \; 2>/dev/null || true
         git add data/*.json public/data/*.json
         if ! git diff --staged --quiet; then
           git commit -m "Update scraped data [skip ci]"
