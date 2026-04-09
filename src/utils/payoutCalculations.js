@@ -882,7 +882,7 @@ export function getCrimeStats(crimes) {
     // Count by status
     if (isSuccess) {
       stats.totals.success++
-      stats.totals.totalMoney += crime.rewards?.money || crime.rewards_money || 0
+      stats.totals.totalMoney += crime.rewards?.money || crime.rewards_money || crime.moneyReward || 0
     } else if (isFailed) {
       stats.totals.failed++
     }

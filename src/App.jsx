@@ -17,7 +17,6 @@ import TierManagement from './components/TierManagement'
 import InventoryManagement from './components/InventoryManagement'
 import DataManagement from './views/DataManagement'
 import DashboardView from './views/DashboardView'
-import AhView from './views/AhView'
 import WarHistoryView from './views/WarHistoryView'
 import WarPayoutManagement from './components/WarPayoutManagement'
 import { isAdmin } from './config'
@@ -34,29 +33,6 @@ function PublicLayout({ children }) {
   )
 }
 
-
-// Public Auction House page - no authentication required
-function PublicAhPage() {
-  return (
-    <PublicLayout>
-      <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-              Torn Auction House Database
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Historical auction listings data
-            </p>
-          </div>
-        </div>
-      </header>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-        <AhView />
-      </main>
-    </PublicLayout>
-  )
-}
 
 
 // Protected dashboard content
@@ -128,11 +104,7 @@ function DashboardContent() {
   }
 
   const handleNavigate = (tab) => {
-    if (tab === 'ah') {
-      navigate('/ah')
-    } else {
-      setActiveTab(tab)
-    }
+    setActiveTab(tab)
   }
 
   return (
@@ -176,7 +148,7 @@ function DashboardContent() {
             {activeTab === 'crimes' && <CrimesView isLeadership={effectiveIsLeadership} />}
             {activeTab === 'requirements' && <TierRequirementsView />}
             {activeTab === 'payouts' && <PayoutsView isLeadership={effectiveIsLeadership} />}
-            {activeTab === 'war-history' && <WarHistoryView isLeadership={effectiveIsLeadership} />}
+            {activeTab === 'war-history' && <WarHistoryView isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />}
           </ProtectedRoute>
 
           {/* Leadership-only views */}
@@ -215,9 +187,6 @@ export default function App() {
   return (
     <HashRouter>
       <Routes>
-        {/* Public route - no authentication */}
-        <Route path="/ah" element={<PublicAhPage />} />
-
         {/* Protected routes - require authentication */}
         <Route path="/*" element={<ProtectedDashboard />} />
       </Routes>

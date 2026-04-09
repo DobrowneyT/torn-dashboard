@@ -93,7 +93,7 @@ class WarDataUpdater:
 
     # Torn API error codes that mean the report will never be accessible.
     # Transient codes (5=too many requests, 16=maintenance, 17=simultaneous) are NOT listed
-    # here and will be retried on the next run.
+    # here — the API wrapper retries error 5 automatically; others retry on the next run.
     PERMANENT_API_ERROR_CODES = {'2', '7', '13', '14'}
 
     def _fetch_war_report(self, war_id: int) -> tuple:
@@ -112,7 +112,6 @@ class WarDataUpdater:
             return response.get('rankedwarreport'), False
         except TornAPIError as e:
             error_str = str(e)
-            # Parse "API Error <code>: ..." from the error message
             is_permanent = any(
                 f"API Error {code}:" in error_str
                 for code in self.PERMANENT_API_ERROR_CODES

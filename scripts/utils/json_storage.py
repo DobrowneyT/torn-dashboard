@@ -33,16 +33,20 @@ class JSONStorageManager:
         """
         self.data_dir = Path(data_dir)
         self.backups_dir = self.data_dir / 'backups'
-        self.auto_commit = auto_commit
         self.commit_message_prefix = commit_message_prefix
-        
+
         # Create directories if they don't exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.backups_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # SKIP_GIT_PUSH=true disables commit+push (used in CI artifact-mode to avoid
+        # parallel jobs racing to push; a single commit job handles the push instead)
+        skip_push = os.environ.get('SKIP_GIT_PUSH', '').lower() == 'true'
+        self.auto_commit = auto_commit and not skip_push
+
         # Check if we're in a git repository
         self.is_git_repo = self._check_git_repo()
-        
+
         if self.auto_commit and not self.is_git_repo:
             logger.warning("Not in a git repository - auto_commit disabled")
             self.auto_commit = False
