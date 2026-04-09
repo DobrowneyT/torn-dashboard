@@ -268,8 +268,8 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                     </span>
                   </div>
 
-                  {/* Admin-only termed toggle */}
-                  {isAdmin && result !== 'ongoing' && (
+                  {/* Leadership-only termed toggle */}
+                  {isLeadership && result !== 'ongoing' && (
                     <button
                       onClick={(e) => handleToggleTermed(e, war)}
                       disabled={isUpdating}

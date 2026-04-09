@@ -537,64 +537,6 @@ export default function PayoutsView({ isLeadership }) {
         />
       )}
 
-      {/* All Members Leaderboard */}
-      <div className="card">
-        <h3 className="font-semibold mb-4">Member Leaderboard (Period)</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b-2 border-gray-200 dark:border-slate-700">
-              <tr className="text-left">
-                <th className="py-2 px-2 text-xs font-semibold">#</th>
-                <th className="py-2 px-2 text-xs font-semibold">Member</th>
-                <th className="py-2 px-2 text-xs font-semibold">Tier</th>
-                <th className="py-2 px-2 text-xs font-semibold">Weeks</th>
-                <th className="py-2 px-2 text-xs font-semibold">Total Payout</th>
-                <th className="py-2 px-2 text-xs font-semibold">Avg/Week</th>
-                {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>}
-                {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Diff</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {aggregatedPayouts.slice(0, 20).map((member, idx) => {
-                const diff = member.totalPayout - member.totalTheoretical
-                const isCurrentUser = member.memberId === user?.id?.toString()
-                return (
-                  <tr 
-                    key={member.memberId} 
-                    className={`border-b border-gray-100 dark:border-slate-800 ${
-                      isCurrentUser ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                    }`}
-                  >
-                    <td className="py-2 px-2 text-xs font-semibold">{idx + 1}</td>
-                    <td className="py-2 px-2 text-xs font-medium">
-                      {member.name}
-                      {isCurrentUser && <span className="ml-1 text-blue-600">(You)</span>}
-                    </td>
-                    <td className="py-2 px-2"><TierBadge tier={member.tier} /></td>
-                    <td className="py-2 px-2 text-xs">{member.weeksActive}</td>
-                    <td className="py-2 px-2 text-xs font-semibold text-blue-600">
-                      {formatCurrencyShort(member.totalPayout)}
-                    </td>
-                    <td className="py-2 px-2 text-xs">{formatCurrencyShort(member.avgPayout)}</td>
-                    {isLeadership && (
-                      <td className="py-2 px-2 text-xs text-gray-600">
-                        {formatCurrencyShort(member.totalTheoretical)}
-                      </td>
-                    )}
-                    {isLeadership && (
-                      <td className="py-2 px-2 text-xs">
-                        <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
-                          {diff >= 0 ? '+' : ''}{formatCurrencyShort(diff)}
-                        </span>
-                      </td>
-                    )}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   )
 }
