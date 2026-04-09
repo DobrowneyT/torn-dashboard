@@ -801,9 +801,38 @@ export default function PayoutManagement() {
       setPayoutResults(results)
       setHasCalculated(true)
       setShowHistory(false)
-      // Clear crimes data so the useEffect doesn't re-trigger calculation
-      setCrimesData(null)
+
+      // Fetch the linked crimes from Supabase so Crime Statistics can render.
+      // We only need the fields getCrimeStats uses — no slots needed here.
       setMembersData(null)
+      if (crimeIds.length > 0) {
+        supabase
+          .from('crimes')
+          .select('crime_id, name, difficulty, status, executed_at, rewards_money')
+          .in('crime_id', crimeIds)
+          .then(({ data: crimesRows, error: crimesErr }) => {
+            if (crimesErr) {
+              console.error('Error loading crimes for stats:', crimesErr)
+              setCrimesData(null)
+              return
+            }
+            const crimesMap = {}
+            for (const c of (crimesRows || [])) {
+              crimesMap[c.crime_id] = {
+                crime_id: c.crime_id,
+                name: c.name,
+                difficulty: c.difficulty,
+                status: c.status,
+                executed_at: c.executed_at,
+                rewards: { money: c.rewards_money || 0 },
+                slots: [],
+              }
+            }
+            setCrimesData({ crimes: crimesMap })
+          })
+      } else {
+        setCrimesData(null)
+      }
 
     } catch (error) {
       console.error('Error loading historical week:', error)
