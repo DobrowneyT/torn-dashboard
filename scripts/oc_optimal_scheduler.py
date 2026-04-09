@@ -174,17 +174,21 @@ class OCScheduler:
         # Find the position number of our slot
         target_position = None
         for slot in slots:
-            if slot['position_id'] == slot_position:
-                target_position = slot['position_number']
+            _pi = slot.get('position_info') or {}
+            _pid = _pi.get('id') or slot.get('position_id')
+            _pnum = _pi.get('number') or slot.get('position_number')
+            if _pid == slot_position:
+                target_position = _pnum
                 break
-        
+
         if target_position is None:
             return 0
-        
+
         # Count how many positions before this one are filled and need to complete
         hours_until_work = 0
         for slot in slots:
-            pos_num = slot['position_number']
+            _pi = slot.get('position_info') or {}
+            pos_num = _pi.get('number') or slot.get('position_number')
             if pos_num < target_position:
                 if slot.get('user') is not None:
                     # Slot is filled - calculate remaining time
@@ -224,7 +228,8 @@ class OCScheduler:
             # Find empty slots
             for i, slot in enumerate(slots):
                 if slot.get('user') is None:  # Empty slot
-                    slot_position = slot['position_id']
+                    _pi = slot.get('position_info') or {}
+                    slot_position = _pi.get('id') or slot.get('position_id')
                     role_name = slot['position']
                     required_cpr = slot['checkpoint_pass_rate']
                     

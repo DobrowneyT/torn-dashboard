@@ -720,7 +720,8 @@ class CrimeDataUpdater:
                     if slot.get('user'):
                         user = slot['user']
                         position = slot['position']
-                        position_num = slot.get('position_number', 1)
+                        _pi = slot.get('position_info') or {}
+                        position_num = _pi.get('number') or slot.get('position_number', 1)
                         joined_at = user.get('joined_at', 0)
                         cpr = slot['checkpoint_pass_rate']
 

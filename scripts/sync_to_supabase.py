@@ -207,13 +207,14 @@ class SupabaseSync:
                 for slot in slots:
                     user = slot.get('user') or {}
                     item_req = slot.get('item_requirement') or {}
+                    _pi = slot.get('position_info') or {}
                     item_outcome = user.get('item_outcome') or {}
 
                     all_slots.append({
                         'crime_id': crime_id,
                         'position': slot.get('position'),
-                        'position_id': slot.get('position_id'),
-                        'position_number': slot.get('position_number'),
+                        'position_id': _pi.get('id') or slot.get('position_id'),
+                        'position_number': _pi.get('number') or slot.get('position_number'),
                         'checkpoint_pass_rate': slot.get('checkpoint_pass_rate'),
                         'user_id': str(user.get('id')) if user.get('id') else None,
                         'user_name': user.get('name'),
@@ -235,8 +236,8 @@ class SupabaseSync:
                         all_required_items.append({
                             'crime_id': crime_id,
                             'position': slot.get('position'),
-                            'position_id': slot.get('position_id'),
-                            'position_number': slot.get('position_number'),
+                            'position_id': _pi.get('id') or slot.get('position_id'),
+                            'position_number': _pi.get('number') or slot.get('position_number'),
                             'item_id': str(item_req['id']),
                             'item_name': item_req.get('name'),
                             'is_reusable': item_req.get('is_reusable', False),
