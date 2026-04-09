@@ -15,9 +15,10 @@ Data flow:
 """
 
 import os
+import re
 import sys
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
 
@@ -34,6 +35,10 @@ logger = logging.getLogger(__name__)
 
 FACTION_ID = int(os.environ.get('VITE_FACTION_ID', '10739'))
 
+# Chunk settings — once a file reaches this size a new numbered file is started.
+DB_BASE_NAME = 'faction_attacks_database'
+CHUNK_LIMIT_MB = 25
+
 
 class FactionAttacksUpdater:
     """Daily incremental scraper for all faction attacks."""
@@ -47,21 +52,81 @@ class FactionAttacksUpdater:
             raise ValueError("TORN_API_KEY environment variable not set")
 
         self.api = TornAPI(self.api_key)
+        self._current_chunk_file: Optional[str] = None
         logger.info("Faction Attacks Updater initialized")
 
     # ------------------------------------------------------------------
-    # Storage
+    # Storage / chunking
     # ------------------------------------------------------------------
 
+    def _find_latest_chunk(self) -> Tuple[Path, int]:
+        """
+        Scan data/ for faction_attacks_database_N.json files and return the
+        path and chunk number of the highest-numbered one.
+
+        If only the legacy un-numbered file exists it is renamed to _1 first.
+        If no files exist at all, returns the path for chunk 1 (not yet created).
+        """
+        data_dir = Path('data')
+        chunks: Dict[int, Path] = {}
+
+        for f in data_dir.glob(f'{DB_BASE_NAME}_*.json'):
+            m = re.search(r'_(\d+)\.json$', f.name)
+            if m:
+                chunks[int(m.group(1))] = f
+
+        if not chunks:
+            legacy = data_dir / f'{DB_BASE_NAME}.json'
+            if legacy.exists():
+                new_path = data_dir / f'{DB_BASE_NAME}_1.json'
+                legacy.rename(new_path)
+                logger.info(f"Renamed legacy {legacy.name} → {new_path.name}")
+                chunks[1] = new_path
+
+        if not chunks:
+            # First-ever run
+            return data_dir / f'{DB_BASE_NAME}_1.json', 1
+
+        latest_num = max(chunks)
+        return chunks[latest_num], latest_num
+
     def _load_database(self) -> Dict:
-        db = self.storage.read_json('faction_attacks_database.json')
+        latest_path, chunk_num = self._find_latest_chunk()
+
+        # If the latest chunk already exceeds the size limit, start a new one.
+        # Copy the newest_started cursor so the API fetch resumes correctly.
+        if latest_path.exists():
+            size_mb = latest_path.stat().st_size / (1024 * 1024)
+            if size_mb >= CHUNK_LIMIT_MB:
+                prev_db = self.storage.read_json(latest_path.name) or {}
+                newest_started = prev_db.get('metadata', {}).get('newest_started')
+                chunk_num += 1
+                latest_path = Path('data') / f'{DB_BASE_NAME}_{chunk_num}.json'
+                logger.info(
+                    f"Previous chunk was {size_mb:.1f} MB (≥ {CHUNK_LIMIT_MB} MB) "
+                    f"— starting {latest_path.name}"
+                )
+                self._current_chunk_file = latest_path.name
+                return {
+                    'attacks': {},
+                    'metadata': {
+                        'last_updated': None,
+                        'newest_started': newest_started,
+                        'total_attacks': 0,
+                        'chunk': chunk_num,
+                    }
+                }
+
+        self._current_chunk_file = latest_path.name
+        db = self.storage.read_json(latest_path.name)
         if not db:
             db = {
-                'attacks': {},       # keyed by str(attack_id)
+                'attacks': {},
                 'metadata': {
                     'last_updated': None,
                     'newest_started': None,
                     'total_attacks': 0,
+                    'chunk': chunk_num,
                 }
             }
         return db
@@ -74,7 +139,7 @@ class FactionAttacksUpdater:
             db['metadata']['total_attacks'] = len(attacks)
         db['metadata']['last_updated'] = datetime.utcnow().isoformat()
         self.storage.write_json(
-            'faction_attacks_database.json', db,
+            self._current_chunk_file, db,
             create_backup=False,
             commit_message="Update faction attacks data"
         )
