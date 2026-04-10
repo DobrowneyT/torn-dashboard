@@ -43,7 +43,7 @@ function ApiKeyUsageInfo() {
               </tr>
               <tr>
                 <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">Access Level</td>
-                <td className="py-1 text-gray-600 dark:text-gray-400">Limited Access (with Faction permission)</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400">Minimal Access</td>
               </tr>
             </tbody>
           </table>
@@ -65,7 +65,7 @@ export default function LoginModal() {
 
   async function handleLogin(e) {
     e.preventDefault()
-    
+
     if (!apiKey.trim()) {
       setError('Please enter your API key')
       return
@@ -96,7 +96,8 @@ export default function LoginModal() {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-2">
-              Torn API Key
+              Torn API Key{' '}
+              <span className="font-normal text-gray-500 dark:text-gray-400">(Minimal Access)</span>
             </label>
             <input
               type="text"

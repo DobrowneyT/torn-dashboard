@@ -17,7 +17,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
         setShowViewAsMenu(false)
       }
     }
-    
+
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
@@ -62,17 +62,17 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
           className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
           aria-label="Settings"
         >
-          <svg 
-            className="w-6 h-6 text-gray-700 dark:text-gray-300" 
-            fill="none" 
-            stroke="currentColor" 
+          <svg
+            className="w-6 h-6 text-gray-700 dark:text-gray-300"
+            fill="none"
+            stroke="currentColor"
             viewBox="0 0 24 24"
           >
-            <path 
-              strokeLinecap="round" 
-              strokeLinejoin="round" 
-              strokeWidth={2} 
-              d="M4 6h16M4 12h16M4 18h16" 
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 6h16M4 12h16M4 18h16"
             />
           </svg>
         </button>
@@ -134,7 +134,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
-                  
+
                   {showViewAsMenu && (
                     <div className="bg-gray-50 dark:bg-slate-700/50 py-1">
                       <button
@@ -230,14 +230,14 @@ function ApiKeyModal({ onClose }) {
     try {
       setSaving(true)
       setError(null)
-      
+
       // Re-login with new API key
       const result = await login(apiKey)
-      
+
       if (!result.success) {
         throw new Error(result.error || 'Invalid API key')
       }
-      
+
       onClose()
     } catch (err) {
       setError(err.message)
@@ -253,7 +253,7 @@ function ApiKeyModal({ onClose }) {
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">
             Update Torn API Key
           </h3>
-          
+
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
               API Key
@@ -343,7 +343,7 @@ function ApiKeyUsageModal({ onClose }) {
                       ['Sharing', 'Not shared — visible only to you on your device'],
                       ['Purpose', 'Verify faction membership and determine your access level (member vs. leadership)'],
                       ['API Calls', 'GET /v2/key/info · GET /user/?selections=profile'],
-                      ['Access Level', 'Limited Access (with Faction permission enabled)'],
+                      ['Access Level', 'Limited Access'],
                     ].map(([label, value]) => (
                       <tr key={label} className="border-b border-gray-100 dark:border-slate-700 last:border-0">
                         <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300 w-1/3 bg-gray-50 dark:bg-slate-700/40">
