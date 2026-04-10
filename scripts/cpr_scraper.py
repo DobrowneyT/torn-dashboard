@@ -599,21 +599,44 @@ class CPRScraper:
         logger.info("="*70)
 
         # ── Members without a CPR scraper key ──────────────────────────────
-        scraped_ids = set(self.member_api_keys.keys())
-        members_missing_key = sorted(
-            [(mid, name) for mid, name in current_members.items() if mid not in scraped_ids],
-            key=lambda x: x[1].lower()
-        )
+        # Prefer querying Supabase directly (is_current + cpr_api_key IS NULL)
+        # so the list reflects DB state rather than just what was loaded this run.
+        members_missing_key = []
+        if self.supabase:
+            try:
+                resp = self.supabase.table('members') \
+                    .select('member_id, name') \
+                    .eq('is_current', True) \
+                    .is_('cpr_api_key', 'null') \
+                    .execute()
+                members_missing_key = sorted(
+                    [(str(row['member_id']), row.get('name', str(row['member_id']))) for row in (resp.data or [])],
+                    key=lambda x: x[1].lower()
+                )
+            except Exception as e:
+                logger.warning(f"Could not query Supabase for missing-key list: {e}")
+                # Fall back to in-memory check
+                scraped_ids = set(self.member_api_keys.keys())
+                members_missing_key = sorted(
+                    [(mid, name) for mid, name in current_members.items() if mid not in scraped_ids],
+                    key=lambda x: x[1].lower()
+                )
+        else:
+            scraped_ids = set(self.member_api_keys.keys())
+            members_missing_key = sorted(
+                [(mid, name) for mid, name in current_members.items() if mid not in scraped_ids],
+                key=lambda x: x[1].lower()
+            )
 
+        logger.info("\n" + "="*70)
         if members_missing_key:
-            logger.info("\n" + "="*70)
             logger.info(f"MEMBERS WITHOUT A CPR SCRAPER KEY ({len(members_missing_key)} of {len(current_members)})")
             logger.info("="*70)
             for mid, name in members_missing_key:
                 logger.info(f"  {name} [{mid}]")
-            logger.info("="*70)
         else:
-            logger.info("\n✓ All current faction members have a CPR scraper key.")
+            logger.info("✓ All current faction members have a CPR scraper key.")
+        logger.info("="*70)
 
         return cpr_data
     
