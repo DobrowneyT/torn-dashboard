@@ -13,6 +13,12 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from supabase import create_client, Client as SupabaseClient
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -43,59 +49,103 @@ class CPRScraper:
             self.sheets = GoogleSheetsManager()
         else:
             logger.info("Google Sheets integration SKIPPED (SKIP_GOOGLE_SHEETS=true)")
+
+        # Set up Supabase client for has_cpr_key updates and web-submitted keys
+        self.supabase = None
+        if SUPABASE_AVAILABLE:
+            supabase_url = os.environ.get('VITE_SUPABASE_URL')
+            supabase_key = os.environ.get('VITE_SUPABASE_SERVICE_ROLE_KEY')
+            if supabase_url and supabase_key:
+                self.supabase = create_client(supabase_url, supabase_key)
+                logger.info("Supabase client initialized for CPR key sync")
+            else:
+                logger.warning("Supabase env vars missing — has_cpr_key will not be updated")
+        else:
+            logger.warning("supabase-py not installed — has_cpr_key will not be updated")
+
         self.member_api_keys = self._load_api_keys()
-        
+
         logger.info("CPR Scraper initialized")
         logger.info(f"Found API keys for {len(self.member_api_keys)} members")
     
     def _load_api_keys(self) -> Dict[str, str]:
         """
-        Load member API keys from environment variable and validate against current faction
-        
-        Expected format in GitHub Secret MEMBER_API_KEYS:
-        {
-            "member_id_1": "api_key_1",
-            "member_id_2": "api_key_2"
-        }
-        
+        Load member API keys from:
+          1. MEMBER_API_KEYS GitHub Secret (JSON dict of member_id -> api_key)
+          2. cpr_api_key column in Supabase members table (keys submitted via the website)
+
+        Both sources are merged; Supabase takes precedence for the same member_id.
+        Keys are then validated against current faction membership.
+
         Returns:
             Dictionary mapping member IDs to API keys (only for current faction members)
         """
+        # Source 1: GitHub Secret
         api_keys_json = os.environ.get('MEMBER_API_KEYS', '{}')
-        
         try:
             all_api_keys = json.loads(api_keys_json)
-            logger.info(f"Loaded {len(all_api_keys)} API keys from secrets")
-            
+            logger.info(f"Loaded {len(all_api_keys)} API keys from MEMBER_API_KEYS secret")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse MEMBER_API_KEYS: {e}")
+            all_api_keys = {}
+
+        # Source 2: Supabase cpr_api_key column (web-submitted keys, stored encrypted)
+        if self.supabase:
+            cpr_secret = os.environ.get('CPR_KEY_SECRET')
+            if not cpr_secret:
+                logger.warning("CPR_KEY_SECRET not set — cannot decrypt Supabase cpr_api_keys")
+            else:
+                try:
+                    # Fetch member IDs that have a non-null (encrypted) cpr_api_key
+                    resp = self.supabase.table('members').select('member_id').not_.is_('cpr_api_key', 'null').execute()
+                    member_ids_with_key = [str(row['member_id']) for row in (resp.data or [])]
+                    logger.info(f"Found {len(member_ids_with_key)} members with a cpr_api_key in Supabase")
+
+                    supabase_keys = {}
+                    for mid in member_ids_with_key:
+                        try:
+                            dec = self.supabase.rpc('get_member_cpr_key', {
+                                'p_member_id': mid,
+                                'p_secret': cpr_secret,
+                            }).execute()
+                            if dec.data:
+                                supabase_keys[mid] = dec.data
+                        except Exception as e:
+                            logger.warning(f"Could not decrypt key for member {mid}: {e}")
+
+                    logger.info(f"Decrypted {len(supabase_keys)} API keys from Supabase")
+                    # Supabase takes precedence over the legacy MEMBER_API_KEYS secret
+                    all_api_keys.update(supabase_keys)
+                except Exception as e:
+                    logger.warning(f"Could not load Supabase cpr_api_keys: {e}")
+
+        try:
             # Get current faction members to validate against
             torn_api_key = os.environ.get('TORN_API_KEY')
             if not torn_api_key:
                 logger.error("TORN_API_KEY not found - cannot validate faction membership")
                 return all_api_keys
-            
+
             api = TornAPI(torn_api_key)
             faction_response = api.get_faction_members()
             current_members = {str(m['id']): m['name'] for m in faction_response.get('members', [])}
-            
+
             # Filter API keys to only current faction members
             valid_api_keys = {}
             removed_members = []
-            
+
             for member_id, api_key in all_api_keys.items():
                 if member_id in current_members:
                     valid_api_keys[member_id] = api_key
                 else:
                     removed_members.append(member_id)
-            
+
             if removed_members:
                 logger.warning(f"Filtered out {len(removed_members)} API keys for non-faction members: {removed_members}")
-            
+
             logger.info(f"Validated {len(valid_api_keys)} API keys for current faction members")
             return valid_api_keys
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse MEMBER_API_KEYS: {e}")
-            return {}
+
         except Exception as e:
             logger.error(f"Error validating API keys: {e}")
             return all_api_keys  # Fallback to unfiltered keys if validation fails
@@ -201,16 +251,18 @@ class CPRScraper:
             if difficulty not in cpr_by_level:
                 cpr_by_level[difficulty] = {}
             
-            # Check all slots for empty positions
+            # Check all slots for empty positions OR slots occupied by this member
             for slot in crime.get('slots', []):
-                # Only process empty slots (user is null)
-                if slot.get('user') is None:
+                slot_user = slot.get('user')
+                # Process if empty OR if this member is in the slot
+                is_empty = slot_user is None
+                is_member_slot = slot_user and str(slot_user.get('id', '')) == str(member_id)
+                if is_empty or is_member_slot:
                     position = slot.get('position', 'Unknown')
                     cpr = slot.get('checkpoint_pass_rate', 0)
-                    
-                    # Take highest CPR seen for this position/level
-                    current_cpr = cpr_by_level[difficulty].get(position, 0)
-                    if cpr > current_cpr:
+
+                    # Always overwrite — Torn can change CPR values at any time
+                    if cpr != cpr_by_level[difficulty].get(position):
                         cpr_by_level[difficulty][position] = cpr
                         logger.debug(f"Member {member_id}: {crime_name} Lvl {difficulty} - {position} = {cpr} CPR")
         
@@ -251,11 +303,9 @@ class CPRScraper:
                     if difficulty not in member_cpr_data[member_id]:
                         member_cpr_data[member_id][difficulty] = {}
                     
-                    # Take highest CPR seen for this position/level for this member
-                    current_cpr = member_cpr_data[member_id][difficulty].get(position, 0)
-                    if cpr > current_cpr:
-                        member_cpr_data[member_id][difficulty][position] = cpr
-                        logger.debug(f"Member {member_id}: {crime_name} Lvl {difficulty} - {position} = {cpr} CPR (from available crimes)")
+                    # Always overwrite — Torn can change CPR values at any time
+                    member_cpr_data[member_id][difficulty][position] = cpr
+                    logger.debug(f"Member {member_id}: {crime_name} Lvl {difficulty} - {position} = {cpr} CPR (from available crimes)")
         
         return member_cpr_data
 
@@ -328,6 +378,16 @@ class CPRScraper:
         
         return updates
 
+    def _invalidate_cpr_key(self, member_id: str):
+        """Null out cpr_api_key in Supabase when a key is found to be invalid."""
+        if not self.supabase:
+            return
+        try:
+            self.supabase.table('members').update({'cpr_api_key': None}).eq('member_id', str(member_id)).execute()
+            logger.info(f"Member {member_id}: cpr_api_key cleared (invalid/expired)")
+        except Exception as e:
+            logger.warning(f"Member {member_id}: failed to clear cpr_api_key: {e}")
+
     def scrape_member(self, member_id: str, api_key: str, member_name: str, cpr_data: Dict) -> Tuple[bool, int, Optional[str]]:
         """
         Scrape CPR data for a single member
@@ -345,20 +405,22 @@ class CPRScraper:
         
         # Fetch available crimes
         crimes_data = self._fetch_available_crimes(api_key, member_id)
-        
+
         if crimes_data is None:
-            return True, 0, "API fetch failed - existing data unchanged"
-        
+            # API call failed — key may be invalid/expired
+            return False, 0, "API fetch failed - key may be invalid or expired"
+
         # Extract CPR requirements
         new_cpr = self._extract_cpr_from_crimes(crimes_data, member_id)
-        
+
         if not new_cpr:
-            logger.warning(f"Member {member_name} ({member_id}): No empty slots found in available crimes")
-            return True, 0, "No empty slots available"
-        
+            logger.warning(f"Member {member_name} ({member_id}): No empty/member slots found in available crimes")
+            # Key is valid (we got a response), just no data this run
+            return True, 0, "No matching slots available"
+
         # Update member's CPR data
         updates = self._update_member_cpr(cpr_data, member_id, member_name, new_cpr)
-        
+
         logger.info(f"Member {member_name} ({member_id}): Scrape complete - {updates} updates made")
         return True, updates, None
 
@@ -461,13 +523,14 @@ class CPRScraper:
                             existing_cpr[difficulty] = {}
                         
                         for role, new_cpr in roles.items():
-                            old_cpr = existing_cpr[difficulty].get(role, 0)
-                            if new_cpr > old_cpr:
+                            old_cpr = existing_cpr[difficulty].get(role)
+                            if new_cpr != old_cpr:
                                 existing_cpr[difficulty][role] = new_cpr
-                                if old_cpr == 0:
+                                if old_cpr is None or old_cpr == 0:
                                     logger.info(f"Member {member_name} ({member_id}): NEW from available crimes - Lvl {difficulty} {role} = {new_cpr}")
                                 else:
-                                    logger.info(f"Member {member_name} ({member_id}): UPDATE from available crimes - Lvl {difficulty} {role} = {new_cpr} ↑ (was {old_cpr})")
+                                    direction = "↑" if new_cpr > old_cpr else "↓"
+                                    logger.info(f"Member {member_name} ({member_id}): UPDATE from available crimes - Lvl {difficulty} {role} = {new_cpr} {direction} (was {old_cpr})")
                     
                     cpr_data['members'][member_id]['cpr_by_role'] = existing_cpr
                     members_updated_from_crimes += 1
@@ -500,25 +563,31 @@ class CPRScraper:
             
             try:
                 success, updates, error_msg = self.scrape_member(member_id, api_key, member_name, cpr_data)
-                
+
                 if success:
                     stats['successful_scrapes'] += 1
                     stats['total_updates'] += updates
                     stats['members_scraped'].append(member_id)
                 else:
                     stats['failed_scrapes'] += 1
-                
+                    # Key failed — null it out so the dashboard shows red and member re-submits
+                    self._invalidate_cpr_key(member_id)
+
             except Exception as e:
                 logger.error(f"Member {member_name} ({member_id}): Unexpected error - {e}")
                 stats['failed_scrapes'] += 1
+                self._invalidate_cpr_key(member_id)
             
             # Rate limiting
             if i < len(self.member_api_keys):
                 time.sleep(0.01)
         
+        # No extra cleanup needed — members without a key simply have cpr_api_key = NULL already.
+        # The scraper only touches cpr_api_key when a key actively fails validation.
+
         # Save the updated CPR database
         self._save_cpr_database(cpr_data)
-        
+
         logger.info("\n" + "="*70)
         logger.info("CPR SCRAPE SUMMARY")
         logger.info("="*70)
@@ -528,7 +597,24 @@ class CPRScraper:
         logger.info(f"Stage 3 - Total CPR updates from API keys: {stats['total_updates']}")
         logger.info(f"Total members in database: {len(cpr_data.get('members', {}))}")
         logger.info("="*70)
-        
+
+        # ── Members without a CPR scraper key ──────────────────────────────
+        scraped_ids = set(self.member_api_keys.keys())
+        members_missing_key = sorted(
+            [(mid, name) for mid, name in current_members.items() if mid not in scraped_ids],
+            key=lambda x: x[1].lower()
+        )
+
+        if members_missing_key:
+            logger.info("\n" + "="*70)
+            logger.info(f"MEMBERS WITHOUT A CPR SCRAPER KEY ({len(members_missing_key)} of {len(current_members)})")
+            logger.info("="*70)
+            for mid, name in members_missing_key:
+                logger.info(f"  {name} [{mid}]")
+            logger.info("="*70)
+        else:
+            logger.info("\n✓ All current faction members have a CPR scraper key.")
+
         return cpr_data
     
     def update_member_tiers(self, cpr_data: Dict, new_tier_assignments: Dict) -> Dict:

@@ -35,7 +35,7 @@ export function AuthProvider({ children }) {
 
       // Fetch key info from Torn API v2
       const response = await fetch(`https://api.torn.com/v2/key/info?key=${apiKey}`)
-      
+
       if (!response.ok) {
         return {
           success: false,
@@ -65,7 +65,7 @@ export function AuthProvider({ children }) {
       // LEADERSHIP USERS: Skip all permission checks
       if (isLeader) {
         console.log(`Leadership user ${userId} detected - bypassing all permission checks`)
-        
+
         // Fetch user details for name and faction position
         const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
         const userData = await userResponse.json()
@@ -103,7 +103,7 @@ export function AuthProvider({ children }) {
       // ADMIN USERS: Skip faction validation
       if (isAdminUser) {
         console.log(`Admin user ${userId} detected - bypassing faction checks`)
-        
+
         // Fetch user details for name
         const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
         const userData = await userResponse.json()
@@ -136,7 +136,7 @@ export function AuthProvider({ children }) {
           user: userObj
         }
       }
-      
+
       if (!userFactionId) {
         return {
           success: false,
@@ -158,7 +158,7 @@ export function AuthProvider({ children }) {
       if (!hasFactionAccess) {
         return {
           success: false,
-          error: 'Insufficient permissions. Your API key does not have faction access enabled. Please create a new API key with faction permissions.'
+          error: 'Insufficient permissions. Your API key does not have faction access enabled. Please notify leadership and they can adjust your role.'
         }
       }
 

@@ -151,13 +151,15 @@ function DashboardContent() {
             {activeTab === 'war-history' && <WarHistoryView isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />}
           </ProtectedRoute>
 
-          {/* Leadership-only views */}
-          <ProtectedRoute requireLeadership={true}>
-            {activeTab === 'payout-mgmt' && <PayoutManagement />}
-            {activeTab === 'war-payout-mgmt' && <WarPayoutManagement />}
-            {activeTab === 'tier-mgmt' && <TierManagement />}
-            {activeTab === 'inventory' && <InventoryManagement />}
-          </ProtectedRoute>
+          {/* Leadership-only views — only mount the guard when a leadership tab is active */}
+          {['payout-mgmt', 'war-payout-mgmt', 'tier-mgmt', 'inventory'].includes(activeTab) && (
+            <ProtectedRoute requireLeadership={true}>
+              {activeTab === 'payout-mgmt' && <PayoutManagement />}
+              {activeTab === 'war-payout-mgmt' && <WarPayoutManagement />}
+              {activeTab === 'tier-mgmt' && <TierManagement />}
+              {activeTab === 'inventory' && <InventoryManagement />}
+            </ProtectedRoute>
+          )}
 
           {/* Admin-only Data Management */}
           {userIsAdmin && activeTab === 'data-mgmt' && <DataManagement />}
