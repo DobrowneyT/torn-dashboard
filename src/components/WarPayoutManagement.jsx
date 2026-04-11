@@ -60,7 +60,7 @@ function WarDropdown({ wars, totalWars, selectedWar, onSelect, page, onPageChang
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center justify-between px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-white hover:border-blue-400 transition-colors"
       >
-        <span className={selectedWar ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}>
+        <span className={`truncate ${selectedWar ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}`}>
           {selectedWar ? warLabel(selectedWar) : 'Choose a war...'}
         </span>
         <span className="text-gray-400 ml-2">{open ? '▲' : '▼'}</span>
@@ -528,7 +528,7 @@ export default function WarPayoutManagement() {
                       const rewardEntry = rewards.find(r => CACHE_ITEM_MAP[r.name] === field)
                       return (
                         <div key={field} className="flex items-center gap-2">
-                          <label className="text-xs text-gray-600 dark:text-gray-400 w-36 flex-shrink-0">
+                          <label className="text-xs text-gray-600 dark:text-gray-400 w-24 sm:w-36 flex-shrink-0">
                             {label}
                             {rewardEntry && (
                               <span className="ml-1 text-gray-400 dark:text-gray-500">
@@ -665,7 +665,7 @@ export default function WarPayoutManagement() {
                         { label: 'Mug ×',      value: mugMult,    set: setMugMult,    step: '0.05' },
                       ].map(({ label, value, set, step }) => (
                         <div key={label} className="flex items-center gap-2">
-                          <span className="text-xs text-gray-600 dark:text-gray-400 w-20 flex-shrink-0">{label}</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400 w-16 sm:w-20 flex-shrink-0">{label}</span>
                           <input
                             type="number"
                             step={step}
@@ -707,7 +707,7 @@ export default function WarPayoutManagement() {
       {hasCalculated && payoutResults && (
         <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
           {/* Summary bar */}
-          <div className="px-4 py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-700 flex flex-wrap gap-4 text-sm">
+          <div className="px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-700 flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm">
             <div>
               <span className="text-gray-500 dark:text-gray-400">Cache Value: </span>
               <span className="font-semibold text-gray-900 dark:text-white">
@@ -864,13 +864,18 @@ export default function WarPayoutManagement() {
           </div>
 
           {/* Actions */}
-          <div className="px-4 py-3 border-t border-gray-200 dark:border-slate-700 flex flex-wrap gap-2 items-center">
+          <div className="px-3 sm:px-4 py-2 sm:py-3 border-t border-gray-200 dark:border-slate-700 flex flex-wrap gap-2 items-center">
             <button
               onClick={handleGenerateBatchURL}
               disabled={isSaving || eligibleCount === 0}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+              className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
             >
-              {isSaving ? 'Saving...' : 'Generate Batch Payout URL'}
+              {isSaving ? 'Saving...' : (
+                <>
+                  <span className="hidden sm:inline">Generate Batch Payout URL</span>
+                  <span className="sm:hidden">Batch URL</span>
+                </>
+              )}
             </button>
 
             {savedPayoutId ? (
