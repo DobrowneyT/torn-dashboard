@@ -396,15 +396,27 @@ export default function WarPayoutManagement() {
     return effectiveMembers.slice().sort((a, b) => {
       switch (sortCol) {
         case 'name':         return dir * a.memberName.localeCompare(b.memberName)
+        case 'leaves':       return dir * ((a.leaves ?? 0) - (b.leaves ?? 0))
+        case 'mugs':         return dir * ((a.mugs ?? 0) - (b.mugs ?? 0))
+        case 'hosp':         return dir * ((a.hosp ?? 0) - (b.hosp ?? 0))
         case 'warHits':      return dir * ((a.warHits ?? 0) - (b.warHits ?? 0))
+        case 'won':          return dir * ((a.won ?? 0) - (b.won ?? 0))
+        case 'assists':      return dir * ((a.assists ?? 0) - (b.assists ?? 0))
+        case 'losses':       return dir * ((a.losses ?? 0) - (b.losses ?? 0))
         case 'totalHits':    return dir * ((a.totalHits ?? 0) - (b.totalHits ?? 0))
-        case 'partScore':    return dir * ((a.participationScore ?? 0) - (b.participationScore ?? 0))
-        case 'partShare':    return dir * ((a.participationShare ?? 0) - (b.participationShare ?? 0))
-        case 'respect':      return dir * ((a.respectGained ?? a.score ?? 0) - (b.respectGained ?? b.score ?? 0))
-        case 'contribShare': return dir * ((a.contributionShare ?? 0) - (b.contributionShare ?? 0))
-        case 'effort':       return dir * ((a.effortShare ?? 0) - (b.effortShare ?? 0))
-        case 'payout':       return dir * (a.payoutAmount - b.payoutAmount)
-        default:             return dir * (a.payoutAmount - b.payoutAmount)
+        case 'warHitScore':      return dir * ((a.warHitScore ?? 0) - (b.warHitScore ?? 0))
+        case 'assistScore':      return dir * ((a.assistScore ?? 0) - (b.assistScore ?? 0))
+        case 'lossScore':        return dir * ((a.lossScore ?? 0) - (b.lossScore ?? 0))
+        case 'partScore':        return dir * ((a.participationScore ?? 0) - (b.participationScore ?? 0))
+        case 'partShare':        return dir * ((a.participationShare ?? 0) - (b.participationShare ?? 0))
+        case 'respect':          return dir * ((a.respectGained ?? a.score ?? 0) - (b.respectGained ?? b.score ?? 0))
+        case 'bonusRespect':     return dir * ((a.bonusRespect ?? 0) - (b.bonusRespect ?? 0))
+        case 'adjustedRespect':  return dir * ((a.adjustedRespect ?? 0) - (b.adjustedRespect ?? 0))
+        case 'contribShare':     return dir * ((a.contributionShare ?? 0) - (b.contributionShare ?? 0))
+        case 'effort':           return dir * ((a.effortShare ?? 0) - (b.effortShare ?? 0))
+        case 'payout':           return dir * (a.payoutAmount - b.payoutAmount)
+        case 'eligible':         return dir * ((a.isEligible ? 1 : 0) - (b.isEligible ? 1 : 0))
+        default:                 return dir * (a.payoutAmount - b.payoutAmount)
       }
     })
   }
@@ -437,7 +449,7 @@ export default function WarPayoutManagement() {
       <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 p-4">
         <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Payout Settings</h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Col 1: war selector + war type + faction cut + cache prices + notes */}
           <div className="space-y-3">
             <WarDropdown
@@ -670,24 +682,25 @@ export default function WarPayoutManagement() {
             )}
           </div>
 
-          {/* Col 3: calculate button */}
-          <div className="flex flex-col justify-end">
-            {selectedWar && !loadingWarData && (
-              contributions.length === 0 ? (
-                <p className="text-sm text-amber-600 dark:text-amber-400">
-                  No contribution data available for this war. Run the war scraper first.
-                </p>
-              ) : (
-                <button
-                  onClick={handleCalculate}
-                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
-                >
-                  Calculate Payouts ({contributions.length} members)
-                </button>
-              )
+        </div>
+
+        {/* Calculate button — full-width row below the settings columns */}
+        {selectedWar && !loadingWarData && (
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700">
+            {contributions.length === 0 ? (
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                No contribution data available for this war. Run the war scraper first.
+              </p>
+            ) : (
+              <button
+                onClick={handleCalculate}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Calculate Payouts ({contributions.length} members)
+              </button>
             )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* Results */}
@@ -757,30 +770,30 @@ export default function WarPayoutManagement() {
                   <SortHeader col="name" label="Player" />
                   {warType === 'real' && (
                     <>
-                      <th className="px-3 py-1.5 font-medium text-right">Leaves</th>
-                      <th className="px-3 py-1.5 font-medium text-right">Mugs</th>
-                      <th className="px-3 py-1.5 font-medium text-right">Hosp</th>
-                      <SortHeader col="warHits" label="War" className="text-right" />
-                      <th className="px-3 py-1.5 font-medium text-right">Won</th>
-                      <th className="px-3 py-1.5 font-medium text-right">Assists</th>
-                      <th className="px-3 py-1.5 font-medium text-right">Lost</th>
+                      <SortHeader col="leaves"  label="Leaves"  className="text-right" />
+                      <SortHeader col="mugs"    label="Mugs"    className="text-right" />
+                      <SortHeader col="hosp"    label="Hosp"    className="text-right" />
+                      <SortHeader col="warHits" label="War"     className="text-right" />
+                      <SortHeader col="won"     label="Won"     className="text-right" />
+                      <SortHeader col="assists" label="Assists" className="text-right" />
+                      <SortHeader col="losses"  label="Lost"    className="text-right" />
                       <SortHeader col="totalHits" label="Total" className="text-right border-r border-gray-200 dark:border-slate-700" />
                       {/* Participation */}
-                      <th className="px-3 py-1.5 font-medium text-right border-l border-gray-200 dark:border-slate-700">War hit</th>
-                      <th className="px-3 py-1.5 font-medium text-right">Assist</th>
-                      <th className="px-3 py-1.5 font-medium text-right">Loss</th>
-                      <SortHeader col="partShare" label="Score%" className="text-right border-r border-gray-200 dark:border-slate-700" />
+                      <SortHeader col="warHitScore"  label="War hit" className="text-right border-l border-gray-200 dark:border-slate-700" />
+                      <SortHeader col="assistScore"  label="Assist"  className="text-right" />
+                      <SortHeader col="lossScore"    label="Loss"    className="text-right" />
+                      <SortHeader col="partShare"    label="Score%"  className="text-right border-r border-gray-200 dark:border-slate-700" />
                       {/* Contribution */}
-                      <SortHeader col="respect" label="Respect" className="text-right border-l border-gray-200 dark:border-slate-700" />
-                      <th className="px-3 py-1.5 font-medium text-right">Bonus</th>
-                      <th className="px-3 py-1.5 font-medium text-right">Adj.</th>
-                      <SortHeader col="contribShare" label="Contrib%" className="text-right border-r border-gray-200 dark:border-slate-700" />
+                      <SortHeader col="respect"         label="Respect" className="text-right border-l border-gray-200 dark:border-slate-700" />
+                      <SortHeader col="bonusRespect"    label="Bonus"   className="text-right" />
+                      <SortHeader col="adjustedRespect" label="Adj."    className="text-right" />
+                      <SortHeader col="contribShare"    label="Contrib%" className="text-right border-r border-gray-200 dark:border-slate-700" />
                       {/* Effort */}
                       <SortHeader col="effort" label="Effort%" className="text-right border-l border-gray-200 dark:border-slate-700" />
                     </>
                   )}
-                  <SortHeader col="payout" label="Payout" className="text-right" />
-                  <th className="px-3 py-1.5 font-medium text-center">Eligible</th>
+                  <SortHeader col="payout"   label="Payout"   className="text-right" />
+                  <SortHeader col="eligible" label="Eligible" className="text-center" />
                 </tr>
               </thead>
               <tbody>
