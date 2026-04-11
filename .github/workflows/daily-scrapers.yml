@@ -6,27 +6,52 @@ on:
     - cron: '0 6 * * *'
   workflow_dispatch:
 
-# All 4 jobs run in parallel and independently — a failure in one does not block others.
-# Failed jobs can be re-run individually from the GitHub Actions UI.
+# Flow:
+#   1. prepare      — checkout repo, upload current data/ as artifact
+#   2. scrape-*     — four jobs run in parallel; each downloads initial-data,
+#                     runs its scraper + Supabase sync, then uploads output
+#                     files as an artifact.  No git push happens here.
+#   3. commit-data  — runs after all scrapers succeed; downloads every data
+#                     artifact, merges into the workspace, and does one
+#                     atomic commit + push.
 
 jobs:
-  scrape-crimes:
-    name: Scrape Crimes Data
+
+  # ── 0. Prepare ──────────────────────────────────────────────────────────────
+  prepare:
+    name: Prepare — snapshot current data
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     permissions:
-      contents: write
+      contents: read
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Pull latest changes
-      run: |
-        git config pull.rebase true
-        git pull origin main
+    - name: Upload current data as baseline artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: initial-data
+        path: data/
+        retention-days: 1
+
+
+  # ── 1a. Scrape Crimes ────────────────────────────────────────────────────────
+  scrape-crimes:
+    name: Scrape Crimes Data
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download baseline data
+      uses: actions/download-artifact@v4
+      with:
+        name: initial-data
+        path: data/
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -55,6 +80,7 @@ jobs:
       env:
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        SKIP_GIT_PUSH: 'true'
       run: python scripts/daily_crime_update.py
 
     - name: Sync crimes data to Supabase
@@ -72,38 +98,30 @@ jobs:
         path: logs/
         retention-days: 30
 
-    - name: Commit and push changes
-      run: |
-        git config user.name "GitHub Actions Bot"
-        git config user.email "actions@github.com"
-        mkdir -p public/data
-        cp data/*.json public/data/ 2>/dev/null || true
-        git add data/*.json public/data/*.json
-        if ! git diff --staged --quiet; then
-          git commit -m "Update crimes data [skip ci]"
-          git push
-        else
-          echo "No changes to commit"
-        fi
+    - name: Upload crimes output
+      uses: actions/upload-artifact@v4
+      with:
+        name: data-crimes
+        path: data/crimes_database.json
+        retention-days: 1
 
 
+  # ── 1b. Scrape CPR ───────────────────────────────────────────────────────────
   scrape-cpr:
     name: Scrape CPR Data
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: write
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Pull latest changes
-      run: |
-        git config pull.rebase true
-        git pull origin main
+    - name: Download baseline data
+      uses: actions/download-artifact@v4
+      with:
+        name: initial-data
+        path: data/
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -144,6 +162,7 @@ jobs:
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         GIST_ID: ${{ secrets.GIST_ID }}
+        SKIP_GIT_PUSH: 'true'
       run: python scripts/cpr_scraper.py
 
     - name: Sync CPR data to Supabase
@@ -161,38 +180,31 @@ jobs:
         path: logs/
         retention-days: 30
 
-    - name: Commit and push changes
-      run: |
-        git config user.name "GitHub Actions Bot"
-        git config user.email "actions@github.com"
-        mkdir -p public/data
-        cp data/*.json public/data/ 2>/dev/null || true
-        git add data/*.json public/data/*.json
-        if ! git diff --staged --quiet; then
-          git commit -m "Update CPR data [skip ci]"
-          git push
-        else
-          echo "No changes to commit"
-        fi
+    - name: Upload CPR output
+      uses: actions/upload-artifact@v4
+      with:
+        name: data-cpr
+        path: data/cpr_database.json
+        retention-days: 1
+        if-no-files-found: warn
 
 
+  # ── 1c. Scrape Wars ──────────────────────────────────────────────────────────
   scrape-wars:
     name: Scrape War Data
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: write
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Pull latest changes
-      run: |
-        git config pull.rebase true
-        git pull origin main
+    - name: Download baseline data
+      uses: actions/download-artifact@v4
+      with:
+        name: initial-data
+        path: data/
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -216,6 +228,7 @@ jobs:
       env:
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         VITE_FACTION_ID: '10739'
+        SKIP_GIT_PUSH: 'true'
       run: python scripts/war_data_update.py
 
     - name: Sync war data to Supabase
@@ -233,38 +246,31 @@ jobs:
         path: logs/
         retention-days: 30
 
-    - name: Commit and push changes
-      run: |
-        git config user.name "GitHub Actions Bot"
-        git config user.email "actions@github.com"
-        mkdir -p public/data
-        cp data/war_database.json public/data/ 2>/dev/null || true
-        git add data/war_database.json public/data/war_database.json
-        if ! git diff --staged --quiet; then
-          git commit -m "Update war data [skip ci]"
-          git push
-        else
-          echo "No changes to commit"
-        fi
+    - name: Upload war output
+      uses: actions/upload-artifact@v4
+      with:
+        name: data-wars
+        path: data/war_database.json
+        retention-days: 1
+        if-no-files-found: warn
 
 
+  # ── 1d. Scrape Faction Attacks ───────────────────────────────────────────────
   scrape-faction-attacks:
     name: Scrape Faction Attacks
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: write
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Pull latest changes
-      run: |
-        git config pull.rebase true
-        git pull origin main
+    - name: Download baseline data
+      uses: actions/download-artifact@v4
+      with:
+        name: initial-data
+        path: data/
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -288,6 +294,7 @@ jobs:
       env:
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         VITE_FACTION_ID: '10739'
+        SKIP_GIT_PUSH: 'true'
       run: python scripts/faction_attacks_update.py
 
     - name: Sync faction attacks to Supabase
@@ -305,15 +312,78 @@ jobs:
         path: logs/
         retention-days: 30
 
-    - name: Commit and push changes
+    - name: Upload faction attacks output
+      uses: actions/upload-artifact@v4
+      with:
+        name: data-attacks
+        path: data/faction_attacks_database_*.json
+        retention-days: 1
+        if-no-files-found: warn
+
+
+  # ── 2. Commit all data in one push ───────────────────────────────────────────
+  commit-data:
+    name: Commit & Push Data
+    needs: [scrape-crimes, scrape-cpr, scrape-wars, scrape-faction-attacks]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Run even if some scrapers failed so we still commit whatever succeeded
+    if: always() && needs.prepare.result == 'success'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull latest changes
+      run: |
+        git config pull.rebase true
+        git pull origin main
+
+    - name: Download crimes output
+      if: needs.scrape-crimes.result == 'success'
+      uses: actions/download-artifact@v4
+      with:
+        name: data-crimes
+        path: data/
+      continue-on-error: true
+
+    - name: Download CPR output
+      if: needs.scrape-cpr.result == 'success'
+      uses: actions/download-artifact@v4
+      with:
+        name: data-cpr
+        path: data/
+      continue-on-error: true
+
+    - name: Download war output
+      if: needs.scrape-wars.result == 'success'
+      uses: actions/download-artifact@v4
+      with:
+        name: data-wars
+        path: data/
+      continue-on-error: true
+
+    - name: Download faction attacks output
+      if: needs.scrape-faction-attacks.result == 'success'
+      uses: actions/download-artifact@v4
+      with:
+        name: data-attacks
+        path: data/
+      continue-on-error: true
+
+    - name: Copy to public/data and commit
       run: |
         git config user.name "GitHub Actions Bot"
         git config user.email "actions@github.com"
         mkdir -p public/data
-        cp data/faction_attacks_database.json public/data/ 2>/dev/null || true
-        git add data/faction_attacks_database.json public/data/faction_attacks_database.json
+        # Copy all JSON files except backups (chunk files are included via the glob)
+        find data -maxdepth 1 -name "*.json" -exec cp {} public/data/ \; 2>/dev/null || true
+        git add data/*.json public/data/*.json
         if ! git diff --staged --quiet; then
-          git commit -m "Update faction attacks data [skip ci]"
+          git commit -m "Update scraped data [skip ci]"
           git push
         else
           echo "No changes to commit"

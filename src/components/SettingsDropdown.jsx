@@ -6,6 +6,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
   const { user, logout } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [showApiKeyModal, setShowApiKeyModal] = useState(false)
+  const [showApiUsageModal, setShowApiUsageModal] = useState(false)
   const [showViewAsMenu, setShowViewAsMenu] = useState(false)
   const dropdownRef = useRef(null)
 
@@ -16,7 +17,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
         setShowViewAsMenu(false)
       }
     }
-    
+
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
@@ -38,6 +39,11 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
     setIsOpen(false)
   }
 
+  const handleApiUsage = () => {
+    setShowApiUsageModal(true)
+    setIsOpen(false)
+  }
+
   const handleViewAsSelect = (role) => {
     if (setViewAsRole) {
       setViewAsRole(role)
@@ -56,17 +62,17 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
           className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
           aria-label="Settings"
         >
-          <svg 
-            className="w-6 h-6 text-gray-700 dark:text-gray-300" 
-            fill="none" 
-            stroke="currentColor" 
+          <svg
+            className="w-6 h-6 text-gray-700 dark:text-gray-300"
+            fill="none"
+            stroke="currentColor"
             viewBox="0 0 24 24"
           >
-            <path 
-              strokeLinecap="round" 
-              strokeLinejoin="round" 
-              strokeWidth={2} 
-              d="M4 6h16M4 12h16M4 18h16" 
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 6h16M4 12h16M4 18h16"
             />
           </svg>
         </button>
@@ -100,6 +106,16 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                 Change API Key
               </button>
 
+              <button
+                onClick={handleApiUsage}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                API Key Usage
+              </button>
+
               {/* View As option - only for admins */}
               {canViewAs && (
                 <div className="relative">
@@ -118,7 +134,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
-                  
+
                   {showViewAsMenu && (
                     <div className="bg-gray-50 dark:bg-slate-700/50 py-1">
                       <button
@@ -196,6 +212,10 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
       {showApiKeyModal && (
         <ApiKeyModal onClose={() => setShowApiKeyModal(false)} />
       )}
+
+      {showApiUsageModal && (
+        <ApiKeyUsageModal onClose={() => setShowApiUsageModal(false)} />
+      )}
     </>
   )
 }
@@ -210,14 +230,14 @@ function ApiKeyModal({ onClose }) {
     try {
       setSaving(true)
       setError(null)
-      
+
       // Re-login with new API key
       const result = await login(apiKey)
-      
+
       if (!result.success) {
         throw new Error(result.error || 'Invalid API key')
       }
-      
+
       onClose()
     } catch (err) {
       setError(err.message)
@@ -233,7 +253,7 @@ function ApiKeyModal({ onClose }) {
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">
             Update Torn API Key
           </h3>
-          
+
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
               API Key
@@ -269,6 +289,123 @@ function ApiKeyModal({ onClose }) {
               className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? 'Verifying...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ApiKeyUsageModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              API Key Usage
+            </h3>
+            <button
+              onClick={onClose}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            This dashboard uses your Torn API key in accordance with{' '}
+            <a
+              href="https://www.torn.com/wiki.php#chapter=Terms-of-Service"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Torn's API Terms of Service
+            </a>
+            . Here is exactly how your key is used.
+          </p>
+
+          <div className="space-y-5">
+            {/* Login Key */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                Login API Key
+              </h4>
+              <div className="rounded-lg border border-gray-200 dark:border-slate-600 overflow-hidden">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {[
+                      ['Storage', 'Browser localStorage only — never sent to our servers'],
+                      ['Sharing', 'Not shared — visible only to you on your device'],
+                      ['Purpose', 'Verify faction membership and determine your access level (member vs. leadership)'],
+                      ['API Calls', 'GET /v2/key/info · GET /user/?selections=profile'],
+                      ['Access Level', 'Limited Access'],
+                    ].map(([label, value]) => (
+                      <tr key={label} className="border-b border-gray-100 dark:border-slate-700 last:border-0">
+                        <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300 w-1/3 bg-gray-50 dark:bg-slate-700/40">
+                          {label}
+                        </td>
+                        <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
+                          {label === 'API Calls'
+                            ? value.split(' · ').map((call, i) => (
+                                <span key={i} className="block font-mono">{call}</span>
+                              ))
+                            : value
+                          }
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-500 mt-1.5 italic">
+                Your login key is cleared from storage when you log out. You can revoke access at any time by generating a new API key in Torn.
+              </p>
+            </div>
+
+            {/* CPR Scraper Key */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                CPR Scraper Key{' '}
+                <span className="text-xs font-normal text-gray-500 dark:text-gray-400">(optional — for members on the CPR roster)</span>
+              </h4>
+              <div className="rounded-lg border border-gray-200 dark:border-slate-600 overflow-hidden">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {[
+                      ['Storage', 'Encrypted GitHub Secret — accessible only to repository administrators'],
+                      ['Sharing', 'Key not shared. CPR stats derived from it are visible to faction members'],
+                      ['Purpose', 'Automated nightly scripts collect your Checkpoint Pass Rate (CPR) to assist with OC slot optimisation'],
+                      ['Access Level', 'Limited Access'],
+                    ].map(([label, value]) => (
+                      <tr key={label} className="border-b border-gray-100 dark:border-slate-700 last:border-0">
+                        <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300 w-1/3 bg-gray-50 dark:bg-slate-700/40">
+                          {label}
+                        </td>
+                        <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
+                          {value}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-500 mt-1.5 italic">
+                You are only added to the CPR roster by leadership with your consent. You can revoke access at any time by generating a new Torn API key and notifying leadership.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 flex justify-end">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+            >
+              Close
             </button>
           </div>
         </div>

@@ -91,14 +91,36 @@ class WarDataUpdater:
         logger.info(f"Total ranked wars found: {len(all_wars)}")
         return all_wars
 
-    def _fetch_war_report(self, war_id: int) -> Optional[Dict]:
-        """Fetch the war report for a specific war ID."""
+    # Torn API error codes that mean the report will never be accessible.
+    # Transient codes (5=too many requests, 16=maintenance, 17=simultaneous) are NOT listed
+    # here — the API wrapper retries error 5 automatically; others retry on the next run.
+    PERMANENT_API_ERROR_CODES = {'2', '7', '13', '14'}
+
+    def _fetch_war_report(self, war_id: int) -> tuple:
+        """
+        Fetch the war report for a specific war ID.
+
+        Returns:
+            (report_dict, is_permanent_failure)
+            report_dict is None on any failure.
+            is_permanent_failure is True when the API error is non-retryable
+            (e.g. war too old, wrong ID) — the caller should mark the war
+            report_unavailable so future runs skip it.
+        """
         try:
             response = self.api.get_ranked_war_report(war_id)
-            return response.get('rankedwarreport')
+            return response.get('rankedwarreport'), False
         except TornAPIError as e:
-            logger.error(f"Failed to fetch war report for war {war_id}: {e}")
-            return None
+            error_str = str(e)
+            is_permanent = any(
+                f"API Error {code}:" in error_str
+                for code in self.PERMANENT_API_ERROR_CODES
+            )
+            if is_permanent:
+                logger.warning(f"War {war_id} report permanently unavailable: {e}")
+            else:
+                logger.error(f"Failed to fetch war report for war {war_id}: {e}")
+            return None, is_permanent
 
     # ------------------------------------------------------------------
     # Data normalizers
@@ -214,9 +236,11 @@ class WarDataUpdater:
                 continue  # War still ongoing
             if war_entry.get('report_fetched'):
                 continue  # Already have it
+            if war_entry.get('report_unavailable'):
+                continue  # Permanently failed — skip forever
 
             logger.info(f"Fetching war report for war {war_id}...")
-            report = self._fetch_war_report(int(war_id))
+            report, is_permanent = self._fetch_war_report(int(war_id))
             if report:
                 self._apply_war_report(war_entry, report, FACTION_ID)
                 contributions = self._extract_contributions(report)
@@ -224,7 +248,11 @@ class WarDataUpdater:
                 stats['reports_fetched'] += 1
                 logger.info(f"  → {len(contributions)} member contributions stored")
             else:
-                stats['errors'] += 1
+                if is_permanent:
+                    war_entry['report_unavailable'] = True
+                    stats['reports_unavailable'] = stats.get('reports_unavailable', 0) + 1
+                else:
+                    stats['errors'] += 1
 
         self._save_war_database(war_db)
 
@@ -232,7 +260,8 @@ class WarDataUpdater:
             f"Update complete: {stats['wars_seen']} wars seen, "
             f"{stats['wars_new']} new, "
             f"{stats['reports_fetched']} reports fetched, "
-            f"{stats['errors']} errors"
+            f"{stats.get('reports_unavailable', 0)} permanently unavailable, "
+            f"{stats['errors']} transient errors"
         )
         return stats
 

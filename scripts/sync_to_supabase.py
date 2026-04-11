@@ -10,10 +10,13 @@ Uses bulk batch upserts for performance:
 """
 
 import os
+import re
 import sys
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, Optional
 from supabase import create_client, Client
 
 # Configure logging
@@ -204,13 +207,14 @@ class SupabaseSync:
                 for slot in slots:
                     user = slot.get('user') or {}
                     item_req = slot.get('item_requirement') or {}
+                    _pi = slot.get('position_info') or {}
                     item_outcome = user.get('item_outcome') or {}
 
                     all_slots.append({
                         'crime_id': crime_id,
                         'position': slot.get('position'),
-                        'position_id': slot.get('position_id'),
-                        'position_number': slot.get('position_number'),
+                        'position_id': _pi.get('id') or slot.get('position_id'),
+                        'position_number': _pi.get('number') or slot.get('position_number'),
                         'checkpoint_pass_rate': slot.get('checkpoint_pass_rate'),
                         'user_id': str(user.get('id')) if user.get('id') else None,
                         'user_name': user.get('name'),
@@ -232,8 +236,8 @@ class SupabaseSync:
                         all_required_items.append({
                             'crime_id': crime_id,
                             'position': slot.get('position'),
-                            'position_id': slot.get('position_id'),
-                            'position_number': slot.get('position_number'),
+                            'position_id': _pi.get('id') or slot.get('position_id'),
+                            'position_number': _pi.get('number') or slot.get('position_number'),
                             'item_id': str(item_req['id']),
                             'item_name': item_req.get('name'),
                             'is_reusable': item_req.get('is_reusable', False),
@@ -373,17 +377,47 @@ class SupabaseSync:
         logger.info(f"War sync complete: {wars_count} wars, {contributions_count} contributions")
         return result
 
+    def _find_latest_attacks_chunk(self, base_path: str) -> Optional[str]:
+        """
+        Given the legacy base path (e.g. 'data/faction_attacks_database.json'),
+        find the latest numbered chunk file (faction_attacks_database_N.json).
+        Falls back to base_path itself if no numbered chunks exist.
+        Returns None when no file is found at all.
+        """
+        data_dir = Path(base_path).parent
+        base_stem = Path(base_path).stem  # 'faction_attacks_database'
+
+        chunks: Dict[int, Path] = {}
+        for f in data_dir.glob(f'{base_stem}_*.json'):
+            m = re.search(r'_(\d+)\.json$', f.name)
+            if m:
+                chunks[int(m.group(1))] = f
+
+        if chunks:
+            return str(chunks[max(chunks)])
+        if os.path.exists(base_path):
+            return base_path
+        return None
+
     def sync_faction_attacks(self, json_path: str) -> dict:
         """
-        Sync all faction attacks from faction_attacks_database.json to Supabase.
+        Sync faction attacks from the latest chunk file to Supabase.
+
+        Only the latest chunk is synced — older chunks are already in Supabase
+        from previous runs (upsert is idempotent, but skipping them avoids
+        re-reading and re-upserting hundreds of thousands of unchanged rows).
 
         Attacks have no war_id — war windows are applied dynamically at query time
-        using ranked_wars.start_at / end_at. Includes regular attacks, assists,
-        and incoming attacks (is_incoming=True when defender_faction_id = our faction).
+        using ranked_wars.start_at / end_at.
         """
-        logger.info(f"Reading faction attacks from {json_path}")
+        resolved = self._find_latest_attacks_chunk(json_path)
+        if not resolved:
+            logger.warning(f"No faction attacks file found at {json_path}")
+            return {'type': 'Faction Attacks', 'attacks_synced': 0, 'errors': []}
 
-        with open(json_path, 'r') as f:
+        logger.info(f"Reading faction attacks from {resolved}")
+
+        with open(resolved, 'r') as f:
             data = json.load(f)
 
         attacks_dict = data.get('attacks', {})
@@ -469,12 +503,13 @@ def main():
 
         if sync_type in ['attacks', 'all']:
             attacks_path = 'data/faction_attacks_database.json'
-            if os.path.exists(attacks_path):
+            resolved_attacks = syncer._find_latest_attacks_chunk(attacks_path)
+            if resolved_attacks:
                 logger.info("=== Syncing Faction Attacks ===")
                 result = syncer.sync_faction_attacks(attacks_path)
                 results.append(result)
             else:
-                logger.warning(f"Faction attacks file not found: {attacks_path}")
+                logger.warning(f"No faction attacks chunk files found in data/")
 
         # Print summary
         logger.info("\n=== Sync Summary ===")

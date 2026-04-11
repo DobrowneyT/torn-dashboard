@@ -20,10 +20,13 @@ class TornAPI:
     
     BASE_URL = "https://api.torn.com/v2"
     
+    RATE_LIMIT_SLEEP = 60   # seconds to wait on error 5 (too many requests)
+    RATE_LIMIT_MAX_RETRIES = 3
+
     def __init__(self, api_key: str):
         """
         Initialize Torn API wrapper
-        
+
         Args:
             api_key: Torn City API key
         """
@@ -44,41 +47,59 @@ class TornAPI:
     
     def _make_request(self, url: str, params: Dict = None) -> Dict:
         """
-        Make API request with error handling
-        
+        Make API request with error handling and automatic retry on rate limit.
+
+        Retries up to RATE_LIMIT_MAX_RETRIES times when the API returns error 5
+        (too many requests), sleeping RATE_LIMIT_SLEEP seconds between attempts.
+        All other errors are raised immediately as TornAPIError.
+
         Args:
             url: Full API URL
             params: Query parameters
-            
+
         Returns:
             Parsed JSON response
-            
+
         Raises:
-            TornAPIError: If request fails or API returns error
+            TornAPIError: If request fails or API returns a non-rate-limit error
         """
-        self._wait_for_rate_limit()
-        
-        try:
-            logger.info(f"API Request: {url}")
-            response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Check for API errors
-            if 'error' in data:
-                error_msg = f"API Error {data['error'].get('code', 'Unknown')}: {data['error'].get('error', 'Unknown error')}"
-                logger.error(error_msg)
-                raise TornAPIError(error_msg)
-            
-            return data
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Network error: {e}")
-            raise TornAPIError(f"Network error: {e}")
-        except ValueError as e:
-            logger.error(f"JSON decode error: {e}")
-            raise TornAPIError(f"Invalid JSON response: {e}")
+        for attempt in range(1, self.RATE_LIMIT_MAX_RETRIES + 2):  # +2: attempts 1..N+1
+            self._wait_for_rate_limit()
+
+            try:
+                logger.info(f"API Request: {url}")
+                response = self.session.get(url, params=params, timeout=30)
+                response.raise_for_status()
+
+                data = response.json()
+
+                if 'error' in data:
+                    code = data['error'].get('code')
+                    msg = data['error'].get('error', 'Unknown error')
+                    error_msg = f"API Error {code}: {msg}"
+
+                    if code == 5:
+                        if attempt <= self.RATE_LIMIT_MAX_RETRIES:
+                            logger.warning(
+                                f"Rate limited — sleeping {self.RATE_LIMIT_SLEEP}s "
+                                f"(retry {attempt}/{self.RATE_LIMIT_MAX_RETRIES})..."
+                            )
+                            time.sleep(self.RATE_LIMIT_SLEEP)
+                            continue
+                        else:
+                            logger.error(f"Still rate limited after {self.RATE_LIMIT_MAX_RETRIES} retries")
+
+                    logger.error(error_msg)
+                    raise TornAPIError(error_msg)
+
+                return data
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Network error: {e}")
+                raise TornAPIError(f"Network error: {e}")
+            except ValueError as e:
+                logger.error(f"JSON decode error: {e}")
+                raise TornAPIError(f"Invalid JSON response: {e}")
     
     # ==================== AUCTION HOUSE METHODS ====================
     
@@ -459,20 +480,21 @@ class TornAPI:
 
     def get_faction_attacks(
         self,
-        from_timestamp: int,
-        to_timestamp: int,
+        from_timestamp: int = 0,
+        to_timestamp: Optional[int] = None,
         limit: int = 100,
-        sort: str = "DESC",
+        sort: str = "ASC",
         comment: str = "Forge_War_Attacks"
     ) -> Dict:
         """
-        Get faction attacks within a time window.
+        Get faction attacks.
 
         Args:
-            from_timestamp: Start of window (Unix timestamp)
-            to_timestamp: End of window (Unix timestamp)
+            from_timestamp: Start timestamp (inclusive). Use 0 or last stored
+                            attack's started value to page forward (ASC).
+            to_timestamp: Optional end timestamp. Omit for open-ended ASC fetch.
             limit: Results per page (max 100)
-            sort: Sort order — use DESC for backward pagination
+            sort: Sort order — ASC for forward incremental pagination
             comment: API comment for tracking
 
         Returns:
@@ -483,10 +505,11 @@ class TornAPI:
             "limit": limit,
             "sort": sort,
             "from": from_timestamp,
-            "to": to_timestamp,
             "key": self.api_key,
             "comment": comment
         }
+        if to_timestamp is not None:
+            params["to"] = to_timestamp
         return self._make_request(url, params)
 
     # ==================== CONNECTION TEST ====================

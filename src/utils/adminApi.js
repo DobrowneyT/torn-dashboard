@@ -145,6 +145,17 @@ export async function saveWarPayout(payoutData, memberRecords, tornApiKey) {
 }
 
 /**
+ * Submit a CPR scraper API key for the logged-in member.
+ * Pass an empty string to remove the key.
+ *
+ * @param {string} cprApiKey - The member's Torn API key for CPR scraping
+ * @param {string} tornApiKey - User's login Torn API key for auth
+ */
+export async function submitCprKey(cprApiKey, tornApiKey) {
+  return callAdminApi('submit_cpr_key', { data: { cpr_api_key: cprApiKey } }, tornApiKey)
+}
+
+/**
  * Toggle the is_termed flag on a war record.
  * Only the is_termed field is updated — all other war fields are left unchanged.
  *

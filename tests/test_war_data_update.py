@@ -219,7 +219,7 @@ class TestNormalizeWar:
         raw = SAMPLE_WAR_LIST_PAGE1['rankedwars'][1]
         result = updater._normalize_war(raw, FACTION_ID)
         assert result['report_fetched'] is False
-        assert result['attacks_fetched'] is False
+        # attacks_fetched no longer exists — attacks are scraped by faction_attacks_update.py
 
 
 # ---------------------------------------------------------------------------
@@ -280,81 +280,9 @@ class TestExtractContributions:
         assert all(c['war_id'] == 39161 for c in contributions)
 
 
-# ---------------------------------------------------------------------------
-# Tests: attack normalization and is_ranked_war filter
-# ---------------------------------------------------------------------------
-
-class TestNormalizeAttack:
-    def test_ranked_war_attack_normalized(self):
-        updater = make_updater()
-        raw = SAMPLE_ATTACKS_PAGE['attacks'][0]
-        result = updater._normalize_attack(raw, 39161)
-        assert result['attack_id'] == 461558711
-        assert result['war_id'] == 39161
-        assert result['attacker_id'] == 428286
-        assert result['defender_faction_id'] == 41929
-        assert result['result'] == 'Hospitalized'
-        assert result['fair_fight'] == 2.72
-        assert result['is_ranked_war'] is True
-
-    def test_defender_with_no_faction(self):
-        updater = make_updater()
-        raw = SAMPLE_ATTACKS_PAGE['attacks'][1]
-        result = updater._normalize_attack(raw, 39161)
-        assert result['defender_faction_id'] is None
-
-
-# ---------------------------------------------------------------------------
-# Tests: attack pagination backward cursor
-# ---------------------------------------------------------------------------
-
-class TestFetchWarAttacksPaginated:
-    def test_only_ranked_war_attacks_stored(self):
-        updater = make_updater()
-        updater.api.get_faction_attacks.return_value = SAMPLE_ATTACKS_PAGE
-        attacks = updater._fetch_war_attacks_paginated(39161, 1774533600, 1774911659)
-        # Page has 2 attacks, only 1 is is_ranked_war=True
-        assert len(attacks) == 1
-        assert attacks[0]['is_ranked_war'] is True
-
-    def test_stops_when_fewer_than_100_results(self):
-        updater = make_updater()
-        updater.api.get_faction_attacks.return_value = SAMPLE_ATTACKS_PAGE  # 2 attacks
-        updater._fetch_war_attacks_paginated(39161, 1774533600, 1774911659)
-        # Should only call once (< 100 results)
-        updater.api.get_faction_attacks.assert_called_once()
-
-    def test_backward_cursor_used_on_second_page(self):
-        """When first page returns 100 results, second call uses oldest.started - 1 as 'to'."""
-        updater = make_updater()
-        # Build a page with exactly 100 attacks (all ranked, spread across timestamps)
-        attacks_100 = []
-        for i in range(100):
-            attacks_100.append({
-                'id': 1000 + i,
-                'started': 1774911000 - i * 100,  # descending timestamps
-                'ended': 1774911010 - i * 100,
-                'attacker': {'id': 100, 'name': 'A', 'faction': {'id': 10739, 'name': 'F'}},
-                'defender': {'id': 200, 'name': 'D', 'faction': {'id': 41929, 'name': 'O'}},
-                'result': 'Hospitalized',
-                'respect_gain': 1.0,
-                'chain': 0,
-                'is_ranked_war': True,
-                'modifiers': {'fair_fight': 1, 'war': 1, 'chain': 1, 'warlord': 1}
-            })
-        page1 = {'attacks': attacks_100}
-        page2 = {'attacks': []}  # empty page stops pagination
-
-        updater.api.get_faction_attacks.side_effect = [page1, page2]
-
-        start_ts = 1774533600
-        end_ts = 1774911659
-        updater._fetch_war_attacks_paginated(39161, start_ts, end_ts)
-
-        # Second call's `to` should be oldest attack's started - 1
-        oldest_started = attacks_100[-1]['started']
-        calls = updater.api.get_faction_attacks.call_args_list
-        assert calls[1].kwargs['to_timestamp'] == oldest_started - 1
+# Note: _normalize_attack and _fetch_war_attacks_paginated were removed from
+# WarDataUpdater — attack scraping is now handled by faction_attacks_update.py.
+# Those methods' tests live in test_faction_attacks_update.py (future file).
 
 
 # ---------------------------------------------------------------------------
@@ -362,8 +290,8 @@ class TestFetchWarAttacksPaginated:
 # ---------------------------------------------------------------------------
 
 class TestIncrementalSkip:
-    def test_completed_war_with_both_flags_is_skipped(self):
-        """A war with report_fetched=True and attacks_fetched=True should not trigger API calls."""
+    def test_completed_war_with_report_is_skipped(self):
+        """A war with report_fetched=True should not trigger another report API call."""
         updater = make_updater()
 
         existing_db = {
@@ -384,14 +312,13 @@ class TestIncrementalSkip:
                     'rank_before': 'Diamond I',
                     'rank_after': 'Diamond',
                     'report_fetched': True,
-                    'attacks_fetched': True,
                 }
             },
             'contributions': {'39161': []},
             'metadata': {'last_updated': None}
         }
 
-        updater.storage.read_json.side_effect = [existing_db, {'attacks': {}, 'metadata': {}}]
+        updater.storage.read_json.return_value = existing_db
         updater.api.get_ranked_wars.return_value = {
             'rankedwars': [SAMPLE_WAR_LIST_PAGE1['rankedwars'][1]],
             '_metadata': {'links': {'next': None}}
@@ -399,9 +326,8 @@ class TestIncrementalSkip:
 
         updater.update_all_wars()
 
-        # Report and attacks should NOT be fetched
+        # Report should NOT be re-fetched
         updater.api.get_ranked_war_report.assert_not_called()
-        updater.api.get_faction_attacks.assert_not_called()
 
     def test_war_without_report_triggers_report_fetch(self):
         updater = make_updater()
@@ -414,14 +340,14 @@ class TestIncrementalSkip:
                     'our_score': 7236, 'opponent_score': 10511, 'target': 3240,
                     'winner_faction_id': 41929, 'forfeit': False, 'is_termed': False,
                     'rewards_items': None, 'rank_before': None, 'rank_after': None,
-                    'report_fetched': False, 'attacks_fetched': True,
+                    'report_fetched': False,
                 }
             },
             'contributions': {},
             'metadata': {'last_updated': None}
         }
 
-        updater.storage.read_json.side_effect = [existing_db, {'attacks': {}, 'metadata': {}}]
+        updater.storage.read_json.return_value = existing_db
         updater.api.get_ranked_wars.return_value = {
             'rankedwars': [SAMPLE_WAR_LIST_PAGE1['rankedwars'][1]],
             '_metadata': {'links': {'next': None}}
@@ -431,15 +357,11 @@ class TestIncrementalSkip:
         updater.update_all_wars()
 
         updater.api.get_ranked_war_report.assert_called_once_with(39161)
-        updater.api.get_faction_attacks.assert_not_called()  # already fetched
 
-    def test_ongoing_war_skips_report_and_attacks(self):
-        """Ongoing wars (end_at is None/0) should never have report/attacks fetched."""
+    def test_ongoing_war_skips_report(self):
+        """Ongoing wars (end_at is None/0) should never have report fetched."""
         updater = make_updater()
-        updater.storage.read_json.side_effect = [
-            {'wars': {}, 'contributions': {}, 'metadata': {}},
-            {'attacks': {}, 'metadata': {}}
-        ]
+        updater.storage.read_json.return_value = {'wars': {}, 'contributions': {}, 'metadata': {}}
         # Only ongoing war (end=0)
         updater.api.get_ranked_wars.return_value = {
             'rankedwars': [SAMPLE_WAR_LIST_PAGE1['rankedwars'][0]],
@@ -449,4 +371,3 @@ class TestIncrementalSkip:
         updater.update_all_wars()
 
         updater.api.get_ranked_war_report.assert_not_called()
-        updater.api.get_faction_attacks.assert_not_called()

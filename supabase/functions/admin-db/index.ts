@@ -4,7 +4,7 @@
 
 
 // Command to get DB schema for all tables as well as RLS policies:
-// SELECT 
+// SELECT
 //     t.table_name,
 //     c.column_name,
 //     c.data_type,
@@ -13,15 +13,15 @@
 //     c.column_default,
 //     c.ordinal_position
 // FROM information_schema.tables t
-// JOIN information_schema.columns c 
-//     ON t.table_name = c.table_name 
+// JOIN information_schema.columns c
+//     ON t.table_name = c.table_name
 //     AND t.table_schema = c.table_schema
 // WHERE t.table_schema = 'public'
 //     AND t.table_type = 'BASE TABLE'
 // ORDER BY t.table_name, c.ordinal_position;
 
 
-// SELECT 
+// SELECT
 //     schemaname,
 //     tablename,
 //     policyname,
@@ -35,14 +35,14 @@
 // ORDER BY tablename, policyname;
 
 
-// SELECT 
+// SELECT
 //     t.tablename,
 //     t.rowsecurity AS rls_enabled,
 //     COUNT(p.policyname) AS policy_count,
 //     string_agg(p.policyname, ', ') AS policy_names
 // FROM pg_tables t
-// LEFT JOIN pg_policies p 
-//     ON t.tablename = p.tablename 
+// LEFT JOIN pg_policies p
+//     ON t.tablename = p.tablename
 //     AND t.schemaname = p.schemaname
 // WHERE t.schemaname = 'public'
 // GROUP BY t.tablename, t.rowsecurity
@@ -85,7 +85,7 @@ serve(async (req: Request) => {
   try {
     // Get the Torn API key from header for authentication
     const tornApiKey = req.headers.get('x-torn-api-key')
-    
+
     if (!tornApiKey) {
       console.error('No API key found in headers')
       return new Response(
@@ -96,7 +96,7 @@ serve(async (req: Request) => {
 
     // Verify the user is authorized (with caching)
     const authResult = await verifyTornUser(tornApiKey)
-    
+
     if (!authResult.success) {
       return new Response(
         JSON.stringify({ error: authResult.error }),
@@ -107,7 +107,7 @@ serve(async (req: Request) => {
     // Create Supabase client with service role key (bypasses RLS)
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: {
         autoRefreshToken: false,
@@ -117,7 +117,7 @@ serve(async (req: Request) => {
 
     // Parse request body
     const body: RequestBody = await req.json()
-    
+
     // Route to appropriate handler
     let result
     switch (body.action) {
@@ -162,6 +162,9 @@ serve(async (req: Request) => {
         break
       case 'update_war_is_termed':
         result = await handleUpdateWarIsTermed(supabase, body)
+        break
+      case 'submit_cpr_key':
+        result = await handleSubmitCprKey(supabase, body, authResult.userId!)
         break
       default:
         return new Response(
@@ -232,7 +235,7 @@ async function verifyTornUser(apiKey: string): Promise<{ success: boolean; error
 
 async function handleUpsert(supabase: any, body: RequestBody) {
   const { table, data, onConflict } = body
-  
+
   if (!table || !data) {
     throw new Error('Missing table or data')
   }
@@ -253,7 +256,7 @@ async function handleUpsert(supabase: any, body: RequestBody) {
 
 async function handleInsert(supabase: any, body: RequestBody) {
   const { table, data } = body
-  
+
   if (!table || !data) {
     throw new Error('Missing table or data')
   }
@@ -269,13 +272,13 @@ async function handleInsert(supabase: any, body: RequestBody) {
 
 async function handleUpdate(supabase: any, body: RequestBody) {
   const { table, data, filters } = body
-  
+
   if (!table || !data || !filters) {
     throw new Error('Missing table, data, or filters')
   }
 
   let query = supabase.from(table).update(data)
-  
+
   for (const [key, value] of Object.entries(filters)) {
     query = query.eq(key, value)
   }
@@ -288,13 +291,13 @@ async function handleUpdate(supabase: any, body: RequestBody) {
 
 async function handleDelete(supabase: any, body: RequestBody) {
   const { table, filters } = body
-  
+
   if (!table) {
     throw new Error('Missing table')
   }
 
   let query = supabase.from(table).delete()
-  
+
   if (filters) {
     for (const [key, value] of Object.entries(filters)) {
       query = query.eq(key, value)
@@ -312,7 +315,7 @@ async function handleDelete(supabase: any, body: RequestBody) {
 
 async function handleClearTable(supabase: any, body: RequestBody) {
   const { table } = body
-  
+
   if (!table) {
     throw new Error('Missing table')
   }
@@ -346,7 +349,7 @@ async function handleClearTable(supabase: any, body: RequestBody) {
       .from(table)
       .delete()
       .gte(pk, 0)
-    
+
     if (error2) throw error2
   }
 
@@ -387,12 +390,13 @@ function collectCrimeRecords(crimes: Record<string, any>) {
       const user = slot.user || {}
       const itemReq = slot.item_requirement || {}
       const itemOutcome = user.item_outcome || {}
+      const pi = slot.position_info ?? {}
 
       allSlots.push({
         crime_id: crimeId,
         position: slot.position,
-        position_id: slot.position_id,
-        position_number: slot.position_number,
+        position_id:     pi.id     ?? slot.position_id,
+        position_number: pi.number ?? slot.position_number,
         checkpoint_pass_rate: slot.checkpoint_pass_rate,
         user_id: user.id?.toString() || null,
         user_name: user.name || null,
@@ -413,8 +417,8 @@ function collectCrimeRecords(crimes: Record<string, any>) {
         allRequiredItems.push({
           crime_id: crimeId,
           position: slot.position,
-          position_id: slot.position_id,
-          position_number: slot.position_number,
+          position_id:     pi.id     ?? slot.position_id,
+          position_number: pi.number ?? slot.position_number,
           item_id: itemReq.id.toString(),
           item_name: itemReq.name || null,
           is_reusable: itemReq.is_reusable || false,
@@ -585,7 +589,7 @@ async function handleSyncCrimes(supabase: any, apiKey: string) {
 
 async function handleImportCpr(supabase: any, body: RequestBody) {
   const { data: membersData } = body
-  
+
   if (!membersData) {
     throw new Error('Missing CPR data')
   }
@@ -630,7 +634,7 @@ async function handleImportCpr(supabase: any, body: RequestBody) {
 
 async function handleImportCrimes(supabase: any, body: RequestBody) {
   const { data: crimesData } = body
-  
+
   if (!crimesData) {
     throw new Error('Missing crimes data')
   }
@@ -755,13 +759,13 @@ async function handleSyncInventory(supabase: any, apiKey: string, userId: string
   const response = await fetch(
     `https://api.torn.com/faction/?selections=armorynewsfull&key=${apiKey}`
   )
-  
+
   if (!response.ok) {
     throw new Error(`Torn API error: ${response.status}`)
   }
-  
+
   const data = await response.json()
-  
+
   if (data.error) {
     throw new Error(data.error.error || 'API error')
   }
@@ -941,4 +945,61 @@ async function handleUpdateWarIsTermed(supabase: any, body: RequestBody) {
 
   if (error) throw error
   return { success: true, war_id, is_termed }
+}
+
+async function handleSubmitCprKey(supabase: any, body: RequestBody, userId: string) {
+  const { cpr_api_key } = body.data ?? {}
+
+  if (!userId) throw new Error('Could not identify user')
+
+  if (cpr_api_key === null || cpr_api_key === undefined) {
+    throw new Error('Missing cpr_api_key')
+  }
+
+  // If an empty string was passed, the member is removing their key
+  const keyToStore = cpr_api_key.trim() === '' ? null : cpr_api_key.trim()
+
+  // Validate the key against Torn API before storing (if a key was provided)
+  if (keyToStore) {
+    const resp = await fetch(`https://api.torn.com/v2/key/info?key=${keyToStore}`)
+    const data = await resp.json()
+
+    if (data.error) {
+      return { success: false, error: 'Invalid Torn API key — please check and try again.' }
+    }
+
+    // Confirm it belongs to the submitting user
+    const keyUserId = String(data.info?.user?.id)
+    if (keyUserId !== String(userId)) {
+      return { success: false, error: 'This API key does not belong to your Torn account.' }
+    }
+
+    // Must be at least Minimal Access (level 1+)
+    const accessLevel = data.info?.access?.level ?? 0
+    if (accessLevel < 1) {
+      return { success: false, error: 'API key must be Minimal Access or higher.' }
+    }
+  }
+
+  if (keyToStore === null) {
+    // Removing — just null the column
+    const { error } = await supabase
+      .from('members')
+      .update({ cpr_api_key: null, updated_at: new Date().toISOString() })
+      .eq('member_id', String(userId))
+    if (error) throw error
+  } else {
+    // Encrypt via pgp_sym_encrypt inside the SECURITY DEFINER function
+    const cprSecret = Deno.env.get('CPR_KEY_SECRET')!
+    if (!cprSecret) throw new Error('CPR_KEY_SECRET not configured on this server')
+
+    const { error } = await supabase.rpc('set_member_cpr_key', {
+      p_member_id: String(userId),
+      p_raw_key:   keyToStore,
+      p_secret:    cprSecret,
+    })
+    if (error) throw error
+  }
+
+  return { success: true, removed: keyToStore === null }
 }
