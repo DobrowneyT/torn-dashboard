@@ -301,6 +301,104 @@ class SupabaseSync:
         return result
 
 
+    def sync_cpr_v2_data(self, json_path: str) -> dict:
+        """
+        Sync the crime-based CPR v2 database to Supabase.
+
+        Populates three tables:
+          - oc_crime_types      (conflict on name)
+          - oc_crime_positions  (conflict on crime_name, position_label)
+          - member_cpr_v2       (conflict on member_id, crime_name, position_label)
+
+        The JSON file is the source of truth — observation_count, first/last seen
+        timestamps, and cpr_value are all written as-is from the file.
+        """
+        logger.info(f"Reading CPR v2 data from {json_path}")
+
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+
+        crime_types = data.get('crime_types', {})
+        member_cpr = data.get('member_cpr', {})
+
+        now = datetime.now().isoformat()
+        all_crime_types = []
+        all_positions = []
+        all_cpr_v2 = []
+        errors = []
+
+        # ── Collect crime types and their positions ──────────────────────────
+        for crime_name, crime_data in crime_types.items():
+            try:
+                all_crime_types.append({
+                    'name': crime_name,
+                    'difficulty': crime_data.get('difficulty'),
+                    'first_seen_at': crime_data.get('first_seen') or now,
+                })
+                for position_label, position_id in crime_data.get('positions', {}).items():
+                    all_positions.append({
+                        'crime_name': crime_name,
+                        'position_label': position_label,
+                        'position_id': position_id,
+                    })
+            except Exception as e:
+                error_msg = f"Error processing crime type '{crime_name}': {e}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+
+        # ── Collect per-member CPR records ───────────────────────────────────
+        for member_id, crimes in member_cpr.items():
+            for crime_name, positions in crimes.items():
+                # Look up difficulty from crime_types registry
+                difficulty = crime_types.get(crime_name, {}).get('difficulty')
+                for position_label, record in positions.items():
+                    try:
+                        all_cpr_v2.append({
+                            'member_id': member_id,
+                            'crime_name': crime_name,
+                            'position_label': position_label,
+                            'difficulty': difficulty,
+                            'cpr_value': float(record['cpr_value']),
+                            'observation_count': int(record.get('observation_count', 1)),
+                            'first_seen_at': record.get('first_seen_at') or now,
+                            'last_seen_at': record.get('last_seen_at') or now,
+                        })
+                    except Exception as e:
+                        error_msg = (
+                            f"Error processing CPR v2 record "
+                            f"member={member_id} crime='{crime_name}' pos='{position_label}': {e}"
+                        )
+                        logger.error(error_msg)
+                        errors.append(error_msg)
+
+        logger.info(
+            f"Collected {len(all_crime_types)} crime types, "
+            f"{len(all_positions)} positions, "
+            f"{len(all_cpr_v2)} CPR v2 records"
+        )
+
+        # ── Bulk upsert ──────────────────────────────────────────────────────
+        types_count = self._bulk_upsert('oc_crime_types', all_crime_types, 'name')
+        positions_count = self._bulk_upsert('oc_crime_positions', all_positions, 'crime_name,position_label')
+        cpr_v2_count = self._bulk_upsert('member_cpr_v2', all_cpr_v2, 'member_id,crime_name,position_label')
+
+        result = {
+            'type': 'CPR v2',
+            'crime_types_synced': types_count,
+            'positions_synced': positions_count,
+            'cpr_v2_records_synced': cpr_v2_count,
+            'errors': errors,
+        }
+
+        logger.info(
+            f"CPR v2 sync complete: {types_count} crime types, "
+            f"{positions_count} positions, {cpr_v2_count} CPR records"
+        )
+        if errors:
+            logger.warning(f"{len(errors)} errors occurred")
+
+        return result
+
     def sync_war_data(self, json_path: str) -> dict:
         """
         Sync war list and member contributions from war_database.json to Supabase.
@@ -465,7 +563,7 @@ class SupabaseSync:
 def main():
     """Main entry point"""
     if len(sys.argv) < 2:
-        print("Usage: python sync_to_supabase.py [cpr|crimes|wars|attacks|all]")
+        print("Usage: python sync_to_supabase.py [cpr|cpr_v2|crimes|wars|attacks|all]")
         sys.exit(1)
 
     sync_type = sys.argv[1].lower()
@@ -482,6 +580,15 @@ def main():
                 results.append(result)
             else:
                 logger.warning(f"CPR data file not found: {cpr_path}")
+
+        if sync_type in ['cpr_v2', 'all']:
+            cpr_v2_path = 'data/cpr_database_v2.json'
+            if os.path.exists(cpr_v2_path):
+                logger.info("=== Syncing CPR v2 Data ===")
+                result = syncer.sync_cpr_v2_data(cpr_v2_path)
+                results.append(result)
+            else:
+                logger.warning(f"CPR v2 data file not found: {cpr_v2_path}")
 
         if sync_type in ['crimes', 'all']:
             crimes_path = 'data/crimes_database.json'
@@ -518,6 +625,10 @@ def main():
             if result['type'] == 'CPR':
                 logger.info(f"  Members synced: {result['members_synced']}")
                 logger.info(f"  CPR records synced: {result['cpr_records_synced']}")
+            elif result['type'] == 'CPR v2':
+                logger.info(f"  Crime types synced: {result['crime_types_synced']}")
+                logger.info(f"  Positions synced: {result['positions_synced']}")
+                logger.info(f"  CPR v2 records synced: {result['cpr_v2_records_synced']}")
             elif result['type'] == 'Wars':
                 logger.info(f"  Wars synced: {result['wars_synced']}")
                 logger.info(f"  Contributions synced: {result['contributions_synced']}")

@@ -388,21 +388,181 @@ class CPRScraper:
         except Exception as e:
             logger.warning(f"Member {member_id}: failed to clear cpr_api_key: {e}")
 
-    def scrape_member(self, member_id: str, api_key: str, member_name: str, cpr_data: Dict) -> Tuple[bool, int, Optional[str]]:
+    # ─────────────────────────────────────────────────────────────────────────
+    # CPR v2 helpers  (crime-name + position-label keyed, separate from v1)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _load_cpr_v2_database(self) -> Dict:
+        """Load (or initialise) the crime-based CPR v2 database."""
+        v2_data = self.storage.read_json('cpr_database_v2.json')
+        if not v2_data:
+            v2_data = {
+                'crime_types': {},
+                'member_cpr': {},
+                'metadata': {'last_updated': '', 'version': '1.0'}
+            }
+            self.storage.write_json('cpr_database_v2.json', v2_data, create_backup=False)
+        return v2_data
+
+    def _save_cpr_v2_database(self, v2_data: Dict):
+        """Save the v2 database to storage."""
+        v2_data['metadata']['last_updated'] = datetime.now().isoformat()
+        self.storage.write_json(
+            'cpr_database_v2.json',
+            v2_data,
+            create_backup=False,
+            commit_message="Update CPR v2 database"
+        )
+        logger.info("CPR v2 database saved")
+
+    def _extract_cpr_v2_from_crimes(
+        self,
+        crimes_data: Dict,
+        member_id_context: Optional[str] = None
+    ) -> List[Dict]:
         """
-        Scrape CPR data for a single member
-        
+        Extract CPR entries for the v2 (crime-name keyed) database.
+
+        Attribution rules:
+          - Filled slot  (user != null)  → CPR belongs to that user regardless of key used.
+          - Empty slot   (user == null)  → CPR belongs to member_id_context (i.e. the member
+            whose personal API key was used for this request).  If member_id_context is None
+            (faction key) there is no owner to attribute to, so empty slots are skipped.
+
+        Returns a list of dicts, each with:
+            member_id, crime_name, difficulty, position_label, position_id, cpr_value
+        """
+        entries: List[Dict] = []
+
+        if not crimes_data or 'crimes' not in crimes_data:
+            return entries
+
+        for crime in crimes_data['crimes']:
+            crime_name = crime.get('name', 'Unknown')
+            difficulty = crime.get('difficulty')
+
+            for slot in crime.get('slots', []):
+                cpr = slot.get('checkpoint_pass_rate')
+                if cpr is None:
+                    continue
+
+                position_info = slot.get('position_info') or {}
+                position_label = position_info.get('label') or slot.get('position', 'Unknown')
+                position_id = position_info.get('id') or slot.get('position_id')
+
+                user_data = slot.get('user')
+                if user_data and user_data.get('id'):
+                    attributed_to = str(user_data['id'])
+                elif member_id_context is not None:
+                    attributed_to = member_id_context
+                else:
+                    continue  # faction key + empty slot → no attribution possible
+
+                entries.append({
+                    'member_id': attributed_to,
+                    'crime_name': crime_name,
+                    'difficulty': difficulty,
+                    'position_label': position_label,
+                    'position_id': position_id,
+                    'cpr_value': cpr,
+                })
+
+        return entries
+
+    def _merge_cpr_v2(self, v2_data: Dict, entries: List[Dict]) -> int:
+        """
+        Merge a list of CPR v2 entries into v2_data in-place.
+
+        For each entry:
+          - Registers the crime type and position if not already known.
+          - If the member already has a value for that crime+position: increments
+            observation_count and updates cpr_value + last_seen_at.
+          - Otherwise creates a new record.
+
+        Returns the number of new-or-updated records.
+        """
+        now = datetime.now().isoformat()
+        changed = 0
+
+        for entry in entries:
+            crime_name = entry['crime_name']
+            difficulty = entry['difficulty']
+            position_label = entry['position_label']
+            position_id = entry.get('position_id')
+            member_id = entry['member_id']
+            cpr_value = entry['cpr_value']
+
+            # ── Register crime type ──────────────────────────────────────────
+            if crime_name not in v2_data['crime_types']:
+                v2_data['crime_types'][crime_name] = {
+                    'difficulty': difficulty,
+                    'first_seen': now,
+                    'positions': {}
+                }
+                logger.info(f"CPR v2: New crime type registered — '{crime_name}' (difficulty {difficulty})")
+
+            crime_entry = v2_data['crime_types'][crime_name]
+
+            # ── Register position ────────────────────────────────────────────
+            if position_label not in crime_entry['positions']:
+                crime_entry['positions'][position_label] = position_id
+                logger.debug(f"CPR v2: New position '{position_label}' registered for '{crime_name}'")
+
+            # ── Upsert member CPR ────────────────────────────────────────────
+            member_crimes = v2_data['member_cpr'].setdefault(member_id, {})
+            crime_cprs = member_crimes.setdefault(crime_name, {})
+
+            if position_label in crime_cprs:
+                existing = crime_cprs[position_label]
+                old_value = existing['cpr_value']
+                existing['cpr_value'] = cpr_value
+                existing['observation_count'] = existing.get('observation_count', 1) + 1
+                existing['last_seen_at'] = now
+                if cpr_value != old_value:
+                    direction = "↑" if cpr_value > old_value else "↓"
+                    logger.info(
+                        f"CPR v2: Member {member_id} '{crime_name}' {position_label} "
+                        f"= {cpr_value} {direction} (was {old_value}, "
+                        f"obs #{existing['observation_count']})"
+                    )
+            else:
+                crime_cprs[position_label] = {
+                    'cpr_value': cpr_value,
+                    'observation_count': 1,
+                    'first_seen_at': now,
+                    'last_seen_at': now,
+                }
+                logger.info(
+                    f"CPR v2: Member {member_id} '{crime_name}' {position_label} = {cpr_value} (NEW)"
+                )
+
+            changed += 1
+
+        return changed
+
+    def scrape_member(
+        self,
+        member_id: str,
+        api_key: str,
+        member_name: str,
+        cpr_data: Dict,
+        v2_data: Optional[Dict] = None,
+    ) -> Tuple[bool, int, Optional[str]]:
+        """
+        Scrape CPR data for a single member.
+
         Args:
             member_id: Member ID
             api_key: Member's API key
             member_name: Member name
-            cpr_data: CPR database to update
-            
+            cpr_data: CPR v1 database to update (unchanged behaviour)
+            v2_data: CPR v2 database to update (optional; None skips v2 logic)
+
         Returns:
             Tuple of (success, updates_count, error_message)
         """
         logger.info(f"Starting scrape for {member_name} ({member_id})")
-        
+
         # Fetch available crimes
         crimes_data = self._fetch_available_crimes(api_key, member_id)
 
@@ -410,16 +570,24 @@ class CPRScraper:
             # API call failed — key may be invalid/expired
             return False, 0, "API fetch failed - key may be invalid or expired"
 
-        # Extract CPR requirements
+        # ── v1: existing logic (completely unchanged) ──────────────────────
         new_cpr = self._extract_cpr_from_crimes(crimes_data, member_id)
 
         if not new_cpr:
             logger.warning(f"Member {member_name} ({member_id}): No empty/member slots found in available crimes")
             # Key is valid (we got a response), just no data this run
+            # Still attempt v2 extraction — filled slots from other members are useful
+            if v2_data is not None:
+                v2_entries = self._extract_cpr_v2_from_crimes(crimes_data, member_id_context=member_id)
+                self._merge_cpr_v2(v2_data, v2_entries)
             return True, 0, "No matching slots available"
 
-        # Update member's CPR data
         updates = self._update_member_cpr(cpr_data, member_id, member_name, new_cpr)
+
+        # ── v2: extract crime-keyed CPR (empty slots attributed to this member)
+        if v2_data is not None:
+            v2_entries = self._extract_cpr_v2_from_crimes(crimes_data, member_id_context=member_id)
+            self._merge_cpr_v2(v2_data, v2_entries)
 
         logger.info(f"Member {member_name} ({member_id}): Scrape complete - {updates} updates made")
         return True, updates, None
@@ -436,9 +604,12 @@ class CPRScraper:
             CPR database with updated data
         """
         logger.info(f"Starting multi-stage CPR scrape")
-        
-        # Load existing CPR database
+
+        # Load existing CPR database (v1 — unchanged)
         cpr_data = self._load_cpr_database()
+
+        # Load CPR v2 database (crime-name keyed)
+        v2_data = self._load_cpr_v2_database()
         
         # Get current faction members - this is our source of truth
         torn_api_key = os.environ.get('TORN_API_KEY')
@@ -536,7 +707,15 @@ class CPRScraper:
                     members_updated_from_crimes += 1
             
             logger.info(f"Stage 2 complete: Updated {members_updated_from_crimes} members from available crimes")
-            
+
+            # ── v2 addendum: attribute filled-slot CPR by crime name ─────────
+            try:
+                v2_entries = self._extract_cpr_v2_from_crimes(crimes_response, member_id_context=None)
+                v2_stage2_count = self._merge_cpr_v2(v2_data, v2_entries)
+                logger.info(f"CPR v2 Stage 2: {v2_stage2_count} records merged from available crimes")
+            except Exception as v2_err:
+                logger.warning(f"CPR v2 Stage 2 extraction failed (non-fatal): {v2_err}")
+
         except Exception as e:
             logger.error(f"Failed to extract CPR from available crimes: {e}")
             logger.warning("Continuing with individual member scrapes...")
@@ -562,7 +741,7 @@ class CPRScraper:
             logger.info(f"Processing {i}/{len(self.member_api_keys)}: {member_name} ({member_id})")
             
             try:
-                success, updates, error_msg = self.scrape_member(member_id, api_key, member_name, cpr_data)
+                success, updates, error_msg = self.scrape_member(member_id, api_key, member_name, cpr_data, v2_data=v2_data)
 
                 if success:
                     stats['successful_scrapes'] += 1
@@ -585,8 +764,14 @@ class CPRScraper:
         # No extra cleanup needed — members without a key simply have cpr_api_key = NULL already.
         # The scraper only touches cpr_api_key when a key actively fails validation.
 
-        # Save the updated CPR database
+        # Save the updated CPR databases
         self._save_cpr_database(cpr_data)
+
+        # Save CPR v2 database (crime-name keyed)
+        try:
+            self._save_cpr_v2_database(v2_data)
+        except Exception as v2_err:
+            logger.warning(f"CPR v2 save failed (non-fatal): {v2_err}")
 
         logger.info("\n" + "="*70)
         logger.info("CPR SCRAPE SUMMARY")
