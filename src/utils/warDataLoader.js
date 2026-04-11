@@ -86,19 +86,31 @@ export async function loadWarContributions(warId) {
  * @returns {Promise<Array>}
  */
 export async function loadFactionAttacksByWindow(startAt, endAt) {
-  let query = supabase
-    .from('faction_attacks')
-    .select('*')
-    .gte('started', startAt)
-    .order('started', { ascending: false })
+  const PAGE_SIZE = 1000
+  const all = []
+  let offset = 0
 
-  if (endAt && endAt > 0) {
-    query = query.lte('started', endAt)
+  while (true) {
+    let query = supabase
+      .from('faction_attacks')
+      .select('*')
+      .gte('started', startAt)
+      .order('started', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1)
+
+    if (endAt && endAt > 0) {
+      query = query.lte('started', endAt)
+    }
+
+    const { data, error } = await query
+    if (error) throw error
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE_SIZE) break
+    offset += PAGE_SIZE
   }
 
-  const { data, error } = await query
-  if (error) throw error
-  return data || []
+  return all
 }
 
 /**

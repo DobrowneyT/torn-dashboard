@@ -119,7 +119,7 @@ export function buildMemberAttackStats(attacks) {
 
     if (result === 'Assist') {
       s.assists += 1
-    } else if (result === 'Lost') {
+    } else if (result === 'Lost' || result === 'Timeout' || result === 'Interrupted') {
       s.losses += 1
     } else if (WIN_RESULTS.has(result)) {
       s.won += 1
@@ -135,7 +135,7 @@ export function buildMemberAttackStats(attacks) {
         }
       }
     }
-    // Stalemate, Timeout, Escape, Interrupted → not counted in any column
+    // Stalemate, Escape, Special → not counted in any column
   }
 
   return stats
@@ -198,6 +198,14 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     rewardsItems,
     cachePrices,
     factionCutPercent = 20,
+    // Attack multipliers
+    warHitMultiplier  =  1.25,
+    assistMultiplier  =  0.50,
+    lossMultiplier    =  0.50,
+    mugMultiplier     = -1.00,
+    // Weight split (must sum to 1; caller is responsible for normalising)
+    participationWeight = 0.50,
+    contributionWeight  = 0.50,
   } = settings
 
   const { totalCacheValue, breakdown } = calculateCacheValue(rewardsItems, cachePrices)
@@ -212,11 +220,11 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
       leaves: 0, mugs: 0, hosp: 0, warHits: 0, won: 0, assists: 0, losses: 0, bonusRespect: 0,
     }
 
-    // Participation score  (war hit score + mug penalty + assist + loss)
-    const warHitScore  =  s.warHits * 1.25
-    const mugScore     =  s.mugs    * -1.0   // penalty regardless of war/non-war
-    const assistScore  =  s.assists * 0.5
-    const lossScore    =  s.losses  * 0.5
+    // Participation score
+    const warHitScore  = s.warHits * warHitMultiplier
+    const mugScore     = s.mugs    * mugMultiplier
+    const assistScore  = s.assists * assistMultiplier
+    const lossScore    = s.losses  * lossMultiplier
     const participationScore = warHitScore + mugScore + assistScore + lossScore
     // regularHits (non-war wins) multiply at ×0, so they're shown but don't contribute
 
@@ -238,10 +246,10 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
       losses:    s.losses,
       totalHits: s.won + s.assists + s.losses,
       // Participation breakdown
-      warHitScore:       Math.round(warHitScore  * 100) / 100,
-      assistScore:       Math.round(assistScore  * 100) / 100,
-      lossScore:         Math.round(lossScore    * 100) / 100,
-      mugScore:          Math.round(mugScore     * 100) / 100,
+      warHitScore:        Math.round(warHitScore        * 100) / 100,
+      assistScore:        Math.round(assistScore        * 100) / 100,
+      lossScore:          Math.round(lossScore          * 100) / 100,
+      mugScore:           Math.round(mugScore           * 100) / 100,
       participationScore: Math.round(participationScore * 100) / 100,
       // Contribution breakdown
       respectGained,
@@ -263,7 +271,7 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     const contributionShare = totalAdjustedRespect > 0
       ? m.adjustedRespect / totalAdjustedRespect
       : 0
-    const effortShare = (participationShare + contributionShare) / 2
+    const effortShare = participationShare * participationWeight + contributionShare * contributionWeight
     const payoutAmount = Math.floor(effortShare * memberPool)
     const isEligible = payoutAmount > 0
 

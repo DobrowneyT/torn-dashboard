@@ -254,11 +254,6 @@ class FactionAttacksUpdater:
             current_from = last_started
             page += 1
 
-            # Safety limit
-            if page > 500:
-                logger.warning("Hit 500-page safety limit, stopping")
-                break
-
         db['attacks'] = existing
         self._save_database(db)
 

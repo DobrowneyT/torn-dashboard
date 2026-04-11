@@ -37,24 +37,29 @@ const SAMPLE_CONTRIBUTIONS = [
   { member_id: 300, member_name: 'Carol', score: 200, attacks:  4 },
 ]
 
+// All attacks are outgoing (is_incoming: false) ranked-war attacks.
+// Alice: 4 hosp war hits + 1 loss
+// Bob:   2 mug war hits + 1 assist
+// Carol: 1 leaf (Attacked) war hit + 1 assist
+// Member 999: different faction — should be ignored
 const SAMPLE_ATTACKS = [
-  // Alice: 4 successful, avg fair_fight 2.0
-  { id: 1, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5 },
-  { id: 2, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5 },
-  { id: 3, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5 },
-  { id: 4, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5 },
-  // Bob: 2 successful, avg fair_fight 1.5
-  { id: 5, attacker_id: 200, attacker_faction_id: 10739, result: 'Mugged',       fair_fight: 1.5, respect_gain: 3 },
-  { id: 6, attacker_id: 200, attacker_faction_id: 10739, result: 'Mugged',       fair_fight: 1.5, respect_gain: 3 },
-  // Carol: 1 successful
-  { id: 7, attacker_id: 300, attacker_faction_id: 10739, result: 'Attacked',     fair_fight: 1.0, respect_gain: 2 },
+  // Alice — 4 ranked-war hosp hits
+  { id: 1, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5, is_ranked_war: true,  is_incoming: false, chain: 1 },
+  { id: 2, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5, is_ranked_war: true,  is_incoming: false, chain: 2 },
+  { id: 3, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5, is_ranked_war: true,  is_incoming: false, chain: 3 },
+  { id: 4, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5, is_ranked_war: true,  is_incoming: false, chain: 4 },
+  // Bob — 2 ranked-war mugs + 1 assist
+  { id: 5, attacker_id: 200, attacker_faction_id: 10739, result: 'Mugged',       fair_fight: 1.5, respect_gain: 3, is_ranked_war: true,  is_incoming: false, chain: 1 },
+  { id: 6, attacker_id: 200, attacker_faction_id: 10739, result: 'Mugged',       fair_fight: 1.5, respect_gain: 3, is_ranked_war: true,  is_incoming: false, chain: 2 },
+  // Carol — 1 ranked-war attack + 1 assist
+  { id: 7, attacker_id: 300, attacker_faction_id: 10739, result: 'Attacked',     fair_fight: 1.0, respect_gain: 2, is_ranked_war: true,  is_incoming: false, chain: 1 },
   // Non-our-faction attack (should be ignored)
-  { id: 8, attacker_id: 999, attacker_faction_id: 41929, result: 'Hospitalized', fair_fight: 3.0, respect_gain: 10 },
-  // Lost attack (not successful)
-  { id: 9,  attacker_id: 100, attacker_faction_id: 10739, result: 'Lost',         fair_fight: 1.0, respect_gain: 0 },
-  // Assist attacks — should count at reduced rate
-  { id: 10, attacker_id: 200, attacker_faction_id: 10739, result: 'Assist',       fair_fight: 2.0, respect_gain: 1 },
-  { id: 11, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist',       fair_fight: 2.0, respect_gain: 1 },
+  { id: 8, attacker_id: 999, attacker_faction_id: 41929, result: 'Hospitalized', fair_fight: 3.0, respect_gain: 10, is_ranked_war: true, is_incoming: false, chain: 1 },
+  // Alice — 1 loss
+  { id: 9, attacker_id: 100, attacker_faction_id: 10739, result: 'Lost',         fair_fight: 1.0, respect_gain: 0, is_ranked_war: false, is_incoming: false, chain: 0 },
+  // Bob + Carol — assists
+  { id: 10, attacker_id: 200, attacker_faction_id: 10739, result: 'Assist',      fair_fight: 2.0, respect_gain: 1, is_ranked_war: true,  is_incoming: false, chain: 1 },
+  { id: 11, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist',      fair_fight: 2.0, respect_gain: 1, is_ranked_war: true,  is_incoming: false, chain: 1 },
 ]
 
 
@@ -187,61 +192,77 @@ describe('buildMemberAttackStats', () => {
     expect(stats.has(999)).toBe(false)  // opponent attacker ignored
   })
 
-  it('counts successful attacks correctly', () => {
+  it('counts won attacks correctly', () => {
     const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
-    expect(stats.get(100).successfulAttacks).toBe(4)
-    expect(stats.get(200).successfulAttacks).toBe(2)
-    expect(stats.get(300).successfulAttacks).toBe(1)
+    // Alice: 4 Hospitalized wins; Bob: 2 Mugged wins; Carol: 1 Attacked win
+    expect(stats.get(100).won).toBe(4)
+    expect(stats.get(200).won).toBe(2)
+    expect(stats.get(300).won).toBe(1)
   })
 
-  it('does not count Lost as successful', () => {
+  it('does not count Lost as a win', () => {
     const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
-    // Alice: 4 Hospitalized + 1 Lost = 4 successful, 5 total
-    expect(stats.get(100).successfulAttacks).toBe(4)
-    expect(stats.get(100).totalAttacks).toBe(5)
+    // Alice: 4 wins + 1 loss
+    expect(stats.get(100).won).toBe(4)
+    expect(stats.get(100).losses).toBe(1)
   })
 
-  it('counts assists separately from successful attacks', () => {
+  it('counts assists separately', () => {
     const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
-    expect(stats.get(200).assistAttacks).toBe(1)  // Bob has 1 Assist
-    expect(stats.get(300).assistAttacks).toBe(1)  // Carol has 1 Assist
-    expect(stats.get(100).assistAttacks).toBe(0)  // Alice has no assists
+    expect(stats.get(100).assists).toBe(0)
+    expect(stats.get(200).assists).toBe(1)
+    expect(stats.get(300).assists).toBe(1)
   })
 
-  it('applies assistMultiplier to weightedSuccessful', () => {
-    const stats = buildMemberAttackStats(SAMPLE_ATTACKS, 0.25)
-    // Bob: 2 successful + 1 assist * 0.25 = 2.25
-    expect(stats.get(200).weightedSuccessful).toBeCloseTo(2.25)
-    // Carol: 1 successful + 1 assist * 0.25 = 1.25
-    expect(stats.get(300).weightedSuccessful).toBeCloseTo(1.25)
-    // Alice: 4 successful + 0 assists = 4.0
-    expect(stats.get(100).weightedSuccessful).toBeCloseTo(4.0)
+  it('counts ranked-war hits (warHits)', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    // Alice: 4 ranked-war hosp hits; Bob: 2 ranked-war mugs; Carol: 1 ranked-war attack
+    expect(stats.get(100).warHits).toBe(4)
+    expect(stats.get(200).warHits).toBe(2)
+    expect(stats.get(300).warHits).toBe(1)
   })
 
-  it('weightedSuccessful equals successfulAttacks when no assists', () => {
-    const stats = buildMemberAttackStats(SAMPLE_ATTACKS, 0.25)
-    expect(stats.get(100).weightedSuccessful).toBe(stats.get(100).successfulAttacks)
+  it('counts mugs separately from other wins', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    expect(stats.get(200).mugs).toBe(2)
+    expect(stats.get(100).mugs).toBe(0)
+    expect(stats.get(300).mugs).toBe(0)
   })
 
-  it('zero assistMultiplier makes assists count nothing', () => {
-    const stats = buildMemberAttackStats(SAMPLE_ATTACKS, 0)
-    expect(stats.get(200).weightedSuccessful).toBe(2)  // only successful attacks
+  it('counts hosp and leaves separately', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    expect(stats.get(100).hosp).toBe(4)
+    expect(stats.get(100).leaves).toBe(0)
+    expect(stats.get(300).leaves).toBe(1)
+    expect(stats.get(300).hosp).toBe(0)
   })
 
-  it('full assistMultiplier (1.0) makes assists count as full attacks', () => {
-    const stats = buildMemberAttackStats(SAMPLE_ATTACKS, 1.0)
-    expect(stats.get(200).weightedSuccessful).toBe(3)  // 2 + 1
+  it('counts totalHits as won + assists + losses', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    // Alice: 4 won + 0 assists + 1 loss = 5
+    const a = stats.get(100)
+    expect(a.won + a.assists + a.losses).toBe(5)
+    // Bob: 2 won + 1 assist + 0 losses = 3
+    const b = stats.get(200)
+    expect(b.won + b.assists + b.losses).toBe(3)
   })
 
-  it('computes avg fair fight weighted by assist multiplier', () => {
-    const stats = buildMemberAttackStats(SAMPLE_ATTACKS, 0.25)
-    // Alice: 4 successful at FF=2.0 → avg = 2.0
-    expect(stats.get(100).avgFairFight).toBeCloseTo(2.0)
-    // Bob: 2 successful at FF=1.5 + 1 assist at FF=2.0*0.25 weight
-    //   fairFightSum = 1.5+1.5 + 2.0*0.25 = 3.0 + 0.5 = 3.5
-    //   weightedCount = 2 + 0.25 = 2.25
-    //   avg = 3.5 / 2.25 ≈ 1.556
-    expect(stats.get(200).avgFairFight).toBeCloseTo(3.5 / 2.25)
+  it('does not count Timeout and Interrupted as wins', () => {
+    const extra = [
+      { id: 20, attacker_id: 100, attacker_faction_id: 10739, result: 'Timeout',     is_incoming: false, is_ranked_war: false, chain: 0, respect_gain: 0 },
+      { id: 21, attacker_id: 100, attacker_faction_id: 10739, result: 'Interrupted', is_incoming: false, is_ranked_war: false, chain: 0, respect_gain: 0 },
+    ]
+    const stats = buildMemberAttackStats(extra)
+    expect(stats.get(100).won).toBe(0)
+    expect(stats.get(100).losses).toBe(2)
+  })
+
+  it('ignores incoming attacks', () => {
+    const incoming = [
+      { id: 30, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_incoming: true, is_ranked_war: true, chain: 1, respect_gain: 5 },
+    ]
+    const stats = buildMemberAttackStats(incoming)
+    expect(stats.size).toBe(0)
   })
 
   it('returns empty map for empty attacks array', () => {
@@ -260,11 +281,12 @@ describe('calculateRealWarPayouts', () => {
     rewardsItems: SAMPLE_REWARDS,
     cachePrices: CACHE_PRICES,
     factionCutPercent: 20,
-    scoreMultiplier: 1.0,
-    attacksWeight: 0.5,
-    effortWeight: 0.5,
-    assistMultiplier: 0.25,
-    minPayoutThreshold: 0,
+    warHitMultiplier:    1.25,
+    assistMultiplier:    0.50,
+    lossMultiplier:      0.50,
+    mugMultiplier:      -1.00,
+    participationWeight: 0.50,
+    contributionWeight:  0.50,
   }
 
   it('payouts sum to approximately the member payout pool', () => {
@@ -277,12 +299,12 @@ describe('calculateRealWarPayouts', () => {
     expect(totalPaid).toBeGreaterThan(memberPayoutPool * 0.99)
   })
 
-  it('share percents sum to 1.0', () => {
+  it('effort shares sum to 1.0', () => {
     const { members } = calculateRealWarPayouts(
       SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
     )
-    const totalShare = members.reduce((s, m) => s + m.sharePercent, 0)
-    expect(totalShare).toBeCloseTo(1.0, 5)
+    const totalEffort = members.reduce((s, m) => s + m.effortShare, 0)
+    expect(totalEffort).toBeCloseTo(1.0, 5)
   })
 
   it('member with zero score and zero attacks still gets a result (0 payout)', () => {
@@ -305,14 +327,6 @@ describe('calculateRealWarPayouts', () => {
     expect(members[0].payoutAmount).toBeGreaterThan(memberPayoutPool * 0.99)
   })
 
-  it('minPayoutThreshold filters out low payouts', () => {
-    // With a very high threshold, most members should get 0
-    const settings = { ...baseSettings, minPayoutThreshold: 999_999_999 }
-    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
-    expect(members.every(m => m.payoutAmount === 0)).toBe(true)
-    expect(members.every(m => !m.isEligible)).toBe(true)
-  })
-
   it('applies faction cut correctly to pool', () => {
     const { cacheValue, memberPayoutPool } = calculateRealWarPayouts(
       SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
@@ -329,6 +343,34 @@ describe('calculateRealWarPayouts', () => {
     const alice = members.find(m => m.memberId === 100)
     const carol = members.find(m => m.memberId === 300)
     expect(alice.payoutAmount).toBeGreaterThan(carol.payoutAmount)
+  })
+
+  it('mug penalty reduces participation share', () => {
+    // Bob has 2 mugs (×−1) which reduces his participation score vs Carol who has 1 war hit + 1 assist
+    const { members } = calculateRealWarPayouts(
+      SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
+    )
+    const bob   = members.find(m => m.memberId === 200)
+    const carol = members.find(m => m.memberId === 300)
+    // Bob: participationScore = 2*1.25 + 2*-1 + 1*0.5 = 2.5 - 2 + 0.5 = 1.0
+    // Carol: participationScore = 1*1.25 + 1*0.5 = 1.75
+    expect(carol.participationScore).toBeGreaterThan(bob.participationScore)
+  })
+
+  it('participationWeight and contributionWeight shift payout distribution', () => {
+    // Pure contribution weighting (100% contribution)
+    const contribOnly = { ...baseSettings, participationWeight: 0, contributionWeight: 1 }
+    const { members: cm } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, contribOnly)
+    // Alice (score=500) should have the largest contribution share
+    const sorted = cm.slice().sort((a, b) => b.payoutAmount - a.payoutAmount)
+    expect(sorted[0].memberId).toBe(100) // Alice has highest score
+  })
+
+  it('overBudgetWarning is always false (formula distributes exactly the pool)', () => {
+    const { overBudgetWarning } = calculateRealWarPayouts(
+      SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
+    )
+    expect(overBudgetWarning).toBe(false)
   })
 })
 
