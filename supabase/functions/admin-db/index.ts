@@ -164,7 +164,7 @@ serve(async (req: Request) => {
         result = await handleUpdateWarIsTermed(supabase, body)
         break
       case 'submit_cpr_key':
-        result = await handleSubmitCprKey(supabase, body, authResult.userId)
+        result = await handleSubmitCprKey(supabase, body, authResult.userId!)
         break
       default:
         return new Response(
@@ -990,7 +990,7 @@ async function handleSubmitCprKey(supabase: any, body: RequestBody, userId: stri
     if (error) throw error
   } else {
     // Encrypt via pgp_sym_encrypt inside the SECURITY DEFINER function
-    const cprSecret = Deno.env.get('CPR_KEY_SECRET')
+    const cprSecret = Deno.env.get('CPR_KEY_SECRET')!
     if (!cprSecret) throw new Error('CPR_KEY_SECRET not configured on this server')
 
     const { error } = await supabase.rpc('set_member_cpr_key', {

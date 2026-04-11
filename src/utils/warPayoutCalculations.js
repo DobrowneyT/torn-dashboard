@@ -1,24 +1,37 @@
 /**
  * War Payout Calculations
  *
- * Two payout modes:
- *   - 'termed': flat amount if member score >= minScoreThreshold
- *   - 'real':   weighted formula using war report score + attack effort data
+ * Exact formula matching the faction DL War Pay spreadsheet:
  *
- * Cache value is the only payout pool (no money rewards in ranked wars).
- * Faction cut is applied before distributing.
+ *  PARTICIPATION (from faction_attacks outgoing hits)
+ *    War hit  (is_ranked_war=true, won)         × 1.25
+ *    Assist   (result='Assist')                  × 0.50
+ *    Loss     (result='Lost')                    × 0.50
+ *    Mug      (result='Mugged', any target)      × −1.00  (penalty, stacks with War hit)
+ *    Regular  (won, is_ranked_war=false)          × 0.00
+ *
+ *    participationShare[i] = max(0, score[i]) / Σ max(0, score[j])
+ *
+ *  CONTRIBUTION (from rankedwarreport score + faction_attacks chain bonuses)
+ *    Respect gained   = score from war_member_contributions (API source of truth)
+ *    Bonus respect    = Σ (respect_gain − 10) for outgoing ranked-war attacks
+ *                       where chain ∈ BONUS_HITS (auto-normalized)
+ *    Adjusted respect = max(0, Respect gained − Bonus respect)
+ *    contributionShare[i] = adjusted[i] / Σ adjusted[j]
+ *
+ *  EFFORT & PAYOUT
+ *    effortShare[i] = (participationShare[i] + contributionShare[i]) / 2
+ *    payout[i]      = floor(effortShare[i] × memberPool)
+ *    memberPool     = floor(totalCacheValue × (1 − factionCut/100))
  */
 
-// Our faction ID — kept in sync with config
 const OUR_FACTION_ID = 10739
 
-// Attack results considered "successful" (full credit) for effort scoring
-const SUCCESSFUL_RESULTS = new Set([
-  'Attacked', 'Mugged', 'Hospitalized', 'Arrested', 'Looted'
-])
+// Torn chain milestones that inflate respect gain
+export const BONUS_HITS = new Set([10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000])
 
-// Assist attacks are tracked separately and weighted by assistMultiplier (< 1.0)
-const ASSIST_RESULT = 'Assist'
+// Win result types from the Torn API
+const WIN_RESULTS = new Set(['Attacked', 'Mugged', 'Hospitalized', 'Arrested', 'Looted'])
 
 // Item name → price field mapping (matches war_payouts table columns)
 export const CACHE_ITEM_MAP = {
@@ -32,10 +45,6 @@ export const CACHE_ITEM_MAP = {
 
 /**
  * Calculate total cache value from war report rewards and user-entered prices.
- *
- * @param {Array} rewardsItems - [{id, name, quantity}] from war.rewards_items (JSONB)
- * @param {object} cachePrices - { price_melee_cache, price_armor_cache, ... }
- * @returns {{ totalCacheValue: number, breakdown: Array }}
  */
 export function calculateCacheValue(rewardsItems, cachePrices) {
   if (!rewardsItems || rewardsItems.length === 0) {
@@ -53,12 +62,7 @@ export function calculateCacheValue(rewardsItems, cachePrices) {
     const qty = Number(item.quantity) || 0
     const value = price * qty
 
-    breakdown.push({
-      name: item.name,
-      quantity: qty,
-      priceEach: price,
-      totalValue: value,
-    })
+    breakdown.push({ name: item.name, quantity: qty, priceEach: price, totalValue: value })
     totalCacheValue += value
   }
 
@@ -67,21 +71,80 @@ export function calculateCacheValue(rewardsItems, cachePrices) {
 
 
 /**
+ * Build per-member attack breakdown from faction_attacks rows within a war window.
+ *
+ * Only considers outgoing attacks by our faction (is_incoming=false, attacker_faction_id=OUR).
+ *
+ * Column definitions matching the spreadsheet:
+ *   leaves     — wins where result ∈ {Attacked, Arrested, Looted}
+ *   mugs       — wins where result = Mugged  (penalty in participation, independent of war/non-war)
+ *   hosp       — wins where result = Hospitalized
+ *   warHits    — wins (any result) where is_ranked_war = true  (overlaps with above)
+ *   won        — leaves + mugs + hosp  (total wins)
+ *   assists    — result = Assist
+ *   losses     — result = Lost
+ *   totalHits  — won + assists + losses
+ *   bonusRespect — Σ max(0, respect_gain − 10) for outgoing ranked-war attacks at bonus chain counts
+ *
+ * @param {Array} attacks - faction_attacks rows (pre-filtered to war window)
+ * @returns {Map<number, object>} memberId → stats object
+ */
+export function buildMemberAttackStats(attacks) {
+  const stats = new Map()
+
+  for (const attack of attacks) {
+    // Only outgoing attacks by our faction
+    if (attack.is_incoming === true || attack.is_incoming === 'true' || attack.is_incoming === 1) continue
+    if (attack.attacker_faction_id !== OUR_FACTION_ID) continue
+
+    const memberId = attack.attacker_id
+    if (!stats.has(memberId)) {
+      stats.set(memberId, {
+        leaves: 0,
+        mugs: 0,
+        hosp: 0,
+        warHits: 0,
+        won: 0,
+        assists: 0,
+        losses: 0,
+        bonusRespect: 0,
+      })
+    }
+
+    const s = stats.get(memberId)
+    const result = attack.result || ''
+    const respectGain = parseFloat(attack.respect_gain) || 0
+    const chain = Number(attack.chain) || 0
+    const isRankedWar = attack.is_ranked_war === true || attack.is_ranked_war === 'true' || attack.is_ranked_war === 1
+
+    if (result === 'Assist') {
+      s.assists += 1
+    } else if (result === 'Lost') {
+      s.losses += 1
+    } else if (WIN_RESULTS.has(result)) {
+      s.won += 1
+      if (result === 'Mugged') s.mugs += 1
+      else if (result === 'Hospitalized') s.hosp += 1
+      else s.leaves += 1  // Attacked, Arrested, Looted
+
+      if (isRankedWar) {
+        s.warHits += 1
+        // Normalize bonus chain hits: subtract the inflated portion, leaving a base of 10
+        if (BONUS_HITS.has(chain)) {
+          s.bonusRespect += Math.max(0, respectGain - 10)
+        }
+      }
+    }
+    // Stalemate, Timeout, Escape, Interrupted → not counted in any column
+  }
+
+  return stats
+}
+
+
+/**
  * Calculate termed war payouts.
  * Members with score >= minScoreThreshold each receive flatPayoutAmount.
- *
- * @param {Array} contributions - war_member_contributions rows (our faction only)
- * @param {object} settings - {
- *   rewardsItems, cachePrices, factionCutPercent,
- *   minScoreThreshold, flatPayoutAmount
- * }
- * @returns {{
- *   members: Array,
- *   totalPayout: number,
- *   cacheValue: number,
- *   memberPayoutPool: number,
- *   overBudgetWarning: boolean
- * }}
  */
 export function calculateTermedWarPayouts(contributions, settings) {
   const {
@@ -124,217 +187,131 @@ export function calculateTermedWarPayouts(contributions, settings) {
 
 
 /**
- * Build per-member attack stats from faction_attacks rows filtered to a war window.
- * Only considers outgoing attacks made by our faction (attacker_faction_id === OUR_FACTION_ID).
- *
- * Assists count at a reduced rate (assistMultiplier < 1.0) toward the weighted effort score.
- * This rewards members who assisted teammates during the war without giving full credit.
- *
- * @param {Array}  attacks          - faction_attacks rows (pre-filtered to war window)
- * @param {number} assistMultiplier - Fraction of a full attack that an assist counts as (default 0.25)
- * @returns {Map<number, object>} memberId → {
- *   totalAttacks, successfulAttacks, assistAttacks,
- *   weightedSuccessful, totalRespect, avgFairFight
- * }
- */
-export function buildMemberAttackStats(attacks, assistMultiplier = 0.25) {
-  const stats = new Map()
-
-  for (const attack of attacks) {
-    if (attack.attacker_faction_id !== OUR_FACTION_ID) continue
-
-    const memberId = attack.attacker_id
-    if (!stats.has(memberId)) {
-      stats.set(memberId, {
-        totalAttacks: 0,
-        successfulAttacks: 0,
-        assistAttacks: 0,
-        totalRespect: 0,
-        fairFightSum: 0,
-        weightedFairFightCount: 0,
-      })
-    }
-
-    const s = stats.get(memberId)
-    s.totalAttacks += 1
-
-    const result = attack.result || ''
-    if (result === ASSIST_RESULT) {
-      s.assistAttacks += 1
-      // Assists contribute at assistMultiplier weight toward avg fair fight
-      s.fairFightSum += (Number(attack.fair_fight) || 1) * assistMultiplier
-      s.weightedFairFightCount += assistMultiplier
-    } else if (SUCCESSFUL_RESULTS.has(result)) {
-      s.successfulAttacks += 1
-      s.fairFightSum += Number(attack.fair_fight) || 1
-      s.weightedFairFightCount += 1
-    }
-
-    s.totalRespect += Number(attack.respect_gain) || 0
-  }
-
-  // Compute derived fields
-  for (const [, s] of stats) {
-    s.weightedSuccessful = s.successfulAttacks + (s.assistAttacks * assistMultiplier)
-    s.avgFairFight = s.weightedFairFightCount > 0
-      ? s.fairFightSum / s.weightedFairFightCount
-      : 1
-  }
-
-  return stats
-}
-
-
-/**
- * Calculate real war payouts using a weighted composite formula.
- *
- * Formula:
- *   scorePercent[i]   = member.score / totalFactionScore
- *   attackEffort[i]   = (successfulAttacks[i] / maxSuccessfulInWar) * avgFairFight[i]
- *   composite[i]      = (scorePercent[i] * scoreMultiplier * attacksWeight)
- *                     + (attackEffort[i] * effortWeight)
- *   sharePercent[i]   = composite[i] / sum(composite)
- *   rawPayout[i]      = floor(sharePercent[i] * memberPayoutPool)
- *   payout[i]         = rawPayout[i] >= minPayoutThreshold ? rawPayout[i] : 0
+ * Calculate real war payouts using the exact spreadsheet formula.
  *
  * @param {Array} contributions - war_member_contributions rows (our faction only)
- * @param {Array} attacks - war_attacks rows
- * @param {object} settings - {
- *   rewardsItems, cachePrices, factionCutPercent,
- *   scoreMultiplier, attacksWeight, effortWeight, minPayoutThreshold
- * }
- * @returns {{
- *   members: Array,
- *   totalPayout: number,
- *   cacheValue: number,
- *   memberPayoutPool: number,
- * }}
+ * @param {Array} attacks       - faction_attacks rows (pre-filtered to war window)
+ * @param {object} settings     - { rewardsItems, cachePrices, factionCutPercent }
  */
 export function calculateRealWarPayouts(contributions, attacks, settings) {
   const {
     rewardsItems,
     cachePrices,
     factionCutPercent = 20,
-    scoreMultiplier = 1.0,
-    attacksWeight = 0.5,
-    effortWeight = 0.5,
-    assistMultiplier = 0.25,
-    minPayoutThreshold = 0,
   } = settings
 
   const { totalCacheValue, breakdown } = calculateCacheValue(rewardsItems, cachePrices)
-  const memberPayoutPool = Math.floor(totalCacheValue * (1 - factionCutPercent / 100))
+  const memberPool = Math.floor(totalCacheValue * (1 - factionCutPercent / 100))
 
-  const attackStats = buildMemberAttackStats(attacks, Number(assistMultiplier))
-  const totalWarScore = contributions.reduce((sum, m) => sum + (Number(m.score) || 0), 0)
+  const attackStats = buildMemberAttackStats(attacks)
 
-  // Find max weighted successful attacks for normalization
-  let maxSuccessful = 0
-  for (const s of attackStats.values()) {
-    if (s.weightedSuccessful > maxSuccessful) maxSuccessful = s.weightedSuccessful
-  }
-
-  // Step 1: Compute composite scores
+  // ── Step 1: raw per-member data ────────────────────────────────────
   const memberData = contributions.map(m => {
     const memberId = m.member_id
-    const score = Number(m.score) || 0
-    const scorePercent = totalWarScore > 0 ? score / totalWarScore : 0
+    const s = attackStats.get(memberId) ?? {
+      leaves: 0, mugs: 0, hosp: 0, warHits: 0, won: 0, assists: 0, losses: 0, bonusRespect: 0,
+    }
 
-    const stats = attackStats.get(memberId) || { weightedSuccessful: 0, successfulAttacks: 0, assistAttacks: 0, avgFairFight: 1 }
-    const attackEffort = maxSuccessful > 0
-      ? (stats.weightedSuccessful / maxSuccessful) * stats.avgFairFight
-      : 0
+    // Participation score  (war hit score + mug penalty + assist + loss)
+    const warHitScore  =  s.warHits * 1.25
+    const mugScore     =  s.mugs    * -1.0   // penalty regardless of war/non-war
+    const assistScore  =  s.assists * 0.5
+    const lossScore    =  s.losses  * 0.5
+    const participationScore = warHitScore + mugScore + assistScore + lossScore
+    // regularHits (non-war wins) multiply at ×0, so they're shown but don't contribute
 
-    const composite = (scorePercent * Number(scoreMultiplier) * Number(attacksWeight))
-                    + (attackEffort * Number(effortWeight))
+    // Contribution score
+    const respectGained   = Number(m.score) || 0
+    const bonusRespect    = Math.round(s.bonusRespect * 100) / 100
+    const adjustedRespect = Math.max(0, respectGained - bonusRespect)
 
     return {
       memberId,
       memberName: m.member_name,
-      score,
-      attacks: m.attacks || 0,
-      successfulAttacks: stats.successfulAttacks,
-      assistAttacks: stats.assistAttacks,
-      weightedSuccessful: Math.round(stats.weightedSuccessful * 100) / 100,
-      avgFairFight: Math.round(stats.avgFairFight * 100) / 100,
-      scorePercent,
-      attackEffort,
-      composite,
+      // Hit report
+      leaves:    s.leaves,
+      mugs:      s.mugs,
+      hosp:      s.hosp,
+      warHits:   s.warHits,
+      won:       s.won,
+      assists:   s.assists,
+      losses:    s.losses,
+      totalHits: s.won + s.assists + s.losses,
+      // Participation breakdown
+      warHitScore:       Math.round(warHitScore  * 100) / 100,
+      assistScore:       Math.round(assistScore  * 100) / 100,
+      lossScore:         Math.round(lossScore    * 100) / 100,
+      mugScore:          Math.round(mugScore     * 100) / 100,
+      participationScore: Math.round(participationScore * 100) / 100,
+      // Contribution breakdown
+      respectGained,
+      bonusRespect,
+      adjustedRespect,
     }
   })
 
-  // Step 2: Normalize
-  const totalComposite = memberData.reduce((sum, m) => sum + m.composite, 0)
+  // ── Step 2: shares ─────────────────────────────────────────────────
+  // Members with negative participation score get 0 share (don't dilute the pool)
+  const totalParticipation   = memberData.reduce((s, m) => s + Math.max(0, m.participationScore), 0)
+  const totalAdjustedRespect = memberData.reduce((s, m) => s + m.adjustedRespect, 0)
 
-  // Step 3: Compute payouts
+  // ── Step 3: payouts ────────────────────────────────────────────────
   const members = memberData.map(m => {
-    const sharePercent = totalComposite > 0 ? m.composite / totalComposite : 0
-    const rawPayout = Math.floor(sharePercent * memberPayoutPool)
-    const isEligible = rawPayout >= Number(minPayoutThreshold)
+    const participationShare = totalParticipation > 0
+      ? Math.max(0, m.participationScore) / totalParticipation
+      : 0
+    const contributionShare = totalAdjustedRespect > 0
+      ? m.adjustedRespect / totalAdjustedRespect
+      : 0
+    const effortShare = (participationShare + contributionShare) / 2
+    const payoutAmount = Math.floor(effortShare * memberPool)
+    const isEligible = payoutAmount > 0
 
     return {
       ...m,
-      sharePercent,
-      rawPayout,
+      participationShare,
+      contributionShare,
+      effortShare,
       isEligible,
-      payoutAmount: isEligible ? rawPayout : 0,
+      payoutAmount,
     }
   })
 
-  const totalPayout = members.reduce((sum, m) => sum + m.payoutAmount, 0)
+  const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
 
   return {
     members,
     totalPayout,
     cacheValue: totalCacheValue,
     cacheBreakdown: breakdown,
-    memberPayoutPool,
+    memberPayoutPool: memberPool,
+    overBudgetWarning: false, // formula distributes exactly the pool
   }
 }
 
 
 /**
  * Generate the Torn batch balance URL for war payouts.
- * Only includes members who are eligible AND have payout > 0.
- *
- * @param {Array} members - Payout results with { memberId, payoutAmount, isEligible }
- * @returns {string} Torn URL or empty string if no eligible members
  */
 export function generateWarBatchPayoutURL(members) {
   const eligible = members.filter(m => m.isEligible && m.payoutAmount > 0)
   if (eligible.length === 0) return ''
 
-  const uids = eligible.map(m => m.memberId).join(',')
+  const uids    = eligible.map(m => m.memberId).join(',')
   const amounts = eligible.map(m => Math.floor(m.payoutAmount)).join(',')
-
   return `https://www.torn.com/factions.php?step=your#/tab=controls&batbal_uids=${uids}&batbal_amounts=${amounts}`
 }
 
 
-/**
- * Format a Unix timestamp as a human-readable date string.
- *
- * @param {number} timestamp - Unix timestamp (seconds)
- * @returns {string}
- */
 export function formatWarDate(timestamp) {
   if (!timestamp) return 'N/A'
   return new Date(timestamp * 1000).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'short', day: 'numeric'
+    year: 'numeric', month: 'short', day: 'numeric',
   })
 }
 
-
-/**
- * Format a war's date range as a display string.
- *
- * @param {number} startAt - Unix timestamp
- * @param {number|null} endAt - Unix timestamp or null/0 for ongoing
- * @returns {string}
- */
 export function formatWarDateRange(startAt, endAt) {
   const start = formatWarDate(startAt)
   if (!endAt || endAt === 0) return `${start} — Ongoing`
-  const end = formatWarDate(endAt)
-  return `${start} — ${end}`
+  return `${start} — ${formatWarDate(endAt)}`
 }
