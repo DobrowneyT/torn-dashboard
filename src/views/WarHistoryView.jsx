@@ -204,7 +204,7 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
               >
                 {/* War row */}
                 <div
-                  className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+                  className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
                   onClick={() => handleExpandWar(war.id)}
                 >
                   {/* Expand icon */}
@@ -222,13 +222,13 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                     </div>
                   </div>
 
-                  {/* Opponent */}
-                  <div className="text-sm text-gray-700 dark:text-gray-300 min-w-0 flex-1 truncate">
+                  {/* Opponent — hidden on mobile to reduce clutter */}
+                  <div className="hidden sm:block text-sm text-gray-700 dark:text-gray-300 min-w-0 flex-1 truncate">
                     vs. {war.opponent_name || `Faction #${war.opponent_id}`}
                   </div>
 
                   {/* Scores */}
-                  <div className="text-sm font-mono text-gray-700 dark:text-gray-300 flex-shrink-0">
+                  <div className="text-xs sm:text-sm font-mono text-gray-700 dark:text-gray-300 flex-shrink-0">
                     <span className={result === 'win' ? 'text-green-600 dark:text-green-400 font-semibold' : ''}>
                       {war.our_score?.toLocaleString()}
                     </span>
@@ -257,8 +257,8 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                     )}
                   </div>
 
-                  {/* Termed/Real badge */}
-                  <div className="flex-shrink-0">
+                  {/* Termed/Real badge — hidden on mobile */}
+                  <div className="hidden sm:flex flex-shrink-0">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                       war.is_termed
                         ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-400'
@@ -279,14 +279,19 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                           : 'border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:border-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50'
                       }`}
                     >
-                      {isUpdating ? '···' : war.is_termed ? '⇄ Set Real' : '⇄ Set Termed'}
+                      {isUpdating ? '···' : (
+                        <>
+                          <span className="hidden sm:inline">{war.is_termed ? '⇄ Set Real' : '⇄ Set Termed'}</span>
+                          <span className="sm:hidden">⇄</span>
+                        </>
+                      )}
                     </button>
                   )}
                 </div>
 
                 {/* Expanded contributions */}
                 {isExpanded && (
-                  <div className="bg-gray-50 dark:bg-slate-900/50 border-t border-gray-200 dark:border-slate-700 px-4 py-3">
+                  <div className="bg-gray-50 dark:bg-slate-900/50 border-t border-gray-200 dark:border-slate-700 px-2 sm:px-4 py-2 sm:py-3">
                     {loadingContributions[war.id] ? (
                       <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
@@ -302,7 +307,7 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                           Our Faction — Member Contributions
                         </h4>
                         <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
+                          <table className="w-full text-xs">
                             <thead>
                               <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
                                 <SortHeaderSmall warId={war.id} col="name" label="Member" />
