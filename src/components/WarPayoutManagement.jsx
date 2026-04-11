@@ -127,12 +127,6 @@ export default function WarPayoutManagement() {
   // Termed settings
   const [minScoreThreshold, setMinScoreThreshold] = useState(50)
   const [flatPayoutAmount, setFlatPayoutAmount] = useState(0)
-  // Real war settings
-  const [scoreMultiplier, setScoreMultiplier] = useState(1.0)
-  const [attacksWeight, setAttacksWeight] = useState(0.5)
-  const [effortWeight, setEffortWeight] = useState(0.5)
-  const [assistMultiplier, setAssistMultiplier] = useState(0.25)
-  const [minPayoutThreshold, setMinPayoutThreshold] = useState(0)
   const [notes, setNotes] = useState('')
 
   // Results state
@@ -234,21 +228,18 @@ export default function WarPayoutManagement() {
   function handleCalculate() {
     if (!selectedWar || contributions.length === 0) return
 
+    const rewardsItems = selectedWar.rewards_items
+      ? (typeof selectedWar.rewards_items === 'string'
+          ? JSON.parse(selectedWar.rewards_items)
+          : selectedWar.rewards_items)
+      : []
+
     const settings = {
-      rewardsItems: selectedWar.rewards_items
-        ? (typeof selectedWar.rewards_items === 'string'
-            ? JSON.parse(selectedWar.rewards_items)
-            : selectedWar.rewards_items)
-        : [],
+      rewardsItems,
       cachePrices,
       factionCutPercent: Number(factionCutPercent),
       minScoreThreshold: Number(minScoreThreshold),
       flatPayoutAmount: Number(flatPayoutAmount),
-      scoreMultiplier: Number(scoreMultiplier),
-      attacksWeight: Number(attacksWeight),
-      effortWeight: Number(effortWeight),
-      assistMultiplier: Number(assistMultiplier),
-      minPayoutThreshold: Number(minPayoutThreshold),
     }
 
     let results
@@ -289,8 +280,6 @@ export default function WarPayoutManagement() {
           : selectedWar.rewards_items)
       : []
 
-    const { totalCacheValue } = calculateCacheValue(rewardsItems, cachePrices)
-
     const payoutData = {
       war_id: selectedWar.id,
       war_type: warType,
@@ -298,11 +287,6 @@ export default function WarPayoutManagement() {
       ...cachePrices,
       min_score_threshold: Number(minScoreThreshold),
       flat_payout_amount: Number(flatPayoutAmount),
-      score_multiplier: Number(scoreMultiplier),
-      attacks_weight: Number(attacksWeight),
-      effort_weight: Number(effortWeight),
-      assist_multiplier: Number(assistMultiplier),
-      min_payout_threshold: Number(minPayoutThreshold),
       notes: notes || null,
     }
 
@@ -311,8 +295,8 @@ export default function WarPayoutManagement() {
       member_id: m.memberId,
       member_name: m.memberName,
       score: m.score,
-      attacks: m.attacks,
-      assist_attacks: m.assistAttacks || 0,
+      attacks: m.totalHits || m.attacks || 0,
+      assist_attacks: m.assists || 0,
       payout_amount: m.payoutAmount,
       is_eligible: m.isEligible,
     }))
@@ -460,7 +444,6 @@ export default function WarPayoutManagement() {
                       </label>
                       <div className="space-y-1.5">
                         {Object.entries(CACHE_LABELS).map(([field, label]) => {
-                          // Show reward quantity hint if available
                           const rewards = selectedWar?.rewards_items
                             ? (typeof selectedWar.rewards_items === 'string'
                                 ? JSON.parse(selectedWar.rewards_items)
@@ -551,91 +534,15 @@ export default function WarPayoutManagement() {
                         </div>
                       </>
                     ) : (
-                      <>
-                        <h4 className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
-                          Real War Settings
+                      <div className="text-xs text-gray-500 dark:text-gray-400 space-y-2 pt-1">
+                        <h4 className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-2">
+                          Real War Formula
                         </h4>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                            Score Multiplier
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            value={scoreMultiplier}
-                            onChange={e => setScoreMultiplier(e.target.value)}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                            Score Weight (vs Effort)
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={attacksWeight}
-                            onChange={e => setAttacksWeight(e.target.value)}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                          />
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                            Weight applied to score % contribution (0–1)
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                            Effort Weight
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={effortWeight}
-                            onChange={e => setEffortWeight(e.target.value)}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                          />
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                            Weight applied to attack effort score (0–1)
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                            Assist Multiplier
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={assistMultiplier}
-                            onChange={e => setAssistMultiplier(e.target.value)}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                          />
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                            Assist attacks count at this fraction of a full attack (0–1)
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                            Minimum Payout ($)
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={minPayoutThreshold}
-                            onChange={e => setMinPayoutThreshold(e.target.value)}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                          />
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                            Members earning less than this get $0.
-                          </p>
-                        </div>
-                      </>
+                        <p><span className="font-medium text-gray-700 dark:text-gray-300">Participation score</span> — war hits ×1.25, assists ×0.5, losses ×0.5, mugs ×−1.0</p>
+                        <p><span className="font-medium text-gray-700 dark:text-gray-300">Contribution score</span> — API respect, minus bonus-chain inflation (chain milestones normalised to 10)</p>
+                        <p><span className="font-medium text-gray-700 dark:text-gray-300">Effort share</span> — average of participation % and contribution %</p>
+                        <p><span className="font-medium text-gray-700 dark:text-gray-300">Payout</span> — effort share × member pool</p>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -695,17 +602,60 @@ export default function WarPayoutManagement() {
 
                   {/* Member table */}
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-xs">
                       <thead>
-                        <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-700/50">
-                          <th className="px-4 py-2 font-medium">Member</th>
-                          <th className="px-4 py-2 font-medium text-right">Score</th>
-                          <th className="px-4 py-2 font-medium text-right">Attacks</th>
+                        <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/50">
+                          {/* Hit report */}
+                          <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700" colSpan={warType === 'real' ? 9 : 2}>
+                            {warType === 'real' ? 'Hit Report' : 'Member'}
+                          </th>
                           {warType === 'real' && (
-                            <th className="px-4 py-2 font-medium text-right">Share%</th>
+                            <>
+                              <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700" colSpan={4}>
+                                Participation Score
+                              </th>
+                              <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700" colSpan={4}>
+                                Contribution Score
+                              </th>
+                              <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700" colSpan={3}>
+                                Pay Out
+                              </th>
+                            </>
                           )}
-                          <th className="px-4 py-2 font-medium text-right">Payout</th>
-                          <th className="px-4 py-2 font-medium text-center">Eligible</th>
+                          {warType === 'termed' && (
+                            <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700" colSpan={3}>
+                              Pay Out
+                            </th>
+                          )}
+                        </tr>
+                        <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-700">
+                          <th className="px-3 py-1.5 font-medium">Player</th>
+                          {warType === 'real' && (
+                            <>
+                              <th className="px-3 py-1.5 font-medium text-right">Leaves</th>
+                              <th className="px-3 py-1.5 font-medium text-right">Mugs</th>
+                              <th className="px-3 py-1.5 font-medium text-right">Hosp</th>
+                              <th className="px-3 py-1.5 font-medium text-right">War</th>
+                              <th className="px-3 py-1.5 font-medium text-right">Won</th>
+                              <th className="px-3 py-1.5 font-medium text-right">Assists</th>
+                              <th className="px-3 py-1.5 font-medium text-right">Lost</th>
+                              <th className="px-3 py-1.5 font-medium text-right border-r border-gray-200 dark:border-slate-700">Total</th>
+                              {/* Participation */}
+                              <th className="px-3 py-1.5 font-medium text-right border-l border-gray-200 dark:border-slate-700">War hit</th>
+                              <th className="px-3 py-1.5 font-medium text-right">Assist</th>
+                              <th className="px-3 py-1.5 font-medium text-right">Loss</th>
+                              <th className="px-3 py-1.5 font-medium text-right border-r border-gray-200 dark:border-slate-700">Score</th>
+                              {/* Contribution */}
+                              <th className="px-3 py-1.5 font-medium text-right border-l border-gray-200 dark:border-slate-700">Respect</th>
+                              <th className="px-3 py-1.5 font-medium text-right">Bonus</th>
+                              <th className="px-3 py-1.5 font-medium text-right">Adj.</th>
+                              <th className="px-3 py-1.5 font-medium text-right border-r border-gray-200 dark:border-slate-700">Contrib%</th>
+                              {/* Payout */}
+                              <th className="px-3 py-1.5 font-medium text-right border-l border-gray-200 dark:border-slate-700">Effort%</th>
+                            </>
+                          )}
+                          <th className="px-3 py-1.5 font-medium text-right">Payout</th>
+                          <th className="px-3 py-1.5 font-medium text-center">Eligible</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -715,30 +665,54 @@ export default function WarPayoutManagement() {
                           .map(m => (
                             <tr
                               key={m.memberId}
-                              className={`border-b border-gray-100 dark:border-slate-700/50 last:border-0 ${
-                                !m.isEligible ? 'opacity-50' : ''
+                              className={`border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-slate-700/30 ${
+                                !m.isEligible ? 'opacity-40' : ''
                               }`}
                             >
-                              <td className="px-4 py-2 font-medium text-gray-900 dark:text-white">
+                              <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">
                                 {m.memberName}
                               </td>
-                              <td className="px-4 py-2 text-right font-mono text-gray-700 dark:text-gray-300">
-                                {Number(m.score).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                              </td>
-                              <td className="px-4 py-2 text-right text-gray-600 dark:text-gray-400">
-                                {m.attacks}
-                              </td>
                               {warType === 'real' && (
-                                <td className="px-4 py-2 text-right text-gray-600 dark:text-gray-400">
-                                  {m.sharePercent !== undefined
-                                    ? `${(m.sharePercent * 100).toFixed(1)}%`
-                                    : '—'}
-                                </td>
+                                <>
+                                  {/* Hit report */}
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.leaves ?? 0}</td>
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.mugs ?? 0}</td>
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.hosp ?? 0}</td>
+                                  <td className="px-3 py-1.5 text-right font-medium text-blue-700 dark:text-blue-400">{m.warHits ?? 0}</td>
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.won ?? 0}</td>
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.assists ?? 0}</td>
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.losses ?? 0}</td>
+                                  <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{m.totalHits ?? 0}</td>
+                                  {/* Participation */}
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{m.warHitScore?.toFixed(2) ?? '0.00'}</td>
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.assistScore?.toFixed(2) ?? '0.00'}</td>
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.lossScore?.toFixed(2) ?? '0.00'}</td>
+                                  <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
+                                    {(m.participationShare * 100).toFixed(2)}%
+                                  </td>
+                                  {/* Contribution */}
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">
+                                    {Number(m.respectGained).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right text-amber-600 dark:text-amber-400">
+                                    {m.bonusRespect > 0 ? `−${m.bonusRespect.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">
+                                    {Number(m.adjustedRespect).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
+                                    {(m.contributionShare * 100).toFixed(2)}%
+                                  </td>
+                                  {/* Effort */}
+                                  <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
+                                    {(m.effortShare * 100).toFixed(2)}%
+                                  </td>
+                                </>
                               )}
-                              <td className="px-4 py-2 text-right font-mono font-semibold text-gray-900 dark:text-white">
+                              <td className="px-3 py-1.5 text-right font-mono font-semibold text-gray-900 dark:text-white whitespace-nowrap">
                                 {m.isEligible ? formatCurrency(m.payoutAmount) : '—'}
                               </td>
-                              <td className="px-4 py-2 text-center">
+                              <td className="px-3 py-1.5 text-center">
                                 <input
                                   type="checkbox"
                                   checked={m.isEligible}
