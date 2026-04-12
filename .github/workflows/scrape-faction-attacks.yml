@@ -61,17 +61,18 @@ jobs:
         name: faction-attacks-logs-${{ github.run_number }}
         path: logs/
         retention-days: 30
+        if-no-files-found: ignore
 
-    - name: Commit and push changes
+    - name: Commit and push any remaining changes
       run: |
         git config user.name "GitHub Actions Bot"
         git config user.email "actions@github.com"
-        mkdir -p public/data
-        cp data/faction_attacks_database.json public/data/ 2>/dev/null || true
-        git add data/faction_attacks_database.json public/data/faction_attacks_database.json
+        # Stage chunked attack files (the script may have already committed, this is a safety net)
+        git add data/faction_attacks_database_*.json 2>/dev/null || true
         if ! git diff --staged --quiet; then
           git commit -m "Update faction attacks data [skip ci]"
+          git pull --rebase origin main
           git push
         else
-          echo "No changes to commit"
+          echo "No changes to commit (script already pushed)"
         fi
