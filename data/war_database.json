@@ -5298,8 +5298,8 @@
       "end_at": null,
       "opponent_id": 9420,
       "opponent_name": "The Pusheen Army",
-      "our_score": 0,
-      "opponent_score": 0,
+      "our_score": 15860,
+      "opponent_score": 5412,
       "target": 13300,
       "winner_faction_id": null,
       "forfeit": false,
@@ -193890,6 +193890,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-04-11T07:12:25.394365"
+    "last_updated": "2026-04-12T07:26:13.796784"
   }
 }
