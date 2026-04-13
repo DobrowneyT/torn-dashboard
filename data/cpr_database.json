@@ -10332,19 +10332,19 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-13T08:17:47.650672"
+      "tier_last_updated": "2026-04-13T17:43:43.438799"
     },
     "3475942": {
       "name": "Phoneix_55",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-13T08:17:47.650699"
+      "tier_last_updated": "2026-04-13T17:43:43.438828"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-13T17:43:40.618092",
+    "last_updated": "2026-04-13T17:43:43.439702",
     "total_members": 173
   }
 }
