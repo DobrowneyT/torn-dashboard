@@ -206,10 +206,18 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     // Weight split (must sum to 1; caller is responsible for normalising)
     participationWeight = 0.50,
     contributionWeight  = 0.50,
+    // Adjustments applied to the member pool
+    mercCost     = 0,
+    reviverCost  = 0,
+    factionTopUp = 0,
   } = settings
 
   const { totalCacheValue, breakdown } = calculateCacheValue(rewardsItems, cachePrices)
-  const memberPool = Math.floor(totalCacheValue * (1 - factionCutPercent / 100))
+  const basePool = Math.floor(totalCacheValue * (1 - factionCutPercent / 100))
+  const memberPool = Math.max(
+    0,
+    Math.floor(basePool - Number(mercCost) - Number(reviverCost) + Number(factionTopUp))
+  )
 
   const attackStats = buildMemberAttackStats(attacks)
 
@@ -286,6 +294,8 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
   })
 
   const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
+  const totalWarHits = members.reduce((s, m) => s + (m.warHits || 0), 0)
+  const payPerHit = totalWarHits > 0 ? Math.floor(totalPayout / totalWarHits) : 0
 
   return {
     members,
@@ -293,6 +303,12 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     cacheValue: totalCacheValue,
     cacheBreakdown: breakdown,
     memberPayoutPool: memberPool,
+    basePool,
+    mercCost: Number(mercCost) || 0,
+    reviverCost: Number(reviverCost) || 0,
+    factionTopUp: Number(factionTopUp) || 0,
+    totalWarHits,
+    payPerHit,
     overBudgetWarning: false, // formula distributes exactly the pool
   }
 }

@@ -436,7 +436,7 @@ class SupabaseSync:
                     'target': war.get('target'),
                     'winner_faction_id': war.get('winner_faction_id'),
                     'forfeit': war.get('forfeit', False),
-                    'is_termed': war.get('is_termed', False),
+                    # is_termed is a manual flag set via the UI — do not overwrite on scraper upsert
                     'rewards_items': json_lib.dumps(rewards_items) if rewards_items else None,
                     'rank_before': war.get('rank_before'),
                     'rank_after': war.get('rank_after'),

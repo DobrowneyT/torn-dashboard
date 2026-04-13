@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions, loadFactionAttacksByWindow, loadWarPayouts } from '../utils/warDataLoader'
-import { saveWarPayout } from '../utils/adminApi'
+import { saveWarPayout, updateWarIsTermed } from '../utils/adminApi'
 import {
   calculateCacheValue,
   calculateTermedWarPayouts,
@@ -168,6 +168,9 @@ export default function WarPayoutManagement() {
   const [lossMult, setLossMult]       = useState(0.50)
   const [mugMult, setMugMult]         = useState(-1.00)
   const [partWeight, setPartWeight]   = useState(50)   // integer 0–100; contrib = 100 - partWeight
+  const [mercCost, setMercCost]         = useState(0)
+  const [reviverCost, setReviverCost]   = useState(0)
+  const [factionTopUp, setFactionTopUp] = useState(0)
 
   // Results state
   const [hasCalculated, setHasCalculated] = useState(false)
@@ -234,6 +237,9 @@ export default function WarPayoutManagement() {
     setWarType(war.is_termed ? 'termed' : 'real')
     setCachePrices(DEFAULT_CACHE_PRICES)
     setNotes('')
+    setMercCost(0)
+    setReviverCost(0)
+    setFactionTopUp(0)
 
     setLoadingWarData(true)
     try {
@@ -287,6 +293,9 @@ export default function WarPayoutManagement() {
       mugMultiplier:       Number(mugMult),
       participationWeight: pw,
       contributionWeight:  Math.round((1 - pw) * 1000) / 1000,
+      mercCost:      Number(mercCost) || 0,
+      reviverCost:   Number(reviverCost) || 0,
+      factionTopUp:  Number(factionTopUp) || 0,
     }
 
     let results
@@ -316,7 +325,10 @@ export default function WarPayoutManagement() {
   }
 
   async function handleSave() {
-    if (!selectedWar || !payoutResults || !user?.tornApiKey) return
+    if (!selectedWar || !payoutResults || !user?.apiKey) {
+      setSaveError(!user?.apiKey ? 'Missing API key — please log in again.' : 'Nothing to save.')
+      return
+    }
 
     setIsSaving(true)
     setSaveError(null)
@@ -343,7 +355,14 @@ export default function WarPayoutManagement() {
     }))
 
     try {
-      const result = await saveWarPayout(payoutData, memberRecords, user.tornApiKey)
+      const newIsTermed = warType === 'termed'
+      if (Boolean(selectedWar.is_termed) !== newIsTermed) {
+        await updateWarIsTermed(selectedWar.id, newIsTermed, user.apiKey)
+        setSelectedWar(prev => prev ? { ...prev, is_termed: newIsTermed } : prev)
+        setWars(prev => prev.map(w => w.id === selectedWar.id ? { ...w, is_termed: newIsTermed } : w))
+      }
+
+      const result = await saveWarPayout(payoutData, memberRecords, user.apiKey)
       setSavedPayoutId(result.payoutId)
     } catch (err) {
       console.error('Error saving war payout:', err)
@@ -423,9 +442,13 @@ export default function WarPayoutManagement() {
 
   function SortHeader({ col, label, className = '' }) {
     const active = sortCol === col
+    const hasStickyLeft = className.includes('left-0')
+    const stickyTop = hasStickyLeft
+      ? '' // explicit sticky already set in className
+      : 'sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700'
     return (
       <th
-        className={`px-3 py-1.5 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors ${className}`}
+        className={`px-3 py-1.5 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors ${stickyTop} ${className}`}
         onClick={() => handleSortCol(col)}
       >
         {label}
@@ -677,6 +700,38 @@ export default function WarPayoutManagement() {
                       ))}
                     </div>
                   </div>
+
+                  {/* Pool adjustments */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
+                      Pool Adjustments ($)
+                    </label>
+                    <div className="space-y-1.5">
+                      {[
+                        { label: 'Mercenaries', value: mercCost,     set: setMercCost,     sign: '−' },
+                        { label: 'Revivers',    value: reviverCost,  set: setReviverCost,  sign: '−' },
+                        { label: 'Faction Top-up', value: factionTopUp, set: setFactionTopUp, sign: '+' },
+                      ].map(({ label, value, set, sign }) => (
+                        <div key={label} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-600 dark:text-gray-400 w-24 sm:w-32 flex-shrink-0">
+                            <span className={sign === '−' ? 'text-red-500' : 'text-green-600'}>{sign}</span> {label}
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={value}
+                            onChange={e => set(Number(e.target.value) || 0)}
+                            placeholder="0"
+                            className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Mercs and revivers are subtracted from the member pool; top-up is added.
+                    </p>
+                  </div>
                 </>
               )
             )}
@@ -732,6 +787,15 @@ export default function WarPayoutManagement() {
                 {eligibleCount}/{effectiveMembers.length}
               </span>
             </div>
+            {warType === 'real' && payoutResults.payPerHit > 0 && (
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Pay / War Hit: </span>
+                <span className="font-semibold text-blue-700 dark:text-blue-400">
+                  {formatCurrency(payoutResults.payPerHit)}
+                </span>
+                <span className="text-gray-400 ml-1">({payoutResults.totalWarHits} hits)</span>
+              </div>
+            )}
             {payoutResults.overBudgetWarning && (
               <div className="text-amber-600 dark:text-amber-400 font-medium">
                 ⚠ Over budget by {formatCurrency(totalPayout - payoutResults.memberPayoutPool)}
@@ -740,34 +804,34 @@ export default function WarPayoutManagement() {
           </div>
 
           {/* Member table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+          <div className="overflow-auto max-h-[70vh] relative">
+            <table className="w-full text-xs border-separate border-spacing-0">
               <thead>
-                <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/50">
-                  <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700" colSpan={warType === 'real' ? 9 : 2}>
+                <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700">
+                  <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={warType === 'real' ? 9 : 2}>
                     {warType === 'real' ? 'Hit Report' : 'Member'}
                   </th>
                   {warType === 'real' && (
                     <>
-                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700" colSpan={4}>
+                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={4}>
                         Participation Score
                       </th>
-                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700" colSpan={4}>
+                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={4}>
                         Contribution Score
                       </th>
-                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700" colSpan={3}>
+                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={3}>
                         Pay Out
                       </th>
                     </>
                   )}
                   {warType === 'termed' && (
-                    <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700" colSpan={3}>
+                    <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={3}>
                       Pay Out
                     </th>
                   )}
                 </tr>
-                <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-700">
-                  <SortHeader col="name" label="Player" />
+                <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">
+                  <SortHeader col="name" label="Player" className="sticky left-0 top-[32px] z-30 bg-gray-50 dark:bg-slate-700" />
                   {warType === 'real' && (
                     <>
                       <SortHeader col="leaves"  label="Leaves"  className="text-right" />
@@ -804,7 +868,7 @@ export default function WarPayoutManagement() {
                       !m.isEligible ? 'opacity-40' : ''
                     }`}
                   >
-                    <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                    <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">
                       {m.memberName}
                     </td>
                     {warType === 'real' && (
