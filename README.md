@@ -1,4 +1,4 @@
-# Torn Forge OC Dashboard - React Edition
+# Faction Dashboard - React Edition
 
 Professional, scalable faction dashboard with local development, light/dark mode, and modern React architecture.
 

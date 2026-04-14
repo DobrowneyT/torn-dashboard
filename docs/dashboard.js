@@ -1,5 +1,5 @@
 /**
- * Torn Forge OC Dashboard
+ * TNL Forge Faction Dashboard
  * Fetches and displays faction data from GitHub
  */
 
@@ -11,7 +11,7 @@ const CONFIG = {
     // CHANGE THESE TO YOUR ACTUAL URLs
     cprDataUrl: 'https://gist.githubusercontent.com/DobrowneyT/b5fb2575247f45a44c692406bf4c4a9a/raw/cpr_database.json',
     crimesDataUrl: 'https://raw.githubusercontent.com/DobrownT/torn-forge-oc-2.0/main/data/crimes_database.json',
-    
+
     // Tier requirements (from your tier assignment script)
     tierRequirements: {
         1: [
@@ -49,7 +49,7 @@ const CONFIG = {
             { level: 4, role: "Average", minCpr: 75, isAverage: true }
         ]
     },
-    
+
     // Payout ticket distribution
     payoutTickets: {
         1: 40,
@@ -78,13 +78,13 @@ let state = {
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 Initializing Torn Forge Dashboard...');
-    
+
     // Setup event listeners
     setupEventListeners();
-    
+
     // Load data
     await loadAllData();
-    
+
     // Render dashboard
     renderDashboard();
 });
@@ -101,7 +101,7 @@ function setupEventListeners() {
             switchTab(tabName);
         });
     });
-    
+
     // Member search
     const memberSearch = document.getElementById('memberSearch');
     if (memberSearch) {
@@ -109,7 +109,7 @@ function setupEventListeners() {
             filterMembers(e.target.value);
         });
     }
-    
+
     // Tier filter
     const tierFilter = document.getElementById('tierFilter');
     if (tierFilter) {
@@ -117,7 +117,7 @@ function setupEventListeners() {
             filterMembersByTier(e.target.value);
         });
     }
-    
+
     // Crime filters
     const crimeFilter = document.getElementById('crimeFilter');
     if (crimeFilter) {
@@ -125,14 +125,14 @@ function setupEventListeners() {
             filterCrimes();
         });
     }
-    
+
     const statusFilter = document.getElementById('statusFilter');
     if (statusFilter) {
         statusFilter.addEventListener('change', () => {
             filterCrimes();
         });
     }
-    
+
     // Payout period
     const payoutPeriod = document.getElementById('payoutPeriod');
     if (payoutPeriod) {
@@ -148,7 +148,7 @@ function switchTab(tabName) {
         tab.classList.remove('active');
     });
     document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-    
+
     // Update tab content
     document.querySelectorAll('.tab-pane').forEach(pane => {
         pane.classList.remove('active');
@@ -168,7 +168,7 @@ async function loadAllData() {
         if (!cprResponse.ok) throw new Error('Failed to load CPR data');
         state.cprData = await cprResponse.json();
         console.log(`✓ Loaded CPR data for ${Object.keys(state.cprData.members || {}).length} members`);
-        
+
         // Load crimes data
         console.log('📊 Loading crimes data...');
         try {
@@ -184,11 +184,11 @@ async function loadAllData() {
             console.warn('⚠ Crimes data not available yet:', error.message);
             state.crimesData = { crimes: {} };
         }
-        
+
         // Initialize filtered data
         state.filteredMembers = Object.entries(state.cprData.members || {});
         state.filteredCrimes = Object.entries(state.crimesData.crimes || {});
-        
+
     } catch (error) {
         console.error('❌ Error loading data:', error);
         showError('Failed to load data. Please check console for details.');
@@ -211,7 +211,7 @@ function renderDashboard() {
 function updateLastUpdated() {
     const lastUpdated = state.cprData?.metadata?.last_updated;
     const element = document.getElementById('lastUpdated');
-    
+
     if (lastUpdated && element) {
         const date = new Date(lastUpdated);
         element.textContent = `Last updated: ${date.toLocaleString()}`;
@@ -221,24 +221,24 @@ function updateLastUpdated() {
 function updateStatsOverview() {
     const members = state.cprData?.members || {};
     const crimes = state.crimesData?.crimes || {};
-    
+
     // Total members
     document.getElementById('totalMembers').textContent = Object.keys(members).length;
-    
+
     // Total crimes
     const completedCrimes = Object.values(crimes).filter(c => c.status === 'completed').length;
     document.getElementById('totalCrimes').textContent = completedCrimes.toLocaleString();
-    
+
     // Total payout
     const totalPayout = Object.values(crimes)
         .filter(c => c.status === 'completed')
         .reduce((sum, c) => sum + (c.payout || 0), 0);
     document.getElementById('totalPayout').textContent = `$${(totalPayout / 1e6).toFixed(1)}M`;
-    
+
     // Average CPR
     let totalCpr = 0;
     let cprCount = 0;
-    
+
     Object.values(members).forEach(member => {
         const cprByRole = member.cpr_by_role || {};
         Object.values(cprByRole).forEach(level => {
@@ -250,7 +250,7 @@ function updateStatsOverview() {
             });
         });
     });
-    
+
     const avgCpr = cprCount > 0 ? (totalCpr / cprCount).toFixed(1) : 0;
     document.getElementById('avgCPR').textContent = avgCpr;
 }
@@ -262,12 +262,12 @@ function updateStatsOverview() {
 function renderMembersTable() {
     const tbody = document.getElementById('membersTableBody');
     if (!tbody) return;
-    
+
     if (state.filteredMembers.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No members found</td></tr>';
         return;
     }
-    
+
     const rows = state.filteredMembers
         .sort((a, b) => {
             const tierA = a[1].tier || 6;
@@ -281,11 +281,11 @@ function renderMembersTable() {
             const avgCpr = calculateMemberAvgCpr(memberData);
             const lastUpdated = memberData.tier_last_updated || memberData.last_scraped || 'Never';
             const topRoles = getTopRoles(memberData);
-            
-            const lastUpdatedDate = lastUpdated !== 'Never' 
-                ? new Date(lastUpdated).toLocaleDateString() 
+
+            const lastUpdatedDate = lastUpdated !== 'Never'
+                ? new Date(lastUpdated).toLocaleDateString()
                 : 'Never';
-            
+
             return `
                 <tr>
                     <td><strong>${name}</strong></td>
@@ -298,7 +298,7 @@ function renderMembersTable() {
             `;
         })
         .join('');
-    
+
     tbody.innerHTML = rows;
 }
 
@@ -314,7 +314,7 @@ function calculateMemberAvgCpr(memberData) {
     const cprByRole = memberData.cpr_by_role || {};
     let total = 0;
     let count = 0;
-    
+
     Object.values(cprByRole).forEach(level => {
         Object.values(level).forEach(cpr => {
             if (typeof cpr === 'number') {
@@ -323,14 +323,14 @@ function calculateMemberAvgCpr(memberData) {
             }
         });
     });
-    
+
     return count > 0 ? (total / count).toFixed(1) : 'N/A';
 }
 
 function getTopRoles(memberData) {
     const cprByRole = memberData.cpr_by_role || {};
     const allRoles = [];
-    
+
     Object.entries(cprByRole).forEach(([level, roles]) => {
         Object.entries(roles).forEach(([role, cpr]) => {
             if (typeof cpr === 'number') {
@@ -338,29 +338,29 @@ function getTopRoles(memberData) {
             }
         });
     });
-    
+
     const topThree = allRoles
         .sort((a, b) => b.cpr - a.cpr)
         .slice(0, 3)
         .map(r => `L${r.level} ${r.role}`)
         .join(', ');
-    
+
     return topThree || 'No data';
 }
 
 function filterMembers(searchTerm) {
     const members = state.cprData?.members || {};
     const tierFilter = document.getElementById('tierFilter')?.value;
-    
+
     state.filteredMembers = Object.entries(members).filter(([memberId, memberData]) => {
         const name = memberData.name || '';
         const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
         const tier = memberData.tier || 6;
         const matchesTier = tierFilter === 'all' || tier === parseInt(tierFilter);
-        
+
         return matchesSearch && matchesTier;
     });
-    
+
     renderMembersTable();
 }
 
@@ -376,12 +376,12 @@ function filterMembersByTier(tierValue) {
 function renderCrimesTable() {
     const tbody = document.getElementById('crimesTableBody');
     if (!tbody) return;
-    
+
     if (state.filteredCrimes.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No crimes found</td></tr>';
         return;
     }
-    
+
     const rows = state.filteredCrimes
         .sort((a, b) => {
             const dateA = new Date(a[1].completed_at || a[1].created_at || 0);
@@ -396,10 +396,10 @@ function renderCrimesTable() {
             const payout = crimeData.payout || 0;
             const participants = crimeData.participants || [];
             const date = new Date(crimeData.completed_at || crimeData.created_at || 0);
-            
-            const statusClass = status === 'completed' ? 'completed' : 
+
+            const statusClass = status === 'completed' ? 'completed' :
                                status === 'failed' ? 'failed' : 'in-progress';
-            
+
             return `
                 <tr>
                     <td>${crimeId}</td>
@@ -413,7 +413,7 @@ function renderCrimesTable() {
             `;
         })
         .join('');
-    
+
     tbody.innerHTML = rows;
 }
 
@@ -421,19 +421,19 @@ function filterCrimes() {
     const daysFilter = parseInt(document.getElementById('crimeFilter')?.value || 'all');
     const statusFilter = document.getElementById('statusFilter')?.value || 'all';
     const crimes = state.crimesData?.crimes || {};
-    
+
     const cutoffDate = daysFilter !== 'all' && !isNaN(daysFilter)
         ? new Date(Date.now() - daysFilter * 24 * 60 * 60 * 1000)
         : null;
-    
+
     state.filteredCrimes = Object.entries(crimes).filter(([crimeId, crimeData]) => {
         const crimeDate = new Date(crimeData.completed_at || crimeData.created_at || 0);
         const matchesDate = !cutoffDate || crimeDate >= cutoffDate;
         const matchesStatus = statusFilter === 'all' || crimeData.status === statusFilter;
-        
+
         return matchesDate && matchesStatus;
     });
-    
+
     renderCrimesTable();
 }
 
@@ -444,13 +444,13 @@ function filterCrimes() {
 function renderTierRequirements() {
     const container = document.getElementById('tierRequirements');
     if (!container) return;
-    
+
     const html = Object.entries(CONFIG.tierRequirements)
         .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
         .map(([tier, requirements]) => {
             const tierNum = parseInt(tier);
             const tickets = CONFIG.payoutTickets[tierNum];
-            
+
             const requirementsList = requirements.map(req => {
                 if (req.isAverage) {
                     return `
@@ -466,7 +466,7 @@ function renderTierRequirements() {
                     `;
                 }
             }).join('');
-            
+
             return `
                 <div class="tier-requirement-card">
                     <div class="tier-requirement-header">
@@ -484,7 +484,7 @@ function renderTierRequirements() {
             `;
         })
         .join('');
-    
+
     container.innerHTML = html;
 }
 
@@ -495,24 +495,24 @@ function renderTierRequirements() {
 function renderPayouts() {
     const container = document.getElementById('payoutGrid');
     if (!container) return;
-    
+
     const period = parseInt(document.getElementById('payoutPeriod')?.value || '30');
     const members = state.cprData?.members || {};
     const crimes = state.crimesData?.crimes || {};
-    
+
     // Calculate cutoff date
-    const cutoffDate = period === 'all' 
-        ? new Date(0) 
+    const cutoffDate = period === 'all'
+        ? new Date(0)
         : new Date(Date.now() - period * 24 * 60 * 60 * 1000);
-    
+
     // Calculate payouts by member
     const payouts = {};
-    
+
     Object.entries(members).forEach(([memberId, memberData]) => {
         const tier = memberData.tier || 6;
         const tickets = CONFIG.payoutTickets[tier] || 0;
         const name = memberData.name || `Member ${memberId}`;
-        
+
         // Count crimes in period
         const crimesInPeriod = Object.values(crimes).filter(crime => {
             const crimeDate = new Date(crime.completed_at || crime.created_at || 0);
@@ -520,7 +520,7 @@ function renderPayouts() {
             const participated = (crime.participants || []).some(p => p.user_id === parseInt(memberId));
             return isInPeriod && participated && crime.status === 'completed';
         });
-        
+
         payouts[memberId] = {
             name,
             tier,
@@ -529,12 +529,12 @@ function renderPayouts() {
             totalPayout: crimesInPeriod.reduce((sum, c) => sum + (c.payout || 0), 0)
         };
     });
-    
+
     // Sort by total payout
     const sortedPayouts = Object.entries(payouts)
         .sort((a, b) => b[1].totalPayout - a[1].totalPayout)
         .slice(0, 20); // Top 20
-    
+
     const html = sortedPayouts.map(([memberId, data]) => `
         <div class="payout-card">
             <h4>${data.name}</h4>
@@ -545,7 +545,7 @@ function renderPayouts() {
             </div>
         </div>
     `).join('');
-    
+
     container.innerHTML = html || '<p class="text-center text-muted">No payout data available</p>';
 }
 
@@ -568,9 +568,9 @@ function showError(message) {
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
         z-index: 1000;
     `;
-    
+
     document.body.appendChild(errorDiv);
-    
+
     setTimeout(() => {
         errorDiv.remove();
     }, 5000);

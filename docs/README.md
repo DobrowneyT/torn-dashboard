@@ -1,4 +1,4 @@
-# 🚀 Torn Forge OC Dashboard - Setup Guide
+# 🚀 Faction - Setup Guide
 
 A beautiful, fast, and completely free faction dashboard for Torn City organized crime operations.
 
@@ -99,10 +99,10 @@ Open `docs/dashboard.js` and update the URLs at the top:
 const CONFIG = {
     // Replace with your actual Gist URL
     cprDataUrl: 'https://gist.githubusercontent.com/YOUR_USERNAME/YOUR_GIST_ID/raw/cpr_database.json',
-    
+
     // Replace with your repo URL
     crimesDataUrl: 'https://raw.githubusercontent.com/YOUR_USERNAME/torn-forge-oc-2.0/main/data/crimes_database.json',
-    
+
     // ... rest of config
 };
 ```
