@@ -322,10 +322,57 @@ jobs:
         if-no-files-found: warn
 
 
+  # ── 1e. Sync Items Catalog ───────────────────────────────────────────────────
+  sync-items:
+    name: Sync Items Catalog
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Sync items catalog to Supabase
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+      run: python scripts/items_update.py
+
+    - name: Upload logs as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: items-sync-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30
+        if-no-files-found: ignore
+
+
   # ── 2. Commit all data in one push ───────────────────────────────────────────
   commit-data:
     name: Commit & Push Data
-    needs: [scrape-crimes, scrape-cpr, scrape-wars, scrape-faction-attacks]
+    needs: [scrape-crimes, scrape-cpr, scrape-wars, scrape-faction-attacks, sync-items]
     runs-on: ubuntu-latest
     permissions:
       contents: write
