@@ -512,6 +512,25 @@ class TornAPI:
             params["to"] = to_timestamp
         return self._make_request(url, params)
 
+    def get_faction_basic(
+        self,
+        faction_id: int,
+        comment: str = "Forge_Faction_Basic"
+    ) -> Dict:
+        """
+        Get basic info for a faction (id, name, tag, …).
+
+        Args:
+            faction_id: Numeric Torn faction ID
+            comment:    API comment for tracking
+
+        Returns:
+            Dict shaped like { "basic": { "id", "name", "tag", ... } }
+        """
+        url = f"{self.BASE_URL}/faction/{faction_id}/basic"
+        params = {"key": self.api_key, "comment": comment}
+        return self._make_request(url, params)
+
     # ==================== CONNECTION TEST ====================
     
     def test_connection(self) -> bool:

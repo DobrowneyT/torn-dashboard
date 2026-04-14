@@ -7,6 +7,28 @@
 import { supabase } from './supabase'
 
 /**
+ * Load faction lookup rows for a given set of IDs.
+ * Returns a Map<id, { id, name, tag }> for easy use in components.
+ *
+ * @param {Iterable<number>} factionIds
+ * @returns {Promise<Map<number, {id:number, name:string, tag:string|null}>>}
+ */
+export async function loadFactionsByIds(factionIds) {
+  const ids = [...new Set([...factionIds].filter(Boolean).map(Number))]
+  if (ids.length === 0) return new Map()
+
+  const { data, error } = await supabase
+    .from('factions')
+    .select('id, name, tag')
+    .in('id', ids)
+
+  if (error) throw error
+  const map = new Map()
+  for (const row of data || []) map.set(Number(row.id), row)
+  return map
+}
+
+/**
  * Load ranked wars, newest first.
  *
  * @param {number} limit - Max wars to fetch

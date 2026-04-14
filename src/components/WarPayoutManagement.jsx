@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { loadWars, loadWarsCount, loadWarContributions, loadFactionAttacksByWindow, loadWarPayouts } from '../utils/warDataLoader'
+import { loadWars, loadWarsCount, loadWarContributions, loadFactionAttacksByWindow, loadWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
 import { saveWarPayout, updateWarIsTermed } from '../utils/adminApi'
 import {
   calculateCacheValue,
@@ -8,6 +8,8 @@ import {
   calculateRealWarPayouts,
   generateWarBatchPayoutURL,
   formatWarDateRange,
+  buildHitReport,
+  collectOpposingFactionIds,
   CACHE_ITEM_MAP,
 } from '../utils/warPayoutCalculations'
 
@@ -139,6 +141,188 @@ function WarDropdown({ wars, totalWars, selectedWar, onSelect, page, onPageChang
   )
 }
 
+function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilter, sortCol, sortDir, onSort }) {
+  // Unique opposing faction IDs from the attacks, derived once per attack set
+  const opposingIds = (() => {
+    const ids = new Set()
+    for (const a of attacks) {
+      const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
+      if (isIncoming) {
+        if (a.defender_faction_id === OUR_FACTION_ID && a.attacker_faction_id) ids.add(Number(a.attacker_faction_id))
+      } else {
+        if (a.attacker_faction_id === OUR_FACTION_ID && a.defender_faction_id) ids.add(Number(a.defender_faction_id))
+      }
+    }
+    return [...ids].sort((a, b) => {
+      const na = factionLookup.get(a)?.name || `Faction #${a}`
+      const nb = factionLookup.get(b)?.name || `Faction #${b}`
+      return na.localeCompare(nb)
+    })
+  })()
+
+  // Default: all factions selected
+  const effectiveFilter = factionFilter ?? new Set(opposingIds)
+
+  function toggleFaction(id) {
+    const next = new Set(effectiveFilter)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    setFactionFilter(next)
+  }
+  function selectAll()  { setFactionFilter(new Set(opposingIds)) }
+  function selectNone() { setFactionFilter(new Set()) }
+
+  const rows = buildHitReport(attacks, effectiveFilter)
+
+  // Sort
+  const dir = sortDir === 'asc' ? 1 : -1
+  const sortedRows = rows.slice().sort((a, b) => {
+    if (sortCol === 'name') return dir * a.memberName.localeCompare(b.memberName)
+    const [side, key] = sortCol.split('.')
+    const av = a[side]?.[key] ?? 0
+    const bv = b[side]?.[key] ?? 0
+    return dir * (av - bv)
+  })
+
+  function HitSort({ col, label, className = '' }) {
+    const active = sortCol === col
+    return (
+      <th
+        onClick={() => onSort(col)}
+        className={`px-2 py-1.5 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 whitespace-nowrap ${className}`}
+      >
+        {label}
+        <span className="ml-1 text-gray-400 text-xs">{active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+      </th>
+    )
+  }
+
+  const incomingCols = [
+    { key: 'incoming.leaves',    label: 'Leaves' },
+    { key: 'incoming.mugs',      label: 'Mugs' },
+    { key: 'incoming.hosp',      label: 'Hosp' },
+    { key: 'incoming.warHits',   label: 'War' },
+    { key: 'incoming.assists',   label: 'Assists' },
+    { key: 'incoming.losses',    label: 'Lost' },
+    { key: 'incoming.totalHits', label: 'Total' },
+  ]
+  const outgoingCols = [
+    { key: 'outgoing.leaves',    label: 'Leaves' },
+    { key: 'outgoing.mugs',      label: 'Mugs' },
+    { key: 'outgoing.hosp',      label: 'Hosp' },
+    { key: 'outgoing.warHits',   label: 'War' },
+    { key: 'outgoing.assists',   label: 'Assists' },
+    { key: 'outgoing.losses',    label: 'Lost' },
+    { key: 'outgoing.totalHits', label: 'Total' },
+  ]
+
+  return (
+    <div>
+      {/* Faction filter */}
+      <div className="px-3 sm:px-4 py-3 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-700/30">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+            Filter by Opposing Faction ({effectiveFilter.size}/{opposingIds.length})
+          </h4>
+          <div className="flex gap-2">
+            <button onClick={selectAll}  className="text-xs px-2 py-0.5 rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700">All</button>
+            <button onClick={selectNone} className="text-xs px-2 py-0.5 rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700">None</button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+          {opposingIds.length === 0 ? (
+            <span className="text-xs text-gray-500 dark:text-gray-400">No opposing factions in this window.</span>
+          ) : opposingIds.map(id => {
+            const info = factionLookup.get(id)
+            const label = info ? `${info.name}${info.tag ? ` [${info.tag}]` : ''}` : `Faction #${id}`
+            return (
+              <label key={id} className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={effectiveFilter.has(id)}
+                  onChange={() => toggleFaction(id)}
+                  className="rounded border-gray-300 dark:border-slate-600 text-blue-600"
+                />
+                <span>{label}</span>
+              </label>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Hit report table */}
+      <div className="overflow-auto max-h-[70vh] relative">
+        <table className="w-full text-xs border-separate border-spacing-0">
+          <thead>
+            <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700">
+              <th className="px-2 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 left-0 z-30 bg-gray-50 dark:bg-slate-700" rowSpan={2}>
+                Player
+              </th>
+              <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 text-center" colSpan={incomingCols.length}>
+                Incoming
+              </th>
+              <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 text-center" colSpan={outgoingCols.length}>
+                Outgoing
+              </th>
+            </tr>
+            <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">
+              {incomingCols.map((c, i) => (
+                <HitSort
+                  key={c.key}
+                  col={c.key}
+                  label={c.label}
+                  className={`text-right sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 ${i === 0 ? 'border-l border-gray-200 dark:border-slate-700' : ''}`}
+                />
+              ))}
+              {outgoingCols.map((c, i) => (
+                <HitSort
+                  key={c.key}
+                  col={c.key}
+                  label={c.label}
+                  className={`text-right sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 ${i === 0 ? 'border-l border-gray-200 dark:border-slate-700' : ''}`}
+                />
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sortedRows.length === 0 && (
+              <tr>
+                <td colSpan={1 + incomingCols.length + outgoingCols.length} className="px-3 py-6 text-center text-gray-500 dark:text-gray-400">
+                  No attacks matching the current faction filter.
+                </td>
+              </tr>
+            )}
+            {sortedRows.map(r => (
+              <tr key={r.memberId} className="border-b border-gray-100 dark:border-slate-700/50 hover:bg-gray-50 dark:hover:bg-slate-700/30">
+                <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">
+                  {r.memberName}
+                </td>
+                {incomingCols.map((c, i) => {
+                  const [side, key] = c.key.split('.')
+                  const v = r[side][key]
+                  return (
+                    <td key={c.key} className={`px-2 py-1.5 text-right ${v === 0 ? 'text-gray-400 dark:text-gray-600' : 'text-gray-700 dark:text-gray-300'} ${i === 0 ? 'border-l border-gray-200 dark:border-slate-700' : ''}`}>
+                      {v}
+                    </td>
+                  )
+                })}
+                {outgoingCols.map((c, i) => {
+                  const [side, key] = c.key.split('.')
+                  const v = r[side][key]
+                  return (
+                    <td key={c.key} className={`px-2 py-1.5 text-right ${v === 0 ? 'text-gray-400 dark:text-gray-600' : 'text-gray-700 dark:text-gray-300'} ${i === 0 ? 'border-l border-gray-200 dark:border-slate-700' : ''}`}>
+                      {v}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export default function WarPayoutManagement() {
   const { user } = useAuth()
 
@@ -196,6 +380,13 @@ export default function WarPayoutManagement() {
   const [sortCol, setSortCol] = useState('payout')
   const [sortDir, setSortDir] = useState('desc')
 
+  // Hit report tab state
+  const [activeTab, setActiveTab] = useState('payout')           // 'payout' | 'hits'
+  const [factionLookup, setFactionLookup] = useState(new Map())  // id → { id, name, tag }
+  const [factionFilter, setFactionFilter] = useState(null)       // Set<id> | null (null = all)
+  const [hitSortCol, setHitSortCol] = useState('name')
+  const [hitSortDir, setHitSortDir] = useState('asc')
+
   // Load wars whenever page changes
   useEffect(() => {
     fetchWarsPage(warPage)
@@ -241,6 +432,10 @@ export default function WarPayoutManagement() {
     setReviverCost(0)
     setFactionTopUp(0)
 
+    setActiveTab('payout')
+    setFactionFilter(null)
+    setFactionLookup(new Map())
+
     setLoadingWarData(true)
     try {
       const [contribs, warAttacks] = await Promise.all([
@@ -250,6 +445,17 @@ export default function WarPayoutManagement() {
       const ourContribs = contribs.filter(c => c.faction_id === OUR_FACTION_ID)
       setContributions(ourContribs)
       setAttacks(warAttacks)
+
+      // Resolve opposing faction names for the Hit Report filter
+      const opposingIds = collectOpposingFactionIds(warAttacks)
+      if (opposingIds.size > 0) {
+        try {
+          const lookup = await loadFactionsByIds(opposingIds)
+          setFactionLookup(lookup)
+        } catch (lookupErr) {
+          console.warn('Faction lookup failed:', lookupErr)
+        }
+      }
     } catch (err) {
       console.error('Error loading war data:', err)
     } finally {
@@ -340,6 +546,9 @@ export default function WarPayoutManagement() {
       ...cachePrices,
       min_score_threshold: Number(minScoreThreshold),
       flat_payout_amount: Number(flatPayoutAmount),
+      merc_cost:      Number(mercCost) || 0,
+      reviver_cost:   Number(reviverCost) || 0,
+      faction_top_up: Number(factionTopUp) || 0,
       notes: notes || null,
     }
 
@@ -758,9 +967,55 @@ export default function WarPayoutManagement() {
         )}
       </div>
 
-      {/* Results */}
-      {hasCalculated && payoutResults && (
+      {/* Results — appears once a war is loaded so the Hit Report is accessible without calculating */}
+      {selectedWar && !loadingWarData && attacks.length > 0 && (
         <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+          {/* Tab switcher */}
+          <div className="flex border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-700/40">
+            <button
+              onClick={() => setActiveTab('payout')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === 'payout'
+                  ? 'text-blue-700 dark:text-blue-400 border-b-2 border-blue-500'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              Payout Sheet
+            </button>
+            <button
+              onClick={() => setActiveTab('hits')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === 'hits'
+                  ? 'text-blue-700 dark:text-blue-400 border-b-2 border-blue-500'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              Hit Report
+            </button>
+          </div>
+
+          {activeTab === 'hits' && (
+            <HitReportPanel
+              attacks={attacks}
+              factionLookup={factionLookup}
+              factionFilter={factionFilter}
+              setFactionFilter={setFactionFilter}
+              sortCol={hitSortCol}
+              sortDir={hitSortDir}
+              onSort={(col) => {
+                if (hitSortCol === col) setHitSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                else { setHitSortCol(col); setHitSortDir('desc') }
+              }}
+            />
+          )}
+
+          {activeTab === 'payout' && !hasCalculated && (
+            <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+              Click <span className="font-medium">Calculate Payouts</span> above to generate the payout sheet.
+            </div>
+          )}
+
+          {activeTab === 'payout' && hasCalculated && payoutResults && (<>
           {/* Summary bar */}
           <div className="px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-700 flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm">
             <div>
@@ -1003,6 +1258,7 @@ export default function WarPayoutManagement() {
               </p>
             </div>
           )}
+          </>)}
         </div>
       )}
 

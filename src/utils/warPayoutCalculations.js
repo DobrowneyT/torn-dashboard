@@ -143,6 +143,110 @@ export function buildMemberAttackStats(attacks) {
 
 
 /**
+ * Build per-member Hit Report with separate incoming / outgoing breakdowns.
+ *
+ * For each of our faction's members that appears as attacker OR defender in the
+ * supplied attack set, produce:
+ *   { memberId, memberName, incoming: {...}, outgoing: {...} }
+ *
+ * Each direction has the columns:
+ *   { leaves, mugs, hosp, warHits, assists, losses, totalHits }
+ *
+ *   - OUTGOING rows (we are attacker) are filtered by defender_faction_id ∈ factionFilter.
+ *   - INCOMING rows (we are defender) are filtered by attacker_faction_id ∈ factionFilter.
+ *
+ * @param {Array} attacks           - faction_attacks rows (war window)
+ * @param {Set<number>|null} factionFilter - set of opposing faction IDs to include; pass `null` to include all
+ * @returns {Array<object>}
+ */
+export function buildHitReport(attacks, factionFilter = null) {
+  const rows = new Map() // memberId → row
+
+  function ensure(memberId, memberName) {
+    if (!rows.has(memberId)) {
+      rows.set(memberId, {
+        memberId,
+        memberName,
+        incoming: { leaves: 0, mugs: 0, hosp: 0, warHits: 0, assists: 0, losses: 0, totalHits: 0 },
+        outgoing: { leaves: 0, mugs: 0, hosp: 0, warHits: 0, assists: 0, losses: 0, totalHits: 0 },
+      })
+    }
+    return rows.get(memberId)
+  }
+
+  function inFilter(factionId) {
+    if (!factionFilter) return true
+    return factionFilter.has(Number(factionId) || 0)
+  }
+
+  for (const a of attacks) {
+    const result = a.result || ''
+    const isRankedWar = a.is_ranked_war === true || a.is_ranked_war === 'true' || a.is_ranked_war === 1
+    const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
+
+    // Determine which direction this attack contributes to and the opposing faction
+    let direction, memberId, memberName, opposingFactionId
+    if (isIncoming) {
+      // We are defender → incoming
+      if (a.defender_faction_id !== OUR_FACTION_ID) continue
+      direction = 'incoming'
+      memberId = a.defender_id
+      memberName = a.defender_name
+      opposingFactionId = a.attacker_faction_id
+    } else {
+      // We are attacker → outgoing
+      if (a.attacker_faction_id !== OUR_FACTION_ID) continue
+      direction = 'outgoing'
+      memberId = a.attacker_id
+      memberName = a.attacker_name
+      opposingFactionId = a.defender_faction_id
+    }
+
+    if (!memberId) continue
+    if (!inFilter(opposingFactionId)) continue
+
+    const row = ensure(memberId, memberName)
+    const bucket = row[direction]
+
+    if (result === 'Assist') {
+      bucket.assists += 1
+      bucket.totalHits += 1
+    } else if (result === 'Lost' || result === 'Timeout' || result === 'Interrupted' || result === 'Stalemate' || result === 'Escape') {
+      bucket.losses += 1
+      bucket.totalHits += 1
+    } else if (WIN_RESULTS.has(result) || result === 'Special') {
+      if (result === 'Mugged') bucket.mugs += 1
+      else if (result === 'Hospitalized') bucket.hosp += 1
+      else bucket.leaves += 1 // Attacked, Arrested, Looted, Special
+      if (isRankedWar) bucket.warHits += 1
+      bucket.totalHits += 1
+    }
+    // other results: ignored
+  }
+
+  return Array.from(rows.values()).sort((a, b) =>
+    a.memberName.localeCompare(b.memberName)
+  )
+}
+
+/**
+ * Collect unique opposing faction IDs from a set of attacks (from our faction's perspective).
+ */
+export function collectOpposingFactionIds(attacks) {
+  const ids = new Set()
+  for (const a of attacks) {
+    const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
+    if (isIncoming) {
+      if (a.defender_faction_id === OUR_FACTION_ID && a.attacker_faction_id) ids.add(Number(a.attacker_faction_id))
+    } else {
+      if (a.attacker_faction_id === OUR_FACTION_ID && a.defender_faction_id) ids.add(Number(a.defender_faction_id))
+    }
+  }
+  return ids
+}
+
+
+/**
  * Calculate termed war payouts.
  * Members with score >= minScoreThreshold each receive flatPayoutAmount.
  */
@@ -213,11 +317,13 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
   } = settings
 
   const { totalCacheValue, breakdown } = calculateCacheValue(rewardsItems, cachePrices)
-  const basePool = Math.floor(totalCacheValue * (1 - factionCutPercent / 100))
-  const memberPool = Math.max(
+  // Order of ops: subtract mercs/revivers & add top-up from gross cache FIRST, then apply faction cut.
+  const grossAfterCosts = Math.max(
     0,
-    Math.floor(basePool - Number(mercCost) - Number(reviverCost) + Number(factionTopUp))
+    totalCacheValue - Number(mercCost) - Number(reviverCost) + Number(factionTopUp)
   )
+  const basePool = Math.floor(grossAfterCosts * (1 - factionCutPercent / 100))
+  const memberPool = basePool
 
   const attackStats = buildMemberAttackStats(attacks)
 

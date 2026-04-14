@@ -551,13 +551,96 @@ class SupabaseSync:
         logger.info(f"Collected {len(all_attacks)} faction attacks")
         attacks_count = self._bulk_upsert('faction_attacks', all_attacks, 'attack_id')
 
+        # Collect faction IDs referenced in these attacks and backfill any missing
+        # entries in the factions lookup table.
+        faction_ids = set()
+        for a in all_attacks:
+            for key in ('attacker_faction_id', 'defender_faction_id'):
+                fid = a.get(key)
+                if fid:
+                    faction_ids.add(int(fid))
+        backfilled = self._backfill_factions(faction_ids)
+
         result = {
             'type': 'Faction Attacks',
             'attacks_synced': attacks_count,
+            'factions_backfilled': backfilled,
             'errors': errors,
         }
-        logger.info(f"Faction attacks sync complete: {attacks_count} attacks")
+        logger.info(
+            f"Faction attacks sync complete: {attacks_count} attacks, "
+            f"{backfilled} new factions looked up"
+        )
         return result
+
+    def _backfill_factions(self, faction_ids: set) -> int:
+        """
+        For each faction ID seen in the attacks, ensure a row exists in the
+        `factions` lookup table. Fetches missing ones from the Torn API one at
+        a time (rate-limiting is handled inside TornAPI).
+
+        Returns the number of new rows inserted.
+        """
+        if not faction_ids:
+            return 0
+
+        api_key = os.environ.get('TORN_API_KEY')
+        if not api_key:
+            logger.warning("TORN_API_KEY not set — skipping faction name backfill")
+            return 0
+
+        # Find which IDs are already known
+        known: set = set()
+        ids_list = sorted(faction_ids)
+        CHUNK = 500  # PostgREST `in.(...)` has a practical URL length limit
+        for i in range(0, len(ids_list), CHUNK):
+            chunk = ids_list[i : i + CHUNK]
+            try:
+                resp = self.client.table('factions').select('id').in_('id', chunk).execute()
+                for row in (resp.data or []):
+                    known.add(int(row['id']))
+            except Exception as e:
+                logger.warning(f"Failed to query existing factions: {e}")
+                return 0
+
+        missing = [fid for fid in ids_list if fid not in known]
+        if not missing:
+            logger.info(f"Faction backfill: all {len(faction_ids)} referenced factions already known")
+            return 0
+
+        logger.info(f"Faction backfill: looking up {len(missing)} new factions via Torn API")
+
+        # Import lazily to avoid a hard dependency when TORN_API_KEY isn't set
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from scripts.utils.torn_api import TornAPI, TornAPIError  # type: ignore
+
+        api = TornAPI(api_key)
+        new_rows = []
+        for fid in missing:
+            try:
+                resp = api.get_faction_basic(fid)
+                basic = (resp or {}).get('basic') or {}
+                name = basic.get('name')
+                if not name:
+                    logger.warning(f"  Faction {fid}: no name in response, skipping")
+                    continue
+                new_rows.append({
+                    'id': int(basic.get('id', fid)),
+                    'name': name,
+                    'tag': basic.get('tag'),
+                    'updated_at': datetime.utcnow().isoformat(),
+                })
+            except TornAPIError as e:
+                logger.warning(f"  Faction {fid}: API error ({e}), skipping")
+            except Exception as e:
+                logger.warning(f"  Faction {fid}: unexpected error ({e}), skipping")
+
+        if not new_rows:
+            return 0
+
+        inserted = self._bulk_upsert('factions', new_rows, 'id')
+        logger.info(f"Faction backfill: upserted {inserted} rows")
+        return inserted
 
 
 def main():
