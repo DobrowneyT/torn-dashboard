@@ -196,15 +196,6 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
     )
   }
 
-  const incomingCols = [
-    { key: 'incoming.leaves',    label: 'Leaves' },
-    { key: 'incoming.mugs',      label: 'Mugs' },
-    { key: 'incoming.hosp',      label: 'Hosp' },
-    { key: 'incoming.warHits',   label: 'War' },
-    { key: 'incoming.assists',   label: 'Assists' },
-    { key: 'incoming.losses',    label: 'Lost' },
-    { key: 'incoming.totalHits', label: 'Total' },
-  ]
   const outgoingCols = [
     { key: 'outgoing.leaves',    label: 'Leaves' },
     { key: 'outgoing.mugs',      label: 'Mugs' },
@@ -213,6 +204,15 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
     { key: 'outgoing.assists',   label: 'Assists' },
     { key: 'outgoing.losses',    label: 'Lost' },
     { key: 'outgoing.totalHits', label: 'Total' },
+  ]
+  const incomingCols = [
+    { key: 'incoming.leaves',    label: 'Leaves' },
+    { key: 'incoming.mugs',      label: 'Mugs' },
+    { key: 'incoming.hosp',      label: 'Hosp' },
+    { key: 'incoming.warHits',   label: 'War' },
+    { key: 'incoming.assists',   label: 'Assists' },
+    { key: 'incoming.losses',    label: 'Lost' },
+    { key: 'incoming.totalHits', label: 'Total' },
   ]
 
   return (
@@ -257,15 +257,15 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
               <th className="px-2 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 left-0 z-30 bg-gray-50 dark:bg-slate-700" rowSpan={2}>
                 Player
               </th>
-              <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 text-center" colSpan={incomingCols.length}>
-                Incoming
-              </th>
               <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 text-center" colSpan={outgoingCols.length}>
                 Outgoing
               </th>
+              <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 text-center" colSpan={incomingCols.length}>
+                Incoming
+              </th>
             </tr>
             <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">
-              {incomingCols.map((c, i) => (
+              {outgoingCols.map((c, i) => (
                 <HitSort
                   key={c.key}
                   col={c.key}
@@ -273,7 +273,7 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
                   className={`text-right sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 ${i === 0 ? 'border-l border-gray-200 dark:border-slate-700' : ''}`}
                 />
               ))}
-              {outgoingCols.map((c, i) => (
+              {incomingCols.map((c, i) => (
                 <HitSort
                   key={c.key}
                   col={c.key}
@@ -296,7 +296,7 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
                 <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">
                   {r.memberName}
                 </td>
-                {incomingCols.map((c, i) => {
+                {outgoingCols.map((c, i) => {
                   const [side, key] = c.key.split('.')
                   const v = r[side][key]
                   return (
@@ -305,7 +305,7 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
                     </td>
                   )
                 })}
-                {outgoingCols.map((c, i) => {
+                {incomingCols.map((c, i) => {
                   const [side, key] = c.key.split('.')
                   const v = r[side][key]
                   return (

@@ -28,6 +28,13 @@ export const config = {
     '2015160', // Andrew_616
   ],
 
+  // Reward items whose value should be taken from sell_price (items table)
+  // instead of the live Torn market price. Use for items that can only be
+  // sold back to the system (e.g. item 1508).
+  useSellPriceItemIds: [
+    1508,
+  ],
+
   crimeItemIds: [
     66, 67, 68, 69, 70, 71, 72, 74, 159, 213, 568, 579, 981, 1080, 1203,
     1258, 1284, 1331, 1350, 1362, 1380, 1383, 73, 103, 158, 172, 188, 190,

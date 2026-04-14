@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { config } from '../config.js'
 
 /**
  * Enrich item breakdown with actual prices from database and Torn API
@@ -22,7 +23,7 @@ export async function enrichItemBreakdown(itemBreakdown, apiKey) {
     // Fetch all data sources in parallel
     const [itemsResult, marketPrices, costPricesResult] = await Promise.all([
       // Item names from items table
-      supabase.from('items').select('id, name').in('id', allIds),
+      supabase.from('items').select('id, name, sell_price').in('id', allIds),
       // Market prices from Torn API for reward items
       (rewardIds.length > 0 && apiKey)
         ? fetchItemMarketPrices(rewardIds, apiKey)
@@ -33,13 +34,18 @@ export async function enrichItemBreakdown(itemBreakdown, apiKey) {
         : Promise.resolve({ data: null })
     ])
 
-    // Build item names map
+    // Build item names + sell-price maps
     const itemNames = {}
+    const itemSellPrices = {}
     if (itemsResult.data) {
       itemsResult.data.forEach(item => {
         itemNames[item.id.toString()] = item.name
+        itemSellPrices[item.id.toString()] = parseInt(item.sell_price) || 0
       })
     }
+    const sellPriceOverrideIds = new Set(
+      (config.useSellPriceItemIds || []).map(id => id.toString())
+    )
 
     // Build cost prices map
     const costPrices = {}
@@ -52,15 +58,21 @@ export async function enrichItemBreakdown(itemBreakdown, apiKey) {
     // Update reward items with market prices and names
     const enrichedRewards = {}
     Object.entries(itemBreakdown.rewards || {}).forEach(([itemId, data]) => {
-      const marketPrice = marketPrices[itemId] || 0
+      const useSellPrice = sellPriceOverrideIds.has(itemId)
+      const unitValue = useSellPrice
+        ? (itemSellPrices[itemId] || 0)
+        : (marketPrices[itemId] || 0)
       const itemName = itemNames[itemId] || data.name || `Item ${itemId}`
-      
+      const priceSource = unitValue > 0
+        ? (useSellPrice ? 'sell_price' : 'torn_api')
+        : 'none'
+
       enrichedRewards[itemId] = {
         ...data,
         name: itemName,
-        unitValue: marketPrice,
-        totalValue: marketPrice * data.quantity,
-        priceSource: marketPrice > 0 ? 'torn_api' : 'none'
+        unitValue,
+        totalValue: unitValue * data.quantity,
+        priceSource
       }
     })
     
