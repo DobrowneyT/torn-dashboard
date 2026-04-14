@@ -52,6 +52,7 @@ jobs:
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
       run: python scripts/sync_to_supabase.py attacks
 
     - name: Upload logs as artifact

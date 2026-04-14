@@ -2,8 +2,8 @@ name: Daily Scrapers
 
 on:
   schedule:
-    # Run daily at 6:00 AM UTC
-    - cron: '0 6 * * *'
+    # Run daily at 01:00 UTC (Torn City Time is UTC)
+    - cron: '0 1 * * *'
   workflow_dispatch:
 
 # Flow:
@@ -302,6 +302,7 @@ jobs:
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
       run: python scripts/sync_to_supabase.py attacks
 
     - name: Upload logs as artifact

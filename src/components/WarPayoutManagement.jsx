@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions, loadFactionAttacksByWindow, loadWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
 import { saveWarPayout, updateWarIsTermed } from '../utils/adminApi'
@@ -477,8 +477,19 @@ export default function WarPayoutManagement() {
     }
   }
 
-  function handleCalculate() {
-    if (!selectedWar || contributions.length === 0) return
+  // Filter outgoing attacks by the opposing-faction filter (defender_faction_id).
+  // Incoming attacks are not used in payout calc but we keep them for completeness.
+  function applyFactionFilterToAttacks(list, filter) {
+    if (!filter || filter === null) return list
+    return list.filter(a => {
+      const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
+      if (isIncoming) return filter.has(Number(a.attacker_faction_id) || 0)
+      return filter.has(Number(a.defender_faction_id) || 0)
+    })
+  }
+
+  function computeResults(filter) {
+    if (!selectedWar || contributions.length === 0) return null
 
     const rewardsItems = selectedWar.rewards_items
       ? (typeof selectedWar.rewards_items === 'string'
@@ -504,12 +515,16 @@ export default function WarPayoutManagement() {
       factionTopUp:  Number(factionTopUp) || 0,
     }
 
-    let results
     if (warType === 'termed') {
-      results = calculateTermedWarPayouts(contributions, settings)
-    } else {
-      results = calculateRealWarPayouts(contributions, attacks, settings)
+      return calculateTermedWarPayouts(contributions, settings)
     }
+    const filteredAttacks = applyFactionFilterToAttacks(attacks, filter)
+    return calculateRealWarPayouts(contributions, filteredAttacks, settings)
+  }
+
+  function handleCalculate() {
+    const results = computeResults(factionFilter)
+    if (!results) return
 
     setPayoutResults(results)
     setEligibilityOverrides({})
@@ -519,6 +534,16 @@ export default function WarPayoutManagement() {
     setBatchURL('')
     setSaveError(null)
   }
+
+  // Keep the payout sheet in sync with the Hit Report's faction filter once
+  // the user has calculated at least once (real wars only — termed ignores attacks).
+  useEffect(() => {
+    if (!hasCalculated) return
+    if (warType !== 'real') return
+    const results = computeResults(factionFilter)
+    if (results) setPayoutResults(results)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [factionFilter])
 
   function getEffectiveMembers() {
     if (!payoutResults) return []
@@ -1025,6 +1050,12 @@ export default function WarPayoutManagement() {
               </span>
             </div>
             <div>
+              <span className="text-gray-500 dark:text-gray-400">Faction Cut ({factionCutPercent}%): </span>
+              <span className="font-semibold text-purple-700 dark:text-purple-400">
+                {formatCurrency(payoutResults.factionCutAmount ?? 0)}
+              </span>
+            </div>
+            <div>
               <span className="text-gray-500 dark:text-gray-400">Member Pool: </span>
               <span className="font-semibold text-gray-900 dark:text-white">
                 {formatCurrency(payoutResults.memberPayoutPool)}
@@ -1049,6 +1080,11 @@ export default function WarPayoutManagement() {
                   {formatCurrency(payoutResults.payPerHit)}
                 </span>
                 <span className="text-gray-400 ml-1">({payoutResults.totalWarHits} hits)</span>
+              </div>
+            )}
+            {warType === 'real' && factionFilter && factionFilter.size > 0 && (
+              <div className="text-blue-600 dark:text-blue-400">
+                ⚡ Filtered by {factionFilter.size} faction{factionFilter.size === 1 ? '' : 's'}
               </div>
             )}
             {payoutResults.overBudgetWarning && (

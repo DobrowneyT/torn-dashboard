@@ -260,7 +260,8 @@ export function calculateTermedWarPayouts(contributions, settings) {
   } = settings
 
   const { totalCacheValue, breakdown } = calculateCacheValue(rewardsItems, cachePrices)
-  const memberPayoutPool = Math.floor(totalCacheValue * (1 - factionCutPercent / 100))
+  const factionCutAmount = Math.floor(totalCacheValue * (factionCutPercent / 100))
+  const memberPayoutPool = Math.max(0, totalCacheValue - factionCutAmount)
 
   const members = contributions.map(m => {
     const score = Number(m.score) || 0
@@ -285,6 +286,7 @@ export function calculateTermedWarPayouts(contributions, settings) {
     cacheValue: totalCacheValue,
     cacheBreakdown: breakdown,
     memberPayoutPool,
+    factionCutAmount,
     overBudgetWarning,
   }
 }
@@ -322,7 +324,8 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     0,
     totalCacheValue - Number(mercCost) - Number(reviverCost) + Number(factionTopUp)
   )
-  const basePool = Math.floor(grossAfterCosts * (1 - factionCutPercent / 100))
+  const factionCutAmount = Math.floor(grossAfterCosts * (factionCutPercent / 100))
+  const basePool = Math.max(0, grossAfterCosts - factionCutAmount)
   const memberPool = basePool
 
   const attackStats = buildMemberAttackStats(attacks)
@@ -410,6 +413,7 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     cacheBreakdown: breakdown,
     memberPayoutPool: memberPool,
     basePool,
+    factionCutAmount,
     mercCost: Number(mercCost) || 0,
     reviverCost: Number(reviverCost) || 0,
     factionTopUp: Number(factionTopUp) || 0,
