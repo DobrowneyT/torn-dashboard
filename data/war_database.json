@@ -5334,6 +5334,23 @@
       "rank_before": "Platinum III",
       "rank_after": "Diamond I",
       "report_fetched": true
+    },
+    "40345": {
+      "id": 40345,
+      "start_at": 1776384000,
+      "end_at": null,
+      "opponent_id": 20465,
+      "opponent_name": "SMTH - Phoenix Nirvana",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17600,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -195376,6 +195393,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-04-14T06:05:01.876453"
+    "last_updated": "2026-04-15T03:59:59.679256"
   }
 }
