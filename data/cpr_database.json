@@ -10365,40 +10365,40 @@
     },
     "3475942": {
       "name": "Phoneix_55",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "7": {
           "Looter": 60
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-04-15T17:43:42.586077"
+      "tier_last_updated": "2026-04-16T02:41:15.716054"
     },
     "3074032": {
       "name": "Josiah",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-15T17:43:42.586107"
+      "tier_last_updated": "2026-04-16T02:41:15.716078"
     },
     "3839589": {
       "name": "Lokimm",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-15T17:43:42.586132"
+      "tier_last_updated": "2026-04-16T02:41:15.716096"
     },
     "2678213": {
       "name": "nivar",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-15T17:43:42.586155"
+      "tier_last_updated": "2026-04-16T02:41:15.716115"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-16T02:41:13.882786",
+    "last_updated": "2026-04-16T02:41:15.716804",
     "total_members": 176
   }
 }
