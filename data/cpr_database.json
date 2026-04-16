@@ -10457,26 +10457,26 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-16T11:37:48.657927"
+      "tier_last_updated": "2026-04-16T17:43:52.337878"
     },
     "3839589": {
       "name": "Lokimm",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-16T11:37:48.657983"
+      "tier_last_updated": "2026-04-16T17:43:52.337907"
     },
     "2678213": {
       "name": "nivar",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-16T11:37:48.658014"
+      "tier_last_updated": "2026-04-16T17:43:52.337929"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-16T17:43:49.532438",
+    "last_updated": "2026-04-16T17:43:52.338812",
     "total_members": 176
   }
 }
