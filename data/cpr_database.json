@@ -10055,7 +10055,7 @@
     },
     "3359654": {
       "name": "EdgingGooner",
-      "tier": 4,
+      "tier": 3,
       "cpr_by_role": {
         "3": {
           "Enforcer": 92,
@@ -10108,7 +10108,7 @@
         }
       },
       "last_scraped": "2026-04-17T16:54:50.173648",
-      "tier_last_updated": "2026-03-19T17:43:19.785734"
+      "tier_last_updated": "2026-04-17T16:54:54.911987"
     },
     "3521451": {
       "name": "Caz27",
@@ -10697,7 +10697,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-17T16:54:53.051971",
+    "last_updated": "2026-04-17T16:54:54.912982",
     "total_members": 176
   }
 }
