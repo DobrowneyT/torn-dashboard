@@ -5341,8 +5341,8 @@
       "end_at": null,
       "opponent_id": 20465,
       "opponent_name": "SMTH - Phoenix Nirvana",
-      "our_score": 0,
-      "opponent_score": 0,
+      "our_score": 6508,
+      "opponent_score": 8845,
       "target": 17600,
       "winner_faction_id": null,
       "forfeit": false,
@@ -195393,6 +195393,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-04-16T04:14:38.529497"
+    "last_updated": "2026-04-17T04:11:58.721444"
   }
 }
