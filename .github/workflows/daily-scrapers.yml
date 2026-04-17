@@ -321,6 +321,50 @@ jobs:
         retention-days: 1
         if-no-files-found: warn
 
+  # ── 1e. Scrape Member Daily Stats ─────────────────────────────────────────────
+  scrape-member-stats:
+    name: Scrape Member Daily Stats
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Scrape member stats and gym contributions
+      env:
+        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+      run: python scripts/scrape_member_stats.py
+
+    - name: Upload logs as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: member-stats-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30
+
 
   # ── 1e. Sync Items Catalog ───────────────────────────────────────────────────
   sync-items:
