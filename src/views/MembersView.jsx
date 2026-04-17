@@ -835,17 +835,12 @@ function CprModal({ member, cprData, loading, onClose }) {
     }
   }
 
-  // Group rows by crime name, then deduplicate by base role
-  // (e.g. "Muscle #1", "Muscle #2", "Muscle #3" all share the same CPR → show "Muscle" once)
+  // Group rows by crime name, showing all positions individually
   const byCrime = {}
   for (const row of cprData) {
     const name = row.crime_name
-    if (!byCrime[name]) byCrime[name] = { difficulty: row.difficulty, roleMap: {} }
-    const role = baseRole(row.position_label)
-    // Keep the first occurrence per base role (values are identical for same role in same crime)
-    if (!byCrime[name].roleMap[role]) {
-      byCrime[name].roleMap[role] = row
-    }
+    if (!byCrime[name]) byCrime[name] = { difficulty: row.difficulty, positions: [] }
+    byCrime[name].positions.push(row)
   }
   // Sort crimes by difficulty descending, then by name
   const crimeNames = Object.keys(byCrime).sort((a, b) => {
@@ -853,9 +848,9 @@ function CprModal({ member, cprData, loading, onClose }) {
     return diff !== 0 ? diff : a.localeCompare(b)
   })
 
-  const totalRoles = crimeNames.reduce((sum, name) => sum + Object.keys(byCrime[name].roleMap).length, 0)
+  const totalRoles = crimeNames.reduce((sum, name) => sum + byCrime[name].positions.length, 0)
   const uniqueCrimes = crimeNames.length
-  const allValues = crimeNames.flatMap(name => Object.values(byCrime[name].roleMap).map(r => parseFloat(r.cpr_value)))
+  const allValues = crimeNames.flatMap(name => byCrime[name].positions.map(r => parseFloat(r.cpr_value)))
   const avgCpr = allValues.length > 0
     ? (allValues.reduce((s, v) => s + v, 0) / allValues.length).toFixed(1)
     : null
@@ -884,9 +879,9 @@ function CprModal({ member, cprData, loading, onClose }) {
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-slate-700">
               {crimeNames.map(crimeName => {
-                const { difficulty, roleMap } = byCrime[crimeName]
-                const roles = Object.entries(roleMap).sort(([a], [b]) => a.localeCompare(b))
-                const crimeAvg = (roles.reduce((s, [, r]) => s + parseFloat(r.cpr_value), 0) / roles.length).toFixed(1)
+                const { difficulty, positions } = byCrime[crimeName]
+                const sortedPositions = [...positions].sort((a, b) => a.position_label.localeCompare(b.position_label))
+                const crimeAvg = (sortedPositions.reduce((s, r) => s + parseFloat(r.cpr_value), 0) / sortedPositions.length).toFixed(1)
                 return (
                   <div key={crimeName}>
                     <div className="px-4 py-2 bg-gray-50 dark:bg-slate-700/50 flex items-center justify-between gap-2">
@@ -899,21 +894,22 @@ function CprModal({ member, cprData, loading, onClose }) {
                         </span>
                       </div>
                       <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
-                        avg {crimeAvg}% · {roles.length} role{roles.length !== 1 ? 's' : ''}
+                        avg {crimeAvg}% · {sortedPositions.length} role{sortedPositions.length !== 1 ? 's' : ''}
                       </span>
                     </div>
                     <div className="px-4 py-1">
-                      {roles.map(([roleName, row]) => {
+                      {sortedPositions.map(row => {
                         const val = parseFloat(row.cpr_value)
                         const barWidth = Math.min(val, 100)
-                        const threshold = reqThreshold[`${difficulty}:${roleName}`]
+                        const role = baseRole(row.position_label)
+                        const threshold = reqThreshold[`${difficulty}:${role}`]
                         const barColor = threshold !== undefined
                           ? (val >= threshold ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
                           : (val >= 75 ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
                         return (
-                          <div key={roleName} className="flex items-center gap-3 py-1.5">
-                            <span className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0 truncate" title={roleName}>
-                              {roleName}
+                          <div key={row.position_label} className="flex items-center gap-3 py-1.5">
+                            <span className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0 truncate" title={row.position_label}>
+                              {row.position_label}
                             </span>
                             <div className="flex-1 bg-gray-100 dark:bg-slate-600 rounded-full h-2">
                               <div
