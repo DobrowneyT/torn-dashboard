@@ -10539,7 +10539,7 @@
     },
     "3074032": {
       "name": "Josiah",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "3": {
           "Enforcer": 94,
@@ -10579,11 +10579,11 @@
         }
       },
       "last_scraped": "2026-04-17T07:23:33.404081",
-      "tier_last_updated": "2026-04-17T04:12:27.031969"
+      "tier_last_updated": "2026-04-17T07:23:37.282546"
     },
     "3839589": {
       "name": "Lokimm",
-      "tier": -1,
+      "tier": 5,
       "cpr_by_role": {
         "3": {
           "Enforcer": 87,
@@ -10623,11 +10623,11 @@
         }
       },
       "last_scraped": "2026-04-17T07:23:34.879046",
-      "tier_last_updated": "2026-04-17T04:12:27.031999"
+      "tier_last_updated": "2026-04-17T07:23:37.283272"
     },
     "2678213": {
       "name": "nivar",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "3": {
           "Enforcer": 80,
@@ -10667,12 +10667,12 @@
         }
       },
       "last_scraped": "2026-04-17T07:23:34.587063",
-      "tier_last_updated": "2026-04-17T04:12:27.032024"
+      "tier_last_updated": "2026-04-17T07:23:37.283299"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-17T07:23:35.664166",
+    "last_updated": "2026-04-17T07:23:37.283457",
     "total_members": 176
   }
 }
