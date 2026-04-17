@@ -273,11 +273,11 @@ export default function MembersView({ isLeadership }) {
 
     try {
       const { data, error } = await supabase
-        .from('member_cpr')
-        .select('difficulty_level, role_name, cpr_value')
+        .from('member_cpr_v2')
+        .select('crime_name, difficulty, position_label, cpr_value, observation_count')
         .eq('member_id', memberId)
-        .order('difficulty_level', { ascending: true })
-        .order('role_name', { ascending: true })
+        .order('crime_name', { ascending: true })
+        .order('position_label', { ascending: true })
 
       if (error) throw error
       setMemberCprData(data || [])
@@ -818,31 +818,40 @@ function CprModal({ member, cprData, loading, onClose }) {
     )
   }
 
+  // Strip " #N" suffix from position labels to get the base role name for threshold matching
+  function baseRole(positionLabel) {
+    return positionLabel.replace(/ #\d+$/, '')
+  }
+
   // Build lookup: "level:role" -> minCpr threshold from tier requirements
   const reqThreshold = {}
   for (const reqs of Object.values(config.tierRequirements)) {
     for (const req of reqs) {
       if (req.isAverage) continue
       const key = `${req.level}:${req.role}`
-      // Keep the lowest threshold (most lenient requirement across all tiers)
       if (reqThreshold[key] === undefined || req.minCpr < reqThreshold[key]) {
         reqThreshold[key] = req.minCpr
       }
     }
   }
 
-  // Group rows by difficulty level, sorted numerically
-  const byLevel = {}
+  // Group rows by crime name
+  const byCrime = {}
   for (const row of cprData) {
-    const lvl = row.difficulty_level
-    if (!byLevel[lvl]) byLevel[lvl] = []
-    byLevel[lvl].push(row)
+    const name = row.crime_name
+    if (!byCrime[name]) byCrime[name] = { difficulty: row.difficulty, positions: [] }
+    byCrime[name].positions.push(row)
   }
-  const levels = Object.keys(byLevel).sort((a, b) => parseInt(b) - parseInt(a))
+  // Sort crimes by difficulty descending, then by name
+  const crimeNames = Object.keys(byCrime).sort((a, b) => {
+    const diff = (byCrime[b].difficulty || 0) - (byCrime[a].difficulty || 0)
+    return diff !== 0 ? diff : a.localeCompare(b)
+  })
 
-  const totalRoles = cprData.length
-  const avgCpr = totalRoles > 0
-    ? (cprData.reduce((sum, r) => sum + parseFloat(r.cpr_value), 0) / totalRoles).toFixed(1)
+  const totalPositions = cprData.length
+  const uniqueCrimes = crimeNames.length
+  const avgCpr = totalPositions > 0
+    ? (cprData.reduce((sum, r) => sum + parseFloat(r.cpr_value), 0) / totalPositions).toFixed(1)
     : null
 
   return (
@@ -852,7 +861,7 @@ function CprModal({ member, cprData, loading, onClose }) {
           <div>
             <h3 className="text-lg font-semibold">{member.name} — CPR Data</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              {totalRoles} roles across {levels.length} level{levels.length !== 1 ? 's' : ''}
+              {totalPositions} roles across {uniqueCrimes} crime{uniqueCrimes !== 1 ? 's' : ''}
               {avgCpr !== null && ` · Avg ${avgCpr}%`}
             </p>
           </div>
@@ -864,35 +873,42 @@ function CprModal({ member, cprData, loading, onClose }) {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {levels.length === 0 ? (
+          {crimeNames.length === 0 ? (
             <p className="text-center text-gray-500 dark:text-gray-400 py-8">No CPR data available</p>
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-slate-700">
-              {levels.map(level => {
-                const roles = byLevel[level].sort((a, b) => a.role_name.localeCompare(b.role_name))
-                const levelAvg = (roles.reduce((s, r) => s + parseFloat(r.cpr_value), 0) / roles.length).toFixed(1)
+              {crimeNames.map(crimeName => {
+                const { difficulty, positions } = byCrime[crimeName]
+                const sorted = positions.sort((a, b) => a.position_label.localeCompare(b.position_label))
+                const crimeAvg = (sorted.reduce((s, r) => s + parseFloat(r.cpr_value), 0) / sorted.length).toFixed(1)
                 return (
-                  <div key={level}>
-                    <div className="px-4 py-2 bg-gray-50 dark:bg-slate-700/50 flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                        Level {level}
-                      </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        avg {levelAvg}% · {roles.length} role{roles.length !== 1 ? 's' : ''}
+                  <div key={crimeName}>
+                    <div className="px-4 py-2 bg-gray-50 dark:bg-slate-700/50 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-xs font-bold bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-gray-300 flex-shrink-0">
+                          Lv{difficulty}
+                        </span>
+                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300 truncate">
+                          {crimeName}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
+                        avg {crimeAvg}% · {sorted.length} role{sorted.length !== 1 ? 's' : ''}
                       </span>
                     </div>
                     <div className="px-4 py-1">
-                      {roles.map((row, idx) => {
+                      {sorted.map((row, idx) => {
                         const val = parseFloat(row.cpr_value)
                         const barWidth = Math.min(val, 100)
-                        const threshold = reqThreshold[`${level}:${row.role_name}`]
+                        const role = baseRole(row.position_label)
+                        const threshold = reqThreshold[`${difficulty}:${role}`]
                         const barColor = threshold !== undefined
                           ? (val >= threshold ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
                           : (val >= 75 ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
                         return (
                           <div key={idx} className="flex items-center gap-3 py-1.5">
-                            <span className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0 truncate">
-                              {row.role_name}
+                            <span className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0 truncate" title={row.position_label}>
+                              {row.position_label}
                             </span>
                             <div className="flex-1 bg-gray-100 dark:bg-slate-600 rounded-full h-2">
                               <div
