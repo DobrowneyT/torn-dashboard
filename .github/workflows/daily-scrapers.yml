@@ -8,10 +8,12 @@ on:
 
 # Flow:
 #   1. prepare      — checkout repo, upload current data/ as artifact
-#   2. scrape-*     — four jobs run in parallel; each downloads initial-data,
+#   2. scrape-*     — six jobs run in parallel; each downloads initial-data,
 #                     runs its scraper + Supabase sync, then uploads output
 #                     files as an artifact.  No git push happens here.
-#   3. commit-data  — runs after all scrapers succeed; downloads every data
+#                     (scrape-member-stats and sync-items write directly to
+#                     Supabase and don't produce data artifacts.)
+#   3. commit-data  — runs after all jobs finish; downloads every data
 #                     artifact, merges into the workspace, and does one
 #                     atomic commit + push.
 
@@ -366,7 +368,7 @@ jobs:
         retention-days: 30
 
 
-  # ── 1e. Sync Items Catalog ───────────────────────────────────────────────────
+  # ── 1f. Sync Items Catalog ───────────────────────────────────────────────────
   sync-items:
     name: Sync Items Catalog
     needs: prepare
@@ -416,7 +418,7 @@ jobs:
   # ── 2. Commit all data in one push ───────────────────────────────────────────
   commit-data:
     name: Commit & Push Data
-    needs: [scrape-crimes, scrape-cpr, scrape-wars, scrape-faction-attacks, sync-items]
+    needs: [scrape-crimes, scrape-cpr, scrape-wars, scrape-faction-attacks, scrape-member-stats, sync-items]
     runs-on: ubuntu-latest
     permissions:
       contents: write
