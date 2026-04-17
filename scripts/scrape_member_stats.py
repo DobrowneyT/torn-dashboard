@@ -46,6 +46,15 @@ V1_BASE = "https://api.torn.com"
 
 BACKFILL_DAYS = 30
 
+# V1 requires explicit stat keys or the endpoint returns nothing
+V1_STATS = ','.join([
+    'attackswon', 'attackslost', 'defendswon', 'defendslost',
+    'organisedcrimes', 'revives', 'itemsused', 'energydrinkused',
+    'nerverefills', 'bountiescollected', 'useractivity',
+    'xantaken', 'refills', 'alcoholused', 'boostersused',
+    'statenhancersused', 'attacksassisted', 'rankedwarhits',
+])
+
 GYM_STATS = ['gymstrength', 'gymspeed', 'gymdexterity', 'gymdefense']
 GYM_COLUMN_MAP = {
     'gymstrength': 'gym_strength',
@@ -84,6 +93,7 @@ class MemberStatsScraper:
         try:
             data = self.api._make_request(url, params={
                 'selections': 'personalstats',
+                'stat': V1_STATS,
                 'timestamp': str(timestamp),
                 'key': self.api.api_key,
             })

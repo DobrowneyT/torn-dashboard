@@ -17,7 +17,7 @@ export const config = {
     '2250591', // MonChoon
     '2932241', // Marnix0126
   ],
-  
+
   leadershipUserIds: [
     '2250591', // MonChoon
     '2749598', // Uncensored
@@ -58,7 +58,7 @@ export const config = {
     caches: { label: "Caches", description: "Item caches", color: "yellow" },
     cesium: { label: "Cesium", description: "Cesium items", color: "cyan" }
   },
-  
+
   // CPR pass-rate requirements per crime position (from faction CPR requirements sheet)
   cprRequirements: {
     "Blast from the Past": {
@@ -147,7 +147,7 @@ export const config = {
       { level: 4, role: "Average", minCpr: 75, isAverage: true }
     ]
   },
-  
+
   payoutTickets: {
     1: 40, 2: 30, 3: 15, 4: 7, 5: 3, 6: 2
   },
