@@ -5,8 +5,8 @@ Member Daily Stats Scraper
 Collects two kinds of data and writes them to the member_daily_stats table:
 
 1. Personal stats — per-member via Torn API.
-   - Current: V2 /v2/user/{id}/personalstats?cat=all
-   - 30-day backfill (new members only): V1 /user/{id}?selections=personalstats&timestamp={30d_ago}
+   - Current day: V2 /v2/user/{id}/personalstats?cat=all
+   - Backfill (missing days in last 30): V1 /user/{id}?selections=personalstats&timestamp={ts}
      The V1 API supports a `timestamp` parameter that returns stats as they were at that point.
 
 2. Gym contributions — faction-level, 4 API calls total.
@@ -15,22 +15,25 @@ Collects two kinds of data and writes them to the member_daily_stats table:
 
 Flow:
   1. Fetch all current members from Supabase (is_current = true)
-  2. Check which members already have rows in member_daily_stats (to decide backfill)
-  3. For members with NO existing rows: call V1 with timestamp=30d_ago → store as backfill
-  4. For ALL current members: call V2 for today's snapshot
-  5. Fetch gym contributions (4 faction calls) → merge into today's rows
-  6. Upsert everything to Supabase
+  2. Check which dates each member already has in member_daily_stats
+  3. For each member, identify missing days in the last 30 days
+  4. Backfill missing days via V1 API with timestamp parameter
+  5. Fetch today's V2 snapshot for ALL current members
+  6. Fetch gym contributions (4 faction calls) → merge into today's rows
+  7. Upsert everything to Supabase
 """
 
 import os
 import sys
 import json
-import time
 import logging
-import requests
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
 
+# Add parent directory to path so we can import from utils
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from utils.torn_api import TornAPI, TornAPIError, create_torn_api
 from supabase import create_client, Client
 
 logging.basicConfig(
@@ -39,12 +42,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Rate limiting
-RATE_LIMIT_DELAY = 0.6  # seconds between API calls
-
-# Torn API base URLs
 V1_BASE = "https://api.torn.com"
-V2_BASE = "https://api.torn.com/v2"
 
 BACKFILL_DAYS = 30
 
@@ -59,9 +57,7 @@ GYM_COLUMN_MAP = {
 
 class MemberStatsScraper:
     def __init__(self):
-        self.api_key = os.environ.get('TORN_API_KEY')
-        if not self.api_key:
-            raise ValueError("TORN_API_KEY environment variable is required")
+        self.api = create_torn_api()
 
         supabase_url = os.environ.get('VITE_SUPABASE_URL')
         supabase_key = os.environ.get('VITE_SUPABASE_SERVICE_ROLE_KEY')
@@ -69,62 +65,50 @@ class MemberStatsScraper:
             raise ValueError("Missing VITE_SUPABASE_URL or VITE_SUPABASE_SERVICE_ROLE_KEY")
 
         self.supabase: Client = create_client(supabase_url, supabase_key)
-        self.session = requests.Session()
-        self.last_request_time = 0.0
-
-    def _rate_limit(self):
-        elapsed = time.time() - self.last_request_time
-        if elapsed < RATE_LIMIT_DELAY:
-            time.sleep(RATE_LIMIT_DELAY - elapsed)
-        self.last_request_time = time.time()
-
-    def _api_get(self, url: str, params: Dict = None) -> Optional[Dict]:
-        """Make a rate-limited GET request. Returns None on error."""
-        self._rate_limit()
-        try:
-            resp = self.session.get(url, params=params, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-            if 'error' in data:
-                code = data['error'].get('code')
-                msg = data['error'].get('error', 'Unknown')
-                logger.warning(f"API error {code}: {msg} — URL: {url}")
-                return None
-            return data
-        except Exception as e:
-            logger.error(f"Request failed: {e} — URL: {url}")
-            return None
 
     # ─── Data fetchers ────────────────────────────────────────────────────────
 
-    def fetch_personalstats_v2(self, member_id: str) -> Optional[Dict]:
+    def fetch_personalstats_v2(self, member_id: str) -> dict | None:
         """Fetch current personalstats via V2 API."""
-        url = f"{V2_BASE}/user/{member_id}/personalstats"
-        return self._api_get(url, params={'cat': 'all', 'key': self.api_key})
+        url = f"{self.api.BASE_URL}/user/{member_id}/personalstats"
+        try:
+            data = self.api._make_request(url, params={'cat': 'all', 'key': self.api.api_key})
+            return data
+        except TornAPIError as e:
+            logger.warning(f"V2 personalstats failed for {member_id}: {e}")
+            return None
 
-    def fetch_personalstats_v1_historical(self, member_id: str, timestamp: int) -> Optional[Dict]:
+    def fetch_personalstats_v1_historical(self, member_id: str, timestamp: int) -> dict | None:
         """Fetch historical personalstats via V1 API with timestamp parameter."""
         url = f"{V1_BASE}/user/{member_id}"
-        data = self._api_get(url, params={
-            'selections': 'personalstats',
-            'timestamp': str(timestamp),
-            'key': self.api_key,
-        })
-        if data and 'personalstats' in data:
-            return data['personalstats']
-        return None
+        try:
+            data = self.api._make_request(url, params={
+                'selections': 'personalstats',
+                'timestamp': str(timestamp),
+                'key': self.api.api_key,
+            })
+            if data and 'personalstats' in data:
+                return data['personalstats']
+            return None
+        except TornAPIError as e:
+            logger.warning(f"V1 historical stats failed for {member_id} @ {timestamp}: {e}")
+            return None
 
-    def fetch_gym_contributors(self, stat: str) -> Optional[List[Dict]]:
+    def fetch_gym_contributors(self, stat: str) -> list | None:
         """Fetch faction gym contributors for a single stat."""
-        url = f"{V2_BASE}/faction/contributors"
-        data = self._api_get(url, params={
-            'stat': stat,
-            'cat': 'current',
-            'key': self.api_key,
-        })
-        if data and 'contributors' in data:
-            return data['contributors']
-        return None
+        url = f"{self.api.BASE_URL}/faction/contributors"
+        try:
+            data = self.api._make_request(url, params={
+                'stat': stat,
+                'cat': 'current',
+                'key': self.api.api_key,
+            })
+            if data and 'contributors' in data:
+                return data['contributors']
+            return None
+        except TornAPIError as e:
+            logger.warning(f"Gym contributors failed for {stat}: {e}")
+            return None
 
     # ─── Main logic ───────────────────────────────────────────────────────────
 
@@ -139,7 +123,6 @@ class MemberStatsScraper:
     def get_existing_snapshot_dates(self) -> Dict[str, Set[str]]:
         """
         Returns {member_id: set of snapshot_date strings} for all rows in member_daily_stats.
-        Used to decide who needs a backfill.
         """
         resp = self.supabase.table('member_daily_stats') \
             .select('member_id, snapshot_date') \
@@ -153,16 +136,11 @@ class MemberStatsScraper:
     def run(self):
         today = date.today()
         today_str = today.isoformat()
-        backfill_date = today - timedelta(days=BACKFILL_DAYS)
-        backfill_date_str = backfill_date.isoformat()
-        backfill_timestamp = int(
-            datetime.combine(backfill_date, datetime.min.time()).timestamp()
-        )
 
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("Member Daily Stats Scraper")
-        logger.info(f"Today: {today_str}  |  Backfill target: {backfill_date_str}")
-        logger.info("="*60)
+        logger.info(f"Today: {today_str}")
+        logger.info("=" * 60)
 
         # 1. Get current members
         members = self.get_current_members()
@@ -172,35 +150,54 @@ class MemberStatsScraper:
             logger.warning("No current members found — exiting")
             return
 
-        # 2. Check who already has data (for backfill decision)
+        # 2. Check existing snapshot dates per member
         existing = self.get_existing_snapshot_dates()
-        needs_backfill = [
-            m for m in members if str(m['member_id']) not in existing
-        ]
-        logger.info(f"{len(needs_backfill)} members need 30-day backfill")
+
+        # 3. Build the full set of dates we want covered (last 30 days)
+        target_dates = set()
+        for i in range(BACKFILL_DAYS):
+            d = today - timedelta(days=i)
+            target_dates.add(d.isoformat())
 
         records_to_upsert = []
+        total_backfill_calls = 0
 
-        # 3. Backfill: V1 historical call for new members
-        if needs_backfill:
-            logger.info(f"\n--- Backfill: fetching {BACKFILL_DAYS}-day-old stats for {len(needs_backfill)} members ---")
-            for i, m in enumerate(needs_backfill, 1):
-                mid = str(m['member_id'])
-                name = m.get('member_name', mid)
-                logger.info(f"  Backfill {i}/{len(needs_backfill)}: {name} ({mid})")
+        # 4. Backfill missing days for each member
+        logger.info(f"\n--- Backfill: checking {BACKFILL_DAYS} days for {len(members)} members ---")
+        for mi, m in enumerate(members, 1):
+            mid = str(m['member_id'])
+            name = m.get('member_name', mid)
+            member_existing = existing.get(mid, set())
 
-                stats = self.fetch_personalstats_v1_historical(mid, backfill_timestamp)
+            missing_dates = sorted(target_dates - member_existing)
+            # Exclude today — we'll fetch today via V2 below
+            missing_dates = [d for d in missing_dates if d != today_str]
+
+            if not missing_dates:
+                continue
+
+            logger.info(f"  [{mi}/{len(members)}] {name} ({mid}): {len(missing_dates)} missing days")
+
+            for d_str in missing_dates:
+                d = date.fromisoformat(d_str)
+                # Use noon UTC of the target date as the timestamp
+                ts = int(datetime.combine(d, datetime.min.time()).timestamp()) + 43200
+                stats = self.fetch_personalstats_v1_historical(mid, ts)
+                total_backfill_calls += 1
+
                 if stats:
                     records_to_upsert.append({
                         'member_id': mid,
-                        'snapshot_date': backfill_date_str,
+                        'snapshot_date': d_str,
                         'personalstats': json.dumps(stats),
                         'api_version': 'v1',
                     })
                 else:
-                    logger.warning(f"  No V1 data for {name} ({mid}) — skipping backfill")
+                    logger.warning(f"    No V1 data for {name} on {d_str}")
 
-        # 4. Current stats: V2 call for ALL members
+        logger.info(f"Backfill complete: {total_backfill_calls} API calls, {len(records_to_upsert)} records")
+
+        # 5. Current stats: V2 call for ALL members (today's snapshot)
         logger.info(f"\n--- Current stats: fetching V2 personalstats for {len(members)} members ---")
         for i, m in enumerate(members, 1):
             mid = str(m['member_id'])
@@ -218,7 +215,7 @@ class MemberStatsScraper:
             else:
                 logger.warning(f"  No V2 data for {name} ({mid})")
 
-        # 5. Gym contributions: 4 faction calls
+        # 6. Gym contributions: 4 faction calls
         logger.info(f"\n--- Gym contributions: 4 faction calls ---")
         gym_data: Dict[str, Dict[str, int]] = {}  # {member_id: {column: value}}
 
@@ -254,7 +251,7 @@ class MemberStatsScraper:
                 }
                 records_to_upsert.append(record)
 
-        # 6. Upsert to Supabase
+        # 7. Upsert to Supabase
         logger.info(f"\n--- Upserting {len(records_to_upsert)} records to member_daily_stats ---")
         if records_to_upsert:
             CHUNK_SIZE = 100
@@ -276,19 +273,19 @@ class MemberStatsScraper:
             logger.info("Nothing to upsert")
 
         # Summary
-        backfill_count = sum(1 for r in records_to_upsert if r['snapshot_date'] == backfill_date_str)
+        backfill_count = sum(1 for r in records_to_upsert if r['snapshot_date'] != today_str)
         today_count = sum(1 for r in records_to_upsert if r['snapshot_date'] == today_str)
-        gym_count = sum(1 for mid in gym_data)
+        gym_count = len(gym_data)
 
-        logger.info("\n" + "="*60)
+        logger.info("\n" + "=" * 60)
         logger.info("SUMMARY")
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info(f"Members processed:   {len(members)}")
-        logger.info(f"Backfill rows:       {backfill_count}")
+        logger.info(f"Backfill rows:       {backfill_count} ({total_backfill_calls} API calls)")
         logger.info(f"Today rows:          {today_count}")
         logger.info(f"Gym data for:        {gym_count} members")
-        logger.info(f"Total API calls:     ~{len(needs_backfill) + len(members) + 4}")
-        logger.info("="*60)
+        logger.info(f"Total API calls:     ~{total_backfill_calls + len(members) + 4}")
+        logger.info("=" * 60)
 
 
 def main():
