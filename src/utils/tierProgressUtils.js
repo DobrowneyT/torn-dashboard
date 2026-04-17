@@ -1,17 +1,38 @@
 import { config } from '../config'
 
 /**
- * Calculate a member's progress toward each tier based on their CPR data.
+ * Calculate a member's progress toward each tier based on their CPR v2 data.
  *
  * The 2/3 rule: a member must meet at least ceil(2/3 * requirements.length)
  * of a tier's requirements to qualify.
  *
- * @param {Object} cprByRole - { [difficulty_level]: { [role_name]: cpr_value } }
+ * @param {Array} cprV2Data - Array of { crime_name, difficulty, position_label, cpr_value } rows
  * @param {number} currentTier - The member's current tier (1-6)
  * @returns {Object} { currentTier, qualifiedTiers, nextTier, nextTierProgress, allTierProgress }
  */
-export function calculateTierProgress(cprByRole, currentTier) {
+export function calculateTierProgress(cprV2Data, currentTier) {
   const tierRequirements = config.tierRequirements
+
+  // Build lookup: { crime_name: { position_label: cpr_value } }
+  const byCrime = {}
+  // Build lookup: { difficulty: [cpr_values] } for average calculations
+  const byLevel = {}
+
+  for (const row of (cprV2Data || [])) {
+    const crime = row.crime_name
+    const pos = row.position_label
+    const val = parseFloat(row.cpr_value)
+
+    if (!byCrime[crime]) byCrime[crime] = {}
+    byCrime[crime][pos] = val
+
+    const diff = row.difficulty
+    if (diff) {
+      if (!byLevel[diff]) byLevel[diff] = []
+      byLevel[diff].push(val)
+    }
+  }
+
   const allTierProgress = {}
 
   for (const [tierStr, requirements] of Object.entries(tierRequirements)) {
@@ -24,16 +45,14 @@ export function calculateTierProgress(cprByRole, currentTier) {
 
       if (req.isAverage) {
         // Average CPR across all roles at this difficulty level
-        const levelCpr = cprByRole?.[req.level]
-        if (levelCpr) {
-          const values = Object.values(levelCpr)
-          if (values.length > 0) {
-            currentCpr = values.reduce((a, b) => a + b, 0) / values.length
-            met = currentCpr >= req.minCpr
-          }
+        const values = byLevel[req.level]
+        if (values && values.length > 0) {
+          currentCpr = values.reduce((a, b) => a + b, 0) / values.length
+          met = currentCpr >= req.minCpr
         }
       } else {
-        currentCpr = cprByRole?.[req.level]?.[req.role] ?? null
+        // Match on specific crime + position
+        currentCpr = byCrime[req.crime]?.[req.role] ?? null
         met = currentCpr !== null && currentCpr >= req.minCpr
       }
 

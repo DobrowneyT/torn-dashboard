@@ -818,22 +818,8 @@ function CprModal({ member, cprData, loading, onClose }) {
     )
   }
 
-  // Strip " #N" suffix from position labels to get the base role name for threshold matching
-  function baseRole(positionLabel) {
-    return positionLabel.replace(/ #\d+$/, '')
-  }
-
-  // Build lookup: "level:role" -> minCpr threshold from tier requirements
-  const reqThreshold = {}
-  for (const reqs of Object.values(config.tierRequirements)) {
-    for (const req of reqs) {
-      if (req.isAverage) continue
-      const key = `${req.level}:${req.role}`
-      if (reqThreshold[key] === undefined || req.minCpr < reqThreshold[key]) {
-        reqThreshold[key] = req.minCpr
-      }
-    }
-  }
+  // CPR requirements lookup from config (crime -> position -> threshold)
+  const cprReqs = config.cprRequirements
 
   // Group rows by crime name, showing all positions individually
   const byCrime = {}
@@ -901,10 +887,9 @@ function CprModal({ member, cprData, loading, onClose }) {
                       {sortedPositions.map(row => {
                         const val = parseFloat(row.cpr_value)
                         const barWidth = Math.min(val, 100)
-                        const role = baseRole(row.position_label)
-                        const threshold = reqThreshold[`${difficulty}:${role}`]
+                        const threshold = cprReqs[crimeName]?.positions?.[row.position_label]
                         const barColor = threshold !== undefined
-                          ? (val >= threshold ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
+                          ? (val >= threshold ? 'bg-green-500' : val >= threshold * 0.75 ? 'bg-yellow-500' : val >= threshold * 0.5 ? 'bg-orange-500' : 'bg-red-500')
                           : (val >= 75 ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
                         return (
                           <div key={row.position_label} className="flex items-center gap-3 py-1.5">

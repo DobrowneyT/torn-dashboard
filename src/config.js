@@ -59,34 +59,78 @@ export const config = {
     cesium: { label: "Cesium", description: "Cesium items", color: "cyan" }
   },
   
+  // CPR pass-rate requirements per crime position (from faction CPR requirements sheet)
+  cprRequirements: {
+    "Blast from the Past": {
+      difficulty: 7,
+      positions: {
+        "Bomber": 75, "Engineer": 75, "Hacker": 70,
+        "Muscle": 75, "Picklock #1": 70, "Picklock #2": 70
+      }
+    },
+    "Break the Bank": {
+      difficulty: 8,
+      positions: {
+        "Robber": 60, "Thief #1": 50, "Thief #2": 65,
+        "Muscle #1": 60, "Muscle #2": 60, "Muscle #3": 65
+      }
+    },
+    "Stacking the Deck": {
+      difficulty: 8,
+      positions: {
+        "Cat Burglar": 68, "Driver": 50, "Imitator": 68, "Hacker": 68
+      }
+    },
+    "Ace in the Hole": {
+      difficulty: 8,
+      positions: {
+        "Hacker": 63, "Driver": 53, "Imitator": 63,
+        "Muscle #1": 63, "Muscle #2": 63
+      }
+    },
+    "Clinical Precision": {
+      difficulty: 8,
+      positions: {
+        "Cat Burglar": 67, "Cleaner": 67, "Imitator": 70, "Assassin": 67
+      }
+    },
+    "Bidding War": {
+      difficulty: 6,
+      positions: {
+        "Driver": 75, "Robber 1": 70, "Robber 2": 75,
+        "Robber 3": 75, "Bomber 1": 70, "Bomber 2": 75
+      }
+    },
+  },
+
+  // Tier qualification requirements — each entry references a specific crime + position.
+  // 2/3 rule: member must meet ceil(2/3 * requirements.length) to qualify.
   tierRequirements: {
     1: [
-      { level: 8, role: "Imitator", minCpr: 70 },
-      { level: 8, role: "Muscle", minCpr: 65 },
-      { level: 8, role: "Thief", minCpr: 65 }
+      { crime: "Clinical Precision", role: "Imitator", minCpr: 70 },
+      { crime: "Break the Bank", role: "Muscle #3", minCpr: 65 },
+      { crime: "Break the Bank", role: "Thief #2", minCpr: 65 }
     ],
     2: [
-      { level: 8, role: "Muscle", minCpr: 60 },
-      { level: 8, role: "Robber", minCpr: 60 },
-      { level: 8, role: "Assassin", minCpr: 67 },
-      { level: 8, role: "Cat Burglar", minCpr: 67 },
-      { level: 8, role: "Cleaner", minCpr: 67 },
-      { level: 7, role: "Muscle", minCpr: 75 },
-      { level: 7, role: "Engineer", minCpr: 75 },
-      { level: 7, role: "Bomber", minCpr: 75 }
+      { crime: "Break the Bank", role: "Muscle #1", minCpr: 60 },
+      { crime: "Break the Bank", role: "Robber", minCpr: 60 },
+      { crime: "Clinical Precision", role: "Assassin", minCpr: 67 },
+      { crime: "Clinical Precision", role: "Cat Burglar", minCpr: 67 },
+      { crime: "Clinical Precision", role: "Cleaner", minCpr: 67 },
+      { crime: "Blast from the Past", role: "Muscle", minCpr: 75 },
+      { crime: "Blast from the Past", role: "Engineer", minCpr: 75 },
+      { crime: "Blast from the Past", role: "Bomber", minCpr: 75 }
     ],
     3: [
-      { level: 7, role: "Hacker", minCpr: 70 },
-      { level: 7, role: "Picklock", minCpr: 70 },
-      { level: 6, role: "Bomber", minCpr: 75 },
-      { level: 6, role: "Driver", minCpr: 75 },
-      { level: 6, role: "Robber", minCpr: 75 }
+      { crime: "Blast from the Past", role: "Hacker", minCpr: 70 },
+      { crime: "Blast from the Past", role: "Picklock #1", minCpr: 70 },
+      { crime: "Bidding War", role: "Bomber 2", minCpr: 75 },
+      { crime: "Bidding War", role: "Driver", minCpr: 75 },
+      { crime: "Bidding War", role: "Robber 2", minCpr: 75 }
     ],
     4: [
-      { level: 6, role: "Bomber", minCpr: 70 },
-      { level: 6, role: "Robber", minCpr: 70 },
-      { level: 6, role: "Enforcer", minCpr: 75 },
-      { level: 6, role: "Muscle", minCpr: 75 }
+      { crime: "Bidding War", role: "Bomber 1", minCpr: 70 },
+      { crime: "Bidding War", role: "Robber 1", minCpr: 70 }
     ],
     5: [
       { level: 5, role: "Average", minCpr: 75, isAverage: true }

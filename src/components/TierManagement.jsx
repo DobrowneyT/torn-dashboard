@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { supabase } from '../utils/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import * as adminApi from '../utils/adminApi'
+import { config } from '../config'
 
 export default function TierManagement() {
   const { user } = useAuth()
@@ -33,20 +34,24 @@ export default function TierManagement() {
       if (membersError) throw membersError
 
       const { data: cprData, error: cprError } = await supabase
-        .from('member_cpr')
-        .select('*')
+        .from('member_cpr_v2')
+        .select('member_id, crime_name, difficulty, position_label, cpr_value')
 
       if (cprError) throw cprError
 
       const membersWithCpr = membersData.map(member => {
         const memberCprRecords = cprData.filter(c => c.member_id === member.member_id)
-        
-        const cpr_by_role = {}
+
+        // Build { crime_name: { position_label: cpr_value } } for tier matching
+        const cprByCrime = {}
+        // Build { difficulty: [cpr_values] } for average calculations
+        const cprByLevel = {}
         memberCprRecords.forEach(record => {
-          if (!cpr_by_role[record.difficulty_level]) {
-            cpr_by_role[record.difficulty_level] = {}
-          }
-          cpr_by_role[record.difficulty_level][record.role_name] = record.cpr_value
+          const val = parseFloat(record.cpr_value)
+          if (!cprByCrime[record.crime_name]) cprByCrime[record.crime_name] = {}
+          cprByCrime[record.crime_name][record.position_label] = val
+          if (!cprByLevel[record.difficulty]) cprByLevel[record.difficulty] = []
+          cprByLevel[record.difficulty].push(val)
         })
 
         return {
@@ -54,8 +59,9 @@ export default function TierManagement() {
           name: member.member_name,
           tier: member.tier_override || member.tier,
           hasOverride: member.tier_override !== null,
-          cpr_by_role,
-          avgCpr: calculateAvgCpr({ cpr_by_role }),
+          cprByCrime,
+          cprByLevel,
+          avgCpr: calculateAvgCpr(memberCprRecords),
           last_scraped: member.last_scraped
         }
       })
@@ -152,22 +158,22 @@ export default function TierManagement() {
   }
 
   function getMeetsRequirements(member, tier) {
-    const requirements = tierRequirements[tier] || []
-    const cprByRole = member.cpr_by_role || {}
+    // Use config.tierRequirements (has crime field) for matching
+    const requirements = config.tierRequirements[tier] || []
+    const cprByCrime = member.cprByCrime || {}
+    const cprByLevel = member.cprByLevel || {}
 
     let metCount = 0
     requirements.forEach(req => {
-      const levelData = cprByRole[req.level] || {}
-
       if (req.isAverage) {
-        const cprValues = Object.values(levelData).filter(v => typeof v === 'number')
-        const avg = cprValues.length > 0
-          ? cprValues.reduce((sum, v) => sum + v, 0) / cprValues.length
+        const values = cprByLevel[req.level] || []
+        const avg = values.length > 0
+          ? values.reduce((sum, v) => sum + v, 0) / values.length
           : 0
         if (avg >= req.minCpr) metCount++
       } else {
-        const cpr = levelData[req.role]
-        if (cpr && cpr >= req.minCpr) metCount++
+        const cpr = cprByCrime[req.crime]?.[req.role]
+        if (cpr != null && cpr >= req.minCpr) metCount++
       }
     })
 
@@ -390,13 +396,8 @@ function QualificationBadge({ metCount, requiredCount, meetsRequirement }) {
   )
 }
 
-function calculateAvgCpr(memberData) {
-  const cprByRole = memberData.cpr_by_role || {}
-  let total = 0, count = 0
-  Object.values(cprByRole).forEach(level => {
-    Object.values(level).forEach(cpr => {
-      if (typeof cpr === 'number') { total += cpr; count++ }
-    })
-  })
-  return count > 0 ? (total / count).toFixed(1) : 'N/A'
+function calculateAvgCpr(cprRecords) {
+  if (!cprRecords || cprRecords.length === 0) return 'N/A'
+  const total = cprRecords.reduce((sum, r) => sum + parseFloat(r.cpr_value), 0)
+  return (total / cprRecords.length).toFixed(1)
 }

@@ -5,7 +5,6 @@ import { loadMemberPayoutHistory, loadMemberCrimeHistory, loadMemberLoanedItems 
 import { calculateTierProgress, getTierInfo } from '../utils/tierProgressUtils'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { submitCprKey } from '../utils/adminApi'
-import { config } from '../config'
 
 export default function DashboardView() {
   const { user } = useAuth()
@@ -26,10 +25,12 @@ export default function DashboardView() {
     try {
       const memberId = user.id.toString()
 
-      // Load member info + CPR in parallel with history data
+      // Load member info + CPR v2 in parallel with history data
       const [memberResult, cprResult, payouts, crimes, loaned] = await Promise.all([
         supabase.from('members').select('*').eq('member_id', memberId).single(),
-        supabase.from('member_cpr').select('*').eq('member_id', memberId),
+        supabase.from('member_cpr_v2')
+          .select('crime_name, difficulty, position_label, cpr_value')
+          .eq('member_id', memberId),
         loadMemberPayoutHistory(memberId).catch(() => []),
         loadMemberCrimeHistory(memberId, 20).catch(() => []),
         loadMemberLoanedItems(memberId).catch(() => []),
@@ -38,18 +39,12 @@ export default function DashboardView() {
       // Build member data
       const member = memberResult.data
       if (member) {
-        // Build CPR by role structure
-        const cprByRole = {}
-        for (const cpr of (cprResult.data || [])) {
-          if (!cprByRole[cpr.difficulty_level]) cprByRole[cpr.difficulty_level] = {}
-          cprByRole[cpr.difficulty_level][cpr.role_name] = parseFloat(cpr.cpr_value)
-        }
-
+        const cprV2Data = cprResult.data || []
         const effectiveTier = member.tier_override || member.tier || 6
-        setMemberData({ ...member, cpr_by_role: cprByRole, effectiveTier })
+        setMemberData({ ...member, cprV2Data, effectiveTier })
 
-        // Calculate tier progress
-        const progress = calculateTierProgress(cprByRole, effectiveTier)
+        // Calculate tier progress from v2 CPR data
+        const progress = calculateTierProgress(cprV2Data, effectiveTier)
         setTierProgress(progress)
       }
 
@@ -114,10 +109,7 @@ export default function DashboardView() {
 
       {/* Tier Progress Card */}
       {tierProgress && tierProgress.nextTierProgress && (
-        <TierProgressCard
-          tierProgress={tierProgress}
-          currentTier={memberData.effectiveTier}
-        />
+        <TierProgressCard tierProgress={tierProgress} />
       )}
 
       {/* Crime Participation */}
@@ -243,7 +235,7 @@ function PayoutSummaryCard({ payoutHistory }) {
   )
 }
 
-function TierProgressCard({ tierProgress, currentTier }) {
+function TierProgressCard({ tierProgress }) {
   const next = tierProgress.nextTierProgress
   if (!next) return null
 
@@ -299,8 +291,8 @@ function TierProgressCard({ tierProgress, currentTier }) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             )}
-            <span className={req.met ? 'text-green-700 dark:text-green-300' : 'text-gray-600 dark:text-gray-300'}>
-              {req.isAverage ? `Lv${req.level} Avg` : `Lv${req.level} ${req.role}`} {'>'}= {req.minCpr}
+            <span className={`truncate ${req.met ? 'text-green-700 dark:text-green-300' : 'text-gray-600 dark:text-gray-300'}`}>
+              {req.isAverage ? `Lv${req.level} Avg` : `${req.role} · ${req.crime}`} {'>'}= {req.minCpr}
             </span>
             {req.currentCpr !== null && (
               <span className={`ml-auto text-xs ${req.met ? 'text-green-600' : 'text-gray-400'}`}>
