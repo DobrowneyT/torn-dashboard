@@ -14,6 +14,7 @@ export default function DashboardView() {
   const [crimeHistory, setCrimeHistory] = useState([])
   const [loanedItems, setLoanedItems] = useState([])
   const [tierProgress, setTierProgress] = useState(null)
+  const [personalStats, setPersonalStats] = useState(null)
   const [showCprKeyModal, setShowCprKeyModal] = useState(false)
 
   useEffect(() => {
@@ -25,12 +26,17 @@ export default function DashboardView() {
     try {
       const memberId = user.id.toString()
 
-      // Load member info + CPR v2 in parallel with history data
-      const [memberResult, cprResult, payouts, crimes, loaned] = await Promise.all([
+      // Load member info + CPR v2 + stats in parallel with history data
+      const [memberResult, cprResult, statsResult, payouts, crimes, loaned] = await Promise.all([
         supabase.from('members').select('*').eq('member_id', memberId).single(),
         supabase.from('member_cpr_v2')
           .select('crime_name, difficulty, position_label, cpr_value')
           .eq('member_id', memberId),
+        supabase.from('member_daily_stats')
+          .select('snapshot_date, personalstats, api_version, gym_strength, gym_speed, gym_dexterity, gym_defense')
+          .eq('member_id', memberId)
+          .order('snapshot_date', { ascending: false })
+          .limit(31),
         loadMemberPayoutHistory(memberId).catch(() => []),
         loadMemberCrimeHistory(memberId, 20).catch(() => []),
         loadMemberLoanedItems(memberId).catch(() => []),
@@ -46,6 +52,16 @@ export default function DashboardView() {
         // Calculate tier progress from v2 CPR data
         const progress = calculateTierProgress(cprV2Data, effectiveTier)
         setTierProgress(progress)
+      }
+
+      // Build personal stats snapshots (latest + oldest for delta)
+      const statsData = statsResult.data || []
+      if (statsData.length > 0) {
+        setPersonalStats({
+          latest: statsData[0],
+          oldest: statsData[statsData.length - 1],
+          daysCovered: statsData.length,
+        })
       }
 
       setPayoutHistory(payouts.slice(0, 8))
@@ -106,6 +122,11 @@ export default function DashboardView() {
         hasCprKey={!!memberData.cpr_api_key}
         onOpen={() => setShowCprKeyModal(true)}
       />
+
+      {/* Personal Stats */}
+      {personalStats && (
+        <PersonalStatsCard stats={personalStats} />
+      )}
 
       {/* Tier Progress Card */}
       {tierProgress && tierProgress.nextTierProgress && (
@@ -302,6 +323,127 @@ function TierProgressCard({ tierProgress }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ─── Stat extraction helpers ──────────────────────────────────────
+// V1 personalstats are flat: { attackswon: 123, ... }
+// V2 personalstats are nested: { attacking: { attacks_won: 123 }, ... }
+
+function getStat(stats, v1Key, v2Path) {
+  if (!stats) return null
+  // Try V2 nested path first (e.g. "attacking.attacks_won")
+  if (v2Path) {
+    const parts = v2Path.split('.')
+    let val = stats
+    for (const p of parts) {
+      val = val?.[p]
+      if (val === undefined) break
+    }
+    if (val !== undefined && val !== null) return Number(val)
+  }
+  // Fall back to V1 flat key
+  if (v1Key && stats[v1Key] !== undefined) return Number(stats[v1Key])
+  return null
+}
+
+const STAT_DEFS = [
+  { label: 'Attacks Won', v1: 'attackswon', v2: 'attacking.attacks_won' },
+  { label: 'Attacks Lost', v1: 'attackslost', v2: 'attacking.attacks_lost' },
+  { label: 'Defends Won', v1: 'defendswon', v2: 'defending.defends_won' },
+  { label: 'Defends Lost', v1: 'defendslost', v2: 'defending.defends_lost' },
+  { label: 'Organised Crimes', v1: 'organisedcrimes', v2: 'criminal_offenses.organised_crimes' },
+  { label: 'Revives', v1: 'revives', v2: 'other.revives' },
+  { label: 'Items Used', v1: 'itemsused', v2: 'using_items.total' },
+  { label: 'Energy Drinks', v1: 'energydrinkused', v2: 'other.energy_drink_used' },
+  { label: 'Nerve Refills', v1: 'nerverefills', v2: 'other.nerve_refills' },
+  { label: 'Bounties Collected', v1: 'bountiescollected', v2: 'bounties.bounties_collected' },
+]
+
+function PersonalStatsCard({ stats }) {
+  const { latest, oldest, daysCovered } = stats
+  const latestStats = latest?.personalstats
+  const oldestStats = oldest?.personalstats
+  const hasDelta = daysCovered > 1 && oldestStats
+
+  // Gym contributions (separate columns, not in JSONB)
+  const gymStats = [
+    { label: 'Strength', value: latest?.gym_strength },
+    { label: 'Speed', value: latest?.gym_speed },
+    { label: 'Dexterity', value: latest?.gym_dexterity },
+    { label: 'Defense', value: latest?.gym_defense },
+  ]
+  const maxGym = Math.max(...gymStats.map(g => g.value || 0), 1)
+  const hasGym = gymStats.some(g => g.value != null && g.value > 0)
+
+  // Extract personal stats with deltas
+  const statRows = STAT_DEFS.map(def => {
+    const current = getStat(latestStats, def.v1, def.v2)
+    const old = hasDelta ? getStat(oldestStats, def.v1, def.v2) : null
+    const delta = (current != null && old != null) ? current - old : null
+    return { ...def, current, delta }
+  }).filter(r => r.current != null)
+
+  if (!latestStats && !hasGym) return null
+
+  return (
+    <div className="card">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-4">
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Personal Stats</h3>
+        <span className="text-xs text-gray-400 dark:text-gray-500">
+          {latest?.snapshot_date}
+          {hasDelta && ` · ${daysCovered - 1}d delta`}
+        </span>
+      </div>
+
+      {/* Gym Contributions */}
+      {hasGym && (
+        <div className="mb-5">
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Gym Contributions
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {gymStats.map(g => (
+              <div key={g.label}>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-600 dark:text-gray-400">{g.label}</span>
+                  <span className="font-mono font-medium text-gray-900 dark:text-white">
+                    {g.value != null ? g.value.toLocaleString() : '—'}
+                  </span>
+                </div>
+                <div className="w-full bg-gray-100 dark:bg-slate-600 rounded-full h-1.5">
+                  <div
+                    className="h-1.5 rounded-full bg-blue-500"
+                    style={{ width: `${g.value ? (g.value / maxGym) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Personal Stats Grid */}
+      {statRows.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+          {statRows.map(row => (
+            <div key={row.label} className="flex items-center justify-between py-1 border-b border-gray-100 dark:border-slate-700/50">
+              <span className="text-xs text-gray-600 dark:text-gray-400 truncate mr-2">{row.label}</span>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <span className="text-xs font-mono font-medium text-gray-900 dark:text-white">
+                  {row.current.toLocaleString()}
+                </span>
+                {row.delta != null && row.delta !== 0 && (
+                  <span className={`text-xs ${row.delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {row.delta > 0 ? '+' : ''}{row.delta.toLocaleString()}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

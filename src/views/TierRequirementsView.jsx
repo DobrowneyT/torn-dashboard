@@ -17,30 +17,29 @@ export default function TierRequirementsView() {
 
       try {
         const { data, error } = await supabase
-          .from('member_cpr')
-          .select('difficulty_level, role_name, cpr_value')
+          .from('member_cpr_v2')
+          .select('crime_name, difficulty, position_label, cpr_value')
           .eq('member_id', user.id.toString())
 
         if (error) throw error
 
-        // Build lookup: { "level:role" -> cpr_value }
-        // For average tiers, also compute average CPR per level
+        // Build lookup: { "crime:position_label" -> cpr_value }
+        // Also build { difficulty: [values] } for average tier checks
         const cprMap = {}
         const cprByLevel = {}
 
         for (const row of (data || [])) {
-          const key = `${row.difficulty_level}:${row.role_name}`
+          const key = `${row.crime_name}:${row.position_label}`
           cprMap[key] = parseFloat(row.cpr_value)
 
-          if (!cprByLevel[row.difficulty_level]) {
-            cprByLevel[row.difficulty_level] = []
-          }
-          cprByLevel[row.difficulty_level].push(parseFloat(row.cpr_value))
+          const lvl = row.difficulty
+          if (!cprByLevel[lvl]) cprByLevel[lvl] = []
+          cprByLevel[lvl].push(parseFloat(row.cpr_value))
         }
 
-        // Compute averages per level
+        // Compute averages per level for average-type requirements
         for (const [level, values] of Object.entries(cprByLevel)) {
-          cprMap[`${level}:Average`] = values.reduce((a, b) => a + b, 0) / values.length
+          cprMap[`avg:${level}`] = values.reduce((a, b) => a + b, 0) / values.length
         }
 
         setUserCpr(cprMap)
@@ -80,11 +79,21 @@ export default function TierRequirementsView() {
 export function checkRequirement(req, userCpr) {
   if (!userCpr) return 'unknown'
 
-  const key = `${req.level}:${req.role}`
-  const value = userCpr[key]
+  let value
+  if (req.isAverage) {
+    value = userCpr[`avg:${req.level}`]
+  } else {
+    value = userCpr[`${req.crime}:${req.role}`]
+  }
 
   if (value === undefined || value === null) return 'unknown'
   return value >= req.minCpr ? 'pass' : 'fail'
+}
+
+function getRequirementCpr(req, userCpr) {
+  if (!userCpr) return null
+  if (req.isAverage) return userCpr[`avg:${req.level}`] ?? null
+  return userCpr[`${req.crime}:${req.role}`] ?? null
 }
 
 function TierCard({ tier, requirements, userCpr }) {
@@ -114,8 +123,9 @@ function TierCard({ tier, requirements, userCpr }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
         {requirements.map((req, idx) => {
           const status = statuses[idx]
+          const actualValue = getRequirementCpr(req, userCpr)
           return (
-            <RequirementRow key={idx} req={req} status={status} userCpr={userCpr} />
+            <RequirementRow key={idx} req={req} status={status} actualValue={actualValue} />
           )
         })}
       </div>
@@ -127,14 +137,13 @@ function TierCard({ tier, requirements, userCpr }) {
   )
 }
 
-function RequirementRow({ req, status, userCpr }) {
+function RequirementRow({ req, status, actualValue }) {
+  // Derive difficulty level from cprRequirements for display
+  const difficulty = req.isAverage ? req.level : config.cprRequirements[req.crime]?.difficulty
+
   const label = req.isAverage
     ? `Level ${req.level} Average ≥ ${req.minCpr} CPR`
-    : `Level ${req.level} ${req.role} ≥ ${req.minCpr} CPR`
-
-  // Show user's actual CPR value if available
-  const key = `${req.level}:${req.role}`
-  const actualValue = userCpr?.[key]
+    : `Lv${difficulty || '?'} ${req.role} · ${req.crime} ≥ ${req.minCpr} CPR`
 
   const statusConfig = {
     pass: {
@@ -166,9 +175,9 @@ function RequirementRow({ req, status, userCpr }) {
   return (
     <div className={`flex items-center gap-2 p-3 rounded-lg ${cfg.bg}`}>
       {cfg.icon}
-      <span className="text-sm flex-1">{label}</span>
+      <span className="text-sm flex-1 truncate">{label}</span>
       {actualValue !== undefined && actualValue !== null && (
-        <span className={`text-xs font-mono ${status === 'pass' ? 'text-green-600 dark:text-green-400' : status === 'fail' ? 'text-red-600 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+        <span className={`text-xs font-mono flex-shrink-0 ${status === 'pass' ? 'text-green-600 dark:text-green-400' : status === 'fail' ? 'text-red-600 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
           {actualValue.toFixed(1)}%
         </span>
       )}

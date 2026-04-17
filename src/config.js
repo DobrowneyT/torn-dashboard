@@ -97,8 +97,14 @@ export const config = {
     "Bidding War": {
       difficulty: 6,
       positions: {
-        "Driver": 75, "Robber 1": 70, "Robber 2": 75,
-        "Robber 3": 75, "Bomber 1": 70, "Bomber 2": 75
+        "Driver": 75, "Robber #1": 70, "Robber #2": 75,
+        "Robber #3": 75, "Bomber #1": 70, "Bomber #2": 75
+      }
+    },
+    "Honey Trap": {
+      difficulty: 6,
+      positions: {
+        "Muscle": 75, "Enforcer": 75
       }
     },
   },
@@ -124,13 +130,15 @@ export const config = {
     3: [
       { crime: "Blast from the Past", role: "Hacker", minCpr: 70 },
       { crime: "Blast from the Past", role: "Picklock #1", minCpr: 70 },
-      { crime: "Bidding War", role: "Bomber 2", minCpr: 75 },
+      { crime: "Bidding War", role: "Bomber #2", minCpr: 75 },
       { crime: "Bidding War", role: "Driver", minCpr: 75 },
-      { crime: "Bidding War", role: "Robber 2", minCpr: 75 }
+      { crime: "Bidding War", role: "Robber #2", minCpr: 75 }
     ],
     4: [
-      { crime: "Bidding War", role: "Bomber 1", minCpr: 70 },
-      { crime: "Bidding War", role: "Robber 1", minCpr: 70 }
+      { crime: "Bidding War", role: "Bomber #1", minCpr: 70 },
+      { crime: "Bidding War", role: "Robber #1", minCpr: 70 },
+      { crime: "Honey Trap", role: "Enforcer", minCpr: 75 },
+      { crime: "Honey Trap", role: "Muscle", minCpr: 75 }
     ],
     5: [
       { level: 5, role: "Average", minCpr: 75, isAverage: true }
