@@ -349,16 +349,16 @@ function getStat(stats, v1Key, v2Path) {
 }
 
 const STAT_DEFS = [
-  { label: 'Attacks Won', v1: 'attackswon', v2: 'attacking.attacks_won' },
-  { label: 'Attacks Lost', v1: 'attackslost', v2: 'attacking.attacks_lost' },
-  { label: 'Defends Won', v1: 'defendswon', v2: 'defending.defends_won' },
-  { label: 'Defends Lost', v1: 'defendslost', v2: 'defending.defends_lost' },
-  { label: 'Organised Crimes', v1: 'organisedcrimes', v2: 'criminal_offenses.organised_crimes' },
-  { label: 'Revives', v1: 'revives', v2: 'other.revives' },
-  { label: 'Items Used', v1: 'itemsused', v2: 'using_items.total' },
-  { label: 'Energy Drinks', v1: 'energydrinkused', v2: 'other.energy_drink_used' },
-  { label: 'Nerve Refills', v1: 'nerverefills', v2: 'other.nerve_refills' },
-  { label: 'Bounties Collected', v1: 'bountiescollected', v2: 'bounties.bounties_collected' },
+  { label: 'Xanax Taken', v1: 'xantaken', v2: 'drugs.xanax' },
+  { label: 'Energy Refills', v1: 'refills', v2: 'other.refills.energy' },
+  { label: 'Energy Drinks', v1: 'energydrinkused', v2: 'items.used.energy_drinks' },
+  { label: 'Boosters Used', v1: 'boostersused', v2: 'items.used.boosters' },
+  { label: 'SEs Used', v1: 'statenhancersused', v2: 'items.used.stat_enhancers' },
+  { label: 'Alcohol Used', v1: 'alcoholused', v2: 'items.used.alcohol' },
+  { label: 'Attacks Won', v1: 'attackswon', v2: 'attacking.attacks.won' },
+  { label: 'Attacks Assisted', v1: 'attacksassisted', v2: 'attacking.attacks.assist' },
+  { label: 'Ranked War Hits', v1: 'rankedwarhits', v2: 'attacking.faction.ranked_war_hits' },
+  { label: 'Activity (hrs)', v1: 'useractivity', v2: 'other.activity.time', isSeconds: true },
 ]
 
 function parseStats(raw) {
@@ -394,8 +394,13 @@ function PersonalStatsCard({ stats }) {
 
   // Personal stats: compute avg per day
   const statRows = STAT_DEFS.map(def => {
-    const current = getStat(latestStats, def.v1, def.v2)
-    const old = hasDelta ? getStat(oldestStats, def.v1, def.v2) : null
+    let current = getStat(latestStats, def.v1, def.v2)
+    let old = hasDelta ? getStat(oldestStats, def.v1, def.v2) : null
+    // Convert seconds to hours for activity
+    if (def.isSeconds) {
+      if (current != null) current = current / 3600
+      if (old != null) old = old / 3600
+    }
     const delta = (current != null && old != null) ? current - old : null
     const perDay = (delta != null && daysCovered > 1) ? delta / (daysCovered - 1) : null
     return { ...def, current, delta, perDay }

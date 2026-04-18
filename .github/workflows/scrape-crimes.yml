@@ -41,15 +41,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Create Google credentials file
-      env:
-        GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
-      run: echo "$GOOGLE_DRIVE_CREDENTIALS" > google_credentials.json
-
     - name: Run daily crime update
       env:
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
-        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        SKIP_GOOGLE_SHEETS: 'true'
       run: python scripts/daily_crime_update.py
 
     - name: Sync crimes data to Supabase
