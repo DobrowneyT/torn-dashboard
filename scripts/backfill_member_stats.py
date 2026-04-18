@@ -43,14 +43,9 @@ V1_BASE = "https://api.torn.com"
 BACKFILL_DAYS = 30
 CHUNK_SIZE = 100
 
-# V1 requires explicit stat keys or the endpoint returns nothing
-V1_STATS = ','.join([
-    'attackswon', 'attackslost', 'defendswon', 'defendslost',
-    'organisedcrimes', 'revives', 'itemsused', 'energydrinkused',
-    'nerverefills', 'bountiescollected', 'useractivity',
-    'xantaken', 'refills', 'alcoholused', 'boostersused',
-    'statenhancersused', 'attacksassisted', 'rankedwarhits',
-])
+# V1 restricted stats — only these need the &stat= param.
+# Other stats (attackswon, defendswon, etc.) come back automatically.
+V1_STATS = 'xantaken,useractivity,refills,attackswon,alcoholused,energydrinkused,rankedwarhits,attacksassisted,statenhancersused,boostersused'
 
 
 def main():
