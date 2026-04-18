@@ -573,10 +573,10 @@ def create_torn_api(api_key: Optional[str] = None) -> TornAPI:
     import os
 
     if api_key is None:
-        api_key = os.environ.get('VITE_TORN_API_KEY')
+        api_key = os.environ.get('TORN_API_KEY') or os.environ.get('VITE_TORN_API_KEY')
 
     if not api_key:
-        raise ValueError("VITE_TORN_API_KEY not found in environment or parameters")
+        raise ValueError("TORN_API_KEY / VITE_TORN_API_KEY not found in environment or parameters")
 
     return TornAPI(api_key)
 
