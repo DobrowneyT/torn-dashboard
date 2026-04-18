@@ -130,18 +130,15 @@ class MemberStatsScraper:
             .execute()
         return resp.data or []
 
-    def get_existing_snapshot_dates(self) -> Dict[str, Set[str]]:
+    def get_member_snapshot_dates(self, member_id: str) -> Set[str]:
         """
-        Returns {member_id: set of snapshot_date strings} for all rows in member_daily_stats.
+        Returns set of snapshot_date strings for a single member.
         """
         resp = self.supabase.table('member_daily_stats') \
-            .select('member_id, snapshot_date') \
+            .select('snapshot_date') \
+            .eq('member_id', member_id) \
             .execute()
-        result: Dict[str, Set[str]] = {}
-        for row in (resp.data or []):
-            mid = str(row['member_id'])
-            result.setdefault(mid, set()).add(row['snapshot_date'])
-        return result
+        return {row['snapshot_date'] for row in (resp.data or [])}
 
     def run(self):
         today = date.today()
@@ -160,28 +157,22 @@ class MemberStatsScraper:
             logger.warning("No current members found — exiting")
             return
 
-        # 2. Check existing snapshot dates per member
-        existing = self.get_existing_snapshot_dates()
-
-        # 3. Build the full set of dates we want covered (last 30 days)
+        # 2. Build the full set of dates we want covered (last 30 days, excluding today)
         target_dates = set()
-        for i in range(BACKFILL_DAYS):
-            d = today - timedelta(days=i)
-            target_dates.add(d.isoformat())
+        for i in range(1, BACKFILL_DAYS + 1):
+            target_dates.add((today - timedelta(days=i)).isoformat())
 
         records_to_upsert = []
         total_backfill_calls = 0
 
-        # 4. Backfill missing days for each member
+        # 3. Backfill missing days for each member
         logger.info(f"\n--- Backfill: checking {BACKFILL_DAYS} days for {len(members)} members ---")
         for mi, m in enumerate(members, 1):
             mid = str(m['member_id'])
             name = m.get('member_name', mid)
-            member_existing = existing.get(mid, set())
+            member_existing = self.get_member_snapshot_dates(mid)
 
             missing_dates = sorted(target_dates - member_existing)
-            # Exclude today — we'll fetch today via V2 below
-            missing_dates = [d for d in missing_dates if d != today_str]
 
             if not missing_dates:
                 continue

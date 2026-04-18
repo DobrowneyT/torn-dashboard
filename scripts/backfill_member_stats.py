@@ -88,21 +88,18 @@ def main():
         logger.warning("No current members — exiting")
         return
 
-    # 2. Get existing snapshot dates
-    existing: Dict[str, Set[str]] = {}
-    resp = sb.table('member_daily_stats') \
-        .select('member_id, snapshot_date') \
-        .execute()
-    for row in (resp.data or []):
-        mid = str(row['member_id'])
-        existing.setdefault(mid, set()).add(row['snapshot_date'])
-
-    # 3. Calculate total work
+    # 2. Per-member: check existing dates and calculate missing days
     total_missing = 0
     member_missing: List[tuple] = []  # (member_dict, [missing_date_strs])
+    logger.info("Checking existing data per member...")
     for m in members:
         mid = str(m['member_id'])
-        missing = sorted(target_dates - existing.get(mid, set()))
+        resp = sb.table('member_daily_stats') \
+            .select('snapshot_date') \
+            .eq('member_id', mid) \
+            .execute()
+        existing = {row['snapshot_date'] for row in (resp.data or [])}
+        missing = sorted(target_dates - existing)
         if missing:
             member_missing.append((m, missing))
             total_missing += len(missing)
