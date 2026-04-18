@@ -39,13 +39,55 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-V1_BASE = "https://api.torn.com"
 BACKFILL_DAYS = 30
 CHUNK_SIZE = 100
 
-# V1 restricted stats — only these need the &stat= param.
-# Other stats (attackswon, defendswon, etc.) come back automatically.
-V1_STATS = 'xantaken,useractivity,refills,attackswon,alcoholused,energydrinkused,rankedwarhits,attacksassisted,statenhancersused,boostersused'
+# Timestamp offset: 01:00 UTC (3600s) — matches the daily cron schedule
+SNAPSHOT_OFFSET_SECONDS = 3600
+
+# Max stats per V2 API call
+V2_MAX_STATS_PER_CALL = 10
+
+
+def load_stat_names() -> List[str]:
+    """Load the flat list of stat names from config/personalstats.json."""
+    config_path = SCRIPT_DIR / 'config' / 'personalstats.json'
+    with open(config_path) as f:
+        config = json.load(f)
+    stats = []
+    for key, value in config.items():
+        if isinstance(value, list):
+            stats.extend(value)
+    return stats
+
+
+def chunk_stats(stats: List[str], size: int = V2_MAX_STATS_PER_CALL) -> List[str]:
+    """Split a flat stat list into comma-separated groups of `size`."""
+    return [','.join(stats[i:i + size]) for i in range(0, len(stats), size)]
+
+
+def fetch_personalstats_v2(api, member_id: str, stat_groups: List[str], timestamp: int) -> dict | None:
+    """
+    Fetch personalstats via V2 API for a specific timestamp.
+
+    Makes one call per stat group, merges the array responses
+    into a flat {name: value} dict.
+    """
+    merged = {}
+    for group in stat_groups:
+        url = f"{api.BASE_URL}/user/{member_id}/personalstats"
+        try:
+            data = api._make_request(url, params={
+                'stat': group,
+                'timestamp': str(timestamp),
+                'key': api.api_key,
+            })
+            if data and 'personalstats' in data:
+                for entry in data['personalstats']:
+                    merged[entry['name']] = entry['value']
+        except TornAPIError as e:
+            logger.warning(f"V2 stats failed for {member_id} group [{group[:30]}…]: {e}")
+    return merged if merged else None
 
 
 def main():
@@ -59,6 +101,10 @@ def main():
 
     sb: Client = create_client(supabase_url, supabase_key)
 
+    # Load stats config and build runtime chunks
+    all_stats = load_stat_names()
+    stat_groups = chunk_stats(all_stats)
+
     today = date.today()
     today_str = today.isoformat()
 
@@ -70,6 +116,7 @@ def main():
     logger.info("=" * 60)
     logger.info("Member Stats Backfill (local)")
     logger.info(f"Today: {today_str}  |  Backfilling {BACKFILL_DAYS} days")
+    logger.info(f"Tracking {len(all_stats)} stats  |  {len(stat_groups)} API calls per member per day")
     logger.info("=" * 60)
 
     # 1. Get current members
@@ -103,13 +150,15 @@ def main():
         logger.info("All members already have 30 days of data — nothing to do")
         return
 
-    logger.info(f"{len(member_missing)} members need backfill, {total_missing} total API calls")
-    est_minutes = (total_missing * 0.6) / 60
+    api_calls_needed = total_missing * len(stat_groups)
+    logger.info(f"{len(member_missing)} members need backfill, {total_missing} member-days")
+    logger.info(f"API calls needed: {api_calls_needed} ({len(stat_groups)} per day)")
+    est_minutes = (api_calls_needed * 0.6) / 60
     logger.info(f"Estimated time: ~{est_minutes:.0f} minutes (at 0.6s per call)")
 
-    # 4. Backfill
+    # 3. Backfill
     records = []
-    calls_made = 0
+    days_fetched = 0
 
     for mi, (m, missing_dates) in enumerate(member_missing, 1):
         mid = str(m['member_id'])
@@ -118,29 +167,17 @@ def main():
 
         for di, d_str in enumerate(missing_dates, 1):
             d = date.fromisoformat(d_str)
-            ts = int(datetime.combine(d, datetime.min.time()).timestamp()) + 43200  # noon UTC
+            ts = int(datetime.combine(d, datetime.min.time()).timestamp()) + SNAPSHOT_OFFSET_SECONDS
 
-            url = f"{V1_BASE}/user/{mid}"
-            try:
-                data = api._make_request(url, params={
-                    'selections': 'personalstats',
-                    'stat': V1_STATS,
-                    'timestamp': str(ts),
-                    'key': api.api_key,
-                })
-                stats = data.get('personalstats') if data else None
-            except TornAPIError as e:
-                logger.warning(f"  {d_str}: failed — {e}")
-                stats = None
-
-            calls_made += 1
+            stats = fetch_personalstats_v2(api, mid, stat_groups, ts)
+            days_fetched += 1
 
             if stats:
                 records.append({
                     'member_id': mid,
                     'snapshot_date': d_str,
                     'personalstats': stats,
-                    'api_version': 'v1',
+                    'api_version': 'v2',
                 })
             else:
                 logger.warning(f"  {d_str}: no data")
@@ -150,8 +187,8 @@ def main():
                 _upsert_chunk(sb, records)
                 records = []
 
-            if calls_made % 50 == 0:
-                logger.info(f"  Progress: {calls_made}/{total_missing} calls")
+            if days_fetched % 20 == 0:
+                logger.info(f"  Progress: {days_fetched}/{total_missing} member-days")
 
     # Final upsert
     if records:
@@ -159,8 +196,8 @@ def main():
 
     logger.info("\n" + "=" * 60)
     logger.info("BACKFILL COMPLETE")
-    logger.info(f"API calls made:  {calls_made}")
-    logger.info(f"Members filled:  {len(member_missing)}")
+    logger.info(f"Member-days fetched: {days_fetched}")
+    logger.info(f"Members filled:      {len(member_missing)}")
     logger.info("=" * 60)
 
 

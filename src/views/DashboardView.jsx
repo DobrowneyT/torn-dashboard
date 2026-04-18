@@ -104,7 +104,7 @@ export default function DashboardView() {
           Welcome, {memberData.member_name}
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Your personal OC dashboard — track your tier, payouts, and crime participation.
+          Your personal Torn dashboard — track your personal stats, OC participation, and more.
         </p>
       </div>
 
@@ -328,37 +328,40 @@ function TierProgressCard({ tierProgress }) {
 }
 
 // ─── Stat extraction helpers ──────────────────────────────────────
-// V1 personalstats are flat: { attackswon: 123, ... }
-// V2 personalstats are nested: { attacking: { attacks_won: 123 }, ... }
+// All personalstats are now stored as flat dicts: { attackswon: 123, ... }
+// (V2 array responses are converted to flat {name: value} before storage)
 
-function getStat(stats, v1Key, v2Path) {
+function getStat(stats, key) {
   if (!stats) return null
-  // Try V2 nested path first (e.g. "attacking.attacks_won")
-  if (v2Path) {
-    const parts = v2Path.split('.')
-    let val = stats
-    for (const p of parts) {
-      val = val?.[p]
-      if (val === undefined) break
-    }
-    if (val !== undefined && val !== null) return Number(val)
-  }
-  // Fall back to V1 flat key
-  if (v1Key && stats[v1Key] !== undefined) return Number(stats[v1Key])
+  if (stats[key] !== undefined) return Number(stats[key])
   return null
 }
 
 const STAT_DEFS = [
-  { label: 'Xanax Taken', v1: 'xantaken', v2: 'drugs.xanax' },
-  { label: 'Energy Refills', v1: 'refills', v2: 'other.refills.energy' },
-  { label: 'Energy Drinks', v1: 'energydrinkused', v2: 'items.used.energy_drinks' },
-  { label: 'Boosters Used', v1: 'boostersused', v2: 'items.used.boosters' },
-  { label: 'SEs Used', v1: 'statenhancersused', v2: 'items.used.stat_enhancers' },
-  { label: 'Alcohol Used', v1: 'alcoholused', v2: 'items.used.alcohol' },
-  { label: 'Attacks Won', v1: 'attackswon', v2: 'attacking.attacks.won' },
-  { label: 'Attacks Assisted', v1: 'attacksassisted', v2: 'attacking.attacks.assist' },
-  { label: 'Ranked War Hits', v1: 'rankedwarhits', v2: 'attacking.faction.ranked_war_hits' },
-  { label: 'Activity (hrs)', v1: 'useractivity', v2: 'other.activity.time', isSeconds: true },
+  { label: 'Xanax Taken', key: 'xantaken' },
+  { label: 'Energy Refills', key: 'refills' },
+  { label: 'Nerve Refills', key: 'nerverefills' },
+  { label: 'Energy Drinks', key: 'energydrinkused' },
+  { label: 'Boosters Used', key: 'boostersused' },
+  { label: 'SEs Used', key: 'statenhancersused' },
+  { label: 'Alcohol Used', key: 'alcoholused' },
+  { label: 'Consumables', key: 'consumablesused' },
+  { label: 'Candy Used', key: 'candyused' },
+  { label: 'Attacks Won', key: 'attackswon' },
+  { label: 'Defends Won', key: 'defendswon' },
+  { label: 'Retals', key: 'retals' },
+  { label: 'Respect', key: 'respectforfaction' },
+  { label: 'Ranked War Hits', key: 'rankedwarhits' },
+  { label: 'Trains Received', key: 'trainsreceived' },
+  { label: 'Busts', key: 'peoplebusted' },
+  { label: 'Blood Withdrawn', key: 'bloodwithdrawn' },
+  { label: 'Criminal Offenses', key: 'criminaloffenses' },
+  { label: 'Drugs Used', key: 'drugsused' },
+  { label: 'Overdoses', key: 'overdosed' },
+  { label: 'Rehabs', key: 'rehabs' },
+  { label: 'Mission Credits', key: 'missioncreditsearned' },
+  { label: 'Activity (hrs)', key: 'timeplayed', isSeconds: true },
+  { label: 'Net Worth', key: 'networth', isCurrency: true },
 ]
 
 function parseStats(raw) {
@@ -394,8 +397,8 @@ function PersonalStatsCard({ stats }) {
 
   // Personal stats: compute avg per day
   const statRows = STAT_DEFS.map(def => {
-    let current = getStat(latestStats, def.v1, def.v2)
-    let old = hasDelta ? getStat(oldestStats, def.v1, def.v2) : null
+    let current = getStat(latestStats, def.key)
+    let old = hasDelta ? getStat(oldestStats, def.key) : null
     // Convert seconds to hours for activity
     if (def.isSeconds) {
       if (current != null) current = current / 3600

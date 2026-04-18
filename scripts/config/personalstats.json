@@ -1,0 +1,46 @@
+{
+  "_description": "V2 personalstats to collect. Each category mirrors the Torn API v2 response structure. Stats are chunked into groups of 10 at runtime. Add or remove entries as needed.",
+  "attacking": [
+    "attackswon",
+    "defendswon",
+    "retals",
+    "respectforfaction",
+    "rankedwarhits"
+  ],
+  "jobs": [
+    "trainsreceived"
+  ],
+  "jail": [
+    "peoplebusted"
+  ],
+  "hospital": [
+    "bloodwithdrawn"
+  ],
+  "crimes": [
+    "criminaloffenses"
+  ],
+  "items": [
+    "boostersused",
+    "consumablesused",
+    "candyused",
+    "alcoholused",
+    "energydrinkused",
+    "statenhancersused"
+  ],
+  "drugs": [
+    "drugsused",
+    "overdosed",
+    "rehabs",
+    "rehabcost",
+    "xantaken"
+  ],
+  "missions": [
+    "missioncreditsearned"
+  ],
+  "other": [
+    "timeplayed",
+    "refills",
+    "networth",
+    "nerverefills"
+  ]
+}
