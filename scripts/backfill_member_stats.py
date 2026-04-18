@@ -144,7 +144,7 @@ def main():
                 records.append({
                     'member_id': mid,
                     'snapshot_date': d_str,
-                    'personalstats': json.dumps(stats),
+                    'personalstats': stats,
                     'api_version': 'v1',
                 })
             else:

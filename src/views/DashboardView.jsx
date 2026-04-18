@@ -361,31 +361,49 @@ const STAT_DEFS = [
   { label: 'Bounties Collected', v1: 'bountiescollected', v2: 'bounties.bounties_collected' },
 ]
 
+function parseStats(raw) {
+  if (!raw) return null
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) } catch { return null }
+  }
+  return raw
+}
+
 function PersonalStatsCard({ stats }) {
   const { latest, oldest, daysCovered } = stats
-  const latestStats = latest?.personalstats
-  const oldestStats = oldest?.personalstats
+  const latestStats = parseStats(latest?.personalstats)
+  const oldestStats = parseStats(oldest?.personalstats)
   const hasDelta = daysCovered > 1 && oldestStats
 
-  // Gym contributions (separate columns, not in JSONB)
-  const gymStats = [
-    { label: 'Strength', value: latest?.gym_strength },
-    { label: 'Speed', value: latest?.gym_speed },
-    { label: 'Dexterity', value: latest?.gym_dexterity },
-    { label: 'Defense', value: latest?.gym_defense },
+  // Gym: compute avg energy per day from delta between latest and oldest snapshots
+  const gymDefs = [
+    { label: 'Strength', key: 'gym_strength' },
+    { label: 'Speed', key: 'gym_speed' },
+    { label: 'Dexterity', key: 'gym_dexterity' },
+    { label: 'Defense', key: 'gym_defense' },
   ]
-  const maxGym = Math.max(...gymStats.map(g => g.value || 0), 1)
-  const hasGym = gymStats.some(g => g.value != null && g.value > 0)
+  const gymRows = gymDefs.map(g => {
+    const latestVal = latest?.[g.key]
+    const oldestVal = oldest?.[g.key]
+    const delta = (latestVal != null && oldestVal != null) ? latestVal - oldestVal : null
+    const perDay = (delta != null && daysCovered > 1) ? delta / (daysCovered - 1) : null
+    return { ...g, total: latestVal, perDay }
+  })
+  const hasGym = gymRows.some(g => g.total != null && g.total > 0)
+  const maxPerDay = Math.max(...gymRows.map(g => g.perDay || 0), 1)
 
-  // Extract personal stats with deltas
+  // Personal stats: compute avg per day
   const statRows = STAT_DEFS.map(def => {
     const current = getStat(latestStats, def.v1, def.v2)
     const old = hasDelta ? getStat(oldestStats, def.v1, def.v2) : null
     const delta = (current != null && old != null) ? current - old : null
-    return { ...def, current, delta }
+    const perDay = (delta != null && daysCovered > 1) ? delta / (daysCovered - 1) : null
+    return { ...def, current, delta, perDay }
   }).filter(r => r.current != null)
 
   if (!latestStats && !hasGym) return null
+
+  const days = daysCovered > 1 ? daysCovered - 1 : 0
 
   return (
     <div className="card">
@@ -393,29 +411,29 @@ function PersonalStatsCard({ stats }) {
         <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Personal Stats</h3>
         <span className="text-xs text-gray-400 dark:text-gray-500">
           {latest?.snapshot_date}
-          {hasDelta && ` · ${daysCovered - 1}d delta`}
+          {days > 0 && ` · ${days}d delta`}
         </span>
       </div>
 
-      {/* Gym Contributions */}
+      {/* Gym: Avg Energy Per Day */}
       {hasGym && (
         <div className="mb-5">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-            Gym Contributions
+            Avg Gym Energy / Day {days > 0 && <span className="font-normal">({days}d sample)</span>}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {gymStats.map(g => (
+            {gymRows.map(g => (
               <div key={g.label}>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-gray-600 dark:text-gray-400">{g.label}</span>
                   <span className="font-mono font-medium text-gray-900 dark:text-white">
-                    {g.value != null ? g.value.toLocaleString() : '—'}
+                    {g.perDay != null ? g.perDay.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}
                   </span>
                 </div>
                 <div className="w-full bg-gray-100 dark:bg-slate-600 rounded-full h-1.5">
                   <div
                     className="h-1.5 rounded-full bg-blue-500"
-                    style={{ width: `${g.value ? (g.value / maxGym) * 100 : 0}%` }}
+                    style={{ width: `${g.perDay ? (g.perDay / maxPerDay) * 100 : 0}%` }}
                   />
                 </div>
               </div>
@@ -424,24 +442,29 @@ function PersonalStatsCard({ stats }) {
         </div>
       )}
 
-      {/* Personal Stats Grid */}
+      {/* Personal Stats: Avg Per Day */}
       {statRows.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
-          {statRows.map(row => (
-            <div key={row.label} className="flex items-center justify-between py-1 border-b border-gray-100 dark:border-slate-700/50">
-              <span className="text-xs text-gray-600 dark:text-gray-400 truncate mr-2">{row.label}</span>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <span className="text-xs font-mono font-medium text-gray-900 dark:text-white">
-                  {row.current.toLocaleString()}
-                </span>
-                {row.delta != null && row.delta !== 0 && (
-                  <span className={`text-xs ${row.delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    {row.delta > 0 ? '+' : ''}{row.delta.toLocaleString()}
+        <div>
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Avg Per Day {days > 0 && <span className="font-normal">({days}d)</span>}
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+            {statRows.map(row => (
+              <div key={row.label} className="flex items-center justify-between py-1 border-b border-gray-100 dark:border-slate-700/50">
+                <span className="text-xs text-gray-600 dark:text-gray-400 truncate mr-2">{row.label}</span>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <span className="text-xs font-mono font-medium text-gray-900 dark:text-white">
+                    {row.perDay != null ? row.perDay.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}
                   </span>
-                )}
+                  {row.delta != null && (
+                    <span className="text-xs text-gray-400">
+                      ({row.delta.toLocaleString()})
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </div>

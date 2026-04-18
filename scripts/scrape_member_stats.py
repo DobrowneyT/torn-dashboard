@@ -190,7 +190,7 @@ class MemberStatsScraper:
                     records_to_upsert.append({
                         'member_id': mid,
                         'snapshot_date': d_str,
-                        'personalstats': json.dumps(stats),
+                        'personalstats': stats,
                         'api_version': 'v1',
                     })
                 else:
@@ -210,7 +210,7 @@ class MemberStatsScraper:
                 records_to_upsert.append({
                     'member_id': mid,
                     'snapshot_date': today_str,
-                    'personalstats': json.dumps(data['personalstats']),
+                    'personalstats': data['personalstats'],
                     'api_version': 'v2',
                 })
             else:
