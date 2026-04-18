@@ -778,22 +778,15 @@ export default function PayoutManagement() {
         itemBreakdown
       }
 
-      // Enrich item breakdown with real prices
+      // Enrich item breakdown with names for display only.
+      // Summary totals (totalItemReward, totalItemCost, netItemValue) are kept
+      // from the stored snapshot — do NOT overwrite with current market prices,
+      // as item prices are volatile and the snapshot is the source of truth.
       if (Object.keys(itemBreakdown.rewards).length > 0 || Object.keys(itemBreakdown.costs).length > 0) {
         enrichItemBreakdown(itemBreakdown, user.apiKey).then(enriched => {
-          const newTotalItemReward = Object.values(enriched.rewards || {}).reduce(
-            (sum, item) => sum + (item.totalValue || 0), 0
-          )
-          const newTotalItemCost = Object.values(enriched.costs || {}).reduce(
-            (sum, item) => sum + (item.totalValue || 0), 0
-          )
-
           setPayoutResults(prev => ({
             ...prev,
             itemBreakdown: enriched,
-            totalItemReward: newTotalItemReward,
-            totalItemCost: newTotalItemCost,
-            netItemValue: newTotalItemReward - newTotalItemCost
           }))
         })
       }
@@ -1206,38 +1199,38 @@ export default function PayoutManagement() {
           {/* Member Payouts Table */}
           <div className="card">
             <h3 className="text-lg font-semibold mb-4">Member Payouts</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b-2 border-gray-200 dark:border-slate-700">
+            <div className="overflow-auto max-h-[70vh] relative">
+              <table className="w-full text-sm border-separate border-spacing-0">
+                <thead>
                   <tr className="text-left">
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('name')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 left-0 z-30 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600 whitespace-nowrap" onClick={() => handleSort('name')}>
                       Member <SortIcon columnKey="name" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('userId')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('userId')}>
                       ID <SortIcon columnKey="userId" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('timeSpent')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('timeSpent')}>
                       Time <SortIcon columnKey="timeSpent" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('timePercent')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('timePercent')}>
                       Time % <SortIcon columnKey="timePercent" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('tier')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('tier')}>
                       Tier <SortIcon columnKey="tier" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('baseTickets')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('baseTickets')}>
                       Tickets <SortIcon columnKey="baseTickets" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('sitOutPenalty')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('sitOutPenalty')}>
                       Penalty <SortIcon columnKey="sitOutPenalty" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('sharePercent')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('sharePercent')}>
                       Share % <SortIcon columnKey="sharePercent" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('payout')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('payout')}>
                       Payout <SortIcon columnKey="payout" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => handleSort('theoreticalPayout')}>
+                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('theoreticalPayout')}>
                       Theoretical <SortIcon columnKey="theoreticalPayout" />
                     </th>
                   </tr>
@@ -1252,7 +1245,7 @@ export default function PayoutManagement() {
                   ) : (
                     sortedMembers.map((member) => (
                       <tr key={member.userId} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50">
-                        <td className="py-2 px-2 font-medium text-xs">{member.name}</td>
+                        <td className="py-2 px-2 font-medium text-xs whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">{member.name}</td>
                         <td className="py-2 px-2 text-xs text-gray-600 dark:text-gray-400">{member.userId}</td>
                         <td className="py-2 px-2 text-xs">{formatTimeHours(member.timeSpent)}</td>
                         <td className="py-2 px-2 text-xs">{member.timePercent.toFixed(2)}%</td>
@@ -1328,13 +1321,13 @@ export default function PayoutManagement() {
                   )}
                 </tbody>
                 {sortedMembers.length > 0 && (
-                  <tfoot className="border-t-2 border-gray-300 dark:border-slate-600">
-                    <tr className="font-bold">
-                      <td colSpan="8" className="py-2 px-2 text-right text-xs">TOTAL:</td>
-                      <td className="py-2 px-2 text-blue-600 dark:text-blue-400 text-xs">
+                  <tfoot>
+                    <tr className="font-bold sticky left-0">
+                      <td colSpan="8" className="py-2 px-2 text-right text-xs border-t-2 border-gray-300 dark:border-slate-600">TOTAL:</td>
+                      <td className="py-2 px-2 text-blue-600 dark:text-blue-400 text-xs border-t-2 border-gray-300 dark:border-slate-600">
                         {formatCurrency(payoutResults.memberPayoutTotal)}
                       </td>
-                      <td className="py-2 px-2 text-gray-600 dark:text-gray-400 text-xs">
+                      <td className="py-2 px-2 text-gray-600 dark:text-gray-400 text-xs border-t-2 border-gray-300 dark:border-slate-600">
                         {formatCurrency(sortedMembers.reduce((sum, m) => sum + m.theoreticalPayout, 0))}
                       </td>
                     </tr>

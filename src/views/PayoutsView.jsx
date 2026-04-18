@@ -519,6 +519,7 @@ export default function PayoutsView({ isLeadership }) {
       {selectedWeek && (
         <WeekDetailsModal
           weekId={selectedWeek}
+          weekData={payoutWeeks.find(w => w.id === selectedWeek)}
           members={weekMembers}
           loading={loadingWeekDetails}
           onClose={() => setSelectedWeek(null)}
@@ -546,7 +547,36 @@ function TierBadge({ tier }) {
   return <span className={`inline-block px-2 py-1 rounded text-white font-semibold text-xs ${colors[tier]}`}>T{tier}</span>
 }
 
-function WeekDetailsModal({ weekId, members, loading, onClose, onMemberClick, isLeadership }) {
+function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMemberClick, isLeadership }) {
+  const [sortCol, setSortCol] = useState('payout')
+  const [sortDir, setSortDir] = useState('desc')
+
+  function handleSort(col) {
+    if (sortCol === col) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortCol(col)
+      setSortDir('desc')
+    }
+  }
+
+  const sortedMembers = useMemo(() => {
+    const d = sortDir === 'asc' ? 1 : -1
+    return members.slice().sort((a, b) => {
+      switch (sortCol) {
+        case 'name':       return d * (a.member_name || '').localeCompare(b.member_name || '')
+        case 'tier':       return d * ((a.tier || 0) - (b.tier || 0))
+        case 'time':       return d * ((a.time_spent || 0) - (b.time_spent || 0))
+        case 'tickets':    return d * ((a.base_tickets || 0) - (b.base_tickets || 0))
+        case 'penalty':    return d * ((a.sit_out_penalty || 0) - (b.sit_out_penalty || 0))
+        case 'share':      return d * ((a.share_percent || 0) - (b.share_percent || 0))
+        case 'payout':     return d * ((a.payout || 0) - (b.payout || 0))
+        case 'theoretical': return d * ((a.theoretical_payout || 0) - (b.theoretical_payout || 0))
+        default:           return d * ((a.payout || 0) - (b.payout || 0))
+      }
+    })
+  }, [members, sortCol, sortDir])
+
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -560,9 +590,35 @@ function WeekDetailsModal({ weekId, members, loading, onClose, onMemberClick, is
   const weekStart = members[0]?.week_start
   const weekEnd = members[0]?.week_end
 
+  // Summary values from the week record
+  const moneyReward = weekData?.total_money_reward || 0
+  const itemReward = weekData?.total_item_reward || 0
+  const itemCost = weekData?.total_item_cost || 0
+  const netTotal = moneyReward + (weekData?.net_item_value || 0)
+  const factionCut = weekData?.faction_cut_amount || 0
+  const factionCutPct = weekData?.faction_cut_percent || 20
+  const memberPool = weekData?.member_payout_total || 0
+  const memberCount = weekData?.member_count || members.length
+  const crimeCount = weekData?.crimes_processed || 0
+
+  function SortHeader({ col, label, className = '', sticky: isSticky }) {
+    const active = sortCol === col
+    return (
+      <th
+        className={`py-2 px-2 text-xs font-semibold cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors ${isSticky ? 'sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700' : ''} ${className}`}
+        onClick={() => handleSort(col)}
+      >
+        {label}
+        <span className="ml-1 text-gray-400">
+          {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </th>
+    )
+  }
+
   return (
     <div className="modal-overlay">
-      <div className="modal-dialog sm:max-w-4xl">
+      <div className="modal-dialog sm:max-w-5xl">
         <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold">Week Details</h3>
@@ -577,56 +633,84 @@ function WeekDetailsModal({ weekId, members, loading, onClose, onMemberClick, is
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          <table className="w-full text-sm">
-            <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
-              <tr className="text-left">
-                <th className="py-2 px-2 text-xs font-semibold">Member</th>
-                <th className="py-2 px-2 text-xs font-semibold">Tier</th>
-                <th className="py-2 px-2 text-xs font-semibold">Time</th>
-                <th className="py-2 px-2 text-xs font-semibold">Tickets</th>
-                <th className="py-2 px-2 text-xs font-semibold">Penalty</th>
-                <th className="py-2 px-2 text-xs font-semibold">Share %</th>
-                <th className="py-2 px-2 text-xs font-semibold">Payout</th>
-                {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>}
-                <th className="py-2 px-2 text-xs font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((m) => (
-                <tr key={m.member_id} className="border-b border-gray-100 dark:border-slate-800">
-                  <td className="py-2 px-2 text-xs font-medium">{m.member_name}</td>
-                  <td className="py-2 px-2"><TierBadge tier={m.tier} /></td>
-                  <td className="py-2 px-2 text-xs">{formatTimeHours(m.time_spent || 0)}</td>
-                  <td className="py-2 px-2 text-xs">{m.base_tickets}</td>
-                  <td className="py-2 px-2 text-xs">
-                    <span className={m.sit_out_penalty < 0 ? 'text-red-600' : ''}>
-                      {(m.sit_out_penalty || 0).toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="py-2 px-2 text-xs">{(m.share_percent || 0).toFixed(4)}%</td>
-                  <td className="py-2 px-2 text-xs font-semibold text-blue-600">
-                    {formatCurrency(m.payout || 0)}
-                  </td>
-                  {isLeadership && (
-                    <td className="py-2 px-2 text-xs text-gray-600">
-                      {formatCurrency(m.theoretical_payout || 0)}
-                    </td>
-                  )}
-                  <td className="py-2 px-2 text-xs">
-                    <button
-                      onClick={() => onMemberClick(m.member_id, weekStart, weekEnd)}
-                      className="text-blue-600 hover:underline"
-                    >
-                      Crimes
-                    </button>
-                  </td>
+        {/* Payout Summary — outside scroll area */}
+        {weekData && (
+          <div className="flex-shrink-0 px-4 pt-4 pb-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <SummaryStatCard label="Money Reward" value={formatCurrency(moneyReward)} />
+              <SummaryStatCard label="Item Reward" value={formatCurrency(itemReward)} />
+              <SummaryStatCard label="Item Cost" value={formatCurrency(itemCost)} color="text-red-600" />
+              <SummaryStatCard label="Net Total" value={formatCurrency(netTotal)} color="text-blue-600" />
+              <SummaryStatCard label={`Faction Cut (${factionCutPct}%)`} value={formatCurrency(factionCut)} />
+              <SummaryStatCard label="Member Pool" value={formatCurrency(memberPool)} color="text-green-600" />
+              <SummaryStatCard label="Members" value={memberCount} />
+              <SummaryStatCard label="Crimes" value={crimeCount} />
+            </div>
+          </div>
+        )}
+
+        {/* Member Table — scrollable with frozen header */}
+        <div className="flex-1 overflow-auto px-4 pb-4">
+            <table className="w-full text-sm border-separate border-spacing-0">
+              <thead>
+                <tr className="text-left">
+                  <SortHeader col="name" label="Member" sticky />
+                  <SortHeader col="tier" label="Tier" sticky />
+                  <SortHeader col="time" label="Time" sticky />
+                  <SortHeader col="tickets" label="Tickets" sticky />
+                  <SortHeader col="penalty" label="Penalty" sticky />
+                  <SortHeader col="share" label="Share %" sticky />
+                  <SortHeader col="payout" label="Payout" sticky />
+                  {isLeadership && <SortHeader col="theoretical" label="Theoretical" sticky />}
+                  <th className="py-2 px-2 text-xs font-semibold sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sortedMembers.map((m) => (
+                  <tr key={m.member_id} className="border-b border-gray-100 dark:border-slate-800">
+                    <td className="py-2 px-2 text-xs font-medium">{m.member_name}</td>
+                    <td className="py-2 px-2"><TierBadge tier={m.tier} /></td>
+                    <td className="py-2 px-2 text-xs">{formatTimeHours(m.time_spent || 0)}</td>
+                    <td className="py-2 px-2 text-xs">{m.base_tickets}</td>
+                    <td className="py-2 px-2 text-xs">
+                      <span className={m.sit_out_penalty < 0 ? 'text-red-600' : ''}>
+                        {(m.sit_out_penalty || 0).toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-xs">{(m.share_percent || 0).toFixed(4)}%</td>
+                    <td className="py-2 px-2 text-xs font-semibold text-blue-600">
+                      {formatCurrency(m.payout || 0)}
+                    </td>
+                    {isLeadership && (
+                      <td className="py-2 px-2 text-xs text-gray-600">
+                        {formatCurrency(m.theoretical_payout || 0)}
+                      </td>
+                    )}
+                    <td className="py-2 px-2 text-xs">
+                      <button
+                        onClick={() => onMemberClick(m.member_id, weekStart, weekEnd)}
+                        className="text-blue-600 hover:underline"
+                      >
+                        Crimes
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
         </div>
       </div>
+    </div>
+  )
+}
+
+function SummaryStatCard({ label, value, color = '' }) {
+  return (
+    <div className="bg-gray-50 dark:bg-slate-700/50 rounded-lg p-3">
+      <div className={`text-sm font-bold ${color || 'text-gray-900 dark:text-gray-100'}`}>
+        {value}
+      </div>
+      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{label}</div>
     </div>
   )
 }

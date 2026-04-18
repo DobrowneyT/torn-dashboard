@@ -61,8 +61,8 @@ function DashboardContent() {
     { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
     { id: 'payouts', label: 'OC Payouts', roles: ['member', 'leadership'] },
     { id: 'payout-mgmt', label: 'OC Payout Management', roles: ['leadership'] },
-    { id: 'war-history', label: 'War History', roles: ['member', 'leadership'] },
-    { id: 'war-payout-mgmt', label: 'War Payout Management', roles: ['leadership'] },
+    { id: 'war-history', label: 'RW History', roles: ['member', 'leadership'] },
+    { id: 'war-payout-mgmt', label: 'RW Payout Management', roles: ['leadership'] },
     { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
     { id: 'inventory', label: 'Inventory', roles: ['leadership'] }
   ]

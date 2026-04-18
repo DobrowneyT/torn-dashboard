@@ -696,9 +696,9 @@ export default function WarPayoutManagement() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white">War Payout Management</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">RW Payout Management</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Calculate and save war payouts based on member contributions and cache rewards.
+          Calculate and save ranked war payouts based on member contributions and cache rewards.
         </p>
       </div>
 

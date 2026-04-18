@@ -176,7 +176,7 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">War History</h2>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">RW History</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {totalWars} ranked wars total
           </p>

@@ -4,7 +4,10 @@ import { supabase } from '../utils/supabase'
 import { loadMemberPayoutHistory, loadMemberCrimeHistory, loadMemberLoanedItems } from '../utils/payoutDataLoader'
 import { calculateTierProgress, getTierInfo } from '../utils/tierProgressUtils'
 import { formatCurrency } from '../utils/payoutCalculations'
+import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { submitCprKey } from '../utils/adminApi'
+
+const OUR_FACTION_ID = 10739
 
 export default function DashboardView() {
   const { user } = useAuth()
@@ -17,6 +20,10 @@ export default function DashboardView() {
   const [personalStats, setPersonalStats] = useState(null)
   const [showCprKeyModal, setShowCprKeyModal] = useState(false)
 
+  // RW data
+  const [recentWars, setRecentWars] = useState([])
+  const [warPayouts, setWarPayouts] = useState([])
+
   useEffect(() => {
     if (user?.id) loadDashboard()
   }, [user?.id])
@@ -26,7 +33,6 @@ export default function DashboardView() {
     try {
       const memberId = user.id.toString()
 
-      // Load member info + CPR v2 + stats in parallel with history data
       const [memberResult, cprResult, statsResult, payouts, crimes, loaned] = await Promise.all([
         supabase.from('members').select('*').eq('member_id', memberId).single(),
         supabase.from('member_cpr_v2')
@@ -49,12 +55,11 @@ export default function DashboardView() {
         const effectiveTier = member.tier_override || member.tier || 6
         setMemberData({ ...member, cprV2Data, effectiveTier })
 
-        // Calculate tier progress from v2 CPR data
         const progress = calculateTierProgress(cprV2Data, effectiveTier)
         setTierProgress(progress)
       }
 
-      // Build personal stats snapshots (latest + oldest for delta)
+      // Personal stats
       const statsData = statsResult.data || []
       if (statsData.length > 0) {
         setPersonalStats({
@@ -67,6 +72,46 @@ export default function DashboardView() {
       setPayoutHistory(payouts.slice(0, 8))
       setCrimeHistory(crimes)
       setLoanedItems(loaned)
+
+      // Load RW data: recent wars where this member contributed, and war payouts
+      try {
+        // Get recent wars with member's contributions
+        const { data: contribs } = await supabase
+          .from('war_member_contributions')
+          .select('war_id, score, attacks, faction_id')
+          .eq('member_id', memberId)
+          .eq('faction_id', OUR_FACTION_ID)
+          .order('war_id', { ascending: false })
+          .limit(10)
+
+        if (contribs && contribs.length > 0) {
+          const warIds = contribs.map(c => c.war_id)
+          const { data: wars } = await supabase
+            .from('ranked_wars')
+            .select('*')
+            .in('id', warIds)
+            .order('start_at', { ascending: false })
+
+          const warsWithContrib = (wars || []).map(war => {
+            const contrib = contribs.find(c => c.war_id === war.id)
+            return { ...war, myScore: contrib?.score, myAttacks: contrib?.attacks }
+          })
+          setRecentWars(warsWithContrib.slice(0, 5))
+        }
+
+        // War payouts for this member
+        const { data: wpMembers } = await supabase
+          .from('war_payout_members')
+          .select('war_payout_id, payout, war_payouts(war_id, created_at, ranked_wars(start_at, end_at, opponent_name))')
+          .eq('member_id', memberId)
+          .order('war_payout_id', { ascending: false })
+          .limit(5)
+
+        setWarPayouts(wpMembers || [])
+      } catch (err) {
+        console.error('Error loading RW data:', err)
+      }
+
     } catch (err) {
       console.error('Error loading dashboard:', err)
     } finally {
@@ -108,34 +153,27 @@ export default function DashboardView() {
         </p>
       </div>
 
-      {/* Top Row: Tier + Payout Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Current Tier Card */}
-        <CurrentTierCard tier={memberData.effectiveTier} tierInfo={tierInfo} />
-
-        {/* Payout Summary Card */}
-        <PayoutSummaryCard payoutHistory={payoutHistory} />
-      </div>
-
-      {/* CPR Scraper Key Card */}
-      <CprKeyCard
-        hasCprKey={!!memberData.cpr_api_key}
-        onOpen={() => setShowCprKeyModal(true)}
-      />
-
-      {/* Personal Stats */}
+      {/* 1. Personal Stats (top) */}
       {personalStats && (
         <PersonalStatsCard stats={personalStats} />
       )}
 
+      {/* 2. RW Summary */}
+      <RWSummaryCard wars={recentWars} payouts={warPayouts} />
+
+      {/* 3. OC Summary */}
+      <OCSummaryCard
+        tier={memberData.effectiveTier}
+        tierInfo={tierInfo}
+        hasCprKey={!!memberData.cpr_api_key}
+        onOpenCprKey={() => setShowCprKeyModal(true)}
+        payoutHistory={payoutHistory}
+        crimeHistory={crimeHistory}
+      />
+
       {/* Tier Progress Card */}
       {tierProgress && tierProgress.nextTierProgress && (
         <TierProgressCard tierProgress={tierProgress} />
-      )}
-
-      {/* Crime Participation */}
-      {crimeHistory.length > 0 && (
-        <CrimeParticipationCard crimes={crimeHistory} />
       )}
 
       {/* Loaned Items */}
@@ -163,98 +201,212 @@ export default function DashboardView() {
   )
 }
 
-// ─── Sub-components ────────────────────────────────────────────────
+// ─── OC Summary Card ──────────────────────────────────────────────
 
-function CurrentTierCard({ tier, tierInfo }) {
+function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory, crimeHistory }) {
   const tierColors = {
     1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3',
     4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6',
   }
-  const borderColors = {
-    1: 'border-tier-1', 2: 'border-tier-2', 3: 'border-tier-3',
-    4: 'border-tier-4', 5: 'border-tier-5', 6: 'border-tier-6',
-  }
+
+  const recentPayouts = payoutHistory.slice(0, 5)
+  const avgPayout = recentPayouts.length > 0
+    ? Math.floor(recentPayouts.reduce((s, p) => s + (p.payout || 0), 0) / recentPayouts.length)
+    : 0
+
+  const recentCrimes = crimeHistory.slice(0, 5)
 
   return (
-    <div className={`card border-l-4 ${borderColors[tier]}`}>
-      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Current Tier</h3>
-      <div className="flex items-center gap-4">
-        <span className={`text-3xl font-bold text-white px-4 py-2 rounded-lg ${tierColors[tier]}`}>
-          {tier}
-        </span>
+    <div className="card">
+      {/* Header row: Tier badge left, CPR key status right */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <span className={`text-lg font-bold text-white px-3 py-1 rounded-lg ${tierColors[tier]}`}>
+            T{tier}
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">OC Summary</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{tierInfo.name} — {tierInfo.tickets} tickets/wk</p>
+          </div>
+        </div>
+
+        <button
+          onClick={onOpenCprKey}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            hasCprKey
+              ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/60'
+              : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/60'
+          }`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${hasCprKey ? 'bg-green-500' : 'bg-red-500'}`} />
+          {hasCprKey ? 'CPR Key Registered' : 'No CPR Key'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Recent Payouts */}
         <div>
-          <p className="text-lg font-semibold text-gray-900 dark:text-white">{tierInfo.name}</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {tierInfo.tickets} payout tickets per week
-          </p>
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Recent Payouts
+            {recentPayouts.length > 1 && (
+              <span className="font-normal ml-1">({formatCurrency(avgPayout)}/wk avg)</span>
+            )}
+          </h4>
+          {recentPayouts.length === 0 ? (
+            <p className="text-xs text-gray-400 dark:text-gray-500">No payout history yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {recentPayouts.map((p, i) => (
+                <div key={i} className="flex justify-between text-sm">
+                  <span className="text-gray-500 dark:text-gray-400 text-xs">
+                    {p.week_start || `Week ${i + 1}`}
+                  </span>
+                  <span className="font-medium text-gray-900 dark:text-white text-xs">
+                    {formatCurrency(p.payout || 0)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Recent Crimes */}
+        <div>
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Recent Crimes
+          </h4>
+          {recentCrimes.length === 0 ? (
+            <p className="text-xs text-gray-400 dark:text-gray-500">No crime history yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {recentCrimes.map((crime, i) => {
+                const statusColor = crime.status === 'Successful' ? 'text-green-600' :
+                  (crime.status === 'Failed' || crime.status === 'Failure') ? 'text-red-500' :
+                  'text-yellow-600'
+
+                return (
+                  <div key={i} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-gray-400 flex-shrink-0">Lv{crime.difficulty}</span>
+                      <span className="text-gray-900 dark:text-white truncate">{crime.name}</span>
+                    </div>
+                    <span className={`flex-shrink-0 ml-2 font-medium ${statusColor}`}>{crime.status}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-function PayoutSummaryCard({ payoutHistory }) {
-  if (payoutHistory.length === 0) {
+// ─── RW Summary Card ──────────────────────────────────────────────
+
+function RWSummaryCard({ wars, payouts }) {
+  const hasData = wars.length > 0 || payouts.length > 0
+
+  if (!hasData) {
     return (
       <div className="card">
-        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Recent Payouts</h3>
-        <p className="text-gray-400 dark:text-gray-500 text-sm">No payout history available yet.</p>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">RW Summary</h3>
+        <p className="text-xs text-gray-400 dark:text-gray-500">No ranked war data available yet.</p>
       </div>
     )
   }
 
-  const recentPayouts = payoutHistory.slice(0, 4)
-  const total = recentPayouts.reduce((sum, p) => sum + (p.payout || 0), 0)
-  const average = recentPayouts.length > 0 ? Math.floor(total / recentPayouts.length) : 0
-
-  // Trend: compare most recent to previous
-  let trend = null
-  if (recentPayouts.length >= 2) {
-    const current = recentPayouts[0].payout || 0
-    const previous = recentPayouts[1].payout || 0
-    if (previous > 0) {
-      trend = ((current - previous) / previous * 100).toFixed(0)
-    }
-  }
+  const payoutValues = payouts.filter(p => p.payout > 0).map(p => p.payout)
+  const avgPayout = payoutValues.length > 0
+    ? Math.floor(payoutValues.reduce((s, v) => s + v, 0) / payoutValues.length)
+    : 0
 
   return (
     <div className="card">
-      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Recent Payouts</h3>
-      <div className="flex items-end gap-4 mb-4">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">RW Summary</h3>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Recent Wars */}
         <div>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatCurrency(recentPayouts[0]?.payout || 0)}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Latest week</p>
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Recent Wars
+          </h4>
+          {wars.length === 0 ? (
+            <p className="text-xs text-gray-400 dark:text-gray-500">No wars found.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-400 dark:text-gray-500">
+                  <th className="pb-1 font-medium" colSpan={2}></th>
+                  <th className="pb-1 font-medium text-right pr-3">Hits</th>
+                  <th className="pb-1 font-medium text-right">Respect</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wars.map((war) => {
+                  const result = !war.end_at || war.end_at === 0 ? 'ongoing' :
+                    war.winner_faction_id === OUR_FACTION_ID ? 'win' : 'loss'
+                  const resultColor = result === 'win' ? 'text-green-600' :
+                    result === 'loss' ? 'text-red-500' : 'text-yellow-600'
+
+                  return (
+                    <tr key={war.id}>
+                      <td className="py-0.5 pr-1 w-4">
+                        <span className={`font-medium ${resultColor}`}>
+                          {result === 'win' ? 'W' : result === 'loss' ? 'L' : '…'}
+                        </span>
+                      </td>
+                      <td className="py-0.5 text-gray-500 dark:text-gray-400 truncate max-w-0">
+                        vs {war.opponent_name || `#${war.opponent_id}`}
+                      </td>
+                      <td className="py-0.5 text-right pr-3 text-gray-500 dark:text-gray-400 tabular-nums">
+                        {war.myAttacks || 0}
+                      </td>
+                      <td className="py-0.5 text-right font-mono font-medium text-gray-900 dark:text-white tabular-nums">
+                        {Number(war.myScore || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
-        {trend !== null && (
-          <span className={`text-sm font-medium ${
-            parseFloat(trend) >= 0 ? 'text-green-600' : 'text-red-500'
-          }`}>
-            {parseFloat(trend) >= 0 ? '+' : ''}{trend}% vs prior
-          </span>
-        )}
+
+        {/* War Payouts */}
+        <div>
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            RW Payouts
+            {avgPayout > 0 && (
+              <span className="font-normal ml-1">({formatCurrency(avgPayout)} avg)</span>
+            )}
+          </h4>
+          {payouts.length === 0 ? (
+            <p className="text-xs text-gray-400 dark:text-gray-500">No war payouts yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {payouts.map((wp, i) => {
+                const war = wp.war_payouts?.ranked_wars
+                const label = war ? (war.opponent_name || formatWarDateRange(war.start_at, war.end_at)) : `Payout ${i + 1}`
+
+                return (
+                  <div key={i} className="flex justify-between text-xs">
+                    <span className="text-gray-500 dark:text-gray-400 truncate">{label}</span>
+                    <span className="font-medium text-gray-900 dark:text-white flex-shrink-0 ml-2">
+                      {formatCurrency(wp.payout || 0)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
-      <div className="space-y-2">
-        {recentPayouts.map((p, i) => (
-          <div key={i} className="flex justify-between text-sm">
-            <span className="text-gray-500 dark:text-gray-400">
-              {p.week_start ? `${p.week_start}` : `Week ${i + 1}`}
-            </span>
-            <span className="font-medium text-gray-900 dark:text-white">
-              {formatCurrency(p.payout || 0)}
-            </span>
-          </div>
-        ))}
-      </div>
-      {recentPayouts.length > 1 && (
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
-          {recentPayouts.length}-week average: {formatCurrency(average)}
-        </p>
-      )}
     </div>
   )
 }
+
+// ─── Tier Progress Card ───────────────────────────────────────────
 
 function TierProgressCard({ tierProgress }) {
   const next = tierProgress.nextTierProgress
@@ -274,7 +426,6 @@ function TierProgressCard({ tierProgress }) {
         </span>
       </div>
 
-      {/* Progress bar */}
       <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 mb-4">
         <div
           className={`h-3 rounded-full transition-all ${
@@ -292,7 +443,6 @@ function TierProgressCard({ tierProgress }) {
         </div>
       )}
 
-      {/* Requirements list */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {next.requirements.map((req, i) => (
           <div
@@ -477,15 +627,21 @@ function PersonalStatsCard({ stats }) {
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
             {statRows.map(row => (
-              <div key={row.label} className="flex items-center justify-between py-1 border-b border-gray-100 dark:border-slate-700/50">
+              <div key={row.key} className="flex items-center justify-between py-1 border-b border-gray-100 dark:border-slate-700/50">
                 <span className="text-xs text-gray-600 dark:text-gray-400 truncate mr-2">{row.label}</span>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <span className="text-xs font-mono font-medium text-gray-900 dark:text-white">
-                    {row.perDay != null ? row.perDay.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}
+                    {row.perDay != null
+                      ? (row.isCurrency
+                          ? formatCurrency(Math.round(row.perDay))
+                          : row.perDay.toLocaleString(undefined, { maximumFractionDigits: 1 }))
+                      : '—'}
                   </span>
                   {row.delta != null && (
                     <span className="text-xs text-gray-400">
-                      ({row.delta.toLocaleString()})
+                      ({row.isCurrency
+                        ? formatCurrency(Math.round(row.delta))
+                        : row.delta.toLocaleString(undefined, { maximumFractionDigits: 0 })})
                     </span>
                   )}
                 </div>
@@ -498,68 +654,7 @@ function PersonalStatsCard({ stats }) {
   )
 }
 
-function CrimeParticipationCard({ crimes }) {
-  const recentCrimes = crimes.slice(0, 10)
-
-  const statusCounts = { Successful: 0, Failed: 0, Planning: 0, Recruiting: 0 }
-  for (const c of crimes) {
-    const s = c.status
-    // Torn API uses both 'Failed' and 'Failure' for failed crimes
-    if (s === 'Failure') {
-      statusCounts.Failed++
-    } else if (statusCounts[s] !== undefined) {
-      statusCounts[s]++
-    }
-  }
-
-  const total = statusCounts.Successful + statusCounts.Failed
-  const successRate = total > 0 ? ((statusCounts.Successful / total) * 100).toFixed(0) : '-'
-
-  return (
-    <div className="card">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-4">
-        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Crime Participation</h3>
-        <div className="flex gap-3 text-xs">
-          <span className="text-green-600">{statusCounts.Successful} success</span>
-          <span className="text-red-500">{statusCounts.Failed} failed</span>
-          <span className="text-gray-500">{successRate}% rate</span>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        {recentCrimes.map((crime, i) => {
-          const statusColor = crime.status === 'Successful' ? 'text-green-600' :
-            crime.status === 'Failed' ? 'text-red-500' :
-            'text-yellow-600'
-
-          return (
-            <div key={i} className="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-700/50 pb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-500 dark:text-gray-400 text-xs w-6">Lv{crime.difficulty}</span>
-                <span className="text-gray-900 dark:text-white">{crime.name}</span>
-                {crime.member_position && (
-                  <span className="text-xs text-gray-400">({crime.member_position})</span>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                {crime.member_cpr != null && (
-                  <span className="text-xs text-gray-400">{parseFloat(crime.member_cpr).toFixed(0)} CPR</span>
-                )}
-                <span className={`text-xs font-medium ${statusColor}`}>{crime.status}</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {crimes.length > 10 && (
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
-          Showing 10 of {crimes.length} recent crimes
-        </p>
-      )}
-    </div>
-  )
-}
+// ─── Loaned Items Card ────────────────────────────────────────────
 
 function LoanedItemsCard({ items }) {
   const categoryOrder = { armor: 0, weapons: 1, temporary: 2, utilities: 3, medical: 4, drugs: 5, caches: 6, cesium: 7 }
@@ -571,7 +666,6 @@ function LoanedItemsCard({ items }) {
     return (a.item_name || a.name || '').localeCompare(b.item_name || b.name || '')
   })
 
-  // Group by category
   let lastCategory = null
 
   return (
@@ -601,33 +695,7 @@ function LoanedItemsCard({ items }) {
   )
 }
 
-function CprKeyCard({ hasCprKey, onOpen }) {
-  return (
-    <div className="card">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">CPR Scraper Key</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {hasCprKey
-              ? 'Your API key is registered — CPR data is collected nightly.'
-              : 'No API key on file. Provide a key so your CPR data can be tracked automatically.'}
-          </p>
-        </div>
-        <button
-          onClick={onOpen}
-          className={`flex-shrink-0 ml-4 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-            hasCprKey
-              ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/60'
-              : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/60'
-          }`}
-        >
-          <span className={`w-2 h-2 rounded-full ${hasCprKey ? 'bg-green-500' : 'bg-red-500'}`} />
-          {hasCprKey ? 'Key Registered' : 'No Key — Click to Add'}
-        </button>
-      </div>
-    </div>
-  )
-}
+// ─── CPR Key Modal ────────────────────────────────────────────────
 
 function CprKeyModal({ user, hasCprKey, onClose, onSuccess, onRemove }) {
   const [cprKey, setCprKey] = useState('')
@@ -699,7 +767,7 @@ function CprKeyModal({ user, hasCprKey, onClose, onSuccess, onRemove }) {
           <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-blue-700 dark:text-blue-300 space-y-1">
             <p className="font-semibold">Required key settings in Torn:</p>
             <p>Access Level: <strong>Minimal Access</strong> or higher</p>
-            <p>Create at: <a href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">Torn Preferences → API</a></p>
+            <p>Create at: <a href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">Torn Preferences &rarr; API</a></p>
           </div>
 
           {success ? (
@@ -736,7 +804,7 @@ function CprKeyModal({ user, hasCprKey, onClose, onSuccess, onRemove }) {
                     disabled={removing || saving}
                     className="px-3 py-2 text-sm text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
                   >
-                    {removing ? 'Removing…' : 'Remove Key'}
+                    {removing ? 'Removing...' : 'Remove Key'}
                   </button>
                 )}
                 <div className="flex gap-2 ml-auto">
@@ -753,7 +821,7 @@ function CprKeyModal({ user, hasCprKey, onClose, onSuccess, onRemove }) {
                     disabled={saving || removing || !cprKey.trim()}
                     className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {saving ? 'Verifying…' : 'Save Key'}
+                    {saving ? 'Verifying...' : 'Save Key'}
                   </button>
                 </div>
               </div>
