@@ -33,7 +33,7 @@ export default function DashboardView() {
           .select('crime_name, difficulty, position_label, cpr_value')
           .eq('member_id', memberId),
         supabase.from('member_daily_stats')
-          .select('snapshot_date, personalstats, api_version, gym_strength, gym_speed, gym_dexterity, gym_defense')
+          .select('snapshot_date, personalstats, api_version, gym_strength, gym_speed, gym_dexterity, gym_defense, gym_energy')
           .eq('member_id', memberId)
           .order('snapshot_date', { ascending: false })
           .limit(31),
@@ -392,7 +392,13 @@ function PersonalStatsCard({ stats }) {
     const perDay = (delta != null && daysCovered > 1) ? delta / (daysCovered - 1) : null
     return { ...g, total: latestVal, perDay }
   })
-  const hasGym = gymRows.some(g => g.total != null && g.total > 0)
+  // Total energy spent in gym (from gymenergy contributor stat)
+  const gymEnergyLatest = latest?.gym_energy
+  const gymEnergyOldest = oldest?.gym_energy
+  const gymEnergyDelta = (gymEnergyLatest != null && gymEnergyOldest != null) ? gymEnergyLatest - gymEnergyOldest : null
+  const gymEnergyPerDay = (gymEnergyDelta != null && daysCovered > 1) ? gymEnergyDelta / (daysCovered - 1) : null
+
+  const hasGym = gymRows.some(g => g.total != null && g.total > 0) || gymEnergyLatest != null
   const maxPerDay = Math.max(...gymRows.map(g => g.perDay || 0), 1)
 
   // Personal stats: compute avg per day
@@ -447,6 +453,19 @@ function PersonalStatsCard({ stats }) {
               </div>
             ))}
           </div>
+          {gymEnergyLatest != null && (
+            <div className="mt-2 flex justify-between text-xs">
+              <span className="text-gray-600 dark:text-gray-400">Total Energy</span>
+              <span className="font-mono font-medium text-gray-900 dark:text-white">
+                {gymEnergyLatest.toLocaleString()}
+                {gymEnergyPerDay != null && (
+                  <span className="text-gray-400 dark:text-gray-500 ml-1">
+                    ({gymEnergyPerDay.toLocaleString(undefined, { maximumFractionDigits: 0 })}/day)
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

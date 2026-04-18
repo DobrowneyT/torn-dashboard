@@ -71,12 +71,13 @@ def chunk_stats(stats: list, size: int = V2_MAX_STATS_PER_CALL) -> list:
     return [','.join(stats[i:i + size]) for i in range(0, len(stats), size)]
 
 
-GYM_STATS = ['gymstrength', 'gymspeed', 'gymdexterity', 'gymdefense']
+GYM_STATS = ['gymstrength', 'gymspeed', 'gymdexterity', 'gymdefense', 'gymenergy']
 GYM_COLUMN_MAP = {
     'gymstrength': 'gym_strength',
     'gymspeed': 'gym_speed',
     'gymdexterity': 'gym_dexterity',
     'gymdefense': 'gym_defense',
+    'gymenergy': 'gym_energy',
 }
 
 
@@ -236,8 +237,8 @@ class MemberStatsScraper:
             else:
                 logger.warning(f"  No V2 data for {name} ({mid})")
 
-        # 6. Gym contributions: 4 faction calls
-        logger.info(f"\n--- Gym contributions: 4 faction calls ---")
+        # 6. Gym contributions: 5 faction calls
+        logger.info(f"\n--- Gym contributions: {len(GYM_STATS)} faction calls ---")
         gym_data: Dict[str, Dict[str, int]] = {}  # {member_id: {column: value}}
 
         for stat in GYM_STATS:
