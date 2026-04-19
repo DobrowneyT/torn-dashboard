@@ -178,7 +178,7 @@ export default function TierManagement() {
     })
 
     const requiredCount = Math.ceil(requirements.length * (2 / 3))
-    return { metCount, requiredCount, meetsRequirement: metCount >= requiredCount }
+    return { metCount, requiredCount, totalCount: requirements.length, meetsRequirement: metCount >= requiredCount }
   }
 
   if (loading) {
@@ -306,6 +306,7 @@ export default function TierManagement() {
                         <QualificationBadge
                           metCount={qualification.metCount}
                           requiredCount={qualification.requiredCount}
+                          totalCount={qualification.totalCount}
                           meetsRequirement={qualification.meetsRequirement}
                         />
                       </td>
@@ -377,12 +378,13 @@ function TierBadge({ tier }) {
   return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold text-sm ${colors[tier]}`}>Tier {tier}</span>
 }
 
-function QualificationBadge({ metCount, requiredCount, meetsRequirement }) {
+function QualificationBadge({ metCount, requiredCount, totalCount, meetsRequirement }) {
   return (
     <div className="flex items-center gap-2">
       <span className={`text-sm ${meetsRequirement ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
-        {metCount}/{requiredCount}
+        {metCount}/{totalCount}
       </span>
+      <span className="text-xs text-gray-400">(need {requiredCount})</span>
       {meetsRequirement ? (
         <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -399,5 +401,5 @@ function QualificationBadge({ metCount, requiredCount, meetsRequirement }) {
 function calculateAvgCpr(cprRecords) {
   if (!cprRecords || cprRecords.length === 0) return 'N/A'
   const total = cprRecords.reduce((sum, r) => sum + parseFloat(r.cpr_value), 0)
-  return (total / cprRecords.length).toFixed(1)
+  return Math.round(total / cprRecords.length)
 }

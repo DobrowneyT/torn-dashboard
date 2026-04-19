@@ -178,7 +178,7 @@ function RequirementRow({ req, status, actualValue }) {
       <span className="text-sm flex-1 truncate">{label}</span>
       {actualValue !== undefined && actualValue !== null && (
         <span className={`text-xs font-mono flex-shrink-0 ${status === 'pass' ? 'text-green-600 dark:text-green-400' : status === 'fail' ? 'text-red-600 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
-          {actualValue.toFixed(1)}%
+          {Math.round(actualValue)}
         </span>
       )}
     </div>

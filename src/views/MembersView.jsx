@@ -601,7 +601,7 @@ function CrimesModal({ member, crimes, loading, onClose }) {
                       <StatusBadge status={crime.status} />
                     </td>
                     <td className="py-2 px-2 text-xs">{crime.position}</td>
-                    <td className="py-2 px-2 text-xs">{(crime.cpr || 0).toFixed(1)}%</td>
+                    <td className="py-2 px-2 text-xs">{Math.round(crime.cpr || 0)}</td>
                     <td className="py-2 px-2 text-xs font-semibold text-green-600">
                       {crime.status === 'Successful' ? formatCurrency(crime.rewards_money || 0) : '-'}
                     </td>
@@ -838,7 +838,7 @@ function CprModal({ member, cprData, loading, onClose }) {
   const uniqueCrimes = crimeNames.length
   const allValues = crimeNames.flatMap(name => byCrime[name].positions.map(r => parseFloat(r.cpr_value)))
   const avgCpr = allValues.length > 0
-    ? (allValues.reduce((s, v) => s + v, 0) / allValues.length).toFixed(1)
+    ? Math.round(allValues.reduce((s, v) => s + v, 0) / allValues.length)
     : null
 
   return (
@@ -849,7 +849,7 @@ function CprModal({ member, cprData, loading, onClose }) {
             <h3 className="text-lg font-semibold">{member.name} — CPR Data</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">
               {totalRoles} roles across {uniqueCrimes} crime{uniqueCrimes !== 1 ? 's' : ''}
-              {avgCpr !== null && ` · Avg ${avgCpr}%`}
+              {avgCpr !== null && ` · Avg ${avgCpr}`}
             </p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
@@ -867,7 +867,7 @@ function CprModal({ member, cprData, loading, onClose }) {
               {crimeNames.map(crimeName => {
                 const { difficulty, positions } = byCrime[crimeName]
                 const sortedPositions = [...positions].sort((a, b) => a.position_label.localeCompare(b.position_label))
-                const crimeAvg = (sortedPositions.reduce((s, r) => s + parseFloat(r.cpr_value), 0) / sortedPositions.length).toFixed(1)
+                const crimeAvg = Math.round(sortedPositions.reduce((s, r) => s + parseFloat(r.cpr_value), 0) / sortedPositions.length)
                 return (
                   <div key={crimeName}>
                     <div className="px-4 py-2 bg-gray-50 dark:bg-slate-700/50 flex items-center justify-between gap-2">
@@ -880,7 +880,7 @@ function CprModal({ member, cprData, loading, onClose }) {
                         </span>
                       </div>
                       <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
-                        avg {crimeAvg}% · {sortedPositions.length} role{sortedPositions.length !== 1 ? 's' : ''}
+                        avg {crimeAvg} · {sortedPositions.length} role{sortedPositions.length !== 1 ? 's' : ''}
                       </span>
                     </div>
                     <div className="px-4 py-1">

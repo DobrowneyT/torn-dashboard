@@ -468,7 +468,7 @@ function TierProgressCard({ tierProgress }) {
             </span>
             {req.currentCpr !== null && (
               <span className={`ml-auto text-xs ${req.met ? 'text-green-600' : 'text-gray-400'}`}>
-                ({req.currentCpr.toFixed(0)})
+                ({Math.round(req.currentCpr)})
               </span>
             )}
           </div>

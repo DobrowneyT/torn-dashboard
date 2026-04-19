@@ -582,7 +582,7 @@ function MemberCrimesModal({ memberId, crimes, loading, onClose }) {
                       <StatusBadge status={crime.status} />
                     </td>
                     <td className="py-2 px-2 text-xs">{crime.member_position}</td>
-                    <td className="py-2 px-2 text-xs">{(crime.member_cpr || 0).toFixed(1)}%</td>
+                    <td className="py-2 px-2 text-xs">{Math.round(crime.member_cpr || 0)}</td>
                     <td className="py-2 px-2 text-xs font-semibold text-green-600">
                       {crime.status === 'Successful' ? formatCurrency(crime.rewards_money || 0) : '-'}
                     </td>

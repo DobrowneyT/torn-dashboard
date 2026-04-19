@@ -1604,7 +1604,7 @@ function CrimeStatsView({ stats, fromTimestamp, toTimestamp, onClose }) {
                                   {displayName} - {positionLabel}
                                 </span>
                                 <span className="text-gray-500">
-                                  CPR: {(slot.checkpoint_pass_rate || 0)}%
+                                  CPR: {Math.round(slot.checkpoint_pass_rate || 0)}
                                 </span>
                               </div>
                             )

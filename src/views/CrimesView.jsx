@@ -412,7 +412,7 @@ export default function CrimesView({ crimesData, isLeadership }) {
                                       {slot.user_name || 'Unknown'} [{slot.user_id}] — {posLabel}
                                     </span>
                                     <span className="text-gray-500 dark:text-gray-400 ml-2 whitespace-nowrap">
-                                      CPR: {slot.checkpoint_pass_rate || 0}%
+                                      CPR: {Math.round(slot.checkpoint_pass_rate || 0)}
                                     </span>
                                   </div>
                                 )
