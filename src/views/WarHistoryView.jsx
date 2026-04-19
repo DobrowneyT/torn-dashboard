@@ -185,11 +185,11 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
             <table className="w-full text-sm border-separate border-spacing-0">
               <thead>
                 <tr className="text-left">
-                  <SortHeader col="start_at" label="Date" className="sticky left-0 z-30 bg-white dark:bg-slate-800" />
-                  <SortHeader col="opponent" label="Opponent" />
+                  <SortHeader col="opponent" label="Opponent" className="sticky left-0 z-30 bg-white dark:bg-slate-800" />
                   <SortHeader col="our_score" label="Our Score" className="text-right" />
                   <SortHeader col="opponent_score" label="Their Score" className="text-right" />
                   <SortHeader col="result" label="Result" />
+                  <SortHeader col="start_at" label="Date" />
                   <th className="py-2 px-3 text-xs font-semibold sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700">Type</th>
                   {isLeadership && (
                     <th className="py-2 px-3 text-xs font-semibold sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700">Actions</th>
@@ -208,10 +208,7 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                       className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer"
                       onClick={() => openContributions(war.id)}
                     >
-                      <td className="py-2 px-3 text-xs font-medium sticky left-0 z-[5] bg-white dark:bg-slate-800 whitespace-nowrap">
-                        {formatWarDateRange(war.start_at, war.end_at)}
-                      </td>
-                      <td className="py-2 px-3 text-xs text-gray-700 dark:text-gray-300 truncate max-w-[200px]">
+                      <td className="py-2 px-3 text-xs font-medium sticky left-0 z-[5] bg-white dark:bg-slate-800 truncate max-w-[200px]">
                         {war.opponent_name || `Faction #${war.opponent_id}`}
                       </td>
                       <td className="py-2 px-3 text-xs text-right tabular-nums font-mono">
@@ -232,6 +229,9 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                         }`}>
                           {result === 'win' ? 'Win' : result === 'loss' ? 'Loss' : 'Ongoing'}
                         </span>
+                      </td>
+                      <td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        {formatWarDateRange(war.start_at, war.end_at)}
                       </td>
                       <td className="py-2 px-3 text-xs">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${

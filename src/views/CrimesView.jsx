@@ -339,15 +339,15 @@ export default function CrimesView({ crimesData, isLeadership }) {
               <tr className="text-left">
                 <th
                   className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 left-0 z-30 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
-                  onClick={() => handleSort('id')}
-                >
-                  Crime ID <SortIcon columnKey="id" />
-                </th>
-                <th
-                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
                   onClick={() => handleSort('name')}
                 >
                   Name <SortIcon columnKey="name" />
+                </th>
+                <th
+                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
+                  onClick={() => handleSort('id')}
+                >
+                  Crime ID <SortIcon columnKey="id" />
                 </th>
                 <th
                   className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
@@ -391,10 +391,7 @@ export default function CrimesView({ crimesData, isLeadership }) {
                     key={crime.id}
                     className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50"
                   >
-                    <td className="py-2 px-2 font-medium text-xs sticky left-0 z-[5] bg-white dark:bg-slate-800">
-                      {crime.id || crime.crime_id}
-                    </td>
-                    <td className="py-2 px-2 text-xs relative">
+                    <td className="py-2 px-2 text-xs relative sticky left-0 z-[5] bg-white dark:bg-slate-800">
                       <button
                         onClick={() => handleToggleCrimeDetails(crime.id || crime.crime_id)}
                         className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer text-left"
@@ -437,6 +434,9 @@ export default function CrimesView({ crimesData, isLeadership }) {
                           )}
                         </div>
                       )}
+                    </td>
+                    <td className="py-2 px-2 font-medium text-xs">
+                      {crime.id || crime.crime_id}
                     </td>
                     <td className="py-2 px-2 text-xs">
                       <DifficultyBadge difficulty={crime.difficulty} />
