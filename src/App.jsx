@@ -6,19 +6,13 @@ import { ViewStateProvider } from './contexts/ViewStateContext'
 import LoginModal from './components/LoginModal'
 import ProtectedRoute from './components/ProtectedRoute'
 import Header from './components/Header'
-import StatsOverview from './components/StatsOverview'
 import Navigation from './components/Navigation'
 import MembersView from './views/MembersView'
-import CrimesView from './views/CrimesView'
-import TierRequirementsView from './views/TierRequirementsView'
-import PayoutsView from './views/PayoutsView'
-import PayoutManagement from './components/PayoutManagement'
-import TierManagement from './components/TierManagement'
 import InventoryManagement from './components/InventoryManagement'
 import DataManagement from './views/DataManagement'
 import DashboardView from './views/DashboardView'
-import WarHistoryView from './views/WarHistoryView'
-import WarPayoutManagement from './components/WarPayoutManagement'
+import OCPayoutsPage from './views/OCPayoutsPage'
+import RWPayoutsPage from './views/RWPayoutsPage'
 import { isAdmin } from './config'
 
 
@@ -40,31 +34,26 @@ function DashboardContent() {
   const { isAuthenticated, isLeadership, user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('dashboard')
-  
+
   // View As feature for admins - null means normal view
   const [viewAsRole, setViewAsRole] = useState(null)
 
   // Actual permissions (for functionality that must be restricted)
   const userIsAdmin = isAdmin(user?.id)
-  
+
   // Effective permissions (for UI display, affected by viewAsRole)
   const effectiveIsAdmin = viewAsRole === null ? userIsAdmin : viewAsRole === 'admin'
-  const effectiveIsLeadership = viewAsRole === null 
-    ? isLeadership 
+  const effectiveIsLeadership = viewAsRole === null
+    ? isLeadership
     : (viewAsRole === 'leadership' || viewAsRole === 'admin')
 
-  // Navigation tabs
+  // Navigation tabs — 5 main tabs
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', roles: ['member', 'leadership'] },
-    { id: 'members', label: 'Members', roles: ['member', 'leadership'] },
-    { id: 'crimes', label: 'OC History', roles: ['member', 'leadership'] },
-    { id: 'requirements', label: 'Tier Requirements', roles: ['member', 'leadership'] },
-    { id: 'payouts', label: 'OC Payouts', roles: ['member', 'leadership'] },
-    { id: 'payout-mgmt', label: 'OC Payout Management', roles: ['leadership'] },
-    { id: 'war-history', label: 'RW History', roles: ['member', 'leadership'] },
-    { id: 'war-payout-mgmt', label: 'RW Payout Management', roles: ['leadership'] },
-    { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
-    { id: 'inventory', label: 'Inventory', roles: ['leadership'] }
+    { id: 'dashboard', label: 'Dashboard', roles: ['member'] },
+    { id: 'members', label: 'Members', roles: ['member'] },
+    { id: 'oc-payouts', label: 'OC Payouts', roles: ['member'] },
+    { id: 'rw-payouts', label: 'RW Payouts', roles: ['member'] },
+    { id: 'inventory', label: 'Inventory', roles: ['leadership'] },
   ]
 
   const availableTabs = tabs.filter(tab => {
@@ -79,7 +68,7 @@ function DashboardContent() {
     setViewAsRole(null)
   }, [user?.id])
 
-  // Reset to members tab if current tab becomes unavailable due to viewAs change
+  // Reset to dashboard if current tab becomes unavailable due to viewAs change
   useEffect(() => {
     const tabIds = availableTabs.map(t => t.id)
     if (!tabIds.includes(activeTab) && activeTab !== 'data-mgmt') {
@@ -110,12 +99,12 @@ function DashboardContent() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors duration-200">
       <Header
-        onNavigate={handleNavigate} 
+        onNavigate={handleNavigate}
         viewAsRole={viewAsRole}
         setViewAsRole={setViewAsRole}
         canViewAs={userIsAdmin}
       />
-      
+
       {/* View As indicator banner */}
       {viewAsRole && (
         <div className="bg-yellow-100 dark:bg-yellow-900/30 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2">
@@ -132,11 +121,10 @@ function DashboardContent() {
           </div>
         </div>
       )}
-      
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-        {/* <StatsOverview /> */}
-        <Navigation 
-          activeTab={activeTab} 
+        <Navigation
+          activeTab={activeTab}
           onTabChange={setActiveTab}
           tabs={availableTabs}
         />
@@ -145,19 +133,14 @@ function DashboardContent() {
           <ProtectedRoute>
             {activeTab === 'dashboard' && <DashboardView />}
             {activeTab === 'members' && <MembersView isLeadership={effectiveIsLeadership} />}
-            {activeTab === 'crimes' && <CrimesView isLeadership={effectiveIsLeadership} />}
-            {activeTab === 'requirements' && <TierRequirementsView />}
-            {activeTab === 'payouts' && <PayoutsView isLeadership={effectiveIsLeadership} />}
-            {activeTab === 'war-history' && <WarHistoryView isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />}
+            {activeTab === 'oc-payouts' && <OCPayoutsPage isLeadership={effectiveIsLeadership} />}
+            {activeTab === 'rw-payouts' && <RWPayoutsPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />}
           </ProtectedRoute>
 
-          {/* Leadership-only views — only mount the guard when a leadership tab is active */}
-          {['payout-mgmt', 'war-payout-mgmt', 'tier-mgmt', 'inventory'].includes(activeTab) && (
+          {/* Leadership-only views */}
+          {activeTab === 'inventory' && (
             <ProtectedRoute requireLeadership={true}>
-              {activeTab === 'payout-mgmt' && <PayoutManagement />}
-              {activeTab === 'war-payout-mgmt' && <WarPayoutManagement />}
-              {activeTab === 'tier-mgmt' && <TierManagement />}
-              {activeTab === 'inventory' && <InventoryManagement />}
+              <InventoryManagement />
             </ProtectedRoute>
           )}
 

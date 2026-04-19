@@ -130,6 +130,10 @@ class CPRScraper:
             faction_response = api.get_faction_members()
             current_members = {str(m['id']): m['name'] for m in faction_response.get('members', [])}
 
+            # Sync members to Supabase (same as the "Sync Members" button on the website)
+            if self.supabase and current_members:
+                self._sync_members_to_supabase(current_members)
+
             # Filter API keys to only current faction members
             valid_api_keys = {}
             removed_members = []
@@ -150,6 +154,45 @@ class CPRScraper:
             logger.error(f"Error validating API keys: {e}")
             return all_api_keys  # Fallback to unfiltered keys if validation fails
     
+    def _sync_members_to_supabase(self, current_members: Dict[str, str]):
+        """
+        Sync faction members to the Supabase `members` table.
+        Mirrors the handleSyncMembers Edge Function logic:
+        1. Mark all existing members as is_current=false
+        2. Upsert current faction members with is_current=true
+        """
+        try:
+            now = datetime.utcnow().isoformat()
+
+            # Step 1: Mark all current members as not current
+            self.supabase.table('members').update({
+                'is_current': False,
+                'last_seen': now
+            }).eq('is_current', True).execute()
+
+            # Step 2: Upsert current faction members
+            records = [
+                {
+                    'member_id': mid,
+                    'member_name': name,
+                    'is_current': True,
+                    'last_seen': now,
+                    'updated_at': now,
+                }
+                for mid, name in current_members.items()
+            ]
+
+            # Batch upsert in chunks of 100
+            for i in range(0, len(records), 100):
+                chunk = records[i:i + 100]
+                self.supabase.table('members').upsert(
+                    chunk, on_conflict='member_id'
+                ).execute()
+
+            logger.info(f"Synced {len(records)} faction members to Supabase")
+        except Exception as e:
+            logger.warning(f"Member sync failed (non-fatal): {e}")
+
     def _load_cpr_database(self) -> Dict:
         """
         Load the CPR database from storage

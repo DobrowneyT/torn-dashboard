@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../utils/supabase'
 import { loadWars, loadWarsCount, loadWarContributions } from '../utils/warDataLoader'
 import { updateWarIsTermed } from '../utils/adminApi'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
+import { formatCurrency, formatCurrencyShort } from '../utils/payoutCalculations'
 
 const OUR_FACTION_ID = 10739
 const PAGE_SIZE = 10
@@ -19,11 +21,14 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
 
   // Expanded row state
   const [expandedWarId, setExpandedWarId] = useState(null)
-  const [contributions, setContributions] = useState({})   // keyed by warId
+  const [contributions, setContributions] = useState({})
   const [loadingContributions, setLoadingContributions] = useState({})
 
-  // Contributions table sort — keyed by warId
-  const [contribSort, setContribSort] = useState({})  // { [warId]: { col, dir } }
+  // Contributions table sort
+  const [contribSort, setContribSort] = useState({})
+
+  // My RW payout stats
+  const [myWarPayouts, setMyWarPayouts] = useState([])
 
   function getContribSort(warId) {
     return contribSort[warId] || { col: 'score', dir: 'desc' }
@@ -77,7 +82,34 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
 
   useEffect(() => {
     fetchWars(0, true)
-  }, [])
+    if (user?.id) loadMyWarPayouts()
+  }, [user?.id])
+
+  async function loadMyWarPayouts() {
+    try {
+      const memberId = user.id.toString()
+      const { data } = await supabase
+        .from('war_payout_members')
+        .select('payout, war_payouts(war_id, created_at, ranked_wars(start_at, end_at, opponent_name, opponent_id))')
+        .eq('member_id', memberId)
+        .order('war_payout_id', { ascending: false })
+
+      setMyWarPayouts(data || [])
+    } catch (err) {
+      console.error('Error loading war payouts:', err)
+    }
+  }
+
+  const myStats = useMemo(() => {
+    if (myWarPayouts.length === 0) return null
+    const totalEarned = myWarPayouts.reduce((sum, p) => sum + (p.payout || 0), 0)
+    return {
+      totalEarned,
+      warsActive: myWarPayouts.length,
+      avgPerWar: totalEarned / myWarPayouts.length,
+      lastPayout: myWarPayouts[0]?.payout || 0,
+    }
+  }, [myWarPayouts])
 
   async function fetchWars(newOffset, replace = false) {
     try {
@@ -174,6 +206,28 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
 
   return (
     <div className="space-y-4">
+      {/* My RW Payout Stats */}
+      {myStats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="card">
+            <div className="text-2xl font-bold text-blue-600">{formatCurrencyShort(myStats.totalEarned)}</div>
+            <div className="text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wide mt-1">Total Earned</div>
+          </div>
+          <div className="card">
+            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{myStats.warsActive}</div>
+            <div className="text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wide mt-1">Wars Paid</div>
+          </div>
+          <div className="card">
+            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatCurrencyShort(myStats.avgPerWar)}</div>
+            <div className="text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wide mt-1">Avg / War</div>
+          </div>
+          <div className="card">
+            <div className="text-2xl font-bold text-green-600">{formatCurrencyShort(myStats.lastPayout)}</div>
+            <div className="text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wide mt-1">Last Payout</div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">RW History</h2>
@@ -207,12 +261,10 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                   className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
                   onClick={() => handleExpandWar(war.id)}
                 >
-                  {/* Expand icon */}
                   <span className="text-gray-400 text-xs w-4 flex-shrink-0">
                     {isExpanded ? '▼' : '▶'}
                   </span>
 
-                  {/* Date range */}
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-gray-900 dark:text-white">
                       {formatWarDateRange(war.start_at, war.end_at)}
@@ -222,12 +274,10 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                     </div>
                   </div>
 
-                  {/* Opponent — hidden on mobile to reduce clutter */}
                   <div className="hidden sm:block text-sm text-gray-700 dark:text-gray-300 min-w-0 flex-1 truncate">
                     vs. {war.opponent_name || `Faction #${war.opponent_id}`}
                   </div>
 
-                  {/* Scores */}
                   <div className="text-xs sm:text-sm font-mono text-gray-700 dark:text-gray-300 flex-shrink-0">
                     <span className={result === 'win' ? 'text-green-600 dark:text-green-400 font-semibold' : ''}>
                       {war.our_score?.toLocaleString()}
@@ -238,7 +288,6 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                     </span>
                   </div>
 
-                  {/* Win/Loss badge */}
                   <div className="flex-shrink-0">
                     {result === 'win' && (
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400">
@@ -257,7 +306,6 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                     )}
                   </div>
 
-                  {/* Termed/Real badge — hidden on mobile */}
                   <div className="hidden sm:flex flex-shrink-0">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                       war.is_termed
@@ -268,7 +316,6 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                     </span>
                   </div>
 
-                  {/* Leadership-only termed toggle */}
                   {isLeadership && result !== 'ongoing' && (
                     <button
                       onClick={(e) => handleToggleTermed(e, war)}
