@@ -66,6 +66,7 @@ export default function DashboardView() {
           latest: statsData[0],
           oldest: statsData[statsData.length - 1],
           daysCovered: statsData.length,
+          allRows: statsData,
         })
       }
 
@@ -523,12 +524,18 @@ function parseStats(raw) {
 }
 
 function PersonalStatsCard({ stats }) {
-  const { latest, oldest, daysCovered } = stats
+  const { latest, oldest, daysCovered, allRows } = stats
   const latestStats = parseStats(latest?.personalstats)
   const oldestStats = parseStats(oldest?.personalstats)
   const hasDelta = daysCovered > 1 && oldestStats
 
-  // Gym: compute avg energy per day from delta between latest and oldest snapshots
+  // Gym: filter to rows that have non-null gym data, compute delta from those
+  const gymRows_raw = allRows ? allRows.filter(r => r.gym_strength != null || r.gym_speed != null || r.gym_dexterity != null || r.gym_defense != null) : []
+  const gymSamples = gymRows_raw.length
+  const gymNewest = gymRows_raw[0]
+  const gymOldest = gymRows_raw[gymRows_raw.length - 1]
+  const gymDays = gymSamples > 1 ? gymSamples - 1 : 0
+
   const gymDefs = [
     { label: 'Strength', key: 'gym_strength' },
     { label: 'Speed', key: 'gym_speed' },
@@ -536,17 +543,21 @@ function PersonalStatsCard({ stats }) {
     { label: 'Defense', key: 'gym_defense' },
   ]
   const gymRows = gymDefs.map(g => {
-    const latestVal = latest?.[g.key]
-    const oldestVal = oldest?.[g.key]
+    const latestVal = gymNewest?.[g.key]
+    const oldestVal = gymOldest?.[g.key]
     const delta = (latestVal != null && oldestVal != null) ? latestVal - oldestVal : null
-    const perDay = (delta != null && daysCovered > 1) ? delta / (daysCovered - 1) : null
+    const perDay = (delta != null && gymDays > 0) ? delta / gymDays : null
     return { ...g, total: latestVal, perDay }
   })
   // Total energy spent in gym (from gymenergy contributor stat)
-  const gymEnergyLatest = latest?.gym_energy
-  const gymEnergyOldest = oldest?.gym_energy
-  const gymEnergyDelta = (gymEnergyLatest != null && gymEnergyOldest != null) ? gymEnergyLatest - gymEnergyOldest : null
-  const gymEnergyPerDay = (gymEnergyDelta != null && daysCovered > 1) ? gymEnergyDelta / (daysCovered - 1) : null
+  const gymEnergyRows = allRows ? allRows.filter(r => r.gym_energy != null) : []
+  const gymEnergySamples = gymEnergyRows.length
+  const gymEnergyNewest = gymEnergyRows[0]
+  const gymEnergyOldest_row = gymEnergyRows[gymEnergyRows.length - 1]
+  const gymEnergyDays = gymEnergySamples > 1 ? gymEnergySamples - 1 : 0
+  const gymEnergyLatest = gymEnergyNewest?.gym_energy
+  const gymEnergyDelta = (gymEnergyLatest != null && gymEnergyOldest_row?.gym_energy != null) ? gymEnergyLatest - gymEnergyOldest_row.gym_energy : null
+  const gymEnergyPerDay = (gymEnergyDelta != null && gymEnergyDays > 0) ? gymEnergyDelta / gymEnergyDays : null
 
   const hasGym = gymRows.some(g => g.total != null && g.total > 0) || gymEnergyLatest != null
   const maxPerDay = Math.max(...gymRows.map(g => g.perDay || 0), 1)
@@ -583,7 +594,7 @@ function PersonalStatsCard({ stats }) {
       {hasGym && (
         <div className="mb-5">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-            Avg Gym Energy / Day {days > 0 && <span className="font-normal">({days}d sample)</span>}
+            Avg Gym Energy / Day {gymDays > 0 && <span className="font-normal">({gymDays}d sample)</span>}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {gymRows.map(g => (
