@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useViewState } from '../contexts/ViewStateContext'
 import { supabase } from '../utils/supabase'
 import { formatCurrency, formatCurrencyShort, formatTimeHours } from '../utils/payoutCalculations'
+import StatCards from '../components/StatCards'
 
 export default function PayoutsView({ isLeadership }) {
   const { user } = useAuth()
@@ -202,24 +203,12 @@ export default function PayoutsView({ isLeadership }) {
     <div className="space-y-6">
       {/* My Payouts — summary bubbles */}
       {myStats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="card">
-            <div className="text-2xl font-bold text-blue-600">{formatCurrencyShort(myStats.totalEarned)}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wide mt-1">Total Earned</div>
-          </div>
-          <div className="card">
-            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{myStats.weeksActive}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wide mt-1">Weeks Active</div>
-          </div>
-          <div className="card">
-            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatCurrencyShort(myStats.avgPerWeek)}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wide mt-1">Avg / Week</div>
-          </div>
-          <div className="card">
-            <div className="text-2xl font-bold text-green-600">{formatCurrencyShort(myStats.lastPayout)}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wide mt-1">Last Payout</div>
-          </div>
-        </div>
+        <StatCards stats={[
+          { label: 'Total Earned', value: formatCurrencyShort(myStats.totalEarned), color: 'text-blue-600' },
+          { label: 'Weeks Active', value: myStats.weeksActive },
+          { label: 'Avg / Week', value: formatCurrencyShort(myStats.avgPerWeek) },
+          { label: 'Last Payout', value: formatCurrencyShort(myStats.lastPayout), color: 'text-green-600' },
+        ]} />
       )}
 
       {/* Payout History — single card */}

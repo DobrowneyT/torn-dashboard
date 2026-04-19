@@ -44,7 +44,7 @@ export default function DashboardView() {
           .order('snapshot_date', { ascending: false })
           .limit(31),
         loadMemberPayoutHistory(memberId).catch(() => []),
-        loadMemberCrimeHistory(memberId, 20).catch(() => []),
+        loadMemberCrimeHistory(memberId, 500).catch(() => []),
         loadMemberLoanedItems(memberId).catch(() => []),
       ])
 
@@ -83,7 +83,7 @@ export default function DashboardView() {
           .eq('member_id', memberId)
           .eq('faction_id', OUR_FACTION_ID)
           .order('war_id', { ascending: false })
-          .limit(10)
+          .limit(100)
 
         if (contribs && contribs.length > 0) {
           const warIds = contribs.map(c => c.war_id)
@@ -97,7 +97,7 @@ export default function DashboardView() {
             const contrib = contribs.find(c => c.war_id === war.id)
             return { ...war, myScore: contrib?.score, myAttacks: contrib?.attacks }
           })
-          setRecentWars(warsWithContrib.slice(0, 5))
+          setRecentWars(warsWithContrib)
         }
 
         // War payouts for this member
@@ -215,8 +215,6 @@ function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory,
     ? Math.floor(recentPayouts.reduce((s, p) => s + (p.payout || 0), 0) / recentPayouts.length)
     : 0
 
-  const recentCrimes = crimeHistory.slice(0, 5)
-
   return (
     <div className="card">
       {/* Header row: Tier badge left, CPR key status right */}
@@ -271,30 +269,53 @@ function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory,
           )}
         </div>
 
-        {/* Recent Crimes */}
+        {/* Crime Participation */}
         <div>
           <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-            Recent Crimes
+            Crime Participation
           </h4>
-          {recentCrimes.length === 0 ? (
+          {crimeHistory.length === 0 ? (
             <p className="text-xs text-gray-400 dark:text-gray-500">No crime history yet.</p>
           ) : (
-            <div className="space-y-1.5">
-              {recentCrimes.map((crime, i) => {
-                const statusColor = crime.status === 'Successful' ? 'text-green-600' :
-                  (crime.status === 'Failed' || crime.status === 'Failure') ? 'text-red-500' :
-                  'text-yellow-600'
+            <div className="overflow-y-auto max-h-[160px] scrollbar-thin">
+              <table className="w-full text-xs border-separate border-spacing-0">
+                <thead>
+                  <tr className="text-left text-gray-400 dark:text-gray-500">
+                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '55%' }}>Crime</th>
+                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '25%' }}>Role</th>
+                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10 text-right pr-2" style={{ width: '10%' }}>CPR</th>
+                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10 text-right" style={{ width: '10%' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {crimeHistory.map((crime, i) => {
+                    const statusColor = crime.status === 'Successful' ? 'text-green-600' :
+                      (crime.status === 'Failed' || crime.status === 'Failure') ? 'text-red-500' :
+                      'text-yellow-600'
+                    const statusLabel = crime.status === 'Successful' ? 'Pass' :
+                      (crime.status === 'Failed' || crime.status === 'Failure') ? 'Fail' :
+                      'IP'
 
-                return (
-                  <div key={i} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-gray-400 flex-shrink-0">Lv{crime.difficulty}</span>
-                      <span className="text-gray-900 dark:text-white truncate">{crime.name}</span>
-                    </div>
-                    <span className={`flex-shrink-0 ml-2 font-medium ${statusColor}`}>{crime.status}</span>
-                  </div>
-                )
-              })}
+                    return (
+                      <tr key={i}>
+                        <td className="py-0.5 pr-2 text-gray-900 dark:text-white truncate max-w-0">
+                          <span className="text-gray-400 mr-1">Lv{crime.difficulty}</span>
+                          {crime.name}
+                        </td>
+                        <td className="py-0.5 pr-2 text-gray-500 dark:text-gray-400 whitespace-nowrap truncate max-w-0">
+                          {crime.member_position || '—'}
+                        </td>
+                        <td className="py-0.5 pr-2 text-right tabular-nums text-gray-500 dark:text-gray-400">
+                          {crime.member_cpr != null ? Math.round(crime.member_cpr) : '—'}
+                        </td>
+                        <td className={`py-0.5 text-right font-medium ${statusColor}`}>
+                          {statusLabel}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -335,42 +356,45 @@ function RWSummaryCard({ wars, payouts }) {
           {wars.length === 0 ? (
             <p className="text-xs text-gray-400 dark:text-gray-500">No wars found.</p>
           ) : (
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-gray-400 dark:text-gray-500">
-                  <th className="pb-1 font-medium" colSpan={2}></th>
-                  <th className="pb-1 font-medium text-right pr-3">Hits</th>
-                  <th className="pb-1 font-medium text-right">Respect</th>
-                </tr>
-              </thead>
-              <tbody>
-                {wars.map((war) => {
-                  const result = !war.end_at || war.end_at === 0 ? 'ongoing' :
-                    war.winner_faction_id === OUR_FACTION_ID ? 'win' : 'loss'
-                  const resultColor = result === 'win' ? 'text-green-600' :
-                    result === 'loss' ? 'text-red-500' : 'text-yellow-600'
+            <div className="overflow-y-auto max-h-[160px] scrollbar-thin">
+              <table className="w-full text-xs border-separate border-spacing-0">
+                <thead>
+                  <tr className="text-left text-gray-400 dark:text-gray-500">
+                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '8%' }}></th>
+                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '52%' }}>Opponent</th>
+                    <th className="pb-1 font-medium text-right pr-2 sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '20%' }}>Hits</th>
+                    <th className="pb-1 font-medium text-right sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '20%' }}>Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wars.map((war) => {
+                    const result = !war.end_at || war.end_at === 0 ? 'ongoing' :
+                      war.winner_faction_id === OUR_FACTION_ID ? 'win' : 'loss'
+                    const resultColor = result === 'win' ? 'text-green-600' :
+                      result === 'loss' ? 'text-red-500' : 'text-yellow-600'
 
-                  return (
-                    <tr key={war.id}>
-                      <td className="py-0.5 pr-1 w-4">
-                        <span className={`font-medium ${resultColor}`}>
-                          {result === 'win' ? 'W' : result === 'loss' ? 'L' : '…'}
-                        </span>
-                      </td>
-                      <td className="py-0.5 text-gray-500 dark:text-gray-400 truncate max-w-0">
-                        vs {war.opponent_name || `#${war.opponent_id}`}
-                      </td>
-                      <td className="py-0.5 text-right pr-3 text-gray-500 dark:text-gray-400 tabular-nums">
-                        {war.myAttacks || 0}
-                      </td>
-                      <td className="py-0.5 text-right font-mono font-medium text-gray-900 dark:text-white tabular-nums">
-                        {Number(war.myScore || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={war.id}>
+                        <td className="py-0.5 pr-1">
+                          <span className={`font-medium ${resultColor}`}>
+                            {result === 'win' ? 'W' : result === 'loss' ? 'L' : 'IP'}
+                          </span>
+                        </td>
+                        <td className="py-0.5 text-gray-500 dark:text-gray-400 truncate max-w-0">
+                          {war.opponent_name || `#${war.opponent_id}`}
+                        </td>
+                        <td className="py-0.5 text-right pr-2 text-gray-500 dark:text-gray-400 tabular-nums">
+                          {war.myAttacks || 0}
+                        </td>
+                        <td className="py-0.5 text-right font-mono font-medium text-gray-900 dark:text-white tabular-nums">
+                          {Math.round(Number(war.myScore || 0)).toLocaleString()}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 

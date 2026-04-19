@@ -97,7 +97,23 @@ export default function CrimesView({ crimesData, isLeadership }) {
         .not('user_id', 'is', null)
 
       if (error) throw error
-      setCrimeSlots(data || [])
+
+      // Look up missing names from members table
+      const slots = data || []
+      const missingNameIds = slots.filter(s => !s.user_name).map(s => s.user_id)
+      if (missingNameIds.length > 0) {
+        const { data: members } = await supabase
+          .from('members')
+          .select('member_id, member_name')
+          .in('member_id', missingNameIds)
+        const nameMap = Object.fromEntries((members || []).map(m => [m.member_id, m.member_name]))
+        slots.forEach(s => {
+          if (!s.user_name && nameMap[s.user_id]) {
+            s.user_name = nameMap[s.user_id]
+          }
+        })
+      }
+      setCrimeSlots(slots)
     } catch (err) {
       console.error('Error loading crime slots:', err)
       setCrimeSlots([])
@@ -317,47 +333,47 @@ export default function CrimesView({ crimesData, isLeadership }) {
 
       <div className="card">
         <h2 className="text-xl font-semibold mb-4">Crimes List</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b-2 border-gray-200 dark:border-slate-700">
+        <div className="overflow-auto max-h-[70vh] relative">
+          <table className="w-full text-sm border-separate border-spacing-0">
+            <thead>
               <tr className="text-left">
-                <th 
-                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                <th
+                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 left-0 z-30 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
                   onClick={() => handleSort('id')}
                 >
                   Crime ID <SortIcon columnKey="id" />
                 </th>
-                <th 
-                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                <th
+                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
                   onClick={() => handleSort('name')}
                 >
                   Name <SortIcon columnKey="name" />
                 </th>
-                <th 
-                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                <th
+                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
                   onClick={() => handleSort('difficulty')}
                 >
                   Difficulty <SortIcon columnKey="difficulty" />
                 </th>
-                <th 
-                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                <th
+                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
                   onClick={() => handleSort('status')}
                 >
                   Status <SortIcon columnKey="status" />
                 </th>
-                <th 
-                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                <th
+                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
                   onClick={() => handleSort('filled_slots')}
                 >
                   Slots <SortIcon columnKey="filled_slots" />
                 </th>
-                <th 
-                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700"
+                <th
+                  className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700"
                   onClick={() => handleSort('executed_at')}
                 >
                   Executed At <SortIcon columnKey="executed_at" />
                 </th>
-                <th className="py-2 px-2 font-semibold text-xs">
+                <th className="py-2 px-2 font-semibold text-xs sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700">
                   Rewards
                 </th>
               </tr>
@@ -371,11 +387,11 @@ export default function CrimesView({ crimesData, isLeadership }) {
                 </tr>
               ) : (
                 filteredCrimes.map((crime) => (
-                  <tr 
-                    key={crime.id} 
+                  <tr
+                    key={crime.id}
                     className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50"
                   >
-                    <td className="py-2 px-2 font-medium text-xs">
+                    <td className="py-2 px-2 font-medium text-xs sticky left-0 z-[5] bg-white dark:bg-slate-800">
                       {crime.id || crime.crime_id}
                     </td>
                     <td className="py-2 px-2 text-xs relative">
