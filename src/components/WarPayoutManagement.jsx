@@ -1,36 +1,18 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions, loadFactionAttacksByWindow, loadWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
 import { saveWarPayout, updateWarIsTermed } from '../utils/adminApi'
 import {
-  calculateCacheValue,
   calculateTermedWarPayouts,
   calculateRealWarPayouts,
   generateWarBatchPayoutURL,
   formatWarDateRange,
   buildHitReport,
   collectOpposingFactionIds,
-  CACHE_ITEM_MAP,
 } from '../utils/warPayoutCalculations'
 
 const OUR_FACTION_ID = 10739
 const WAR_PAGE_SIZE = 5
-
-const DEFAULT_CACHE_PRICES = {
-  price_melee_cache:       0,
-  price_armor_cache:       0,
-  price_small_arms_cache:  0,
-  price_medium_arms_cache: 0,
-  price_heavy_arms_cache:  0,
-}
-
-const CACHE_LABELS = {
-  price_melee_cache:       'Melee Cache',
-  price_armor_cache:       'Armor Cache',
-  price_small_arms_cache:  'Small Arms Cache',
-  price_medium_arms_cache: 'Medium Arms Cache',
-  price_heavy_arms_cache:  'Heavy Arms Cache',
-}
 
 function formatCurrency(n) {
   if (n === null || n === undefined) return '$0'
@@ -341,10 +323,13 @@ export default function WarPayoutManagement() {
   // Payout settings
   const [warType, setWarType] = useState('real')
   const [factionCutPercent, setFactionCutPercent] = useState(20)
-  const [cachePrices, setCachePrices] = useState(DEFAULT_CACHE_PRICES)
+  const [totalReward, setTotalReward] = useState(0)
   // Termed settings
   const [minScoreThreshold, setMinScoreThreshold] = useState(50)
-  const [flatPayoutAmount, setFlatPayoutAmount] = useState(0)
+  const [termedMode, setTermedMode] = useState('flat')       // 'flat' | 'scaling'
+  const [memberShares, setMemberShares] = useState({})        // { memberId: shareCount }
+  const [cutoffHours, setCutoffHours] = useState(24)
+  const [basePoolPercent, setBasePoolPercent] = useState(50)
   const [notes, setNotes] = useState('')
   // Real war formula settings
   const [warHitMult, setWarHitMult]   = useState(1.25)
@@ -426,11 +411,15 @@ export default function WarPayoutManagement() {
     setHistoricalPayouts([])
 
     setWarType(war.is_termed ? 'termed' : 'real')
-    setCachePrices(DEFAULT_CACHE_PRICES)
+    setTotalReward(0)
     setNotes('')
     setMercCost(0)
     setReviverCost(0)
     setFactionTopUp(0)
+    setTermedMode('flat')
+    setMemberShares({})
+    setCutoffHours(24)
+    setBasePoolPercent(50)
 
     setActiveTab('payout')
     setFactionFilter(null)
@@ -491,19 +480,11 @@ export default function WarPayoutManagement() {
   function computeResults(filter) {
     if (!selectedWar || contributions.length === 0) return null
 
-    const rewardsItems = selectedWar.rewards_items
-      ? (typeof selectedWar.rewards_items === 'string'
-          ? JSON.parse(selectedWar.rewards_items)
-          : selectedWar.rewards_items)
-      : []
-
     const pw = Math.min(100, Math.max(0, Number(partWeight))) / 100
     const settings = {
-      rewardsItems,
-      cachePrices,
+      totalReward:         Number(totalReward) || 0,
       factionCutPercent:   Number(factionCutPercent),
       minScoreThreshold:   Number(minScoreThreshold),
-      flatPayoutAmount:    Number(flatPayoutAmount),
       warHitMultiplier:    Number(warHitMult),
       assistMultiplier:    Number(assistMult),
       lossMultiplier:      Number(lossMult),
@@ -513,6 +494,13 @@ export default function WarPayoutManagement() {
       mercCost:      Number(mercCost) || 0,
       reviverCost:   Number(reviverCost) || 0,
       factionTopUp:  Number(factionTopUp) || 0,
+      // Termed mode settings
+      termedMode,
+      memberShares,
+      attacks,
+      warStartAt:      selectedWar.start_at || 0,
+      cutoffHours:     Number(cutoffHours) || 24,
+      basePoolPercent: Number(basePoolPercent) || 50,
     }
 
     if (warType === 'termed') {
@@ -568,9 +556,9 @@ export default function WarPayoutManagement() {
       war_id: selectedWar.id,
       war_type: warType,
       faction_cut_percent: Number(factionCutPercent),
-      ...cachePrices,
+      total_reward: Number(totalReward) || 0,
       min_score_threshold: Number(minScoreThreshold),
-      flat_payout_amount: Number(flatPayoutAmount),
+      termed_mode: warType === 'termed' ? termedMode : null,
       merc_cost:      Number(mercCost) || 0,
       reviver_cost:   Number(reviverCost) || 0,
       faction_top_up: Number(factionTopUp) || 0,
@@ -667,6 +655,10 @@ export default function WarPayoutManagement() {
         case 'adjustedRespect':  return dir * ((a.adjustedRespect ?? 0) - (b.adjustedRespect ?? 0))
         case 'contribShare':     return dir * ((a.contributionShare ?? 0) - (b.contributionShare ?? 0))
         case 'effort':           return dir * ((a.effortShare ?? 0) - (b.effortShare ?? 0))
+        case 'shares':           return dir * ((a.shares ?? 0) - (b.shares ?? 0))
+        case 'basePay':          return dir * ((a.basePay ?? 0) - (b.basePay ?? 0))
+        case 'bonusPay':         return dir * ((a.bonusPay ?? 0) - (b.bonusPay ?? 0))
+        case 'postCutoffHits':   return dir * ((a.postCutoffHits ?? 0) - (b.postCutoffHits ?? 0))
         case 'payout':           return dir * (a.payoutAmount - b.payoutAmount)
         case 'eligible':         return dir * ((a.isEligible ? 1 : 0) - (b.isEligible ? 1 : 0))
         default:                 return dir * (a.payoutAmount - b.payoutAmount)
@@ -773,42 +765,20 @@ export default function WarPayoutManagement() {
 
                 <div>
                   <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    Cache Prices (per item)
+                    Total Reward ($)
                   </label>
-                  <div className="space-y-1.5">
-                    {Object.entries(CACHE_LABELS).map(([field, label]) => {
-                      const rewards = selectedWar?.rewards_items
-                        ? (typeof selectedWar.rewards_items === 'string'
-                            ? JSON.parse(selectedWar.rewards_items)
-                            : selectedWar.rewards_items)
-                        : []
-                      const rewardEntry = rewards.find(r => CACHE_ITEM_MAP[r.name] === field)
-                      return (
-                        <div key={field} className="flex items-center gap-2">
-                          <label className="text-xs text-gray-600 dark:text-gray-400 w-24 sm:w-36 flex-shrink-0">
-                            {label}
-                            {rewardEntry && (
-                              <span className="ml-1 text-gray-400 dark:text-gray-500">
-                                ×{rewardEntry.quantity}
-                              </span>
-                            )}
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={cachePrices[field] || ''}
-                            onChange={e => setCachePrices(prev => ({
-                              ...prev,
-                              [field]: Number(e.target.value) || 0
-                            }))}
-                            placeholder="0"
-                            className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={totalReward || ''}
+                    onChange={e => setTotalReward(Number(e.target.value) || 0)}
+                    placeholder="0"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Total value of all war rewards (caches, items, etc.)
+                  </p>
                 </div>
 
                 <div>
@@ -835,6 +805,37 @@ export default function WarPayoutManagement() {
                   <h4 className="text-xs font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wider">
                     Termed War Settings
                   </h4>
+
+                  {/* Mode toggle */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Payout Mode
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setTermedMode('flat')}
+                        className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                          termedMode === 'flat'
+                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
+                            : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        Flat Shares
+                      </button>
+                      <button
+                        onClick={() => setTermedMode('scaling')}
+                        className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                          termedMode === 'scaling'
+                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
+                            : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        Scaling
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Min score threshold — shared by both modes */}
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                       Minimum Score Threshold
@@ -851,22 +852,72 @@ export default function WarPayoutManagement() {
                       Members must score at least this much to be paid.
                     </p>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Flat Payout Amount ($)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={flatPayoutAmount}
-                      onChange={e => setFlatPayoutAmount(e.target.value)}
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                    />
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      Each eligible member receives this amount.
+
+                  {/* Flat mode hint */}
+                  {termedMode === 'flat' && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/40 px-3 py-2 rounded">
+                      Pool is split by shares. Eligible members default to 1 share — set to 2 for double pay, 0 to exclude. Adjust shares in the results table after calculating.
                     </p>
-                  </div>
+                  )}
+
+                  {/* Scaling mode settings */}
+                  {termedMode === 'scaling' && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Cutoff Hours (from war start)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={cutoffHours}
+                          onChange={e => setCutoffHours(Number(e.target.value) || 0)}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          War hits after this cutoff earn bonus pay.
+                        </p>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                          <span className="font-medium">Base / Bonus Pool</span>
+                          <span className="text-gray-400">{basePoolPercent}% / {100 - basePoolPercent}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0" max="100" step="5"
+                          value={basePoolPercent}
+                          onChange={e => setBasePoolPercent(Number(e.target.value))}
+                          className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-gradient-to-r from-blue-400 to-amber-400"
+                        />
+                        <div className="flex gap-2 mt-1.5">
+                          <div className="flex-1">
+                            <label className="text-xs text-blue-600 dark:text-blue-400">Base %</label>
+                            <input
+                              type="number" min="0" max="100" step="5"
+                              value={basePoolPercent}
+                              onChange={e => setBasePoolPercent(Math.min(100, Math.max(0, Number(e.target.value))))}
+                              className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label className="text-xs text-amber-600 dark:text-amber-400">Bonus %</label>
+                            <input
+                              type="number" min="0" max="100" step="5"
+                              value={100 - basePoolPercent}
+                              onChange={e => setBasePoolPercent(Math.min(100, Math.max(0, 100 - Number(e.target.value))))}
+                              className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Base pay is split equally. Bonus pay is proportional to post-cutoff war hits.
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </>
               ) : (
                 <>
@@ -1044,7 +1095,7 @@ export default function WarPayoutManagement() {
           {/* Summary bar */}
           <div className="px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-700 flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm">
             <div>
-              <span className="text-gray-500 dark:text-gray-400">Cache Value: </span>
+              <span className="text-gray-500 dark:text-gray-400">Total Reward: </span>
               <span className="font-semibold text-gray-900 dark:text-white">
                 {formatCurrency(payoutResults.cacheValue)}
               </span>
@@ -1077,6 +1128,36 @@ export default function WarPayoutManagement() {
                 {formatCurrency(payoutResults.memberPayoutPool)}
               </span>
             </div>
+            {warType === 'termed' && termedMode === 'scaling' && (
+              <>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Base Pool: </span>
+                  <span className="font-semibold text-blue-700 dark:text-blue-400">
+                    {formatCurrency(payoutResults.basePool)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Bonus Pool: </span>
+                  <span className="font-semibold text-amber-700 dark:text-amber-400">
+                    {formatCurrency(payoutResults.bonusPool)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Post-Cutoff Hits: </span>
+                  <span className="font-semibold text-gray-900 dark:text-white">
+                    {payoutResults.totalPostCutoffHits ?? 0}
+                  </span>
+                </div>
+              </>
+            )}
+            {warType === 'termed' && termedMode === 'flat' && (
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Total Shares: </span>
+                <span className="font-semibold text-gray-900 dark:text-white">
+                  {payoutResults.totalShares ?? 0}
+                </span>
+              </div>
+            )}
             <div>
               <span className="text-gray-500 dark:text-gray-400">Total Payout: </span>
               <span className="font-semibold text-green-700 dark:text-green-400">
@@ -1100,12 +1181,12 @@ export default function WarPayoutManagement() {
             )}
             {warType === 'real' && factionFilter && factionFilter.size > 0 && (
               <div className="text-blue-600 dark:text-blue-400">
-                ⚡ Filtered by {factionFilter.size} faction{factionFilter.size === 1 ? '' : 's'}
+                Filtered by {factionFilter.size} faction{factionFilter.size === 1 ? '' : 's'}
               </div>
             )}
             {payoutResults.overBudgetWarning && (
               <div className="text-amber-600 dark:text-amber-400 font-medium">
-                ⚠ Over budget by {formatCurrency(totalPayout - payoutResults.memberPayoutPool)}
+                Over budget by {formatCurrency(totalPayout - payoutResults.memberPayoutPool)}
               </div>
             )}
           </div>
@@ -1131,8 +1212,13 @@ export default function WarPayoutManagement() {
                       </th>
                     </>
                   )}
-                  {warType === 'termed' && (
-                    <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={3}>
+                  {warType === 'termed' && termedMode === 'flat' && (
+                    <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={4}>
+                      Pay Out
+                    </th>
+                  )}
+                  {warType === 'termed' && termedMode === 'scaling' && (
+                    <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={5}>
                       Pay Out
                     </th>
                   )}

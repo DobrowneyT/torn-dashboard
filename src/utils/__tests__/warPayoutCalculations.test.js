@@ -4,6 +4,7 @@ import {
   calculateTermedWarPayouts,
   calculateRealWarPayouts,
   buildMemberAttackStats,
+  countPostCutoffHits,
   generateWarBatchPayoutURL,
 } from '../warPayoutCalculations.js'
 
@@ -62,6 +63,30 @@ const SAMPLE_ATTACKS = [
   { id: 11, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist',      fair_fight: 2.0, respect_gain: 1, is_ranked_war: true,  is_incoming: false, chain: 1 },
 ]
 
+// Attacks with timestamps for scaling mode tests
+const WAR_START = 1000000
+const CUTOFF = WAR_START + 24 * 3600  // 24h after start
+
+const TIMED_ATTACKS = [
+  // Alice: 2 ranked-war wins BEFORE cutoff
+  { id: 20, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: WAR_START + 3600 },
+  { id: 21, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: WAR_START + 7200 },
+  // Alice: 3 ranked-war wins AFTER cutoff
+  { id: 22, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: CUTOFF + 100 },
+  { id: 23, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: CUTOFF + 200 },
+  { id: 24, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: CUTOFF + 300 },
+  // Bob: 1 ranked-war win AFTER cutoff
+  { id: 25, attacker_id: 200, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: CUTOFF + 150 },
+  // Carol: 0 post-cutoff hits (1 assist after cutoff — should not count)
+  { id: 26, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist',       is_ranked_war: true, is_incoming: false, started: CUTOFF + 250 },
+  // Carol: 1 loss after cutoff — should not count
+  { id: 27, attacker_id: 300, attacker_faction_id: 10739, result: 'Lost',         is_ranked_war: true, is_incoming: false, started: CUTOFF + 350 },
+  // Incoming attack after cutoff — should be ignored
+  { id: 28, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: true,  started: CUTOFF + 400 },
+  // Non-ranked win after cutoff — should be ignored
+  { id: 29, attacker_id: 200, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: false, is_incoming: false, started: CUTOFF + 500 },
+]
+
 
 // ---------------------------------------------------------------------------
 // calculateCacheValue
@@ -115,35 +140,49 @@ describe('calculateCacheValue', () => {
 
 
 // ---------------------------------------------------------------------------
-// calculateTermedWarPayouts
+// calculateTermedWarPayouts — flat shares mode
 // ---------------------------------------------------------------------------
 
-describe('calculateTermedWarPayouts', () => {
+describe('calculateTermedWarPayouts — flat shares', () => {
+  // 13.5M total, 20% cut → pool = 10.8M
   const baseSettings = {
-    rewardsItems: SAMPLE_REWARDS,
-    cachePrices: CACHE_PRICES,
+    totalReward: 13_500_000,
     factionCutPercent: 20,
     minScoreThreshold: 100,
-    flatPayoutAmount: 1_000_000,
+    termedMode: 'flat',
   }
 
-  it('marks members above threshold as eligible', () => {
-    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
-    // All 3 members have score >= 100
+  it('splits pool equally when all members have 1 share', () => {
+    const { members, memberPayoutPool, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    expect(memberPayoutPool).toBe(10_800_000)
+    expect(totalShares).toBe(3)
+    // floor(10.8M / 3) = 3,600,000
     expect(members.every(m => m.isEligible)).toBe(true)
-    expect(members.every(m => m.payoutAmount === 1_000_000)).toBe(true)
+    expect(members.every(m => m.payoutAmount === 3_600_000)).toBe(true)
   })
 
-  it('marks members below threshold as ineligible with 0 payout', () => {
-    const settings = { ...baseSettings, minScoreThreshold: 400 }
-    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+  it('member with 2 shares gets double', () => {
+    const settings = { ...baseSettings, memberShares: { 100: 2 } }
+    const { members, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    expect(totalShares).toBe(4) // Alice=2, Bob=1, Carol=1
     const alice = members.find(m => m.memberId === 100)
     const bob   = members.find(m => m.memberId === 200)
-    const carol = members.find(m => m.memberId === 300)
+    expect(alice.payoutAmount).toBe(Math.floor(2 / 4 * 10_800_000)) // 5,400,000
+    expect(bob.payoutAmount).toBe(Math.floor(1 / 4 * 10_800_000))   // 2,700,000
+  })
+
+  it('marks members below threshold as ineligible with 0 shares and 0 payout', () => {
+    const settings = { ...baseSettings, minScoreThreshold: 400 }
+    const { members, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
     expect(alice.isEligible).toBe(true)
     expect(bob.isEligible).toBe(false)
-    expect(carol.isEligible).toBe(false)
+    expect(bob.shares).toBe(0)
     expect(bob.payoutAmount).toBe(0)
+    expect(totalShares).toBe(1)
+    // Alice gets full pool
+    expect(alice.payoutAmount).toBe(10_800_000)
   })
 
   it('exactly at threshold is eligible', () => {
@@ -155,22 +194,14 @@ describe('calculateTermedWarPayouts', () => {
 
   it('none eligible when threshold is very high', () => {
     const settings = { ...baseSettings, minScoreThreshold: 9999 }
-    const { members, totalPayout } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const { members, totalPayout, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
     expect(members.every(m => !m.isEligible)).toBe(true)
+    expect(totalShares).toBe(0)
     expect(totalPayout).toBe(0)
   })
 
-  it('flags overBudgetWarning when total payout exceeds pool', () => {
-    // Pool = 13.5M * 0.8 = 10.8M; 3 members * 5M each = 15M > 10.8M
-    const settings = { ...baseSettings, flatPayoutAmount: 5_000_000 }
-    const { overBudgetWarning, memberPayoutPool } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
-    expect(overBudgetWarning).toBe(true)
-    expect(memberPayoutPool).toBe(10_800_000)
-  })
-
-  it('no overBudgetWarning when payout fits in pool', () => {
+  it('overBudgetWarning is always false', () => {
     const { overBudgetWarning } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
-    // 3 * 1M = 3M < 10.8M
     expect(overBudgetWarning).toBe(false)
   })
 
@@ -178,6 +209,134 @@ describe('calculateTermedWarPayouts', () => {
     const { memberPayoutPool, cacheValue } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
     expect(cacheValue).toBe(13_500_000)
     expect(memberPayoutPool).toBe(10_800_000) // 13.5M * 0.8
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// calculateTermedWarPayouts — scaling mode
+// ---------------------------------------------------------------------------
+
+describe('calculateTermedWarPayouts — scaling mode', () => {
+  // 10M total, 20% cut → pool = 8M
+  // 50% base / 50% bonus → basePool = 4M, bonusPool = 4M
+  const baseSettings = {
+    totalReward: 10_000_000,
+    factionCutPercent: 20,
+    minScoreThreshold: 100,
+    termedMode: 'scaling',
+    attacks: TIMED_ATTACKS,
+    warStartAt: WAR_START,
+    cutoffHours: 24,
+    basePoolPercent: 50,
+  }
+
+  it('base pay splits equally among eligible members', () => {
+    const { members, basePool } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    expect(basePool).toBe(4_000_000)
+    // 3 eligible, floor(4M / 3) = 1,333,333
+    const basePay = Math.floor(4_000_000 / 3)
+    expect(members.filter(m => m.isEligible).every(m => m.basePay === basePay)).toBe(true)
+  })
+
+  it('bonus pay distributed proportionally by post-cutoff hits', () => {
+    const { members, bonusPool, totalPostCutoffHits } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    expect(bonusPool).toBe(4_000_000)
+    // Alice: 3 post-cutoff hits, Bob: 1, Carol: 0 → total 4
+    expect(totalPostCutoffHits).toBe(4)
+
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
+    const carol = members.find(m => m.memberId === 300)
+
+    expect(alice.postCutoffHits).toBe(3)
+    expect(bob.postCutoffHits).toBe(1)
+    expect(carol.postCutoffHits).toBe(0)
+
+    expect(alice.bonusPay).toBe(Math.floor(4_000_000 * 3 / 4)) // 3,000,000
+    expect(bob.bonusPay).toBe(Math.floor(4_000_000 * 1 / 4))   // 1,000,000
+    expect(carol.bonusPay).toBe(0)
+  })
+
+  it('member with no post-cutoff hits gets only base pay', () => {
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    const carol = members.find(m => m.memberId === 300)
+    expect(carol.basePay).toBe(Math.floor(4_000_000 / 3))
+    expect(carol.bonusPay).toBe(0)
+    expect(carol.payoutAmount).toBe(carol.basePay)
+  })
+
+  it('ineligible members get nothing', () => {
+    const settings = { ...baseSettings, minScoreThreshold: 400 }
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const bob = members.find(m => m.memberId === 200)
+    expect(bob.isEligible).toBe(false)
+    expect(bob.basePay).toBe(0)
+    expect(bob.bonusPay).toBe(0)
+    expect(bob.payoutAmount).toBe(0)
+  })
+
+  it('100% base pool means everyone gets equal pay', () => {
+    const settings = { ...baseSettings, basePoolPercent: 100 }
+    const { members, basePool, bonusPool } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    expect(basePool).toBe(8_000_000)
+    expect(bonusPool).toBe(0)
+    const basePay = Math.floor(8_000_000 / 3)
+    expect(members.filter(m => m.isEligible).every(m => m.payoutAmount === basePay)).toBe(true)
+  })
+
+  it('0% base pool means pure proportional by post-cutoff hits', () => {
+    const settings = { ...baseSettings, basePoolPercent: 0 }
+    const { members, basePool, bonusPool } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    expect(basePool).toBe(0)
+    expect(bonusPool).toBe(8_000_000)
+    // Carol has 0 post-cutoff hits → 0 payout
+    const carol = members.find(m => m.memberId === 300)
+    expect(carol.payoutAmount).toBe(0)
+    // Alice: 3/4 * 8M = 6M, Bob: 1/4 * 8M = 2M
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.payoutAmount).toBe(Math.floor(8_000_000 * 3 / 4))
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// countPostCutoffHits
+// ---------------------------------------------------------------------------
+
+describe('countPostCutoffHits', () => {
+  it('counts only ranked-war wins after cutoff', () => {
+    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF)
+    expect(hits.get(100)).toBe(3) // Alice: 3 wins after cutoff
+    expect(hits.get(200)).toBe(1) // Bob: 1 win after cutoff
+    expect(hits.has(300)).toBe(false) // Carol: only assist and loss
+  })
+
+  it('ignores incoming attacks', () => {
+    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF)
+    // Attack id=28 is incoming — should not inflate Alice's count
+    expect(hits.get(100)).toBe(3)
+  })
+
+  it('ignores non-ranked wins', () => {
+    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF)
+    // Attack id=29 is non-ranked — should not count for Bob
+    expect(hits.get(200)).toBe(1)
+  })
+
+  it('ignores assists and losses', () => {
+    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF)
+    expect(hits.has(300)).toBe(false)
+  })
+
+  it('returns empty map for empty attacks array', () => {
+    const hits = countPostCutoffHits([], CUTOFF)
+    expect(hits.size).toBe(0)
+  })
+
+  it('returns empty map when all attacks are before cutoff', () => {
+    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF + 99999)
+    expect(hits.size).toBe(0)
   })
 })
 
@@ -278,8 +437,7 @@ describe('buildMemberAttackStats', () => {
 
 describe('calculateRealWarPayouts', () => {
   const baseSettings = {
-    rewardsItems: SAMPLE_REWARDS,
-    cachePrices: CACHE_PRICES,
+    totalReward: 13_500_000,
     factionCutPercent: 20,
     warHitMultiplier:    1.25,
     assistMultiplier:    0.50,

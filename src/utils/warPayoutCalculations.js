@@ -22,9 +22,20 @@
  *  EFFORT & PAYOUT
  *    effortShare[i] = (participationShare[i] + contributionShare[i]) / 2
  *    payout[i]      = floor(effortShare[i] × memberPool)
- *    afterCosts     = totalCacheValue − mercCost − reviverCost
+ *    afterCosts     = totalReward − mercCost − reviverCost
  *    factionCut     = floor(afterCosts × factionCutPercent / 100)
- *    memberPool     = afterCosts − factionCut + factionTopUp
+ *    memberPool     = afterCosts ��� factionCut + factionTopUp
+ *
+ *  TERMED WAR — FLAT SHARES
+ *    memberPool     = totalReward − factionCut
+ *    payout[i]      = floor((shares[i] / Σ shares) × memberPool)
+ *
+ *  TERMED WAR — SCALING
+ *    memberPool     = totalReward − factionCut
+ *    basePool       = floor(memberPool × basePoolPercent / 100)
+ *    bonusPool      = memberPool − basePool
+ *    basePay        = floor(basePool / eligibleCount)
+ *    bonusPay[i]    = floor(bonusPool × postCutoffHits[i] / Σ postCutoffHits)
  */
 
 const OUR_FACTION_ID = 10739
@@ -249,47 +260,142 @@ export function collectOpposingFactionIds(attacks) {
 
 
 /**
+ * Count outgoing ranked-war wins per member after a cutoff timestamp.
+ *
+ * @param {Array} attacks          - faction_attacks rows (pre-filtered to war window)
+ * @param {number} cutoffTimestamp - Unix timestamp (seconds); only attacks with started > cutoff count
+ * @returns {Map<number, number>}  memberId → post-cutoff ranked-war win count
+ */
+export function countPostCutoffHits(attacks, cutoffTimestamp) {
+  const hits = new Map()
+  for (const a of attacks) {
+    if (a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1) continue
+    if (a.attacker_faction_id !== OUR_FACTION_ID) continue
+    const isRankedWar = a.is_ranked_war === true || a.is_ranked_war === 'true' || a.is_ranked_war === 1
+    if (!isRankedWar) continue
+    const result = a.result || ''
+    if (!WIN_RESULTS.has(result)) continue
+    const started = Number(a.started) || 0
+    if (started <= cutoffTimestamp) continue
+    const id = a.attacker_id
+    hits.set(id, (hits.get(id) || 0) + 1)
+  }
+  return hits
+}
+
+
+/**
  * Calculate termed war payouts.
- * Members with score >= minScoreThreshold each receive flatPayoutAmount.
+ *
+ * Supports two modes:
+ *   - 'flat'    — pool split by shares (default 1 per eligible member, 2 for double pay)
+ *   - 'scaling' — base pay (equal) + bonus pay (proportional to post-cutoff ranked-war hits)
  */
 export function calculateTermedWarPayouts(contributions, settings) {
   const {
-    rewardsItems,
-    cachePrices,
+    totalReward = 0,
     factionCutPercent = 20,
     minScoreThreshold = 0,
-    flatPayoutAmount = 0,
+    termedMode = 'flat',
+    // Flat mode
+    memberShares = {},        // { memberId: shareCount } — default 1 per eligible member
+    // Scaling mode
+    attacks = [],
+    warStartAt = 0,
+    cutoffHours = 24,
+    basePoolPercent = 50,
   } = settings
 
-  const { totalCacheValue, breakdown } = calculateCacheValue(rewardsItems, cachePrices)
+  const totalCacheValue = Number(totalReward) || 0
   const factionCutAmount = Math.floor(totalCacheValue * (factionCutPercent / 100))
   const memberPayoutPool = Math.max(0, totalCacheValue - factionCutAmount)
 
+  if (termedMode === 'scaling') {
+    // ── Scaling mode ──────────────────────────────────────────────────
+    const cutoffTimestamp = Number(warStartAt) + (Number(cutoffHours) * 3600)
+    const postCutoffHits = countPostCutoffHits(attacks, cutoffTimestamp)
+
+    const basePool = Math.floor(memberPayoutPool * (Number(basePoolPercent) / 100))
+    const bonusPool = memberPayoutPool - basePool
+
+    // Build member list and determine eligibility
+    const memberList = contributions.map(m => {
+      const score = Number(m.score) || 0
+      const isEligible = score >= Number(minScoreThreshold)
+      const memberPostHits = isEligible ? (postCutoffHits.get(m.member_id) || 0) : 0
+      return {
+        memberId: m.member_id,
+        memberName: m.member_name,
+        score,
+        attacks: m.attacks || 0,
+        isEligible,
+        postCutoffHits: memberPostHits,
+      }
+    })
+
+    const eligibleCount = memberList.filter(m => m.isEligible).length
+    const totalPostCutoffHits = memberList.reduce((s, m) => s + m.postCutoffHits, 0)
+    const basePay = eligibleCount > 0 ? Math.floor(basePool / eligibleCount) : 0
+
+    const members = memberList.map(m => {
+      const bonusPay = m.isEligible && totalPostCutoffHits > 0
+        ? Math.floor(bonusPool * (m.postCutoffHits / totalPostCutoffHits))
+        : 0
+      return {
+        ...m,
+        basePay: m.isEligible ? basePay : 0,
+        bonusPay,
+        payoutAmount: m.isEligible ? basePay + bonusPay : 0,
+      }
+    })
+
+    const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
+
+    return {
+      members,
+      totalPayout,
+      cacheValue: totalCacheValue,
+      memberPayoutPool,
+      factionCutAmount,
+      basePool,
+      bonusPool,
+      cutoffTimestamp,
+      totalPostCutoffHits,
+      overBudgetWarning: false,
+    }
+  }
+
+  // ── Flat shares mode (default) ────────────────────────────────────
   const members = contributions.map(m => {
     const score = Number(m.score) || 0
     const isEligible = score >= Number(minScoreThreshold)
+    const shares = isEligible ? (Number(memberShares[m.member_id]) || 1) : 0
     return {
       memberId: m.member_id,
       memberName: m.member_name,
       score,
       attacks: m.attacks || 0,
       isEligible,
-      payoutAmount: isEligible ? Number(flatPayoutAmount) : 0,
+      shares,
     }
   })
 
-  const eligibleCount = members.filter(m => m.isEligible).length
-  const totalPayout = eligibleCount * Number(flatPayoutAmount)
-  const overBudgetWarning = totalPayout > memberPayoutPool
+  const totalShares = members.reduce((s, m) => s + m.shares, 0)
+  const membersWithPayout = members.map(m => ({
+    ...m,
+    payoutAmount: totalShares > 0 ? Math.floor((m.shares / totalShares) * memberPayoutPool) : 0,
+  }))
+
+  const totalPayout = membersWithPayout.reduce((s, m) => s + m.payoutAmount, 0)
 
   return {
-    members,
+    members: membersWithPayout,
     totalPayout,
     cacheValue: totalCacheValue,
-    cacheBreakdown: breakdown,
     memberPayoutPool,
     factionCutAmount,
-    overBudgetWarning,
+    totalShares,
+    overBudgetWarning: false,
   }
 }
 
@@ -299,12 +405,11 @@ export function calculateTermedWarPayouts(contributions, settings) {
  *
  * @param {Array} contributions - war_member_contributions rows (our faction only)
  * @param {Array} attacks       - faction_attacks rows (pre-filtered to war window)
- * @param {object} settings     - { rewardsItems, cachePrices, factionCutPercent }
+ * @param {object} settings     - { totalReward, factionCutPercent, ... }
  */
 export function calculateRealWarPayouts(contributions, attacks, settings) {
   const {
-    rewardsItems,
-    cachePrices,
+    totalReward = 0,
     factionCutPercent = 20,
     // Attack multipliers
     warHitMultiplier  =  1.25,
@@ -320,8 +425,8 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     factionTopUp = 0,
   } = settings
 
-  const { totalCacheValue, breakdown } = calculateCacheValue(rewardsItems, cachePrices)
-  // 1. Start with total cache value
+  const totalCacheValue = Number(totalReward) || 0
+  // 1. Start with total reward
   // 2. Subtract mercenary and reviver costs
   const afterCosts = Math.max(0, totalCacheValue - Number(mercCost) - Number(reviverCost))
   // 3. Apply faction cut to that subtotal
@@ -412,7 +517,6 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     members,
     totalPayout,
     cacheValue: totalCacheValue,
-    cacheBreakdown: breakdown,
     memberPayoutPool: memberPool,
     basePool,
     factionCutAmount,
