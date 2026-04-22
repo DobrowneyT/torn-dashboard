@@ -5377,6 +5377,23 @@
       "rank_before": "Diamond I",
       "rank_after": "Diamond II",
       "report_fetched": true
+    },
+    "40702": {
+      "id": 40702,
+      "start_at": 1776956400,
+      "end_at": null,
+      "opponent_id": 27223,
+      "opponent_name": "Stompers",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17900,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -197005,6 +197022,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-04-21T04:12:04.894875"
+    "last_updated": "2026-04-22T03:59:41.355360"
   }
 }
