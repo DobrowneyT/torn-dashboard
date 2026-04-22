@@ -10804,19 +10804,19 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-22T04:00:35.525088"
+      "tier_last_updated": "2026-04-22T11:23:37.822552"
     },
     "2159205": {
       "name": "Sargeant_Rock",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-22T04:00:35.525107"
+      "tier_last_updated": "2026-04-22T11:23:37.822581"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-22T11:23:35.378421",
+    "last_updated": "2026-04-22T11:23:37.823412",
     "total_members": 178
   }
 }
