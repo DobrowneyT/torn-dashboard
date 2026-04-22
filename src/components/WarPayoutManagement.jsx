@@ -963,7 +963,7 @@ export default function WarPayoutManagement() {
                       ))}
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Mercs and revivers are subtracted from the member pool; top-up is added.
+                      Mercs and revivers are subtracted before faction cut; top-up is added after.
                     </p>
                   </div>
                 </>
@@ -1049,12 +1049,28 @@ export default function WarPayoutManagement() {
                 {formatCurrency(payoutResults.cacheValue)}
               </span>
             </div>
+            {warType === 'real' && (payoutResults.mercCost > 0 || payoutResults.reviverCost > 0) && (
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Costs: </span>
+                <span className="font-semibold text-red-600 dark:text-red-400">
+                  −{formatCurrency(payoutResults.mercCost + payoutResults.reviverCost)}
+                </span>
+              </div>
+            )}
             <div>
               <span className="text-gray-500 dark:text-gray-400">Faction Cut ({factionCutPercent}%): </span>
               <span className="font-semibold text-purple-700 dark:text-purple-400">
                 {formatCurrency(payoutResults.factionCutAmount ?? 0)}
               </span>
             </div>
+            {warType === 'real' && payoutResults.factionTopUp > 0 && (
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Top-up: </span>
+                <span className="font-semibold text-green-600 dark:text-green-400">
+                  +{formatCurrency(payoutResults.factionTopUp)}
+                </span>
+              </div>
+            )}
             <div>
               <span className="text-gray-500 dark:text-gray-400">Member Pool: </span>
               <span className="font-semibold text-gray-900 dark:text-white">

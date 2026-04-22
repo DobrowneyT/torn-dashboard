@@ -159,6 +159,9 @@ jobs:
         TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         GIST_ID: ${{ secrets.GIST_ID }}
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        CPR_KEY_SECRET: ${{ secrets.CPR_KEY_SECRET }}
         SKIP_GIT_PUSH: 'true'
       run: python scripts/cpr_scraper.py
 
@@ -168,6 +171,13 @@ jobs:
         VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
       run: python scripts/sync_to_supabase.py cpr
+
+    - name: Sync CPR v2 data to Supabase
+      env:
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+      run: python scripts/sync_to_supabase.py cpr_v2
 
     - name: Upload logs as artifact
       if: always()
@@ -181,7 +191,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: data-cpr
-        path: data/cpr_database.json
+        path: |
+          data/cpr_database.json
+          data/cpr_database_v2.json
         retention-days: 1
         if-no-files-found: warn
 

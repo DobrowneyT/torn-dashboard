@@ -22,7 +22,9 @@
  *  EFFORT & PAYOUT
  *    effortShare[i] = (participationShare[i] + contributionShare[i]) / 2
  *    payout[i]      = floor(effortShare[i] × memberPool)
- *    memberPool     = floor(totalCacheValue × (1 − factionCut/100))
+ *    afterCosts     = totalCacheValue − mercCost − reviverCost
+ *    factionCut     = floor(afterCosts × factionCutPercent / 100)
+ *    memberPool     = afterCosts − factionCut + factionTopUp
  */
 
 const OUR_FACTION_ID = 10739
@@ -319,14 +321,14 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
   } = settings
 
   const { totalCacheValue, breakdown } = calculateCacheValue(rewardsItems, cachePrices)
-  // Order of ops: subtract mercs/revivers & add top-up from gross cache FIRST, then apply faction cut.
-  const grossAfterCosts = Math.max(
-    0,
-    totalCacheValue - Number(mercCost) - Number(reviverCost) + Number(factionTopUp)
-  )
-  const factionCutAmount = Math.floor(grossAfterCosts * (factionCutPercent / 100))
-  const basePool = Math.max(0, grossAfterCosts - factionCutAmount)
-  const memberPool = basePool
+  // 1. Start with total cache value
+  // 2. Subtract mercenary and reviver costs
+  const afterCosts = Math.max(0, totalCacheValue - Number(mercCost) - Number(reviverCost))
+  // 3. Apply faction cut to that subtotal
+  const factionCutAmount = Math.floor(afterCosts * (factionCutPercent / 100))
+  const basePool = Math.max(0, afterCosts - factionCutAmount)
+  // 4. Add faction top-up to member pool (after faction cut)
+  const memberPool = basePool + Number(factionTopUp)
 
   const attackStats = buildMemberAttackStats(attacks)
 
