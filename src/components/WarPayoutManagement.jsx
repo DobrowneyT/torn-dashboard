@@ -533,6 +533,15 @@ export default function WarPayoutManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factionFilter])
 
+  // Auto-recalculate when shares change in flat mode
+  useEffect(() => {
+    if (!hasCalculated) return
+    if (warType !== 'termed' || termedMode !== 'flat') return
+    const results = computeResults(factionFilter)
+    if (results) setPayoutResults(results)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberShares])
+
   function getEffectiveMembers() {
     if (!payoutResults) return []
     return payoutResults.members.map(m => ({
@@ -1249,6 +1258,16 @@ export default function WarPayoutManagement() {
                       <SortHeader col="effort" label="Effort%" className="text-right border-l border-gray-200 dark:border-slate-700" />
                     </>
                   )}
+                  {warType === 'termed' && termedMode === 'flat' && (
+                    <SortHeader col="shares" label="Shares" className="text-center" />
+                  )}
+                  {warType === 'termed' && termedMode === 'scaling' && (
+                    <>
+                      <SortHeader col="postCutoffHits" label="Post-Cutoff" className="text-right" />
+                      <SortHeader col="basePay"  label="Base Pay"  className="text-right" />
+                      <SortHeader col="bonusPay" label="Bonus Pay" className="text-right" />
+                    </>
+                  )}
                   <SortHeader col="payout"   label="Payout"   className="text-right" />
                   <SortHeader col="eligible" label="Eligible" className="text-center" />
                 </tr>
@@ -1297,6 +1316,35 @@ export default function WarPayoutManagement() {
                         {/* Effort */}
                         <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
                           {(m.effortShare * 100).toFixed(2)}%
+                        </td>
+                      </>
+                    )}
+                    {warType === 'termed' && termedMode === 'flat' && (
+                      <td className="px-3 py-1.5 text-center">
+                        <input
+                          type="number"
+                          min="0"
+                          max="10"
+                          step="1"
+                          value={memberShares[m.memberId] ?? (m.shares ?? 1)}
+                          onChange={e => {
+                            const val = Math.max(0, Number(e.target.value) || 0)
+                            setMemberShares(prev => ({ ...prev, [m.memberId]: val }))
+                          }}
+                          className="w-14 px-1 py-0.5 text-xs text-center border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                        />
+                      </td>
+                    )}
+                    {warType === 'termed' && termedMode === 'scaling' && (
+                      <>
+                        <td className="px-3 py-1.5 text-right font-medium text-amber-700 dark:text-amber-400">
+                          {m.postCutoffHits ?? 0}
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">
+                          {m.isEligible ? formatCurrency(m.basePay) : '—'}
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">
+                          {m.isEligible ? formatCurrency(m.bonusPay) : '—'}
                         </td>
                       </>
                     )}
