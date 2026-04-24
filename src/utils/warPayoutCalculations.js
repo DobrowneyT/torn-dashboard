@@ -30,12 +30,12 @@
  *    memberPool     = totalReward − factionCut
  *    payout[i]      = floor((shares[i] / Σ shares) × memberPool)
  *
- *  TERMED WAR — SCALING
+ *  TERMED WAR — SCALING (automatic shares)
  *    memberPool     = totalReward − factionCut
- *    basePool       = floor(memberPool × basePoolPercent / 100)
- *    bonusPool      = memberPool − basePool
- *    basePay        = floor(basePool / eligibleCount)
- *    bonusPay[i]    = floor(bonusPool × postCutoffHits[i] / Σ postCutoffHits)
+ *    preCutoffScore = Σ respect_gain for outgoing ranked-war wins before cutoff
+ *    postCutoffScore= Σ respect_gain for outgoing ranked-war wins after cutoff
+ *    shares[i]      = (preCutoffScore ≥ threshold ? 1 : 0) + postCutoffScore / threshold
+ *    payout[i]      = floor((shares[i] / Σ shares) × memberPool)
  */
 
 const OUR_FACTION_ID = 10739
@@ -260,14 +260,16 @@ export function collectOpposingFactionIds(attacks) {
 
 
 /**
- * Count outgoing ranked-war wins per member after a cutoff timestamp.
+ * Calculate per-member respect earned before and after a cutoff timestamp
+ * from outgoing ranked-war wins.  Bonus chain hits (10, 25, 50, …) are
+ * capped at 10 respect to prevent chain milestones from inflating shares.
  *
  * @param {Array} attacks          - faction_attacks rows (pre-filtered to war window)
- * @param {number} cutoffTimestamp - Unix timestamp (seconds); only attacks with started > cutoff count
- * @returns {Map<number, number>}  memberId → post-cutoff ranked-war win count
+ * @param {number} cutoffTimestamp - Unix timestamp (seconds); attacks with started <= cutoff are "pre"
+ * @returns {Map<number, { preCutoffScore: number, postCutoffScore: number }>}
  */
-export function countPostCutoffHits(attacks, cutoffTimestamp) {
-  const hits = new Map()
+export function calculateCutoffScores(attacks, cutoffTimestamp) {
+  const scores = new Map()
   for (const a of attacks) {
     if (a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1) continue
     if (a.attacker_faction_id !== OUR_FACTION_ID) continue
@@ -275,12 +277,21 @@ export function countPostCutoffHits(attacks, cutoffTimestamp) {
     if (!isRankedWar) continue
     const result = a.result || ''
     if (!WIN_RESULTS.has(result)) continue
+    const rawRespect = parseFloat(a.respect_gain) || 0
+    const chain = Number(a.chain) || 0
+    // Cap bonus chain hits at 10 respect (same normalization as real war contribution score)
+    const respect = BONUS_HITS.has(chain) ? Math.min(rawRespect, 10) : rawRespect
     const started = Number(a.started) || 0
-    if (started <= cutoffTimestamp) continue
     const id = a.attacker_id
-    hits.set(id, (hits.get(id) || 0) + 1)
+    if (!scores.has(id)) scores.set(id, { preCutoffScore: 0, postCutoffScore: 0 })
+    const s = scores.get(id)
+    if (started <= cutoffTimestamp) {
+      s.preCutoffScore += respect
+    } else {
+      s.postCutoffScore += respect
+    }
   }
-  return hits
+  return scores
 }
 
 
@@ -289,7 +300,9 @@ export function countPostCutoffHits(attacks, cutoffTimestamp) {
  *
  * Supports two modes:
  *   - 'flat'    — pool split by shares (default 1 per eligible member, 2 for double pay)
- *   - 'scaling' — base pay (equal) + bonus pay (proportional to post-cutoff ranked-war hits)
+ *   - 'scaling' — automatic shares: 1 base share if pre-cutoff score ≥ threshold,
+ *                 plus postCutoffScore / threshold additional fractional shares.
+ *                 Pool split by total shares.
  */
 export function calculateTermedWarPayouts(contributions, settings) {
   const {
@@ -303,7 +316,6 @@ export function calculateTermedWarPayouts(contributions, settings) {
     attacks = [],
     warStartAt = 0,
     cutoffHours = 24,
-    basePoolPercent = 50,
   } = settings
 
   const totalCacheValue = Number(totalReward) || 0
@@ -312,42 +324,39 @@ export function calculateTermedWarPayouts(contributions, settings) {
 
   if (termedMode === 'scaling') {
     // ── Scaling mode ──────────────────────────────────────────────────
+    // 1 base share if pre-cutoff score ≥ threshold, plus fractional
+    // shares for post-cutoff score (postCutoffScore / threshold).
     const cutoffTimestamp = Number(warStartAt) + (Number(cutoffHours) * 3600)
-    const postCutoffHits = countPostCutoffHits(attacks, cutoffTimestamp)
+    const cutoffScores = calculateCutoffScores(attacks, cutoffTimestamp)
+    const threshold = Number(minScoreThreshold) || 1 // avoid division by zero
 
-    const basePool = Math.floor(memberPayoutPool * (Number(basePoolPercent) / 100))
-    const bonusPool = memberPayoutPool - basePool
-
-    // Build member list and determine eligibility
     const memberList = contributions.map(m => {
       const score = Number(m.score) || 0
-      const isEligible = score >= Number(minScoreThreshold)
-      const memberPostHits = isEligible ? (postCutoffHits.get(m.member_id) || 0) : 0
+      const isEligible = score >= threshold
+      const cs = cutoffScores.get(m.member_id) || { preCutoffScore: 0, postCutoffScore: 0 }
+      const qualifiedPreCutoff = isEligible && cs.preCutoffScore >= threshold
+      const baseShares = qualifiedPreCutoff ? 1 : 0
+      const additionalShares = qualifiedPreCutoff ? cs.postCutoffScore / threshold : 0
+      const shares = Math.round((baseShares + additionalShares) * 100) / 100
+
       return {
         memberId: m.member_id,
         memberName: m.member_name,
         score,
         attacks: m.attacks || 0,
         isEligible,
-        postCutoffHits: memberPostHits,
+        preCutoffScore: Math.round(cs.preCutoffScore * 100) / 100,
+        postCutoffScore: Math.round(cs.postCutoffScore * 100) / 100,
+        shares,
       }
     })
 
-    const eligibleCount = memberList.filter(m => m.isEligible).length
-    const totalPostCutoffHits = memberList.reduce((s, m) => s + m.postCutoffHits, 0)
-    const basePay = eligibleCount > 0 ? Math.floor(basePool / eligibleCount) : 0
+    const totalShares = memberList.reduce((s, m) => s + m.shares, 0)
 
-    const members = memberList.map(m => {
-      const bonusPay = m.isEligible && totalPostCutoffHits > 0
-        ? Math.floor(bonusPool * (m.postCutoffHits / totalPostCutoffHits))
-        : 0
-      return {
-        ...m,
-        basePay: m.isEligible ? basePay : 0,
-        bonusPay,
-        payoutAmount: m.isEligible ? basePay + bonusPay : 0,
-      }
-    })
+    const members = memberList.map(m => ({
+      ...m,
+      payoutAmount: totalShares > 0 ? Math.floor((m.shares / totalShares) * memberPayoutPool) : 0,
+    }))
 
     const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
 
@@ -357,10 +366,8 @@ export function calculateTermedWarPayouts(contributions, settings) {
       cacheValue: totalCacheValue,
       memberPayoutPool,
       factionCutAmount,
-      basePool,
-      bonusPool,
+      totalShares,
       cutoffTimestamp,
-      totalPostCutoffHits,
       overBudgetWarning: false,
     }
   }

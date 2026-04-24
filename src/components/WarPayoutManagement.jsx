@@ -329,7 +329,6 @@ export default function WarPayoutManagement() {
   const [termedMode, setTermedMode] = useState('flat')       // 'flat' | 'scaling'
   const [memberShares, setMemberShares] = useState({})        // { memberId: shareCount }
   const [cutoffHours, setCutoffHours] = useState(24)
-  const [basePoolPercent, setBasePoolPercent] = useState(50)
   const [notes, setNotes] = useState('')
   // Real war formula settings
   const [warHitMult, setWarHitMult]   = useState(1.25)
@@ -419,7 +418,6 @@ export default function WarPayoutManagement() {
     setTermedMode('flat')
     setMemberShares({})
     setCutoffHours(24)
-    setBasePoolPercent(50)
 
     setActiveTab('payout')
     setFactionFilter(null)
@@ -500,7 +498,6 @@ export default function WarPayoutManagement() {
       attacks,
       warStartAt:      selectedWar.start_at || 0,
       cutoffHours:     Number(cutoffHours) || 24,
-      basePoolPercent: Number(basePoolPercent) || 50,
     }
 
     if (warType === 'termed') {
@@ -665,9 +662,8 @@ export default function WarPayoutManagement() {
         case 'contribShare':     return dir * ((a.contributionShare ?? 0) - (b.contributionShare ?? 0))
         case 'effort':           return dir * ((a.effortShare ?? 0) - (b.effortShare ?? 0))
         case 'shares':           return dir * ((a.shares ?? 0) - (b.shares ?? 0))
-        case 'basePay':          return dir * ((a.basePay ?? 0) - (b.basePay ?? 0))
-        case 'bonusPay':         return dir * ((a.bonusPay ?? 0) - (b.bonusPay ?? 0))
-        case 'postCutoffHits':   return dir * ((a.postCutoffHits ?? 0) - (b.postCutoffHits ?? 0))
+        case 'preCutoffScore':   return dir * ((a.preCutoffScore ?? 0) - (b.preCutoffScore ?? 0))
+        case 'postCutoffScore':  return dir * ((a.postCutoffScore ?? 0) - (b.postCutoffScore ?? 0))
         case 'payout':           return dir * (a.payoutAmount - b.payoutAmount)
         case 'eligible':         return dir * ((a.isEligible ? 1 : 0) - (b.isEligible ? 1 : 0))
         default:                 return dir * (a.payoutAmount - b.payoutAmount)
@@ -884,47 +880,12 @@ export default function WarPayoutManagement() {
                           onChange={e => setCutoffHours(Number(e.target.value) || 0)}
                           className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                         />
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          War hits after this cutoff earn bonus pay.
-                        </p>
                       </div>
-
-                      <div>
-                        <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
-                          <span className="font-medium">Base / Bonus Pool</span>
-                          <span className="text-gray-400">{basePoolPercent}% / {100 - basePoolPercent}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0" max="100" step="5"
-                          value={basePoolPercent}
-                          onChange={e => setBasePoolPercent(Number(e.target.value))}
-                          className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-gradient-to-r from-blue-400 to-amber-400"
-                        />
-                        <div className="flex gap-2 mt-1.5">
-                          <div className="flex-1">
-                            <label className="text-xs text-blue-600 dark:text-blue-400">Base %</label>
-                            <input
-                              type="number" min="0" max="100" step="5"
-                              value={basePoolPercent}
-                              onChange={e => setBasePoolPercent(Math.min(100, Math.max(0, Number(e.target.value))))}
-                              className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                            />
-                          </div>
-                          <div className="flex-1">
-                            <label className="text-xs text-amber-600 dark:text-amber-400">Bonus %</label>
-                            <input
-                              type="number" min="0" max="100" step="5"
-                              value={100 - basePoolPercent}
-                              onChange={e => setBasePoolPercent(Math.min(100, Math.max(0, 100 - Number(e.target.value))))}
-                              className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                            />
-                          </div>
-                        </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          Base pay is split equally. Bonus pay is proportional to post-cutoff war hits.
-                        </p>
-                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/40 px-3 py-2 rounded">
+                        Members earn 1 base share if they reach the score threshold before the cutoff.
+                        After the cutoff, every additional threshold-worth of respect earns 1 more share
+                        (fractional shares allowed). Pool is split by total shares.
+                      </p>
                     </>
                   )}
                 </>
@@ -1137,29 +1098,7 @@ export default function WarPayoutManagement() {
                 {formatCurrency(payoutResults.memberPayoutPool)}
               </span>
             </div>
-            {warType === 'termed' && termedMode === 'scaling' && (
-              <>
-                <div>
-                  <span className="text-gray-500 dark:text-gray-400">Base Pool: </span>
-                  <span className="font-semibold text-blue-700 dark:text-blue-400">
-                    {formatCurrency(payoutResults.basePool)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-500 dark:text-gray-400">Bonus Pool: </span>
-                  <span className="font-semibold text-amber-700 dark:text-amber-400">
-                    {formatCurrency(payoutResults.bonusPool)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-500 dark:text-gray-400">Post-Cutoff Hits: </span>
-                  <span className="font-semibold text-gray-900 dark:text-white">
-                    {payoutResults.totalPostCutoffHits ?? 0}
-                  </span>
-                </div>
-              </>
-            )}
-            {warType === 'termed' && termedMode === 'flat' && (
+            {warType === 'termed' && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Total Shares: </span>
                 <span className="font-semibold text-gray-900 dark:text-white">
@@ -1263,9 +1202,9 @@ export default function WarPayoutManagement() {
                   )}
                   {warType === 'termed' && termedMode === 'scaling' && (
                     <>
-                      <SortHeader col="postCutoffHits" label="Post-Cutoff" className="text-right" />
-                      <SortHeader col="basePay"  label="Base Pay"  className="text-right" />
-                      <SortHeader col="bonusPay" label="Bonus Pay" className="text-right" />
+                      <SortHeader col="preCutoffScore"  label="Pre-Cutoff" className="text-right" />
+                      <SortHeader col="postCutoffScore" label="Post-Cutoff" className="text-right" />
+                      <SortHeader col="shares"          label="Shares"     className="text-right" />
                     </>
                   )}
                   <SortHeader col="payout"   label="Payout"   className="text-right" />
@@ -1337,14 +1276,14 @@ export default function WarPayoutManagement() {
                     )}
                     {warType === 'termed' && termedMode === 'scaling' && (
                       <>
-                        <td className="px-3 py-1.5 text-right font-medium text-amber-700 dark:text-amber-400">
-                          {m.postCutoffHits ?? 0}
-                        </td>
                         <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">
-                          {m.isEligible ? formatCurrency(m.basePay) : '—'}
+                          {(m.preCutoffScore ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">
-                          {m.isEligible ? formatCurrency(m.bonusPay) : '—'}
+                        <td className="px-3 py-1.5 text-right text-amber-700 dark:text-amber-400">
+                          {(m.postCutoffScore ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300">
+                          {(m.shares ?? 0).toFixed(2)}
                         </td>
                       </>
                     )}

@@ -4,7 +4,7 @@ import {
   calculateTermedWarPayouts,
   calculateRealWarPayouts,
   buildMemberAttackStats,
-  countPostCutoffHits,
+  calculateCutoffScores,
   generateWarBatchPayoutURL,
 } from '../warPayoutCalculations.js'
 
@@ -68,23 +68,26 @@ const WAR_START = 1000000
 const CUTOFF = WAR_START + 24 * 3600  // 24h after start
 
 const TIMED_ATTACKS = [
-  // Alice: 2 ranked-war wins BEFORE cutoff
-  { id: 20, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: WAR_START + 3600 },
-  { id: 21, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: WAR_START + 7200 },
-  // Alice: 3 ranked-war wins AFTER cutoff
-  { id: 22, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: CUTOFF + 100 },
-  { id: 23, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: CUTOFF + 200 },
-  { id: 24, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: CUTOFF + 300 },
-  // Bob: 1 ranked-war win AFTER cutoff
-  { id: 25, attacker_id: 200, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: CUTOFF + 150 },
-  // Carol: 0 post-cutoff hits (1 assist after cutoff — should not count)
-  { id: 26, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist',       is_ranked_war: true, is_incoming: false, started: CUTOFF + 250 },
+  // Alice (100): 2 ranked-war wins BEFORE cutoff → pre-cutoff score = 30 + 25 = 55
+  { id: 20, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: WAR_START + 3600, respect_gain: 30 },
+  { id: 21, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: WAR_START + 7200, respect_gain: 25 },
+  // Alice: 3 ranked-war wins AFTER cutoff → post-cutoff score = 10 + 15 + 25 = 50
+  { id: 22, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: CUTOFF + 100, respect_gain: 10 },
+  { id: 23, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: CUTOFF + 200, respect_gain: 15 },
+  { id: 24, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: CUTOFF + 300, respect_gain: 25 },
+  // Bob (200): 2 ranked-war wins BEFORE cutoff → pre-cutoff score = 20 + 30 = 50
+  { id: 30, attacker_id: 200, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: WAR_START + 5000, respect_gain: 20 },
+  { id: 31, attacker_id: 200, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: WAR_START + 9000, respect_gain: 30 },
+  // Bob: 1 ranked-war win AFTER cutoff → post-cutoff score = 25
+  { id: 25, attacker_id: 200, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: CUTOFF + 150, respect_gain: 25 },
+  // Carol (300): 0 wins (1 assist after cutoff — should not count as score)
+  { id: 26, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist',       is_ranked_war: true, is_incoming: false, started: CUTOFF + 250, respect_gain: 0 },
   // Carol: 1 loss after cutoff — should not count
-  { id: 27, attacker_id: 300, attacker_faction_id: 10739, result: 'Lost',         is_ranked_war: true, is_incoming: false, started: CUTOFF + 350 },
+  { id: 27, attacker_id: 300, attacker_faction_id: 10739, result: 'Lost',         is_ranked_war: true, is_incoming: false, started: CUTOFF + 350, respect_gain: 0 },
   // Incoming attack after cutoff — should be ignored
-  { id: 28, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: true,  started: CUTOFF + 400 },
+  { id: 28, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: true,  started: CUTOFF + 400, respect_gain: 10 },
   // Non-ranked win after cutoff — should be ignored
-  { id: 29, attacker_id: 200, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: false, is_incoming: false, started: CUTOFF + 500 },
+  { id: 29, attacker_id: 200, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: false, is_incoming: false, started: CUTOFF + 500, respect_gain: 10 },
 ]
 
 
@@ -219,124 +222,166 @@ describe('calculateTermedWarPayouts — flat shares', () => {
 
 describe('calculateTermedWarPayouts — scaling mode', () => {
   // 10M total, 20% cut → pool = 8M
-  // 50% base / 50% bonus → basePool = 4M, bonusPool = 4M
+  // Threshold = 50
+  // Alice (100): pre=55 (≥50 → 1 base share), post=50 → 50/50 = 1 additional → shares = 2.0
+  // Bob (200):   pre=50 (≥50 → 1 base share), post=25 → 25/50 = 0.5 additional → shares = 1.5
+  // Carol (300): pre=0, post=0 → shares = 0 (no pre-cutoff qualification)
+  // Dave (400):  score=50 but pre=0 from attacks (no wins) → shares = 0
+  // Total shares = 3.5, pool = 8M
   const baseSettings = {
     totalReward: 10_000_000,
     factionCutPercent: 20,
-    minScoreThreshold: 100,
+    minScoreThreshold: 50,
     termedMode: 'scaling',
     attacks: TIMED_ATTACKS,
     warStartAt: WAR_START,
     cutoffHours: 24,
-    basePoolPercent: 50,
   }
 
-  it('base pay splits equally among eligible members', () => {
-    const { members, basePool } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
-    expect(basePool).toBe(4_000_000)
-    // 3 eligible, floor(4M / 3) = 1,333,333
-    const basePay = Math.floor(4_000_000 / 3)
-    expect(members.filter(m => m.isEligible).every(m => m.basePay === basePay)).toBe(true)
-  })
-
-  it('bonus pay distributed proportionally by post-cutoff hits', () => {
-    const { members, bonusPool, totalPostCutoffHits } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
-    expect(bonusPool).toBe(4_000_000)
-    // Alice: 3 post-cutoff hits, Bob: 1, Carol: 0 → total 4
-    expect(totalPostCutoffHits).toBe(4)
-
+  it('calculates shares from pre/post cutoff scores', () => {
+    const { members, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
     const alice = members.find(m => m.memberId === 100)
     const bob   = members.find(m => m.memberId === 200)
     const carol = members.find(m => m.memberId === 300)
 
-    expect(alice.postCutoffHits).toBe(3)
-    expect(bob.postCutoffHits).toBe(1)
-    expect(carol.postCutoffHits).toBe(0)
+    expect(alice.preCutoffScore).toBe(55)
+    expect(alice.postCutoffScore).toBe(50)
+    expect(alice.shares).toBe(2.0)  // 1 + 50/50
 
-    expect(alice.bonusPay).toBe(Math.floor(4_000_000 * 3 / 4)) // 3,000,000
-    expect(bob.bonusPay).toBe(Math.floor(4_000_000 * 1 / 4))   // 1,000,000
-    expect(carol.bonusPay).toBe(0)
+    expect(bob.preCutoffScore).toBe(50)
+    expect(bob.postCutoffScore).toBe(25)
+    expect(bob.shares).toBe(1.5)    // 1 + 25/50
+
+    // Carol has no ranked-war wins → 0 pre-cutoff score → no base share
+    expect(carol.shares).toBe(0)
+
+    expect(totalShares).toBe(3.5)
   })
 
-  it('member with no post-cutoff hits gets only base pay', () => {
+  it('distributes pool proportionally by shares', () => {
+    const { members, memberPayoutPool } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    expect(memberPayoutPool).toBe(8_000_000)
+
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
+
+    // Alice: floor(2.0 / 3.5 * 8M) = floor(4,571,428.57) = 4,571,428
+    expect(alice.payoutAmount).toBe(Math.floor(2.0 / 3.5 * 8_000_000))
+    // Bob: floor(1.5 / 3.5 * 8M) = floor(3,428,571.43) = 3,428,571
+    expect(bob.payoutAmount).toBe(Math.floor(1.5 / 3.5 * 8_000_000))
+  })
+
+  it('member who does not qualify pre-cutoff gets 0 shares', () => {
     const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
     const carol = members.find(m => m.memberId === 300)
-    expect(carol.basePay).toBe(Math.floor(4_000_000 / 3))
-    expect(carol.bonusPay).toBe(0)
-    expect(carol.payoutAmount).toBe(carol.basePay)
+    expect(carol.shares).toBe(0)
+    expect(carol.payoutAmount).toBe(0)
   })
 
-  it('ineligible members get nothing', () => {
+  it('ineligible members (below overall threshold) get nothing', () => {
+    // Threshold = 400: Bob (score=300) and Carol (score=200) are ineligible
     const settings = { ...baseSettings, minScoreThreshold: 400 }
     const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
     const bob = members.find(m => m.memberId === 200)
     expect(bob.isEligible).toBe(false)
-    expect(bob.basePay).toBe(0)
-    expect(bob.bonusPay).toBe(0)
+    expect(bob.shares).toBe(0)
     expect(bob.payoutAmount).toBe(0)
   })
 
-  it('100% base pool means everyone gets equal pay', () => {
-    const settings = { ...baseSettings, basePoolPercent: 100 }
-    const { members, basePool, bonusPool } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
-    expect(basePool).toBe(8_000_000)
-    expect(bonusPool).toBe(0)
-    const basePay = Math.floor(8_000_000 / 3)
-    expect(members.filter(m => m.isEligible).every(m => m.payoutAmount === basePay)).toBe(true)
+  it('eligible member with insufficient pre-cutoff attack score gets 0 shares', () => {
+    // Threshold = 100: Alice's overall score (500) qualifies, but her
+    // pre-cutoff attack respect is only 55 — below 100 → no base share
+    const settings = { ...baseSettings, minScoreThreshold: 100 }
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.isEligible).toBe(true)
+    expect(alice.preCutoffScore).toBe(55)
+    expect(alice.shares).toBe(0) // didn't hit 100 pre-cutoff
+    expect(alice.payoutAmount).toBe(0)
   })
 
-  it('0% base pool means pure proportional by post-cutoff hits', () => {
-    const settings = { ...baseSettings, basePoolPercent: 0 }
-    const { members, basePool, bonusPool } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
-    expect(basePool).toBe(0)
-    expect(bonusPool).toBe(8_000_000)
-    // Carol has 0 post-cutoff hits → 0 payout
-    const carol = members.find(m => m.memberId === 300)
-    expect(carol.payoutAmount).toBe(0)
-    // Alice: 3/4 * 8M = 6M, Bob: 1/4 * 8M = 2M
+  it('member with pre-cutoff score exactly at threshold qualifies', () => {
+    // Bob has pre-cutoff = 50, threshold = 50 → should qualify
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    const bob = members.find(m => m.memberId === 200)
+    expect(bob.shares).toBeGreaterThan(0)
+    expect(bob.payoutAmount).toBeGreaterThan(0)
+  })
+
+  it('no post-cutoff score means 1 share only', () => {
+    // Use attacks with only pre-cutoff hits
+    const preCutoffOnly = TIMED_ATTACKS.filter(a => (Number(a.started) || 0) <= CUTOFF)
+    const settings = { ...baseSettings, attacks: preCutoffOnly }
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
     const alice = members.find(m => m.memberId === 100)
-    expect(alice.payoutAmount).toBe(Math.floor(8_000_000 * 3 / 4))
+    expect(alice.shares).toBe(1) // base share only, no post-cutoff
   })
 })
 
 
 // ---------------------------------------------------------------------------
-// countPostCutoffHits
+// calculateCutoffScores
 // ---------------------------------------------------------------------------
 
-describe('countPostCutoffHits', () => {
-  it('counts only ranked-war wins after cutoff', () => {
-    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF)
-    expect(hits.get(100)).toBe(3) // Alice: 3 wins after cutoff
-    expect(hits.get(200)).toBe(1) // Bob: 1 win after cutoff
-    expect(hits.has(300)).toBe(false) // Carol: only assist and loss
+describe('calculateCutoffScores', () => {
+  it('sums respect for ranked-war wins before and after cutoff', () => {
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    const alice = scores.get(100)
+    expect(alice.preCutoffScore).toBe(55)   // 30 + 25
+    expect(alice.postCutoffScore).toBe(50)  // 10 + 15 + 25
+  })
+
+  it('tracks multiple members independently', () => {
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    const bob = scores.get(200)
+    expect(bob.preCutoffScore).toBe(50)    // 20 + 30
+    expect(bob.postCutoffScore).toBe(25)   // 25
   })
 
   it('ignores incoming attacks', () => {
-    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF)
-    // Attack id=28 is incoming — should not inflate Alice's count
-    expect(hits.get(100)).toBe(3)
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    // id=28 is incoming with respect=10 — should not count
+    expect(scores.get(100).postCutoffScore).toBe(50)
   })
 
   it('ignores non-ranked wins', () => {
-    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF)
-    // Attack id=29 is non-ranked — should not count for Bob
-    expect(hits.get(200)).toBe(1)
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    // id=29 is non-ranked — should not count for Bob
+    expect(scores.get(200).postCutoffScore).toBe(25)
   })
 
   it('ignores assists and losses', () => {
-    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF)
-    expect(hits.has(300)).toBe(false)
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    expect(scores.has(300)).toBe(false)
   })
 
-  it('returns empty map for empty attacks array', () => {
-    const hits = countPostCutoffHits([], CUTOFF)
-    expect(hits.size).toBe(0)
+  it('returns empty map for empty attacks', () => {
+    const scores = calculateCutoffScores([], CUTOFF)
+    expect(scores.size).toBe(0)
   })
 
-  it('returns empty map when all attacks are before cutoff', () => {
-    const hits = countPostCutoffHits(TIMED_ATTACKS, CUTOFF + 99999)
-    expect(hits.size).toBe(0)
+  it('returns all as pre-cutoff when cutoff is far in the future', () => {
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF + 99999)
+    const alice = scores.get(100)
+    expect(alice.preCutoffScore).toBe(105)  // 30 + 25 + 10 + 15 + 25
+    expect(alice.postCutoffScore).toBe(0)
+  })
+
+  it('caps bonus chain hits at 10 respect', () => {
+    const attacksWithBonus = [
+      // Normal hit: 30 respect, chain 15 → counted as 30
+      { id: 40, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: WAR_START + 1000, respect_gain: 30, chain: 15 },
+      // Bonus hit at chain 100: 80 respect → capped to 10
+      { id: 41, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: WAR_START + 2000, respect_gain: 80, chain: 100 },
+      // Bonus hit at chain 250: 160 respect → capped to 10 (post-cutoff)
+      { id: 42, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: CUTOFF + 100, respect_gain: 160, chain: 250 },
+      // Normal post-cutoff hit: 20 respect, chain 251 → counted as 20
+      { id: 43, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: CUTOFF + 200, respect_gain: 20, chain: 251 },
+    ]
+    const scores = calculateCutoffScores(attacksWithBonus, CUTOFF)
+    const alice = scores.get(100)
+    expect(alice.preCutoffScore).toBe(40)   // 30 + 10 (80 capped)
+    expect(alice.postCutoffScore).toBe(30)  // 10 (160 capped) + 20
   })
 })
 
