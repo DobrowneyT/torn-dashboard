@@ -10639,7 +10639,7 @@
     },
     "3475942": {
       "name": "Phoneix_55",
-      "tier": 6,
+      "tier": 5,
       "cpr_by_role": {
         "5": {
           "Car Thief": 72,
@@ -10653,7 +10653,7 @@
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-04-16T02:41:15.716054"
+      "tier_last_updated": "2026-04-24T17:44:49.279067"
     },
     "3074032": {
       "name": "Josiah",
@@ -10822,26 +10822,26 @@
     },
     "2089844": {
       "name": "Thug",
-      "tier": -1,
+      "tier": 1,
       "cpr_by_role": {
         "8": {
           "Muscle": 70
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-04-24T04:18:02.998549"
+      "tier_last_updated": "2026-04-24T17:44:49.279857"
     },
     "2159205": {
       "name": "Sargeant_Rock",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-24T04:18:02.998581"
+      "tier_last_updated": "2026-04-24T17:44:49.279126"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-24T17:44:45.571372",
+    "last_updated": "2026-04-24T17:44:49.280018",
     "total_members": 178
   }
 }
