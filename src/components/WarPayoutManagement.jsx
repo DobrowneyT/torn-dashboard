@@ -1433,59 +1433,74 @@ export default function WarPayoutManagement() {
           <div className="overflow-auto max-h-[70vh] relative">
             <table className="w-full text-xs border-separate border-spacing-0">
               <thead>
+                {/* Row 1: Section group headers */}
                 <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700">
-                  <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={1}>
-                    Member
+                  <th className="px-2 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" rowSpan={2}>
+                    {/* Player — spans both header rows */}
                   </th>
                   {(warType === 'real' || warType === 'race') && (
                     <>
-                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={viewMode === 'leader' ? 10 : 5}>
-                        Participation
+                      <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-center" colSpan={8}>
+                        Hit Report
                       </th>
-                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={4}>
-                        Contribution
+                      <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300 text-center" colSpan={viewMode === 'leader' ? 12 : 7}>
+                        Participation Score
                       </th>
-                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={warType === 'race' ? 5 : 3}>
+                      <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 text-center" colSpan={4}>
+                        Contribution Score
+                      </th>
+                      <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-purple-900/20 text-purple-800 dark:text-purple-300 text-center" colSpan={warType === 'race' ? 5 : 3}>
                         Pay Out
                       </th>
                     </>
                   )}
                   {warType === 'termed' && termedMode === 'flat' && (
-                    <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={4}>
+                    <th className="px-2 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-purple-900/20 text-purple-800 dark:text-purple-300 text-center" colSpan={4}>
                       Pay Out
                     </th>
                   )}
                   {warType === 'termed' && termedMode === 'scaling' && (
-                    <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={5}>
+                    <th className="px-2 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-purple-900/20 text-purple-800 dark:text-purple-300 text-center" colSpan={5}>
                       Pay Out
                     </th>
                   )}
                 </tr>
+                {/* Row 2: Column headers */}
                 <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">
-                  <SortHeader col="name" label="Player" className="sticky left-0 top-[32px] z-30 bg-gray-50 dark:bg-slate-700" />
                   {(warType === 'real' || warType === 'race') && (
                     <>
-                      <SortHeader col="warHits" label="War" className="text-right border-l border-gray-200 dark:border-slate-700" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">WH×</th>}
-                      <SortHeader col="assists" label="Ast" className="text-right" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">Ast×</th>}
-                      <SortHeader col="losses"  label="Loss" className="text-right" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">Lss×</th>}
-                      <SortHeader col="regularHits" label="Reg" className="text-right" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">Reg×</th>}
-                      <SortHeader col="mugs"    label="Mug"  className="text-right" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">Mug×</th>}
-                      <SortHeader col="partShare" label="Part%" className="text-right border-r border-gray-200 dark:border-slate-700" />
-                      {/* Contribution */}
-                      <SortHeader col="respect"         label="Respect" className="text-right border-l border-gray-200 dark:border-slate-700" />
-                      <SortHeader col="bonusRespect"    label="Bonus"   className="text-right" />
-                      <SortHeader col="adjustedRespect" label="Adj."    className="text-right" />
+                      {/* Hit Report columns */}
+                      <SortHeader col="leaves"    label="Leaves"  className="text-right border-l border-gray-200 dark:border-slate-700" />
+                      <SortHeader col="mugs"      label="Mugs"    className="text-right" />
+                      <SortHeader col="hosp"      label="Hosp"    className="text-right" />
+                      <SortHeader col="warHits"   label="War"     className="text-right" />
+                      <SortHeader col="won"        label="Won"     className="text-right" />
+                      <SortHeader col="assists"   label="Assists" className="text-right" />
+                      <SortHeader col="losses"    label="Lost"    className="text-right" />
+                      <SortHeader col="totalHits" label="Total"   className="text-right border-r border-gray-200 dark:border-slate-700" />
+                      {/* Participation Score columns */}
+                      <SortHeader col="warHitScore"     label="War hit"  className="text-right border-l border-gray-200 dark:border-slate-700" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
+                      <SortHeader col="assistScore"     label="Assist"   className="text-right" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
+                      <SortHeader col="lossScore"       label="Loss"     className="text-right" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
+                      <SortHeader col="regularHitScore" label="Regular"  className="text-right" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
+                      <SortHeader col="mugScore"        label="Mug"      className="text-right" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
+                      <SortHeader col="partScore"       label="Total"    className="text-right" />
+                      <SortHeader col="partShare"       label="Part%"    className="text-right border-r border-gray-200 dark:border-slate-700" />
+                      {/* Contribution Score columns */}
+                      <SortHeader col="respect"         label="Respect"  className="text-right border-l border-gray-200 dark:border-slate-700" />
+                      <SortHeader col="bonusRespect"    label="Bonus"    className="text-right" />
+                      <SortHeader col="adjustedRespect" label="Adj."     className="text-right" />
                       <SortHeader col="contribShare"    label="Contrib%" className="text-right border-r border-gray-200 dark:border-slate-700" />
-                      {/* Effort / Payout */}
+                      {/* Pay Out columns */}
                       <SortHeader col="effort" label="Effort%" className="text-right border-l border-gray-200 dark:border-slate-700" />
                       {warType === 'race' && (
                         <>
-                          <SortHeader col="preCutoffPayout"  label="Pre$" className="text-right" />
+                          <SortHeader col="preCutoffPayout"  label="Pre$"  className="text-right" />
                           <SortHeader col="postCutoffPayout" label="Post$" className="text-right" />
                         </>
                       )}
@@ -1496,9 +1511,9 @@ export default function WarPayoutManagement() {
                   )}
                   {warType === 'termed' && termedMode === 'scaling' && (
                     <>
-                      <SortHeader col="preCutoffScore"  label="Pre-Cutoff" className="text-right" />
+                      <SortHeader col="preCutoffScore"  label="Pre-Cutoff"  className="text-right" />
                       <SortHeader col="postCutoffScore" label="Post-Cutoff" className="text-right" />
-                      <SortHeader col="shares"          label="Shares"     className="text-right" />
+                      <SortHeader col="shares"          label="Shares"      className="text-right" />
                     </>
                   )}
                   <SortHeader col="payout"   label="Payout"   className="text-right" />
@@ -1508,137 +1523,80 @@ export default function WarPayoutManagement() {
               <tbody>
                 {sortedMembers().map(m => {
                   const hasOverride = (key) => memberMultiplierOverrides[m.memberId]?.[key] !== undefined
-                  const overrideBorder = 'border border-amber-400 dark:border-amber-500'
+                  const overrideCls = 'border border-amber-400 dark:border-amber-500'
+                  const normalCls = 'border border-gray-200 dark:border-slate-600'
+                  const multInput = (multKey, settingKey, globalVal) => (
+                    <td className="px-0 py-0.5 text-right" key={multKey}>
+                      <input type="number" step="0.05"
+                        value={m[multKey] ?? globalVal}
+                        onChange={e => {
+                          const v = parseFloat(e.target.value)
+                          setMemberMultiplierOverrides(prev => {
+                            const cur = { ...(prev[m.memberId] || {}) }
+                            if (v === Number(globalVal)) { delete cur[settingKey] } else { cur[settingKey] = v }
+                            return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
+                          })
+                        }}
+                        className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride(settingKey) ? overrideCls : normalCls}`}
+                      />
+                    </td>
+                  )
                   return (<tr
                     key={m.memberId}
                     className={`border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-slate-700/30 ${
                       !m.isEligible ? 'opacity-40' : ''
                     }`}
                   >
-                    <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">
+                    <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">
                       {m.memberName}
                     </td>
                     {(warType === 'real' || warType === 'race') && (
                       <>
-                        {/* War Hits + multiplier */}
-                        <td className="px-2 py-1 text-right font-medium text-blue-700 dark:text-blue-400 border-l border-gray-200 dark:border-slate-700">{m.warHits ?? 0}</td>
-                        {viewMode === 'leader' && (
-                          <td className="px-0 py-0.5 text-right">
-                            <input type="number" step="0.05"
-                              value={m.effWarHitMult ?? warHitMult}
-                              onChange={e => {
-                                const v = parseFloat(e.target.value)
-                                setMemberMultiplierOverrides(prev => {
-                                  const cur = { ...prev[m.memberId] }
-                                  if (v === Number(warHitMult)) { delete cur.warHitMultiplier } else { cur.warHitMultiplier = v }
-                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
-                                })
-                              }}
-                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('warHitMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
-                            />
-                          </td>
-                        )}
-                        {/* Assists + multiplier */}
+                        {/* ── Hit Report ── */}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{m.leaves ?? 0}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.mugs ?? 0}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.hosp ?? 0}</td>
+                        <td className="px-2 py-1 text-right font-medium text-blue-700 dark:text-blue-400">{m.warHits ?? 0}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.won ?? 0}</td>
                         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.assists ?? 0}</td>
-                        {viewMode === 'leader' && (
-                          <td className="px-0 py-0.5 text-right">
-                            <input type="number" step="0.05"
-                              value={m.effAssistMult ?? assistMult}
-                              onChange={e => {
-                                const v = parseFloat(e.target.value)
-                                setMemberMultiplierOverrides(prev => {
-                                  const cur = { ...prev[m.memberId] }
-                                  if (v === Number(assistMult)) { delete cur.assistMultiplier } else { cur.assistMultiplier = v }
-                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
-                                })
-                              }}
-                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('assistMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
-                            />
-                          </td>
-                        )}
-                        {/* Losses + multiplier */}
                         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.losses ?? 0}</td>
-                        {viewMode === 'leader' && (
-                          <td className="px-0 py-0.5 text-right">
-                            <input type="number" step="0.05"
-                              value={m.effLossMult ?? lossMult}
-                              onChange={e => {
-                                const v = parseFloat(e.target.value)
-                                setMemberMultiplierOverrides(prev => {
-                                  const cur = { ...prev[m.memberId] }
-                                  if (v === Number(lossMult)) { delete cur.lossMultiplier } else { cur.lossMultiplier = v }
-                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
-                                })
-                              }}
-                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('lossMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
-                            />
-                          </td>
-                        )}
-                        {/* Regular Hits + multiplier */}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.regularHits ?? 0}</td>
-                        {viewMode === 'leader' && (
-                          <td className="px-0 py-0.5 text-right">
-                            <input type="number" step="0.05"
-                              value={m.effRegularMult ?? regularHitMult}
-                              onChange={e => {
-                                const v = parseFloat(e.target.value)
-                                setMemberMultiplierOverrides(prev => {
-                                  const cur = { ...prev[m.memberId] }
-                                  if (v === Number(regularHitMult)) { delete cur.regularHitMultiplier } else { cur.regularHitMultiplier = v }
-                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
-                                })
-                              }}
-                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('regularHitMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
-                            />
-                          </td>
-                        )}
-                        {/* Mugs + multiplier */}
-                        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400">{m.mugs ?? 0}</td>
-                        {viewMode === 'leader' && (
-                          <td className="px-0 py-0.5 text-right">
-                            <input type="number" step="0.05"
-                              value={m.effMugMult ?? mugMult}
-                              onChange={e => {
-                                const v = parseFloat(e.target.value)
-                                setMemberMultiplierOverrides(prev => {
-                                  const cur = { ...prev[m.memberId] }
-                                  if (v === Number(mugMult)) { delete cur.mugMultiplier } else { cur.mugMultiplier = v }
-                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
-                                })
-                              }}
-                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('mugMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
-                            />
-                          </td>
-                        )}
-                        {/* Participation % */}
+                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{m.totalHits ?? 0}</td>
+                        {/* ── Participation Score ── */}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{(m.warHitScore ?? 0).toFixed(2)}</td>
+                        {viewMode === 'leader' && multInput('effWarHitMult', 'warHitMultiplier', warHitMult)}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{(m.assistScore ?? 0).toFixed(2)}</td>
+                        {viewMode === 'leader' && multInput('effAssistMult', 'assistMultiplier', assistMult)}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{(m.lossScore ?? 0).toFixed(2)}</td>
+                        {viewMode === 'leader' && multInput('effLossMult', 'lossMultiplier', lossMult)}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{(m.regularHitScore ?? 0).toFixed(2)}</td>
+                        {viewMode === 'leader' && multInput('effRegularMult', 'regularHitMultiplier', regularHitMult)}
+                        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400">{(m.mugScore ?? 0).toFixed(2)}</td>
+                        {viewMode === 'leader' && multInput('effMugMult', 'mugMultiplier', mugMult)}
+                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300">{(m.participationScore ?? 0).toFixed(2)}</td>
                         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
-                          {((m.participationShare ?? 0) * 100).toFixed(1)}%
+                          {((m.participationShare ?? 0) * 100).toFixed(2)}%
                         </td>
-                        {/* Contribution */}
+                        {/* ── Contribution Score ── */}
                         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">
                           {Number(m.respectGained ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-2 py-1 text-right text-amber-600 dark:text-amber-400">
-                          {(m.bonusRespect ?? 0) > 0 ? `−${m.bonusRespect.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
+                          {(m.bonusRespect ?? 0) > 0 ? `−${m.bonusRespect.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : ''}
                         </td>
                         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">
                           {Number(m.adjustedRespect ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
-                          {((m.contributionShare ?? 0) * 100).toFixed(1)}%
+                          {((m.contributionShare ?? 0) * 100).toFixed(2)}%
                         </td>
-                        {/* Effort / Payout */}
+                        {/* ── Pay Out ── */}
                         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
-                          {((m.effortShare ?? 0) * 100).toFixed(1)}%
+                          {((m.effortShare ?? 0) * 100).toFixed(2)}%
                         </td>
                         {warType === 'race' && (
                           <>
-                            <td className="px-2 py-1 text-right text-blue-600 dark:text-blue-400">
-                              {formatCurrency(m.preCutoffPayout ?? 0)}
-                            </td>
-                            <td className="px-2 py-1 text-right text-purple-600 dark:text-purple-400">
-                              {formatCurrency(m.postCutoffPayout ?? 0)}
-                            </td>
+                            <td className="px-2 py-1 text-right text-blue-600 dark:text-blue-400">{formatCurrency(m.preCutoffPayout ?? 0)}</td>
+                            <td className="px-2 py-1 text-right text-purple-600 dark:text-purple-400">{formatCurrency(m.postCutoffPayout ?? 0)}</td>
                           </>
                         )}
                       </>
