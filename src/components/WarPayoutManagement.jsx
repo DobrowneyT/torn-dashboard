@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { loadWars, loadWarsCount, loadWarContributions, loadFactionAttacksByWindow, loadWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
+import { loadWars, loadWarsCount, loadWarContributions, loadFactionAttacksByWindow, loadWarPayouts, loadRecentWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
 import { saveWarPayout, updateWarIsTermed } from '../utils/adminApi'
 import {
   calculateTermedWarPayouts,
   calculateRealWarPayouts,
+  calculateRaceWarPayouts,
+  detectRaceCutoff,
   generateWarBatchPayoutURL,
   formatWarDateRange,
   buildHitReport,
@@ -336,9 +338,23 @@ export default function WarPayoutManagement() {
   const [lossMult, setLossMult]       = useState(0.50)
   const [mugMult, setMugMult]         = useState(-1.00)
   const [partWeight, setPartWeight]   = useState(50)   // integer 0–100; contrib = 100 - partWeight
+  const [regularHitMult, setRegularHitMult] = useState(0.00)
   const [mercCost, setMercCost]         = useState(0)
   const [reviverCost, setReviverCost]   = useState(0)
   const [factionTopUp, setFactionTopUp] = useState(0)
+  // Per-member multiplier overrides
+  const [memberMultiplierOverrides, setMemberMultiplierOverrides] = useState({})
+
+  // Race mode settings
+  const [raceTargetScore, setRaceTargetScore] = useState(0)
+  const [raceCutoffMode, setRaceCutoffMode] = useState('auto') // 'auto' | 'manual'
+  const [raceManualCutoff, setRaceManualCutoff] = useState('')
+  const [raceCutoffTimestamp, setRaceCutoffTimestamp] = useState(null)
+  const [racePostCutoffMode, setRacePostCutoffMode] = useState('flat') // 'flat' | 'scaling'
+  const [racePreCutoffPercent, setRacePreCutoffPercent] = useState(50)
+
+  // View mode
+  const [viewMode, setViewMode] = useState('leader') // 'leader' | 'member'
 
   // Results state
   const [hasCalculated, setHasCalculated] = useState(false)
@@ -418,6 +434,13 @@ export default function WarPayoutManagement() {
     setTermedMode('flat')
     setMemberShares({})
     setCutoffHours(24)
+    setMemberMultiplierOverrides({})
+    setRaceTargetScore(0)
+    setRaceCutoffMode('auto')
+    setRaceManualCutoff('')
+    setRaceCutoffTimestamp(null)
+    setRacePostCutoffMode('flat')
+    setRacePreCutoffPercent(50)
 
     setActiveTab('payout')
     setFactionFilter(null)
@@ -451,12 +474,11 @@ export default function WarPayoutManagement() {
   }
 
   async function handleLoadHistory() {
-    if (!selectedWar) return
     setLoadingHistory(true)
     try {
-      const data = await loadWarPayouts(selectedWar.id)
+      const data = await loadRecentWarPayouts(20)
       setHistoricalPayouts(data)
-      setShowHistory(true)
+      setShowHistory(s => !s)
     } catch (err) {
       console.error('Error loading history:', err)
     } finally {
@@ -487,6 +509,8 @@ export default function WarPayoutManagement() {
       assistMultiplier:    Number(assistMult),
       lossMultiplier:      Number(lossMult),
       mugMultiplier:       Number(mugMult),
+      regularHitMultiplier: Number(regularHitMult),
+      memberMultiplierOverrides,
       participationWeight: pw,
       contributionWeight:  Math.round((1 - pw) * 1000) / 1000,
       mercCost:      Number(mercCost) || 0,
@@ -503,7 +527,18 @@ export default function WarPayoutManagement() {
     if (warType === 'termed') {
       return calculateTermedWarPayouts(contributions, settings)
     }
+
     const filteredAttacks = applyFactionFilterToAttacks(attacks, filter)
+
+    if (warType === 'race') {
+      return calculateRaceWarPayouts(contributions, filteredAttacks, {
+        ...settings,
+        raceCutoffTimestamp: Number(raceCutoffTimestamp) || 0,
+        racePreCutoffPercent: Number(racePreCutoffPercent),
+        racePostCutoffMode,
+      })
+    }
+
     return calculateRealWarPayouts(contributions, filteredAttacks, settings)
   }
 
@@ -524,7 +559,7 @@ export default function WarPayoutManagement() {
   // the user has calculated at least once (real wars only — termed ignores attacks).
   useEffect(() => {
     if (!hasCalculated) return
-    if (warType !== 'real') return
+    if (warType !== 'real' && warType !== 'race') return
     const results = computeResults(factionFilter)
     if (results) setPayoutResults(results)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -538,6 +573,15 @@ export default function WarPayoutManagement() {
     if (results) setPayoutResults(results)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberShares])
+
+  // Auto-recalculate when per-member multiplier overrides change (real/race mode)
+  useEffect(() => {
+    if (!hasCalculated) return
+    if (warType === 'termed') return
+    const results = computeResults(factionFilter)
+    if (results) setPayoutResults(results)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberMultiplierOverrides])
 
   function getEffectiveMembers() {
     if (!payoutResults) return []
@@ -564,10 +608,22 @@ export default function WarPayoutManagement() {
       faction_cut_percent: Number(factionCutPercent),
       total_reward: Number(totalReward) || 0,
       min_score_threshold: Number(minScoreThreshold),
-      termed_mode: warType === 'termed' ? termedMode : null,
+      termed_mode: warType === 'termed' ? termedMode : (warType === 'race' ? racePostCutoffMode : null),
       merc_cost:      Number(mercCost) || 0,
       reviver_cost:   Number(reviverCost) || 0,
       faction_top_up: Number(factionTopUp) || 0,
+      war_hit_multiplier:     Number(warHitMult),
+      assist_multiplier:      Number(assistMult),
+      loss_multiplier:        Number(lossMult),
+      mug_multiplier:         Number(mugMult),
+      regular_hit_multiplier: Number(regularHitMult),
+      participation_weight:   Number(partWeight),
+      // Race fields
+      race_target_score:       warType === 'race' ? (Number(raceTargetScore) || null) : null,
+      race_cutoff_mode:        warType === 'race' ? raceCutoffMode : null,
+      race_cutoff_timestamp:   warType === 'race' ? (Number(raceCutoffTimestamp) || null) : null,
+      race_post_cutoff_mode:   warType === 'race' ? racePostCutoffMode : null,
+      race_pre_cutoff_percent: warType === 'race' ? Number(racePreCutoffPercent) : null,
       notes: notes || null,
     }
 
@@ -578,12 +634,17 @@ export default function WarPayoutManagement() {
       score: m.respectGained ?? m.score ?? 0,
       attacks: m.totalHits || m.attacks || 0,
       assist_attacks: m.assists || 0,
+      war_hits: m.warHits || 0,
+      regular_hits: m.regularHits || 0,
+      mugs: m.mugs || 0,
+      losses: m.losses || 0,
       payout_amount: m.payoutAmount,
       is_eligible: m.isEligible,
+      multiplier_overrides: memberMultiplierOverrides[m.memberId] || null,
     }))
 
     try {
-      const newIsTermed = warType === 'termed'
+      const newIsTermed = warType === 'termed' || warType === 'race'
       if (Boolean(selectedWar.is_termed) !== newIsTermed) {
         await updateWarIsTermed(selectedWar.id, newIsTermed, user.apiKey)
         setSelectedWar(prev => prev ? { ...prev, is_termed: newIsTermed } : prev)
@@ -662,8 +723,12 @@ export default function WarPayoutManagement() {
         case 'contribShare':     return dir * ((a.contributionShare ?? 0) - (b.contributionShare ?? 0))
         case 'effort':           return dir * ((a.effortShare ?? 0) - (b.effortShare ?? 0))
         case 'shares':           return dir * ((a.shares ?? 0) - (b.shares ?? 0))
+        case 'regularHits':      return dir * ((a.regularHits ?? 0) - (b.regularHits ?? 0))
+        case 'regularHitScore':  return dir * ((a.regularHitScore ?? 0) - (b.regularHitScore ?? 0))
         case 'preCutoffScore':   return dir * ((a.preCutoffScore ?? 0) - (b.preCutoffScore ?? 0))
         case 'postCutoffScore':  return dir * ((a.postCutoffScore ?? 0) - (b.postCutoffScore ?? 0))
+        case 'preCutoffPayout':  return dir * ((a.preCutoffPayout ?? 0) - (b.preCutoffPayout ?? 0))
+        case 'postCutoffPayout': return dir * ((a.postCutoffPayout ?? 0) - (b.postCutoffPayout ?? 0))
         case 'payout':           return dir * (a.payoutAmount - b.payoutAmount)
         case 'eligible':         return dir * ((a.isEligible ? 1 : 0) - (b.isEligible ? 1 : 0))
         default:                 return dir * (a.payoutAmount - b.payoutAmount)
@@ -701,10 +766,25 @@ export default function WarPayoutManagement() {
 
       {/* Settings panel — full width with embedded war selector */}
       <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 p-4">
-        <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Payout Settings</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-white">Payout Settings</h3>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleLoadHistory}
+              disabled={loadingHistory}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                showHistory
+                  ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
+                  : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700'
+              }`}
+            >
+              {loadingHistory ? 'Loading...' : 'View History'}
+            </button>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Col 1: war selector + war type + faction cut + cache prices + notes */}
+          {/* Col 1: war selector + war type + faction cut + total reward + notes */}
           <div className="space-y-3">
             <WarDropdown
               wars={wars}
@@ -723,89 +803,94 @@ export default function WarPayoutManagement() {
               </div>
             )}
 
-            {selectedWar && !loadingWarData && (
-              <>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    War Type
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setWarType('real')}
-                      className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
-                        warType === 'real'
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
-                          : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
-                      }`}
-                    >
-                      Real
-                    </button>
-                    <button
-                      onClick={() => setWarType('termed')}
-                      className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
-                        warType === 'termed'
-                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
-                          : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
-                      }`}
-                    >
-                      Termed
-                    </button>
-                  </div>
-                </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                War Type
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setWarType('real')}
+                  className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                    warType === 'real'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
+                      : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                  }`}
+                >
+                  Real
+                </button>
+                <button
+                  onClick={() => setWarType('termed')}
+                  className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                    warType === 'termed'
+                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
+                      : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                  }`}
+                >
+                  Termed
+                </button>
+                <button
+                  onClick={() => setWarType('race')}
+                  className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                    warType === 'race'
+                      ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
+                      : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                  }`}
+                >
+                  Race
+                </button>
+              </div>
+            </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    Faction Cut (%)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={factionCutPercent}
-                    onChange={e => setFactionCutPercent(e.target.value)}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                  />
-                </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Faction Cut (%)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={factionCutPercent}
+                onChange={e => setFactionCutPercent(e.target.value)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+              />
+            </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    Total Reward ($)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={totalReward || ''}
-                    onChange={e => setTotalReward(Number(e.target.value) || 0)}
-                    placeholder="0"
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                  />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    Total value of all war rewards (caches, items, etc.)
-                  </p>
-                </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Total Reward ($)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={totalReward || ''}
+                onChange={e => setTotalReward(Number(e.target.value) || 0)}
+                placeholder="0"
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Total value of all war rewards (caches, items, etc.)
+              </p>
+            </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    Notes
-                  </label>
-                  <textarea
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    rows={2}
-                    placeholder="Optional notes for this payout..."
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
-                  />
-                </div>
-              </>
-            )}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Notes
+              </label>
+              <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                rows={2}
+                placeholder="Optional notes for this payout..."
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-none"
+              />
+            </div>
           </div>
 
           {/* Col 2: war-type-specific settings */}
           <div className="space-y-3">
-            {selectedWar && !loadingWarData && (
-              warType === 'termed' ? (
+            {warType === 'termed' ? (
                 <>
                   <h4 className="text-xs font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wider">
                     Termed War Settings
@@ -889,10 +974,12 @@ export default function WarPayoutManagement() {
                     </>
                   )}
                 </>
-              ) : (
+              ) : null}
+
+            {(warType === 'real' || warType === 'race') && (
                 <>
                   <h4 className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
-                    Real War Formula
+                    {warType === 'race' ? 'Race War Formula (Pre-Cutoff)' : 'Real War Formula'}
                   </h4>
 
                   {/* Weight slider */}
@@ -937,10 +1024,11 @@ export default function WarPayoutManagement() {
                     </label>
                     <div className="space-y-1.5">
                       {[
-                        { label: 'War Hit ×',  value: warHitMult, set: setWarHitMult, step: '0.05' },
-                        { label: 'Assist ×',   value: assistMult, set: setAssistMult, step: '0.05' },
-                        { label: 'Loss ×',     value: lossMult,   set: setLossMult,   step: '0.05' },
-                        { label: 'Mug ×',      value: mugMult,    set: setMugMult,    step: '0.05' },
+                        { label: 'War Hit ×',    value: warHitMult,    set: setWarHitMult,    step: '0.05' },
+                        { label: 'Regular ×',    value: regularHitMult, set: setRegularHitMult, step: '0.05' },
+                        { label: 'Assist ×',     value: assistMult,    set: setAssistMult,    step: '0.05' },
+                        { label: 'Loss ×',       value: lossMult,      set: setLossMult,      step: '0.05' },
+                        { label: 'Mug ×',        value: mugMult,       set: setMugMult,       step: '0.05' },
                       ].map(({ label, value, set, step }) => (
                         <div key={label} className="flex items-center gap-2">
                           <span className="text-xs text-gray-600 dark:text-gray-400 w-16 sm:w-20 flex-shrink-0">{label}</span>
@@ -988,7 +1076,181 @@ export default function WarPayoutManagement() {
                     </p>
                   </div>
                 </>
-              )
+            )}
+
+            {/* Race-specific settings */}
+            {warType === 'race' && (
+              <>
+                <h4 className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mt-4">
+                  Race Settings
+                </h4>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Target Score
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={raceTargetScore || ''}
+                    onChange={e => setRaceTargetScore(Number(e.target.value) || 0)}
+                    placeholder="e.g. 500"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Cutoff Mode
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setRaceCutoffMode('auto')}
+                      className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                        raceCutoffMode === 'auto'
+                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
+                          : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                      }`}
+                    >
+                      Auto-detect
+                    </button>
+                    <button
+                      onClick={() => setRaceCutoffMode('manual')}
+                      className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                        raceCutoffMode === 'manual'
+                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
+                          : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                      }`}
+                    >
+                      Manual TCT
+                    </button>
+                  </div>
+                </div>
+
+                {raceCutoffMode === 'auto' && selectedWar && attacks.length > 0 && (
+                  <div>
+                    <button
+                      onClick={() => {
+                        const ts = detectRaceCutoff(attacks, Number(raceTargetScore) || 0)
+                        setRaceCutoffTimestamp(ts)
+                      }}
+                      disabled={!raceTargetScore}
+                      className="w-full py-1.5 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+                    >
+                      Detect Cutoff
+                    </button>
+                    {raceCutoffTimestamp && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                        Cutoff detected: {new Date(raceCutoffTimestamp * 1000).toLocaleString()} (TCT)
+                      </p>
+                    )}
+                    {raceCutoffTimestamp === null && raceTargetScore > 0 && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Neither faction reached {raceTargetScore} in available attacks.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {raceCutoffMode === 'manual' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Manual Cutoff (Unix timestamp)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={raceManualCutoff}
+                      onChange={e => {
+                        setRaceManualCutoff(e.target.value)
+                        setRaceCutoffTimestamp(Number(e.target.value) || null)
+                      }}
+                      placeholder="Unix timestamp"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                    />
+                    {raceCutoffTimestamp && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {new Date(raceCutoffTimestamp * 1000).toLocaleString()} (TCT)
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                    <span className="font-medium">Pre / Post Cutoff Pool Split</span>
+                    <span className="text-gray-400">{racePreCutoffPercent}% / {100 - racePreCutoffPercent}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0" max="100" step="5"
+                    value={racePreCutoffPercent}
+                    onChange={e => setRacePreCutoffPercent(Number(e.target.value))}
+                    className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-gradient-to-r from-blue-400 to-purple-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Post-Cutoff Mode
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setRacePostCutoffMode('flat')}
+                      className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                        racePostCutoffMode === 'flat'
+                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
+                          : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                      }`}
+                    >
+                      Flat Shares
+                    </button>
+                    <button
+                      onClick={() => setRacePostCutoffMode('scaling')}
+                      className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                        racePostCutoffMode === 'scaling'
+                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
+                          : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                      }`}
+                    >
+                      Scaling
+                    </button>
+                  </div>
+                </div>
+
+                {racePostCutoffMode === 'scaling' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Score Threshold (for post-cutoff scaling)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={minScoreThreshold}
+                        onChange={e => setMinScoreThreshold(e.target.value)}
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Cutoff Hours (for post-cutoff scaling window)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={cutoffHours}
+                        onChange={e => setCutoffHours(Number(e.target.value) || 0)}
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                  </>
+                )}
+              </>
             )}
           </div>
 
@@ -1017,7 +1279,7 @@ export default function WarPayoutManagement() {
       {selectedWar && !loadingWarData && attacks.length > 0 && (
         <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
           {/* Tab switcher */}
-          <div className="flex border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-700/40">
+          <div className="flex items-center border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-700/40">
             <button
               onClick={() => setActiveTab('payout')}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
@@ -1038,6 +1300,18 @@ export default function WarPayoutManagement() {
             >
               Hit Report
             </button>
+            <div className="ml-auto pr-2">
+              <button
+                onClick={() => setViewMode(v => v === 'leader' ? 'member' : 'leader')}
+                className={`px-2 py-1 text-xs rounded border transition-colors ${
+                  viewMode === 'member'
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                    : 'border-gray-300 dark:border-slate-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                {viewMode === 'leader' ? 'Leader View' : 'Member View'}
+              </button>
+            </div>
           </div>
 
           {activeTab === 'hits' && (
@@ -1070,7 +1344,7 @@ export default function WarPayoutManagement() {
                 {formatCurrency(payoutResults.cacheValue)}
               </span>
             </div>
-            {warType === 'real' && (payoutResults.mercCost > 0 || payoutResults.reviverCost > 0) && (
+            {(warType === 'real' || warType === 'race') && (payoutResults.mercCost > 0 || payoutResults.reviverCost > 0) && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Costs: </span>
                 <span className="font-semibold text-red-600 dark:text-red-400">
@@ -1084,7 +1358,7 @@ export default function WarPayoutManagement() {
                 {formatCurrency(payoutResults.factionCutAmount ?? 0)}
               </span>
             </div>
-            {warType === 'real' && payoutResults.factionTopUp > 0 && (
+            {(warType === 'real' || warType === 'race') && payoutResults.factionTopUp > 0 && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Top-up: </span>
                 <span className="font-semibold text-green-600 dark:text-green-400">
@@ -1106,6 +1380,22 @@ export default function WarPayoutManagement() {
                 </span>
               </div>
             )}
+            {warType === 'race' && (
+              <>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Pre-cutoff: </span>
+                  <span className="font-semibold text-blue-700 dark:text-blue-400">
+                    {formatCurrency(payoutResults.preCutoffPool ?? 0)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Post-cutoff: </span>
+                  <span className="font-semibold text-purple-700 dark:text-purple-400">
+                    {formatCurrency(payoutResults.postCutoffPool ?? 0)}
+                  </span>
+                </div>
+              </>
+            )}
             <div>
               <span className="text-gray-500 dark:text-gray-400">Total Payout: </span>
               <span className="font-semibold text-green-700 dark:text-green-400">
@@ -1118,7 +1408,7 @@ export default function WarPayoutManagement() {
                 {eligibleCount}/{effectiveMembers.length}
               </span>
             </div>
-            {warType === 'real' && payoutResults.payPerHit > 0 && (
+            {(warType === 'real' || warType === 'race') && payoutResults.payPerHit > 0 && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Pay / War Hit: </span>
                 <span className="font-semibold text-blue-700 dark:text-blue-400">
@@ -1127,7 +1417,7 @@ export default function WarPayoutManagement() {
                 <span className="text-gray-400 ml-1">({payoutResults.totalWarHits} hits)</span>
               </div>
             )}
-            {warType === 'real' && factionFilter && factionFilter.size > 0 && (
+            {(warType === 'real' || warType === 'race') && factionFilter && factionFilter.size > 0 && (
               <div className="text-blue-600 dark:text-blue-400">
                 Filtered by {factionFilter.size} faction{factionFilter.size === 1 ? '' : 's'}
               </div>
@@ -1144,18 +1434,18 @@ export default function WarPayoutManagement() {
             <table className="w-full text-xs border-separate border-spacing-0">
               <thead>
                 <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700">
-                  <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={warType === 'real' ? 9 : 2}>
-                    {warType === 'real' ? 'Hit Report' : 'Member'}
+                  <th className="px-3 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={1}>
+                    Member
                   </th>
-                  {warType === 'real' && (
+                  {(warType === 'real' || warType === 'race') && (
                     <>
-                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={4}>
-                        Participation Score
+                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={viewMode === 'leader' ? 10 : 5}>
+                        Participation
                       </th>
                       <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={4}>
-                        Contribution Score
+                        Contribution
                       </th>
-                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={3}>
+                      <th className="px-3 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700" colSpan={warType === 'race' ? 5 : 3}>
                         Pay Out
                       </th>
                     </>
@@ -1173,28 +1463,32 @@ export default function WarPayoutManagement() {
                 </tr>
                 <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">
                   <SortHeader col="name" label="Player" className="sticky left-0 top-[32px] z-30 bg-gray-50 dark:bg-slate-700" />
-                  {warType === 'real' && (
+                  {(warType === 'real' || warType === 'race') && (
                     <>
-                      <SortHeader col="leaves"  label="Leaves"  className="text-right" />
-                      <SortHeader col="mugs"    label="Mugs"    className="text-right" />
-                      <SortHeader col="hosp"    label="Hosp"    className="text-right" />
-                      <SortHeader col="warHits" label="War"     className="text-right" />
-                      <SortHeader col="won"     label="Won"     className="text-right" />
-                      <SortHeader col="assists" label="Assists" className="text-right" />
-                      <SortHeader col="losses"  label="Lost"    className="text-right" />
-                      <SortHeader col="totalHits" label="Total" className="text-right border-r border-gray-200 dark:border-slate-700" />
-                      {/* Participation */}
-                      <SortHeader col="warHitScore"  label="War hit" className="text-right border-l border-gray-200 dark:border-slate-700" />
-                      <SortHeader col="assistScore"  label="Assist"  className="text-right" />
-                      <SortHeader col="lossScore"    label="Loss"    className="text-right" />
-                      <SortHeader col="partShare"    label="Score%"  className="text-right border-r border-gray-200 dark:border-slate-700" />
+                      <SortHeader col="warHits" label="War" className="text-right border-l border-gray-200 dark:border-slate-700" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">WH×</th>}
+                      <SortHeader col="assists" label="Ast" className="text-right" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">Ast×</th>}
+                      <SortHeader col="losses"  label="Loss" className="text-right" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">Lss×</th>}
+                      <SortHeader col="regularHits" label="Reg" className="text-right" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">Reg×</th>}
+                      <SortHeader col="mugs"    label="Mug"  className="text-right" />
+                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700">Mug×</th>}
+                      <SortHeader col="partShare" label="Part%" className="text-right border-r border-gray-200 dark:border-slate-700" />
                       {/* Contribution */}
                       <SortHeader col="respect"         label="Respect" className="text-right border-l border-gray-200 dark:border-slate-700" />
                       <SortHeader col="bonusRespect"    label="Bonus"   className="text-right" />
                       <SortHeader col="adjustedRespect" label="Adj."    className="text-right" />
                       <SortHeader col="contribShare"    label="Contrib%" className="text-right border-r border-gray-200 dark:border-slate-700" />
-                      {/* Effort */}
+                      {/* Effort / Payout */}
                       <SortHeader col="effort" label="Effort%" className="text-right border-l border-gray-200 dark:border-slate-700" />
+                      {warType === 'race' && (
+                        <>
+                          <SortHeader col="preCutoffPayout"  label="Pre$" className="text-right" />
+                          <SortHeader col="postCutoffPayout" label="Post$" className="text-right" />
+                        </>
+                      )}
                     </>
                   )}
                   {warType === 'termed' && termedMode === 'flat' && (
@@ -1212,8 +1506,10 @@ export default function WarPayoutManagement() {
                 </tr>
               </thead>
               <tbody>
-                {sortedMembers().map(m => (
-                  <tr
+                {sortedMembers().map(m => {
+                  const hasOverride = (key) => memberMultiplierOverrides[m.memberId]?.[key] !== undefined
+                  const overrideBorder = 'border border-amber-400 dark:border-amber-500'
+                  return (<tr
                     key={m.memberId}
                     className={`border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-slate-700/30 ${
                       !m.isEligible ? 'opacity-40' : ''
@@ -1222,40 +1518,129 @@ export default function WarPayoutManagement() {
                     <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">
                       {m.memberName}
                     </td>
-                    {warType === 'real' && (
+                    {(warType === 'real' || warType === 'race') && (
                       <>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.leaves ?? 0}</td>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.mugs ?? 0}</td>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.hosp ?? 0}</td>
-                        <td className="px-3 py-1.5 text-right font-medium text-blue-700 dark:text-blue-400">{m.warHits ?? 0}</td>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.won ?? 0}</td>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.assists ?? 0}</td>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.losses ?? 0}</td>
-                        <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{m.totalHits ?? 0}</td>
-                        {/* Participation */}
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{m.warHitScore?.toFixed(2) ?? '0.00'}</td>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.assistScore?.toFixed(2) ?? '0.00'}</td>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.lossScore?.toFixed(2) ?? '0.00'}</td>
-                        <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
-                          {(m.participationShare * 100).toFixed(2)}%
+                        {/* War Hits + multiplier */}
+                        <td className="px-2 py-1 text-right font-medium text-blue-700 dark:text-blue-400 border-l border-gray-200 dark:border-slate-700">{m.warHits ?? 0}</td>
+                        {viewMode === 'leader' && (
+                          <td className="px-0 py-0.5 text-right">
+                            <input type="number" step="0.05"
+                              value={m.effWarHitMult ?? warHitMult}
+                              onChange={e => {
+                                const v = parseFloat(e.target.value)
+                                setMemberMultiplierOverrides(prev => {
+                                  const cur = { ...prev[m.memberId] }
+                                  if (v === Number(warHitMult)) { delete cur.warHitMultiplier } else { cur.warHitMultiplier = v }
+                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
+                                })
+                              }}
+                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('warHitMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
+                            />
+                          </td>
+                        )}
+                        {/* Assists + multiplier */}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.assists ?? 0}</td>
+                        {viewMode === 'leader' && (
+                          <td className="px-0 py-0.5 text-right">
+                            <input type="number" step="0.05"
+                              value={m.effAssistMult ?? assistMult}
+                              onChange={e => {
+                                const v = parseFloat(e.target.value)
+                                setMemberMultiplierOverrides(prev => {
+                                  const cur = { ...prev[m.memberId] }
+                                  if (v === Number(assistMult)) { delete cur.assistMultiplier } else { cur.assistMultiplier = v }
+                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
+                                })
+                              }}
+                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('assistMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
+                            />
+                          </td>
+                        )}
+                        {/* Losses + multiplier */}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.losses ?? 0}</td>
+                        {viewMode === 'leader' && (
+                          <td className="px-0 py-0.5 text-right">
+                            <input type="number" step="0.05"
+                              value={m.effLossMult ?? lossMult}
+                              onChange={e => {
+                                const v = parseFloat(e.target.value)
+                                setMemberMultiplierOverrides(prev => {
+                                  const cur = { ...prev[m.memberId] }
+                                  if (v === Number(lossMult)) { delete cur.lossMultiplier } else { cur.lossMultiplier = v }
+                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
+                                })
+                              }}
+                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('lossMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
+                            />
+                          </td>
+                        )}
+                        {/* Regular Hits + multiplier */}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.regularHits ?? 0}</td>
+                        {viewMode === 'leader' && (
+                          <td className="px-0 py-0.5 text-right">
+                            <input type="number" step="0.05"
+                              value={m.effRegularMult ?? regularHitMult}
+                              onChange={e => {
+                                const v = parseFloat(e.target.value)
+                                setMemberMultiplierOverrides(prev => {
+                                  const cur = { ...prev[m.memberId] }
+                                  if (v === Number(regularHitMult)) { delete cur.regularHitMultiplier } else { cur.regularHitMultiplier = v }
+                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
+                                })
+                              }}
+                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('regularHitMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
+                            />
+                          </td>
+                        )}
+                        {/* Mugs + multiplier */}
+                        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400">{m.mugs ?? 0}</td>
+                        {viewMode === 'leader' && (
+                          <td className="px-0 py-0.5 text-right">
+                            <input type="number" step="0.05"
+                              value={m.effMugMult ?? mugMult}
+                              onChange={e => {
+                                const v = parseFloat(e.target.value)
+                                setMemberMultiplierOverrides(prev => {
+                                  const cur = { ...prev[m.memberId] }
+                                  if (v === Number(mugMult)) { delete cur.mugMultiplier } else { cur.mugMultiplier = v }
+                                  return { ...prev, [m.memberId]: Object.keys(cur).length ? cur : undefined }
+                                })
+                              }}
+                              className={`w-12 px-0.5 py-0 text-[10px] text-right rounded bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300 ${hasOverride('mugMultiplier') ? overrideBorder : 'border border-gray-200 dark:border-slate-600'}`}
+                            />
+                          </td>
+                        )}
+                        {/* Participation % */}
+                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
+                          {((m.participationShare ?? 0) * 100).toFixed(1)}%
                         </td>
                         {/* Contribution */}
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">
-                          {Number(m.respectGained).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">
+                          {Number(m.respectGained ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>
-                        <td className="px-3 py-1.5 text-right text-amber-600 dark:text-amber-400">
-                          {m.bonusRespect > 0 ? `−${m.bonusRespect.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
+                        <td className="px-2 py-1 text-right text-amber-600 dark:text-amber-400">
+                          {(m.bonusRespect ?? 0) > 0 ? `−${m.bonusRespect.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
                         </td>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">
-                          {Number(m.adjustedRespect).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">
+                          {Number(m.adjustedRespect ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>
-                        <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
-                          {(m.contributionShare * 100).toFixed(2)}%
+                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
+                          {((m.contributionShare ?? 0) * 100).toFixed(1)}%
                         </td>
-                        {/* Effort */}
-                        <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
-                          {(m.effortShare * 100).toFixed(2)}%
+                        {/* Effort / Payout */}
+                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
+                          {((m.effortShare ?? 0) * 100).toFixed(1)}%
                         </td>
+                        {warType === 'race' && (
+                          <>
+                            <td className="px-2 py-1 text-right text-blue-600 dark:text-blue-400">
+                              {formatCurrency(m.preCutoffPayout ?? 0)}
+                            </td>
+                            <td className="px-2 py-1 text-right text-purple-600 dark:text-purple-400">
+                              {formatCurrency(m.postCutoffPayout ?? 0)}
+                            </td>
+                          </>
+                        )}
                       </>
                     )}
                     {warType === 'termed' && termedMode === 'flat' && (
@@ -1301,8 +1686,8 @@ export default function WarPayoutManagement() {
                         className="rounded border-gray-300 dark:border-slate-600 text-blue-600"
                       />
                     </td>
-                  </tr>
-                ))}
+                  </tr>)
+                })}
               </tbody>
             </table>
           </div>
@@ -1335,14 +1720,6 @@ export default function WarPayoutManagement() {
                 {isSaving ? 'Saving...' : 'Save to Database'}
               </button>
             )}
-
-            <button
-              onClick={handleLoadHistory}
-              disabled={loadingHistory}
-              className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
-            >
-              {loadingHistory ? 'Loading...' : 'View History'}
-            </button>
 
             {saveError && (
               <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>
@@ -1392,7 +1769,7 @@ export default function WarPayoutManagement() {
         <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
             <h3 className="font-semibold text-gray-900 dark:text-white">
-              Saved Payouts for War #{selectedWar.id}
+              Recent Saved Payouts
             </h3>
             <button
               onClick={() => setShowHistory(false)}
@@ -1403,7 +1780,7 @@ export default function WarPayoutManagement() {
           </div>
           {historicalPayouts.length === 0 ? (
             <p className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400 text-center">
-              No saved payouts for this war yet.
+              No saved payouts yet.
             </p>
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-slate-700">
@@ -1419,6 +1796,9 @@ export default function WarPayoutManagement() {
                       <div>
                         <span className="font-medium text-gray-900 dark:text-white capitalize">
                           {payout.war_type} war
+                        </span>
+                        <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
+                          (War #{payout.war_id})
                         </span>
                         <span className="ml-2 text-gray-500 dark:text-gray-400">
                           {new Date(payout.created_at).toLocaleDateString()} by {payout.created_by}

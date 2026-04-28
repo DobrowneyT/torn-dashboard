@@ -117,6 +117,7 @@ export function buildMemberAttackStats(attacks) {
         mugs: 0,
         hosp: 0,
         warHits: 0,
+        regularHits: 0,
         won: 0,
         assists: 0,
         losses: 0,
@@ -146,6 +147,8 @@ export function buildMemberAttackStats(attacks) {
         if (BONUS_HITS.has(chain)) {
           s.bonusRespect += Math.max(0, respectGain - 10)
         }
+      } else {
+        s.regularHits += 1
       }
     }
     // Stalemate, Escape, Special → not counted in any column
@@ -418,11 +421,14 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
   const {
     totalReward = 0,
     factionCutPercent = 20,
-    // Attack multipliers
-    warHitMultiplier  =  1.25,
-    assistMultiplier  =  0.50,
-    lossMultiplier    =  0.50,
-    mugMultiplier     = -1.00,
+    // Attack multipliers (global defaults)
+    warHitMultiplier     =  1.25,
+    assistMultiplier     =  0.50,
+    lossMultiplier       =  0.50,
+    mugMultiplier        = -1.00,
+    regularHitMultiplier =  0.00,
+    // Per-member multiplier overrides: { [memberId]: { warHitMultiplier?: n, ... } }
+    memberMultiplierOverrides = {},
     // Weight split (must sum to 1; caller is responsible for normalising)
     participationWeight = 0.50,
     contributionWeight  = 0.50,
@@ -448,16 +454,24 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
   const memberData = contributions.map(m => {
     const memberId = m.member_id
     const s = attackStats.get(memberId) ?? {
-      leaves: 0, mugs: 0, hosp: 0, warHits: 0, won: 0, assists: 0, losses: 0, bonusRespect: 0,
+      leaves: 0, mugs: 0, hosp: 0, warHits: 0, regularHits: 0, won: 0, assists: 0, losses: 0, bonusRespect: 0,
     }
 
+    // Resolve effective multipliers (per-member overrides fall back to globals)
+    const overrides = memberMultiplierOverrides[memberId] || {}
+    const effWarHitMult  = overrides.warHitMultiplier     ?? warHitMultiplier
+    const effAssistMult  = overrides.assistMultiplier      ?? assistMultiplier
+    const effLossMult    = overrides.lossMultiplier        ?? lossMultiplier
+    const effMugMult     = overrides.mugMultiplier         ?? mugMultiplier
+    const effRegularMult = overrides.regularHitMultiplier  ?? regularHitMultiplier
+
     // Participation score
-    const warHitScore  = s.warHits * warHitMultiplier
-    const mugScore     = s.mugs    * mugMultiplier
-    const assistScore  = s.assists * assistMultiplier
-    const lossScore    = s.losses  * lossMultiplier
-    const participationScore = warHitScore + mugScore + assistScore + lossScore
-    // regularHits (non-war wins) multiply at ×0, so they're shown but don't contribute
+    const warHitScore     = s.warHits     * effWarHitMult
+    const regularHitScore = s.regularHits * effRegularMult
+    const mugScore        = s.mugs        * effMugMult
+    const assistScore     = s.assists     * effAssistMult
+    const lossScore       = s.losses      * effLossMult
+    const participationScore = warHitScore + regularHitScore + mugScore + assistScore + lossScore
 
     // Contribution score
     const respectGained   = Number(m.score) || 0
@@ -468,16 +482,24 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
       memberId,
       memberName: m.member_name,
       // Hit report
-      leaves:    s.leaves,
-      mugs:      s.mugs,
-      hosp:      s.hosp,
-      warHits:   s.warHits,
-      won:       s.won,
-      assists:   s.assists,
-      losses:    s.losses,
-      totalHits: s.won + s.assists + s.losses,
+      leaves:      s.leaves,
+      mugs:        s.mugs,
+      hosp:        s.hosp,
+      warHits:     s.warHits,
+      regularHits: s.regularHits,
+      won:         s.won,
+      assists:     s.assists,
+      losses:      s.losses,
+      totalHits:   s.won + s.assists + s.losses,
+      // Effective multipliers (for UI display / per-member override columns)
+      effWarHitMult,
+      effAssistMult,
+      effLossMult,
+      effMugMult,
+      effRegularMult,
       // Participation breakdown
       warHitScore:        Math.round(warHitScore        * 100) / 100,
+      regularHitScore:    Math.round(regularHitScore    * 100) / 100,
       assistScore:        Math.round(assistScore        * 100) / 100,
       lossScore:          Math.round(lossScore          * 100) / 100,
       mugScore:           Math.round(mugScore           * 100) / 100,
@@ -533,6 +555,174 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     totalWarHits,
     payPerHit,
     overBudgetWarning: false, // formula distributes exactly the pool
+  }
+}
+
+
+/**
+ * Detect the race cutoff timestamp — the moment either faction reaches the target score.
+ *
+ * Walks ALL attacks sorted by `started` ascending.  For each ranked-war WIN:
+ *   - Outgoing (our faction attacking): add respect_gain to our tally
+ *   - Incoming (opponent attacking us with a win): add respect_gain to opposing tally
+ *
+ * Bonus chain hits use FULL respect_gain (not normalized) because the war report
+ * score includes the bonus.
+ *
+ * @param {Array}  attacks     - faction_attacks rows (full war window, both directions)
+ * @param {number} targetScore - score threshold (e.g. 500)
+ * @returns {number|null} Unix timestamp when either tally crossed target, or null
+ */
+export function detectRaceCutoff(attacks, targetScore) {
+  if (!targetScore || targetScore <= 0) return null
+
+  const sorted = [...attacks].sort((a, b) => (Number(a.started) || 0) - (Number(b.started) || 0))
+  let ourScore = 0
+  let opposingScore = 0
+
+  for (const a of sorted) {
+    const result = a.result || ''
+    if (!WIN_RESULTS.has(result)) continue
+    const isRankedWar = a.is_ranked_war === true || a.is_ranked_war === 'true' || a.is_ranked_war === 1
+    if (!isRankedWar) continue
+
+    const respect = parseFloat(a.respect_gain) || 0
+    const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
+
+    if (!isIncoming && a.attacker_faction_id === OUR_FACTION_ID) {
+      ourScore += respect
+    } else if (isIncoming && a.defender_faction_id === OUR_FACTION_ID) {
+      opposingScore += respect
+    }
+
+    if (ourScore >= targetScore || opposingScore >= targetScore) {
+      return Number(a.started) || 0
+    }
+  }
+
+  return null
+}
+
+
+/**
+ * Calculate race war payouts — hybrid real + termed.
+ *
+ * Splits attacks into pre-cutoff and post-cutoff windows.
+ * Pre-cutoff pool uses the real war formula (participation + contribution).
+ * Post-cutoff pool uses the termed formula (flat shares or scaling).
+ *
+ * @param {Array}  contributions - war_member_contributions rows (our faction only)
+ * @param {Array}  attacks       - faction_attacks rows (pre-filtered to war window)
+ * @param {object} settings      - combined real + termed + race settings
+ */
+export function calculateRaceWarPayouts(contributions, attacks, settings) {
+  const {
+    totalReward = 0,
+    factionCutPercent = 20,
+    mercCost     = 0,
+    reviverCost  = 0,
+    factionTopUp = 0,
+    // Race-specific
+    raceCutoffTimestamp,
+    racePreCutoffPercent = 50,
+    racePostCutoffMode = 'flat',  // 'flat' | 'scaling'
+    // Real-war multipliers (for pre-cutoff)
+    warHitMultiplier     =  1.25,
+    assistMultiplier     =  0.50,
+    lossMultiplier       =  0.50,
+    mugMultiplier        = -1.00,
+    regularHitMultiplier =  0.00,
+    memberMultiplierOverrides = {},
+    participationWeight = 0.50,
+    contributionWeight  = 0.50,
+    // Termed settings (for post-cutoff)
+    memberShares = {},
+    minScoreThreshold = 0,
+    cutoffHours = 24,
+  } = settings
+
+  const totalCacheValue = Number(totalReward) || 0
+  const afterCosts = Math.max(0, totalCacheValue - Number(mercCost) - Number(reviverCost))
+  const factionCutAmount = Math.floor(afterCosts * (factionCutPercent / 100))
+  const basePool = Math.max(0, afterCosts - factionCutAmount)
+  const memberPool = basePool + Number(factionTopUp)
+
+  const cutoff = Number(raceCutoffTimestamp) || 0
+  const preCutoffPool = Math.floor(memberPool * (Number(racePreCutoffPercent) / 100))
+  const postCutoffPool = memberPool - preCutoffPool
+
+  // Split attacks into pre/post cutoff
+  const preAttacks = attacks.filter(a => (Number(a.started) || 0) <= cutoff)
+  const postAttacks = attacks.filter(a => (Number(a.started) || 0) > cutoff)
+
+  // ── Pre-cutoff: real war formula ──────────────────────────────────
+  const preResult = calculateRealWarPayouts(contributions, preAttacks, {
+    totalReward: preCutoffPool,  // Directly use as pool (no cuts — already applied)
+    factionCutPercent: 0,
+    mercCost: 0,
+    reviverCost: 0,
+    factionTopUp: 0,
+    warHitMultiplier,
+    assistMultiplier,
+    lossMultiplier,
+    mugMultiplier,
+    regularHitMultiplier,
+    memberMultiplierOverrides,
+    participationWeight,
+    contributionWeight,
+  })
+
+  // ── Post-cutoff: termed formula ───────────────────────────────────
+  const postResult = calculateTermedWarPayouts(contributions, {
+    totalReward: postCutoffPool,  // Directly use as pool
+    factionCutPercent: 0,
+    minScoreThreshold,
+    termedMode: racePostCutoffMode,
+    memberShares,
+    attacks: postAttacks,
+    warStartAt: cutoff,  // post-cutoff "start" is the cutoff itself
+    cutoffHours,
+  })
+
+  // ── Combine per-member results ────────────────────────────────────
+  const preByMember = new Map(preResult.members.map(m => [m.memberId, m]))
+  const postByMember = new Map(postResult.members.map(m => [m.memberId, m]))
+
+  const members = contributions.map(m => {
+    const memberId = m.member_id
+    const pre = preByMember.get(memberId) || { payoutAmount: 0 }
+    const post = postByMember.get(memberId) || { payoutAmount: 0, shares: 0 }
+
+    return {
+      // Carry all real-war fields from pre-cutoff result
+      ...pre,
+      memberId,
+      memberName: m.member_name,
+      // Race-specific breakdowns
+      preCutoffPayout: pre.payoutAmount,
+      postCutoffPayout: post.payoutAmount,
+      postCutoffShares: post.shares || 0,
+      payoutAmount: pre.payoutAmount + post.payoutAmount,
+      isEligible: (pre.payoutAmount + post.payoutAmount) > 0,
+    }
+  })
+
+  const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
+
+  return {
+    members,
+    totalPayout,
+    cacheValue: totalCacheValue,
+    memberPayoutPool: memberPool,
+    basePool,
+    factionCutAmount,
+    mercCost: Number(mercCost) || 0,
+    reviverCost: Number(reviverCost) || 0,
+    factionTopUp: Number(factionTopUp) || 0,
+    preCutoffPool,
+    postCutoffPool,
+    raceCutoffTimestamp: cutoff,
+    overBudgetWarning: false,
   }
 }
 

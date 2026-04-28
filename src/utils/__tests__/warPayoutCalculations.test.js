@@ -5,6 +5,8 @@ import {
   calculateRealWarPayouts,
   buildMemberAttackStats,
   calculateCutoffScores,
+  detectRaceCutoff,
+  calculateRaceWarPayouts,
   generateWarBatchPayoutURL,
 } from '../warPayoutCalculations.js'
 
@@ -574,6 +576,350 @@ describe('calculateRealWarPayouts', () => {
       SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
     )
     expect(overBudgetWarning).toBe(false)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// buildMemberAttackStats — regularHits
+// ---------------------------------------------------------------------------
+
+describe('buildMemberAttackStats — regularHits', () => {
+  it('counts non-ranked wins as regularHits', () => {
+    const attacks = [
+      { id: 50, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: false, is_incoming: false, chain: 1, respect_gain: 5 },
+      { id: 51, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: false, is_incoming: false, chain: 2, respect_gain: 3 },
+    ]
+    const stats = buildMemberAttackStats(attacks)
+    expect(stats.get(100).regularHits).toBe(2)
+    expect(stats.get(100).warHits).toBe(0)
+  })
+
+  it('ranked war wins do not count as regularHits', () => {
+    const attacks = [
+      { id: 52, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, chain: 1, respect_gain: 5 },
+    ]
+    const stats = buildMemberAttackStats(attacks)
+    expect(stats.get(100).warHits).toBe(1)
+    expect(stats.get(100).regularHits).toBe(0)
+  })
+
+  it('mixed ranked and non-ranked wins tracked separately', () => {
+    const attacks = [
+      { id: 53, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true,  is_incoming: false, chain: 1, respect_gain: 5 },
+      { id: 54, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: false, is_incoming: false, chain: 2, respect_gain: 3 },
+      { id: 55, attacker_id: 100, attacker_faction_id: 10739, result: 'Mugged',       is_ranked_war: false, is_incoming: false, chain: 3, respect_gain: 2 },
+    ]
+    const stats = buildMemberAttackStats(attacks)
+    expect(stats.get(100).warHits).toBe(1)
+    expect(stats.get(100).regularHits).toBe(2)
+    expect(stats.get(100).won).toBe(3)
+  })
+
+  it('assists and losses do not count as regularHits', () => {
+    const attacks = [
+      { id: 56, attacker_id: 100, attacker_faction_id: 10739, result: 'Assist', is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+      { id: 57, attacker_id: 100, attacker_faction_id: 10739, result: 'Lost',   is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+    ]
+    const stats = buildMemberAttackStats(attacks)
+    expect(stats.get(100).regularHits).toBe(0)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// calculateRealWarPayouts — per-member overrides & regularHitMultiplier
+// ---------------------------------------------------------------------------
+
+describe('calculateRealWarPayouts — per-member overrides', () => {
+  // Alice has 4 ranked-war hits, Bob has 2 mugs + 1 assist, Carol has 1 war hit + 1 assist
+  const baseSettings = {
+    totalReward: 10_000_000,
+    factionCutPercent: 0,
+    warHitMultiplier:    1.25,
+    assistMultiplier:    0.50,
+    lossMultiplier:      0.50,
+    mugMultiplier:      -1.00,
+    regularHitMultiplier: 0.00,
+    participationWeight: 1.0,
+    contributionWeight:  0.0,
+  }
+
+  it('regularHitMultiplier of 0 gives regularHits no score', () => {
+    const attacks = [
+      ...SAMPLE_ATTACKS,
+      { id: 60, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: false, is_incoming: false, chain: 5, respect_gain: 3 },
+    ]
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, attacks, baseSettings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.regularHits).toBe(1)
+    expect(alice.regularHitScore).toBe(0)
+  })
+
+  it('regularHitMultiplier > 0 adds to participation score', () => {
+    const attacks = [
+      ...SAMPLE_ATTACKS,
+      { id: 60, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: false, is_incoming: false, chain: 5, respect_gain: 3 },
+    ]
+    const settings = { ...baseSettings, regularHitMultiplier: 0.25 }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, attacks, settings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.regularHitScore).toBe(0.25) // 1 * 0.25
+    // participationScore includes regularHitScore
+    expect(alice.participationScore).toBe(
+      Math.round((4 * 1.25 + 1 * 0.25 + 0 * 0.50 + 1 * 0.50 + 0 * -1.00) * 100) / 100
+    )
+  })
+
+  it('per-member override replaces global multiplier for that member', () => {
+    const settings = {
+      ...baseSettings,
+      memberMultiplierOverrides: {
+        100: { warHitMultiplier: 2.00 },  // Alice gets 2× per war hit instead of 1.25
+      },
+    }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
+    // Alice: 4 * 2.00 = 8.0 war hit score
+    expect(alice.warHitScore).toBe(8.0)
+    expect(alice.effWarHitMult).toBe(2.00)
+    // Bob still uses global 1.25
+    expect(bob.effWarHitMult).toBe(1.25)
+  })
+
+  it('per-member override only affects specified multiplier type', () => {
+    const settings = {
+      ...baseSettings,
+      memberMultiplierOverrides: {
+        200: { mugMultiplier: 0 },  // Bob's mug penalty removed
+      },
+    }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
+    const bob = members.find(m => m.memberId === 200)
+    // Bob: 2 war hits * 1.25 + 2 mugs * 0 + 1 assist * 0.5 = 3.0
+    expect(bob.mugScore).toBe(0)
+    expect(bob.participationScore).toBe(3.0)
+    expect(bob.effMugMult).toBe(0)
+    expect(bob.effWarHitMult).toBe(1.25)  // unchanged
+  })
+
+  it('effective multipliers are returned per member', () => {
+    const settings = {
+      ...baseSettings,
+      memberMultiplierOverrides: {
+        100: { assistMultiplier: 0.75, regularHitMultiplier: 0.10 },
+      },
+    }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    const carol = members.find(m => m.memberId === 300)
+    expect(alice.effAssistMult).toBe(0.75)
+    expect(alice.effRegularMult).toBe(0.10)
+    expect(carol.effAssistMult).toBe(0.50)  // global default
+    expect(carol.effRegularMult).toBe(0.00) // global default
+  })
+
+  it('empty overrides object uses all globals', () => {
+    const settings = { ...baseSettings, memberMultiplierOverrides: {} }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.effWarHitMult).toBe(1.25)
+    expect(alice.effAssistMult).toBe(0.50)
+    expect(alice.effLossMult).toBe(0.50)
+    expect(alice.effMugMult).toBe(-1.00)
+    expect(alice.effRegularMult).toBe(0.00)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// detectRaceCutoff
+// ---------------------------------------------------------------------------
+
+describe('detectRaceCutoff', () => {
+  // Attacks for race detection: outgoing our hits + incoming opponent hits
+  const RACE_ATTACKS = [
+    // Our faction outgoing wins (respect adds to our tally)
+    { id: 70, attacker_id: 100, attacker_faction_id: 10739, defender_faction_id: 99999, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: 1000, respect_gain: 30 },
+    { id: 71, attacker_id: 200, attacker_faction_id: 10739, defender_faction_id: 99999, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: 2000, respect_gain: 25 },
+    // Incoming opponent wins (respect adds to opposing tally)
+    { id: 72, attacker_id: 500, attacker_faction_id: 99999, defender_id: 100, defender_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: true, started: 1500, respect_gain: 20 },
+    { id: 73, attacker_id: 501, attacker_faction_id: 99999, defender_id: 200, defender_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: true, started: 2500, respect_gain: 35 },
+    // More of our hits
+    { id: 74, attacker_id: 100, attacker_faction_id: 10739, defender_faction_id: 99999, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: 3000, respect_gain: 50 },
+  ]
+
+  it('returns timestamp when our faction reaches target first', () => {
+    // Target = 100. Our tally: 30 (t=1000) + 25 (t=2000) = 55 ... + 50 (t=3000) = 105 → crosses at t=3000
+    // Opposing tally: 20 (t=1500) + 35 (t=2500) = 55, never reaches 100
+    const ts = detectRaceCutoff(RACE_ATTACKS, 100)
+    expect(ts).toBe(3000)
+  })
+
+  it('returns timestamp when opposing faction reaches target first', () => {
+    // Target = 50. Sorted by started: t=1000(us+30), t=1500(them+20), t=2000(us+25), t=2500(them+35)
+    // Our: 30, then 55 at t=2000
+    // Opposing: 20, then 55 at t=2500
+    // Our crosses 50 first at t=2000
+    const ts = detectRaceCutoff(RACE_ATTACKS, 50)
+    expect(ts).toBe(2000)  // our faction hits 55 at t=2000
+  })
+
+  it('returns timestamp when opposing faction crosses first', () => {
+    // Target = 40. Sorted: t=1000(us=30), t=1500(them=20), t=2000(us=55), t=2500(them=55)
+    // Us at t=2000: 30+25=55 ≥ 40 → crosses at t=2000
+    // But them at t=1500: only 20 <40
+    // So us crosses first at t=2000
+    // Let's make a scenario where opponent crosses first:
+    const attacks = [
+      { id: 80, attacker_id: 100, attacker_faction_id: 10739, defender_faction_id: 99999, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: 5000, respect_gain: 10 },
+      { id: 81, attacker_id: 500, attacker_faction_id: 99999, defender_id: 100, defender_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: true, started: 3000, respect_gain: 50 },
+    ]
+    const ts = detectRaceCutoff(attacks, 40)
+    expect(ts).toBe(3000)  // opponent crosses 40 at t=3000, we don't until t=5000
+  })
+
+  it('returns null when neither faction reaches target', () => {
+    const ts = detectRaceCutoff(RACE_ATTACKS, 999)
+    expect(ts).toBeNull()
+  })
+
+  it('returns null for empty attacks', () => {
+    expect(detectRaceCutoff([], 100)).toBeNull()
+  })
+
+  it('returns null for zero or negative target', () => {
+    expect(detectRaceCutoff(RACE_ATTACKS, 0)).toBeNull()
+    expect(detectRaceCutoff(RACE_ATTACKS, -10)).toBeNull()
+  })
+
+  it('ignores non-ranked attacks', () => {
+    const attacks = [
+      { id: 90, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: false, is_incoming: false, started: 1000, respect_gain: 999 },
+    ]
+    expect(detectRaceCutoff(attacks, 50)).toBeNull()
+  })
+
+  it('ignores non-win results (assists, losses)', () => {
+    const attacks = [
+      { id: 91, attacker_id: 100, attacker_faction_id: 10739, result: 'Assist', is_ranked_war: true, is_incoming: false, started: 1000, respect_gain: 50 },
+      { id: 92, attacker_id: 100, attacker_faction_id: 10739, result: 'Lost',   is_ranked_war: true, is_incoming: false, started: 2000, respect_gain: 50 },
+    ]
+    expect(detectRaceCutoff(attacks, 50)).toBeNull()
+  })
+
+  it('uses full respect (no bonus normalization) for detection', () => {
+    // A bonus chain hit at chain=100 with 80 respect should count as 80 (not capped to 10)
+    const attacks = [
+      { id: 93, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: 1000, respect_gain: 80, chain: 100 },
+    ]
+    const ts = detectRaceCutoff(attacks, 50)
+    expect(ts).toBe(1000)  // 80 ≥ 50
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// calculateRaceWarPayouts
+// ---------------------------------------------------------------------------
+
+describe('calculateRaceWarPayouts', () => {
+  // Use TIMED_ATTACKS which have pre/post cutoff timestamps
+  // Alice: pre-cutoff respect 55, post-cutoff 50
+  // Bob: pre-cutoff respect 50, post-cutoff 25
+  // Carol: no wins
+  const baseSettings = {
+    totalReward: 10_000_000,
+    factionCutPercent: 0,
+    mercCost: 0,
+    reviverCost: 0,
+    factionTopUp: 0,
+    raceCutoffTimestamp: CUTOFF,
+    racePreCutoffPercent: 50,
+    racePostCutoffMode: 'flat',
+    warHitMultiplier: 1.25,
+    assistMultiplier: 0.50,
+    lossMultiplier: 0.50,
+    mugMultiplier: -1.00,
+    regularHitMultiplier: 0.00,
+    participationWeight: 1.0,
+    contributionWeight: 0.0,
+    minScoreThreshold: 0,
+  }
+
+  it('splits pool into pre and post cutoff pools', () => {
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    expect(result.preCutoffPool).toBe(5_000_000)   // 50% of 10M
+    expect(result.postCutoffPool).toBe(5_000_000)
+    expect(result.memberPayoutPool).toBe(10_000_000)
+  })
+
+  it('applies different pool split percentages', () => {
+    const settings = { ...baseSettings, racePreCutoffPercent: 70 }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    expect(result.preCutoffPool).toBe(7_000_000)
+    expect(result.postCutoffPool).toBe(3_000_000)
+  })
+
+  it('combines pre and post cutoff payouts per member', () => {
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    const alice = result.members.find(m => m.memberId === 100)
+    expect(alice.preCutoffPayout).toBeGreaterThanOrEqual(0)
+    expect(alice.postCutoffPayout).toBeGreaterThanOrEqual(0)
+    expect(alice.payoutAmount).toBe(alice.preCutoffPayout + alice.postCutoffPayout)
+  })
+
+  it('pre-cutoff portion uses real war formula', () => {
+    // With participationWeight=1, only attack stats matter for pre-cutoff
+    // Alice has pre-cutoff ranked war wins, Bob has pre-cutoff ranked war wins
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    // Both should have pre-cutoff payouts since they have war hits before cutoff
+    expect(alice.preCutoffPayout).toBeGreaterThan(0)
+    expect(bob.preCutoffPayout).toBeGreaterThan(0)
+  })
+
+  it('post-cutoff flat shares mode splits pool equally among eligible', () => {
+    // All 3 contributions are eligible (threshold=0), each gets 1 share
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    const carol = result.members.find(m => m.memberId === 300)
+    // Flat shares: each member gets floor(5M / 3) = 1,666,666
+    expect(alice.postCutoffPayout).toBe(Math.floor(5_000_000 / 3))
+    expect(bob.postCutoffPayout).toBe(Math.floor(5_000_000 / 3))
+    expect(carol.postCutoffPayout).toBe(Math.floor(5_000_000 / 3))
+  })
+
+  it('applies faction cut before splitting pools', () => {
+    const settings = { ...baseSettings, factionCutPercent: 20 }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    // 10M - 20% cut = 8M pool, 50/50 = 4M each
+    expect(result.factionCutAmount).toBe(2_000_000)
+    expect(result.memberPayoutPool).toBe(8_000_000)
+    expect(result.preCutoffPool).toBe(4_000_000)
+    expect(result.postCutoffPool).toBe(4_000_000)
+  })
+
+  it('total payout does not exceed member pool', () => {
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    expect(result.totalPayout).toBeLessThanOrEqual(result.memberPayoutPool)
+  })
+
+  it('handles post-cutoff scaling mode', () => {
+    const settings = {
+      ...baseSettings,
+      racePostCutoffMode: 'scaling',
+      minScoreThreshold: 50,
+      cutoffHours: 24,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    // Post-cutoff scaling uses termed scaling formula
+    // Members need to qualify based on their scores and post-cutoff attack data
+    expect(result.totalPayout).toBeGreaterThanOrEqual(0)
+    expect(result.totalPayout).toBeLessThanOrEqual(result.memberPayoutPool)
   })
 })
 

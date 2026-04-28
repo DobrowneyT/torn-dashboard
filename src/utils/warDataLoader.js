@@ -171,3 +171,21 @@ export async function loadLatestWarPayout(warId) {
   if (error && error.code !== 'PGRST116') throw error  // PGRST116 = no rows found
   return data || null
 }
+
+
+/**
+ * Load recent war payouts across all wars (for the View History panel).
+ *
+ * @param {number} [limit=20]
+ * @returns {Promise<Array>}
+ */
+export async function loadRecentWarPayouts(limit = 20) {
+  const { data, error } = await supabase
+    .from('war_payouts')
+    .select('*, war_payout_members(*)')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) throw error
+  return data || []
+}
