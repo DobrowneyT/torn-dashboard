@@ -319,6 +319,8 @@ export function calculateTermedWarPayouts(contributions, settings) {
     attacks = [],
     warStartAt = 0,
     cutoffHours = 24,
+    // Manual eligibility overrides — members in this set get 0 shares/payout
+    ineligibleMembers = new Set(),
   } = settings
 
   const totalCacheValue = Number(totalReward) || 0
@@ -335,7 +337,7 @@ export function calculateTermedWarPayouts(contributions, settings) {
 
     const memberList = contributions.map(m => {
       const score = Number(m.score) || 0
-      const isEligible = score >= threshold
+      const isEligible = score >= threshold && !ineligibleMembers.has(m.member_id)
       const cs = cutoffScores.get(m.member_id) || { preCutoffScore: 0, postCutoffScore: 0 }
       const qualifiedPreCutoff = isEligible && cs.preCutoffScore >= threshold
       const baseShares = qualifiedPreCutoff ? 1 : 0
@@ -378,7 +380,7 @@ export function calculateTermedWarPayouts(contributions, settings) {
   // ── Flat shares mode (default) ────────────────────────────────────
   const members = contributions.map(m => {
     const score = Number(m.score) || 0
-    const isEligible = score >= Number(minScoreThreshold)
+    const isEligible = score >= Number(minScoreThreshold) && !ineligibleMembers.has(m.member_id)
     const shares = isEligible ? (Number(memberShares[m.member_id]) || 1) : 0
     return {
       memberId: m.member_id,
@@ -436,6 +438,8 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     mercCost     = 0,
     reviverCost  = 0,
     factionTopUp = 0,
+    // Manual eligibility overrides — members in this set get 0 effort/payout
+    ineligibleMembers = new Set(),
   } = settings
 
   const totalCacheValue = Number(totalReward) || 0
@@ -513,20 +517,23 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
 
   // ── Step 2: shares ─────────────────────────────────────────────────
   // Members with negative participation score get 0 share (don't dilute the pool)
-  const totalParticipation   = memberData.reduce((s, m) => s + Math.max(0, m.participationScore), 0)
-  const totalAdjustedRespect = memberData.reduce((s, m) => s + m.adjustedRespect, 0)
+  // Ineligible members (manually toggled off) are excluded from totals so the pool redistributes
+  const eligible = memberData.filter(m => !ineligibleMembers.has(m.memberId))
+  const totalParticipation   = eligible.reduce((s, m) => s + Math.max(0, m.participationScore), 0)
+  const totalAdjustedRespect = eligible.reduce((s, m) => s + m.adjustedRespect, 0)
 
   // ── Step 3: payouts ────────────────────────────────────────────────
   const members = memberData.map(m => {
-    const participationShare = totalParticipation > 0
+    const isManuallyIneligible = ineligibleMembers.has(m.memberId)
+    const participationShare = (!isManuallyIneligible && totalParticipation > 0)
       ? Math.max(0, m.participationScore) / totalParticipation
       : 0
-    const contributionShare = totalAdjustedRespect > 0
+    const contributionShare = (!isManuallyIneligible && totalAdjustedRespect > 0)
       ? m.adjustedRespect / totalAdjustedRespect
       : 0
     const effortShare = participationShare * participationWeight + contributionShare * contributionWeight
     const payoutAmount = Math.floor(effortShare * memberPool)
-    const isEligible = payoutAmount > 0
+    const isEligible = !isManuallyIneligible && payoutAmount > 0
 
     return {
       ...m,
@@ -639,6 +646,8 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     memberShares = {},
     minScoreThreshold = 0,
     cutoffHours = 24,
+    // Manual eligibility overrides
+    ineligibleMembers = new Set(),
   } = settings
 
   const totalCacheValue = Number(totalReward) || 0
@@ -670,6 +679,7 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     memberMultiplierOverrides,
     participationWeight,
     contributionWeight,
+    ineligibleMembers,
   })
 
   // ── Post-cutoff: termed formula ───────────────────────────────────
@@ -682,6 +692,7 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     attacks: postAttacks,
     warStartAt: cutoff,  // post-cutoff "start" is the cutoff itself
     cutoffHours,
+    ineligibleMembers,
   })
 
   // ── Combine per-member results ────────────────────────────────────

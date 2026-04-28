@@ -497,8 +497,15 @@ export default function WarPayoutManagement() {
     })
   }
 
-  function computeResults(filter) {
+  function computeResults(filter, overrides = eligibilityOverrides) {
     if (!selectedWar || contributions.length === 0) return null
+
+    // Build set of manually-ineligible member IDs from overrides
+    const ineligibleMembers = new Set(
+      Object.entries(overrides)
+        .filter(([, v]) => v === false)
+        .map(([k]) => Number(k))
+    )
 
     const pw = Math.min(100, Math.max(0, Number(partWeight))) / 100
     const settings = {
@@ -522,6 +529,7 @@ export default function WarPayoutManagement() {
       attacks,
       warStartAt:      selectedWar.start_at || 0,
       cutoffHours:     Number(cutoffHours) || 24,
+      ineligibleMembers,
     }
 
     if (warType === 'termed') {
@@ -583,14 +591,17 @@ export default function WarPayoutManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberMultiplierOverrides])
 
+  // Auto-recalculate when eligibility overrides change (all war modes)
+  useEffect(() => {
+    if (!hasCalculated) return
+    const results = computeResults(factionFilter)
+    if (results) setPayoutResults(results)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eligibilityOverrides])
+
   function getEffectiveMembers() {
     if (!payoutResults) return []
-    return payoutResults.members.map(m => ({
-      ...m,
-      isEligible: eligibilityOverrides[m.memberId] !== undefined
-        ? eligibilityOverrides[m.memberId]
-        : m.isEligible,
-    }))
+    return payoutResults.members
   }
 
   async function handleSave() {
@@ -1637,10 +1648,19 @@ export default function WarPayoutManagement() {
                       <input
                         type="checkbox"
                         checked={m.isEligible}
-                        onChange={e => setEligibilityOverrides(prev => ({
-                          ...prev,
-                          [m.memberId]: e.target.checked
-                        }))}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            // Re-enable: remove override so calculation treats them normally
+                            setEligibilityOverrides(prev => {
+                              const next = { ...prev }
+                              delete next[m.memberId]
+                              return next
+                            })
+                          } else {
+                            // Disable: mark as ineligible
+                            setEligibilityOverrides(prev => ({ ...prev, [m.memberId]: false }))
+                          }
+                        }}
                         className="rounded border-gray-300 dark:border-slate-600 text-blue-600"
                       />
                     </td>
