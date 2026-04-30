@@ -10853,33 +10853,33 @@
     },
     "2159205": {
       "name": "Sargeant_Rock",
-      "tier": 2,
+      "tier": 1,
       "cpr_by_role": {
         "7": {
           "Muscle": 80
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-04-28T04:34:45.693223"
+      "tier_last_updated": "2026-04-30T17:43:44.869842"
     },
     "2807273": {
       "name": "XD_",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-30T04:33:01.967850"
+      "tier_last_updated": "2026-04-30T17:43:44.869175"
     },
     "4090594": {
       "name": "FancyPantsHI",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-04-30T04:33:01.967875"
+      "tier_last_updated": "2026-04-30T17:43:44.869203"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-04-30T17:43:41.866457",
+    "last_updated": "2026-04-30T17:43:44.869989",
     "total_members": 180
   }
 }
