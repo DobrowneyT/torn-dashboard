@@ -10876,19 +10876,19 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-02T04:19:14.612064"
+      "tier_last_updated": "2026-05-02T17:43:46.013637"
     },
     "4090594": {
       "name": "FancyPantsHI",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-02T04:19:14.612089"
+      "tier_last_updated": "2026-05-02T17:43:46.013665"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-05-02T17:43:42.419676",
+    "last_updated": "2026-05-02T17:43:46.014544",
     "total_members": 180
   }
 }
