@@ -554,7 +554,9 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
   })
 
   const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
-  const totalWarHits = members.reduce((s, m) => s + (m.warHits || 0), 0)
+  // Sum of every member's Total hits (won + assists + losses) — matches the
+  // "Total" column shown in the Hit Report.
+  const totalWarHits = members.reduce((s, m) => s + (m.totalHits || 0), 0)
   const payPerHit = totalWarHits > 0 ? Math.floor(totalPayout / totalWarHits) : 0
 
   return {
@@ -707,26 +709,43 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
   const preByMember = new Map(preResult.members.map(m => [m.memberId, m]))
   const postByMember = new Map(postResult.members.map(m => [m.memberId, m]))
 
+  // Hit Report columns must reflect the full war window (pre + post cutoff),
+  // not just pre-cutoff.  Build stats from the entire (filtered) attack set.
+  const fullStats = buildMemberAttackStats(attacks)
+
   const members = contributions.map(m => {
     const memberId = m.member_id
     const pre = preByMember.get(memberId) || { payoutAmount: 0 }
     const post = postByMember.get(memberId) || { payoutAmount: 0, shares: 0 }
+    const full = fullStats.get(memberId) ?? { ...emptyHitBucket(), bonusRespect: 0 }
 
     return {
-      // Carry all real-war fields from pre-cutoff result
+      // Carry participation/contribution score fields from pre-cutoff result
       ...pre,
       memberId,
       memberName: m.member_name,
+      // Hit Report columns: full war window
+      leaves:      full.leaves,
+      mugs:        full.mugs,
+      hosp:        full.hosp,
+      warHits:     full.warHits,
+      regularHits: full.regularHits,
+      won:         full.won,
+      assists:     full.assists,
+      losses:      full.losses,
+      totalHits:   full.totalHits,
       // Race-specific breakdowns
       preCutoffPayout: pre.payoutAmount,
       postCutoffPayout: post.payoutAmount,
       postCutoffShares: post.shares || 0,
       payoutAmount: pre.payoutAmount + post.payoutAmount,
-      isEligible: (pre.payoutAmount + post.payoutAmount) > 0,
+      isEligible: !ineligibleMembers.has(memberId) && (pre.payoutAmount + post.payoutAmount) > 0,
     }
   })
 
   const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
+  const totalWarHits = members.reduce((s, m) => s + (m.totalHits || 0), 0)
+  const payPerHit = totalWarHits > 0 ? Math.floor(totalPayout / totalWarHits) : 0
 
   return {
     members,
@@ -741,6 +760,8 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     preCutoffPool,
     postCutoffPool,
     raceCutoffTimestamp: cutoff,
+    totalWarHits,
+    payPerHit,
     overBudgetWarning: false,
   }
 }
