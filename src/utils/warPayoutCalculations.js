@@ -84,19 +84,70 @@ export function calculateCacheValue(rewardsItems, cachePrices) {
 
 
 /**
+ * Empty hit-bucket factory.  All counts mirror the columns shown in the
+ * Hit Report and Payout Sheet so both views derive their numbers identically.
+ */
+function emptyHitBucket() {
+  return {
+    leaves: 0,
+    mugs: 0,
+    hosp: 0,
+    warHits: 0,
+    regularHits: 0,
+    won: 0,
+    assists: 0,
+    losses: 0,
+    totalHits: 0,
+  }
+}
+
+/**
+ * Apply a single attack's result to a bucket.  Shared by `buildMemberAttackStats`
+ * and `buildHitReport` so both views agree on what counts as a win, loss, etc.
+ *
+ *   leaves     — wins where result ∈ {Attacked, Arrested, Looted, Special}
+ *   mugs       — wins where result = Mugged
+ *   hosp       — wins where result = Hospitalized
+ *   warHits    — any win where is_ranked_war = true
+ *   regularHits — any win where is_ranked_war = false
+ *   won        — leaves + mugs + hosp
+ *   assists    — result = Assist
+ *   losses     — result ∈ {Lost, Timeout, Interrupted, Stalemate, Escape}
+ *   totalHits  — won + assists + losses
+ */
+function applyAttackToBucket(bucket, attack) {
+  const result = attack.result || ''
+  const isRankedWar = attack.is_ranked_war === true || attack.is_ranked_war === 'true' || attack.is_ranked_war === 1
+
+  if (result === 'Assist') {
+    bucket.assists += 1
+    bucket.totalHits += 1
+  } else if (result === 'Lost' || result === 'Timeout' || result === 'Interrupted' || result === 'Stalemate' || result === 'Escape') {
+    bucket.losses += 1
+    bucket.totalHits += 1
+  } else if (WIN_RESULTS.has(result) || result === 'Special') {
+    bucket.won += 1
+    if (result === 'Mugged') bucket.mugs += 1
+    else if (result === 'Hospitalized') bucket.hosp += 1
+    else bucket.leaves += 1  // Attacked, Arrested, Looted, Special
+
+    if (isRankedWar) bucket.warHits += 1
+    else bucket.regularHits += 1
+
+    bucket.totalHits += 1
+  }
+  // Other results (unknown / future types) are ignored.
+}
+
+
+/**
  * Build per-member attack breakdown from faction_attacks rows within a war window.
  *
  * Only considers outgoing attacks by our faction (is_incoming=false, attacker_faction_id=OUR).
+ * Uses `applyAttackToBucket` for counting so the Payout Sheet's Hit Report columns
+ * match the dedicated Hit Report tab exactly.  Adds `bonusRespect` (the only
+ * payout-specific field) on top.
  *
- * Column definitions matching the spreadsheet:
- *   leaves     — wins where result ∈ {Attacked, Arrested, Looted}
- *   mugs       — wins where result = Mugged  (penalty in participation, independent of war/non-war)
- *   hosp       — wins where result = Hospitalized
- *   warHits    — wins (any result) where is_ranked_war = true  (overlaps with above)
- *   won        — leaves + mugs + hosp  (total wins)
- *   assists    — result = Assist
- *   losses     — result = Lost
- *   totalHits  — won + assists + losses
  *   bonusRespect — Σ max(0, respect_gain − 10) for outgoing ranked-war attacks at bonus chain counts
  *
  * @param {Array} attacks - faction_attacks rows (pre-filtered to war window)
@@ -112,46 +163,22 @@ export function buildMemberAttackStats(attacks) {
 
     const memberId = attack.attacker_id
     if (!stats.has(memberId)) {
-      stats.set(memberId, {
-        leaves: 0,
-        mugs: 0,
-        hosp: 0,
-        warHits: 0,
-        regularHits: 0,
-        won: 0,
-        assists: 0,
-        losses: 0,
-        bonusRespect: 0,
-      })
+      stats.set(memberId, { ...emptyHitBucket(), bonusRespect: 0 })
     }
 
     const s = stats.get(memberId)
+    applyAttackToBucket(s, attack)
+
+    // Bonus respect tracking (payout-specific): only for ranked-war wins at bonus chain counts
     const result = attack.result || ''
-    const respectGain = parseFloat(attack.respect_gain) || 0
-    const chain = Number(attack.chain) || 0
     const isRankedWar = attack.is_ranked_war === true || attack.is_ranked_war === 'true' || attack.is_ranked_war === 1
-
-    if (result === 'Assist') {
-      s.assists += 1
-    } else if (result === 'Lost' || result === 'Timeout' || result === 'Interrupted') {
-      s.losses += 1
-    } else if (WIN_RESULTS.has(result)) {
-      s.won += 1
-      if (result === 'Mugged') s.mugs += 1
-      else if (result === 'Hospitalized') s.hosp += 1
-      else s.leaves += 1  // Attacked, Arrested, Looted
-
-      if (isRankedWar) {
-        s.warHits += 1
-        // Normalize bonus chain hits: subtract the inflated portion, leaving a base of 10
-        if (BONUS_HITS.has(chain)) {
-          s.bonusRespect += Math.max(0, respectGain - 10)
-        }
-      } else {
-        s.regularHits += 1
+    if (isRankedWar && (WIN_RESULTS.has(result) || result === 'Special')) {
+      const chain = Number(attack.chain) || 0
+      if (BONUS_HITS.has(chain)) {
+        const respectGain = parseFloat(attack.respect_gain) || 0
+        s.bonusRespect += Math.max(0, respectGain - 10)
       }
     }
-    // Stalemate, Escape, Special → not counted in any column
   }
 
   return stats
@@ -183,8 +210,8 @@ export function buildHitReport(attacks, factionFilter = null) {
       rows.set(memberId, {
         memberId,
         memberName,
-        incoming: { leaves: 0, mugs: 0, hosp: 0, warHits: 0, assists: 0, losses: 0, totalHits: 0 },
-        outgoing: { leaves: 0, mugs: 0, hosp: 0, warHits: 0, assists: 0, losses: 0, totalHits: 0 },
+        incoming: emptyHitBucket(),
+        outgoing: emptyHitBucket(),
       })
     }
     return rows.get(memberId)
@@ -196,8 +223,6 @@ export function buildHitReport(attacks, factionFilter = null) {
   }
 
   for (const a of attacks) {
-    const result = a.result || ''
-    const isRankedWar = a.is_ranked_war === true || a.is_ranked_war === 'true' || a.is_ranked_war === 1
     const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
 
     // Determine which direction this attack contributes to and the opposing faction
@@ -222,22 +247,7 @@ export function buildHitReport(attacks, factionFilter = null) {
     if (!inFilter(opposingFactionId)) continue
 
     const row = ensure(memberId, memberName)
-    const bucket = row[direction]
-
-    if (result === 'Assist') {
-      bucket.assists += 1
-      bucket.totalHits += 1
-    } else if (result === 'Lost' || result === 'Timeout' || result === 'Interrupted' || result === 'Stalemate' || result === 'Escape') {
-      bucket.losses += 1
-      bucket.totalHits += 1
-    } else if (WIN_RESULTS.has(result) || result === 'Special') {
-      if (result === 'Mugged') bucket.mugs += 1
-      else if (result === 'Hospitalized') bucket.hosp += 1
-      else bucket.leaves += 1 // Attacked, Arrested, Looted, Special
-      if (isRankedWar) bucket.warHits += 1
-      bucket.totalHits += 1
-    }
-    // other results: ignored
+    applyAttackToBucket(row[direction], a)
   }
 
   return Array.from(rows.values()).sort((a, b) =>
@@ -457,9 +467,7 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
   // ── Step 1: raw per-member data ────────────────────────────────────
   const memberData = contributions.map(m => {
     const memberId = m.member_id
-    const s = attackStats.get(memberId) ?? {
-      leaves: 0, mugs: 0, hosp: 0, warHits: 0, regularHits: 0, won: 0, assists: 0, losses: 0, bonusRespect: 0,
-    }
+    const s = attackStats.get(memberId) ?? { ...emptyHitBucket(), bonusRespect: 0 }
 
     // Resolve effective multipliers (per-member overrides fall back to globals)
     const overrides = memberMultiplierOverrides[memberId] || {}
@@ -494,7 +502,7 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
       won:         s.won,
       assists:     s.assists,
       losses:      s.losses,
-      totalHits:   s.won + s.assists + s.losses,
+      totalHits:   s.totalHits,
       // Effective multipliers (for UI display / per-member override columns)
       effWarHitMult,
       effAssistMult,
