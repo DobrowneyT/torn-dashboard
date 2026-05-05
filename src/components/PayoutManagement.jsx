@@ -28,6 +28,82 @@ import { enrichItemBreakdown } from '../utils/lookupHelpers'
 import { importPayoutCSV } from '../utils/csvPayoutImport'
 import ImportPreviewModal from './ImportPreviewModal'
 
+/**
+ * Recompute payout totals + per-member payouts from the current unit values
+ * in `results.itemBreakdown`.  Used when the user manually edits a reward
+ * unit price so the totals, faction cut, member pool, and payouts all stay
+ * in sync.
+ */
+function recalculateWithItemPrices(results, factionCutPercent) {
+  if (!results || !results.itemBreakdown) return results
+
+  // Refresh totalValue for every item from its current unitValue.
+  const updatedRewards = {}
+  Object.entries(results.itemBreakdown.rewards || {}).forEach(([id, d]) => {
+    updatedRewards[id] = { ...d, totalValue: (d.unitValue || 0) * (d.quantity || 0) }
+  })
+  const updatedCosts = {}
+  Object.entries(results.itemBreakdown.costs || {}).forEach(([id, d]) => {
+    updatedCosts[id] = { ...d, totalValue: (d.unitValue || 0) * (d.quantity || 0) }
+  })
+
+  const newTotalItemReward = Object.values(updatedRewards).reduce((s, i) => s + (i.totalValue || 0), 0)
+  const newTotalItemCost   = Object.values(updatedCosts).reduce((s, i) => s + (i.totalValue || 0), 0)
+  const newNetItemValue    = newTotalItemReward - newTotalItemCost
+  const newGrossTotal      = (results.totalMoneyReward || 0) + newNetItemValue
+  const newFactionCut      = Math.floor(newGrossTotal * (factionCutPercent / 100))
+  const newMemberPayoutTotal = newGrossTotal - newFactionCut
+
+  // Rebuild per-crime net values with current prices.
+  const crimeValues = {}
+  for (const [crimeId, crime] of Object.entries(results.crimeValues || {})) {
+    crimeValues[crimeId] = {
+      ...crime,
+      netValue: crime.successful ? (crime.moneyReward || 0) : 0,
+    }
+  }
+  for (const item of results.rewardItemDetails || []) {
+    const c = crimeValues[item.crimeId]
+    if (!c) continue
+    const price = updatedRewards[item.itemId]?.unitValue || 0
+    c.netValue += price * (item.quantity || 1)
+  }
+  for (const item of results.consumedItemDetails || []) {
+    const c = crimeValues[item.crimeId]
+    if (!c) continue
+    const price = updatedCosts[item.itemId]?.unitValue || 0
+    c.netValue -= price
+  }
+
+  const theoreticalByMember = calculateTheoreticalPayouts(crimeValues, factionCutPercent / 100)
+  const totalAdjustedTickets = results.totalAdjustedTickets
+    ?? (results.members || []).reduce((s, m) => s + (m.adjustedTickets || 0), 0)
+
+  const recalculatedMembers = (results.members || []).map(m => {
+    const updated = { ...m }
+    if (totalAdjustedTickets > 0) {
+      updated.sharePercent = (m.adjustedTickets || 0) / totalAdjustedTickets
+      updated.payout = Math.floor(updated.sharePercent * newMemberPayoutTotal)
+    }
+    updated.theoreticalPayout = theoreticalByMember[m.userId.toString()] || 0
+    return updated
+  })
+
+  return {
+    ...results,
+    itemBreakdown: { rewards: updatedRewards, costs: updatedCosts },
+    totalItemReward: newTotalItemReward,
+    totalItemCost: newTotalItemCost,
+    netItemValue: newNetItemValue,
+    grossTotal: newGrossTotal,
+    factionCut: newFactionCut,
+    memberPayoutTotal: newMemberPayoutTotal,
+    members: recalculatedMembers,
+    crimeValues,
+    totalAdjustedTickets,
+  }
+}
+
 export default function PayoutManagement() {
   const { user } = useAuth()
 
@@ -51,6 +127,7 @@ export default function PayoutManagement() {
   // Add to state declarations (around line 38)
   const [penaltyOverrides, setPenaltyOverrides] = useState({})
   const [editingPenalty, setEditingPenalty] = useState(null)
+  const [editingRewardPrice, setEditingRewardPrice] = useState(null)
 
   // Save state
   const [isSaving, setIsSaving] = useState(false)
@@ -181,7 +258,7 @@ export default function PayoutManagement() {
   }
 
   function handleSavePenalty(userId) {
-    const newPenalty = parseFloat(editingPenalty.value) || 0
+    const newPenalty = parseInt(editingPenalty.value, 10) || 0
     setPenaltyOverrides(prev => ({ ...prev, [userId]: newPenalty }))
     setEditingPenalty(null)
   }
@@ -195,6 +272,67 @@ export default function PayoutManagement() {
       const updated = { ...prev }
       delete updated[userId]
       return updated
+    })
+  }
+
+  // Manual override of a reward item's unit price.  Mirrors the penalty
+  // edit pattern: edit button opens a tiny inline input with confirm/cancel
+  // buttons.  Cost prices are NOT editable — they come from inventory
+  // weighted-average.  Saving recalculates the entire payout downstream.
+  function handleEditRewardPrice(itemId, currentValue) {
+    setEditingRewardPrice({ itemId, value: String(currentValue ?? 0) })
+  }
+
+  function handleSaveRewardPrice() {
+    if (!editingRewardPrice) return
+    const { itemId, value } = editingRewardPrice
+    const sanitized = Math.max(0, parseInt(value, 10) || 0)
+    setPayoutResults(prev => {
+      if (!prev?.itemBreakdown?.rewards?.[itemId]) return prev
+      const next = {
+        ...prev,
+        itemBreakdown: {
+          ...prev.itemBreakdown,
+          rewards: {
+            ...prev.itemBreakdown.rewards,
+            [itemId]: {
+              ...prev.itemBreakdown.rewards[itemId],
+              unitValue: sanitized,
+              priceSource: 'manual',
+            },
+          },
+        },
+      }
+      return recalculateWithItemPrices(next, factionCutPercent)
+    })
+    setEditingRewardPrice(null)
+  }
+
+  function handleCancelRewardPrice() {
+    setEditingRewardPrice(null)
+  }
+
+  function handleResetRewardPrice(itemId) {
+    setPayoutResults(prev => {
+      const item = prev?.itemBreakdown?.rewards?.[itemId]
+      if (!item) return prev
+      const original = item.originalUnitValue ?? item.unitValue ?? 0
+      const next = {
+        ...prev,
+        itemBreakdown: {
+          ...prev.itemBreakdown,
+          rewards: {
+            ...prev.itemBreakdown.rewards,
+            [itemId]: {
+              ...item,
+              unitValue: original,
+              // Drop the manual marker — go back to whatever source the original came from.
+              priceSource: item.priceSource === 'manual' ? 'auto' : item.priceSource,
+            },
+          },
+        },
+      }
+      return recalculateWithItemPrices(next, factionCutPercent)
     })
   }
 
@@ -1073,14 +1211,68 @@ export default function PayoutManagement() {
                   {/* Data Rows */}
                   <div className="space-y-1">
                     {Object.entries(payoutResults.itemBreakdown.rewards).map(([itemId, data]) => {
-                      const unitValue = data.quantity > 0 ? Math.floor(data.totalValue / data.quantity) : 0
+                      const unitValue = data.unitValue
+                        ?? (data.quantity > 0 ? Math.floor(data.totalValue / data.quantity) : 0)
+                      const isManual = data.priceSource === 'manual'
+                      const isEditing = editingRewardPrice?.itemId === itemId
                       return (
-                        <div key={itemId} className="grid grid-cols-4 gap-2 text-sm">
+                        <div key={itemId} className="grid grid-cols-4 gap-2 text-sm items-center">
                           <div className="text-blue-800 dark:text-blue-200 truncate" title={data.name}>
                             {data.name}
                           </div>
-                          <div className="text-right text-blue-700 dark:text-blue-300">
-                            {formatCurrency(unitValue)}
+                          <div className="text-right">
+                            {isEditing ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <input
+                                  type="number"
+                                  value={editingRewardPrice.value}
+                                  onChange={e => setEditingRewardPrice({ ...editingRewardPrice, value: e.target.value })}
+                                  className="input py-0 px-1 text-xs w-24 text-right"
+                                  step="1"
+                                  min="0"
+                                  autoFocus
+                                />
+                                <button
+                                  onClick={handleSaveRewardPrice}
+                                  className="px-1 py-0 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                                  title="Save"
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  onClick={handleCancelRewardPrice}
+                                  className="px-1 py-0 bg-gray-600 text-white rounded text-xs hover:bg-gray-700"
+                                  title="Cancel"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1">
+                                <span className={isManual ? 'text-amber-700 dark:text-amber-400 font-semibold' : 'text-blue-700 dark:text-blue-300'}>
+                                  {formatCurrency(unitValue)}
+                                </span>
+                                {isManual && (
+                                  <span className="text-amber-600" title="Manually adjusted">*</span>
+                                )}
+                                <button
+                                  onClick={() => handleEditRewardPrice(itemId, unitValue)}
+                                  className="px-1 py-0 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 ml-1"
+                                  title="Edit price"
+                                >
+                                  ✎
+                                </button>
+                                {isManual && (
+                                  <button
+                                    onClick={() => handleResetRewardPrice(itemId)}
+                                    className="px-1 py-0 bg-orange-600 text-white rounded text-xs hover:bg-orange-700"
+                                    title="Reset to calculated"
+                                  >
+                                    ↻
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                           <div className="text-right text-blue-700 dark:text-blue-300">
                             {data.quantity.toLocaleString()}
@@ -1259,7 +1451,7 @@ export default function PayoutManagement() {
                                 value={editingPenalty.value}
                                 onChange={(e) => setEditingPenalty({ ...editingPenalty, value: e.target.value })}
                                 className="input py-0 px-1 text-xs w-16"
-                                step="0.1"
+                                step="1"
                               />
                               <button
                                 onClick={() => handleSavePenalty(member.userId)}

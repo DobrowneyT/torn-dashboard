@@ -1,5 +1,4 @@
 import { supabase } from './supabase'
-import { config } from '../config.js'
 
 /**
  * Enrich item breakdown with actual prices from database and Torn API
@@ -43,10 +42,6 @@ export async function enrichItemBreakdown(itemBreakdown, apiKey) {
         itemSellPrices[item.id.toString()] = parseInt(item.sell_price) || 0
       })
     }
-    const sellPriceOverrideIds = new Set(
-      (config.useSellPriceItemIds || []).map(id => id.toString())
-    )
-
     // Build cost prices map
     const costPrices = {}
     if (costPricesResult.data) {
@@ -54,23 +49,24 @@ export async function enrichItemBreakdown(itemBreakdown, apiKey) {
         costPrices[item.item_id] = parseFloat(item.weighted_avg_price) || 0
       })
     }
-    
-    // Update reward items with market prices and names
+
+    // Update reward items: use the larger of market price and sell price.
+    // Some illiquid items return market_price=0; sell_price is always defined.
     const enrichedRewards = {}
     Object.entries(itemBreakdown.rewards || {}).forEach(([itemId, data]) => {
-      const useSellPrice = sellPriceOverrideIds.has(itemId)
-      const unitValue = useSellPrice
-        ? (itemSellPrices[itemId] || 0)
-        : (marketPrices[itemId] || 0)
+      const sellPrice = itemSellPrices[itemId] || 0
+      const marketPrice = marketPrices[itemId] || 0
+      const unitValue = Math.max(sellPrice, marketPrice)
       const itemName = itemNames[itemId] || data.name || `Item ${itemId}`
-      const priceSource = unitValue > 0
-        ? (useSellPrice ? 'sell_price' : 'torn_api')
-        : 'none'
+      const priceSource = unitValue === 0
+        ? 'none'
+        : (marketPrice >= sellPrice ? 'torn_api' : 'sell_price')
 
       enrichedRewards[itemId] = {
         ...data,
         name: itemName,
         unitValue,
+        originalUnitValue: unitValue,
         totalValue: unitValue * data.quantity,
         priceSource
       }

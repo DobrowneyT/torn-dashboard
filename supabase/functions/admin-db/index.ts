@@ -440,11 +440,16 @@ function collectCrimeRecords(crimes: Record<string, any>) {
     for (const rewardItem of rewardItems) {
       const itemId = rewardItem.id?.toString()
       if (!itemId) continue
+      // Torn lists potential drops with quantity=0 for items the crime could
+      // have produced but didn't actually award.  Skip those — only persist
+      // items that were genuinely received.
+      const qty = Number(rewardItem.quantity) || 0
+      if (qty <= 0) continue
       allRewardItems.push({
         crime_id: crimeId,
         item_id: itemId,
         item_name: rewardItem.name || null,
-        quantity: rewardItem.quantity || 1,
+        quantity: qty,
         unit_value: 0,
         total_value: 0,
         created_at: now,
