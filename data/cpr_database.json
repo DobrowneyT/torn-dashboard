@@ -4482,7 +4482,7 @@
     },
     "2720023": {
       "name": "Frambojan",
-      "tier": 2,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Looter": 97,
@@ -4558,7 +4558,7 @@
         }
       },
       "last_scraped": "2026-05-06T17:43:24.902631",
-      "tier_last_updated": "2025-12-27T15:47:53.294246"
+      "tier_last_updated": "2026-05-06T17:43:40.972701"
     },
     "2733351": {
       "name": "Jonnybravo",
@@ -10942,7 +10942,7 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-06T04:34:39.586831"
+      "tier_last_updated": "2026-05-06T17:43:40.974673"
     },
     "4090594": {
       "name": "FancyPantsHI",
@@ -10999,40 +10999,40 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-06T04:34:39.586859"
+      "tier_last_updated": "2026-05-06T17:43:40.974707"
     },
     "2404027": {
       "name": "RedFlyingFox",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-06T04:34:39.586886"
+      "tier_last_updated": "2026-05-06T17:43:40.974732"
     },
     "4014975": {
       "name": "WalkMode",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-06T04:34:39.586909"
+      "tier_last_updated": "2026-05-06T17:43:40.974755"
     },
     "4014949": {
       "name": "SirJury",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-06T04:34:39.586930"
+      "tier_last_updated": "2026-05-06T17:43:40.974780"
     },
     "4030092": {
       "name": "DANNOLAD",
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-06T04:34:39.586980"
+      "tier_last_updated": "2026-05-06T17:43:40.974806"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-05-06T17:43:38.021862",
+    "last_updated": "2026-05-06T17:43:40.975747",
     "total_members": 185
   }
 }
