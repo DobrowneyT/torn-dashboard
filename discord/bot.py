@@ -34,7 +34,7 @@ from config import POLL_INTERVAL_SECONDS
 from item_cache import ItemNameCache
 from state import CprOverrideStore
 from torn_api import TornAPI, TornAPIError
-from views import ManageOverridesView
+from views import ManageOverridesView, open_override_menu
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("oc_watcher")
@@ -50,6 +50,7 @@ class OCWatcher(discord.Client):
         self.override_store = CprOverrideStore()
         self.message: discord.Message | None = None
         self.last_alerts: dict | None = None
+        self._message_lock = asyncio.Lock()
         self.view = ManageOverridesView(
             store=self.override_store,
             alerts_provider=lambda: self.last_alerts,
@@ -68,28 +69,47 @@ class OCWatcher(discord.Client):
         except discord.HTTPException as e:
             log.error("Failed to attach to channel %s: %s", self.channel_id, e)
 
-    async def _ensure_message(self) -> None:
-        if self.message is not None:
-            return
-
-        channel = self.get_channel(self.channel_id) or await self.fetch_channel(self.channel_id)
-
-        existing_id = state_mod.get_message_id()
-        if existing_id:
-            try:
-                self.message = await channel.fetch_message(existing_id)
-                log.info("Reusing existing message %s in #%s", existing_id, channel)
-                return
-            except discord.NotFound:
-                log.warning("Stored message id %s not found — will send a new one", existing_id)
-
-        placeholder = formatter_mod.build_embed(
-            {"crimes": [], "generated_at": ""}, now_ts=int(time.time())
+    async def on_interaction(self, interaction: discord.Interaction) -> None:
+        data = getattr(interaction, "data", None) or {}
+        log.info(
+            "Interaction received: type=%s user=%s channel=%s message=%s data=%s",
+            getattr(interaction, "type", "?"),
+            getattr(interaction.user, "id", "?"),
+            getattr(interaction.channel, "id", "?"),
+            getattr(interaction.message, "id", "?"),
+            data,
         )
-        placeholder.description = "Starting up… first poll in progress."
-        self.message = await channel.send(embed=placeholder, view=self.view)
-        state_mod.set_message_id(self.message.id)
-        log.info("Sent new message %s in #%s", self.message.id, channel)
+        if data.get("custom_id") == "oc_watcher_manage_overrides_v1":
+            if not interaction.response.is_done():
+                await open_override_menu(
+                    interaction,
+                    store=self.override_store,
+                    alerts_provider=lambda: self.last_alerts,
+                )
+
+    async def _ensure_message(self) -> None:
+        async with self._message_lock:
+            if self.message is not None:
+                return
+
+            channel = self.get_channel(self.channel_id) or await self.fetch_channel(self.channel_id)
+
+            existing_id = state_mod.get_message_id()
+            if existing_id:
+                try:
+                    self.message = await channel.fetch_message(existing_id)
+                    log.info("Reusing existing message %s in #%s", existing_id, channel)
+                    return
+                except discord.NotFound:
+                    log.warning("Stored message id %s not found — will send a new one", existing_id)
+
+            placeholder = formatter_mod.build_embed(
+                {"crimes": [], "generated_at": ""}, now_ts=int(time.time())
+            )
+            placeholder.description = "Starting up… first poll in progress."
+            self.message = await channel.send(embed=placeholder, view=self.view)
+            state_mod.set_message_id(self.message.id)
+            log.info("Sent new message %s in #%s", self.message.id, channel)
 
     @tasks.loop(seconds=POLL_INTERVAL_SECONDS)
     async def poll_loop(self) -> None:

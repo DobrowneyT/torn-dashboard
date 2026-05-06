@@ -42,40 +42,11 @@ class ManageOverridesView(discord.ui.View):
         emoji="🛡",
     )
     async def manage(self, interaction: discord.Interaction, button: discord.ui.Button):
-        log.info(
-            "Manage overrides clicked: user=%s channel=%s message=%s",
-            getattr(interaction.user, "id", "?"),
-            getattr(interaction.channel, "id", "?"),
-            getattr(interaction.message, "id", "?"),
+        await open_override_menu(
+            interaction,
+            store=self.store,
+            alerts_provider=self.alerts_provider,
         )
-        latest = self.alerts_provider() or {"crimes": []}
-        log.info(
-            "Latest alerts: crimes=%d overrides=%d",
-            len(latest.get("crimes", [])),
-            len(self.store.list()),
-        )
-        options_data = _build_options(latest, self.store)
-        log.info("Override options built: count=%d", len(options_data))
-
-        if not options_data:
-            await interaction.response.send_message(
-                "No low-CPR alerts and no active overrides to manage right now.",
-                ephemeral=True,
-            )
-            return
-
-        view = OverrideSelectView(self.store, options_data)
-        try:
-            await interaction.response.send_message(
-                "Approved members are pre-selected (✓). "
-                "Adjust the selection and submit — anything you check will be approved, "
-                "anything you uncheck will be removed.",
-                view=view,
-                ephemeral=True,
-            )
-        except Exception:
-            log.exception("Failed to send override selection menu")
-            raise
 
 
 class OverrideSelectView(discord.ui.View):
@@ -105,36 +76,78 @@ class OverrideSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        log.info(
-            "Override selection submitted: user=%s values=%d",
-            getattr(interaction.user, "id", "?"),
-            len(self.values),
-        )
-        selected = set(self.values)
-        actions: List[str] = []
-
-        for value, meta in self._meta_by_value.items():
-            cid = meta["crime_id"]
-            uid = meta["user_id"]
-            pos = meta["position"]
-            currently = self.store.has(cid, uid, pos)
-            wants = value in selected
-
-            if wants and not currently:
-                self.store.add(cid, uid, pos,
-                               crime_name=meta["crime_name"],
-                               user_name=meta["user_name"])
-                actions.append(f"✓ approved · {meta['crime_name']} · {meta['user_name']} · {pos}")
-            elif currently and not wants:
-                self.store.remove(cid, uid, pos)
-                actions.append(f"✗ removed · {meta['crime_name']} · {meta['user_name']} · {pos}")
-
-        msg = "\n".join(actions) if actions else "No changes."
         try:
+            log.info(
+                "Override selection submitted: user=%s values=%d",
+                getattr(interaction.user, "id", "?"),
+                len(self.values),
+            )
+            selected = set(self.values)
+            actions: List[str] = []
+
+            for value, meta in self._meta_by_value.items():
+                cid = meta["crime_id"]
+                uid = meta["user_id"]
+                pos = meta["position"]
+                currently = self.store.has(cid, uid, pos)
+                wants = value in selected
+
+                if wants and not currently:
+                    self.store.add(cid, uid, pos,
+                                   crime_name=meta["crime_name"],
+                                   user_name=meta["user_name"])
+                    actions.append(f"✓ approved · {meta['crime_name']} · {meta['user_name']} · {pos}")
+                elif currently and not wants:
+                    self.store.remove(cid, uid, pos)
+                    actions.append(f"✗ removed · {meta['crime_name']} · {meta['user_name']} · {pos}")
+
+            msg = "\n".join(actions) if actions else "No changes."
             await interaction.response.send_message(msg, ephemeral=True)
         except Exception:
-            log.exception("Failed to send override selection response")
+            log.exception("Override selection failed")
             raise
+
+
+async def open_override_menu(
+    interaction: discord.Interaction,
+    *,
+    store: CprOverrideStore,
+    alerts_provider: Callable[[], Optional[Dict]],
+) -> None:
+    try:
+        log.warning(
+            "Manage overrides clicked: user=%s channel=%s message=%s",
+            getattr(interaction.user, "id", "?"),
+            getattr(interaction.channel, "id", "?"),
+            getattr(interaction.message, "id", "?"),
+        )
+        latest = alerts_provider() or {"crimes": []}
+        log.info(
+            "Latest alerts: crimes=%d overrides=%d",
+            len(latest.get("crimes", [])),
+            len(store.list()),
+        )
+        options_data = _build_options(latest, store)
+        log.info("Override options built: count=%d", len(options_data))
+
+        if not options_data:
+            await interaction.response.send_message(
+                "No low-CPR alerts and no active overrides to manage right now.",
+                ephemeral=True,
+            )
+            return
+
+        view = OverrideSelectView(store, options_data)
+        await interaction.response.send_message(
+            "Approved members are pre-selected (✓). "
+            "Adjust the selection and submit — anything you check will be approved, "
+            "anything you uncheck will be removed.",
+            view=view,
+            ephemeral=True,
+        )
+    except Exception:
+        log.exception("Manage overrides failed")
+        raise
 
 
 def _build_options(alerts_dict: Dict, store: CprOverrideStore) -> List[Dict]:
