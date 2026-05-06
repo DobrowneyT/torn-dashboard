@@ -5458,6 +5458,23 @@
       "rank_before": "Diamond I",
       "rank_after": "Diamond II",
       "report_fetched": true
+    },
+    "41509": {
+      "id": 41509,
+      "start_at": 1778349600,
+      "end_at": null,
+      "opponent_id": 20747,
+      "opponent_name": "Damage Inc",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17300,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -200267,6 +200284,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-05-05T04:16:30.734207"
+    "last_updated": "2026-05-06T04:34:06.113519"
   }
 }
