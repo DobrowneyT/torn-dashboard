@@ -1,110 +1,109 @@
 """
-Turn the alerts dict (from alerts.build_alerts) into a discord.Embed.
+Turn the alerts dict (from alerts.build_alerts) into a list of discord.Embed.
 
-Layout:
-  - Title: "OC Watcher"
-  - Description: header line ("N crimes need attention.") followed by one
-    block per crime. Each block is the crime header (name, time, linked id)
-    followed by blockquote-indented alert sections so the per-crime alerts
-    are visually nested under their crime.
-  - Footer: "Last updated …"
+Layout: a single embed.
+  - Title:       "OC Watcher"
+  - Description: legend (🚑 / 🎒 / 📉) + crime count + per-crime blocks.
+                 Each crime is one block: header line followed by an
+                 indented bullet per offending member, prefixed with the
+                 alert-type emoji.
+  - Color:       severity-driven — red if any unavailable, else orange if
+                 any missing items, else blue if only low CPR, else green.
+  - Footer:      "Last updated …" — refresh acts as a watchdog.
+
+Crimes whose only issues were approved are filtered upstream in alerts.py,
+so this layer never has to render an "approval-only" crime.
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, List, Optional
 
 import discord
 
 
 PROFILE_URL = "https://www.torn.com/profiles.php?XID={user_id}"
 
-COLOR_OK = 0x2ECC71      # green
-COLOR_ALERT = 0xE74C3C   # red
+COLOR_OK = 0x2ECC71          # green — all clear
+COLOR_LOW_CPR = 0x3498DB     # blue
+COLOR_MISSING = 0xE67E22     # orange
+COLOR_UNAVAILABLE = 0xE74C3C # red
 
 EMBED_TITLE = "OC Watcher"
 
-# Discord description max is 4096 chars; leave room for the trailing notice.
+LEGEND = "🚑 Unavailable  ·  🎒 Missing items  ·  📉 CPR too low"
+
+# Discord description max is 4096 chars; leave headroom for the truncation hint.
 DESCRIPTION_LIMIT = 4000
 
 
-def build_embed(alerts: Dict, *, now_ts: Optional[int] = None) -> discord.Embed:
+def build_embeds(alerts: Dict, *, now_ts: Optional[int] = None) -> List[discord.Embed]:
     crimes = alerts.get("crimes", [])
     generated_at = alerts.get("generated_at", "")
 
     if not crimes:
         embed = discord.Embed(
             title=EMBED_TITLE,
-            description="All clear — no organized crimes need attention.",
+            description=f"{LEGEND}\n\nAll clear — no organized crimes need attention.",
             color=COLOR_OK,
         )
-    else:
-        n = len(crimes)
-        header = f"**{n} crime{'s' if n != 1 else ''} need attention.**"
-        blocks = [_crime_block(c, index=i, now_ts=now_ts) for i, c in enumerate(crimes)]
-        description = _join_with_limit(header, blocks, DESCRIPTION_LIMIT)
+        embed.set_footer(text=_footer_text(generated_at))
+        return [embed]
 
-        embed = discord.Embed(
-            title=EMBED_TITLE,
-            description=description,
-            color=COLOR_ALERT,
-        )
+    n = len(crimes)
+    header = (
+        f"{LEGEND}\n\n"
+        f"**{n} crime{'s' if n != 1 else ''} need attention.**"
+    )
+    blocks = [_crime_block(c, index=i + 1, now_ts=now_ts) for i, c in enumerate(crimes)]
+    description = _join_with_header(header, blocks, DESCRIPTION_LIMIT)
 
-    embed.set_footer(text=f"Last updated {_format_iso_short(generated_at)} • refreshes every 60s")
-    return embed
+    embed = discord.Embed(
+        title=EMBED_TITLE,
+        description=description,
+        color=_severity_color(crimes),
+    )
+    embed.set_footer(text=_footer_text(generated_at))
+    return [embed]
 
 
 def _crime_block(crime: Dict, *, index: int, now_ts: Optional[int]) -> str:
-    """Header line for the crime followed by blockquote-indented alert sections."""
     when = _format_hours(crime["hours_until"])
-    header = f"**{index + 1}.** **{crime['name']}** — executes in {when} • [#{crime['id']}]({crime['url']})"
+    header = (
+        f"**{index}.** **{crime['name']}** — executes in {when} "
+        f"• [#{crime['id']}]({crime['url']})"
+    )
 
-    sections: List[str] = []
+    bullets: List[str] = []
 
-    if crime["missing_items"]:
-        sections.append(_section(
-            "🎒 Missing items",
-            (f"{_member_link(m)} — {m['position']}: {m['item']}" for m in crime["missing_items"]),
-        ))
+    for m in crime.get("unavailable", []):
+        bullets.append(
+            f"> 🚑 {_member_link(m)} — {m['position']}: "
+            f"{m['state']}{_until_str(m.get('until'), now_ts)}"
+        )
+    for m in crime.get("missing_items", []):
+        bullets.append(
+            f"> 🎒 {_member_link(m)} — {m['position']}: {m['item']}"
+        )
+    for m in crime.get("low_cpr", []):
+        bullets.append(
+            f"> 📉 {_member_link(m)} — {m['position']}: {m['cpr']} / {m['required']}"
+        )
 
-    if crime["unavailable"]:
-        sections.append(_section(
-            "🚑 Unavailable",
-            (
-                f"{_member_link(m)} — {m['position']}: {m['state']}{_until_str(m.get('until'), now_ts)}"
-                for m in crime["unavailable"]
-            ),
-        ))
-
-    if crime["low_cpr"]:
-        bullets = [
-            f"{_member_link(m)} — {m['position']}: {m['cpr']} / {m['required']}"
-            for m in crime["low_cpr"]
-        ]
-        approved = crime.get("low_cpr_approved", 0)
-        if approved:
-            bullets.append(f"_✓ {approved} approved_")
-        sections.append(_section("📉 Below CPR", bullets))
-    elif crime.get("low_cpr_approved", 0):
-        # All low-CPR alerts for this crime have been approved; surface that
-        # fact so the user sees their overrides are active.
-        sections.append(_section(
-            "📉 Below CPR",
-            [f"_✓ {crime['low_cpr_approved']} approved (no remaining alerts)_"],
-        ))
-
-    return header + "\n" + "\n".join(sections)
+    return header + "\n" + "\n".join(bullets)
 
 
-def _section(title: str, bullets: Iterable[str]) -> str:
-    """Render one alert section as a Discord blockquote (visually indented)."""
-    lines = [f"> **{title}**"]
-    for b in bullets:
-        lines.append(f"> • {b}")
-    return "\n".join(lines)
+def _severity_color(crimes: List[Dict]) -> int:
+    if any(c.get("unavailable") for c in crimes):
+        return COLOR_UNAVAILABLE
+    if any(c.get("missing_items") for c in crimes):
+        return COLOR_MISSING
+    if any(c.get("low_cpr") for c in crimes):
+        return COLOR_LOW_CPR
+    return COLOR_OK
 
 
-def _join_with_limit(header: str, blocks: List[str], limit: int) -> str:
-    """Join header + blocks separated by blank lines, truncating if we run over."""
+def _join_with_header(header: str, blocks: List[str], limit: int) -> str:
+    """Join header + blocks separated by blank lines, truncating with a hint if over `limit`."""
     parts = [header]
     used = len(header)
     truncated = 0
@@ -156,3 +155,7 @@ def _format_iso_short(iso: str) -> str:
         return dt.strftime("%Y-%m-%d %H:%M UTC")
     except ValueError:
         return iso
+
+
+def _footer_text(generated_at: str) -> str:
+    return f"Last updated {_format_iso_short(generated_at)} • refreshes every 60s"

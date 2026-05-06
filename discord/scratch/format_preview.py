@@ -48,7 +48,7 @@ def main() -> None:
     crimes = mock_data.mock_crimes(now_ts)
     statuses = mock_data.mock_member_status(now_ts)
     alerts_dict = alerts_mod.build_alerts(crimes, statuses, now_ts)
-    embed = formatter_mod.build_embed(alerts_dict, now_ts=now_ts)
+    embeds = formatter_mod.build_embeds(alerts_dict, now_ts=now_ts)
 
     intents = discord.Intents.default()
     client = discord.Client(intents=intents)
@@ -66,10 +66,10 @@ def main() -> None:
                     log.warning("Stored message id %s not found — sending a new one", existing_id)
 
             if message:
-                await message.edit(embed=embed)
+                await message.edit(embeds=embeds)
                 log.info("Edited message %s in #%s", message.id, channel)
             else:
-                message = await channel.send(embed=embed)
+                message = await channel.send(embeds=embeds)
                 state.set_message_id(message.id)
                 log.info("Sent new message %s in #%s (id saved to state.json)", message.id, channel)
         finally:

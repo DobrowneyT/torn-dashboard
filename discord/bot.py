@@ -103,11 +103,11 @@ class OCWatcher(discord.Client):
                 except discord.NotFound:
                     log.warning("Stored message id %s not found — will send a new one", existing_id)
 
-            placeholder = formatter_mod.build_embed(
+            placeholder_embeds = formatter_mod.build_embeds(
                 {"crimes": [], "generated_at": ""}, now_ts=int(time.time())
             )
-            placeholder.description = "Starting up… first poll in progress."
-            self.message = await channel.send(embed=placeholder, view=self.view)
+            placeholder_embeds[0].description = "Starting up… first poll in progress."
+            self.message = await channel.send(embeds=placeholder_embeds, view=self.view)
             state_mod.set_message_id(self.message.id)
             log.info("Sent new message %s in #%s", self.message.id, channel)
 
@@ -131,6 +131,8 @@ class OCWatcher(discord.Client):
         if self.message is None:
             log.warning("No message to edit — skipping tick")
             return
+
+        await self._ensure_thread_active()
 
         now_ts = int(time.time())
         loop = asyncio.get_running_loop()
@@ -163,13 +165,37 @@ class OCWatcher(discord.Client):
 
         # Always edit, even when alert content is unchanged, so the "Last
         # updated" footer acts as a watchdog you can read at a glance.
-        embed = formatter_mod.build_embed(alerts_dict, now_ts=now_ts)
-        await self.message.edit(embed=embed, view=self.view)
+        embeds = formatter_mod.build_embeds(alerts_dict, now_ts=now_ts)
+        await self.message.edit(embeds=embeds, view=self.view)
         log.info(
             "edited message %s — crimes=%d alerts=%d members=%d unavailable=%d overrides=%d",
             self.message.id, len(raw_crimes), len(alerts_dict["crimes"]),
             len(member_lookup), len(status_map), len(self.override_store.list()),
         )
+
+    async def _ensure_thread_active(self) -> None:
+        """If the message lives in a thread that has auto-archived, unarchive it.
+
+        Threads only count *new messages* toward the auto-archive timer —
+        edits don't reset it — so without this the bot would silently fall
+        out of an idle thread after `auto_archive_duration` minutes.
+        Requires the bot to have the Manage Threads permission.
+        """
+        channel = self.message.channel if self.message else None
+        if not isinstance(channel, discord.Thread):
+            return
+        if not channel.archived:
+            return
+        try:
+            await channel.edit(archived=False, reason="OC Watcher tick — keep thread alive")
+            log.info("Unarchived thread %s before edit", channel.id)
+        except discord.Forbidden:
+            log.warning(
+                "Thread %s is archived and bot lacks Manage Threads permission to unarchive",
+                channel.id,
+            )
+        except discord.HTTPException as e:
+            log.warning("Failed to unarchive thread %s: %s", channel.id, e)
 
     def _fetch_api(self):
         crimes = self.api.get_faction_crimes(

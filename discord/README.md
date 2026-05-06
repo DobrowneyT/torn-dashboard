@@ -81,6 +81,18 @@ Some members are intentionally placed in roles below their CPR threshold. To sto
 - The bot prunes overrides whose `crime_id` is no longer active each tick, so old approvals don't leak into future crimes.
 - Persisted in `state.json` so approvals survive bot restarts. Anyone in the channel can approve.
 
+## Posting to a thread instead of a channel
+
+The bot doesn't care whether `DISCORD_CHANNEL_ID` points at a normal channel or at a thread — both behave the same as far as the message-edit API is concerned. To run inside a thread:
+
+1. Create a thread off your OC channel, set its auto-archive to **1 week** (the longest option Discord offers).
+2. Send a placeholder message in the thread, copy its parent thread id, and put it in `DISCORD_CHANNEL_ID`.
+3. Make sure the bot has **Send Messages**, **Embed Links**, **Read Message History**, and **Manage Threads** in the parent channel. Manage Threads is needed for the auto-unarchive step described next.
+
+**About auto-archive:** Discord thread timers reset only when a *new message* is sent. Editing an existing message does **not** count, so an idle thread will still auto-archive after the configured duration (1h / 24h / 3d / 7d). To deal with that, the bot detects an archived thread before each edit and calls `thread.edit(archived=False)` to revive it. The next edit goes through normally and you don't see any spam in the thread.
+
+If the bot lacks Manage Threads, it logs a warning and silently skips the edit — once you fix the permission, the next tick recovers automatically.
+
 To keep it alive across logouts, run under tmux/systemd/etc.:
 
 ```bash
