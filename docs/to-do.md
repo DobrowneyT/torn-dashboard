@@ -3,8 +3,9 @@
 ## Dashboard
 
 ## War Payout Management
-- Enable some method to allow "double" or other multiples of pay if not already implemented.
 - Finished the real war payout sheet (compare to YATA).
 - Mark all historical wars as real/termed if possible.
+- Allow modifications to
+- Could not find termed mode column of war payouts in the schema cache
 
 ## General
