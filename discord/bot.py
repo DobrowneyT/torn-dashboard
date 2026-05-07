@@ -177,25 +177,48 @@ class OCWatcher(discord.Client):
         )
 
     async def _ensure_thread_active(self, alerts_dict: dict) -> None:
-        """Keep the thread alive only when at least one red-severity alert exists.
+        """Keep the thread alive only when *new* red-severity alerts appear.
 
-        Sending a message in a thread resets the auto-archive timer (and
-        unarchives the thread if it was already archived). We do NOT want
-        that on every tick because it spams the channel with notifications.
-        Instead we send-and-delete only when there's something critical,
-        and otherwise let the thread auto-archive between bursts of red
-        alerts.
+        We diff the current red-alert key set against the set persisted in
+        ``state.json`` (``notified_red_alerts``). Strategy C runs only for
+        keys that are red NOW but were not previously notified, so a
+        steady-state list of red alerts produces exactly one notification
+        — not one per minute. When red alerts clear we sync the persisted
+        set so the same alert can re-fire later if it returns.
 
         Strategies A and B (PATCHing the channel directly) are kept as
         commented blocks for future testing — neither produces a Discord
-        notification, but neither actually unarchives in our setup so far.
+        notification but neither has actually unarchived for us yet.
         """
         if self.message is None:
             return
 
-        if not formatter_mod.has_red_alert(alerts_dict):
-            log.debug("[thread] no red-severity alerts — letting thread idle")
+        current_keys = formatter_mod.red_alert_keys(alerts_dict)
+        notified_keys = state_mod.get_notified_red_alerts()
+        new_keys = current_keys - notified_keys
+        cleared_keys = notified_keys - current_keys
+
+        if not new_keys:
+            # Either no red alerts, or every red alert is already known.
+            if cleared_keys:
+                state_mod.set_notified_red_alerts(current_keys)
+                log.info(
+                    "[thread] no NEW red alerts; %d previously-notified cleared (now %d known)",
+                    len(cleared_keys), len(current_keys),
+                )
+            else:
+                log.debug(
+                    "[thread] no NEW red alerts (%d known, %d cleared)",
+                    len(current_keys), len(cleared_keys),
+                )
             return
+
+        log.info(
+            "[thread] %d NEW red alert(s) detected (was %d, now %d) — running Strategy C",
+            len(new_keys), len(notified_keys), len(current_keys),
+        )
+        for k in sorted(new_keys):
+            log.info("[thread]   new red: crime=%s user=%s position=%s type=%s", *k)
 
         cached_channel = self.message.channel
         cached_archived = getattr(cached_channel, "archived", None)
@@ -210,11 +233,13 @@ class OCWatcher(discord.Client):
             fresh = cached_channel
 
         if not isinstance(fresh, discord.Thread):
-            return  # not a thread — nothing to do
+            # Not a thread — still record we've "notified" for these keys so
+            # we don't spin trying every tick.
+            state_mod.set_notified_red_alerts(current_keys)
+            return
 
         log.info(
-            "[thread] RED alert present — keeping thread alive. "
-            "cached_archived=%s fresh_archived=%s archive_timestamp=%s",
+            "[thread] thread state: cached_archived=%s fresh_archived=%s archive_timestamp=%s",
             cached_archived, fresh.archived, getattr(fresh, "archive_timestamp", None),
         )
 
@@ -252,10 +277,13 @@ class OCWatcher(discord.Client):
             tmp = await fresh.send(content="·")
             await tmp.delete()
         if await self._try_unarchive("C · send-then-delete", _send_and_delete):
+            # Persist current keys only on success so a failed send is
+            # retried on the next tick instead of being silently swallowed.
+            state_mod.set_notified_red_alerts(current_keys)
             return
         # ===== END STRATEGY C =====
 
-        log.error("[thread] all uncommented strategies failed — thread may stay archived")
+        log.error("[thread] all uncommented strategies failed — will retry next tick")
 
     async def _try_unarchive(self, name: str, factory) -> bool:
         log.info("[thread] strategy %s — attempting", name)

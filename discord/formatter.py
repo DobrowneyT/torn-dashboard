@@ -16,9 +16,15 @@ so this layer never has to render an "approval-only" crime.
 """
 
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
 import discord
+
+
+# (crime_id, user_id, position_label, alert_type) — uniquely identifies one
+# red-severity bullet so we can diff tick-over-tick and only re-notify on
+# alerts we haven't already announced.
+RedAlertKey = Tuple[int, int, str, str]
 
 
 PROFILE_URL = "https://www.torn.com/profiles.php?XID={user_id}"
@@ -124,21 +130,27 @@ def _embed_color(crimes: List[Dict]) -> int:
     return COLOR_DEFAULT
 
 
-def has_red_alert(alerts: Dict) -> bool:
-    """True if any entry in `alerts` carries severity='red'.
+def red_alert_keys(alerts: Dict) -> Set[RedAlertKey]:
+    """Return one key per current red-severity bullet.
 
-    Used by bot.py to decide whether to send-and-delete a heartbeat to
-    keep the thread alive on this tick.
+    Each key is ``(crime_id, user_id, position, alert_type)`` where
+    ``alert_type`` is one of ``unavailable``/``missing_items``/``low_cpr``.
+    Used by bot.py to diff against the previously-notified set so we
+    only run Strategy C for *new* red alerts, not every tick.
     """
-    for c in alerts.get("crimes", []):
-        for e in (
-            c.get("unavailable", [])
-            + c.get("missing_items", [])
-            + c.get("low_cpr", [])
-        ):
-            if e.get("severity") == "red":
-                return True
-    return False
+    keys: Set[RedAlertKey] = set()
+    for crime in alerts.get("crimes", []):
+        cid = crime["id"]
+        for alert_type in ("unavailable", "missing_items", "low_cpr"):
+            for entry in crime.get(alert_type, []):
+                if entry.get("severity") == "red":
+                    keys.add((cid, entry["user_id"], entry["position"], alert_type))
+    return keys
+
+
+def has_red_alert(alerts: Dict) -> bool:
+    """Convenience: True iff there is at least one red-severity entry."""
+    return bool(red_alert_keys(alerts))
 
 
 def _join_with_header(header: str, blocks: List[str], limit: int) -> str:

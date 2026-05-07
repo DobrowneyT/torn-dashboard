@@ -42,6 +42,31 @@ def set_message_id(message_id: int) -> None:
     save_state(state)
 
 
+# (crime_id, user_id, position, alert_type) — see formatter.RedAlertKey.
+RedAlertKey = Tuple[int, int, str, str]
+
+
+def get_notified_red_alerts() -> Set[RedAlertKey]:
+    """The set of red alerts we've already sent a Strategy C notification for."""
+    raw = load_state().get("notified_red_alerts", [])
+    out: Set[RedAlertKey] = set()
+    for a in raw:
+        try:
+            out.add((int(a["crime_id"]), int(a["user_id"]), a["position"], a["alert_type"]))
+        except (KeyError, TypeError, ValueError):
+            log.warning("dropping malformed notified_red_alert entry: %r", a)
+    return out
+
+
+def set_notified_red_alerts(keys: Set[RedAlertKey]) -> None:
+    state = load_state()
+    state["notified_red_alerts"] = [
+        {"crime_id": cid, "user_id": uid, "position": pos, "alert_type": atype}
+        for (cid, uid, pos, atype) in sorted(keys)
+    ]
+    save_state(state)
+
+
 class CprOverrideStore:
     """
     In-memory cache of low-CPR overrides, persisted to state.json on every
