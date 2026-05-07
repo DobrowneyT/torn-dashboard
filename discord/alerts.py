@@ -35,6 +35,26 @@ _INSTANCE_SUFFIX = re.compile(r"\s*#\d+\s*$")
 
 OverrideKey = Tuple[int, int, str]  # (crime_id, user_id, position_label)
 
+# Severity rules (per entry):
+#   red    → critical: drives embed color, also signals bot.py to send-and-delete
+#            a heartbeat to keep the thread alive
+#   yellow → warning: shown but not critical enough to wake an archived thread
+#   None   → no severity (ordinary alert)
+#
+# Hospital/Jail/Federal severities depend on whether the member's `until`
+# timestamp overlaps the crime's `ready_at`. Traveling/Abroad show up
+# only inside the 6h window so they're always at least yellow.
+_OVERLAP_STATES = {"Hospital", "Jail", "Federal"}
+_TRAVEL_STATES = {"Traveling", "Abroad"}
+
+# CPR severity bands (gap = required - cpr).
+_CPR_RED_GAP = 15  # gap >= 15 → red
+_CPR_YELLOW_GAP = 10  # 10 <= gap < 15 → yellow; below 10 also yellow but flagged less aggressively
+
+# Missing-item severity bands (hours until crime executes).
+_MISSING_RED_HOURS = 1     # < 1h  → red
+_MISSING_YELLOW_HOURS = 12 # < 12h → yellow; otherwise blue (advance notice)
+
 
 def build_alerts(
     crimes: List[Dict],
@@ -74,6 +94,16 @@ def build_alerts(
         crime_name = crime.get("name", "")
         position_thresholds = CPR_REQUIREMENTS.get(crime_name, {}).get("positions", {})
 
+        # Status drives which checks run:
+        #   Planning  → crime is full; ready_at is the execution time. All
+        #               three checks apply.
+        #   Recruiting → crime is not full; it can't execute until it fills,
+        #               so missing-items and unavailability don't matter yet.
+        #               Only the CPR check fires. ready_at then represents
+        #               when planning will pause if no one new joins.
+        is_full = crime.get("status") == "Planning"
+        phase = "executing" if is_full else "pausing"
+
         missing_items: List[Dict] = []
         unavailable: List[Dict] = []
         low_cpr: List[Dict] = []
@@ -87,8 +117,8 @@ def build_alerts(
             user_id = user.get("id")
             user_name = user.get("name") or f"user_{user_id}"
 
-            # 1) Missing item (within 24h window)
-            if hours_until <= WINDOW_MISSING_ITEMS_HOURS:
+            # 1) Missing item — only when crime is full (Planning) and within 24h window.
+            if is_full and hours_until <= WINDOW_MISSING_ITEMS_HOURS:
                 req = slot.get("item_requirement")
                 if req and not req.get("is_available", True):
                     missing_items.append({
@@ -96,31 +126,37 @@ def build_alerts(
                         "name": user_name,
                         "position": label,
                         "item": req.get("name") or f"item_{req.get('id')}",
+                        "severity": _missing_item_severity(hours_until),
                     })
 
-            # 2) Unavailable (within 6h window)
-            if hours_until <= WINDOW_UNAVAILABLE_HOURS:
+            # 2) Unavailable — only when crime is full (Planning) and within 6h window.
+            if is_full and hours_until <= WINDOW_UNAVAILABLE_HOURS:
                 status = member_status.get(user_id)
                 if status and status.get("state") in UNAVAILABLE_STATES:
+                    until_ts = status.get("until") or 0
                     unavailable.append({
                         "user_id": user_id,
                         "name": user_name,
                         "position": label,
                         "state": status["state"],
-                        "until": status.get("until"),
+                        "until": until_ts,
+                        "severity": _unavailable_severity(status["state"], until_ts, ready_at),
                     })
 
-            # 3) Low CPR (no time window). Falls back to DEFAULT_CPR_THRESHOLD
-            # when this crime or this specific position isn't tuned in config.
+            # 3) Low CPR — applies whether the crime is full or recruiting.
+            # Falls back to DEFAULT_CPR_THRESHOLD when this crime or position
+            # isn't tuned in config.
             required = _resolve_cpr_threshold(label, position_thresholds)
             cpr = slot.get("checkpoint_pass_rate")
             if cpr is not None and cpr < required:
+                cpr_int = int(round(float(cpr)))
                 low_cpr.append({
                     "user_id": user_id,
                     "name": user_name,
                     "position": label,
-                    "cpr": int(round(float(cpr))),
+                    "cpr": cpr_int,
                     "required": required,
+                    "severity": _cpr_severity(cpr_int, required),
                 })
 
         # Apply CPR overrides AFTER collecting low_cpr so the count of
@@ -140,6 +176,7 @@ def build_alerts(
             flagged.append({
                 "id": crime["id"],
                 "name": crime_name,
+                "phase": phase,
                 "executes_at": ready_at,
                 "hours_until": round(hours_until, 1),
                 "url": CRIME_URL_TEMPLATE.format(crime_id=crime["id"]),
@@ -161,6 +198,53 @@ def _position_label(slot: Dict) -> str:
     """Prefer position_info.label (e.g. "Muscle #1"); fall back to bare position."""
     info = slot.get("position_info") or {}
     return info.get("label") or slot.get("position") or ""
+
+
+def _unavailable_severity(state: str, until_ts: int, ready_at: int) -> Optional[str]:
+    """Severity for an unavailable member.
+
+    Hospital/Jail/Federal:
+      - until_ts > ready_at  → red (still unavailable when crime executes)
+      - until_ts == 0        → red (unknown duration; treat as worst case)
+      - until_ts <= ready_at → None (will be back before crime, low concern)
+    Traveling/Abroad: yellow (already gated to 6h window upstream).
+    """
+    if state in _OVERLAP_STATES:
+        if not until_ts or until_ts > ready_at:
+            return "red"
+        return None
+    if state in _TRAVEL_STATES:
+        return "yellow"
+    return None
+
+
+def _missing_item_severity(hours_until: float) -> str:
+    """Severity for a missing-item alert based on time until execution.
+
+    < 1h  → red    (critical — won't get the item in time)
+    < 12h → yellow (warning — limited time to acquire)
+    else  → blue   (advance notice — plenty of time to fix)
+    """
+    if hours_until < _MISSING_RED_HOURS:
+        return "red"
+    if hours_until < _MISSING_YELLOW_HOURS:
+        return "yellow"
+    return "blue"
+
+
+def _cpr_severity(cpr: int, required: int) -> Optional[str]:
+    """Severity for a low-CPR alert based on how far below the target.
+
+    gap = required - cpr
+      gap >= 15 → red
+      gap > 0   → yellow
+    """
+    gap = required - cpr
+    if gap >= _CPR_RED_GAP:
+        return "red"
+    if gap > 0:
+        return "yellow"
+    return None
 
 
 def _resolve_cpr_threshold(label: str, thresholds: Dict[str, int]) -> int:

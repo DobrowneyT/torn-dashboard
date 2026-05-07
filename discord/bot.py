@@ -132,8 +132,6 @@ class OCWatcher(discord.Client):
             log.warning("No message to edit — skipping tick")
             return
 
-        await self._ensure_thread_active()
-
         now_ts = int(time.time())
         loop = asyncio.get_running_loop()
 
@@ -163,6 +161,11 @@ class OCWatcher(discord.Client):
         # Cache for the manage-overrides button to read on click.
         self.last_alerts = alerts_dict
 
+        # If anything in the message is "red" severity, keep the thread alive
+        # for the next archive window. Lower-severity ticks let the thread
+        # auto-archive — that's intentional, to keep the channel quiet.
+        await self._ensure_thread_active(alerts_dict)
+
         # Always edit, even when alert content is unchanged, so the "Last
         # updated" footer acts as a watchdog you can read at a glance.
         embeds = formatter_mod.build_embeds(alerts_dict, now_ts=now_ts)
@@ -173,29 +176,105 @@ class OCWatcher(discord.Client):
             len(member_lookup), len(status_map), len(self.override_store.list()),
         )
 
-    async def _ensure_thread_active(self) -> None:
-        """If the message lives in a thread that has auto-archived, unarchive it.
+    async def _ensure_thread_active(self, alerts_dict: dict) -> None:
+        """Keep the thread alive only when at least one red-severity alert exists.
 
-        Threads only count *new messages* toward the auto-archive timer —
-        edits don't reset it — so without this the bot would silently fall
-        out of an idle thread after `auto_archive_duration` minutes.
-        Requires the bot to have the Manage Threads permission.
+        Sending a message in a thread resets the auto-archive timer (and
+        unarchives the thread if it was already archived). We do NOT want
+        that on every tick because it spams the channel with notifications.
+        Instead we send-and-delete only when there's something critical,
+        and otherwise let the thread auto-archive between bursts of red
+        alerts.
+
+        Strategies A and B (PATCHing the channel directly) are kept as
+        commented blocks for future testing — neither produces a Discord
+        notification, but neither actually unarchives in our setup so far.
         """
-        channel = self.message.channel if self.message else None
-        if not isinstance(channel, discord.Thread):
+        if self.message is None:
             return
-        if not channel.archived:
+
+        if not formatter_mod.has_red_alert(alerts_dict):
+            log.debug("[thread] no red-severity alerts — letting thread idle")
             return
+
+        cached_channel = self.message.channel
+        cached_archived = getattr(cached_channel, "archived", None)
+
         try:
-            await channel.edit(archived=False, reason="OC Watcher tick — keep thread alive")
-            log.info("Unarchived thread %s before edit", channel.id)
-        except discord.Forbidden:
-            log.warning(
-                "Thread %s is archived and bot lacks Manage Threads permission to unarchive",
-                channel.id,
-            )
+            fresh = await self.fetch_channel(self.channel_id)
+        except discord.NotFound:
+            log.error("[thread] fetch_channel: not found")
+            return
         except discord.HTTPException as e:
-            log.warning("Failed to unarchive thread %s: %s", channel.id, e)
+            log.warning("[thread] fetch_channel failed (%s); falling back to cached", e)
+            fresh = cached_channel
+
+        if not isinstance(fresh, discord.Thread):
+            return  # not a thread — nothing to do
+
+        log.info(
+            "[thread] RED alert present — keeping thread alive. "
+            "cached_archived=%s fresh_archived=%s archive_timestamp=%s",
+            cached_archived, fresh.archived, getattr(fresh, "archive_timestamp", None),
+        )
+
+        # Strategies A/B/C — toggle to test each in isolation.
+        # Currently: A = COMMENTED, B = COMMENTED, C = ACTIVE.
+
+        # ===== STRATEGY A: thread.edit(archived=False) =====
+        # discord.py's high-level helper. PATCHes /channels/{id} with
+        # {"archived": false} via the wrapped Thread object.
+        # if await self._try_unarchive(
+        #     "A · thread.edit(archived=False)",
+        #     lambda: fresh.edit(archived=False, reason="OC Watcher: keep alive"),
+        # ):
+        #     return
+        # ===== END STRATEGY A =====
+
+        # ===== STRATEGY B: http.edit_channel(archived=False) =====
+        # Same PATCH endpoint as A, but goes around the cached Thread
+        # wrapper by calling discord.py's HTTPClient directly. Useful if
+        # A is short-circuiting because of stale wrapper state.
+        # if await self._try_unarchive(
+        #     "B · http.edit_channel(archived=False)",
+        #     lambda: self.http.edit_channel(
+        #         self.channel_id, archived=False, reason="OC Watcher raw"
+        #     ),
+        # ):
+        #     return
+        # ===== END STRATEGY B =====
+
+        # ===== STRATEGY C: send-then-delete =====
+        # Exploits Discord's "new message auto-unarchives" rule: send a
+        # single dot, then immediately delete it. Visible for ~100ms in
+        # clients but reliably wakes the thread.
+        async def _send_and_delete():
+            tmp = await fresh.send(content="·")
+            await tmp.delete()
+        if await self._try_unarchive("C · send-then-delete", _send_and_delete):
+            return
+        # ===== END STRATEGY C =====
+
+        log.error("[thread] all uncommented strategies failed — thread may stay archived")
+
+    async def _try_unarchive(self, name: str, factory) -> bool:
+        log.info("[thread] strategy %s — attempting", name)
+        try:
+            result = factory()
+            if asyncio.iscoroutine(result):
+                await result
+            log.info("[thread] strategy %s — ✓ SUCCESS", name)
+            return True
+        except discord.Forbidden as e:
+            log.warning("[thread] strategy %s — ✗ Forbidden: %s", name, e)
+        except discord.HTTPException as e:
+            log.warning(
+                "[thread] strategy %s — ✗ HTTP status=%s code=%s text=%r",
+                name, e.status, e.code, getattr(e, "text", str(e)),
+            )
+        except Exception as e:  # noqa: BLE001
+            log.exception("[thread] strategy %s — ✗ Unexpected: %s", name, e)
+        return False
 
     def _fetch_api(self):
         crimes = self.api.get_faction_crimes(

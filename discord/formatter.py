@@ -23,14 +23,25 @@ import discord
 
 PROFILE_URL = "https://www.torn.com/profiles.php?XID={user_id}"
 
-COLOR_OK = 0x2ECC71          # green — all clear
-COLOR_LOW_CPR = 0x3498DB     # blue
-COLOR_MISSING = 0xE67E22     # orange
-COLOR_UNAVAILABLE = 0xE74C3C # red
+COLOR_OK = 0x2ECC71            # green — all clear
+COLOR_DEFAULT = 0x3498DB       # blue — there are alerts but none reach yellow
+COLOR_YELLOW = 0xF1C40F        # yellow — at least one yellow-severity alert
+COLOR_RED = 0xE74C3C           # red — at least one red-severity alert
 
 EMBED_TITLE = "OC Watcher"
 
-LEGEND = "🚑 Unavailable  ·  🎒 Missing items  ·  📉 CPR too low"
+LEGEND = (
+    "🚑 Unavailable  ·  🎒 Missing items  ·  📉 CPR too low\n"
+    "🔴 critical  ·  🟡 warning  ·  🔵 advance notice"
+)
+
+# Per-entry severity → emoji prefix for the bullet.
+SEVERITY_PREFIX = {
+    "red": "🔴 ",
+    "yellow": "🟡 ",
+    "blue": "🔵 ",
+    None: "",
+}
 
 # Discord description max is 4096 chars; leave headroom for the truncation hint.
 DESCRIPTION_LIMIT = 4000
@@ -60,7 +71,7 @@ def build_embeds(alerts: Dict, *, now_ts: Optional[int] = None) -> List[discord.
     embed = discord.Embed(
         title=EMBED_TITLE,
         description=description,
-        color=_severity_color(crimes),
+        color=_embed_color(crimes),
     )
     embed.set_footer(text=_footer_text(generated_at))
     return [embed]
@@ -68,38 +79,66 @@ def build_embeds(alerts: Dict, *, now_ts: Optional[int] = None) -> List[discord.
 
 def _crime_block(crime: Dict, *, index: int, now_ts: Optional[int]) -> str:
     when = _format_hours(crime["hours_until"])
+    verb = "pauses" if crime.get("phase") == "pausing" else "executes"
     header = (
-        f"**{index}.** **{crime['name']}** — executes in {when} "
+        f"**{index}.** **{crime['name']}** — {verb} in {when} "
         f"• [#{crime['id']}]({crime['url']})"
     )
 
     bullets: List[str] = []
 
     for m in crime.get("unavailable", []):
+        prefix = SEVERITY_PREFIX.get(m.get("severity"), "")
         bullets.append(
-            f"> 🚑 {_member_link(m)} — {m['position']}: "
+            f"> {prefix}🚑 {_member_link(m)} — {m['position']}: "
             f"{m['state']}{_until_str(m.get('until'), now_ts)}"
         )
     for m in crime.get("missing_items", []):
+        prefix = SEVERITY_PREFIX.get(m.get("severity"), "")
         bullets.append(
-            f"> 🎒 {_member_link(m)} — {m['position']}: {m['item']}"
+            f"> {prefix}🎒 {_member_link(m)} — {m['position']}: {m['item']}"
         )
     for m in crime.get("low_cpr", []):
+        prefix = SEVERITY_PREFIX.get(m.get("severity"), "")
         bullets.append(
-            f"> 📉 {_member_link(m)} — {m['position']}: {m['cpr']} / {m['required']}"
+            f"> {prefix}📉 {_member_link(m)} — {m['position']}: {m['cpr']} / {m['required']}"
         )
 
     return header + "\n" + "\n".join(bullets)
 
 
-def _severity_color(crimes: List[Dict]) -> int:
-    if any(c.get("unavailable") for c in crimes):
-        return COLOR_UNAVAILABLE
-    if any(c.get("missing_items") for c in crimes):
-        return COLOR_MISSING
-    if any(c.get("low_cpr") for c in crimes):
-        return COLOR_LOW_CPR
-    return COLOR_OK
+def _embed_color(crimes: List[Dict]) -> int:
+    severities = {
+        e.get("severity")
+        for c in crimes
+        for e in (
+            c.get("unavailable", [])
+            + c.get("missing_items", [])
+            + c.get("low_cpr", [])
+        )
+    }
+    if "red" in severities:
+        return COLOR_RED
+    if "yellow" in severities:
+        return COLOR_YELLOW
+    return COLOR_DEFAULT
+
+
+def has_red_alert(alerts: Dict) -> bool:
+    """True if any entry in `alerts` carries severity='red'.
+
+    Used by bot.py to decide whether to send-and-delete a heartbeat to
+    keep the thread alive on this tick.
+    """
+    for c in alerts.get("crimes", []):
+        for e in (
+            c.get("unavailable", [])
+            + c.get("missing_items", [])
+            + c.get("low_cpr", [])
+        ):
+            if e.get("severity") == "red":
+                return True
+    return False
 
 
 def _join_with_header(header: str, blocks: List[str], limit: int) -> str:
