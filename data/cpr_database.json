@@ -10942,7 +10942,7 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-08T04:16:40.195488"
+      "tier_last_updated": "2026-05-08T17:43:38.352402"
     },
     "4090594": {
       "name": "FancyPantsHI",
@@ -10999,7 +10999,7 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-08T04:16:40.195523"
+      "tier_last_updated": "2026-05-08T17:43:38.352432"
     },
     "2404027": {
       "name": "RedFlyingFox",
@@ -11028,23 +11028,23 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-08T04:16:40.195575"
+      "tier_last_updated": "2026-05-08T17:43:38.352479"
     },
     "4030092": {
       "name": "DANNOLAD",
-      "tier": -1,
+      "tier": 6,
       "cpr_by_role": {
         "4": {
           "Imitator": 67
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-05-08T04:16:40.195597"
+      "tier_last_updated": "2026-05-08T17:43:38.352501"
     }
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-05-08T17:43:35.578504",
+    "last_updated": "2026-05-08T17:43:38.353395",
     "total_members": 185
   }
 }
