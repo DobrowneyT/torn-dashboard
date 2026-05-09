@@ -10942,7 +10942,7 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-09T04:22:58.197254"
+      "tier_last_updated": "2026-05-09T17:43:42.723755"
     },
     "4090594": {
       "name": "FancyPantsHI",
@@ -10999,7 +10999,7 @@
       "tier": -1,
       "cpr_by_role": {},
       "last_scraped": "",
-      "tier_last_updated": "2026-05-09T04:22:58.197285"
+      "tier_last_updated": "2026-05-09T17:43:42.723778"
     },
     "2404027": {
       "name": "RedFlyingFox",
@@ -11048,7 +11048,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-05-09T17:43:40.490085",
+    "last_updated": "2026-05-09T17:43:42.724550",
     "total_members": 185
   }
 }
