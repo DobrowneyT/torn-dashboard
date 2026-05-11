@@ -5465,8 +5465,8 @@
       "end_at": null,
       "opponent_id": 20747,
       "opponent_name": "Damage Inc",
-      "our_score": 5347,
-      "opponent_score": 12766,
+      "our_score": 6455,
+      "opponent_score": 18696,
       "target": 17300,
       "winner_faction_id": null,
       "forfeit": false,
@@ -200284,6 +200284,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-05-10T04:43:49.693887"
+    "last_updated": "2026-05-11T04:58:06.553718"
   }
 }
