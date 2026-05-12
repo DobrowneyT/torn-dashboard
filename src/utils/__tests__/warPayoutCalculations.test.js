@@ -280,9 +280,9 @@ describe('calculateTermedWarPayouts — scaling mode', () => {
     expect(carol.payoutAmount).toBe(0)
   })
 
-  it('ineligible members (below overall threshold) get nothing', () => {
-    // Threshold = 400: Bob (score=300) and Carol (score=200) are ineligible
-    const settings = { ...baseSettings, minScoreThreshold: 400 }
+  it('manually ineligible members get nothing regardless of attack score', () => {
+    // Bob is explicitly removed from the pool via ineligibleMembers
+    const settings = { ...baseSettings, ineligibleMembers: new Set([200]) }
     const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
     const bob = members.find(m => m.memberId === 200)
     expect(bob.isEligible).toBe(false)
@@ -290,16 +290,21 @@ describe('calculateTermedWarPayouts — scaling mode', () => {
     expect(bob.payoutAmount).toBe(0)
   })
 
-  it('eligible member with insufficient pre-cutoff attack score gets 0 shares', () => {
-    // Threshold = 100: Alice's overall score (500) qualifies, but her
-    // pre-cutoff attack respect is only 55 — below 100 → no base share
+  it('member who misses pre-cutoff threshold still earns post-cutoff shares', () => {
+    // Threshold = 100: Alice's pre-cutoff score (55) is below 100 → no base share,
+    // but her post-cutoff score (50) earns 50/100 = 0.5 additional shares.
+    // Bob's pre-cutoff (50) also misses → additionalShares = 25/100 = 0.25.
+    // Total shares = 0.75
     const settings = { ...baseSettings, minScoreThreshold: 100 }
-    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const { members, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
     const alice = members.find(m => m.memberId === 100)
-    expect(alice.isEligible).toBe(true)
+    const bob   = members.find(m => m.memberId === 200)
     expect(alice.preCutoffScore).toBe(55)
-    expect(alice.shares).toBe(0) // didn't hit 100 pre-cutoff
-    expect(alice.payoutAmount).toBe(0)
+    expect(alice.shares).toBe(0.5)  // 0 base + 50/100 post
+    expect(alice.isEligible).toBe(true)
+    expect(alice.payoutAmount).toBe(Math.floor(0.5 / 0.75 * 8_000_000))
+    expect(bob.shares).toBe(0.25)   // 0 base + 25/100 post
+    expect(totalShares).toBe(0.75)
   })
 
   it('member with pre-cutoff score exactly at threshold qualifies', () => {

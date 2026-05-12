@@ -500,10 +500,14 @@ export default function WarPayoutManagement() {
   function computeResults(filter, overrides = eligibilityOverrides) {
     if (!selectedWar || contributions.length === 0) return null
 
-    // Build set of manually-ineligible member IDs from overrides
     const ineligibleMembers = new Set(
       Object.entries(overrides)
         .filter(([, v]) => v === false)
+        .map(([k]) => Number(k))
+    )
+    const forceEligibleMembers = new Set(
+      Object.entries(overrides)
+        .filter(([, v]) => v === true)
         .map(([k]) => Number(k))
     )
 
@@ -530,6 +534,7 @@ export default function WarPayoutManagement() {
       warStartAt:      selectedWar.start_at || 0,
       cutoffHours:     cutoffHours === '' ? 24 : Number(cutoffHours),
       ineligibleMembers,
+      forceEligibleMembers,
     }
 
     if (warType === 'termed') {
@@ -1389,7 +1394,7 @@ export default function WarPayoutManagement() {
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Total Shares: </span>
                 <span className="font-semibold text-gray-900 dark:text-white">
-                  {payoutResults.totalShares ?? 0}
+                  {(payoutResults.totalShares ?? 0).toFixed(2)}
                 </span>
               </div>
             )}
@@ -1672,17 +1677,7 @@ export default function WarPayoutManagement() {
                         type="checkbox"
                         checked={m.isEligible}
                         onChange={e => {
-                          if (e.target.checked) {
-                            // Re-enable: remove override so calculation treats them normally
-                            setEligibilityOverrides(prev => {
-                              const next = { ...prev }
-                              delete next[m.memberId]
-                              return next
-                            })
-                          } else {
-                            // Disable: mark as ineligible
-                            setEligibilityOverrides(prev => ({ ...prev, [m.memberId]: false }))
-                          }
+                          setEligibilityOverrides(prev => ({ ...prev, [m.memberId]: e.target.checked }))
                         }}
                         className="rounded border-gray-300 dark:border-slate-600 text-blue-600"
                       />

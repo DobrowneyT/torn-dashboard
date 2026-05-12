@@ -334,8 +334,9 @@ export function calculateTermedWarPayouts(contributions, settings) {
     attacks = [],
     warStartAt = 0,
     cutoffHours = 24,
-    // Manual eligibility overrides — members in this set get 0 shares/payout
-    ineligibleMembers = new Set(),
+    // Manual eligibility overrides
+    ineligibleMembers = new Set(),    // members forced to 0 shares/payout
+    forceEligibleMembers = new Set(), // members eligible regardless of threshold
   } = settings
 
   const totalCacheValue = Number(totalReward) || 0
@@ -353,6 +354,7 @@ export function calculateTermedWarPayouts(contributions, settings) {
     const memberList = contributions.map(m => {
       const score = Number(m.score) || 0
       const manuallyIneligible = ineligibleMembers.has(m.member_id)
+      const forceEligible = forceEligibleMembers.has(m.member_id)
       const cs = cutoffScores.get(m.member_id) || { preCutoffScore: 0, postCutoffScore: 0, bonusReduction: 0 }
       // Base share (1) only if the member hit the threshold before the cutoff
       const baseShares = (!manuallyIneligible && cs.preCutoffScore >= threshold) ? 1 : 0
@@ -362,7 +364,7 @@ export function calculateTermedWarPayouts(contributions, settings) {
         ? cs.postCutoffScore / threshold
         : 0
       const shares = Math.round((baseShares + additionalShares) * 100) / 100
-      const isEligible = !manuallyIneligible && shares > 0
+      const isEligible = forceEligible || (!manuallyIneligible && shares > 0)
 
       return {
         memberId: m.member_id,
@@ -403,7 +405,8 @@ export function calculateTermedWarPayouts(contributions, settings) {
 
   const members = contributions.map(m => {
     const score = Number(m.score) || 0
-    const isEligible = score >= Number(minScoreThreshold) && !ineligibleMembers.has(m.member_id)
+    const isEligible = forceEligibleMembers.has(m.member_id)
+      || (score >= Number(minScoreThreshold) && !ineligibleMembers.has(m.member_id))
     const shares = isEligible ? (Number(memberShares[m.member_id]) || 1) : 0
     const fs = flatAttackStats.get(m.member_id)
     const bonusReduction = fs ? Math.round(fs.bonusRespect * 100) / 100 : 0
