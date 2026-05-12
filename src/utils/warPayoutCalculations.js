@@ -297,10 +297,12 @@ export function calculateCutoffScores(attacks, cutoffTimestamp) {
     const chain = Number(a.chain) || 0
     // Cap bonus chain hits at 10 respect (same normalization as real war contribution score)
     const respect = BONUS_HITS.has(chain) ? Math.min(rawRespect, 10) : rawRespect
+    const bonusCapped = rawRespect - respect
     const started = Number(a.started) || 0
     const id = a.attacker_id
-    if (!scores.has(id)) scores.set(id, { preCutoffScore: 0, postCutoffScore: 0 })
+    if (!scores.has(id)) scores.set(id, { preCutoffScore: 0, postCutoffScore: 0, bonusReduction: 0 })
     const s = scores.get(id)
+    s.bonusReduction += bonusCapped
     if (started <= cutoffTimestamp) {
       s.preCutoffScore += respect
     } else {
@@ -351,7 +353,7 @@ export function calculateTermedWarPayouts(contributions, settings) {
     const memberList = contributions.map(m => {
       const score = Number(m.score) || 0
       const manuallyIneligible = ineligibleMembers.has(m.member_id)
-      const cs = cutoffScores.get(m.member_id) || { preCutoffScore: 0, postCutoffScore: 0 }
+      const cs = cutoffScores.get(m.member_id) || { preCutoffScore: 0, postCutoffScore: 0, bonusReduction: 0 }
       // Base share (1) only if the member hit the threshold before the cutoff
       const baseShares = (!manuallyIneligible && cs.preCutoffScore >= threshold) ? 1 : 0
       // Post-cutoff fractional shares apply regardless of pre-cutoff performance —
@@ -370,6 +372,7 @@ export function calculateTermedWarPayouts(contributions, settings) {
         isEligible,
         preCutoffScore: Math.round(cs.preCutoffScore * 100) / 100,
         postCutoffScore: Math.round(cs.postCutoffScore * 100) / 100,
+        bonusReduction: Math.round((cs.bonusReduction ?? 0) * 100) / 100,
         shares,
       }
     })
@@ -396,10 +399,14 @@ export function calculateTermedWarPayouts(contributions, settings) {
   }
 
   // ── Flat shares mode (default) ────────────────────────────────────
+  const flatAttackStats = buildMemberAttackStats(attacks)
+
   const members = contributions.map(m => {
     const score = Number(m.score) || 0
     const isEligible = score >= Number(minScoreThreshold) && !ineligibleMembers.has(m.member_id)
     const shares = isEligible ? (Number(memberShares[m.member_id]) || 1) : 0
+    const fs = flatAttackStats.get(m.member_id)
+    const bonusReduction = fs ? Math.round(fs.bonusRespect * 100) / 100 : 0
     return {
       memberId: m.member_id,
       memberName: m.member_name,
@@ -407,6 +414,7 @@ export function calculateTermedWarPayouts(contributions, settings) {
       attacks: m.attacks || 0,
       isEligible,
       shares,
+      bonusReduction,
     }
   })
 

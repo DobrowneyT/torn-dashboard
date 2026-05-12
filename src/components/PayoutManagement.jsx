@@ -1391,7 +1391,7 @@ export default function PayoutManagement() {
           {/* Member Payouts Table */}
           <div className="card">
             <h3 className="text-lg font-semibold mb-4">Member Payouts</h3>
-            <div className="overflow-auto max-h-[70vh] relative">
+            <div className="overflow-auto max-h-[70vh] relative scrollbar-thin">
               <table className="w-full text-sm border-separate border-spacing-0">
                 <thead>
                   <tr className="text-left">

@@ -36,16 +36,24 @@ export default function TierManagement() {
 
       const memberIds = membersData.map(m => String(m.member_id))
 
-      const { data: cprData, error: cprError } = await supabase
-        .from('member_cpr_v2')
-        .select('member_id, crime_name, difficulty, position_label, cpr_value')
-        .in('member_id', memberIds)
-
-      if (cprError) throw cprError
+      const PAGE_SIZE = 1000
+      let allCprData = []
+      let from = 0
+      while (true) {
+        const { data: page, error: cprError } = await supabase
+          .from('member_cpr_v2')
+          .select('member_id, crime_name, difficulty, position_label, cpr_value')
+          .in('member_id', memberIds)
+          .range(from, from + PAGE_SIZE - 1)
+        if (cprError) throw cprError
+        allCprData = allCprData.concat(page)
+        if (page.length < PAGE_SIZE) break
+        from += PAGE_SIZE
+      }
 
       // Index CPR records by member_id string for O(1) lookup
       const cprByMember = {}
-      for (const record of (cprData || [])) {
+      for (const record of allCprData) {
         const mid = String(record.member_id)
         if (!cprByMember[mid]) cprByMember[mid] = []
         cprByMember[mid].push(record)
