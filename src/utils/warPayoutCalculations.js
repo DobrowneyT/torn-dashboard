@@ -34,8 +34,11 @@
  *    memberPool     = totalReward − factionCut
  *    preCutoffScore = Σ respect_gain for outgoing ranked-war wins before cutoff
  *    postCutoffScore= Σ respect_gain for outgoing ranked-war wins after cutoff
- *    shares[i]      = (preCutoffScore ≥ threshold ? 1 : 0) + postCutoffScore / threshold
+ *    baseShares[i]  = preCutoffScore ≥ threshold ? 1 : 0
+ *    addlShares[i]  = postCutoffScore > 0 ? postCutoffScore / threshold : 0
+ *    shares[i]      = baseShares[i] + addlShares[i]   (0 if manually ineligible)
  *    payout[i]      = floor((shares[i] / Σ shares) × memberPool)
+ *    cutoffHours=0  → all score is post-cutoff → shares[i] = totalScore / threshold
  */
 
 const OUR_FACTION_ID = 10739
@@ -347,12 +350,17 @@ export function calculateTermedWarPayouts(contributions, settings) {
 
     const memberList = contributions.map(m => {
       const score = Number(m.score) || 0
-      const isEligible = score >= threshold && !ineligibleMembers.has(m.member_id)
+      const manuallyIneligible = ineligibleMembers.has(m.member_id)
       const cs = cutoffScores.get(m.member_id) || { preCutoffScore: 0, postCutoffScore: 0 }
-      const qualifiedPreCutoff = isEligible && cs.preCutoffScore >= threshold
-      const baseShares = qualifiedPreCutoff ? 1 : 0
-      const additionalShares = qualifiedPreCutoff ? cs.postCutoffScore / threshold : 0
+      // Base share (1) only if the member hit the threshold before the cutoff
+      const baseShares = (!manuallyIneligible && cs.preCutoffScore >= threshold) ? 1 : 0
+      // Post-cutoff fractional shares apply regardless of pre-cutoff performance —
+      // members who missed the cutoff still earn proportional pay for what they did after
+      const additionalShares = (!manuallyIneligible && cs.postCutoffScore > 0)
+        ? cs.postCutoffScore / threshold
+        : 0
       const shares = Math.round((baseShares + additionalShares) * 100) / 100
+      const isEligible = !manuallyIneligible && shares > 0
 
       return {
         memberId: m.member_id,
