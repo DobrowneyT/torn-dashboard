@@ -12,8 +12,8 @@ export default function TierManagement() {
   const [saveSuccess, setSaveSuccess] = useState(null)
   
   const [members, setMembers] = useState([])
-  const [tierRequirements, setTierRequirements] = useState({})
-  const [payoutTickets, setPayoutTickets] = useState({})
+  const [sortColumn, setSortColumn] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -41,7 +41,7 @@ export default function TierManagement() {
       if (cprError) throw cprError
 
       const membersWithCpr = membersData.map(member => {
-        const memberCprRecords = cprData.filter(c => c.member_id === member.member_id)
+        const memberCprRecords = cprData.filter(c => String(c.member_id) === String(member.member_id))
 
         // Build { crime_name: { position_label: cpr_value } } for tier matching
         const cprByCrime = {}
@@ -62,39 +62,11 @@ export default function TierManagement() {
           hasOverride: member.tier_override !== null,
           cprByCrime,
           cprByLevel,
-          avgCpr: calculateAvgCpr(memberCprRecords),
           last_scraped: member.last_scraped
         }
       })
 
       setMembers(membersWithCpr)
-
-      const { data: requirementsData, error: reqError } = await supabase
-        .from('tier_requirements')
-        .select('*')
-        .order('tier, requirement_index')
-
-      if (reqError) throw reqError
-
-      const requirementsByTier = {}
-      const ticketsByTier = {}
-      
-      requirementsData.forEach(req => {
-        if (!requirementsByTier[req.tier]) {
-          requirementsByTier[req.tier] = []
-          // Get tickets from first requirement of each tier
-          ticketsByTier[req.tier] = req.payout_tickets
-        }
-        requirementsByTier[req.tier].push({
-          level: req.difficulty_level,
-          role: req.role_name,
-          minCpr: req.min_cpr,
-          isAverage: req.is_average
-        })
-      })
-      
-      setTierRequirements(requirementsByTier)
-      setPayoutTickets(ticketsByTier)
 
     } catch (err) {
       console.error('Error loading data:', err)
@@ -105,13 +77,41 @@ export default function TierManagement() {
   }
 
   const filteredMembers = useMemo(() => {
-    if (!searchTerm) return members
+    let list = members
+    if (searchTerm) {
+      list = list.filter(m =>
+        m.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        m.id.toString().includes(searchTerm)
+      )
+    }
+    return [...list].sort((a, b) => {
+      let aVal, bVal
+      if (sortColumn === 'tier') {
+        aVal = a.tier || 6
+        bVal = b.tier || 6
+      } else {
+        aVal = (a.name || '').toLowerCase()
+        bVal = (b.name || '').toLowerCase()
+      }
+      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [members, searchTerm, sortColumn, sortDir])
 
-    return members.filter(m =>
-      m.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.id.toString().includes(searchTerm)
-    )
-  }, [members, searchTerm])
+  function handleSort(column) {
+    if (sortColumn === column) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortDir('asc')
+    }
+  }
+
+  function SortIcon({ column }) {
+    if (sortColumn !== column) return <span className="ml-1 text-gray-300 dark:text-gray-600">↕</span>
+    return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
+  }
 
   function handleEditTier(member) {
     setEditingMember(member)
@@ -252,9 +252,12 @@ export default function TierManagement() {
           <table className="w-full">
             <thead className="border-b-2 border-gray-200 dark:border-slate-700">
               <tr className="text-left">
-                <th className="py-3 px-4 font-semibold text-sm">Member</th>
-                <th className="py-3 px-4 font-semibold text-sm">Current Tier</th>
-                <th className="py-3 px-4 font-semibold text-sm">Avg CPR</th>
+                <th className="py-3 px-4 font-semibold text-sm cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-slate-700/50" onClick={() => handleSort('name')}>
+                  Member <SortIcon column="name" />
+                </th>
+                <th className="py-3 px-4 font-semibold text-sm cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-slate-700/50" onClick={() => handleSort('tier')}>
+                  Current Tier <SortIcon column="tier" />
+                </th>
                 <th className="py-3 px-4 font-semibold text-sm">Qualification</th>
                 <th className="py-3 px-4 font-semibold text-sm">Actions</th>
               </tr>
@@ -262,7 +265,7 @@ export default function TierManagement() {
             <tbody>
               {filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="py-8 text-center text-gray-500">
+                  <td colSpan="4" className="py-8 text-center text-gray-500">
                     No members found
                   </td>
                 </tr>
@@ -302,7 +305,6 @@ export default function TierManagement() {
                           <TierBadge tier={currentTier} />
                         )}
                       </td>
-                      <td className="py-3 px-4">{member.avgCpr}</td>
                       <td className="py-3 px-4">
                         <QualificationBadge
                           metCount={qualification.metCount}
@@ -348,12 +350,12 @@ export default function TierManagement() {
       <div className="card">
         <h3 className="text-lg font-semibold mb-4">Tier Requirements Reference</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Object.entries(tierRequirements).map(([tier, requirements]) => (
+          {Object.entries(config.tierRequirements).map(([tier, requirements]) => (
             <div key={tier} className="border border-gray-200 dark:border-slate-700 rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
                 <TierBadge tier={parseInt(tier)} />
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {payoutTickets[tier]} tickets
+                  {config.payoutTickets[parseInt(tier)]} tickets
                 </span>
               </div>
               <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
@@ -362,7 +364,9 @@ export default function TierManagement() {
               <div className="space-y-1">
                 {requirements.map((req, idx) => (
                   <div key={idx} className="text-xs text-gray-500 dark:text-gray-500">
-                    L{req.level} {req.role}: {req.minCpr}+ CPR
+                    {req.isAverage
+                      ? `Difficulty ${req.level} Average: ${req.minCpr}+ CPR`
+                      : `${req.crime} — ${req.role}: ${req.minCpr}+ CPR`}
                   </div>
                 ))}
               </div>
@@ -399,8 +403,3 @@ function QualificationBadge({ metCount, requiredCount, totalCount, meetsRequirem
   )
 }
 
-function calculateAvgCpr(cprRecords) {
-  if (!cprRecords || cprRecords.length === 0) return 'N/A'
-  const total = cprRecords.reduce((sum, r) => sum + parseFloat(r.cpr_value), 0)
-  return Math.round(total / cprRecords.length)
-}

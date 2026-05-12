@@ -19,10 +19,39 @@ log = logging.getLogger("state")
 
 
 def load_state() -> dict:
+    """Load discord/state.json.
+
+    Tolerates the file being missing or empty (returns ``{}``).
+    If it exists with non-empty but malformed contents, the file is
+    moved aside to ``state.json.broken`` and we start fresh — losing
+    a corrupt state file silently is worse than overwriting it.
+    """
     if not os.path.exists(STATE_PATH):
         return {}
-    with open(STATE_PATH, "r") as f:
-        return json.load(f)
+    try:
+        with open(STATE_PATH, "r") as f:
+            text = f.read()
+    except OSError as e:
+        log.warning("state.json unreadable (%s) — treating as empty", e)
+        return {}
+    if not text.strip():
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        backup = STATE_PATH + ".broken"
+        try:
+            os.replace(STATE_PATH, backup)
+            log.error(
+                "state.json was not valid JSON (%s) — moved to %s and starting fresh",
+                e, backup,
+            )
+        except OSError as move_err:
+            log.error(
+                "state.json was not valid JSON (%s) and could not be backed up (%s)",
+                e, move_err,
+            )
+        return {}
 
 
 def save_state(state: dict) -> None:
