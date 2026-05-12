@@ -278,13 +278,14 @@ export default function TierManagement() {
                   Current Tier <SortIcon column="tier" />
                 </th>
                 <th className="py-3 px-4 font-semibold text-sm">Qualification</th>
+                <th className="py-3 px-4 font-semibold text-sm">Next Tier</th>
                 <th className="py-3 px-4 font-semibold text-sm">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan="4" className="py-8 text-center text-gray-500">
+                  <td colSpan="5" className="py-8 text-center text-gray-500">
                     No members found
                   </td>
                 </tr>
@@ -292,6 +293,8 @@ export default function TierManagement() {
                 filteredMembers.map(member => {
                   const currentTier = member.tier || 6
                   const qualification = getMeetsRequirements(member, currentTier)
+                  const nextTier = currentTier > 1 ? currentTier - 1 : null
+                  const nextQualification = nextTier ? getMeetsRequirements(member, nextTier) : null
                   const isEditing = editingMember?.id === member.id
 
                   return (
@@ -331,6 +334,18 @@ export default function TierManagement() {
                           totalCount={qualification.totalCount}
                           meetsRequirement={qualification.meetsRequirement}
                         />
+                      </td>
+                      <td className="py-3 px-4">
+                        {nextQualification ? (
+                          <QualificationBadge
+                            metCount={nextQualification.metCount}
+                            requiredCount={nextQualification.requiredCount}
+                            totalCount={nextQualification.totalCount}
+                            meetsRequirement={nextQualification.meetsRequirement}
+                          />
+                        ) : (
+                          <span className="text-sm text-gray-400 dark:text-gray-600">N/A</span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         {isEditing ? (
