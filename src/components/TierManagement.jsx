@@ -34,14 +34,25 @@ export default function TierManagement() {
 
       if (membersError) throw membersError
 
+      const memberIds = membersData.map(m => String(m.member_id))
+
       const { data: cprData, error: cprError } = await supabase
         .from('member_cpr_v2')
         .select('member_id, crime_name, difficulty, position_label, cpr_value')
+        .in('member_id', memberIds)
 
       if (cprError) throw cprError
 
+      // Index CPR records by member_id string for O(1) lookup
+      const cprByMember = {}
+      for (const record of (cprData || [])) {
+        const mid = String(record.member_id)
+        if (!cprByMember[mid]) cprByMember[mid] = []
+        cprByMember[mid].push(record)
+      }
+
       const membersWithCpr = membersData.map(member => {
-        const memberCprRecords = cprData.filter(c => String(c.member_id) === String(member.member_id))
+        const memberCprRecords = cprByMember[String(member.member_id)] || []
 
         // Build { crime_name: { position_label: cpr_value } } for tier matching
         const cprByCrime = {}
