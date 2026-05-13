@@ -5491,6 +5491,23 @@
       "rank_before": "Diamond II",
       "rank_after": "Diamond I",
       "report_fetched": true
+    },
+    "41944": {
+      "id": 41944,
+      "start_at": 1778860800,
+      "end_at": null,
+      "opponent_id": 8317,
+      "opponent_name": "Naughty Souls",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17100,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -201868,6 +201885,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-05-12T04:36:21.196588"
+    "last_updated": "2026-05-13T04:42:52.048926"
   }
 }
