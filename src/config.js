@@ -131,7 +131,7 @@ export const config = {
       { crime: "Bidding War", role: "Bomber #1", minCpr: 70 },
       { crime: "Bidding War", role: "Robber #1", minCpr: 70 },
       { crime: "Honey Trap", role: "Enforcer", minCpr: 75 },
-      { crime: "Honey Trap", role: "Muscle", minCpr: 75 }
+      { crime: "Honey Trap", role: "Muscle #1", minCpr: 75 }
     ],
     5: [
       { level: 5, role: "Average", minCpr: 75, isAverage: true }
