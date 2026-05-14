@@ -1955,7 +1955,7 @@
     },
     "2146235": {
       "name": "m3llow",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Muscle": 95,
@@ -2031,7 +2031,7 @@
         }
       },
       "last_scraped": "2026-05-14T20:12:30.878549",
-      "tier_last_updated": "2025-12-27T15:47:53.293581"
+      "tier_last_updated": "2026-05-14T20:12:55.693430"
     },
     "2162161": {
       "name": "Plastic-Man",
@@ -9169,7 +9169,7 @@
     },
     "3629708": {
       "name": "CaptShen_616",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 95,
@@ -9246,7 +9246,7 @@
         }
       },
       "last_scraped": "2026-05-14T20:12:43.297842",
-      "tier_last_updated": "2026-03-10T17:43:24.391673"
+      "tier_last_updated": "2026-05-14T20:12:55.693654"
     },
     "3642824": {
       "name": "_SaLaaR_",
@@ -9403,7 +9403,7 @@
     },
     "3663303": {
       "name": "mcswagger",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 95,
@@ -9479,11 +9479,11 @@
         }
       },
       "last_scraped": "2026-05-14T20:12:43.847419",
-      "tier_last_updated": "2026-03-10T17:43:24.391740"
+      "tier_last_updated": "2026-05-14T20:12:55.693845"
     },
     "3680626": {
       "name": "Chef_Tris",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "1": {
           "Looter": 95,
@@ -9559,7 +9559,7 @@
         }
       },
       "last_scraped": "2026-05-14T20:12:44.152240",
-      "tier_last_updated": "2026-03-10T17:43:24.391763"
+      "tier_last_updated": "2026-05-14T20:12:55.693491"
     },
     "3687690": {
       "name": "iiZod",
@@ -10700,7 +10700,7 @@
     },
     "3475942": {
       "name": "Phoneix_55",
-      "tier": 5,
+      "tier": 4,
       "cpr_by_role": {
         "5": {
           "Car Thief": 72,
@@ -10715,7 +10715,7 @@
         }
       },
       "last_scraped": "",
-      "tier_last_updated": "2026-04-24T17:44:49.279067"
+      "tier_last_updated": "2026-05-14T20:12:55.695254"
     },
     "3074032": {
       "name": "Josiah",
@@ -11104,7 +11104,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-05-14T20:12:51.807425",
+    "last_updated": "2026-05-14T20:12:55.695445",
     "total_members": 185
   }
 }
