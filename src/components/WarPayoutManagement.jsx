@@ -125,7 +125,7 @@ function WarDropdown({ wars, totalWars, selectedWar, onSelect, page, onPageChang
   )
 }
 
-function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilter, sortCol, sortDir, onSort }) {
+function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilter, sortCol, sortDir, onSort, opponentId }) {
   // Unique opposing faction IDs from the attacks, derived once per attack set
   const opposingIds = (() => {
     const ids = new Set()
@@ -137,7 +137,10 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
         if (a.attacker_faction_id === OUR_FACTION_ID && a.defender_faction_id) ids.add(Number(a.defender_faction_id))
       }
     }
+    const oppId = opponentId ? Number(opponentId) : null
     return [...ids].sort((a, b) => {
+      if (a === oppId) return -1
+      if (b === oppId) return 1
       const na = factionLookup.get(a)?.name || `Faction #${a}`
       const nb = factionLookup.get(b)?.name || `Faction #${b}`
       return na.localeCompare(nb)
@@ -1347,6 +1350,7 @@ export default function WarPayoutManagement() {
                 if (hitSortCol === col) setHitSortDir(d => d === 'asc' ? 'desc' : 'asc')
                 else { setHitSortCol(col); setHitSortDir('desc') }
               }}
+              opponentId={selectedWar?.opponent_id}
             />
           )}
 
