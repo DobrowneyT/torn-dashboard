@@ -23,9 +23,9 @@ export const config = {
     '2749598', // Uncensored
     '2264192', // McGummy
     '2407528', // DiabolicPickles
-    '2736995', // CleverGirl
+    // '2736995', // CleverGirl
     '2932241', // Marnix0126
-    '2015160', // Andrew_616
+    // '2015160', // Andrew_616
   ],
 
   crimeItemIds: [
