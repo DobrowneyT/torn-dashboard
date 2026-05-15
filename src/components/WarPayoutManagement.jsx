@@ -141,6 +141,8 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
     return [...ids].sort((a, b) => {
       if (a === oppId) return -1
       if (b === oppId) return 1
+      if (a === OUR_FACTION_ID) return -1
+      if (b === OUR_FACTION_ID) return 1
       const na = factionLookup.get(a)?.name || `Faction #${a}`
       const nb = factionLookup.get(b)?.name || `Faction #${b}`
       return na.localeCompare(nb)
