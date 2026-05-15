@@ -26,9 +26,9 @@ export default function RWPayoutsView() {
       // Load all war payouts for this user
       const { data, error } = await supabase
         .from('war_payout_members')
-        .select('payout, war_payout_id, war_payouts(id, war_id, total_payout, member_count, created_at, ranked_wars(start_at, end_at, opponent_name, opponent_id, winner_faction_id, our_score, opponent_score))')
+        .select('payout_amount, payout_id, war_payouts(id, war_id, total_payout, member_count, created_at, ranked_wars(start_at, end_at, opponent_name, opponent_id, winner_faction_id, our_score, opponent_score))')
         .eq('member_id', user.id.toString())
-        .order('war_payout_id', { ascending: false })
+        .order('payout_id', { ascending: false })
 
       if (error) throw error
       setWarPayouts(data || [])
@@ -49,9 +49,9 @@ export default function RWPayoutsView() {
     try {
       const { data, error } = await supabase
         .from('war_payout_members')
-        .select('member_id, member_name, payout')
-        .eq('war_payout_id', warPayoutId)
-        .order('payout', { ascending: false })
+        .select('member_id, member_name, payout_amount')
+        .eq('payout_id', warPayoutId)
+        .order('payout_amount', { ascending: false })
 
       if (error) throw error
       setPayoutMembers(data || [])
@@ -64,12 +64,12 @@ export default function RWPayoutsView() {
 
   const myStats = useMemo(() => {
     if (warPayouts.length === 0) return null
-    const totalEarned = warPayouts.reduce((sum, p) => sum + (p.payout || 0), 0)
+    const totalEarned = warPayouts.reduce((sum, p) => sum + (p.payout_amount || 0), 0)
     return {
       totalEarned,
       warsActive: warPayouts.length,
       avgPerWar: totalEarned / warPayouts.length,
-      lastPayout: warPayouts[0]?.payout || 0,
+      lastPayout: warPayouts[0]?.payout_amount || 0,
     }
   }, [warPayouts])
 
@@ -115,19 +115,19 @@ export default function RWPayoutsView() {
               const resultColor = result === 'win' ? 'text-green-600' : result === 'loss' ? 'text-red-500' : 'text-yellow-600'
               const label = war
                 ? `vs ${war.opponent_name || `#${war.opponent_id}`}`
-                : `Payout #${wp.war_payout_id}`
+                : `Payout #${wp.payout_id}`
               const dateLabel = war ? formatWarDateRange(war.start_at, war.end_at) : ''
-              const isExpanded = selectedPayout === wp.war_payout_id
+              const isExpanded = selectedPayout === wp.payout_id
 
               return (
-                <div key={wp.war_payout_id}>
+                <div key={wp.payout_id}>
                   <div
                     className={`border rounded-lg p-4 cursor-pointer transition-colors ${
                       isExpanded
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                         : 'border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600'
                     }`}
-                    onClick={() => loadPayoutDetails(wp.war_payout_id)}
+                    onClick={() => loadPayoutDetails(wp.payout_id)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="min-w-0">
@@ -146,7 +146,7 @@ export default function RWPayoutsView() {
                       </div>
                       <div className="text-right flex-shrink-0 ml-4">
                         <div className="text-lg font-bold text-blue-600">
-                          {formatCurrencyShort(wp.payout || 0)}
+                          {formatCurrencyShort(wp.payout_amount || 0)}
                         </div>
                         {payoutData?.total_payout && (
                           <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -179,7 +179,7 @@ export default function RWPayoutsView() {
                                 <tr key={m.member_id} className="border-b border-gray-100 dark:border-slate-700/50 last:border-0">
                                   <td className="py-1.5 px-4 text-xs">{m.member_name}</td>
                                   <td className="py-1.5 px-4 text-xs text-right font-semibold text-blue-600">
-                                    {formatCurrency(m.payout || 0)}
+                                    {formatCurrency(m.payout_amount || 0)}
                                   </td>
                                 </tr>
                               ))}

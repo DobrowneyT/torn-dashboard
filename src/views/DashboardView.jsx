@@ -103,9 +103,9 @@ export default function DashboardView() {
         // War payouts for this member
         const { data: wpMembers } = await supabase
           .from('war_payout_members')
-          .select('war_payout_id, payout, war_payouts(war_id, created_at, ranked_wars(start_at, end_at, opponent_name))')
+          .select('payout_id, payout_amount, war_payouts(war_id, created_at, ranked_wars(start_at, end_at, opponent_name))')
           .eq('member_id', memberId)
-          .order('war_payout_id', { ascending: false })
+          .order('payout_id', { ascending: false })
           .limit(5)
 
         setWarPayouts(wpMembers || [])
@@ -338,7 +338,7 @@ function RWSummaryCard({ wars, payouts }) {
     )
   }
 
-  const payoutValues = payouts.filter(p => p.payout > 0).map(p => p.payout)
+  const payoutValues = payouts.filter(p => p.payout_amount > 0).map(p => p.payout_amount)
   const avgPayout = payoutValues.length > 0
     ? Math.floor(payoutValues.reduce((s, v) => s + v, 0) / payoutValues.length)
     : 0
@@ -418,7 +418,7 @@ function RWSummaryCard({ wars, payouts }) {
                   <div key={i} className="flex justify-between text-xs">
                     <span className="text-gray-500 dark:text-gray-400 truncate">{label}</span>
                     <span className="font-medium text-gray-900 dark:text-white flex-shrink-0 ml-2">
-                      {formatCurrency(wp.payout || 0)}
+                      {formatCurrency(wp.payout_amount || 0)}
                     </span>
                   </div>
                 )

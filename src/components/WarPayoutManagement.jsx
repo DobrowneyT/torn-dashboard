@@ -618,11 +618,16 @@ export default function WarPayoutManagement() {
     setIsSaving(true)
     setSaveError(null)
 
+    const effectiveMembers = getEffectiveMembers()
+    const totalPayout = effectiveMembers.reduce((s, m) => s + (m.isEligible ? (m.payoutAmount || 0) : 0), 0)
+
     const payoutData = {
       war_id: selectedWar.id,
       war_type: warType,
       faction_cut_percent: Number(factionCutPercent),
       total_reward: Number(totalReward) || 0,
+      total_payout: Math.floor(totalPayout),
+      member_count: effectiveMembers.length,
       min_score_threshold: Number(minScoreThreshold),
       termed_mode: warType === 'termed' ? termedMode : (warType === 'race' ? racePostCutoffMode : null),
       merc_cost:      Number(mercCost) || 0,
@@ -642,8 +647,6 @@ export default function WarPayoutManagement() {
       race_pre_cutoff_percent: warType === 'race' ? Number(racePreCutoffPercent) : null,
       notes: notes || null,
     }
-
-    const effectiveMembers = getEffectiveMembers()
     const memberRecords = effectiveMembers.map(m => ({
       member_id: m.memberId,
       member_name: m.memberName,
