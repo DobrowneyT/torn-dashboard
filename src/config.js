@@ -28,6 +28,20 @@ export const config = {
     // '2015160', // Andrew_616
   ],
 
+  warleadUserIds: [
+    '2250591', // MonChoon
+    '2749598', // Uncensored
+    '2264192', // McGummy
+    '2407528', // DiabolicPickles
+    '2932241', // Marnix0126
+  ],
+
+  ocmanagerUserIds: [
+    '2250591', // MonChoon
+    '2749598', // Uncensored
+    '2932241', // Marnix0126
+  ],
+
   crimeItemIds: [
     66, 67, 68, 69, 70, 71, 72, 74, 159, 213, 568, 579, 981, 1080, 1203,
     1258, 1284, 1331, 1350, 1362, 1380, 1383, 73, 103, 158, 172, 188, 190,
@@ -52,7 +66,10 @@ export const config = {
     cesium: { label: "Cesium", description: "Cesium items", color: "cyan" }
   },
 
-  // CPR pass-rate requirements per crime position (from faction CPR requirements sheet)
+  // CPR requirements per crime position
+  // Also update https://docs.google.com/spreadsheets/d/1jGUqs4mLJzFWidWFO1AGVztcdY3o2JLo6OrDsI24J10/edit?usp=sharing
+  // script is `cpr_requirements.gs` the Object is `CPR_REQUIREMENTS`
+  // then run CPR Requirements -> Write Requirements to Sheet
   cprRequirements: {
     "Blast from the Past": {
       difficulty: 7,
@@ -152,4 +169,12 @@ export function isAdmin(userId) {
 
 export function isLeader(userId) {
   return config.leadershipUserIds.includes(String(userId))
+}
+
+export function isWarLead(userId) {
+  return config.warleadUserIds.includes(String(userId))
+}
+
+export function isOCManager(userId) {
+  return config.ocmanagerUserIds.includes(String(userId))
 }
