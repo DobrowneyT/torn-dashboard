@@ -20,8 +20,11 @@ class TornAPI:
 
     BASE_URL = "https://api.torn.com/v2"
 
-    RATE_LIMIT_SLEEP = 60   # seconds to wait on error 5 (too many requests)
+    RATE_LIMIT_SLEEP = 60        # seconds to wait on error 5 (too many requests)
     RATE_LIMIT_MAX_RETRIES = 3
+
+    NETWORK_ERROR_RETRY_DELAY = 60   # seconds between retries on 5xx / connection errors
+    NETWORK_ERROR_MAX_RETRIES = 3
 
     def __init__(self, api_key: str):
         """
@@ -47,11 +50,14 @@ class TornAPI:
 
     def _make_request(self, url: str, params: Dict = None) -> Dict:
         """
-        Make API request with error handling and automatic retry on rate limit.
+        Make API request with automatic retry on transient failures.
 
-        Retries up to RATE_LIMIT_MAX_RETRIES times when the API returns error 5
-        (too many requests), sleeping RATE_LIMIT_SLEEP seconds between attempts.
-        All other errors are raised immediately as TornAPIError.
+        - Network / HTTP errors (5xx, timeout, connection reset): retried up to
+          NETWORK_ERROR_MAX_RETRIES times with NETWORK_ERROR_RETRY_DELAY seconds
+          between attempts.
+        - Rate limit (Torn error code 5): retried up to RATE_LIMIT_MAX_RETRIES
+          times with RATE_LIMIT_SLEEP seconds between attempts.
+        - All other API errors are raised immediately as TornAPIError.
 
         Args:
             url: Full API URL
@@ -61,45 +67,61 @@ class TornAPI:
             Parsed JSON response
 
         Raises:
-            TornAPIError: If request fails or API returns a non-rate-limit error
+            TornAPIError: If request ultimately fails after all retries
         """
-        for attempt in range(1, self.RATE_LIMIT_MAX_RETRIES + 2):  # +2: attempts 1..N+1
+        rate_limit_retries = 0
+        network_retries = 0
+
+        while True:
             self._wait_for_rate_limit()
 
+            # ── Network request (with retry on transient errors) ──────────────
             try:
                 logger.info(f"API Request: {url}")
                 response = self.session.get(url, params=params, timeout=30)
                 response.raise_for_status()
-
-                data = response.json()
-
-                if 'error' in data:
-                    code = data['error'].get('code')
-                    msg = data['error'].get('error', 'Unknown error')
-                    error_msg = f"API Error {code}: {msg}"
-
-                    if code == 5:
-                        if attempt <= self.RATE_LIMIT_MAX_RETRIES:
-                            logger.warning(
-                                f"Rate limited — sleeping {self.RATE_LIMIT_SLEEP}s "
-                                f"(retry {attempt}/{self.RATE_LIMIT_MAX_RETRIES})..."
-                            )
-                            time.sleep(self.RATE_LIMIT_SLEEP)
-                            continue
-                        else:
-                            logger.error(f"Still rate limited after {self.RATE_LIMIT_MAX_RETRIES} retries")
-
-                    logger.error(error_msg)
-                    raise TornAPIError(error_msg)
-
-                return data
-
             except requests.exceptions.RequestException as e:
+                network_retries += 1
                 logger.error(f"Network error: {e}")
-                raise TornAPIError(f"Network error: {e}")
+                if network_retries < self.NETWORK_ERROR_MAX_RETRIES:
+                    logger.warning(
+                        f"Retrying in {self.NETWORK_ERROR_RETRY_DELAY}s "
+                        f"(attempt {network_retries}/{self.NETWORK_ERROR_MAX_RETRIES})..."
+                    )
+                    time.sleep(self.NETWORK_ERROR_RETRY_DELAY)
+                    continue
+                raise TornAPIError(
+                    f"Network error after {self.NETWORK_ERROR_MAX_RETRIES} retries: {e}"
+                )
+
+            # ── Parse JSON ────────────────────────────────────────────────────
+            try:
+                data = response.json()
             except ValueError as e:
                 logger.error(f"JSON decode error: {e}")
                 raise TornAPIError(f"Invalid JSON response: {e}")
+
+            # ── API-level errors ──────────────────────────────────────────────
+            if 'error' in data:
+                code = data['error'].get('code')
+                msg = data['error'].get('error', 'Unknown error')
+                error_msg = f"API Error {code}: {msg}"
+
+                if code == 5:
+                    rate_limit_retries += 1
+                    if rate_limit_retries <= self.RATE_LIMIT_MAX_RETRIES:
+                        logger.warning(
+                            f"Rate limited — sleeping {self.RATE_LIMIT_SLEEP}s "
+                            f"(retry {rate_limit_retries}/{self.RATE_LIMIT_MAX_RETRIES})..."
+                        )
+                        time.sleep(self.RATE_LIMIT_SLEEP)
+                        continue
+                    logger.error(f"Still rate limited after {self.RATE_LIMIT_MAX_RETRIES} retries")
+
+                logger.error(error_msg)
+                raise TornAPIError(error_msg)
+
+            return data
 
     # ==================== AUCTION HOUSE METHODS ====================
 

@@ -40,6 +40,7 @@ DB_BASE_NAME = 'faction_attacks_database'
 CHUNK_LIMIT_MB = 25
 
 
+
 class FactionAttacksUpdater:
     """Daily incremental scraper for all faction attacks."""
 
@@ -149,17 +150,14 @@ class FactionAttacksUpdater:
     # ------------------------------------------------------------------
 
     def _fetch_attacks_page(self, from_timestamp: int) -> List[Dict]:
-        """Fetch one page of faction attacks starting at from_timestamp (ASC sort)."""
-        try:
-            response = self.api.get_faction_attacks(
-                from_timestamp=from_timestamp,
-                limit=100,
-                sort='ASC'
-            )
-            return response.get('attacks', [])
-        except TornAPIError as e:
-            logger.error(f"API error fetching attacks (from={from_timestamp}): {e}")
-            return []
+        """Fetch one page of faction attacks starting at from_timestamp (ASC sort).
+        Raises TornAPIError on failure so the caller can retry."""
+        response = self.api.get_faction_attacks(
+            from_timestamp=from_timestamp,
+            limit=100,
+            sort='ASC'
+        )
+        return response.get('attacks', [])
 
     def _normalize_attack(self, raw: Dict) -> Dict:
         """Map raw attack API dict → storage schema."""
@@ -227,11 +225,20 @@ class FactionAttacksUpdater:
         page = 1
 
         while True:
-            raw_attacks = self._fetch_attacks_page(current_from)
+            try:
+                raw_attacks = self._fetch_attacks_page(current_from)
+            except TornAPIError as e:
+                logger.error(f"  Page {page}: fetch failed after retries: {e} — saving progress and aborting")
+                stats['errors'] += 1
+                db['attacks'] = existing
+                self._save_database(db)
+                logger.info(f"Final stats: {stats}")
+                sys.exit(1)
+
             stats['pages_fetched'] += 1
 
             if not raw_attacks:
-                logger.info(f"  Page {page}: empty response, stopping")
+                logger.info(f"  Page {page}: no attacks returned, stopping")
                 break
 
             new_this_page = 0
