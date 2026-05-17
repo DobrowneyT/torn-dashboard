@@ -142,6 +142,24 @@ function applyAttackToBucket(bucket, attack) {
   // Other results (unknown / future types) are ignored.
 }
 
+/**
+ * Distribute the integer remainder (pool − Σ payoutAmount) to eligible members
+ * top-down by getSortValue descending, adding $1 each until exhausted.
+ * Only members with payoutAmount > 0 are eligible for a bump.
+ * Returns a new array; does not mutate.
+ */
+function distributeRemainder(members, pool, getSortValue) {
+  const remainder = pool - members.reduce((s, m) => s + (m.payoutAmount || 0), 0)
+  if (remainder <= 0) return members
+
+  const order = members
+    .map((m, idx) => ({ idx, v: m.payoutAmount > 0 ? getSortValue(m) : -Infinity }))
+    .sort((a, b) => b.v - a.v)
+
+  const bump = new Set(order.slice(0, remainder).map(e => e.idx))
+  return members.map((m, idx) => bump.has(idx) ? { ...m, payoutAmount: m.payoutAmount + 1 } : m)
+}
+
 
 /**
  * Build per-member attack breakdown from faction_attacks rows within a war window.
@@ -381,10 +399,14 @@ export function calculateTermedWarPayouts(contributions, settings) {
 
     const totalShares = memberList.reduce((s, m) => s + m.shares, 0)
 
-    const members = memberList.map(m => ({
-      ...m,
-      payoutAmount: totalShares > 0 ? Math.floor((m.shares / totalShares) * memberPayoutPool) : 0,
-    }))
+    const members = distributeRemainder(
+      memberList.map(m => ({
+        ...m,
+        payoutAmount: totalShares > 0 ? Math.floor((m.shares / totalShares) * memberPayoutPool) : 0,
+      })),
+      memberPayoutPool,
+      m => m.shares
+    )
 
     const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
 
@@ -422,10 +444,14 @@ export function calculateTermedWarPayouts(contributions, settings) {
   })
 
   const totalShares = members.reduce((s, m) => s + m.shares, 0)
-  const membersWithPayout = members.map(m => ({
-    ...m,
-    payoutAmount: totalShares > 0 ? Math.floor((m.shares / totalShares) * memberPayoutPool) : 0,
-  }))
+  const membersWithPayout = distributeRemainder(
+    members.map(m => ({
+      ...m,
+      payoutAmount: totalShares > 0 ? Math.floor((m.shares / totalShares) * memberPayoutPool) : 0,
+    })),
+    memberPayoutPool,
+    m => m.shares
+  )
 
   const totalPayout = membersWithPayout.reduce((s, m) => s + m.payoutAmount, 0)
 
@@ -572,14 +598,15 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     }
   })
 
-  const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
+  const membersD = distributeRemainder(members, memberPool, m => m.totalHits || 0)
+  const totalPayout = membersD.reduce((s, m) => s + m.payoutAmount, 0)
   // Sum of every member's Total hits (won + assists + losses) — matches the
   // "Total" column shown in the Hit Report.
-  const totalWarHits = members.reduce((s, m) => s + (m.totalHits || 0), 0)
+  const totalWarHits = membersD.reduce((s, m) => s + (m.totalHits || 0), 0)
   const payPerHit = totalWarHits > 0 ? Math.floor(totalPayout / totalWarHits) : 0
 
   return {
-    members,
+    members: membersD,
     totalPayout,
     cacheValue: totalCacheValue,
     memberPayoutPool: memberPool,
@@ -590,7 +617,7 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     factionTopUp: Number(factionTopUp) || 0,
     totalWarHits,
     payPerHit,
-    overBudgetWarning: false, // formula distributes exactly the pool
+    overBudgetWarning: false,
   }
 }
 
@@ -762,12 +789,13 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     }
   })
 
-  const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
-  const totalWarHits = members.reduce((s, m) => s + (m.totalHits || 0), 0)
+  const membersD = distributeRemainder(members, memberPool, m => m.totalHits || 0)
+  const totalPayout = membersD.reduce((s, m) => s + m.payoutAmount, 0)
+  const totalWarHits = membersD.reduce((s, m) => s + (m.totalHits || 0), 0)
   const payPerHit = totalWarHits > 0 ? Math.floor(totalPayout / totalWarHits) : 0
 
   return {
-    members,
+    members: membersD,
     totalPayout,
     cacheValue: totalCacheValue,
     memberPayoutPool: memberPool,
