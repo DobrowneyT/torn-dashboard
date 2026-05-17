@@ -553,6 +553,84 @@ class TornAPI:
         params = {"key": self.api_key, "comment": comment}
         return self._make_request(url, params)
 
+    # ==================== BSP BATTLE STAT PREDICTOR ====================
+
+    BSP_BASE_URL = "http://www.lol-manager.com/api/battlestats"
+    BSP_DELAY = 0.3  # in ms
+    BSP_SCRIPT_NAME = "TornForge"
+
+    def get_bsp_stats(
+        self,
+        member_id: int,
+        bsp_api_key: Optional[str] = None
+    ) -> Optional[Dict]:
+        """
+        Fetch battle stats for a single member from the BSP (Battle Stat Predictor) API.
+
+        Args:
+            member_id:   Torn player ID
+            bsp_api_key: BSP API key (reads BSP_API_KEY env var if omitted)
+
+        Returns:
+            Dict with keys: total, str, spd, def, dex — or None if no data available.
+        """
+        import os
+
+        key = bsp_api_key or os.environ.get("BSP_API_KEY")
+        if not key:
+            raise ValueError("BSP_API_KEY not provided and not found in environment")
+
+        url = f"{self.BSP_BASE_URL}/{key}/{member_id}/{self.BSP_SCRIPT_NAME}"
+
+        try:
+            time.sleep(self.BSP_DELAY)
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"BSP request error for {member_id}: {e}")
+            return None
+        except ValueError as e:
+            logger.warning(f"BSP JSON decode error for {member_id}: {e}")
+            return None
+
+        # Result codes: 1 = exact data, 6 = predicted — both usable
+        if data and data.get("Result") in (1, 6) and data.get("TBS"):
+            return {
+                "total": data.get("TBS"),
+                "str":   data.get("Strength"),
+                "spd":   data.get("Speed"),
+                "def":   data.get("Defense"),
+                "dex":   data.get("Dexterity"),
+            }
+
+        logger.debug(f"BSP: no usable data for member {member_id}, Result={data.get('Result') if data else 'error'}")
+        return None
+
+    def get_bsp_stats_bulk(
+        self,
+        member_ids: list,
+        bsp_api_key: Optional[str] = None
+    ) -> Dict[int, Optional[Dict]]:
+        """
+        Fetch BSP battle stats for a list of member IDs, respecting rate limits.
+
+        Args:
+            member_ids:  List of Torn player IDs
+            bsp_api_key: BSP API key
+
+        Returns:
+            Dict mapping member_id → stat dict (or None if no data)
+        """
+        results = {}
+        for i, mid in enumerate(member_ids):
+            results[mid] = self.get_bsp_stats(mid, bsp_api_key)
+            if i < len(member_ids) - 1:
+                logger.debug(f"BSP: fetched {i+1}/{len(member_ids)}")
+        logger.info(f"BSP bulk fetch complete: {len(member_ids)} members, "
+                    f"{sum(1 for v in results.values() if v)} with data")
+        return results
+
     # ==================== CONNECTION TEST ====================
 
     def test_connection(self) -> bool:
