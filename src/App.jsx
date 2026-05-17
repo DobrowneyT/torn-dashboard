@@ -51,8 +51,8 @@ function DashboardContent() {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', roles: ['member'] },
     { id: 'members', label: 'Members', roles: ['member'] },
-    { id: 'oc-payouts', label: 'OC Payouts', roles: ['member'] },
-    { id: 'rw-payouts', label: 'RW Payouts', roles: ['member'] },
+    { id: 'oc-payouts', label: 'OC', roles: ['member'] },
+    { id: 'rw-payouts', label: 'RW', roles: ['member'] },
     { id: 'inventory', label: 'Inventory', roles: ['leadership'] },
   ]
 
