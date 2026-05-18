@@ -246,6 +246,8 @@ async function handleSetConfig(
   if ('enabled' in body) update.enabled = body.enabled
   if ('faction_id' in body) update.faction_id = body.faction_id
   if ('faction_name' in body) update.faction_name = body.faction_name
+  if ('revive_service_name' in body) update.revive_service_name = body.revive_service_name
+  if ('revive_service_url'  in body) update.revive_service_url  = body.revive_service_url
 
   if (body.enabled === true) {
     update.started_by = Number(userId)

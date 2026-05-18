@@ -11,6 +11,7 @@ import {
   claimDibs,
   releaseDibs,
 } from '../utils/warRoomApi'
+import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 
 const OUR_FACTION_ID = 10739
 const STATUS_FILTERS   = ['Okay', 'Hospital', 'Flying', 'Jail']
@@ -202,13 +203,86 @@ function FactionStatusBar({ enemyMembers, ourMembers, factionLabel }) {
   )
 }
 
+// ── Quick links bar (visible to all) ──────────────────────────────────────────
+
+function QuickLinkButton({ href, title, disabled, children }) {
+  const base = 'inline-flex items-center justify-center w-9 h-9 rounded-lg border transition-colors'
+  if (disabled) {
+    return (
+      <span
+        title={title}
+        className={`${base} border-gray-200 dark:border-slate-700 text-gray-300 dark:text-slate-600 cursor-not-allowed`}
+        aria-disabled="true"
+      >
+        {children}
+      </span>
+    )
+  }
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      className={`${base} border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20`}
+    >
+      {children}
+    </a>
+  )
+}
+
+function QuickLinksBar({ reviveServiceName, reviveServiceUrl }) {
+  const reviveLabel = reviveServiceUrl
+    ? `${reviveServiceName || 'Revives'}`
+    : 'Revives (configure URL in leadership settings)'
+  const iconCls = 'w-5 h-5'
+  return (
+    <div className="flex items-center gap-1.5">
+      <QuickLinkButton href="https://www.torn.com/factions.php?step=your&type=1" title="Faction War Page">
+        <FactionWarIcon className={iconCls} />
+      </QuickLinkButton>
+      <QuickLinkButton href="https://www.torn.com/factions.php?step=your#/tab=armoury&start=0&sub=medical" title="Faction Medical Items">
+        <FactionMedicalIcon className={iconCls} />
+      </QuickLinkButton>
+      <QuickLinkButton href="https://www.torn.com/item.php" title="Items Page">
+        <ItemsIcon className={iconCls} />
+      </QuickLinkButton>
+      <QuickLinkButton href={reviveServiceUrl} title={reviveLabel} disabled={!reviveServiceUrl}>
+        <RevivesIcon className={iconCls} />
+      </QuickLinkButton>
+    </div>
+  )
+}
+
 // ── Config panel (leadership only) ────────────────────────────────────────────
 
-function ConfigPanel({ config, onSaveAndFetch, onClearState }) {
+function ConfigPanel({ config, onSaveAndFetch, onSaveReviveService, onClearState }) {
   const [factionId, setFactionId] = useState(String(config?.faction_id ?? ''))
+  const [reviveName, setReviveName] = useState(config?.revive_service_name ?? '')
+  const [reviveUrl, setReviveUrl]   = useState(config?.revive_service_url ?? '')
   const [saving, setSaving]       = useState(false)
   const [clearing, setClearing]   = useState(false)
+  const [savingRevive, setSavingRevive] = useState(false)
   const [msg, setMsg]             = useState(null)
+
+  // Keep local inputs in sync if the config is updated elsewhere (e.g. Realtime)
+  useEffect(() => {
+    setReviveName(config?.revive_service_name ?? '')
+    setReviveUrl(config?.revive_service_url ?? '')
+  }, [config?.revive_service_name, config?.revive_service_url])
+
+  async function handleSaveRevive() {
+    setSavingRevive(true); setMsg(null)
+    try {
+      await onSaveReviveService({
+        revive_service_name: reviveName.trim() || null,
+        revive_service_url:  reviveUrl.trim()  || null,
+      })
+      setMsg({ ok: true, text: 'Revive service saved.' })
+    } catch (e) {
+      setMsg({ ok: false, text: e.message })
+    } finally { setSavingRevive(false) }
+  }
 
   async function handleSave() {
     if (!factionId.trim()) return
@@ -239,7 +313,7 @@ function ConfigPanel({ config, onSaveAndFetch, onClearState }) {
   }
 
   return (
-    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 space-y-2">
+    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 space-y-3">
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Opponent Faction ID</label>
@@ -257,6 +331,29 @@ function ConfigPanel({ config, onSaveAndFetch, onClearState }) {
           {clearing ? 'Clearing…' : 'Clear State'}
         </button>
       </div>
+
+      {/* Revive service — feeds the Quick Links bar's revive button */}
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Revive Service Name</label>
+          <input
+            type="text" value={reviveName} onChange={e => setReviveName(e.target.value)} placeholder="e.g. Central Hospital"
+            className="w-48 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div className="flex-1 min-w-[16rem]">
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Revive Service URL</label>
+          <input
+            type="url" value={reviveUrl} onChange={e => setReviveUrl(e.target.value)} placeholder="https://discord.gg/… or service URL"
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <button onClick={handleSaveRevive} disabled={savingRevive}
+          className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors">
+          {savingRevive ? 'Saving…' : 'Save Service'}
+        </button>
+      </div>
+
       {msg && <p className={`text-xs ${msg.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{msg.text}</p>}
     </div>
   )
@@ -524,6 +621,11 @@ export default function WarRoomView({ isLeadership }) {
     bspFiredRef.current = false
   }
 
+  async function handleSaveReviveService(updates) {
+    await setWarRoomConfig(updates, user.apiKey)
+    setConfig(prev => ({ ...prev, ...updates }))
+  }
+
   // Save flow: switching factions is a full reset — disable polling, wipe
   // state, save the new ID, pull an initial baseline. Disabling first prevents
   // an in-flight poll for the OLD faction from re-adding members between the
@@ -747,6 +849,10 @@ export default function WarRoomView({ isLeadership }) {
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> LIVE
                 </span>
               )}
+              <QuickLinksBar
+                reviveServiceName={config?.revive_service_name}
+                reviveServiceUrl={config?.revive_service_url}
+              />
             </div>
             {/* Subtitle / enemy summary */}
             {!isActive && (
@@ -824,7 +930,14 @@ export default function WarRoomView({ isLeadership }) {
           </div>
         </div>
 
-        {isLeadership && <ConfigPanel config={config} onSaveAndFetch={handleSaveAndFetch} onClearState={handleClearState} />}
+        {isLeadership && (
+          <ConfigPanel
+            config={config}
+            onSaveAndFetch={handleSaveAndFetch}
+            onSaveReviveService={handleSaveReviveService}
+            onClearState={handleClearState}
+          />
+        )}
 
         {/* Filters — shown whenever there are members to filter */}
         {hasMembers && (
