@@ -1,6 +1,4 @@
 import { useState } from 'react'
-import { useAuth } from '../contexts/AuthContext'
-import { isWarLead } from '../config'
 import RWPayoutsView from './RWPayoutsView'
 import WarHistoryView from './WarHistoryView'
 import WarPayoutManagement from '../components/WarPayoutManagement'
@@ -10,18 +8,15 @@ import ErrorBoundary from '../components/ErrorBoundary'
 const TABS = [
   { id: 'payouts', label: 'Payouts', roles: ['member'] },
   { id: 'rw-history', label: 'RW History', roles: ['member'] },
-  { id: 'war-room', label: 'War Room', roles: ['warlead'] },
+  { id: 'war-room', label: 'War Room', roles: ['member'] },
   { id: 'payout-mgmt', label: 'Payout Management', roles: ['leadership'] },
 ]
 
 export default function RWPage({ isLeadership, isAdmin }) {
-  const { user } = useAuth()
-  const isWarRoomAccessible = isWarLead(user?.id)
   const [activeTab, setActiveTab] = useState('payouts')
 
   const visibleTabs = TABS.filter(tab => {
     if (tab.roles.includes('leadership') && !isLeadership) return false
-    if (tab.roles.includes('warlead') && !isWarRoomAccessible) return false
     return true
   })
 
@@ -47,7 +42,7 @@ export default function RWPage({ isLeadership, isAdmin }) {
       {/* Tab content */}
       {activeTab === 'payouts' && <RWPayoutsView />}
       {activeTab === 'rw-history' && <WarHistoryView isLeadership={isLeadership} isAdmin={isAdmin} />}
-      {activeTab === 'war-room' && isWarRoomAccessible && (
+      {activeTab === 'war-room' && (
         <ErrorBoundary name="War Room">
           <WarRoomView isLeadership={isLeadership} />
         </ErrorBoundary>

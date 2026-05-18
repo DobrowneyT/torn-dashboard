@@ -211,8 +211,14 @@ function ConfigPanel({ config, onSaveAndFetch, onClearState }) {
     if (!factionId.trim()) return
     setSaving(true); setMsg(null)
     try {
+      const wasEnabled = !!config?.enabled
       await onSaveAndFetch(Number(factionId))
-      setMsg({ ok: true, text: 'Saved & loaded initial members.' })
+      setMsg({
+        ok: true,
+        text: wasEnabled
+          ? 'Saved & loaded. War room was disabled — re-enable to resume polling.'
+          : 'Saved & loaded initial members.',
+      })
     } catch (e) {
       setMsg({ ok: false, text: e.message })
     } finally { setSaving(false) }
@@ -515,17 +521,27 @@ export default function WarRoomView({ isLeadership }) {
     bspFiredRef.current = false
   }
 
-  // Save flow: wipe stale state for the previous faction, save the new ID,
-  // pull an initial baseline so leadership can review members before enabling.
+  // Save flow: switching factions is a full reset — disable polling, wipe
+  // state, save the new ID, pull an initial baseline. Disabling first prevents
+  // an in-flight poll for the OLD faction from re-adding members between the
+  // clear and the new fetch (which produced the "two factions at once" bug).
   async function handleSaveAndFetch(newFactionId) {
-    // 1. Clear everything tied to the old faction (members + dibs).
+    // 1. Disable polling if active, then wait briefly for any in-flight
+    //    poll to settle before we clear state.
+    if (config?.enabled) {
+      await setWarRoomConfig({ enabled: false }, user.apiKey)
+      setConfig(prev => ({ ...prev, enabled: false }))
+      await new Promise(r => setTimeout(r, 500))
+    }
+    // 2. Clear everything tied to the old faction (members + dibs).
     await clearWarRoomState(user.apiKey)
     setMembers([]); setOurMembers([]); setDibs({})
     bspFiredRef.current = false
-    // 2. Persist the new faction_id.
+    // 3. Persist the new faction_id (and reset cached name so the lookup re-runs).
     await setWarRoomConfig({ faction_id: newFactionId, faction_name: null }, user.apiKey)
     setConfig(prev => ({ ...prev, faction_id: newFactionId, faction_name: null }))
-    // 3. Initial fetch — validates the ID and populates the table (Realtime fills state).
+    setFactionName(null)
+    // 4. Initial fetch — validates the ID and populates the table (Realtime fills state).
     await fetchWarRoomMembers(newFactionId, user.apiKey)
   }
 
