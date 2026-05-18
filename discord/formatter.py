@@ -17,6 +17,7 @@ so this layer never has to render an "approval-only" crime.
 
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
+from config import POLL_INTERVAL_SECONDS
 
 import discord
 
@@ -209,4 +210,4 @@ def _format_iso_short(iso: str) -> str:
 
 
 def _footer_text(generated_at: str) -> str:
-    return f"Last updated {_format_iso_short(generated_at)} • refreshes every 60s"
+    return f"Last updated {_format_iso_short(generated_at)} • refreshes every {POLL_INTERVAL_SECONDS}s"
