@@ -52,17 +52,36 @@ function stateToFilterKey(state) {
   return state
 }
 
+function parseStatInput(str) {
+  if (!str?.trim()) return null
+  const s = str.trim().toLowerCase()
+  const m = s.match(/^(\d+(?:\.\d+)?)\s*([kmb]?)$/)
+  if (!m) return null
+  const n = parseFloat(m[1])
+  const multipliers = { k: 1_000, m: 1_000_000, b: 1_000_000_000 }
+  return n * (multipliers[m[2]] ?? 1)
+}
+
 function parseTravelInfo(state, description) {
   if (state === 'Traveling') {
+    // Current API format: "Traveling from X to Y"
+    const match = description?.match(/^Traveling from (.+) to (.+)$/)
+    if (match) {
+      const [, from, to] = match
+      return to === 'Torn'
+        ? { returning: true,  label: `from ${from}` }
+        : { returning: false, label: `to ${to}` }
+    }
+    // Legacy fallback formats
     if (description?.startsWith('Returning from ')) {
-      return { direction: '← ', dest: description.replace('Returning from ', '') }
+      return { returning: true,  label: `from ${description.replace('Returning from ', '')}` }
     }
     const dest = description?.replace('Traveling to ', '') ?? ''
-    return { direction: '→ ', dest }
+    return { returning: false, label: dest ? `to ${dest}` : '' }
   }
   if (state === 'Abroad') {
     const dest = description?.replace(/^In /, '') ?? ''
-    return { direction: null, dest }
+    return { returning: false, label: dest ? `in ${dest}` : '' }
   }
   return null
 }
@@ -97,11 +116,9 @@ function StatusCell({ state, description }) {
     Fallen:    'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
     Jail:      'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
   }
-  // Returning = landing; outbound or already abroad = takeoff
-  const travelIcon = (state === 'Traveling' && description?.startsWith('Returning from ')) ? '🛬' : '🛫'
-  const icons = { Okay: '✓', Hospital: '🏥', Traveling: travelIcon, Abroad: '🛫', Fallen: '💀', Jail: '⛓' }
-
   const travel = (state === 'Traveling' || state === 'Abroad') ? parseTravelInfo(state, description) : null
+  const travelIcon = travel?.returning ? '🛬' : '🛫'
+  const icons = { Okay: '✓', Hospital: '🏥', Traveling: travelIcon, Abroad: '🛫', Fallen: '💀', Jail: '⛓' }
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -109,9 +126,9 @@ function StatusCell({ state, description }) {
         <span>{icons[state] ?? '?'}</span>
         {state}
       </span>
-      {travel?.dest && (
+      {travel?.label && (
         <span className="text-xs text-gray-500 dark:text-gray-400 pl-1 whitespace-nowrap">
-          {travel.direction}{travel.dest}
+          {travel.label}
         </span>
       )}
     </div>
@@ -144,15 +161,18 @@ function ActivityCounts({ members }) {
   const idle    = members.filter(m => m.last_action_status === 'Idle').length
   const offline = members.filter(m => m.last_action_status === 'Offline').length
   return (
-    <div className="flex items-center gap-3 text-xs">
-      <span className="flex items-center gap-1 text-green-700 dark:text-green-400">
-        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> {online}
+    <div className="flex items-center gap-4 text-sm">
+      <span className="flex items-center gap-1.5 text-green-700 dark:text-green-400">
+        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />
+        <span className="font-semibold">{online}</span> Online
       </span>
-      <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
-        <span className="w-2 h-2 rounded-full bg-amber-400" /> {idle}
+      <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+        <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+        <span className="font-semibold">{idle}</span> Idle
       </span>
-      <span className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
-        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-600" /> {offline}
+      <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 shrink-0" />
+        <span className="font-semibold">{offline}</span> Offline
       </span>
     </div>
   )
@@ -160,15 +180,15 @@ function ActivityCounts({ members }) {
 
 function FactionStatusBar({ enemyMembers, ourMembers, factionLabel }) {
   return (
-    <div className="card py-2.5 px-4 flex items-center justify-between gap-4">
-      <div className="flex items-center gap-3">
+    <div className="card py-3 px-4 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-4">
         <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide shrink-0">
           {factionLabel ?? 'Enemy'}
         </span>
         <ActivityCounts members={enemyMembers} />
       </div>
       {ourMembers.length > 0 && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <ActivityCounts members={ourMembers} />
           <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide shrink-0">
             Us
@@ -251,15 +271,31 @@ export default function WarRoomView({ isLeadership }) {
   const [updatingSpies, setUpdatingSpies] = useState(false)
   const [spiesMsg, setSpiesMsg]       = useState(null)
   const [pollIntervalSec, setPollIntervalSec] = useState(3)
+  const [factionName, setFactionName] = useState(null)
 
-  const pollRef        = useRef(null)
-  const bspFiredRef    = useRef(false)
+  // Stats filter
+  const [statsFilterEnabled, setStatsFilterEnabled] = useState(false)
+  const [statsFilterMin, setStatsFilterMin] = useState('')
+  const [statsFilterMax, setStatsFilterMax] = useState('')
+
+  const pollRef          = useRef(null)
+  const ourMembersPollRef = useRef(null)
+  const bspFiredRef      = useRef(false)
   const opponentFidRef = useRef(null)
   const membersRef     = useRef([])
   const dibsRef        = useRef({})
   const userRef        = useRef(user)
+  const dibsAbortRef   = useRef(null)   // cancels in-flight claim when user clicks another
+  const [dibsError, setDibsError] = useState(null)
 
   useEffect(() => { opponentFidRef.current = config?.faction_id }, [config?.faction_id])
+
+  // Look up faction name from the factions table whenever the faction_id changes
+  useEffect(() => {
+    if (!config?.faction_id) return
+    supabase.from('factions').select('name').eq('id', config.faction_id).maybeSingle()
+      .then(({ data }) => { if (data?.name) setFactionName(data.name) })
+  }, [config?.faction_id])
   useEffect(() => { membersRef.current = members }, [members])
   useEffect(() => { dibsRef.current = dibs }, [dibs])
   useEffect(() => { userRef.current = user }, [user])
@@ -357,8 +393,13 @@ export default function WarRoomView({ isLeadership }) {
         if (row.faction_id !== OUR_FACTION_ID && row.status_state !== 'Okay') {
           const prev = membersRef.current.find(m => m.member_id === row.member_id)
           if (prev?.status_state === 'Okay' && dibsRef.current[row.member_id]) {
-            releaseDibs(row.member_id, userRef.current?.apiKey).catch(e => console.error('Auto-release dibs:', e))
-            setDibs(d => { const next = { ...d }; delete next[row.member_id]; return next })
+            // Only auto-release if it's MY dibs — otherwise let the owner handle it
+            const dib = dibsRef.current[row.member_id]
+            if (String(dib.claimed_by) === String(userRef.current?.id)) {
+              releaseDibs(row.member_id, userRef.current?.apiKey, { userId: userRef.current?.id })
+                .catch(e => console.error('Auto-release dibs:', e))
+              setDibs(d => { const next = { ...d }; delete next[row.member_id]; return next })
+            }
           }
         }
         if (row.faction_id === OUR_FACTION_ID) {
@@ -376,14 +417,20 @@ export default function WarRoomView({ isLeadership }) {
 
     const dibsSub = supabase.channel('war_room_dibs_ch')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'war_room_dibs' }, ({ new: row }) => {
-        if (mounted) setDibs(prev => ({ ...prev, [row.target_id]: row }))
+        if (!mounted) return
+        // Ignore my own INSERTs entirely — my local state is already authoritative
+        // via optimistic update + server response. This prevents a stale INSERT
+        // event from re-adding a claim after I just released it, which caused
+        // the Release button to briefly flash to "Claim" and back.
+        if (String(row.claimed_by) === String(userRef.current?.id)) return
+        setDibs(prev => ({ ...prev, [row.target_id]: row }))
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'war_room_dibs' }, ({ old: row }) => {
         if (!mounted) return
+        // Releases hard-delete the row. Remove from local state, but only if a
+        // newer claim for the same target hasn't already taken its place (id check
+        // protects against a race where the delete event arrives after a re-claim).
         setDibs(prev => {
-          // Remove if the row's target matches and (no id check needed for safety:
-          // releases hard-delete by target+claimer, so the row going away means the
-          // claim is gone). Guard against deleting a fresh row with the same target.
           const local = prev[row.target_id]
           if (!local) return prev
           if (local.id && row.id && local.id !== row.id) return prev
@@ -412,13 +459,11 @@ export default function WarRoomView({ isLeadership }) {
 
   // ── Polling loop ──────────────────────────────────────────────────────────
 
+  // Enemy poll — timestamp-busted, runs at pollIntervalSec (can be 0.5s+)
   const poll = useCallback(async () => {
     if (!user?.apiKey || !config?.faction_id) return
     try {
-      await Promise.all([
-        fetchWarRoomMembers(config.faction_id, user.apiKey),
-        fetchOurMembers(user.apiKey),
-      ])
+      await fetchWarRoomMembers(config.faction_id, user.apiKey)
       setLastFetched(Date.now())
       setPollError(null)
     } catch (e) {
@@ -435,6 +480,19 @@ export default function WarRoomView({ isLeadership }) {
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [config?.enabled, config?.faction_id, poll, pollIntervalSec])
+
+  // Our members poll — uses Torn cache, runs every 30s
+  useEffect(() => {
+    if (ourMembersPollRef.current) clearInterval(ourMembersPollRef.current)
+    if (config?.enabled && user?.apiKey) {
+      fetchOurMembers(user.apiKey).catch(e => console.error('Our members poll error:', e))
+      ourMembersPollRef.current = setInterval(
+        () => fetchOurMembers(userRef.current?.apiKey).catch(e => console.error('Our members poll error:', e)),
+        30_000
+      )
+    }
+    return () => { if (ourMembersPollRef.current) clearInterval(ourMembersPollRef.current) }
+  }, [config?.enabled, user?.apiKey])
 
   // ── Leadership actions ────────────────────────────────────────────────────
 
@@ -505,25 +563,70 @@ export default function WarRoomView({ isLeadership }) {
 
   // ── Dibs ──────────────────────────────────────────────────────────────────
 
+  // Dibs handlers use optimistic local state + AbortController so the UI is
+  // instant and rapid clicks don't show transient ghost claims. The DB has a
+  // unique partial index on active target_id so concurrent claims are resolved
+  // atomically server-side; whichever transaction commits first wins, the
+  // loser gets back the current owner's info.
   async function handleClaimDibs(memberId) {
-    if (!user?.apiKey) return
-    try {
-      // Release any other target this user currently has dibs on (single dibs per member)
-      const existing = Object.entries(dibs).find(([, d]) => String(d.claimed_by) === String(user?.id))
-      if (existing && Number(existing[0]) !== memberId) {
-        const prevTargetId = Number(existing[0])
-        await releaseDibs(prevTargetId, user.apiKey)
-        setDibs(prev => { const next = { ...prev }; delete next[prevTargetId]; return next })
+    if (!user?.id) return
+    setDibsError(null)
+
+    // Cancel any prior in-flight claim from this user
+    if (dibsAbortRef.current) dibsAbortRef.current.abort()
+    const controller = new AbortController()
+    dibsAbortRef.current = controller
+
+    // Optimistic: drop any of my existing claims, add the new one
+    setDibs(prev => {
+      const next = { ...prev }
+      for (const [tid, d] of Object.entries(prev)) {
+        if (String(d.claimed_by) === String(user.id)) delete next[tid]
       }
-      await claimDibs(memberId, user.name, null, user.apiKey)
+      next[memberId] = {
+        target_id: memberId,
+        claimed_by: Number(user.id),
+        claimed_name: user.name,
+        _optimistic: true,
+      }
+      return next
+    })
+
+    try {
+      await claimDibs(memberId, user.name, null, user.apiKey, { signal: controller.signal, userId: user.id })
+      // Success: optimistic state stays. The Realtime INSERT for this row will
+      // overwrite the optimistic entry with the real DB row (incl. id).
+    } catch (e) {
+      if (e.name === 'AbortError') return  // superseded by another click — let it own the state
+      // Rollback: drop only optimistic entries so any real claims from Realtime survive
+      setDibs(prev => {
+        const next = { ...prev }
+        for (const [tid, d] of Object.entries(prev)) {
+          if (d._optimistic && String(d.claimed_by) === String(user.id)) delete next[tid]
+        }
+        return next
+      })
+      setDibsError(e.message)
+      setTimeout(() => setDibsError(null), 4000)
+    } finally {
+      if (dibsAbortRef.current === controller) dibsAbortRef.current = null
     }
-    catch (e) { console.error('Claim dibs error:', e) }
   }
 
   async function handleReleaseDibs(memberId) {
-    if (!user?.apiKey) return
-    try { await releaseDibs(memberId, user.apiKey) }
-    catch (e) { console.error('Release dibs error:', e) }
+    if (!user?.id) return
+    setDibsError(null)
+    const snapshot = dibs[memberId]
+    // Optimistic remove
+    setDibs(prev => { const next = { ...prev }; delete next[memberId]; return next })
+    try {
+      await releaseDibs(memberId, user.apiKey, { userId: user.id })
+    } catch (e) {
+      // Rollback
+      if (snapshot) setDibs(prev => ({ ...prev, [memberId]: snapshot }))
+      setDibsError(e.message)
+      setTimeout(() => setDibsError(null), 4000)
+    }
   }
 
   // ── Filtered + sorted member list ─────────────────────────────────────────
@@ -536,6 +639,12 @@ export default function WarRoomView({ isLeadership }) {
     }
     if (activityFilter.size > 0) {
       list = list.filter(m => activityFilter.has(m.last_action_status))
+    }
+    if (statsFilterEnabled) {
+      const minVal = parseStatInput(statsFilterMin)
+      const maxVal = parseStatInput(statsFilterMax)
+      if (minVal !== null) list = list.filter(m => m.bsp_total !== null && m.bsp_total >= minVal)
+      if (maxVal !== null) list = list.filter(m => m.bsp_total !== null && m.bsp_total <= maxVal)
     }
 
     const d = sortDir === 'asc' ? 1 : -1
@@ -562,7 +671,7 @@ export default function WarRoomView({ isLeadership }) {
         default: return 0
       }
     })
-  }, [members, statusFilter, activityFilter, sortCol, sortDir])
+  }, [members, statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir])
 
   // ── Sortable header ───────────────────────────────────────────────────────
 
@@ -597,8 +706,9 @@ export default function WarRoomView({ isLeadership }) {
   const isActive   = !!config?.enabled
   const hasMembers = members.length > 0
 
-  const factionLabel = config?.faction_name
-    ? `${config.faction_name} (${config.faction_id})`
+  const resolvedName = factionName ?? config?.faction_name
+  const factionLabel = resolvedName
+    ? `${resolvedName} (${config?.faction_id})`
     : config?.faction_id ? `Faction ${config.faction_id}` : null
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -645,10 +755,11 @@ export default function WarRoomView({ isLeadership }) {
                     <label className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">Poll</label>
                     <input
                       type="number"
-                      min={1}
+                      min={0.5}
                       max={60}
+                      step={0.5}
                       value={pollIntervalSec}
-                      onChange={e => setPollIntervalSec(Math.max(1, Math.floor(Number(e.target.value))))}
+                      onChange={e => setPollIntervalSec(Math.max(0.5, Number(e.target.value)))}
                       className="w-14 px-2 py-1 text-xs text-center border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <span className="text-xs text-gray-400 dark:text-gray-500">s</span>
@@ -684,11 +795,12 @@ export default function WarRoomView({ isLeadership }) {
                 </>
               )}
             </div>
-            {(pollError || toggleError || spiesMsg) && (
+            {(pollError || toggleError || spiesMsg || dibsError) && (
               <div className="text-right space-y-0.5">
                 {pollError   && <p className="text-xs text-red-500 dark:text-red-400">⚠ Poll: {pollError}</p>}
                 {toggleError && <p className="text-xs text-red-500 dark:text-red-400">⚠ {toggleError}</p>}
                 {spiesMsg    && <p className={`text-xs ${spiesMsg.ok ? 'text-purple-600 dark:text-purple-400' : 'text-red-500 dark:text-red-400'}`}>{spiesMsg.text}</p>}
+                {dibsError   && <p className="text-xs text-red-500 dark:text-red-400">⚠ Dibs: {dibsError}</p>}
               </div>
             )}
           </div>
@@ -698,79 +810,120 @@ export default function WarRoomView({ isLeadership }) {
 
         {/* Filters — shown whenever there are members to filter */}
         {hasMembers && (
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 flex flex-wrap gap-y-2 gap-x-4 items-center">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Status:</span>
-              <button
-                onClick={() => setStatusFilter(new Set())}
-                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                  statusFilter.size === 0
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
-                }`}
-              >
-                All
-              </button>
-              {STATUS_FILTERS.map(f => (
-                <button key={f} onClick={() => toggleStatusFilter(f)}
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 flex flex-col gap-2">
+            <div className="flex flex-wrap gap-y-2 gap-x-4 items-center">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Status:</span>
+                <button
+                  onClick={() => setStatusFilter(new Set())}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                    statusFilter.has(f)
+                    statusFilter.size === 0
                       ? 'bg-blue-600 text-white'
                       : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
                   }`}
                 >
-                  {f}
+                  All
                 </button>
-              ))}
+                {STATUS_FILTERS.map(f => (
+                  <button key={f} onClick={() => toggleStatusFilter(f)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                      statusFilter.has(f)
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
+                    }`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Activity:</span>
+                <button
+                  onClick={() => setActivityFilter(new Set())}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                    activityFilter.size === 0
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  All
+                </button>
+                {ACTIVITY_FILTERS.map(f => (
+                  <button key={f} onClick={() => toggleActivityFilter(f)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                      activityFilter.has(f)
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
+                    }`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Activity:</span>
+            {/* Stats filter */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Stats:</span>
               <button
-                onClick={() => setActivityFilter(new Set())}
+                onClick={() => setStatsFilterEnabled(v => !v)}
                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                  activityFilter.size === 0
+                  statsFilterEnabled
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
                 }`}
               >
-                All
+                {statsFilterEnabled ? 'On' : 'Off'}
               </button>
-              {ACTIVITY_FILTERS.map(f => (
-                <button key={f} onClick={() => toggleActivityFilter(f)}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                    activityFilter.has(f)
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
-                  }`}
-                >
-                  {f}
-                </button>
-              ))}
+              <input
+                type="text"
+                placeholder="Min (e.g. 3m)"
+                value={statsFilterMin}
+                onChange={e => setStatsFilterMin(e.target.value)}
+                className={`w-28 px-2.5 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 ${statsFilterEnabled ? '' : 'opacity-60'}`}
+              />
+              <span className="text-xs text-gray-400 dark:text-gray-600">–</span>
+              <input
+                type="text"
+                placeholder="Max (e.g. 2.6b)"
+                value={statsFilterMax}
+                onChange={e => setStatsFilterMax(e.target.value)}
+                className={`w-28 px-2.5 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 ${statsFilterEnabled ? '' : 'opacity-60'}`}
+              />
+              {statsFilterEnabled && (parseStatInput(statsFilterMin) !== null || parseStatInput(statsFilterMax) !== null) && (
+                <span className="text-xs text-blue-600 dark:text-blue-400">
+                  {[
+                    parseStatInput(statsFilterMin) !== null && `≥ ${formatStats(parseStatInput(statsFilterMin))}`,
+                    parseStatInput(statsFilterMax) !== null && `≤ ${formatStats(parseStatInput(statsFilterMax))}`,
+                  ].filter(Boolean).join(' · ')}
+                </span>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Faction status bar — shown when live and enemy members are loaded */}
-      {isActive && hasMembers && (
+      {/* Paused notice — above the status bar so it's visible even without scrolling */}
+      {!isActive && hasMembers && (
+        <div className="rounded-lg px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+          <span>⚠</span>
+          <span>Paused — last-known snapshot. Timers shown are not live. Enable the war room to start polling.</span>
+        </div>
+      )}
+
+      {/* Faction status bar — shown whenever enemy members are loaded (active or paused) */}
+      {hasMembers && (
         <FactionStatusBar
           enemyMembers={members}
           ourMembers={ourMembers}
-          factionLabel={config?.faction_name ?? (config?.faction_id ? `Faction ${config.faction_id}` : null)}
+          factionLabel={resolvedName ?? (config?.faction_id ? `Faction ${config.faction_id}` : null)}
         />
       )}
 
       {/* Member table — shown whenever members exist, or when active (so "waiting…" shows) */}
       {(hasMembers || isActive) ? (
         <div className="card p-0 overflow-hidden">
-          {/* Paused notice banner */}
-          {!isActive && hasMembers && (
-            <div className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
-              <span>⚠</span>
-              <span>Paused — last-known snapshot. Timers shown are not live. Enable the war room to start polling.</span>
-            </div>
-          )}
 
           {!hasMembers ? (
             <div className="flex items-center justify-center py-16 text-gray-400 dark:text-gray-600 text-sm">
@@ -897,7 +1050,7 @@ export default function WarRoomView({ isLeadership }) {
           <div className="px-4 py-2.5 border-t border-gray-200 dark:border-slate-700 flex items-center justify-between text-xs text-gray-400 dark:text-gray-600">
             <span>Showing {filtered.length} of {members.length} members</span>
             {isActive
-              ? <span>Polling every {pollIntervalSec}s · Timers update every 1s</span>
+              ? <span>Enemy: every {pollIntervalSec}s · Ours: every 30s · Timers: every 1s</span>
               : <span>Static snapshot · Enable to refresh</span>
             }
           </div>

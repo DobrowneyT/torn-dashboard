@@ -14,7 +14,7 @@ const TABS = [
   { id: 'payout-mgmt', label: 'Payout Management', roles: ['leadership'] },
 ]
 
-export default function RWPayoutsPage({ isLeadership, isAdmin }) {
+export default function RWPage({ isLeadership, isAdmin }) {
   const { user } = useAuth()
   const isWarRoomAccessible = isWarLead(user?.id)
   const [activeTab, setActiveTab] = useState('payouts')

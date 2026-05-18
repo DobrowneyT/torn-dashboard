@@ -11,8 +11,8 @@ import MembersView from './views/MembersView'
 import InventoryManagement from './components/InventoryManagement'
 import DataManagement from './views/DataManagement'
 import DashboardView from './views/DashboardView'
-import OCPayoutsPage from './views/OCPayoutsPage'
-import RWPayoutsPage from './views/RWPayoutsPage'
+import OCPage from './views/OCPage'
+import RWPage from './views/RWPage'
 import { isAdmin } from './config'
 
 
@@ -133,8 +133,8 @@ function DashboardContent() {
           <ProtectedRoute>
             {activeTab === 'dashboard' && <DashboardView />}
             {activeTab === 'members' && <MembersView isLeadership={effectiveIsLeadership} />}
-            {activeTab === 'oc-payouts' && <OCPayoutsPage isLeadership={effectiveIsLeadership} />}
-            {activeTab === 'rw-payouts' && <RWPayoutsPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />}
+            {activeTab === 'oc-payouts' && <OCPage isLeadership={effectiveIsLeadership} />}
+            {activeTab === 'rw-payouts' && <RWPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />}
           </ProtectedRoute>
 
           {/* Leadership-only views */}

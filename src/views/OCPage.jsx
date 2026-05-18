@@ -13,7 +13,7 @@ const TABS = [
   { id: 'tier-mgmt', label: 'Tier Management', roles: ['leadership'] },
 ]
 
-export default function OCPayoutsPage({ isLeadership }) {
+export default function OCPage({ isLeadership }) {
   const [activeTab, setActiveTab] = useState('payouts')
 
   const visibleTabs = TABS.filter(tab => {
