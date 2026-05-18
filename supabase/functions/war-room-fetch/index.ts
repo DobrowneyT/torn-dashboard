@@ -25,17 +25,41 @@ const OUR_FACTION_ID = '10739'
 //   function nextTornKey() { return Deno.env.get('TORN_API_KEY') ?? '' }
 
 const _tornKeys: string[] = (Deno.env.get('TORN_API_KEYS') ?? '').split(',').map((k: string) => k.trim()).filter(Boolean)
-let _tornKeyIndex = 0
+
+// Key selection uses the current Unix second so it's deterministic across all
+// Deno Deploy worker instances (no shared mutable state). The selected key
+// advances every second, cycling through all N keys every N seconds.
+// At 3s polling with 13 keys: each key is used roughly once per 13-second cycle.
+// At 0.5s polling with 13 keys: the key changes twice per second — you need
+// ≥2 keys to stay under the 100 req/min per-key rate limit.
+//
+// To revert to a single fixed key, comment out this block and uncomment:
+//   function nextTornKey() { return Deno.env.get('TORN_API_KEY') ?? '' }
 function nextTornKey(): string {
   if (_tornKeys.length === 0) return ''
-  const key = _tornKeys[_tornKeyIndex % _tornKeys.length]
-  _tornKeyIndex++
-  return key
+  return _tornKeys[Math.floor(Date.now() / 1000) % _tornKeys.length]
 }
 
-// Auth cache: keyed by user API key, stores { userId, expiresAt }
-const AUTH_CACHE_TTL_MS = 10 * 60 * 1000
-const authCache = new Map<string, { userId: string; expiresAt: number }>()
+// ── Auth cache (two-layer) ────────────────────────────────────────────────────
+// L1: in-memory Map — zero-latency within a warm instance
+// L2: Supabase war_room_auth_cache table — survives cold starts and is shared
+//     across all Deno Deploy worker instances (fixes the per-request re-auth)
+// TTL: 24 hours. Raw API keys are never stored — only a SHA-256 hex digest.
+
+const AUTH_TTL_MS = 24 * 60 * 60 * 1000
+const authMemCache = new Map<string, { userId: string; expiresAt: number }>()
+
+// Module-level admin client used only for auth cache reads/writes
+const supabaseAuth = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  { auth: { autoRefreshToken: false, persistSession: false } }
+)
+
+async function sha256hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
 
 interface AuthResult {
   success: boolean
@@ -44,11 +68,24 @@ interface AuthResult {
 }
 
 async function verifyTornUser(apiKey: string): Promise<AuthResult> {
-  const cached = authCache.get(apiKey)
-  if (cached && cached.expiresAt > Date.now()) {
-    return { success: true, userId: cached.userId }
+  // L1: in-memory
+  const mem = authMemCache.get(apiKey)
+  if (mem && mem.expiresAt > Date.now()) return { success: true, userId: mem.userId }
+
+  // L2: DB cache — one fast DB read instead of a Torn API call on cold starts
+  const keyHash = await sha256hex(apiKey)
+  const { data: dbCached } = await supabaseAuth
+    .from('war_room_auth_cache')
+    .select('user_id, expires_at')
+    .eq('key_hash', keyHash)
+    .maybeSingle()
+
+  if (dbCached && new Date(dbCached.expires_at) > new Date()) {
+    authMemCache.set(apiKey, { userId: dbCached.user_id, expiresAt: new Date(dbCached.expires_at).getTime() })
+    return { success: true, userId: dbCached.user_id }
   }
 
+  // Cache miss — verify with Torn API (happens at most once per 24h per key)
   try {
     const resp = await fetch(`https://api.torn.com/v2/key/info?key=${apiKey}`)
     if (!resp.ok) return { success: false, error: 'Failed to verify API key' }
@@ -62,7 +99,11 @@ async function verifyTornUser(apiKey: string): Promise<AuthResult> {
       return { success: false, error: 'Not a faction member' }
     }
 
-    authCache.set(apiKey, { userId, expiresAt: Date.now() + AUTH_CACHE_TTL_MS })
+    const expiresAt = new Date(Date.now() + AUTH_TTL_MS).toISOString()
+    authMemCache.set(apiKey, { userId, expiresAt: Date.now() + AUTH_TTL_MS })
+    // Fire-and-forget — don't block the response on the DB write
+    supabaseAuth.from('war_room_auth_cache').upsert({ key_hash: keyHash, user_id: userId, expires_at: expiresAt })
+
     return { success: true, userId }
   } catch (e) {
     return { success: false, error: `Auth error: ${e}` }
@@ -82,7 +123,7 @@ async function handleFetchMembers(supabase: ReturnType<typeof createClient>, fac
   const tornKey = nextTornKey()
   if (!tornKey) return json({ error: 'TORN_API_KEYS secret not set' }, 500)
 
-  const url = `https://api.torn.com/v2/faction/${factionId}/members?striptags=true&comment=WarRoom&key=${tornKey}`
+  const url = `https://api.torn.com/v2/faction/${factionId}/members?striptags=true&comment=WarRoom&timestamp=${Math.floor(Date.now() / 1000)}&key=${tornKey}`
   const resp = await fetch(url)
   if (!resp.ok) return json({ error: `Torn API HTTP ${resp.status}` }, 502)
 
@@ -271,41 +312,26 @@ async function handleClaimDibs(
 ) {
   const targetId = body.target_id
   if (!targetId) return json({ error: 'target_id required' }, 400)
+  if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
 
-  // Check if already claimed by someone else
-  const { data: existing } = await supabase
-    .from('war_room_dibs')
-    .select('id, claimed_by, claimed_name')
-    .eq('target_id', targetId)
-    .is('released_at', null)
-    .maybeSingle()
-
-  if (existing && String(existing.claimed_by) !== userId) {
-    return json({ error: `Already claimed by ${existing.claimed_name}` }, 409)
-  }
-
-  // Release any other targets this user currently has dibs on (single dibs per member)
-  await supabase.from('war_room_dibs')
-    .update({ released_at: new Date().toISOString() })
-    .eq('claimed_by', Number(userId))
-    .is('released_at', null)
-    .neq('target_id', targetId)
-
-  // Release own existing claim on this same target (re-claim)
-  if (existing) {
-    await supabase.from('war_room_dibs')
-      .update({ released_at: new Date().toISOString() })
-      .eq('id', existing.id)
-  }
-
-  const { error } = await supabase.from('war_room_dibs').insert({
-    target_id: targetId,
-    claimed_by: Number(userId),
-    claimed_name: userName,
-    war_id: body.war_id ?? null,
+  // Single-call atomic claim via the war_room_claim_dibs() RPC.
+  // The function releases this user's other claims and inserts the new one
+  // inside one transaction. The unique partial index on target_id serialises
+  // concurrent claims on the same target — only one wins.
+  const { data, error } = await supabase.rpc('war_room_claim_dibs', {
+    p_target_id: targetId,
+    p_user_id:   Number(userId),
+    p_user_name: userName,
+    p_war_id:    body.war_id ?? null,
   })
 
   if (error) return json({ error: error.message }, 500)
+  if (!data?.ok) {
+    return json({
+      error: `Already claimed by ${data?.claimed_name ?? 'someone else'}`,
+      owner: { id: data?.claimed_by, name: data?.claimed_name },
+    }, 409)
+  }
   return json({ ok: true })
 }
 
@@ -316,6 +342,7 @@ async function handleReleaseDibs(
 ) {
   const targetId = body.target_id
   if (!targetId) return json({ error: 'target_id required' }, 400)
+  if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
 
   const query = supabase
     .from('war_room_dibs')
@@ -324,7 +351,7 @@ async function handleReleaseDibs(
     .is('released_at', null)
 
   // Non-leadership can only release their own
-  if (!LEADERSHIP_IDS.includes(userId)) {
+  if (!LEADERSHIP_IDS.includes(String(userId))) {
     query.eq('claimed_by', Number(userId))
   }
 
@@ -360,9 +387,6 @@ serve(async (req: Request) => {
     const tornApiKey = req.headers.get('x-torn-api-key')
     if (!tornApiKey) return json({ error: 'Missing x-torn-api-key header' }, 401)
 
-    const auth = await verifyTornUser(tornApiKey)
-    if (!auth.success) return json({ error: auth.error }, 403)
-
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -371,6 +395,20 @@ serve(async (req: Request) => {
 
     const body = await req.json()
     const action: string = body.action
+
+    // Polling actions are high-frequency and use server-side TORN_API_KEYS — the
+    // user's key is irrelevant to what data gets fetched, so skip the Torn auth
+    // verification on these hot paths entirely.
+    // Dibs are also unverified — they're already serialised by the DB unique
+    // constraint, and the user_id is sent in the body. Trade-off documented.
+    const POLL_ACTIONS = new Set(['fetch_members', 'fetch_our_members', 'get_config', 'get_dibs', 'claim_dibs', 'release_dibs'])
+
+    let userId = 'anon'
+    if (!POLL_ACTIONS.has(action)) {
+      const auth = await verifyTornUser(tornApiKey)
+      if (!auth.success) return json({ error: auth.error }, 403)
+      userId = auth.userId!
+    }
 
     // Resolve display name for dibs (passed by client to avoid extra API call)
     const userName: string = body.user_name ?? 'Unknown'
@@ -385,13 +423,14 @@ serve(async (req: Request) => {
       case 'get_config':
         return await handleGetConfig(supabase)
       case 'set_config':
-        return await handleSetConfig(supabase, body, auth.userId!)
+        return await handleSetConfig(supabase, body, userId)
       case 'clear_state':
-        return await handleClearState(supabase, auth.userId!)
+        return await handleClearState(supabase, userId)
       case 'claim_dibs':
-        return await handleClaimDibs(supabase, body, auth.userId!, userName)
+        // user_id comes from the body since claim_dibs skips auth (POLL_ACTIONS)
+        return await handleClaimDibs(supabase, body, String(body.user_id ?? ''), userName)
       case 'release_dibs':
-        return await handleReleaseDibs(supabase, body, auth.userId!)
+        return await handleReleaseDibs(supabase, body, String(body.user_id ?? ''))
       case 'get_dibs':
         return await handleGetDibs(supabase, body)
       default:

@@ -6,7 +6,7 @@
 
 const WAR_ROOM_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/war-room-fetch'
 
-async function callWarRoom(action, payload, tornApiKey) {
+async function callWarRoom(action, payload, tornApiKey, signal) {
   const response = await fetch(WAR_ROOM_URL, {
     method: 'POST',
     headers: {
@@ -14,12 +14,16 @@ async function callWarRoom(action, payload, tornApiKey) {
       'x-torn-api-key': tornApiKey,
     },
     body: JSON.stringify({ action, ...payload }),
+    signal,
   })
 
   const data = await response.json()
 
   if (!response.ok) {
-    throw new Error(data.error || `War Room API error: ${response.status}`)
+    const err = new Error(data.error || `War Room API error: ${response.status}`)
+    err.status = response.status
+    err.payload = data
+    throw err
   }
 
   return data
@@ -51,14 +55,24 @@ export async function clearWarRoomState(tornApiKey) {
   return callWarRoom('clear_state', {}, tornApiKey)
 }
 
-/** Claim dibs on a target member. */
-export async function claimDibs(targetId, userName, warId, tornApiKey) {
-  return callWarRoom('claim_dibs', { target_id: targetId, user_name: userName, war_id: warId ?? null }, tornApiKey)
+/** Claim dibs on a target member. `opts.userId` is required (auth is skipped server-side for dibs). */
+export async function claimDibs(targetId, userName, warId, tornApiKey, opts = {}) {
+  return callWarRoom(
+    'claim_dibs',
+    { target_id: targetId, user_name: userName, war_id: warId ?? null, user_id: opts.userId },
+    tornApiKey,
+    opts.signal,
+  )
 }
 
-/** Release dibs on a target member. */
-export async function releaseDibs(targetId, tornApiKey) {
-  return callWarRoom('release_dibs', { target_id: targetId }, tornApiKey)
+/** Release dibs on a target member. `opts.userId` is required. */
+export async function releaseDibs(targetId, tornApiKey, opts = {}) {
+  return callWarRoom(
+    'release_dibs',
+    { target_id: targetId, user_id: opts.userId },
+    tornApiKey,
+    opts.signal,
+  )
 }
 
 /** Get all active dibs (optionally filtered by war_id). */

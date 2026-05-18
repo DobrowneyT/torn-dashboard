@@ -5,7 +5,7 @@ CPR_REQUIREMENTS mirrors `cprRequirements` from src/config.js (lines 56-103).
 Keep both in sync if thresholds change.
 """
 
-POLL_INTERVAL_SECONDS = 60
+POLL_INTERVAL_SECONDS = 60 * 5
 WINDOW_MISSING_ITEMS_HOURS = 24
 WINDOW_UNAVAILABLE_HOURS = 6
 
