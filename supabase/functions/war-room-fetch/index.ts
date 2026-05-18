@@ -258,6 +258,10 @@ async function handleClearState(
     return json({ error: 'Leadership only' }, 403)
   }
 
+  // Clear dibs too — they're tied to the current war's targets and are
+  // meaningless once members are wiped.
+  await supabase.from('war_room_dibs').delete().neq('id', 0)
+
   const { error } = await supabase.from('war_room_state').delete().neq('member_id', 0)
   if (error) return json({ error: error.message }, 500)
   return json({ ok: true })
@@ -272,31 +276,23 @@ async function handleClaimDibs(
   const targetId = body.target_id
   if (!targetId) return json({ error: 'target_id required' }, 400)
 
-  // Check if already claimed by someone else
+  // Is the target already claimed by someone else?
   const { data: existing } = await supabase
     .from('war_room_dibs')
     .select('id, claimed_by, claimed_name')
     .eq('target_id', targetId)
-    .is('released_at', null)
     .maybeSingle()
 
   if (existing && String(existing.claimed_by) !== userId) {
     return json({ error: `Already claimed by ${existing.claimed_name}` }, 409)
   }
 
-  // Release any other targets this user currently has dibs on (single dibs per member)
+  // Single-dibs enforcement: hard-delete any other claims I hold, plus my
+  // existing claim on this target if I'm re-claiming. The table is reusable
+  // (no historical accumulation) — released dibs leave no row.
   await supabase.from('war_room_dibs')
-    .update({ released_at: new Date().toISOString() })
+    .delete()
     .eq('claimed_by', Number(userId))
-    .is('released_at', null)
-    .neq('target_id', targetId)
-
-  // Release own existing claim on this same target (re-claim)
-  if (existing) {
-    await supabase.from('war_room_dibs')
-      .update({ released_at: new Date().toISOString() })
-      .eq('id', existing.id)
-  }
 
   const { error } = await supabase.from('war_room_dibs').insert({
     target_id: targetId,
@@ -319,9 +315,8 @@ async function handleReleaseDibs(
 
   const query = supabase
     .from('war_room_dibs')
-    .update({ released_at: new Date().toISOString() })
+    .delete()
     .eq('target_id', targetId)
-    .is('released_at', null)
 
   // Non-leadership can only release their own
   if (!LEADERSHIP_IDS.includes(userId)) {
@@ -339,8 +334,7 @@ async function handleGetDibs(
 ) {
   let query = supabase
     .from('war_room_dibs')
-    .select('target_id, claimed_by, claimed_name, claimed_at, war_id')
-    .is('released_at', null)
+    .select('id, target_id, claimed_by, claimed_name, claimed_at, war_id')
 
   if (body.war_id) query = query.eq('war_id', body.war_id)
 

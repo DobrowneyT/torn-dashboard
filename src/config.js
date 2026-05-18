@@ -34,12 +34,14 @@ export const config = {
     '2264192', // McGummy
     '2407528', // DiabolicPickles
     '2932241', // Marnix0126
+    `873341`, // Goosey
   ],
 
   ocmanagerUserIds: [
     '2250591', // MonChoon
     '2749598', // Uncensored
     '2932241', // Marnix0126
+    `2214797`, // Onyx
   ],
 
   crimeItemIds: [

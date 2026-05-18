@@ -95,9 +95,15 @@ def _crime_block(crime: Dict, *, index: int, now_ts: Optional[int]) -> str:
 
     for m in crime.get("unavailable", []):
         prefix = SEVERITY_PREFIX.get(m.get("severity"), "")
+        # For travelers, prefer the long-form description ("Traveling to
+        # Hawaii") so the reader can see the destination driving the alert.
+        if m["state"] in ("Traveling", "Abroad") and m.get("description"):
+            state_display = m["description"]
+        else:
+            state_display = m["state"]
         bullets.append(
             f"> {prefix}🚑 {_member_link(m)} — {m['position']}: "
-            f"{m['state']}{_until_str(m.get('until'), now_ts)}"
+            f"{state_display}{_until_str(m.get('until'), now_ts)}"
         )
     for m in crime.get("missing_items", []):
         prefix = SEVERITY_PREFIX.get(m.get("severity"), "")

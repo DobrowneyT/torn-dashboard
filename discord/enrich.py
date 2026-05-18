@@ -38,9 +38,14 @@ def build_member_lookup(members_resp: Dict) -> Dict[int, Dict]:
 
 def build_status_map(members_resp: Dict) -> Dict[int, Dict]:
     """
-    user_id -> {state, until} for members in an unavailable state.
-    Members in "Okay" / online / etc. are intentionally omitted so a quick
-    `id in status_map` check answers "is this member unavailable?".
+    user_id -> {state, until, description, plane_image_type} for members in an
+    unavailable state. Members in "Okay" / online / etc. are intentionally
+    omitted so a quick `id in status_map` check answers "is this member
+    unavailable?".
+
+    description and plane_image_type are needed by the travel-severity check
+    in alerts.py — description carries "Traveling to Hawaii" / "In Mexico" /
+    etc., and plane_image_type maps to a flight speed tier.
     """
     out: Dict[int, Dict] = {}
     for m in members_resp.get("members", []):
@@ -49,7 +54,12 @@ def build_status_map(members_resp: Dict) -> Dict[int, Dict]:
             continue
         state = status.get("state") or status.get("description")
         if state and state in UNAVAILABLE_STATES:
-            out[m.get("id")] = {"state": state, "until": status.get("until") or 0}
+            out[m.get("id")] = {
+                "state": state,
+                "until": status.get("until") or 0,
+                "description": status.get("description") or "",
+                "plane_image_type": status.get("plane_image_type"),
+            }
     return out
 
 

@@ -21,6 +21,7 @@ import re
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
+import flight
 from config import (
     ACTIVE_CRIME_STATUSES,
     CPR_REQUIREMENTS,
@@ -133,15 +134,19 @@ def build_alerts(
             if is_full and hours_until <= WINDOW_UNAVAILABLE_HOURS:
                 status = member_status.get(user_id)
                 if status and status.get("state") in UNAVAILABLE_STATES:
-                    until_ts = status.get("until") or 0
-                    unavailable.append({
-                        "user_id": user_id,
-                        "name": user_name,
-                        "position": label,
-                        "state": status["state"],
-                        "until": until_ts,
-                        "severity": _unavailable_severity(status["state"], until_ts, ready_at),
-                    })
+                    severity = _unavailable_severity(status, ready_at, now_ts)
+                    # "suppress" — inbound traveler who will land well before
+                    # the crime executes, no alert needed at any severity.
+                    if severity != "suppress":
+                        unavailable.append({
+                            "user_id": user_id,
+                            "name": user_name,
+                            "position": label,
+                            "state": status["state"],
+                            "until": status.get("until") or 0,
+                            "description": status.get("description") or "",
+                            "severity": severity,
+                        })
 
             # 3) Low CPR — applies whether the crime is full or recruiting.
             # Falls back to DEFAULT_CPR_THRESHOLD when this crime or position
@@ -200,22 +205,68 @@ def _position_label(slot: Dict) -> str:
     return info.get("label") or slot.get("position") or ""
 
 
-def _unavailable_severity(state: str, until_ts: int, ready_at: int) -> Optional[str]:
+def _unavailable_severity(status: Dict, ready_at: int, now_ts: int) -> Optional[str]:
     """Severity for an unavailable member.
 
     Hospital/Jail/Federal:
       - until_ts > ready_at  → red (still unavailable when crime executes)
       - until_ts == 0        → red (unknown duration; treat as worst case)
       - until_ts <= ready_at → None (will be back before crime, low concern)
-    Traveling/Abroad: yellow (already gated to 6h window upstream).
+
+    Traveling/Abroad: delegated to _travel_severity, which uses plane type +
+    destination to decide red / yellow / "suppress" (member will land in
+    plenty of time, so no alert at all).
     """
+    state = status["state"]
+    until_ts = status.get("until") or 0
+
     if state in _OVERLAP_STATES:
         if not until_ts or until_ts > ready_at:
             return "red"
         return None
     if state in _TRAVEL_STATES:
-        return "yellow"
+        return _travel_severity(status, ready_at, now_ts)
     return None
+
+
+def _travel_severity(status: Dict, ready_at: int, now_ts: int) -> Optional[str]:
+    """Severity for a Traveling / Abroad member.
+
+    Required time the member needs in order to be back at their desk:
+      outbound ("Traveling to X")  → 2 × one-way (worst case: still going out,
+                                                  must come back)
+      abroad   ("In X")            → 1 × one-way (already landed, must return)
+      inbound  ("Returning from X")→ 1 × one-way (worst case: just took off back)
+
+    If required > seconds-until-crime → "red" (will likely miss execution).
+    Otherwise:
+      outbound / abroad → "yellow" (still flying within the 6h window, but
+                                    will make it back)
+      inbound           → "suppress" (sufficient buffer to land; no alert)
+
+    Falls back to "yellow" when we can't identify the destination or plane
+    type — same as the previous behaviour, so unknowns don't go silent.
+    """
+    direction, destination = flight.parse_destination(status.get("description"))
+    flight_type = flight.flight_type_for_plane(status.get("plane_image_type"))
+    one_way = flight.one_way_minutes(destination, flight_type)
+
+    if one_way is None or direction is None:
+        return "yellow"
+
+    secs_until_crime = ready_at - now_ts
+    one_way_secs = one_way * 60
+
+    if direction == "outbound":
+        required = 2 * one_way_secs
+        return "red" if required > secs_until_crime else "yellow"
+    if direction == "abroad":
+        return "red" if one_way_secs > secs_until_crime else "yellow"
+    if direction == "inbound":
+        # If even the worst-case full one-way back wouldn't miss the crime,
+        # the member is safe — suppress entirely (user's explicit ask).
+        return "red" if one_way_secs > secs_until_crime else "suppress"
+    return "yellow"
 
 
 def _missing_item_severity(hours_until: float) -> str:

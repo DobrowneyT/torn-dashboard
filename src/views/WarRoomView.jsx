@@ -181,7 +181,7 @@ function FactionStatusBar({ enemyMembers, ourMembers, factionLabel }) {
 
 // ── Config panel (leadership only) ────────────────────────────────────────────
 
-function ConfigPanel({ config, onSetConfig, onClearState }) {
+function ConfigPanel({ config, onSaveAndFetch, onClearState }) {
   const [factionId, setFactionId] = useState(String(config?.faction_id ?? ''))
   const [saving, setSaving]       = useState(false)
   const [clearing, setClearing]   = useState(false)
@@ -191,8 +191,8 @@ function ConfigPanel({ config, onSetConfig, onClearState }) {
     if (!factionId.trim()) return
     setSaving(true); setMsg(null)
     try {
-      await onSetConfig({ faction_id: Number(factionId) })
-      setMsg({ ok: true, text: 'Saved.' })
+      await onSaveAndFetch(Number(factionId))
+      setMsg({ ok: true, text: 'Saved & loaded initial members.' })
     } catch (e) {
       setMsg({ ok: false, text: e.message })
     } finally { setSaving(false) }
@@ -318,8 +318,9 @@ export default function WarRoomView({ isLeadership }) {
     }
 
     async function loadDibs() {
+      // Rows are hard-deleted on release now, so any row that exists is active.
       const { data } = await supabase
-        .from('war_room_dibs').select('target_id, claimed_by, claimed_name').is('released_at', null)
+        .from('war_room_dibs').select('id, target_id, claimed_by, claimed_name')
       if (!mounted || !data) return
       const map = {}
       data.forEach(d => { map[d.target_id] = d })
@@ -377,13 +378,16 @@ export default function WarRoomView({ isLeadership }) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'war_room_dibs' }, ({ new: row }) => {
         if (mounted) setDibs(prev => ({ ...prev, [row.target_id]: row }))
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'war_room_dibs' }, ({ new: row }) => {
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'war_room_dibs' }, ({ old: row }) => {
         if (!mounted) return
         setDibs(prev => {
-          if (row.released_at && prev[row.target_id]?.id === row.id) {
-            const next = { ...prev }; delete next[row.target_id]; return next
-          }
-          return { ...prev, [row.target_id]: row }
+          // Remove if the row's target matches and (no id check needed for safety:
+          // releases hard-delete by target+claimer, so the row going away means the
+          // claim is gone). Guard against deleting a fresh row with the same target.
+          const local = prev[row.target_id]
+          if (!local) return prev
+          if (local.id && row.id && local.id !== row.id) return prev
+          const next = { ...prev }; delete next[row.target_id]; return next
         })
       })
       .subscribe()
@@ -454,14 +458,44 @@ export default function WarRoomView({ isLeadership }) {
 
   async function handleClearState() {
     await clearWarRoomState(user.apiKey)
-    setMembers([]); setOurMembers([])
+    setMembers([]); setOurMembers([]); setDibs({})
+    bspFiredRef.current = false
   }
 
+  // Save flow: wipe stale state for the previous faction, save the new ID,
+  // pull an initial baseline so leadership can review members before enabling.
+  async function handleSaveAndFetch(newFactionId) {
+    // 1. Clear everything tied to the old faction (members + dibs).
+    await clearWarRoomState(user.apiKey)
+    setMembers([]); setOurMembers([]); setDibs({})
+    bspFiredRef.current = false
+    // 2. Persist the new faction_id.
+    await setWarRoomConfig({ faction_id: newFactionId, faction_name: null }, user.apiKey)
+    setConfig(prev => ({ ...prev, faction_id: newFactionId, faction_name: null }))
+    // 3. Initial fetch — validates the ID and populates the table (Realtime fills state).
+    await fetchWarRoomMembers(newFactionId, user.apiKey)
+  }
+
+  // Update Spies works even when the war room is paused: if no members are loaded
+  // yet (paused state), it does an enemy fetch first, then BSP enrichment.
   async function handleUpdateSpies() {
-    if (!user?.apiKey || !members.length) return
+    if (!user?.apiKey || !config?.faction_id) return
     setUpdatingSpies(true); setSpiesMsg(null)
     try {
-      const ids = members.map(m => m.member_id)
+      let workingMembers = membersRef.current.length ? membersRef.current : members
+      if (!workingMembers.length) {
+        setSpiesMsg({ ok: true, text: 'Fetching members…' })
+        await fetchWarRoomMembers(config.faction_id, user.apiKey)
+        // Give Realtime a beat to populate; fall back to a direct DB read if it lags
+        await new Promise(r => setTimeout(r, 400))
+        workingMembers = membersRef.current
+        if (!workingMembers.length) {
+          const { data } = await supabase.from('war_room_state').select('member_id').eq('faction_id', config.faction_id)
+          workingMembers = data ?? []
+        }
+      }
+      if (!workingMembers.length) throw new Error('No members loaded — check the faction ID')
+      const ids = workingMembers.map(m => m.member_id)
       await fetchBspStats(ids, user.apiKey)
       setSpiesMsg({ ok: true, text: `Enriching ${ids.length} members with BSP stats…` })
     } catch (e) {
@@ -619,24 +653,23 @@ export default function WarRoomView({ isLeadership }) {
                     />
                     <span className="text-xs text-gray-400 dark:text-gray-500">s</span>
                   </div>
+                  {/* Update Spies — always visible to leadership; handles both fetch + BSP when paused */}
+                  <button
+                    onClick={handleUpdateSpies}
+                    disabled={updatingSpies || !config?.faction_id}
+                    title={!config?.faction_id ? 'Set a faction ID first' : 'Fetch members + BSP battle stats'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
+                  >
+                    {updatingSpies ? '⏳ Fetching…' : '🔍 Update Spies'}
+                  </button>
                   {isActive ? (
-                    <>
-                      <button
-                        onClick={handleUpdateSpies}
-                        disabled={updatingSpies || !hasMembers}
-                        title={!hasMembers ? 'No members loaded yet' : 'Fetch BSP battle stats for all members'}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
-                      >
-                        {updatingSpies ? '⏳ Fetching…' : '🔍 Update Spies'}
-                      </button>
-                      <button
-                        onClick={toggleEnabled}
-                        disabled={toggling}
-                        className="px-3 py-1.5 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-                      >
-                        {toggling ? 'Stopping…' : 'Stop'}
-                      </button>
-                    </>
+                    <button
+                      onClick={toggleEnabled}
+                      disabled={toggling}
+                      className="px-3 py-1.5 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      {toggling ? 'Stopping…' : 'Stop'}
+                    </button>
                   ) : (
                     <button
                       onClick={toggleEnabled}
@@ -661,7 +694,7 @@ export default function WarRoomView({ isLeadership }) {
           </div>
         </div>
 
-        {isLeadership && <ConfigPanel config={config} onSetConfig={handleSetConfig} onClearState={handleClearState} />}
+        {isLeadership && <ConfigPanel config={config} onSaveAndFetch={handleSaveAndFetch} onClearState={handleClearState} />}
 
         {/* Filters — shown whenever there are members to filter */}
         {hasMembers && (
@@ -741,7 +774,7 @@ export default function WarRoomView({ isLeadership }) {
 
           {!hasMembers ? (
             <div className="flex items-center justify-center py-16 text-gray-400 dark:text-gray-600 text-sm">
-              Waiting for first poll… ({POLL_INTERVAL_MS / 1000}s interval)
+              Waiting for first poll… ({pollIntervalSec}s interval)
             </div>
           ) : (
             <div className="overflow-auto max-h-[65vh]">
