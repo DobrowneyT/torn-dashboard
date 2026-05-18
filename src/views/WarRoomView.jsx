@@ -509,11 +509,6 @@ export default function WarRoomView({ isLeadership }) {
     } finally { setToggling(false) }
   }
 
-  async function handleSetConfig(updates) {
-    await setWarRoomConfig(updates, user.apiKey)
-    setConfig(prev => ({ ...prev, ...updates }))
-  }
-
   async function handleClearState() {
     await clearWarRoomState(user.apiKey)
     setMembers([]); setOurMembers([]); setDibs({})
@@ -554,10 +549,14 @@ export default function WarRoomView({ isLeadership }) {
       }
       if (!workingMembers.length) throw new Error('No members loaded — check the faction ID')
       const ids = workingMembers.map(m => m.member_id)
-      await fetchBspStats(ids, user.apiKey)
+      // Show progress BEFORE the await so it reflects in-flight state, not completion.
       setSpiesMsg({ ok: true, text: `Enriching ${ids.length} members with BSP stats…` })
+      await fetchBspStats(ids, user.apiKey)
+      setSpiesMsg({ ok: true, text: `✓ Updated ${ids.length} members` })
+      setTimeout(() => setSpiesMsg(null), 4000)
     } catch (e) {
       setSpiesMsg({ ok: false, text: e.message })
+      setTimeout(() => setSpiesMsg(null), 5000)
     } finally { setUpdatingSpies(false) }
   }
 
@@ -799,7 +798,7 @@ export default function WarRoomView({ isLeadership }) {
               <div className="text-right space-y-0.5">
                 {pollError   && <p className="text-xs text-red-500 dark:text-red-400">⚠ Poll: {pollError}</p>}
                 {toggleError && <p className="text-xs text-red-500 dark:text-red-400">⚠ {toggleError}</p>}
-                {spiesMsg    && <p className={`text-xs ${spiesMsg.ok ? 'text-purple-600 dark:text-purple-400' : 'text-red-500 dark:text-red-400'}`}>{spiesMsg.text}</p>}
+                {spiesMsg && isLeadership && <p className={`text-xs ${spiesMsg.ok ? 'text-purple-600 dark:text-purple-400' : 'text-red-500 dark:text-red-400'}`}>{spiesMsg.text}</p>}
                 {dibsError   && <p className="text-xs text-red-500 dark:text-red-400">⚠ Dibs: {dibsError}</p>}
               </div>
             )}
