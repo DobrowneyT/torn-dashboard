@@ -152,11 +152,13 @@ function distributeRemainder(members, pool, getSortValue) {
   const remainder = pool - members.reduce((s, m) => s + (m.payoutAmount || 0), 0)
   if (remainder <= 0) return members
 
-  const order = members
-    .map((m, idx) => ({ idx, v: m.payoutAmount > 0 ? getSortValue(m) : -Infinity }))
+  // Only eligible (non-zero payout) members can receive a bump
+  const eligible = members
+    .map((m, idx) => ({ idx, v: getSortValue(m) }))
+    .filter(e => members[e.idx].payoutAmount > 0)
     .sort((a, b) => b.v - a.v)
 
-  const bump = new Set(order.slice(0, remainder).map(e => e.idx))
+  const bump = new Set(eligible.slice(0, remainder).map(e => e.idx))
   return members.map((m, idx) => bump.has(idx) ? { ...m, payoutAmount: m.payoutAmount + 1 } : m)
 }
 

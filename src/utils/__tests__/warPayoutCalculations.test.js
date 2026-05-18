@@ -267,10 +267,12 @@ describe('calculateTermedWarPayouts — scaling mode', () => {
     const alice = members.find(m => m.memberId === 100)
     const bob   = members.find(m => m.memberId === 200)
 
-    // Alice: floor(2.0 / 3.5 * 8M) = floor(4,571,428.57) = 4,571,428
-    expect(alice.payoutAmount).toBe(Math.floor(2.0 / 3.5 * 8_000_000))
-    // Bob: floor(1.5 / 3.5 * 8M) = floor(3,428,571.43) = 3,428,571
+    // Alice: floor(2.0 / 3.5 * 8M) = 4,571,428 + 1 remainder bump (most shares) = 4,571,429
+    expect(alice.payoutAmount).toBe(Math.floor(2.0 / 3.5 * 8_000_000) + 1)
+    // Bob: floor(1.5 / 3.5 * 8M) = 3,428,571 (no bump)
     expect(bob.payoutAmount).toBe(Math.floor(1.5 / 3.5 * 8_000_000))
+    // Total equals pool exactly
+    expect(alice.payoutAmount + bob.payoutAmount).toBe(8_000_000)
   })
 
   it('member who does not qualify pre-cutoff gets 0 shares', () => {
@@ -302,7 +304,8 @@ describe('calculateTermedWarPayouts — scaling mode', () => {
     expect(alice.preCutoffScore).toBe(55)
     expect(alice.shares).toBe(0.5)  // 0 base + 50/100 post
     expect(alice.isEligible).toBe(true)
-    expect(alice.payoutAmount).toBe(Math.floor(0.5 / 0.75 * 8_000_000))
+    // floor(0.5 / 0.75 * 8M) = 5,333,333 + 1 remainder bump (most shares) = 5,333,334
+    expect(alice.payoutAmount).toBe(Math.floor(0.5 / 0.75 * 8_000_000) + 1)
     expect(bob.shares).toBe(0.25)   // 0 base + 25/100 post
     expect(totalShares).toBe(0.75)
   })
@@ -892,10 +895,13 @@ describe('calculateRaceWarPayouts', () => {
     const alice = result.members.find(m => m.memberId === 100)
     const bob   = result.members.find(m => m.memberId === 200)
     const carol = result.members.find(m => m.memberId === 300)
-    // Flat shares: each member gets floor(5M / 3) = 1,666,666
-    expect(alice.postCutoffPayout).toBe(Math.floor(5_000_000 / 3))
-    expect(bob.postCutoffPayout).toBe(Math.floor(5_000_000 / 3))
+    // floor(5M / 3) = 1,666,666; remainder = 2 → distributed top-down by shares (all equal,
+    // stable sort order: Alice, Bob, Carol), so Alice and Bob each get +1.
+    expect(alice.postCutoffPayout).toBe(Math.floor(5_000_000 / 3) + 1)
+    expect(bob.postCutoffPayout).toBe(Math.floor(5_000_000 / 3) + 1)
     expect(carol.postCutoffPayout).toBe(Math.floor(5_000_000 / 3))
+    // Total post-cutoff equals the post-cutoff pool exactly
+    expect(alice.postCutoffPayout + bob.postCutoffPayout + carol.postCutoffPayout).toBe(5_000_000)
   })
 
   it('applies faction cut before splitting pools', () => {
