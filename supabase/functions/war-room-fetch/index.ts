@@ -157,6 +157,17 @@ async function handleFetchMembers(supabase: ReturnType<typeof createClient>, fac
 
   if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
 
+  // Delete stale rows — members who left the faction since the last fetch.
+  // Without this, counts grow forever because we only upsert, never delete.
+  const currentIds = members.map((m: any) => m.id)
+  if (currentIds.length > 0) {
+    await supabase
+      .from('war_room_state')
+      .delete()
+      .eq('faction_id', factionId)
+      .not('member_id', 'in', `(${currentIds.join(',')})`)
+  }
+
   return json({ ok: true, count: rows.length, fetched_at: now })
 }
 
@@ -197,6 +208,16 @@ async function handleFetchOurMembers(supabase: ReturnType<typeof createClient>) 
     .upsert(rows, { onConflict: 'member_id' })
 
   if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
+
+  // Delete stale rows for our faction (members who left)
+  const currentIds = members.map((m: any) => m.id)
+  if (currentIds.length > 0) {
+    await supabase
+      .from('war_room_state')
+      .delete()
+      .eq('faction_id', ourFactionId)
+      .not('member_id', 'in', `(${currentIds.join(',')})`)
+  }
 
   return json({ ok: true, count: rows.length })
 }
