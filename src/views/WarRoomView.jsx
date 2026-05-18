@@ -69,17 +69,19 @@ function parseTravelInfo(state, description) {
     if (match) {
       const [, from, to] = match
       return to === 'Torn'
-        ? { returning: true,  direction: '← ', dest: from }
-        : { returning: false, direction: '→ ', dest: to }
+        ? { returning: true,  label: `from ${from}` }
+        : { returning: false, label: `to ${to}` }
     }
     // Legacy fallback formats
     if (description?.startsWith('Returning from ')) {
-      return { returning: true,  direction: '← ', dest: description.replace('Returning from ', '') }
+      return { returning: true,  label: `from ${description.replace('Returning from ', '')}` }
     }
-    return { returning: false, direction: '→ ', dest: description?.replace('Traveling to ', '') ?? '' }
+    const dest = description?.replace('Traveling to ', '') ?? ''
+    return { returning: false, label: dest ? `to ${dest}` : '' }
   }
   if (state === 'Abroad') {
-    return { returning: false, direction: null, dest: description?.replace(/^In /, '') ?? '' }
+    const dest = description?.replace(/^In /, '') ?? ''
+    return { returning: false, label: dest ? `in ${dest}` : '' }
   }
   return null
 }
@@ -124,9 +126,9 @@ function StatusCell({ state, description }) {
         <span>{icons[state] ?? '?'}</span>
         {state}
       </span>
-      {travel?.dest && (
+      {travel?.label && (
         <span className="text-xs text-gray-500 dark:text-gray-400 pl-1 whitespace-nowrap">
-          {travel.direction}{travel.dest}
+          {travel.label}
         </span>
       )}
     </div>
@@ -390,8 +392,13 @@ export default function WarRoomView({ isLeadership }) {
         if (row.faction_id !== OUR_FACTION_ID && row.status_state !== 'Okay') {
           const prev = membersRef.current.find(m => m.member_id === row.member_id)
           if (prev?.status_state === 'Okay' && dibsRef.current[row.member_id]) {
-            releaseDibs(row.member_id, userRef.current?.apiKey).catch(e => console.error('Auto-release dibs:', e))
-            setDibs(d => { const next = { ...d }; delete next[row.member_id]; return next })
+            // Only auto-release if it's MY dibs — otherwise let the owner handle it
+            const dib = dibsRef.current[row.member_id]
+            if (String(dib.claimed_by) === String(userRef.current?.id)) {
+              releaseDibs(row.member_id, userRef.current?.apiKey, { userId: userRef.current?.id })
+                .catch(e => console.error('Auto-release dibs:', e))
+              setDibs(d => { const next = { ...d }; delete next[row.member_id]; return next })
+            }
           }
         }
         if (row.faction_id === OUR_FACTION_ID) {
@@ -410,17 +417,12 @@ export default function WarRoomView({ isLeadership }) {
     const dibsSub = supabase.channel('war_room_dibs_ch')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'war_room_dibs' }, ({ new: row }) => {
         if (!mounted) return
-        setDibs(prev => {
-          // If this insert is for me but I've already moved on to a different target
-          // (rapid clicks), ignore it — my current optimistic claim is the source of truth.
-          if (String(row.claimed_by) === String(userRef.current?.id)) {
-            const myCurrent = Object.entries(prev).find(([, d]) =>
-              String(d.claimed_by) === String(userRef.current?.id)
-            )?.[0]
-            if (myCurrent && Number(myCurrent) !== row.target_id) return prev
-          }
-          return { ...prev, [row.target_id]: row }
-        })
+        // Ignore my own INSERTs entirely — my local state is already authoritative
+        // via optimistic update + server response. This prevents a stale INSERT
+        // event from re-adding a claim after I just released it, which caused
+        // the Release button to briefly flash to "Claim" and back.
+        if (String(row.claimed_by) === String(userRef.current?.id)) return
+        setDibs(prev => ({ ...prev, [row.target_id]: row }))
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'war_room_dibs' }, ({ new: row }) => {
         if (!mounted) return
