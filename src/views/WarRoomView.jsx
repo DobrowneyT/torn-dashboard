@@ -55,9 +55,12 @@ function stateToFilterKey(state) {
 function parseStatInput(str) {
   if (!str?.trim()) return null
   const s = str.trim().toLowerCase()
-  const m = s.match(/^(\d+(?:\.\d+)?)\s*([kmb]?)$/)
+  // Accepts: "3", "3.5", "0.8", ".8" (leading-decimal shorthand) — each
+  // optionally followed by k/m/b. Rejects "3." (trailing dot) and bare ".".
+  const m = s.match(/^(\d*\.?\d+)\s*([kmb]?)$/)
   if (!m) return null
   const n = parseFloat(m[1])
+  if (Number.isNaN(n)) return null
   const multipliers = { k: 1_000, m: 1_000_000, b: 1_000_000_000 }
   return n * (multipliers[m[2]] ?? 1)
 }
