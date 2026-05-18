@@ -110,7 +110,8 @@ function ImportTab() {
       <CprDataImport />
       <CrimesDataImport />
       <PayoutCsvImport />
-      <SinglePayoutDelete />
+      <SingleOCPayoutDelete />
+      <SingleRWPayoutDelete />
     </div>
   )
 }
@@ -885,7 +886,7 @@ function ClearDataTab() {
   )
 }
 
-function SinglePayoutDelete() {
+function SingleOCPayoutDelete() {
   const { user } = useAuth()
   const [payouts, setPayouts] = useState([])
   const [loading, setLoading] = useState(false)
@@ -897,66 +898,50 @@ function SinglePayoutDelete() {
     try {
       const { data, error } = await supabase
         .from('oc_payout_weeks')
-        .select('*')
+        .select('id, week_start, week_end, member_payout_total, member_count, created_at')
         .order('week_end', { ascending: false })
         .limit(20)
 
       if (error) throw error
       setPayouts(data || [])
     } catch (err) {
-      console.error('Error loading payouts:', err)
+      console.error('Error loading OC payouts:', err)
     } finally {
       setLoading(false)
     }
   }
 
-const handleDelete = async (weekId) => {
-  if (!confirm('Are you sure you want to delete this payout week? This cannot be undone.')) {
-    return
+  const handleDelete = async (weekId) => {
+    if (!confirm('Are you sure you want to delete this OC payout week? This cannot be undone.')) return
+
+    setDeleting(true)
+    setResult(null)
+    try {
+      // Unlink any crimes referencing this week (FK — must clear before deleting the week)
+      await adminApi.adminUpdate('crimes', { payout_week_id: null }, { payout_week_id: weekId }, user.apiKey)
+      // Delete member records, then the week itself
+      await adminApi.adminDelete('oc_payout_members', { week_id: weekId }, user.apiKey)
+      await adminApi.adminDelete('oc_payout_weeks', { id: weekId }, user.apiKey)
+
+      setResult({ success: true, message: 'OC payout week deleted successfully.' })
+      loadPayouts()
+    } catch (err) {
+      setResult({ success: false, error: err.message })
+    } finally {
+      setDeleting(false)
+    }
   }
-
-  setDeleting(true)
-  setResult(null)
-
-  try {
-    // First, unlink any crimes that reference this payout week
-    await adminApi.adminUpdate(
-      'crimes',
-      { payout_week_id: null },
-      { payout_week_id: weekId },
-      user.apiKey
-    )
-
-    // Delete member records
-    await adminApi.adminDelete('oc_payout_members', { week_id: weekId }, user.apiKey)
-    
-    // Delete week record
-    await adminApi.adminDelete('oc_payout_weeks', { id: weekId }, user.apiKey)
-
-    setResult({ success: true, message: 'Payout week deleted successfully' })
-    
-    // Reload list
-    loadPayouts()
-  } catch (err) {
-    setResult({ success: false, error: err.message })
-  } finally {
-    setDeleting(false)
-  }
-}
 
   return (
     <div className="card border border-blue-200 dark:border-blue-900/30">
-      <h3 className="font-semibold text-lg mb-2">Delete Single Payout Week</h3>
+      <h3 className="font-semibold text-lg mb-2">Delete OC Payout</h3>
       <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-        Select a specific payout week to delete from the database
+        Select a specific OC payout week to delete. Also unlinks any crimes referencing it.
       </p>
 
-      <button
-        onClick={loadPayouts}
-        disabled={loading}
-        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 mb-4"
-      >
-        {loading ? 'Loading...' : 'Load Payout Weeks'}
+      <button onClick={loadPayouts} disabled={loading}
+        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 mb-4">
+        {loading ? 'Loading...' : 'Load OC Payout Weeks'}
       </button>
 
       {payouts.length > 0 && (
@@ -971,21 +956,16 @@ const handleDelete = async (weekId) => {
               </tr>
             </thead>
             <tbody>
-              {payouts.map((payout) => (
-                <tr key={payout.id} className="border-b border-gray-200 dark:border-slate-700">
-                  <td className="py-2 px-2 text-xs">
-                    {payout.week_start} to {payout.week_end}
-                  </td>
+              {payouts.map((p) => (
+                <tr key={p.id} className="border-b border-gray-200 dark:border-slate-700">
+                  <td className="py-2 px-2 text-xs">{p.week_start} → {p.week_end}</td>
                   <td className="py-2 px-2 text-xs font-semibold">
-                    ${((payout.member_payout_total || 0) / 1e6).toFixed(2)}M
+                    ${((p.member_payout_total || 0) / 1e6).toFixed(2)}M
                   </td>
-                  <td className="py-2 px-2 text-xs">{payout.member_count || 0}</td>
+                  <td className="py-2 px-2 text-xs">{p.member_count || 0}</td>
                   <td className="py-2 px-2 text-xs">
-                    <button
-                      onClick={() => handleDelete(payout.id)}
-                      disabled={deleting}
-                      className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                    >
+                    <button onClick={() => handleDelete(p.id)} disabled={deleting}
+                      className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50">
                       Delete
                     </button>
                   </td>
@@ -997,8 +977,118 @@ const handleDelete = async (weekId) => {
       )}
 
       {result && (
-        <div className={`mt-4 p-4 rounded-lg ${result.success ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
-          <p className="text-sm">{result.success ? result.message : `Error: ${result.error}`}</p>
+        <div className={`mt-4 p-3 rounded-lg text-sm ${result.success ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'}`}>
+          {result.success ? result.message : `Error: ${result.error}`}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SingleRWPayoutDelete() {
+  const { user } = useAuth()
+  const [payouts, setPayouts] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const loadPayouts = async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('war_payouts')
+        .select('id, war_id, war_type, total_reward, total_payout, member_count, created_at, ranked_wars(opponent_name, opponent_id, start_at, end_at)')
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      if (error) throw error
+      setPayouts(data || [])
+    } catch (err) {
+      console.error('Error loading RW payouts:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDelete = async (payoutId) => {
+    if (!confirm('Are you sure you want to delete this RW payout? This cannot be undone.')) return
+
+    setDeleting(true)
+    setResult(null)
+    try {
+      // Delete member records first (FK constraint), then the payout record
+      await adminApi.adminDelete('war_payout_members', { payout_id: payoutId }, user.apiKey)
+      await adminApi.adminDelete('war_payouts', { id: payoutId }, user.apiKey)
+
+      setResult({ success: true, message: 'RW payout deleted successfully.' })
+      loadPayouts()
+    } catch (err) {
+      setResult({ success: false, error: err.message })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="card border border-orange-200 dark:border-orange-900/30">
+      <h3 className="font-semibold text-lg mb-2">Delete RW Payout</h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        Select a specific ranked war payout to delete. Removes all member records for that payout.
+      </p>
+
+      <button onClick={loadPayouts} disabled={loading}
+        className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 mb-4">
+        {loading ? 'Loading...' : 'Load RW Payouts'}
+      </button>
+
+      {payouts.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b-2 border-gray-200 dark:border-slate-700">
+              <tr className="text-left">
+                <th className="py-2 px-2 font-semibold text-xs">War</th>
+                <th className="py-2 px-2 font-semibold text-xs">Type</th>
+                <th className="py-2 px-2 font-semibold text-xs">Total Payout</th>
+                <th className="py-2 px-2 font-semibold text-xs">Members</th>
+                <th className="py-2 px-2 font-semibold text-xs">Saved</th>
+                <th className="py-2 px-2 font-semibold text-xs">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payouts.map((p) => {
+                const war = p.ranked_wars
+                const opponent = war?.opponent_name || `#${war?.opponent_id || p.war_id}`
+                const date = war?.start_at
+                  ? new Date(war.start_at * 1000).toLocaleDateString()
+                  : `War #${p.war_id}`
+                return (
+                  <tr key={p.id} className="border-b border-gray-200 dark:border-slate-700">
+                    <td className="py-2 px-2 text-xs font-medium">vs {opponent}<br /><span className="text-gray-400">{date}</span></td>
+                    <td className="py-2 px-2 text-xs capitalize">{p.war_type || '—'}</td>
+                    <td className="py-2 px-2 text-xs font-semibold">
+                      ${((p.total_payout || 0) / 1e6).toFixed(2)}M
+                    </td>
+                    <td className="py-2 px-2 text-xs">{p.member_count || 0}</td>
+                    <td className="py-2 px-2 text-xs text-gray-500">
+                      {new Date(p.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="py-2 px-2 text-xs">
+                      <button onClick={() => handleDelete(p.id)} disabled={deleting}
+                        className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50">
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {result && (
+        <div className={`mt-4 p-3 rounded-lg text-sm ${result.success ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'}`}>
+          {result.success ? result.message : `Error: ${result.error}`}
         </div>
       )}
     </div>
