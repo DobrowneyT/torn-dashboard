@@ -12,6 +12,7 @@ import {
   releaseDibs,
 } from '../utils/warRoomApi'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
+import ReviveServicesModal from '../components/ReviveServicesModal'
 
 const OUR_FACTION_ID = 10739
 const STATUS_FILTERS   = ['Okay', 'Hospital', 'Flying', 'Jail']
@@ -182,7 +183,7 @@ function ActivityCounts({ members }) {
   )
 }
 
-function FactionStatusBar({ enemyMembers, ourMembers, factionLabel }) {
+function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl }) {
   return (
     <div className="card py-3 px-4 flex items-center justify-between gap-4">
       <div className="flex items-center gap-4">
@@ -191,13 +192,19 @@ function FactionStatusBar({ enemyMembers, ourMembers, factionLabel }) {
         </span>
         <ActivityCounts members={enemyMembers} />
       </div>
-      {ourMembers.length > 0 && (
+      <div className="flex items-center justify-center shrink-0">
+        <QuickLinksBar reviveServiceName={reviveServiceName} reviveServiceUrl={reviveServiceUrl} />
+      </div>
+      {ourMembers.length > 0 ? (
         <div className="flex items-center gap-4">
           <ActivityCounts members={ourMembers} />
           <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide shrink-0">
             Us
           </span>
         </div>
+      ) : (
+        // Keeps justify-between's spacing balanced when our counts are hidden
+        <span aria-hidden className="shrink-0" />
       )}
     </div>
   )
@@ -256,32 +263,41 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl }) {
 
 // ── Config panel (leadership only) ────────────────────────────────────────────
 
-function ConfigPanel({ config, onSaveAndFetch, onSaveReviveService, onClearState }) {
+function ConfigPanel({ config, onSaveAndFetch, onSaveReviveService, onSaveReviveList, onClearState }) {
   const [factionId, setFactionId] = useState(String(config?.faction_id ?? ''))
-  const [reviveName, setReviveName] = useState(config?.revive_service_name ?? '')
-  const [reviveUrl, setReviveUrl]   = useState(config?.revive_service_url ?? '')
   const [saving, setSaving]       = useState(false)
   const [clearing, setClearing]   = useState(false)
-  const [savingRevive, setSavingRevive] = useState(false)
   const [msg, setMsg]             = useState(null)
+  const [showServicesModal, setShowServicesModal] = useState(false)
 
-  // Keep local inputs in sync if the config is updated elsewhere (e.g. Realtime)
-  useEffect(() => {
-    setReviveName(config?.revive_service_name ?? '')
-    setReviveUrl(config?.revive_service_url ?? '')
-  }, [config?.revive_service_name, config?.revive_service_url])
+  const services = Array.isArray(config?.revive_services) ? config.revive_services : []
+  const activeReviveName = config?.revive_service_name ?? ''
 
-  async function handleSaveRevive() {
-    setSavingRevive(true); setMsg(null)
+  // Dropdown change → look up the preset and persist its name + url as the active selection.
+  async function handlePickReviveService(e) {
+    const picked = e.target.value
+    const found = services.find(s => s.name === picked)
+    setMsg(null)
     try {
       await onSaveReviveService({
-        revive_service_name: reviveName.trim() || null,
-        revive_service_url:  reviveUrl.trim()  || null,
+        revive_service_name: found?.name ?? null,
+        revive_service_url:  found?.url  ?? null,
       })
-      setMsg({ ok: true, text: 'Revive service saved.' })
-    } catch (e) {
-      setMsg({ ok: false, text: e.message })
-    } finally { setSavingRevive(false) }
+      setMsg({ ok: true, text: found ? `Revive service set to ${found.name}.` : 'Revive service cleared.' })
+    } catch (err) {
+      setMsg({ ok: false, text: err.message })
+    }
+  }
+
+  async function handleSaveServicesList(newList) {
+    // If the currently-active service was removed or renamed, clear the active selection
+    // so the QuickLinksBar doesn't keep pointing at a stale name.
+    const stillExists = activeReviveName && newList.some(s => s.name === activeReviveName)
+    await onSaveReviveList({
+      revive_services: newList,
+      ...(stillExists ? {} : { revive_service_name: null, revive_service_url: null }),
+    })
+    setMsg({ ok: true, text: 'Revive services list saved.' })
   }
 
   async function handleSave() {
@@ -332,29 +348,44 @@ function ConfigPanel({ config, onSaveAndFetch, onSaveReviveService, onClearState
         </button>
       </div>
 
-      {/* Revive service — feeds the Quick Links bar's revive button */}
+      {/* Revive service — preset dropdown + gear to manage the list */}
       <div className="flex flex-wrap items-end gap-2">
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Revive Service Name</label>
-          <input
-            type="text" value={reviveName} onChange={e => setReviveName(e.target.value)} placeholder="e.g. Central Hospital"
-            className="w-48 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Revive Service</label>
+          <div className="flex items-center gap-1">
+            <select
+              value={activeReviveName}
+              onChange={handlePickReviveService}
+              disabled={services.length === 0}
+              className="w-48 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            >
+              <option value="">{services.length === 0 ? '(no services — click ⚙ to add)' : '(none)'}</option>
+              {services.map(s => (
+                <option key={s.name} value={s.name}>{s.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => setShowServicesModal(true)}
+              title="Manage revive services"
+              className="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+              aria-label="Manage revive services"
+            >
+              <span aria-hidden>⚙</span>
+            </button>
+          </div>
         </div>
-        <div className="flex-1 min-w-[16rem]">
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Revive Service URL</label>
-          <input
-            type="url" value={reviveUrl} onChange={e => setReviveUrl(e.target.value)} placeholder="https://discord.gg/… or service URL"
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <button onClick={handleSaveRevive} disabled={savingRevive}
-          className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors">
-          {savingRevive ? 'Saving…' : 'Save Service'}
-        </button>
       </div>
 
       {msg && <p className={`text-xs ${msg.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{msg.text}</p>}
+
+      {showServicesModal && (
+        <ReviveServicesModal
+          services={services}
+          activeName={activeReviveName}
+          onSave={handleSaveServicesList}
+          onClose={() => setShowServicesModal(false)}
+        />
+      )}
     </div>
   )
 }
@@ -626,6 +657,13 @@ export default function WarRoomView({ isLeadership }) {
     setConfig(prev => ({ ...prev, ...updates }))
   }
 
+  // Same shape as handleSaveReviveService — the modal sends the full updated list
+  // (plus optionally a cleared active selection if the active service was removed).
+  async function handleSaveReviveList(updates) {
+    await setWarRoomConfig(updates, user.apiKey)
+    setConfig(prev => ({ ...prev, ...updates }))
+  }
+
   // Save flow: switching factions is a full reset — disable polling, wipe
   // state, save the new ID, pull an initial baseline. Disabling first prevents
   // an in-flight poll for the OLD faction from re-adding members between the
@@ -849,10 +887,6 @@ export default function WarRoomView({ isLeadership }) {
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> LIVE
                 </span>
               )}
-              <QuickLinksBar
-                reviveServiceName={config?.revive_service_name}
-                reviveServiceUrl={config?.revive_service_url}
-              />
             </div>
             {/* Subtitle / enemy summary */}
             {!isActive && (
@@ -935,6 +969,7 @@ export default function WarRoomView({ isLeadership }) {
             config={config}
             onSaveAndFetch={handleSaveAndFetch}
             onSaveReviveService={handleSaveReviveService}
+            onSaveReviveList={handleSaveReviveList}
             onClearState={handleClearState}
           />
         )}
@@ -1049,6 +1084,8 @@ export default function WarRoomView({ isLeadership }) {
           enemyMembers={members}
           ourMembers={ourMembers}
           factionLabel={resolvedName ?? (config?.faction_id ? `Faction ${config.faction_id}` : null)}
+          reviveServiceName={config?.revive_service_name}
+          reviveServiceUrl={config?.revive_service_url}
         />
       )}
 
