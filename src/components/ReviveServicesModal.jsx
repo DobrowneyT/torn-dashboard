@@ -12,23 +12,25 @@ import { useState } from 'react'
  */
 export default function ReviveServicesModal({ services, activeName, onSave, onClose }) {
   const [list, setList] = useState(Array.isArray(services) ? services : [])
-  const [newName, setNewName]   = useState('')
-  const [newUrl, setNewUrl]     = useState('')
+  const [newName, setNewName]     = useState('')
+  const [newUrl, setNewUrl]       = useState('')
   const [newSource, setNewSource] = useState('')
-  const [saving, setSaving]     = useState(false)
-  const [error, setError]       = useState(null)
+  const [newSourceKey, setNewSourceKey] = useState('source')
+  const [saving, setSaving]       = useState(false)
+  const [error, setError]         = useState(null)
 
   function addService() {
     const name = newName.trim()
     const url  = newUrl.trim()
     const source = newSource.trim()
+    const sourceKey = newSourceKey.trim() || 'source'
     if (!name || !url) { setError('Name and URL are required.'); return }
     if (list.some(s => s.name.toLowerCase() === name.toLowerCase())) {
       setError('A service with that name already exists.')
       return
     }
-    setList([...list, { name, url, source: source || name }])
-    setNewName(''); setNewUrl(''); setNewSource(''); setError(null)
+    setList([...list, { name, url, source: source || name, sourceKey }])
+    setNewName(''); setNewUrl(''); setNewSource(''); setNewSourceKey('source'); setError(null)
   }
 
   function removeService(idx) {
@@ -90,8 +92,17 @@ export default function ReviveServicesModal({ services, activeName, onSave, onCl
                   type="text"
                   value={s.source ?? ''}
                   onChange={e => updateService(idx, 'source', e.target.value)}
-                  placeholder="source (e.g. UHC Script)"
+                  placeholder="source value"
+                  title="The identifier sent to the service (e.g. UHC Script, WTF Revive Button Script)"
                   className="w-40 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="text"
+                  value={s.sourceKey ?? 'source'}
+                  onChange={e => updateService(idx, 'sourceKey', e.target.value)}
+                  placeholder="key"
+                  title="JSON key for the source value — UHC uses 'source', WTF uses 'requestChannel'"
+                  className="w-28 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                 />
                 {isActive && (
                   <span className="text-xs text-blue-600 dark:text-blue-400 font-medium shrink-0" title="Currently selected">
@@ -132,9 +143,17 @@ export default function ReviveServicesModal({ services, activeName, onSave, onCl
               type="text"
               value={newSource}
               onChange={e => setNewSource(e.target.value)}
-              placeholder="source (e.g. UHC Script)"
-              title="Sent in the POST payload as `source`. Defaults to the service name if blank."
+              placeholder="source value (e.g. UHC Script)"
+              title="The identifier sent in the POST payload. Defaults to the service name if blank."
               className="w-44 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="text"
+              value={newSourceKey}
+              onChange={e => setNewSourceKey(e.target.value)}
+              placeholder="key"
+              title="JSON key for the source value — UHC uses 'source', WTF uses 'requestChannel'"
+              className="w-28 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
             />
             <button
               onClick={addService}

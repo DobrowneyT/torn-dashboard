@@ -412,12 +412,21 @@ async function handleReviveRequest(body: any) {
   if (!url || typeof url !== 'string') return json({ error: 'url required' }, 400)
   if (!body.userID) return json({ error: 'userID required' }, 400)
 
-  const payload = {
+  // Different revive services use different JSON keys for the same value:
+  //   UHC → "source"
+  //   WTF → "requestChannel"
+  // The user picks the right key per-service in the Manage Services modal.
+  const sourceKey   = (typeof body.sourceKey === 'string' && body.sourceKey.trim()) || 'source'
+  const sourceValue = body.source ?? ''
+
+  const payload: Record<string, unknown> = {
     userID:      body.userID,
     userName:    body.userName    ?? '',
     factionName: body.factionName ?? '',
-    source:      body.source      ?? 'UHC Script',
+    [sourceKey]: sourceValue,
   }
+
+  console.log('[revive_request] →', { url, payload })
 
   try {
     const resp = await fetch(url, {
@@ -428,8 +437,10 @@ async function handleReviveRequest(body: any) {
     const text = await resp.text()
     let parsedBody: unknown
     try { parsedBody = JSON.parse(text) } catch { parsedBody = { raw: text } }
-    return json({ ok: resp.ok, status: resp.status, body: parsedBody })
+    console.log('[revive_request] ←', { status: resp.status, body: parsedBody })
+    return json({ ok: resp.ok, status: resp.status, body: parsedBody, sentPayload: payload, url })
   } catch (e) {
+    console.error('[revive_request] error', e)
     return json({ error: `Revive request failed: ${e}` }, 502)
   }
 }

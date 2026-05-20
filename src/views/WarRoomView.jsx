@@ -185,7 +185,7 @@ function ActivityCounts({ members }) {
   )
 }
 
-function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, reviveServiceSource, user, factionName }) {
+function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, user, factionName }) {
   return (
     <div className="card py-3 px-4 flex items-center justify-between gap-4">
       <div className="flex items-center gap-4">
@@ -1234,11 +1234,11 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
 
       {/* Faction status bar — shown whenever enemy members are loaded (active or paused) */}
       {hasMembers && (() => {
-        // The active service's "source" lives inside the revive_services jsonb list
-        // (alongside its name + url). Derive it at render so we don't need an extra
-        // DB column — name + jsonb list together are enough.
+        // The active service's "source" + "sourceKey" live inside the revive_services
+        // jsonb list (alongside name + url). Derive at render — no extra DB columns.
         const activeService = (config?.revive_services ?? []).find(s => s.name === config?.revive_service_name)
-        const activeSource = activeService?.source ?? activeService?.name ?? null
+        const activeSource    = activeService?.source    ?? activeService?.name ?? null
+        const activeSourceKey = activeService?.sourceKey ?? 'source'
         return (
           <FactionStatusBar
             enemyMembers={members}
@@ -1247,6 +1247,7 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
             reviveServiceName={config?.revive_service_name}
             reviveServiceUrl={config?.revive_service_url}
             reviveServiceSource={activeSource}
+            reviveServiceSourceKey={activeSourceKey}
             user={user}
             factionName={appConfig.faction.name}
           />

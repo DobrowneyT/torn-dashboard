@@ -93,6 +93,6 @@ export async function fetchBspStats(memberIds, tornApiKey) {
  * (server-side proxy to bypass CORS). Returns { ok, status, body } where body
  * is the parsed JSON response from the service.
  */
-export async function requestRevive({ url, userID, userName, factionName, source }, tornApiKey) {
-  return callWarRoom('revive_request', { url, userID, userName, factionName, source }, tornApiKey)
+export async function requestRevive({ url, userID, userName, factionName, source, sourceKey }, tornApiKey) {
+  return callWarRoom('revive_request', { url, userID, userName, factionName, source, sourceKey }, tornApiKey)
 }
