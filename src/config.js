@@ -15,7 +15,6 @@ export const config = {
 
   adminsUserIds: [
     '2250591', // MonChoon
-    '2932241', // Marnix0126
   ],
 
   leadershipUserIds: [

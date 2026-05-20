@@ -261,6 +261,29 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl }) {
   )
 }
 
+// ── Sortable header ───────────────────────────────────────────────────────────
+// Lifted out of the parent component so its function reference is stable across
+// re-renders. Previously it was defined inside WarRoomView, which meant every
+// poll (every 1-3s) produced a new component type and unmounted/remounted every
+// <th> — causing visible flashing and dropped mouse clicks on the headers.
+
+function SortTh({ col, sortCol, sortDir, onSort, children, className = '' }) {
+  const active = sortCol === col
+  return (
+    <th
+      onClick={() => onSort(col)}
+      className={`py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700/60 transition-colors whitespace-nowrap ${className}`}
+    >
+      <span className="flex items-center gap-1">
+        {children}
+        <span className={`text-xs ${active ? 'text-blue-500 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`}>
+          {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </span>
+    </th>
+  )
+}
+
 // ── Config panel (leadership only) ────────────────────────────────────────────
 
 function ConfigPanel({ config, onSaveAndFetch, onSaveReviveService, onSaveReviveList, onClearState }) {
@@ -392,7 +415,7 @@ function ConfigPanel({ config, onSaveAndFetch, onSaveReviveService, onSaveRevive
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function WarRoomView({ isLeadership }) {
+export default function WarRoomView({ isLeadership, isAdmin }) {
   const { user } = useAuth()
 
   const [config, setConfig]         = useState(null)
@@ -817,12 +840,21 @@ export default function WarRoomView({ isLeadership }) {
         case 'status':
           return d * (a.status_state ?? '').localeCompare(b.status_state ?? '')
         case 'timer': {
-          const timerVal = m => {
-            if (m.status_state === 'Okay') return 0
-            if (m.status_until) return m.status_until
-            return 9_999_999_999
-          }
-          return d * (timerVal(a) - timerVal(b))
+          // Members with an active timer (Hospital/Jail with status_until) sort by
+          // timer in the chosen direction. Everyone else (Okay / Flying / Fallen
+          // / no-timer) drops to the bottom and is grouped by status → activity →
+          // name so the trailing rows are at least scannable.
+          const hasTimerA = !!a.status_until && a.status_state !== 'Okay'
+          const hasTimerB = !!b.status_until && b.status_state !== 'Okay'
+          if (hasTimerA && hasTimerB) return d * (a.status_until - b.status_until)
+          if (hasTimerA) return -1
+          if (hasTimerB) return 1
+          const statusCmp = (a.status_state ?? '').localeCompare(b.status_state ?? '')
+          if (statusCmp !== 0) return statusCmp
+          const activityOrder = { Online: 0, Idle: 1, Offline: 2 }
+          const actCmp = (activityOrder[a.last_action_status] ?? 3) - (activityOrder[b.last_action_status] ?? 3)
+          if (actCmp !== 0) return actCmp
+          return a.member_name.localeCompare(b.member_name)
         }
         case 'stats':
           return d * ((a.bsp_total ?? -1) - (b.bsp_total ?? -1))
@@ -830,25 +862,6 @@ export default function WarRoomView({ isLeadership }) {
       }
     })
   }, [members, statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir])
-
-  // ── Sortable header ───────────────────────────────────────────────────────
-
-  function SortTh({ col, children, className = '' }) {
-    const active = sortCol === col
-    return (
-      <th
-        onClick={() => handleSort(col)}
-        className={`py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700/60 transition-colors whitespace-nowrap ${className}`}
-      >
-        <span className="flex items-center gap-1">
-          {children}
-          <span className={`text-xs ${active ? 'text-blue-500 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`}>
-            {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-          </span>
-        </span>
-      </th>
-    )
-  }
 
   // ── Render helpers ─────────────────────────────────────────────────────────
 
@@ -1102,11 +1115,11 @@ export default function WarRoomView({ isLeadership }) {
               <table className="w-full text-sm border-separate border-spacing-0">
                 <thead>
                   <tr className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    <SortTh col="name"     className="px-4">Name</SortTh>
-                    <SortTh col="activity">Activity</SortTh>
-                    <SortTh col="status">Status</SortTh>
-                    <SortTh col="timer">Timer</SortTh>
-                    <SortTh col="stats"   className="text-right">Stats</SortTh>
+                    <SortTh col="name"     sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="px-4">Name</SortTh>
+                    <SortTh col="activity" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Activity</SortTh>
+                    <SortTh col="status"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
+                    <SortTh col="timer"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
+                    <SortTh col="stats"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
                     <th className="py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Flags</th>
                     <th className="py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
                     <th className="py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Action</th>
@@ -1184,8 +1197,9 @@ export default function WarRoomView({ isLeadership }) {
                               <span className={`text-xs font-medium ${isMyDib ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>
                                 {isMyDib ? 'You' : dib.claimed_name}
                               </span>
-                              {isMyDib && (
+                              {(isMyDib || isAdmin) && (
                                 <button onClick={() => handleReleaseDibs(m.member_id)}
+                                  title={isMyDib ? 'Release your dibs' : 'Admin override: release this claim'}
                                   className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 underline">
                                   Release
                                 </button>
@@ -1194,18 +1208,28 @@ export default function WarRoomView({ isLeadership }) {
                           ) : (
                             <button onClick={() => handleClaimDibs(m.member_id)}
                               className="text-xs px-2 py-0.5 rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                              Claim
+                              Dibs
                             </button>
                           )}
                         </td>
 
-                        {/* Attack */}
+                        {/* Attack — disabled if someone else has dibs to avoid duplicate hits */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
-                          <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
-                            target="_blank" rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors">
-                            ⚔ Attack
-                          </a>
+                          {dib && !isMyDib ? (
+                            <span
+                              title={`Claimed by ${dib.claimed_name} — don't attack`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-300 dark:bg-slate-700 text-gray-500 dark:text-gray-500 rounded text-xs font-medium cursor-not-allowed select-none"
+                              aria-disabled="true"
+                            >
+                              ⚔ Attack
+                            </span>
+                          ) : (
+                            <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors">
+                              ⚔ Attack
+                            </a>
+                          )}
                         </td>
                       </tr>
                     )

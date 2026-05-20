@@ -12,6 +12,9 @@ const corsHeaders = {
 }
 
 const LEADERSHIP_IDS = ['2250591', '2749598', '2264192', '2407528', '2932241', '2015160']
+// Subset of leadership with the power to release someone else's dibs.
+// Mirrors `adminsUserIds` in src/config.js — keep them in sync.
+const ADMIN_IDS = ['2250591']
 const OUR_FACTION_ID = '10739'
 
 // ── Torn API key rotation ─────────────────────────────────────────────────────
@@ -388,8 +391,9 @@ async function handleReleaseDibs(
     .delete()
     .eq('target_id', targetId)
 
-  // Non-leadership can only release their own
-  if (!LEADERSHIP_IDS.includes(String(userId))) {
+  // Only admins can release anyone's dibs. Everyone else (including non-admin
+  // leadership) can only release their own.
+  if (!ADMIN_IDS.includes(String(userId))) {
     query.eq('claimed_by', Number(userId))
   }
 

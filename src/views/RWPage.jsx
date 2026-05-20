@@ -44,7 +44,7 @@ export default function RWPage({ isLeadership, isAdmin }) {
       {activeTab === 'rw-history' && <WarHistoryView isLeadership={isLeadership} isAdmin={isAdmin} />}
       {activeTab === 'war-room' && (
         <ErrorBoundary name="War Room">
-          <WarRoomView isLeadership={isLeadership} />
+          <WarRoomView isLeadership={isLeadership} isAdmin={isAdmin} />
         </ErrorBoundary>
       )}
       {activeTab === 'payout-mgmt' && isLeadership && <WarPayoutManagement />}
