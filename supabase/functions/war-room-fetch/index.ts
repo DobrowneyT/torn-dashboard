@@ -402,6 +402,38 @@ async function handleReleaseDibs(
   return json({ ok: true })
 }
 
+// Server-side proxy for revive-service POST requests. Browser cross-origin
+// POSTs to services like tornuhc.eu would be blocked by CORS, so we forward
+// the call from the Edge Function (server-to-server, no CORS) and return the
+// response. The Tampermonkey script equivalent uses GM.xmlHttpRequest for the
+// same reason.
+async function handleReviveRequest(body: any) {
+  const url: string = body.url
+  if (!url || typeof url !== 'string') return json({ error: 'url required' }, 400)
+  if (!body.userID) return json({ error: 'userID required' }, 400)
+
+  const payload = {
+    userID:      body.userID,
+    userName:    body.userName    ?? '',
+    factionName: body.factionName ?? '',
+    source:      body.source      ?? 'UHC Script',
+  }
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const text = await resp.text()
+    let parsedBody: unknown
+    try { parsedBody = JSON.parse(text) } catch { parsedBody = { raw: text } }
+    return json({ ok: resp.ok, status: resp.status, body: parsedBody })
+  } catch (e) {
+    return json({ error: `Revive request failed: ${e}` }, 502)
+  }
+}
+
 async function handleGetDibs(
   supabase: ReturnType<typeof createClient>,
   body: any
@@ -442,7 +474,7 @@ serve(async (req: Request) => {
     // verification on these hot paths entirely.
     // Dibs are also unverified — they're already serialised by the DB unique
     // constraint, and the user_id is sent in the body. Trade-off documented.
-    const POLL_ACTIONS = new Set(['fetch_members', 'fetch_our_members', 'get_config', 'get_dibs', 'claim_dibs', 'release_dibs'])
+    const POLL_ACTIONS = new Set(['fetch_members', 'fetch_our_members', 'get_config', 'get_dibs', 'claim_dibs', 'release_dibs', 'revive_request'])
 
     let userId = 'anon'
     if (!POLL_ACTIONS.has(action)) {
@@ -474,6 +506,8 @@ serve(async (req: Request) => {
         return await handleReleaseDibs(supabase, body, String(body.user_id ?? ''))
       case 'get_dibs':
         return await handleGetDibs(supabase, body)
+      case 'revive_request':
+        return await handleReviveRequest(body)
       default:
         return json({ error: `Unknown action: ${action}` }, 400)
     }

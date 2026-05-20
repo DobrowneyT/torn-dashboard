@@ -10,7 +10,9 @@ import {
   clearWarRoomState,
   claimDibs,
   releaseDibs,
+  requestRevive,
 } from '../utils/warRoomApi'
+import { config as appConfig } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
 
@@ -183,7 +185,7 @@ function ActivityCounts({ members }) {
   )
 }
 
-function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl }) {
+function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, user, factionName }) {
   return (
     <div className="card py-3 px-4 flex items-center justify-between gap-4">
       <div className="flex items-center gap-4">
@@ -193,7 +195,12 @@ function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServic
         <ActivityCounts members={enemyMembers} />
       </div>
       <div className="flex items-center justify-center shrink-0">
-        <QuickLinksBar reviveServiceName={reviveServiceName} reviveServiceUrl={reviveServiceUrl} />
+        <QuickLinksBar
+          reviveServiceName={reviveServiceName}
+          reviveServiceUrl={reviveServiceUrl}
+          user={user}
+          factionName={factionName}
+        />
       </div>
       {ourMembers.length > 0 ? (
         <div className="flex items-center gap-4">
@@ -238,10 +245,82 @@ function QuickLinkButton({ href, title, disabled, children }) {
   )
 }
 
-function QuickLinksBar({ reviveServiceName, reviveServiceUrl }) {
-  const reviveLabel = reviveServiceUrl
-    ? `${reviveServiceName || 'Revives'}`
-    : 'Revives (configure URL in leadership settings)'
+/**
+ * Revives button — fires a POST to the configured service URL via the Edge
+ * Function proxy (CORS workaround). Disabled while in-flight + 2s cooldown.
+ * Mirrors the payload shape from the UHC Tampermonkey script.
+ */
+function ReviveQuickLinkButton({ serviceName, serviceUrl, user, factionName }) {
+  const [busy, setBusy] = useState(false)
+  const [cooldown, setCooldown] = useState(false)
+  const [feedback, setFeedback] = useState(null)
+  const base = 'inline-flex items-center justify-center w-9 h-9 rounded-lg border transition-colors'
+  const disabled = !serviceUrl || !user?.id || busy || cooldown
+
+  async function handleClick() {
+    if (disabled) return
+    setBusy(true); setFeedback(null)
+    try {
+      const result = await requestRevive(
+        {
+          url: serviceUrl,
+          userID: Number(user.id),
+          userName: user.name,
+          factionName,
+          source: 'UHC Script',
+        },
+        user.apiKey,
+      )
+      if (result.ok) {
+        setFeedback({ ok: true, text: 'Sent' })
+      } else {
+        const reason = result.body?.reason ?? `HTTP ${result.status}`
+        setFeedback({ ok: false, text: reason })
+      }
+    } catch (e) {
+      setFeedback({ ok: false, text: e.message })
+    } finally {
+      setBusy(false)
+      setCooldown(true)
+      setTimeout(() => setCooldown(false), 2000)
+      setTimeout(() => setFeedback(null), 5000)
+    }
+  }
+
+  const baseLabel = serviceName ? `${serviceName} Revives` : 'Revives'
+  const title = !serviceUrl
+    ? 'Revives (leadership: add a service in settings)'
+    : busy ? `${baseLabel} — sending…`
+    : feedback ? `${baseLabel} — ${feedback.text}`
+    : `${baseLabel} — click to request a revive`
+
+  const stateClasses = feedback?.ok
+    ? 'border-green-400 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
+    : feedback && !feedback.ok
+    ? 'border-red-400 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
+    : disabled
+    ? 'border-gray-200 dark:border-slate-700 text-gray-300 dark:text-slate-600 cursor-not-allowed'
+    : 'border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={disabled}
+      title={title}
+      aria-label={baseLabel}
+      className={`${base} ${stateClasses}`}
+    >
+      {busy ? (
+        <span className="block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+      ) : (
+        <RevivesIcon className="w-5 h-5" />
+      )}
+    </button>
+  )
+}
+
+function QuickLinksBar({ reviveServiceName, reviveServiceUrl, user, factionName }) {
   const iconCls = 'w-5 h-5'
   return (
     <div className="flex items-center gap-1.5">
@@ -254,9 +333,12 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl }) {
       <QuickLinkButton href="https://www.torn.com/item.php" title="Items Page">
         <ItemsIcon className={iconCls} />
       </QuickLinkButton>
-      <QuickLinkButton href={reviveServiceUrl} title={reviveLabel} disabled={!reviveServiceUrl}>
-        <RevivesIcon className={iconCls} />
-      </QuickLinkButton>
+      <ReviveQuickLinkButton
+        serviceName={reviveServiceName}
+        serviceUrl={reviveServiceUrl}
+        user={user}
+        factionName={factionName}
+      />
     </div>
   )
 }
@@ -446,7 +528,38 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
   const dibsRef        = useRef({})
   const userRef        = useRef(user)
   const dibsAbortRef   = useRef(null)   // cancels in-flight claim when user clicks another
+  const dibsRefreshTimerRef = useRef(null)  // debounce timer for invalidation-driven refetch
   const [dibsError, setDibsError] = useState(null)
+
+  // Reads the current dibs table and reconciles local state. Preserves my own
+  // in-flight optimistic claims so a refetch doesn't briefly wipe them while
+  // the server is still processing. Used by both the Realtime invalidation
+  // handler and the 10s safety-net interval.
+  const refreshDibs = useCallback(async () => {
+    if (!userRef.current?.apiKey) return
+    const { data, error } = await supabase
+      .from('war_room_dibs')
+      .select('id, target_id, claimed_by, claimed_name, claimed_at, war_id')
+    if (error || !data) return
+    const dbMap = {}
+    data.forEach(d => { dbMap[d.target_id] = d })
+    setDibs(prev => {
+      const next = { ...dbMap }
+      for (const [tid, d] of Object.entries(prev)) {
+        if (d._optimistic && !next[tid]) next[tid] = d
+      }
+      return next
+    })
+  }, [])
+
+  // Debounce so a flurry of events triggers one refetch.
+  const scheduleDibsRefresh = useCallback(() => {
+    if (dibsRefreshTimerRef.current) return
+    dibsRefreshTimerRef.current = setTimeout(() => {
+      dibsRefreshTimerRef.current = null
+      refreshDibs()
+    }, 150)
+  }, [refreshDibs])
 
   useEffect(() => { opponentFidRef.current = config?.faction_id }, [config?.faction_id])
 
@@ -575,37 +688,16 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       })
       .subscribe()
 
-    // Single subscription with event:'*' is more reliable than chained .on() calls
-    // for separate event types. Logs let us verify payloads when debugging — the
-    // `old` payload only has target_id if the table has REPLICA IDENTITY FULL.
+    // Dibs use an invalidation pattern: Realtime events are just "something
+    // changed, go check" signals — we then refetch the dibs table from the DB.
+    // This sidesteps Supabase's REPLICA IDENTITY FULL quirk (DELETE payloads
+    // only have the primary key by default, leaving us no target_id to remove).
+    // Debounced ~150ms so a burst of events causes one refetch, not N.
     const dibsSub = supabase.channel('war_room_dibs_ch')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'war_room_dibs' }, payload => {
         if (!mounted) return
-        console.debug('[dibs realtime]', payload.eventType, payload)
-        if (payload.eventType === 'INSERT') {
-          const row = payload.new
-          // Ignore my own INSERTs — optimistic state already added this row.
-          if (String(row.claimed_by) === String(userRef.current?.id)) return
-          setDibs(prev => ({ ...prev, [row.target_id]: row }))
-        } else if (payload.eventType === 'DELETE') {
-          const row = payload.old ?? {}
-          // Without REPLICA IDENTITY FULL the payload only has the primary key.
-          if (row.target_id === undefined) {
-            console.warn('[dibs realtime] DELETE missing target_id — REPLICA IDENTITY FULL not applied?', row)
-            return
-          }
-          setDibs(prev => {
-            const local = prev[row.target_id]
-            if (!local) return prev
-            if (local.id && row.id && local.id !== row.id) return prev
-            const next = { ...prev }; delete next[row.target_id]; return next
-          })
-        } else if (payload.eventType === 'UPDATE') {
-          // We don't UPDATE dibs anymore (release deletes), but handle gracefully
-          // in case some legacy row gets touched.
-          const row = payload.new
-          setDibs(prev => ({ ...prev, [row.target_id]: row }))
-        }
+        console.debug('[dibs realtime]', payload.eventType, payload.new ?? payload.old)
+        scheduleDibsRefresh()
       })
       .subscribe(status => {
         console.debug('[dibs realtime] subscription status:', status)
@@ -619,37 +711,14 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     }
   }, [user?.apiKey])
 
-  // ── Periodic dibs reconciliation ──────────────────────────────────────────
-  // Supabase Realtime can drop events under load or brief disconnects, which
-  // leaves stale dibs entries in local state (the user reported other people's
-  // claims looking like they never got released). Every 10s we re-read the
-  // dibs table from the DB and reconcile — anything in the DB stays, anything
-  // missing gets removed. Our own in-flight optimistic claims are preserved.
+  // Safety-net periodic refresh — covers any Realtime events that get dropped
+  // entirely (e.g., during disconnects). The fast path is the invalidation
+  // handler in the Realtime subscription above (~200ms after any change).
   useEffect(() => {
     if (!user?.apiKey) return
-    let cancelled = false
-
-    async function refreshDibs() {
-      const { data, error } = await supabase
-        .from('war_room_dibs')
-        .select('id, target_id, claimed_by, claimed_name, claimed_at, war_id')
-      if (cancelled || error || !data) return
-      const dbMap = {}
-      data.forEach(d => { dbMap[d.target_id] = d })
-      setDibs(prev => {
-        const next = { ...dbMap }
-        // Keep optimistic entries the server hasn't confirmed yet (their
-        // INSERT event or response will fill in the real row shortly).
-        for (const [tid, d] of Object.entries(prev)) {
-          if (d._optimistic && !next[tid]) next[tid] = d
-        }
-        return next
-      })
-    }
-
     const id = setInterval(refreshDibs, 10_000)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [user?.apiKey])
+    return () => clearInterval(id)
+  }, [user?.apiKey, refreshDibs])
 
   // ── BSP fire once when members first appear ───────────────────────────────
 
@@ -1143,6 +1212,8 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
           factionLabel={resolvedName ?? (config?.faction_id ? `Faction ${config.faction_id}` : null)}
           reviveServiceName={config?.revive_service_name}
           reviveServiceUrl={config?.revive_service_url}
+          user={user}
+          factionName={appConfig.faction.name}
         />
       )}
 

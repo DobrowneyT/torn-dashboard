@@ -87,3 +87,12 @@ export async function getDibs(warId, tornApiKey) {
 export async function fetchBspStats(memberIds, tornApiKey) {
   return callWarRoom('fetch_bsp', { member_ids: memberIds }, tornApiKey)
 }
+
+/**
+ * Send a revive request to the configured revive service via the Edge Function
+ * (server-side proxy to bypass CORS). Returns { ok, status, body } where body
+ * is the parsed JSON response from the service.
+ */
+export async function requestRevive({ url, userID, userName, factionName, source }, tornApiKey) {
+  return callWarRoom('revive_request', { url, userID, userName, factionName, source }, tornApiKey)
+}
