@@ -575,29 +575,41 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       })
       .subscribe()
 
+    // Single subscription with event:'*' is more reliable than chained .on() calls
+    // for separate event types. Logs let us verify payloads when debugging — the
+    // `old` payload only has target_id if the table has REPLICA IDENTITY FULL.
     const dibsSub = supabase.channel('war_room_dibs_ch')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'war_room_dibs' }, ({ new: row }) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'war_room_dibs' }, payload => {
         if (!mounted) return
-        // Ignore my own INSERTs entirely — my local state is already authoritative
-        // via optimistic update + server response. This prevents a stale INSERT
-        // event from re-adding a claim after I just released it, which caused
-        // the Release button to briefly flash to "Claim" and back.
-        if (String(row.claimed_by) === String(userRef.current?.id)) return
-        setDibs(prev => ({ ...prev, [row.target_id]: row }))
+        console.debug('[dibs realtime]', payload.eventType, payload)
+        if (payload.eventType === 'INSERT') {
+          const row = payload.new
+          // Ignore my own INSERTs — optimistic state already added this row.
+          if (String(row.claimed_by) === String(userRef.current?.id)) return
+          setDibs(prev => ({ ...prev, [row.target_id]: row }))
+        } else if (payload.eventType === 'DELETE') {
+          const row = payload.old ?? {}
+          // Without REPLICA IDENTITY FULL the payload only has the primary key.
+          if (row.target_id === undefined) {
+            console.warn('[dibs realtime] DELETE missing target_id — REPLICA IDENTITY FULL not applied?', row)
+            return
+          }
+          setDibs(prev => {
+            const local = prev[row.target_id]
+            if (!local) return prev
+            if (local.id && row.id && local.id !== row.id) return prev
+            const next = { ...prev }; delete next[row.target_id]; return next
+          })
+        } else if (payload.eventType === 'UPDATE') {
+          // We don't UPDATE dibs anymore (release deletes), but handle gracefully
+          // in case some legacy row gets touched.
+          const row = payload.new
+          setDibs(prev => ({ ...prev, [row.target_id]: row }))
+        }
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'war_room_dibs' }, ({ old: row }) => {
-        if (!mounted) return
-        // Releases hard-delete the row. Remove from local state, but only if a
-        // newer claim for the same target hasn't already taken its place (id check
-        // protects against a race where the delete event arrives after a re-claim).
-        setDibs(prev => {
-          const local = prev[row.target_id]
-          if (!local) return prev
-          if (local.id && row.id && local.id !== row.id) return prev
-          const next = { ...prev }; delete next[row.target_id]; return next
-        })
+      .subscribe(status => {
+        console.debug('[dibs realtime] subscription status:', status)
       })
-      .subscribe()
 
     return () => {
       mounted = false
@@ -605,6 +617,38 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       supabase.removeChannel(stateSub)
       supabase.removeChannel(dibsSub)
     }
+  }, [user?.apiKey])
+
+  // ── Periodic dibs reconciliation ──────────────────────────────────────────
+  // Supabase Realtime can drop events under load or brief disconnects, which
+  // leaves stale dibs entries in local state (the user reported other people's
+  // claims looking like they never got released). Every 10s we re-read the
+  // dibs table from the DB and reconcile — anything in the DB stays, anything
+  // missing gets removed. Our own in-flight optimistic claims are preserved.
+  useEffect(() => {
+    if (!user?.apiKey) return
+    let cancelled = false
+
+    async function refreshDibs() {
+      const { data, error } = await supabase
+        .from('war_room_dibs')
+        .select('id, target_id, claimed_by, claimed_name, claimed_at, war_id')
+      if (cancelled || error || !data) return
+      const dbMap = {}
+      data.forEach(d => { dbMap[d.target_id] = d })
+      setDibs(prev => {
+        const next = { ...dbMap }
+        // Keep optimistic entries the server hasn't confirmed yet (their
+        // INSERT event or response will fill in the real row shortly).
+        for (const [tid, d] of Object.entries(prev)) {
+          if (d._optimistic && !next[tid]) next[tid] = d
+        }
+        return next
+      })
+    }
+
+    const id = setInterval(refreshDibs, 10_000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [user?.apiKey])
 
   // ── BSP fire once when members first appear ───────────────────────────────
