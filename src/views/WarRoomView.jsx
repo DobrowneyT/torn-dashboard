@@ -328,7 +328,7 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSourc
   const iconCls = 'w-5 h-5'
   return (
     <div className="flex items-center gap-1.5">
-      <QuickLinkButton href="https://www.torn.com/factions.php?step=your&type=1" title="Faction War Page">
+      <QuickLinkButton href="https://www.torn.com/factions.php?step=your&type=1#/war/rank" title="Faction War Page">
         <FactionWarIcon className={iconCls} />
       </QuickLinkButton>
       <QuickLinkButton href="https://www.torn.com/factions.php?step=your#/tab=armoury&start=0&sub=medical" title="Faction Medical Items">
