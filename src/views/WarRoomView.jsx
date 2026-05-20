@@ -199,6 +199,7 @@ function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServic
           reviveServiceName={reviveServiceName}
           reviveServiceUrl={reviveServiceUrl}
           reviveServiceSource={reviveServiceSource}
+          reviveServiceSourceKey={reviveServiceSourceKey}
           user={user}
           factionName={factionName}
         />
@@ -251,7 +252,7 @@ function QuickLinkButton({ href, title, disabled, children }) {
  * Function proxy (CORS workaround). Disabled while in-flight + 2s cooldown.
  * Mirrors the payload shape from the UHC Tampermonkey script.
  */
-function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, user, factionName }) {
+function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, serviceSourceKey, user, factionName }) {
   const [busy, setBusy] = useState(false)
   const [cooldown, setCooldown] = useState(false)
   const [feedback, setFeedback] = useState(null)
@@ -270,6 +271,7 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, user, f
           factionName,
           // Per-service identifier — falls back to the service name, then a generic label
           source: serviceSource || serviceName || 'War Room',
+          sourceKey: serviceSourceKey || 'source',
         },
         user.apiKey,
       )
@@ -322,7 +324,7 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, user, f
   )
 }
 
-function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSource, user, factionName }) {
+function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, user, factionName }) {
   const iconCls = 'w-5 h-5'
   return (
     <div className="flex items-center gap-1.5">
@@ -339,6 +341,7 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSourc
         serviceName={reviveServiceName}
         serviceUrl={reviveServiceUrl}
         serviceSource={reviveServiceSource}
+        serviceSourceKey={reviveServiceSourceKey}
         user={user}
         factionName={factionName}
       />
