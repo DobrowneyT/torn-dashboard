@@ -12,21 +12,23 @@ import { useState } from 'react'
  */
 export default function ReviveServicesModal({ services, activeName, onSave, onClose }) {
   const [list, setList] = useState(Array.isArray(services) ? services : [])
-  const [newName, setNewName] = useState('')
-  const [newUrl, setNewUrl]   = useState('')
-  const [saving, setSaving]   = useState(false)
-  const [error, setError]     = useState(null)
+  const [newName, setNewName]   = useState('')
+  const [newUrl, setNewUrl]     = useState('')
+  const [newSource, setNewSource] = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [error, setError]       = useState(null)
 
   function addService() {
     const name = newName.trim()
     const url  = newUrl.trim()
-    if (!name || !url) { setError('Both name and URL are required.'); return }
+    const source = newSource.trim()
+    if (!name || !url) { setError('Name and URL are required.'); return }
     if (list.some(s => s.name.toLowerCase() === name.toLowerCase())) {
       setError('A service with that name already exists.')
       return
     }
-    setList([...list, { name, url }])
-    setNewName(''); setNewUrl(''); setError(null)
+    setList([...list, { name, url, source: source || name }])
+    setNewName(''); setNewUrl(''); setNewSource(''); setError(null)
   }
 
   function removeService(idx) {
@@ -69,20 +71,27 @@ export default function ReviveServicesModal({ services, activeName, onSave, onCl
           {list.map((s, idx) => {
             const isActive = activeName && s.name === activeName
             return (
-              <div key={idx} className="flex items-center gap-2 p-2 border border-gray-200 dark:border-slate-700 rounded-lg">
+              <div key={idx} className="flex flex-wrap items-center gap-2 p-2 border border-gray-200 dark:border-slate-700 rounded-lg">
                 <input
                   type="text"
                   value={s.name}
                   onChange={e => updateService(idx, 'name', e.target.value)}
                   placeholder="Name"
-                  className="w-32 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-28 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <input
                   type="url"
                   value={s.url}
                   onChange={e => updateService(idx, 'url', e.target.value)}
                   placeholder="https://…"
-                  className="flex-1 min-w-0 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex-1 min-w-[12rem] px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="text"
+                  value={s.source ?? ''}
+                  onChange={e => updateService(idx, 'source', e.target.value)}
+                  placeholder="source (e.g. UHC Script)"
+                  className="w-40 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 {isActive && (
                   <span className="text-xs text-blue-600 dark:text-blue-400 font-medium shrink-0" title="Currently selected">
@@ -116,8 +125,16 @@ export default function ReviveServicesModal({ services, activeName, onSave, onCl
               type="url"
               value={newUrl}
               onChange={e => setNewUrl(e.target.value)}
-              placeholder="https://discord.gg/… or service URL"
-              className="flex-1 min-w-[16rem] px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="https://… service endpoint URL"
+              className="flex-1 min-w-[12rem] px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="text"
+              value={newSource}
+              onChange={e => setNewSource(e.target.value)}
+              placeholder="source (e.g. UHC Script)"
+              title="Sent in the POST payload as `source`. Defaults to the service name if blank."
+              className="w-44 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
               onClick={addService}

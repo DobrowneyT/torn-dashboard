@@ -185,7 +185,7 @@ function ActivityCounts({ members }) {
   )
 }
 
-function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, user, factionName }) {
+function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, reviveServiceSource, user, factionName }) {
   return (
     <div className="card py-3 px-4 flex items-center justify-between gap-4">
       <div className="flex items-center gap-4">
@@ -198,6 +198,7 @@ function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServic
         <QuickLinksBar
           reviveServiceName={reviveServiceName}
           reviveServiceUrl={reviveServiceUrl}
+          reviveServiceSource={reviveServiceSource}
           user={user}
           factionName={factionName}
         />
@@ -250,7 +251,7 @@ function QuickLinkButton({ href, title, disabled, children }) {
  * Function proxy (CORS workaround). Disabled while in-flight + 2s cooldown.
  * Mirrors the payload shape from the UHC Tampermonkey script.
  */
-function ReviveQuickLinkButton({ serviceName, serviceUrl, user, factionName }) {
+function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, user, factionName }) {
   const [busy, setBusy] = useState(false)
   const [cooldown, setCooldown] = useState(false)
   const [feedback, setFeedback] = useState(null)
@@ -267,7 +268,8 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, user, factionName }) {
           userID: Number(user.id),
           userName: user.name,
           factionName,
-          source: 'UHC Script',
+          // Per-service identifier — falls back to the service name, then a generic label
+          source: serviceSource || serviceName || 'War Room',
         },
         user.apiKey,
       )
@@ -320,7 +322,7 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, user, factionName }) {
   )
 }
 
-function QuickLinksBar({ reviveServiceName, reviveServiceUrl, user, factionName }) {
+function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSource, user, factionName }) {
   const iconCls = 'w-5 h-5'
   return (
     <div className="flex items-center gap-1.5">
@@ -336,6 +338,7 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl, user, factionName 
       <ReviveQuickLinkButton
         serviceName={reviveServiceName}
         serviceUrl={reviveServiceUrl}
+        serviceSource={reviveServiceSource}
         user={user}
         factionName={factionName}
       />
@@ -529,21 +532,41 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
   const userRef        = useRef(user)
   const dibsAbortRef   = useRef(null)   // cancels in-flight claim when user clicks another
   const dibsRefreshTimerRef = useRef(null)  // debounce timer for invalidation-driven refetch
+  const ownActionAtRef = useRef(0)      // wall-clock time of the user's most recent claim/release click
   const [dibsError, setDibsError] = useState(null)
 
-  // Reads the current dibs table and reconciles local state. Preserves my own
-  // in-flight optimistic claims so a refetch doesn't briefly wipe them while
-  // the server is still processing. Used by both the Realtime invalidation
-  // handler and the 10s safety-net interval.
+  // Reads the current dibs table and reconciles local state.
+  // Two modes:
+  //  - Recent own action (< 2s ago): only reconcile OTHER users' dibs from the
+  //    DB; keep my own state as the optimistic handlers set it. This avoids the
+  //    race where an in-flight server commit makes the DB briefly disagree with
+  //    my just-clicked intent (causing two of "my" claims to appear at once).
+  //  - Settled (≥ 2s since my last click): full reconcile including my own,
+  //    so admin overrides and missed Realtime events still take effect.
   const refreshDibs = useCallback(async () => {
     if (!userRef.current?.apiKey) return
     const { data, error } = await supabase
       .from('war_room_dibs')
       .select('id, target_id, claimed_by, claimed_name, claimed_at, war_id')
     if (error || !data) return
-    const dbMap = {}
-    data.forEach(d => { dbMap[d.target_id] = d })
+    const myId = String(userRef.current?.id ?? '')
+    const recentOwnAction = Date.now() - ownActionAtRef.current < 2000
     setDibs(prev => {
+      if (recentOwnAction) {
+        const next = {}
+        // Other users' dibs from DB
+        for (const d of data) {
+          if (String(d.claimed_by) !== myId) next[d.target_id] = d
+        }
+        // Mine — keep whatever local state says (optimistic + handler responses)
+        for (const [tid, d] of Object.entries(prev)) {
+          if (String(d.claimed_by) === myId) next[tid] = d
+        }
+        return next
+      }
+      // Settled: full reconcile, preserving any still-optimistic entries.
+      const dbMap = {}
+      data.forEach(d => { dbMap[d.target_id] = d })
       const next = { ...dbMap }
       for (const [tid, d] of Object.entries(prev)) {
         if (d._optimistic && !next[tid]) next[tid] = d
@@ -865,6 +888,10 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
   async function handleClaimDibs(memberId) {
     if (!user?.id) return
     setDibsError(null)
+    // Mark a recent own action so the next ~2s of refreshes skip reconciling
+    // my own dibs (avoids the visible "two of my claims" race while the server
+    // is still committing the new claim).
+    ownActionAtRef.current = Date.now()
 
     // Cancel any prior in-flight claim from this user
     if (dibsAbortRef.current) dibsAbortRef.current.abort()
@@ -910,6 +937,7 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
   async function handleReleaseDibs(memberId) {
     if (!user?.id) return
     setDibsError(null)
+    ownActionAtRef.current = Date.now()
     const snapshot = dibs[memberId]
     // Optimistic remove
     setDibs(prev => { const next = { ...prev }; delete next[memberId]; return next })
@@ -1205,17 +1233,25 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       )}
 
       {/* Faction status bar — shown whenever enemy members are loaded (active or paused) */}
-      {hasMembers && (
-        <FactionStatusBar
-          enemyMembers={members}
-          ourMembers={ourMembers}
-          factionLabel={resolvedName ?? (config?.faction_id ? `Faction ${config.faction_id}` : null)}
-          reviveServiceName={config?.revive_service_name}
-          reviveServiceUrl={config?.revive_service_url}
-          user={user}
-          factionName={appConfig.faction.name}
-        />
-      )}
+      {hasMembers && (() => {
+        // The active service's "source" lives inside the revive_services jsonb list
+        // (alongside its name + url). Derive it at render so we don't need an extra
+        // DB column — name + jsonb list together are enough.
+        const activeService = (config?.revive_services ?? []).find(s => s.name === config?.revive_service_name)
+        const activeSource = activeService?.source ?? activeService?.name ?? null
+        return (
+          <FactionStatusBar
+            enemyMembers={members}
+            ourMembers={ourMembers}
+            factionLabel={resolvedName ?? (config?.faction_id ? `Faction ${config.faction_id}` : null)}
+            reviveServiceName={config?.revive_service_name}
+            reviveServiceUrl={config?.revive_service_url}
+            reviveServiceSource={activeSource}
+            user={user}
+            factionName={appConfig.faction.name}
+          />
+        )
+      })()}
 
       {/* Member table — shown whenever members exist, or when active (so "waiting…" shows) */}
       {(hasMembers || isActive) ? (
