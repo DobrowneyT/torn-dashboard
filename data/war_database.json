@@ -5529,6 +5529,23 @@
       "rank_before": "Diamond I",
       "rank_after": "Diamond II",
       "report_fetched": true
+    },
+    "42258": {
+      "id": 42258,
+      "start_at": 1779465600,
+      "end_at": null,
+      "opponent_id": 9100,
+      "opponent_name": "The Black Hand of Monarch",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17300,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -203456,6 +203473,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-05-19T04:59:47.030643"
+    "last_updated": "2026-05-20T05:04:01.445244"
   }
 }
