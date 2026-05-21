@@ -122,6 +122,35 @@ function json(data: unknown, status = 200) {
 
 // ── Action handlers ───────────────────────────────────────────────────────────
 
+// Build the volatile `state` jsonb for a member from a Torn API member payload.
+function buildMemberState(m: any) {
+  return {
+    status: {
+      state:       m.status?.state       ?? null,
+      description: m.status?.description ?? null,
+      until:       m.status?.until       ?? null,
+    },
+    last_action: {
+      status:    m.last_action?.status    ?? null,
+      timestamp: m.last_action?.timestamp ?? null,
+    },
+    is_revivable:        m.is_revivable        ?? false,
+    has_early_discharge: m.has_early_discharge ?? false,
+    is_in_oc:            m.is_in_oc            ?? false,
+    is_on_wall:          m.is_on_wall          ?? false,
+    revive_setting:      m.revive_setting      ?? null,
+    updated_at:          new Date().toISOString(),
+  }
+}
+
+// Deep-equal two member state objects ignoring updated_at (which always differs).
+function stateEqual(a: any, b: any): boolean {
+  if (!a || !b) return false
+  const { updated_at: _a, ...ar } = a
+  const { updated_at: _b, ...br } = b
+  return JSON.stringify(ar) === JSON.stringify(br)
+}
+
 async function handleFetchMembers(supabase: ReturnType<typeof createClient>, factionId: number) {
   const tornKey = nextTornKey()
   if (!tornKey) return json({ error: 'TORN_API_KEYS secret not set' }, 500)
@@ -136,42 +165,34 @@ async function handleFetchMembers(supabase: ReturnType<typeof createClient>, fac
   const members = data.members as Record<string, unknown>[]
   const now = Math.floor(Date.now() / 1000)
 
-  const rows = members.map((m: any) => ({
-    member_id: m.id,
-    member_name: m.name,
-    faction_id: factionId,
-    level: m.level,
-    last_action_status: m.last_action?.status ?? null,
-    last_action_timestamp: m.last_action?.timestamp ?? null,
-    status_description: m.status?.description ?? null,
-    status_state: m.status?.state ?? null,
-    status_until: m.status?.until ?? null,
-    is_revivable: m.is_revivable ?? false,
-    has_early_discharge: m.has_early_discharge ?? false,
-    is_in_oc: m.is_in_oc ?? false,
-    is_on_wall: m.is_on_wall ?? false,
-    revive_setting: m.revive_setting ?? null,
-    updated_at: new Date().toISOString(),
-  }))
-
-  const { error } = await supabase
+  // Load current state for this faction so we can skip rows whose volatile
+  // state hasn't actually changed. Every skipped row is a Realtime UPDATE event
+  // we don't emit — the whole point of this fix.
+  const { data: current } = await supabase
     .from('war_room_state')
-    .upsert(rows, { onConflict: 'member_id' })
+    .select('member_id, state')
+    .eq('faction_id', factionId)
+  const currentMap = new Map<number, any>((current ?? []).map((r: any) => [r.member_id, r.state]))
 
-  if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
+  const changed = members
+    .map((m: any) => ({
+      member_id:   m.id,
+      member_name: m.name,
+      faction_id:  factionId,
+      level:       m.level,
+      position:    m.position ?? null,
+      state:       buildMemberState(m),
+    }))
+    .filter(row => !stateEqual(currentMap.get(row.member_id), row.state))
 
-  // Delete stale rows — members who left the faction since the last fetch.
-  // Without this, counts grow forever because we only upsert, never delete.
-  const currentIds = members.map((m: any) => m.id)
-  if (currentIds.length > 0) {
-    await supabase
+  if (changed.length > 0) {
+    const { error } = await supabase
       .from('war_room_state')
-      .delete()
-      .eq('faction_id', factionId)
-      .not('member_id', 'in', `(${currentIds.join(',')})`)
+      .upsert(changed, { onConflict: 'member_id' })
+    if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
   }
 
-  return json({ ok: true, count: rows.length, fetched_at: now })
+  return json({ ok: true, count: changed.length, total: members.length, fetched_at: now })
 }
 
 async function handleFetchOurMembers(supabase: ReturnType<typeof createClient>) {
@@ -188,41 +209,33 @@ async function handleFetchOurMembers(supabase: ReturnType<typeof createClient>) 
   const members = data.members as Record<string, unknown>[]
   const ourFactionId = Number(OUR_FACTION_ID)
 
-  const rows = members.map((m: any) => ({
-    member_id: m.id,
-    member_name: m.name,
-    faction_id: ourFactionId,
-    level: m.level,
-    last_action_status: m.last_action?.status ?? null,
-    last_action_timestamp: m.last_action?.timestamp ?? null,
-    status_description: m.status?.description ?? null,
-    status_state: m.status?.state ?? null,
-    status_until: m.status?.until ?? null,
-    is_revivable: m.is_revivable ?? false,
-    has_early_discharge: m.has_early_discharge ?? false,
-    is_in_oc: m.is_in_oc ?? false,
-    is_on_wall: m.is_on_wall ?? false,
-    revive_setting: m.revive_setting ?? null,
-    updated_at: new Date().toISOString(),
-  }))
-
-  const { error } = await supabase
+  // Same diff-based upsert as the enemy fetch — only push rows whose volatile
+  // state changed since the last poll.
+  const { data: current } = await supabase
     .from('war_room_state')
-    .upsert(rows, { onConflict: 'member_id' })
+    .select('member_id, state')
+    .eq('faction_id', ourFactionId)
+  const currentMap = new Map<number, any>((current ?? []).map((r: any) => [r.member_id, r.state]))
 
-  if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
+  const changed = members
+    .map((m: any) => ({
+      member_id:   m.id,
+      member_name: m.name,
+      faction_id:  ourFactionId,
+      level:       m.level,
+      position:    m.position ?? null,
+      state:       buildMemberState(m),
+    }))
+    .filter(row => !stateEqual(currentMap.get(row.member_id), row.state))
 
-  // Delete stale rows for our faction (members who left)
-  const currentIds = members.map((m: any) => m.id)
-  if (currentIds.length > 0) {
-    await supabase
+  if (changed.length > 0) {
+    const { error } = await supabase
       .from('war_room_state')
-      .delete()
-      .eq('faction_id', ourFactionId)
-      .not('member_id', 'in', `(${currentIds.join(',')})`)
+      .upsert(changed, { onConflict: 'member_id' })
+    if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
   }
 
-  return json({ ok: true, count: rows.length })
+  return json({ ok: true, count: changed.length, total: members.length })
 }
 
 async function handleGetConfig(supabase: ReturnType<typeof createClient>) {

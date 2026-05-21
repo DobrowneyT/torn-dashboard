@@ -22,6 +22,28 @@ const ACTIVITY_FILTERS = ['Online', 'Idle', 'Offline']
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// The Edge Function now stores all volatile fields inside a single `state` jsonb
+// column (Phase 0 egress fix). The rest of this file was written against the
+// legacy flat columns, so we flatten once at ingest and let everything else use
+// the familiar shape (m.status_state, m.last_action_timestamp, etc.).
+function flattenMemberRow(row) {
+  if (!row) return row
+  const s = row.state ?? {}
+  return {
+    ...row,
+    last_action_status:    s.last_action?.status    ?? row.last_action_status    ?? null,
+    last_action_timestamp: s.last_action?.timestamp ?? row.last_action_timestamp ?? null,
+    status_state:          s.status?.state          ?? row.status_state          ?? null,
+    status_description:    s.status?.description    ?? row.status_description    ?? null,
+    status_until:          s.status?.until          ?? row.status_until          ?? null,
+    is_revivable:          s.is_revivable          ?? row.is_revivable          ?? false,
+    has_early_discharge:   s.has_early_discharge   ?? row.has_early_discharge   ?? false,
+    is_in_oc:              s.is_in_oc              ?? row.is_in_oc              ?? false,
+    is_on_wall:            s.is_on_wall            ?? row.is_on_wall            ?? false,
+    revive_setting:        s.revive_setting        ?? row.revive_setting        ?? null,
+  }
+}
+
 function formatStats(n) {
   if (n === null || n === undefined) return '???'
   if (n >= 1_000_000_000_000) return (n / 1_000_000_000_000).toFixed(2) + 'T'
@@ -467,10 +489,12 @@ function ConfigPanel({ config, onSaveAndFetch, onSaveReviveService, onSaveRevive
             <select
               value={activeReviveName}
               onChange={handlePickReviveService}
-              disabled={services.length === 0}
-              className="w-48 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              className="w-48 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">{services.length === 0 ? '(no services — click ⚙ to add)' : '(none)'}</option>
+              {/* Permanent "None" option — selecting it clears the active service
+                  and disables the Revives quick-link button. Not part of the
+                  editable list in the gear-icon modal. */}
+              <option value="">None</option>
               {services.map(s => (
                 <option key={s.name} value={s.name}>{s.name}</option>
               ))}
@@ -648,8 +672,9 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     async function loadAllMembers() {
       const { data } = await supabase.from('war_room_state').select('*')
       if (!mounted || !data) return
-      setOurMembers(data.filter(m => m.faction_id === OUR_FACTION_ID))
-      setMembers(data.filter(m => m.faction_id !== OUR_FACTION_ID))
+      const rows = data.map(flattenMemberRow)
+      setOurMembers(rows.filter(m => m.faction_id === OUR_FACTION_ID))
+      setMembers(rows.filter(m => m.faction_id !== OUR_FACTION_ID))
     }
 
     async function loadDibs() {
@@ -672,8 +697,9 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       }).subscribe()
 
     const stateSub = supabase.channel('war_room_state_ch')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'war_room_state' }, ({ new: row }) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'war_room_state' }, ({ new: rawRow }) => {
         if (!mounted) return
+        const row = flattenMemberRow(rawRow)
         if (row.faction_id === OUR_FACTION_ID) {
           setOurMembers(prev => {
             const idx = prev.findIndex(m => m.member_id === row.member_id)
@@ -686,8 +712,9 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
           })
         }
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'war_room_state' }, ({ new: row }) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'war_room_state' }, ({ new: rawRow }) => {
         if (!mounted) return
+        const row = flattenMemberRow(rawRow)
         // Auto-release dibs when a target leaves Okay state (dibs was "used")
         if (row.faction_id !== OUR_FACTION_ID && row.status_state !== 'Okay') {
           const prev = membersRef.current.find(m => m.member_id === row.member_id)
