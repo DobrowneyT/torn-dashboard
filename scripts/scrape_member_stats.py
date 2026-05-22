@@ -1,32 +1,36 @@
 #!/usr/bin/env python3
 """
-Member Daily Stats Scraper
+Member Daily Stats Scraper (Phase 2 refactor)
 
-Collects two kinds of data and writes them to the member_daily_stats table:
+Collects three kinds of data and writes them to the member_daily_stats table:
 
-1. Personal stats — per-member via V2 API with specific stat selections.
-   - Current day: /v2/user/{id}/personalstats?stat=...  (no timestamp = now)
+1. Personal stats — per-member via V2 API with `cat=all` (one call per member
+   replacing the previous 3-call chunked approach for ~25 named stats).
+   - Current day: /v2/user/{id}/personalstats?cat=all  (no timestamp = now)
    - Backfill (missing days in last 30): same endpoint with &timestamp={ts}
-   - Stats loaded from config/personalstats.json, chunked into groups of 10 at runtime.
-   - Response is an array [{name, value, timestamp}] converted to flat dict.
+   - Stored as-is in the `personalstats` jsonb column.
 
-2. Gym contributions — faction-level, 4 API calls total.
-   - /v2/faction/contributors?stat={stat}&cat=current  for gymstrength/gymspeed/gymdexterity/gymdefense
-   - These have NO historical lookback, so they accumulate day by day.
+2. Profile — per-member via /v2/user/{id}/profile?striptags=true (today only,
+   no historical equivalent). Yields the compliance fields we need:
+     - donator_status ("Subscriber" / "Donator" / null)
+     - property.name  (e.g. "Private Island" — use .name, not .id)
+   Stored full in the `profile` jsonb column; denormalised to `is_donator`
+   and `property_name` for easy filtering. `last_action.timestamp` is also
+   copied to `last_action_timestamp` for the same reason.
 
-Flow:
-  1. Fetch all current members from Supabase (is_current = true)
-  2. Check which dates each member already has in member_daily_stats
-  3. For each member, identify missing days in the last 30 days
-  4. Backfill missing days via V2 API with timestamp parameter
-  5. Fetch today's V2 snapshot for ALL current members
-  6. Fetch gym contributions (4 faction calls) → merge into today's rows
-  7. Upsert everything to Supabase
+3. Gym contributions — faction-level, 5 API calls total.
+   - /v2/faction/contributors?stat={stat}&cat=current  for
+     gymstrength / gymspeed / gymdexterity / gymdefense / gymenergy
+   - No historical lookback, so they accumulate day by day.
+
+API calls per scraper run:
+  - 1 personalstats + 1 profile per member = 2 × N_members for today
+  - 1 personalstats per (member × missing_day) for backfill
+  - 5 faction calls for gym
 """
 
 import os
 import sys
-import json
 import logging
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Set
@@ -34,7 +38,7 @@ from typing import Dict, List, Set
 # Add parent directory to path so we can import from utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils.torn_api import TornAPI, TornAPIError, create_torn_api
+from utils.torn_api import TornAPI, TornAPIError, create_torn_api  # noqa: F401
 from supabase import create_client, Client
 
 logging.basicConfig(
@@ -48,36 +52,13 @@ BACKFILL_DAYS = 30
 # Timestamp offset: 01:00 UTC (3600s) — matches the daily cron schedule
 SNAPSHOT_OFFSET_SECONDS = 3600
 
-# Max stats per V2 API call
-V2_MAX_STATS_PER_CALL = 10
-
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
-def load_stat_names() -> list:
-    """Load the flat list of stat names from config/personalstats.json."""
-    config_path = os.path.join(SCRIPT_DIR, 'config', 'personalstats.json')
-    with open(config_path) as f:
-        config = json.load(f)
-    stats = []
-    for key, value in config.items():
-        if isinstance(value, list):
-            stats.extend(value)
-    return stats
-
-
-def chunk_stats(stats: list, size: int = V2_MAX_STATS_PER_CALL) -> list:
-    """Split a flat stat list into comma-separated groups of `size`."""
-    return [','.join(stats[i:i + size]) for i in range(0, len(stats), size)]
-
-
 GYM_STATS = ['gymstrength', 'gymspeed', 'gymdexterity', 'gymdefense', 'gymenergy']
 GYM_COLUMN_MAP = {
-    'gymstrength': 'gym_strength',
-    'gymspeed': 'gym_speed',
+    'gymstrength':  'gym_strength',
+    'gymspeed':     'gym_speed',
     'gymdexterity': 'gym_dexterity',
-    'gymdefense': 'gym_defense',
-    'gymenergy': 'gym_energy',
+    'gymdefense':   'gym_defense',
+    'gymenergy':    'gym_energy',
 }
 
 
@@ -94,32 +75,28 @@ class MemberStatsScraper:
 
     # ─── Data fetchers ────────────────────────────────────────────────────────
 
-    def fetch_personalstats_v2(self, member_id: str, stat_groups: list, timestamp: int = None) -> dict | None:
+    def fetch_personalstats_all(self, member_id: str, timestamp: int = None) -> dict | None:
         """
-        Fetch personalstats via V2 API with specific stat selections.
-
-        Makes one call per stat group, merges the array responses
-        into a flat {name: value} dict.
-
-        Args:
-            member_id: Torn member ID
-            stat_groups: List of comma-separated stat group strings
-            timestamp: Optional Unix timestamp for historical lookback
+        Fetch the full personalstats response via `cat=all`. Returns the nested
+        dict under the `personalstats` key (the new shape going forward), or
+        None on error.
         """
-        merged = {}
-        for group in stat_groups:
-            url = f"{self.api.BASE_URL}/user/{member_id}/personalstats"
-            params = {'stat': group, 'key': self.api.api_key}
-            if timestamp:
-                params['timestamp'] = str(timestamp)
-            try:
-                data = self.api._make_request(url, params)
-                if data and 'personalstats' in data:
-                    for entry in data['personalstats']:
-                        merged[entry['name']] = entry['value']
-            except TornAPIError as e:
-                logger.warning(f"V2 stats failed for {member_id} group [{group[:30]}…]: {e}")
-        return merged if merged else None
+        try:
+            data = self.api.get_personalstats_all(int(member_id), timestamp=timestamp)
+            return data.get('personalstats') if data else None
+        except TornAPIError as e:
+            ts_note = f" @ ts={timestamp}" if timestamp else ""
+            logger.warning(f"personalstats?cat=all failed for {member_id}{ts_note}: {e}")
+            return None
+
+    def fetch_profile(self, member_id: str) -> dict | None:
+        """Fetch /user/{id}/profile. Returns the nested `profile` dict or None."""
+        try:
+            data = self.api.get_user_profile(int(member_id))
+            return data.get('profile') if data else None
+        except TornAPIError as e:
+            logger.warning(f"profile failed for {member_id}: {e}")
+            return None
 
     def fetch_gym_contributors(self, stat: str) -> list | None:
         """Fetch faction gym contributors for a single stat."""
@@ -148,54 +125,70 @@ class MemberStatsScraper:
         return resp.data or []
 
     def get_member_snapshot_dates(self, member_id: str) -> Set[str]:
-        """
-        Returns set of snapshot_date strings for a single member.
-        """
+        """Returns set of snapshot_date strings for a single member."""
         resp = self.supabase.table('member_daily_stats') \
             .select('snapshot_date') \
             .eq('member_id', member_id) \
             .execute()
         return {row['snapshot_date'] for row in (resp.data or [])}
 
+    def build_record(self, member_id: str, snapshot_date: str, personalstats: dict,
+                     profile: dict = None, gym: dict = None) -> dict:
+        """
+        Assemble a member_daily_stats row. `profile` is only included for the
+        today snapshot (we don't have historical profiles). Denormalises the
+        compliance fields into explicit columns so the Member Overview can
+        filter without jsonb-path lookups.
+        """
+        record: Dict = {
+            'member_id':     member_id,
+            'snapshot_date': snapshot_date,
+            'personalstats': personalstats,
+            'api_version':   'v2-all',
+        }
+        if profile:
+            record['profile'] = profile
+            # Compliance denormalisations
+            record['is_donator']     = profile.get('donator_status') is not None
+            prop = profile.get('property') or {}
+            record['property_name']  = prop.get('name')
+            la = profile.get('last_action') or {}
+            record['last_action_timestamp'] = la.get('timestamp')
+        if gym:
+            record.update(gym)
+        return record
+
     def run(self):
         today = date.today()
         today_str = today.isoformat()
 
-        # Load stats config and build runtime chunks
-        all_stats = load_stat_names()
-        stat_groups = chunk_stats(all_stats)
-
         logger.info("=" * 60)
-        logger.info("Member Daily Stats Scraper")
+        logger.info("Member Daily Stats Scraper (cat=all + profile)")
         logger.info(f"Today: {today_str}")
-        logger.info(f"Tracking {len(all_stats)} stats  |  {len(stat_groups)} API calls per member")
         logger.info("=" * 60)
 
-        # 1. Get current members
+        # 1. Current members
         members = self.get_current_members()
         logger.info(f"Found {len(members)} current faction members")
-
         if not members:
             logger.warning("No current members found — exiting")
             return
 
-        # 2. Build the full set of dates we want covered (last 30 days, excluding today)
+        # 2. Target dates for backfill (last 30 days, excluding today)
         target_dates = set()
         for i in range(1, BACKFILL_DAYS + 1):
             target_dates.add((today - timedelta(days=i)).isoformat())
 
-        records_to_upsert = []
+        records_to_upsert: List[dict] = []
         total_backfill_calls = 0
 
-        # 3. Backfill missing days for each member
+        # 3. Backfill missing days (personalstats only — no historical profile)
         logger.info(f"\n--- Backfill: checking {BACKFILL_DAYS} days for {len(members)} members ---")
         for mi, m in enumerate(members, 1):
             mid = str(m['member_id'])
             name = m.get('member_name', mid)
             member_existing = self.get_member_snapshot_dates(mid)
-
             missing_dates = sorted(target_dates - member_existing)
-
             if not missing_dates:
                 continue
 
@@ -204,43 +197,34 @@ class MemberStatsScraper:
             for d_str in missing_dates:
                 d = date.fromisoformat(d_str)
                 ts = int(datetime.combine(d, datetime.min.time()).timestamp()) + SNAPSHOT_OFFSET_SECONDS
-                stats = self.fetch_personalstats_v2(mid, stat_groups, timestamp=ts)
+                stats = self.fetch_personalstats_all(mid, timestamp=ts)
                 total_backfill_calls += 1
 
                 if stats:
-                    records_to_upsert.append({
-                        'member_id': mid,
-                        'snapshot_date': d_str,
-                        'personalstats': stats,
-                        'api_version': 'v2',
-                    })
+                    records_to_upsert.append(self.build_record(mid, d_str, stats))
                 else:
-                    logger.warning(f"    No V2 data for {name} on {d_str}")
+                    logger.warning(f"    No personalstats for {name} on {d_str}")
 
-        logger.info(f"Backfill complete: {total_backfill_calls} member-days, {len(records_to_upsert)} records")
+        logger.info(f"Backfill complete: {total_backfill_calls} member-days, "
+                    f"{len(records_to_upsert)} records so far")
 
-        # 5. Current stats: V2 call for ALL members (today's snapshot, no timestamp)
-        logger.info(f"\n--- Current stats: fetching V2 personalstats for {len(members)} members ---")
+        # 4. Today: personalstats + profile per member
+        logger.info(f"\n--- Today: personalstats + profile for {len(members)} members ---")
         for i, m in enumerate(members, 1):
             mid = str(m['member_id'])
             name = m.get('member_name', mid)
-            logger.info(f"  Current {i}/{len(members)}: {name} ({mid})")
+            logger.info(f"  Today {i}/{len(members)}: {name} ({mid})")
 
-            stats = self.fetch_personalstats_v2(mid, stat_groups)
+            stats = self.fetch_personalstats_all(mid)
+            profile = self.fetch_profile(mid)
             if stats:
-                records_to_upsert.append({
-                    'member_id': mid,
-                    'snapshot_date': today_str,
-                    'personalstats': stats,
-                    'api_version': 'v2',
-                })
+                records_to_upsert.append(self.build_record(mid, today_str, stats, profile=profile))
             else:
-                logger.warning(f"  No V2 data for {name} ({mid})")
+                logger.warning(f"  No personalstats for {name} ({mid})")
 
-        # 6. Gym contributions: 5 faction calls
+        # 5. Gym contributions (5 faction calls)
         logger.info(f"\n--- Gym contributions: {len(GYM_STATS)} faction calls ---")
-        gym_data: Dict[str, Dict[str, int]] = {}  # {member_id: {column: value}}
-
+        gym_data: Dict[str, Dict[str, int]] = {}
         for stat in GYM_STATS:
             col = GYM_COLUMN_MAP[stat]
             logger.info(f"  Fetching {stat}...")
@@ -248,32 +232,27 @@ class MemberStatsScraper:
             if not contributors:
                 logger.warning(f"  Failed to fetch {stat}")
                 continue
-
             for entry in contributors:
                 mid = str(entry['id'])
-                if mid not in gym_data:
-                    gym_data[mid] = {}
-                gym_data[mid][col] = entry.get('value', 0)
-
+                gym_data.setdefault(mid, {})[col] = entry.get('value', 0)
             logger.info(f"  {stat}: {len(contributors)} members")
 
-        # Merge gym data into today's records
+        # Merge today's gym data into today's records
         today_member_ids = {r['member_id'] for r in records_to_upsert if r['snapshot_date'] == today_str}
         for record in records_to_upsert:
             if record['snapshot_date'] == today_str and record['member_id'] in gym_data:
                 record.update(gym_data[record['member_id']])
 
-        # For members who had gym data but no personalstats (shouldn't happen, but just in case)
+        # Add gym-only rows for members who somehow lack personalstats today
         for mid, gym_values in gym_data.items():
             if mid not in today_member_ids:
-                record = {
-                    'member_id': mid,
+                records_to_upsert.append({
+                    'member_id':     mid,
                     'snapshot_date': today_str,
                     **gym_values,
-                }
-                records_to_upsert.append(record)
+                })
 
-        # 7. Upsert to Supabase
+        # 6. Upsert to Supabase
         logger.info(f"\n--- Upserting {len(records_to_upsert)} records to member_daily_stats ---")
         if records_to_upsert:
             CHUNK_SIZE = 100
@@ -289,7 +268,6 @@ class MemberStatsScraper:
                     logger.info(f"  Upserted chunk {i // CHUNK_SIZE + 1}: {len(chunk)} records")
                 except Exception as e:
                     logger.error(f"  Upsert failed for chunk {i // CHUNK_SIZE + 1}: {e}")
-
             logger.info(f"Total upserted: {total_upserted}")
         else:
             logger.info("Nothing to upsert")
@@ -297,16 +275,17 @@ class MemberStatsScraper:
         # Summary
         backfill_count = sum(1 for r in records_to_upsert if r['snapshot_date'] != today_str)
         today_count = sum(1 for r in records_to_upsert if r['snapshot_date'] == today_str)
-        gym_count = len(gym_data)
+        total_calls = total_backfill_calls + 2 * len(members) + len(GYM_STATS)
 
         logger.info("\n" + "=" * 60)
         logger.info("SUMMARY")
         logger.info("=" * 60)
         logger.info(f"Members processed:   {len(members)}")
-        logger.info(f"Backfill rows:       {backfill_count} ({total_backfill_calls} API calls)")
+        logger.info(f"Backfill rows:       {backfill_count} ({total_backfill_calls} personalstats calls)")
         logger.info(f"Today rows:          {today_count}")
-        logger.info(f"Gym data for:        {gym_count} members")
-        logger.info(f"Total API calls:     ~{total_backfill_calls * len(stat_groups) + len(members) * len(stat_groups) + 4}")
+        logger.info(f"Gym data for:        {len(gym_data)} members")
+        logger.info(f"Total API calls:     {total_calls}  "
+                    f"(was ~3 × N + backfill × 3 + 5 in old version)")
         logger.info("=" * 60)
 
 

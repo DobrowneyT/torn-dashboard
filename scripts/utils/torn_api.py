@@ -397,6 +397,59 @@ class TornAPI:
 
         return self._make_request(url, params)
 
+    def get_personalstats_all(
+        self,
+        member_id: int,
+        timestamp: Optional[int] = None,
+        comment: str = "Forge_OC2_PersonalStats_All"
+    ) -> Dict:
+        """
+        Get the full personalstats response for a user via the `cat=all` filter.
+
+        Replaces the previous chunked approach (3 calls per member for 25 named
+        stats) with a single call that returns the entire nested structure.
+        Pinning a `timestamp` returns a historical snapshot (for backfill).
+
+        Returns:
+            Dict containing the `personalstats` key with nested categories
+            (attacking, jobs, jail, hospital, crimes, items, drugs, missions,
+            other, networth, …).
+        """
+        url = f"{self.BASE_URL}/user/{member_id}/personalstats"
+        params = {
+            "key": self.api_key,
+            "cat": "all",
+            "comment": comment,
+        }
+        if timestamp is not None:
+            params["timestamp"] = str(timestamp)
+        return self._make_request(url, params)
+
+    def get_user_profile(
+        self,
+        member_id: int,
+        comment: str = "Forge_OC2_User_Profile"
+    ) -> Dict:
+        """
+        Get a user's profile via `/v2/user/{id}/profile?striptags=true`.
+
+        Provides the fields we need for faction-compliance checks that are
+        NOT in personalstats — notably:
+          - `donator_status`: "Subscriber" / "Donator" / null
+          - `property.name`: e.g. "Private Island" (use `.name`, not `.id`)
+          - `last_action`, `status`, `life`, `role`, `rank`, `title`, etc.
+
+        Returns:
+            Dict containing the `profile` key with all user fields.
+        """
+        url = f"{self.BASE_URL}/user/{member_id}/profile"
+        params = {
+            "key": self.api_key,
+            "striptags": "true",
+            "comment": comment,
+        }
+        return self._make_request(url, params)
+
     # ==================== ITEM DATA METHODS ====================
 
     def get_item_data(self, item_ids: List[int]) -> Dict:

@@ -6,6 +6,7 @@ import { calculateTierProgress, getTierInfo } from '../utils/tierProgressUtils'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { submitCprKey } from '../utils/adminApi'
+import { STAT_PATHS, getByPath } from '../utils/statPaths'
 
 const OUR_FACTION_ID = 10739
 
@@ -503,41 +504,9 @@ function TierProgressCard({ tierProgress }) {
 }
 
 // ─── Stat extraction helpers ──────────────────────────────────────
-// All personalstats are now stored as flat dicts: { attackswon: 123, ... }
-// (V2 array responses are converted to flat {name: value} before storage)
-
-function getStat(stats, key) {
-  if (!stats) return null
-  if (stats[key] !== undefined) return Number(stats[key])
-  return null
-}
-
-const STAT_DEFS = [
-  { label: 'Xanax Taken', key: 'xantaken' },
-  { label: 'Energy Refills', key: 'refills' },
-  { label: 'Nerve Refills', key: 'nerverefills' },
-  { label: 'Energy Drinks', key: 'energydrinkused' },
-  { label: 'Boosters Used', key: 'boostersused' },
-  { label: 'SEs Used', key: 'statenhancersused' },
-  { label: 'Alcohol Used', key: 'alcoholused' },
-  { label: 'Consumables', key: 'consumablesused' },
-  { label: 'Candy Used', key: 'candyused' },
-  { label: 'Attacks Won', key: 'attackswon' },
-  { label: 'Defends Won', key: 'defendswon' },
-  { label: 'Retals', key: 'retals' },
-  { label: 'Respect', key: 'respectforfaction' },
-  { label: 'Ranked War Hits', key: 'rankedwarhits' },
-  { label: 'Trains Received', key: 'trainsreceived' },
-  { label: 'Busts', key: 'peoplebusted' },
-  { label: 'Blood Withdrawn', key: 'bloodwithdrawn' },
-  { label: 'Criminal Offenses', key: 'criminaloffenses' },
-  { label: 'Drugs Used', key: 'drugsused' },
-  { label: 'Overdoses', key: 'overdosed' },
-  { label: 'Rehabs', key: 'rehabs' },
-  { label: 'Mission Credits', key: 'missioncreditsearned' },
-  { label: 'Activity (hrs)', key: 'timeplayed', isSeconds: true },
-  { label: 'Net Worth', key: 'networth', isCurrency: true },
-]
+// As of Phase 2/3, personalstats is the full nested object returned by
+// /v2/user/{id}/personalstats?cat=all. Path lookups live in
+// src/utils/statPaths.js (shared with the Leadership Member Overview).
 
 function parseStats(raw) {
   if (!raw) return null
@@ -586,10 +555,10 @@ function PersonalStatsCard({ stats }) {
   const hasGym = gymRows.some(g => g.total != null && g.total > 0) || gymEnergyLatest != null
   const maxPerDay = Math.max(...gymRows.map(g => g.perDay || 0), 1)
 
-  // Personal stats: compute avg per day
-  const statRows = STAT_DEFS.map(def => {
-    let current = getStat(latestStats, def.key)
-    let old = hasDelta ? getStat(oldestStats, def.key) : null
+  // Personal stats: compute avg per day from the nested path in each snapshot
+  const statRows = STAT_PATHS.map(def => {
+    let current = getByPath(latestStats, def.path)
+    let old = hasDelta ? getByPath(oldestStats, def.path) : null
     // Convert seconds to hours for activity
     if (def.isSeconds) {
       if (current != null) current = current / 3600

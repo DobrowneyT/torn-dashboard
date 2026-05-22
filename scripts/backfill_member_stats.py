@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Local backfill script for member_daily_stats.
+Local backfill script for member_daily_stats (Phase 2 refactor).
 
-Run this locally before the first GitHub Actions push to populate the last
-30 days of personalstats for all current members. After this, the daily
-scraper only needs to fetch today's snapshot (+ backfill for any new members
-who joined since the last run).
+Run this locally before the first GitHub Actions push (or after a wipe) to
+populate the last 30 days of personalstats for all current members using a
+single `cat=all` call per (member × day). After this, the daily scraper only
+needs to fetch today's snapshot.
+
+No profile or gym backfill — those have no historical lookback and are only
+collected by the daily scraper for the current day.
 
 Usage:
     python scripts/backfill_member_stats.py
@@ -15,11 +18,10 @@ Requires env vars: VITE_TORN_API_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_SERVICE_R
 
 import os
 import sys
-import json
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Set
+from typing import List
 
 from dotenv import load_dotenv
 
@@ -45,53 +47,18 @@ CHUNK_SIZE = 100
 # Timestamp offset: 01:00 UTC (3600s) — matches the daily cron schedule
 SNAPSHOT_OFFSET_SECONDS = 3600
 
-# Max stats per V2 API call
-V2_MAX_STATS_PER_CALL = 10
 
-
-def load_stat_names() -> List[str]:
-    """Load the flat list of stat names from config/personalstats.json."""
-    config_path = SCRIPT_DIR / 'config' / 'personalstats.json'
-    with open(config_path) as f:
-        config = json.load(f)
-    stats = []
-    for key, value in config.items():
-        if isinstance(value, list):
-            stats.extend(value)
-    return stats
-
-
-def chunk_stats(stats: List[str], size: int = V2_MAX_STATS_PER_CALL) -> List[str]:
-    """Split a flat stat list into comma-separated groups of `size`."""
-    return [','.join(stats[i:i + size]) for i in range(0, len(stats), size)]
-
-
-def fetch_personalstats_v2(api, member_id: str, stat_groups: List[str], timestamp: int) -> dict | None:
-    """
-    Fetch personalstats via V2 API for a specific timestamp.
-
-    Makes one call per stat group, merges the array responses
-    into a flat {name: value} dict.
-    """
-    merged = {}
-    for group in stat_groups:
-        url = f"{api.BASE_URL}/user/{member_id}/personalstats"
-        try:
-            data = api._make_request(url, params={
-                'stat': group,
-                'timestamp': str(timestamp),
-                'key': api.api_key,
-            })
-            if data and 'personalstats' in data:
-                for entry in data['personalstats']:
-                    merged[entry['name']] = entry['value']
-        except TornAPIError as e:
-            logger.warning(f"V2 stats failed for {member_id} group [{group[:30]}…]: {e}")
-    return merged if merged else None
+def fetch_personalstats_all(api, member_id: str, timestamp: int) -> dict | None:
+    """Fetch personalstats?cat=all for a member at a given historical timestamp."""
+    try:
+        data = api.get_personalstats_all(int(member_id), timestamp=timestamp)
+        return data.get('personalstats') if data else None
+    except TornAPIError as e:
+        logger.warning(f"personalstats?cat=all failed for {member_id} @ ts={timestamp}: {e}")
+        return None
 
 
 def main():
-
     api = create_torn_api()
 
     supabase_url = os.environ.get('VITE_SUPABASE_URL')
@@ -100,10 +67,6 @@ def main():
         raise ValueError("Missing VITE_SUPABASE_URL or VITE_SUPABASE_SERVICE_ROLE_KEY")
 
     sb: Client = create_client(supabase_url, supabase_key)
-
-    # Load stats config and build runtime chunks
-    all_stats = load_stat_names()
-    stat_groups = chunk_stats(all_stats)
 
     today = date.today()
     today_str = today.isoformat()
@@ -114,9 +77,9 @@ def main():
         target_dates.add((today - timedelta(days=i)).isoformat())
 
     logger.info("=" * 60)
-    logger.info("Member Stats Backfill (local)")
+    logger.info("Member Stats Backfill (cat=all, local)")
     logger.info(f"Today: {today_str}  |  Backfilling {BACKFILL_DAYS} days")
-    logger.info(f"Tracking {len(all_stats)} stats  |  {len(stat_groups)} API calls per member per day")
+    logger.info(f"1 API call per (member × day)")
     logger.info("=" * 60)
 
     # 1. Get current members
@@ -150,9 +113,9 @@ def main():
         logger.info("All members already have 30 days of data — nothing to do")
         return
 
-    api_calls_needed = total_missing * len(stat_groups)
+    api_calls_needed = total_missing
     logger.info(f"{len(member_missing)} members need backfill, {total_missing} member-days")
-    logger.info(f"API calls needed: {api_calls_needed} ({len(stat_groups)} per day)")
+    logger.info(f"API calls needed: {api_calls_needed} (1 per day per member)")
     est_minutes = (api_calls_needed * 0.6) / 60
     logger.info(f"Estimated time: ~{est_minutes:.0f} minutes (at 0.6s per call)")
 
@@ -165,19 +128,19 @@ def main():
         name = m.get('member_name', mid)
         logger.info(f"\n[{mi}/{len(member_missing)}] {name} ({mid}): {len(missing_dates)} missing days")
 
-        for di, d_str in enumerate(missing_dates, 1):
+        for d_str in missing_dates:
             d = date.fromisoformat(d_str)
             ts = int(datetime.combine(d, datetime.min.time()).timestamp()) + SNAPSHOT_OFFSET_SECONDS
 
-            stats = fetch_personalstats_v2(api, mid, stat_groups, ts)
+            stats = fetch_personalstats_all(api, mid, ts)
             days_fetched += 1
 
             if stats:
                 records.append({
-                    'member_id': mid,
+                    'member_id':     mid,
                     'snapshot_date': d_str,
                     'personalstats': stats,
-                    'api_version': 'v2',
+                    'api_version':   'v2-all',
                 })
             else:
                 logger.warning(f"  {d_str}: no data")
