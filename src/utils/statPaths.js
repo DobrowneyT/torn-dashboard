@@ -27,6 +27,8 @@ export const STAT_PATHS = [
   { key: 'retals',             label: 'Retals',           path: 'attacking.faction.retaliations' },
   { key: 'respectforfaction',  label: 'Respect',          path: 'attacking.faction.respect' },
   { key: 'rankedwarhits',      label: 'Ranked War Hits',  path: 'attacking.faction.ranked_war_hits' },
+  { key: 'rankedwarwins',      label: 'Ranked War Wins',  path: 'other.ranked_war_wins' },
+  { key: 'organizedcrimes',    label: 'Organized Crimes', path: 'crimes.offenses.organized_crimes' },
 
   // Misc
   { key: 'trainsreceived',     label: 'Trains Received',  path: 'jobs.trains_received' },
