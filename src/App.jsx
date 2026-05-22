@@ -8,11 +8,10 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Header from './components/Header'
 import Navigation from './components/Navigation'
 import MembersView from './views/MembersView'
-import InventoryManagement from './components/InventoryManagement'
-import DataManagement from './views/DataManagement'
 import DashboardView from './views/DashboardView'
 import OCPage from './views/OCPage'
 import RWPage from './views/RWPage'
+import LeadershipPage from './views/LeadershipPage'
 import { isAdmin } from './config'
 
 
@@ -53,7 +52,7 @@ function DashboardContent() {
     { id: 'members', label: 'Members', roles: ['member'] },
     { id: 'oc-payouts', label: 'OC', roles: ['member'] },
     { id: 'rw-payouts', label: 'RW', roles: ['member'] },
-    { id: 'inventory', label: 'Inventory', roles: ['leadership'] },
+    { id: 'leadership', label: 'Leadership', roles: ['leadership'] },
   ]
 
   const availableTabs = tabs.filter(tab => {
@@ -71,7 +70,7 @@ function DashboardContent() {
   // Reset to dashboard if current tab becomes unavailable due to viewAs change
   useEffect(() => {
     const tabIds = availableTabs.map(t => t.id)
-    if (!tabIds.includes(activeTab) && activeTab !== 'data-mgmt') {
+    if (!tabIds.includes(activeTab)) {
       setActiveTab('dashboard')
     }
   }, [viewAsRole, availableTabs, activeTab])
@@ -137,15 +136,12 @@ function DashboardContent() {
             {activeTab === 'rw-payouts' && <RWPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />}
           </ProtectedRoute>
 
-          {/* Leadership-only views */}
-          {activeTab === 'inventory' && (
+          {/* Leadership hub — hosts Member Overview, Inventory, Data Management */}
+          {activeTab === 'leadership' && (
             <ProtectedRoute requireLeadership={true}>
-              <InventoryManagement />
+              <LeadershipPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />
             </ProtectedRoute>
           )}
-
-          {/* Admin-only Data Management */}
-          {userIsAdmin && activeTab === 'data-mgmt' && <DataManagement />}
         </div>
       </div>
     </div>

@@ -144,11 +144,21 @@ function buildMemberState(m: any) {
 }
 
 // Deep-equal two member state objects ignoring updated_at (which always differs).
+// JSON.stringify isn't safe here: Postgres jsonb does NOT preserve key order, so
+// a value round-tripped through the DB stringifies differently than the freshly
+// built one even when semantically identical. Compare leaf fields explicitly.
 function stateEqual(a: any, b: any): boolean {
   if (!a || !b) return false
-  const { updated_at: _a, ...ar } = a
-  const { updated_at: _b, ...br } = b
-  return JSON.stringify(ar) === JSON.stringify(br)
+  return a.status?.state         === b.status?.state
+      && a.status?.description   === b.status?.description
+      && a.status?.until         === b.status?.until
+      && a.last_action?.status   === b.last_action?.status
+      && a.last_action?.timestamp === b.last_action?.timestamp
+      && a.is_revivable          === b.is_revivable
+      && a.has_early_discharge   === b.has_early_discharge
+      && a.is_in_oc              === b.is_in_oc
+      && a.is_on_wall            === b.is_on_wall
+      && a.revive_setting        === b.revive_setting
 }
 
 async function handleFetchMembers(supabase: ReturnType<typeof createClient>, factionId: number) {
