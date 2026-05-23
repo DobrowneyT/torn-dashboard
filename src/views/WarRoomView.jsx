@@ -691,15 +691,26 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     loadAllMembers()
     loadDibs()
 
-    const configSub = supabase.channel('war_room_config_ch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'war_room_config' }, payload => {
-        if (mounted && payload.new) setConfig(payload.new)
-      }).subscribe()
+    // ── Realtime broadcasts ───────────────────────────────────────────────
+    // Migrated from postgres_changes → Broadcast. Triggers on the war_room_*
+    // tables call realtime.broadcast_changes() with topic = the table name,
+    // event = INSERT / UPDATE / DELETE. Payload shape is
+    //   { schema, table, operation, record, old_record, commit_timestamp }
+    // exposed under data.payload in the broadcast callback.
 
-    const stateSub = supabase.channel('war_room_state_ch')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'war_room_state' }, ({ new: rawRow }) => {
-        if (!mounted) return
-        const row = flattenMemberRow(rawRow)
+    const configSub = supabase.channel('war_room_config')
+      .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
+        if (mounted && payload?.record) setConfig(payload.record)
+      })
+      .on('broadcast', { event: 'UPDATE' }, ({ payload }) => {
+        if (mounted && payload?.record) setConfig(payload.record)
+      })
+      .subscribe()
+
+    const stateSub = supabase.channel('war_room_state')
+      .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
+        if (!mounted || !payload?.record) return
+        const row = flattenMemberRow(payload.record)
         if (row.faction_id === OUR_FACTION_ID) {
           setOurMembers(prev => {
             const idx = prev.findIndex(m => m.member_id === row.member_id)
@@ -712,14 +723,13 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
           })
         }
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'war_room_state' }, ({ new: rawRow }) => {
-        if (!mounted) return
-        const row = flattenMemberRow(rawRow)
+      .on('broadcast', { event: 'UPDATE' }, ({ payload }) => {
+        if (!mounted || !payload?.record) return
+        const row = flattenMemberRow(payload.record)
         // Auto-release dibs when a target leaves Okay state (dibs was "used")
         if (row.faction_id !== OUR_FACTION_ID && row.status_state !== 'Okay') {
           const prev = membersRef.current.find(m => m.member_id === row.member_id)
           if (prev?.status_state === 'Okay' && dibsRef.current[row.member_id]) {
-            // Only auto-release if it's MY dibs — otherwise let the owner handle it
             const dib = dibsRef.current[row.member_id]
             if (String(dib.claimed_by) === String(userRef.current?.id)) {
               releaseDibs(row.member_id, userRef.current?.apiKey, { userId: userRef.current?.id })
@@ -734,26 +744,25 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
           setMembers(prev => prev.map(m => m.member_id === row.member_id ? row : m))
         }
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'war_room_state' }, ({ old: row }) => {
+      .on('broadcast', { event: 'DELETE' }, ({ payload }) => {
         if (!mounted) return
+        const row = payload?.old_record
+        if (!row?.member_id) return
         setMembers(prev => prev.filter(m => m.member_id !== row.member_id))
         setOurMembers(prev => prev.filter(m => m.member_id !== row.member_id))
       })
       .subscribe()
 
-    // Dibs use an invalidation pattern: Realtime events are just "something
-    // changed, go check" signals — we then refetch the dibs table from the DB.
-    // This sidesteps Supabase's REPLICA IDENTITY FULL quirk (DELETE payloads
-    // only have the primary key by default, leaving us no target_id to remove).
-    // Debounced ~150ms so a burst of events causes one refetch, not N.
-    const dibsSub = supabase.channel('war_room_dibs_ch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'war_room_dibs' }, payload => {
-        if (!mounted) return
-        console.debug('[dibs realtime]', payload.eventType, payload.new ?? payload.old)
-        scheduleDibsRefresh()
-      })
+    // Dibs still use the invalidation pattern — any broadcast triggers a
+    // debounced refetch of the dibs table. This sidesteps the Realtime DELETE
+    // payload quirk (we don't have to read target_id from `old_record`,
+    // we just go look at the truth in the DB).
+    const dibsSub = supabase.channel('war_room_dibs')
+      .on('broadcast', { event: 'INSERT' }, () => mounted && scheduleDibsRefresh())
+      .on('broadcast', { event: 'UPDATE' }, () => mounted && scheduleDibsRefresh())
+      .on('broadcast', { event: 'DELETE' }, () => mounted && scheduleDibsRefresh())
       .subscribe(status => {
-        console.debug('[dibs realtime] subscription status:', status)
+        console.debug('[dibs broadcast] subscription status:', status)
       })
 
     return () => {
