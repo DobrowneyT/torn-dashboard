@@ -5536,8 +5536,8 @@
       "end_at": null,
       "opponent_id": 9100,
       "opponent_name": "The Black Hand of Monarch",
-      "our_score": 0,
-      "opponent_score": 0,
+      "our_score": 5154,
+      "opponent_score": 16162,
       "target": 17300,
       "winner_faction_id": null,
       "forfeit": false,
@@ -203473,6 +203473,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-05-22T05:00:15.360063"
+    "last_updated": "2026-05-23T04:39:24.479866"
   }
 }
