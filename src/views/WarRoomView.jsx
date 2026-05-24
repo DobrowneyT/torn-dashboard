@@ -28,7 +28,14 @@ const ACTIVITY_FILTERS = ['Online', 'Idle', 'Offline']
 // the familiar shape (m.status_state, m.last_action_timestamp, etc.).
 function flattenMemberRow(row) {
   if (!row) return row
-  const s = row.state ?? {}
+  let s = row.state ?? {}
+  if (typeof s === 'string') {
+    try {
+      s = JSON.parse(s)
+    } catch {
+      s = {}
+    }
+  }
   return {
     ...row,
     last_action_status:    s.last_action?.status    ?? row.last_action_status    ?? null,
@@ -73,8 +80,16 @@ function formatRelative(ts) {
   return `${Math.floor(diff / 86_400)}d ago`
 }
 
-function stateToFilterKey(state) {
+function parseHospitalInfo(description) {
+  if (!description) return null
+  const match = description.match(/^(In (?:a|an) .*? hospital)\b/i)
+  if (!match) return null
+  return { label: match[1].trim() }
+}
+
+function stateToFilterKey(state, description) {
   if (state === 'Traveling' || state === 'Abroad') return 'Flying'
+  if (state === 'Hospital' && parseHospitalInfo(description)) return 'Flying'
   return state
 }
 
@@ -146,18 +161,31 @@ function StatusCell({ state, description }) {
     Jail:      'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
   }
   const travel = (state === 'Traveling' || state === 'Abroad') ? parseTravelInfo(state, description) : null
+  const hospital = state === 'Hospital' ? parseHospitalInfo(description) : null
   const travelIcon = travel?.returning ? '🛬' : '🛫'
   const icons = { Okay: '✓', Hospital: '🏥', Traveling: travelIcon, Abroad: '🛫', Fallen: '💀', Jail: '⛓' }
 
+  // An abroad-hospital row needs to read as "still can't be attacked" rather
+  // than a normal Hospital that releases soon. Use amber styling + a plane
+  // icon so it's distinguishable at a glance from a Torn-city hospital.
+  const abroadHospitalStyles = 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+  const badgeClass = hospital ? abroadHospitalStyles : (badgeStyles[state] ?? badgeStyles.Okay)
+  const iconChar   = hospital ? '✈' : (icons[state] ?? '?')
+
   return (
     <div className="flex flex-col gap-0.5">
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${badgeStyles[state] ?? badgeStyles.Okay}`}>
-        <span>{icons[state] ?? '?'}</span>
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${badgeClass}`}>
+        <span>{iconChar}</span>
         {state}
       </span>
       {travel?.label && (
         <span className="text-xs text-gray-500 dark:text-gray-400 pl-1 whitespace-nowrap">
           {travel.label}
+        </span>
+      )}
+      {hospital?.label && (
+        <span className="text-xs text-gray-500 dark:text-gray-400 pl-1 whitespace-nowrap">
+          {hospital.label}
         </span>
       )}
     </div>
@@ -693,21 +721,25 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
 
     // ── Realtime broadcasts ───────────────────────────────────────────────
     // Migrated from postgres_changes → Broadcast. Triggers on the war_room_*
-    // tables call realtime.broadcast_changes() with topic = the table name,
-    // event = INSERT / UPDATE / DELETE. Payload shape is
+    // tables call realtime.broadcast_changes() with a single topic per table:
+    //   war_room:state  / war_room:dibs  / war_room:config
+    // Single topic for state (not per-faction) so the subscription doesn't
+    // need to rebuild when leadership saves a new faction id — the row
+    // payload already carries `faction_id` for client-side routing.
+    // Payload shape from broadcast_changes is
     //   { schema, table, operation, record, old_record, commit_timestamp }
     // exposed under data.payload in the broadcast callback.
 
-    const configSub = supabase.channel('war_room_config')
+    const configSub = supabase.channel('war_room:config')
       .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
         if (mounted && payload?.record) setConfig(payload.record)
       })
       .on('broadcast', { event: 'UPDATE' }, ({ payload }) => {
         if (mounted && payload?.record) setConfig(payload.record)
       })
-      .subscribe()
+      .subscribe(s => console.debug('[war_room:config] subscription:', s))
 
-    const stateSub = supabase.channel('war_room_state')
+    const stateSub = supabase.channel('war_room:state')
       .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
         if (!mounted || !payload?.record) return
         const row = flattenMemberRow(payload.record)
@@ -751,19 +783,16 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
         setMembers(prev => prev.filter(m => m.member_id !== row.member_id))
         setOurMembers(prev => prev.filter(m => m.member_id !== row.member_id))
       })
-      .subscribe()
+      .subscribe(s => console.debug('[war_room:state] subscription:', s))
 
-    // Dibs still use the invalidation pattern — any broadcast triggers a
-    // debounced refetch of the dibs table. This sidesteps the Realtime DELETE
-    // payload quirk (we don't have to read target_id from `old_record`,
-    // we just go look at the truth in the DB).
-    const dibsSub = supabase.channel('war_room_dibs')
+    // Dibs use the invalidation pattern — any broadcast triggers a debounced
+    // refetch of the dibs table. Sidesteps the broadcast DELETE payload caring
+    // about field shape: we just go look at the truth in the DB.
+    const dibsSub = supabase.channel('war_room:dibs')
       .on('broadcast', { event: 'INSERT' }, () => mounted && scheduleDibsRefresh())
       .on('broadcast', { event: 'UPDATE' }, () => mounted && scheduleDibsRefresh())
       .on('broadcast', { event: 'DELETE' }, () => mounted && scheduleDibsRefresh())
-      .subscribe(status => {
-        console.debug('[dibs broadcast] subscription status:', status)
-      })
+      .subscribe(s => console.debug('[war_room:dibs] subscription:', s))
 
     return () => {
       mounted = false
@@ -884,6 +913,13 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     setFactionName(null)
     // 4. Initial fetch — validates the ID and populates the table (Realtime fills state).
     await fetchWarRoomMembers(newFactionId, user.apiKey)
+    // Single post-save refresh so the UI shows the snapshot even if broadcasts lag.
+    const { data } = await supabase.from('war_room_state').select('*')
+    if (data) {
+      const rows = data.map(flattenMemberRow)
+      setOurMembers(rows.filter(m => m.faction_id === OUR_FACTION_ID))
+      setMembers(rows.filter(m => m.faction_id !== OUR_FACTION_ID))
+    }
   }
 
   // Update Spies works even when the war room is paused: if no members are loaded
@@ -996,7 +1032,7 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     let list = members
 
     if (statusFilter.size > 0) {
-      list = list.filter(m => statusFilter.has(stateToFilterKey(m.status_state)))
+      list = list.filter(m => statusFilter.has(stateToFilterKey(m.status_state, m.status_description)))
     }
     if (activityFilter.size > 0) {
       list = list.filter(m => activityFilter.has(m.last_action_status))
@@ -1059,8 +1095,11 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
 
   const resolvedName = factionName ?? config?.faction_name
   const factionLabel = resolvedName
-    ? `${resolvedName} (${config?.faction_id})`
+    ? `${resolvedName} [${config?.faction_id}]`
     : config?.faction_id ? `Faction ${config.faction_id}` : null
+  const factionLink = config?.faction_id
+    ? `https://www.torn.com/factions.php?step=profile&ID=${config.faction_id}`
+    : null
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1073,7 +1112,19 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
             {/* Title row */}
             <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                War Room{factionLabel ? ` — ${factionLabel}` : ''}
+                War Room —
+                {factionLabel && factionLink ? (
+                  <a
+                    href={factionLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-2 text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                   {factionLabel}
+                  </a>
+                ) : factionLabel ? (
+                  `${factionLabel}`
+                ) : ''}
               </h2>
               {isActive && (
                 <span className="flex items-center gap-1.5 px-2.5 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-xs font-semibold">
@@ -1370,15 +1421,22 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
 
                         {/* Flags */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            {m.is_revivable       && <span title="Revivable"       className="text-base leading-none cursor-default">💉</span>}
-                            {m.has_early_discharge && <span title="Early Discharge" className="text-base leading-none cursor-default">⚡</span>}
-                            {m.is_in_oc           && <span title="In OC"           className="text-base leading-none cursor-default">🔒</span>}
-                            {m.is_on_wall         && <span title="On Wall"         className="text-base leading-none cursor-default">🛡</span>}
-                            {!m.is_revivable && !m.has_early_discharge && !m.is_in_oc && !m.is_on_wall && (
-                              <span className="text-gray-300 dark:text-gray-700 text-xs">—</span>
-                            )}
-                          </div>
+                          {(() => {
+                            const isFlying = stateToFilterKey(m.status_state, m.status_description) === 'Flying'
+                            const anyFlag = m.is_revivable || m.has_early_discharge || m.is_in_oc || m.is_on_wall || isFlying
+                            return (
+                              <div className="flex items-center gap-1.5">
+                                {isFlying            && <span title="Flying / abroad" className="text-base leading-none cursor-default">✈</span>}
+                                {m.is_revivable       && <span title="Revivable"       className="text-base leading-none cursor-default">💉</span>}
+                                {m.has_early_discharge && <span title="Early Discharge" className="text-base leading-none cursor-default">⚡</span>}
+                                {m.is_in_oc           && <span title="In OC"           className="text-base leading-none cursor-default">🔒</span>}
+                                {m.is_on_wall         && <span title="On Wall"         className="text-base leading-none cursor-default">🛡</span>}
+                                {!anyFlag && (
+                                  <span className="text-gray-300 dark:text-gray-700 text-xs">—</span>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </td>
 
                         {/* Dibs */}
