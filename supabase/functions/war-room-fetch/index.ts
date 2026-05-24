@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { create, getNumericDate } from "https://deno.land/x/djwt@v3.0.2/mod.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -483,6 +484,58 @@ async function handleGetDibs(
   return json({ dibs: data })
 }
 
+// ── Realtime authorization ───────────────────────────────────────────────────
+// Mint a short-lived JWT that the frontend hands to supabase.realtime.setAuth()
+// so it can subscribe to PRIVATE war_room:* broadcasts. The JWT is signed with
+// the project's SUPABASE_JWT_SECRET; Supabase Realtime trusts whatever claims
+// it carries.
+//
+// Caller must already be verified via verifyTornUser() (this action is NOT in
+// POLL_ACTIONS, so the standard auth flow runs before we get here).
+//
+// Claims:
+//   role          = 'authenticated' (so the RLS policy `TO authenticated` applies)
+//   sub           = `torn-{userId}` (stable per Torn account)
+//   torn_user_id  = Torn account id
+//   faction_id    = our faction id
+//   is_leadership = mirrors LEADERSHIP_IDS list
+//   is_admin      = mirrors ADMIN_IDS list
+
+const JWT_TTL_SECONDS = 24 * 60 * 60   // 24h
+
+async function handleMintRealtimeToken(userId: string) {
+  const jwtSecret = Deno.env.get('SUPABASE_JWT_SECRET')
+  if (!jwtSecret) return json({ error: 'SUPABASE_JWT_SECRET not set' }, 500)
+  if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(jwtSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify'],
+  )
+
+  const expiresAt = getNumericDate(JWT_TTL_SECONDS)
+  const token = await create(
+    { alg: 'HS256', typ: 'JWT' },
+    {
+      aud:           'authenticated',
+      role:          'authenticated',
+      sub:           `torn-${userId}`,
+      torn_user_id:  userId,
+      faction_id:    OUR_FACTION_ID,
+      is_leadership: LEADERSHIP_IDS.includes(userId),
+      is_admin:      ADMIN_IDS.includes(userId),
+      iat: getNumericDate(0),
+      exp: expiresAt,
+    },
+    key,
+  )
+
+  return json({ token, expires_at: expiresAt })
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 serve(async (req: Request) => {
@@ -542,6 +595,10 @@ serve(async (req: Request) => {
         return await handleGetDibs(supabase, body)
       case 'revive_request':
         return await handleReviveRequest(body)
+      case 'mint_realtime_token':
+        // userId is set by verifyTornUser() above — this action is NOT in
+        // POLL_ACTIONS so the standard Torn-key auth flow runs first.
+        return await handleMintRealtimeToken(userId)
       default:
         return json({ error: `Unknown action: ${action}` }, 400)
     }

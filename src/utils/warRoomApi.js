@@ -96,3 +96,15 @@ export async function fetchBspStats(memberIds, tornApiKey) {
 export async function requestRevive({ url, userID, userName, factionName, source, sourceKey }, tornApiKey) {
   return callWarRoom('revive_request', { url, userID, userName, factionName, source, sourceKey }, tornApiKey)
 }
+
+/**
+ * Mint a short-lived Supabase JWT (HS256, 24h) for receiving private war_room
+ * realtime broadcasts. The token carries role/torn_user_id/faction_id/
+ * is_leadership/is_admin claims. Pass the returned `token` to
+ * `supabase.realtime.setAuth(token)` before subscribing to channels.
+ *
+ * Returns { token, expires_at } where expires_at is a unix-second timestamp.
+ */
+export async function mintRealtimeToken(tornApiKey) {
+  return callWarRoom('mint_realtime_token', {}, tornApiKey)
+}

@@ -11,6 +11,7 @@ import {
   claimDibs,
   releaseDibs,
   requestRevive,
+  mintRealtimeToken,
 } from '../utils/warRoomApi'
 import { config as appConfig } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
@@ -719,86 +720,117 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     loadAllMembers()
     loadDibs()
 
-    // ── Realtime broadcasts ───────────────────────────────────────────────
-    // Migrated from postgres_changes → Broadcast. Triggers on the war_room_*
-    // tables call realtime.broadcast_changes() with a single topic per table:
-    //   war_room:state  / war_room:dibs  / war_room:config
-    // Single topic for state (not per-faction) so the subscription doesn't
-    // need to rebuild when leadership saves a new faction id — the row
-    // payload already carries `faction_id` for client-side routing.
-    // Payload shape from broadcast_changes is
-    //   { schema, table, operation, record, old_record, commit_timestamp }
-    // exposed under data.payload in the broadcast callback.
+    // ── Realtime broadcasts (private) ─────────────────────────────────────
+    // Trigger functions call realtime.send(..., true) — private. To receive
+    // them we mint a Supabase-signed JWT via the Edge Function (after Torn
+    // API key verification), call supabase.realtime.setAuth(token), and then
+    // subscribe. The token has role: authenticated + faction-member claims;
+    // the RLS policy on realtime.messages allows authenticated to SELECT
+    // war_room:* topics.
+    //
+    // Topics:
+    //   war_room:state  — all faction members
+    //   war_room:dibs   — all faction members (invalidation pattern → DB refetch)
+    //   war_room:config — all faction members (read-only; writes still gated
+    //                     by the Edge Function's LEADERSHIP_IDS check)
 
-    const configSub = supabase.channel('war_room:config')
-      .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
-        if (mounted && payload?.record) setConfig(payload.record)
-      })
-      .on('broadcast', { event: 'UPDATE' }, ({ payload }) => {
-        if (mounted && payload?.record) setConfig(payload.record)
-      })
-      .subscribe(s => console.debug('[war_room:config] subscription:', s))
+    let configSub = null, stateSub = null, dibsSub = null
+    let refreshTimer = null
 
-    const stateSub = supabase.channel('war_room:state')
-      .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
-        if (!mounted || !payload?.record) return
-        const row = flattenMemberRow(payload.record)
-        if (row.faction_id === OUR_FACTION_ID) {
-          setOurMembers(prev => {
-            const idx = prev.findIndex(m => m.member_id === row.member_id)
-            return idx >= 0 ? prev.map((m, i) => i === idx ? row : m) : [...prev, row]
-          })
-        } else {
-          setMembers(prev => {
-            const idx = prev.findIndex(m => m.member_id === row.member_id)
-            return idx >= 0 ? prev.map((m, i) => i === idx ? row : m) : [...prev, row]
-          })
-        }
-      })
-      .on('broadcast', { event: 'UPDATE' }, ({ payload }) => {
-        if (!mounted || !payload?.record) return
-        const row = flattenMemberRow(payload.record)
-        // Auto-release dibs when a target leaves Okay state (dibs was "used")
-        if (row.faction_id !== OUR_FACTION_ID && row.status_state !== 'Okay') {
-          const prev = membersRef.current.find(m => m.member_id === row.member_id)
-          if (prev?.status_state === 'Okay' && dibsRef.current[row.member_id]) {
-            const dib = dibsRef.current[row.member_id]
-            if (String(dib.claimed_by) === String(userRef.current?.id)) {
-              releaseDibs(row.member_id, userRef.current?.apiKey, { userId: userRef.current?.id })
-                .catch(e => console.error('Auto-release dibs:', e))
-              setDibs(d => { const next = { ...d }; delete next[row.member_id]; return next })
+    async function refreshRealtimeAuth() {
+      if (!userRef.current?.apiKey) return false
+      try {
+        const { token, expires_at } = await mintRealtimeToken(userRef.current.apiKey)
+        await supabase.realtime.setAuth(token)
+        // Refresh 1h before expiry, clamped to ≥1min so we never hot-loop.
+        const msUntilRefresh = Math.max(
+          60_000,
+          (expires_at - Math.floor(Date.now() / 1000) - 3600) * 1000,
+        )
+        if (refreshTimer) clearTimeout(refreshTimer)
+        refreshTimer = setTimeout(refreshRealtimeAuth, msUntilRefresh)
+        return true
+      } catch (e) {
+        console.error('[realtime auth] mint failed — falling back to periodic polling', e)
+        return false
+      }
+    }
+
+    async function setupRealtime() {
+      const ok = await refreshRealtimeAuth()
+      if (!mounted || !ok) return
+
+      configSub = supabase.channel('war_room:config')
+        .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
+          if (mounted && payload?.record) setConfig(payload.record)
+        })
+        .on('broadcast', { event: 'UPDATE' }, ({ payload }) => {
+          if (mounted && payload?.record) setConfig(payload.record)
+        })
+        .subscribe(s => console.debug('[war_room:config] subscription:', s))
+
+      stateSub = supabase.channel('war_room:state')
+        .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
+          if (!mounted || !payload?.record) return
+          const row = flattenMemberRow(payload.record)
+          if (row.faction_id === OUR_FACTION_ID) {
+            setOurMembers(prev => {
+              const idx = prev.findIndex(m => m.member_id === row.member_id)
+              return idx >= 0 ? prev.map((m, i) => i === idx ? row : m) : [...prev, row]
+            })
+          } else {
+            setMembers(prev => {
+              const idx = prev.findIndex(m => m.member_id === row.member_id)
+              return idx >= 0 ? prev.map((m, i) => i === idx ? row : m) : [...prev, row]
+            })
+          }
+        })
+        .on('broadcast', { event: 'UPDATE' }, ({ payload }) => {
+          if (!mounted || !payload?.record) return
+          const row = flattenMemberRow(payload.record)
+          // Auto-release dibs when a target leaves Okay state (dibs was "used")
+          if (row.faction_id !== OUR_FACTION_ID && row.status_state !== 'Okay') {
+            const prev = membersRef.current.find(m => m.member_id === row.member_id)
+            if (prev?.status_state === 'Okay' && dibsRef.current[row.member_id]) {
+              const dib = dibsRef.current[row.member_id]
+              if (String(dib.claimed_by) === String(userRef.current?.id)) {
+                releaseDibs(row.member_id, userRef.current?.apiKey, { userId: userRef.current?.id })
+                  .catch(e => console.error('Auto-release dibs:', e))
+                setDibs(d => { const next = { ...d }; delete next[row.member_id]; return next })
+              }
             }
           }
-        }
-        if (row.faction_id === OUR_FACTION_ID) {
-          setOurMembers(prev => prev.map(m => m.member_id === row.member_id ? row : m))
-        } else {
-          setMembers(prev => prev.map(m => m.member_id === row.member_id ? row : m))
-        }
-      })
-      .on('broadcast', { event: 'DELETE' }, ({ payload }) => {
-        if (!mounted) return
-        const row = payload?.old_record
-        if (!row?.member_id) return
-        setMembers(prev => prev.filter(m => m.member_id !== row.member_id))
-        setOurMembers(prev => prev.filter(m => m.member_id !== row.member_id))
-      })
-      .subscribe(s => console.debug('[war_room:state] subscription:', s))
+          if (row.faction_id === OUR_FACTION_ID) {
+            setOurMembers(prev => prev.map(m => m.member_id === row.member_id ? row : m))
+          } else {
+            setMembers(prev => prev.map(m => m.member_id === row.member_id ? row : m))
+          }
+        })
+        .on('broadcast', { event: 'DELETE' }, ({ payload }) => {
+          if (!mounted) return
+          const row = payload?.old_record
+          if (!row?.member_id) return
+          setMembers(prev => prev.filter(m => m.member_id !== row.member_id))
+          setOurMembers(prev => prev.filter(m => m.member_id !== row.member_id))
+        })
+        .subscribe(s => console.debug('[war_room:state] subscription:', s))
 
-    // Dibs use the invalidation pattern — any broadcast triggers a debounced
-    // refetch of the dibs table. Sidesteps the broadcast DELETE payload caring
-    // about field shape: we just go look at the truth in the DB.
-    const dibsSub = supabase.channel('war_room:dibs')
-      .on('broadcast', { event: 'INSERT' }, () => mounted && scheduleDibsRefresh())
-      .on('broadcast', { event: 'UPDATE' }, () => mounted && scheduleDibsRefresh())
-      .on('broadcast', { event: 'DELETE' }, () => mounted && scheduleDibsRefresh())
-      .subscribe(s => console.debug('[war_room:dibs] subscription:', s))
+      // Dibs use the invalidation pattern — any broadcast triggers a debounced
+      // refetch of the dibs table.
+      dibsSub = supabase.channel('war_room:dibs')
+        .on('broadcast', { event: 'INSERT' }, () => mounted && scheduleDibsRefresh())
+        .on('broadcast', { event: 'UPDATE' }, () => mounted && scheduleDibsRefresh())
+        .on('broadcast', { event: 'DELETE' }, () => mounted && scheduleDibsRefresh())
+        .subscribe(s => console.debug('[war_room:dibs] subscription:', s))
+    }
+    setupRealtime()
 
     return () => {
       mounted = false
-      supabase.removeChannel(configSub)
-      supabase.removeChannel(stateSub)
-      supabase.removeChannel(dibsSub)
+      if (refreshTimer) clearTimeout(refreshTimer)
+      if (configSub) supabase.removeChannel(configSub)
+      if (stateSub)  supabase.removeChannel(stateSub)
+      if (dibsSub)   supabase.removeChannel(dibsSub)
     }
   }, [user?.apiKey])
 
