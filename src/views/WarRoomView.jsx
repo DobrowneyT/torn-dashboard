@@ -760,7 +760,10 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       const ok = await refreshRealtimeAuth()
       if (!mounted || !ok) return
 
-      configSub = supabase.channel('war_room:config')
+      // private: true is REQUIRED — realtime.broadcast_changes always sends
+      // as private (via realtime.send with private=true). Without this flag
+      // the client connects to a public channel and never sees the messages.
+      configSub = supabase.channel('war_room:config', { config: { private: true } })
         .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
           if (mounted && payload?.record) setConfig(payload.record)
         })
@@ -769,7 +772,7 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
         })
         .subscribe(s => console.debug('[war_room:config] subscription:', s))
 
-      stateSub = supabase.channel('war_room:state')
+      stateSub = supabase.channel('war_room:state', { config: { private: true } })
         .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
           if (!mounted || !payload?.record) return
           const row = flattenMemberRow(payload.record)
@@ -817,7 +820,7 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
 
       // Dibs use the invalidation pattern — any broadcast triggers a debounced
       // refetch of the dibs table.
-      dibsSub = supabase.channel('war_room:dibs')
+      dibsSub = supabase.channel('war_room:dibs', { config: { private: true } })
         .on('broadcast', { event: 'INSERT' }, () => mounted && scheduleDibsRefresh())
         .on('broadcast', { event: 'UPDATE' }, () => mounted && scheduleDibsRefresh())
         .on('broadcast', { event: 'DELETE' }, () => mounted && scheduleDibsRefresh())
@@ -943,8 +946,16 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     await setWarRoomConfig({ faction_id: newFactionId, faction_name: null }, user.apiKey)
     setConfig(prev => ({ ...prev, faction_id: newFactionId, faction_name: null }))
     setFactionName(null)
-    // 4. Initial fetch — validates the ID and populates the table (Realtime fills state).
-    await fetchWarRoomMembers(newFactionId, user.apiKey)
+    // 4. Initial fetch — validates the ID and populates the table. Pull BOTH
+    //    enemy and our members in parallel so the "Us" counts aren't empty
+    //    until the next 30s our-members poll cycle. The enemy fetch also
+    //    returns faction_name (lazy-backfilled by the Edge Function on first
+    //    encounter) so we can update the header without round-tripping the DB.
+    const [enemyResp] = await Promise.all([
+      fetchWarRoomMembers(newFactionId, user.apiKey),
+      fetchOurMembers(user.apiKey),
+    ])
+    if (enemyResp?.faction_name) setFactionName(enemyResp.faction_name)
     // Single post-save refresh so the UI shows the snapshot even if broadcasts lag.
     const { data } = await supabase.from('war_room_state').select('*')
     if (data) {

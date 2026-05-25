@@ -176,6 +176,36 @@ async function handleFetchMembers(supabase: ReturnType<typeof createClient>, fac
   const members = data.members as Record<string, unknown>[]
   const now = Math.floor(Date.now() / 1000)
 
+  // Lazily backfill the faction's display name. Only hits Torn /basic when
+  // the faction isn't already cached — first save after a Clear State, or a
+  // war against a faction we've never seen. Returned in the response so the
+  // client can update the header without waiting on a useEffect re-run.
+  let factionName: string | null = null
+  const { data: cached } = await supabase
+    .from('factions').select('name').eq('id', factionId).maybeSingle()
+  if (cached?.name) {
+    factionName = cached.name as string
+  } else {
+    try {
+      const basicResp = await fetch(`https://api.torn.com/v2/faction/${factionId}/basic?key=${tornKey}`)
+      if (basicResp.ok) {
+        const basicData = await basicResp.json()
+        const basic = basicData?.basic ?? {}
+        if (basic.name) {
+          factionName = basic.name as string
+          await supabase.from('factions').upsert({
+            id: factionId,
+            name: basic.name,
+            tag: basic.tag ?? null,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' })
+        }
+      }
+    } catch (e) {
+      console.error('faction basic lookup failed:', e)
+    }
+  }
+
   // Load current state for this faction so we can skip rows whose volatile
   // state hasn't actually changed. Every skipped row is a Realtime UPDATE event
   // we don't emit — the whole point of this fix.
@@ -203,7 +233,7 @@ async function handleFetchMembers(supabase: ReturnType<typeof createClient>, fac
     if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
   }
 
-  return json({ ok: true, count: changed.length, total: members.length, fetched_at: now })
+  return json({ ok: true, count: changed.length, total: members.length, fetched_at: now, faction_name: factionName })
 }
 
 async function handleFetchOurMembers(supabase: ReturnType<typeof createClient>) {
@@ -504,8 +534,11 @@ async function handleGetDibs(
 const JWT_TTL_SECONDS = 24 * 60 * 60   // 24h
 
 async function handleMintRealtimeToken(userId: string) {
-  const jwtSecret = Deno.env.get('SUPABASE_JWT_SECRET')
-  if (!jwtSecret) return json({ error: 'SUPABASE_JWT_SECRET not set' }, 500)
+  // Set this once via `npx supabase secrets set JWT_SECRET=<value>`.
+  // The value comes from Supabase Dashboard → Project Settings → API → JWT Secret.
+  // Can't be named SUPABASE_JWT_SECRET — Supabase reserves the SUPABASE_ prefix.
+  const jwtSecret = Deno.env.get('jwt_secret')
+  if (!jwtSecret) return json({ error: 'JWT_SECRET secret not set' }, 500)
   if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
 
   const key = await crypto.subtle.importKey(
