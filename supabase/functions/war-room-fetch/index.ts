@@ -240,7 +240,12 @@ async function handleFetchOurMembers(supabase: ReturnType<typeof createClient>) 
   const tornKey = nextTornKey()
   if (!tornKey) return json({ error: 'TORN_API_KEYS secret not set' }, 500)
 
-  const url = `https://api.torn.com/v2/faction/members?striptags=true&comment=WarRoom&key=${tornKey}`
+  // Must specify OUR_FACTION_ID explicitly — without it, /v2/faction/members
+  // returns whichever faction the rotating API key owner belongs to. If
+  // TORN_API_KEYS includes a key from outside our faction, we'd silently
+  // upsert that other faction's roster with faction_id = OUR_FACTION_ID,
+  // polluting the table with members who were never in our faction.
+  const url = `https://api.torn.com/v2/faction/${OUR_FACTION_ID}/members?striptags=true&comment=WarRoom&key=${tornKey}`
   const resp = await fetch(url)
   if (!resp.ok) return json({ error: `Torn API HTTP ${resp.status}` }, 502)
 
@@ -258,16 +263,15 @@ async function handleFetchOurMembers(supabase: ReturnType<typeof createClient>) 
     .eq('faction_id', ourFactionId)
   const currentMap = new Map<number, any>((current ?? []).map((r: any) => [r.member_id, r.state]))
 
-  const changed = members
-    .map((m: any) => ({
-      member_id:   m.id,
-      member_name: m.name,
-      faction_id:  ourFactionId,
-      level:       m.level,
-      position:    m.position ?? null,
-      state:       buildMemberState(m),
-    }))
-    .filter(row => !stateEqual(currentMap.get(row.member_id), row.state))
+  const candidates = members.map((m: any) => ({
+    member_id:   m.id,
+    member_name: m.name,
+    faction_id:  ourFactionId,
+    level:       m.level,
+    position:    m.position ?? null,
+    state:       buildMemberState(m),
+  }))
+  const changed = candidates.filter(row => !stateEqual(currentMap.get(row.member_id), row.state))
 
   if (changed.length > 0) {
     const { error } = await supabase
@@ -276,7 +280,27 @@ async function handleFetchOurMembers(supabase: ReturnType<typeof createClient>) 
     if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
   }
 
-  return json({ ok: true, count: changed.length, total: members.length })
+  // Prune ex-members: anyone with faction_id = OUR_FACTION_ID who is no
+  // longer in the current roster (left the faction at some point). Enemy
+  // side doesn't need this because the Save flow already wipes on faction
+  // switch, but our roster has no such reset — without this prune, the
+  // "Us" counts in the header drift upward forever.
+  const currentIds = new Set(candidates.map(c => c.member_id))
+  const stale = (current ?? [])
+    .map((r: any) => r.member_id)
+    .filter((id: number) => !currentIds.has(id))
+  let pruned = 0
+  if (stale.length > 0) {
+    const { error: delError, count } = await supabase
+      .from('war_room_state')
+      .delete({ count: 'exact' })
+      .eq('faction_id', ourFactionId)
+      .in('member_id', stale)
+    if (delError) return json({ error: `DB prune error: ${delError.message}` }, 500)
+    pruned = count ?? stale.length
+  }
+
+  return json({ ok: true, count: changed.length, pruned, total: members.length })
 }
 
 async function handleGetConfig(supabase: ReturnType<typeof createClient>) {
