@@ -379,51 +379,51 @@ export default function MemberOverview() {
   const openEditView = () => { setViewModalMode('edit'); setViewModalOpen(true) }
 
   const handleSaveNewView = useCallback(async (name, columns) => {
-    const created = await createSavedView({ name, columns, user })
+    const created = await createSavedView({ name, columns, user }, user.apiKey)
     setSavedViews(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
     setActiveViewId(created.id)
   }, [user])
 
   const handleUpdateView = useCallback(async (name, columns) => {
     if (isBuiltinView) return
-    const updated = await updateSavedView(activeView.id, { name, columns })
+    const updated = await updateSavedView(activeView.id, { name, columns }, user.apiKey)
     setSavedViews(prev =>
       prev.map(v => v.id === updated.id ? updated : v)
           .sort((a, b) => a.name.localeCompare(b.name))
     )
-  }, [activeView.id, isBuiltinView])
+  }, [activeView.id, isBuiltinView, user.apiKey])
 
   const handleDeleteView = useCallback(async () => {
     if (isBuiltinView) return
-    await deleteSavedView(activeView.id)
+    await deleteSavedView(activeView.id, user.apiKey)
     setSavedViews(prev => prev.filter(v => v.id !== activeView.id))
     setActiveViewId('default')
-  }, [activeView.id, isBuiltinView])
+  }, [activeView.id, isBuiltinView, user.apiKey])
 
   const openNewThreshold = () => { setThresholdModalMode('new'); setThresholdModalOpen(true) }
   const openEditThreshold = () => { setThresholdModalMode('edit'); setThresholdModalOpen(true) }
 
   const handleSaveNewThreshold = useCallback(async (name, thresholds) => {
-    const created = await createThresholdSet({ name, thresholds, user })
+    const created = await createThresholdSet({ name, thresholds, user }, user.apiKey)
     setThresholdSets(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
     setActiveThresholdId(created.id)
   }, [user])
 
   const handleUpdateThreshold = useCallback(async (name, thresholds) => {
     if (!activeThresholds) return
-    const updated = await updateThresholdSet(activeThresholds.id, { name, thresholds })
+    const updated = await updateThresholdSet(activeThresholds.id, { name, thresholds }, user.apiKey)
     setThresholdSets(prev =>
       prev.map(t => t.id === updated.id ? updated : t)
           .sort((a, b) => a.name.localeCompare(b.name))
     )
-  }, [activeThresholds])
+  }, [activeThresholds, user.apiKey])
 
   const handleDeleteThreshold = useCallback(async () => {
     if (!activeThresholds) return
-    await deleteThresholdSet(activeThresholds.id)
+    await deleteThresholdSet(activeThresholds.id, user.apiKey)
     setThresholdSets(prev => prev.filter(t => t.id !== activeThresholds.id))
     setActiveThresholdId(null)
-  }, [activeThresholds])
+  }, [activeThresholds, user.apiKey])
 
   // ── Render ──
   if (loading) {

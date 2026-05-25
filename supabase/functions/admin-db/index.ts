@@ -166,6 +166,12 @@ serve(async (req: Request) => {
       case 'submit_cpr_key':
         result = await handleSubmitCprKey(supabase, body, authResult.userId!)
         break
+      case 'manage_overview_view':
+        result = await handleManageOverviewView(supabase, body, authResult.userId!)
+        break
+      case 'manage_overview_threshold':
+        result = await handleManageOverviewThreshold(supabase, body, authResult.userId!)
+        break
       default:
         return new Response(
           JSON.stringify({ error: `Unknown action: ${body.action}` }),
@@ -1000,4 +1006,132 @@ async function handleSubmitCprKey(supabase: any, body: RequestBody, userId: stri
   if (error) throw error
 
   return { success: true, removed: keyToStore === null }
+}
+
+// ── Leadership Member-Overview view & threshold management ────────────────────
+// Two parallel handlers (manage_overview_view / manage_overview_threshold)
+// dispatch on body.data.op = 'create' | 'update' | 'delete'. Both are gated
+// to leadership users — the Phase 3 strict RLS policies on these tables also
+// require is_leadership(), but enforcing it here too gives a clean 403 error
+// rather than a confusing empty-result success.
+
+const OVERVIEW_VIEW_COLUMNS     = 'id, name, columns, created_by_id, created_by_name, updated_at'
+const OVERVIEW_THRESHOLD_COLUMNS = 'id, name, thresholds, created_by_id, created_by_name, updated_at'
+
+async function handleManageOverviewView(supabase: any, body: RequestBody, userId: string) {
+  if (!LEADERSHIP_IDS.includes(userId)) {
+    throw new Error('Leadership only')
+  }
+
+  const payload = body.data ?? {}
+  const op: string = payload.op
+
+  switch (op) {
+    case 'create': {
+      const { name, columns, user_name } = payload
+      if (!name || !Array.isArray(columns)) throw new Error('name and columns are required')
+      const { data, error } = await supabase
+        .from('member_overview_views')
+        .insert({
+          name,
+          columns,
+          created_by_id: String(userId),
+          created_by_name: user_name ?? null,
+        })
+        .select(OVERVIEW_VIEW_COLUMNS)
+        .single()
+      if (error) throw error
+      return { success: true, data }
+    }
+
+    case 'update': {
+      const { id, name, columns } = payload
+      if (!id) throw new Error('id is required')
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+      if (name    !== undefined) patch.name    = name
+      if (columns !== undefined) patch.columns = columns
+      const { data, error } = await supabase
+        .from('member_overview_views')
+        .update(patch)
+        .eq('id', id)
+        .select(OVERVIEW_VIEW_COLUMNS)
+        .single()
+      if (error) throw error
+      return { success: true, data }
+    }
+
+    case 'delete': {
+      const { id } = payload
+      if (!id) throw new Error('id is required')
+      const { error } = await supabase
+        .from('member_overview_views')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      return { success: true }
+    }
+
+    default:
+      throw new Error(`Unknown overview-view op: ${op}`)
+  }
+}
+
+async function handleManageOverviewThreshold(supabase: any, body: RequestBody, userId: string) {
+  if (!LEADERSHIP_IDS.includes(userId)) {
+    throw new Error('Leadership only')
+  }
+
+  const payload = body.data ?? {}
+  const op: string = payload.op
+
+  switch (op) {
+    case 'create': {
+      const { name, thresholds, user_name } = payload
+      if (!name || !thresholds || typeof thresholds !== 'object') {
+        throw new Error('name and thresholds object are required')
+      }
+      const { data, error } = await supabase
+        .from('member_overview_thresholds')
+        .insert({
+          name,
+          thresholds,
+          created_by_id: String(userId),
+          created_by_name: user_name ?? null,
+        })
+        .select(OVERVIEW_THRESHOLD_COLUMNS)
+        .single()
+      if (error) throw error
+      return { success: true, data }
+    }
+
+    case 'update': {
+      const { id, name, thresholds } = payload
+      if (!id) throw new Error('id is required')
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+      if (name       !== undefined) patch.name       = name
+      if (thresholds !== undefined) patch.thresholds = thresholds
+      const { data, error } = await supabase
+        .from('member_overview_thresholds')
+        .update(patch)
+        .eq('id', id)
+        .select(OVERVIEW_THRESHOLD_COLUMNS)
+        .single()
+      if (error) throw error
+      return { success: true, data }
+    }
+
+    case 'delete': {
+      const { id } = payload
+      if (!id) throw new Error('id is required')
+      const { error } = await supabase
+        .from('member_overview_thresholds')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      return { success: true }
+    }
+
+    default:
+      throw new Error(`Unknown overview-threshold op: ${op}`)
+  }
 }

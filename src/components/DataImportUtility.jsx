@@ -1,11 +1,19 @@
 import { useState } from 'react'
-import { supabase } from '../utils/supabase'
+import { useAuth } from '../contexts/AuthContext'
+import { importCprData, importCrimesData as importCrimesDataApi } from '../utils/adminApi'
 
 export default function DataImportUtility() {
+  const { user } = useAuth()
   const [importing, setImporting] = useState(false)
   const [progress, setProgress] = useState({ current: 0, total: 0, type: '' })
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
+
+  // Both import paths now hand the full JSON payload to the admin-db Edge
+  // Function (import_cpr / import_crimes actions), which bulk-upserts in
+  // ~2 / ~4 queries respectively instead of the previous per-member loop.
+  // Progress is no longer per-record (it's a single server-side call), so
+  // the UI shows an indeterminate spinner instead of a count.
 
   async function importCPRData(file) {
     try {
@@ -20,72 +28,13 @@ export default function DataImportUtility() {
         throw new Error('Invalid CPR data format - missing members object')
       }
 
-      const memberEntries = Object.entries(data.members)
-      setProgress({ current: 0, total: memberEntries.length, type: 'CPR' })
-
-      let membersInserted = 0
-      let cprRecordsInserted = 0
-
-      for (const [memberId, memberData] of memberEntries) {
-        const { data: memberResult, error: memberError } = await supabase
-          .from('members')
-          .upsert({
-            member_id: memberId,
-            member_name: memberData.name || `Member ${memberId}`,
-            tier: memberData.tier || 6,
-            last_scraped: memberData.last_scraped || new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'member_id'
-          })
-
-        if (memberError) {
-          console.error(`Error inserting member ${memberId}:`, memberError)
-          continue
-        }
-
-        membersInserted++
-
-        const cprByRole = memberData.cpr_by_role || {}
-        const cprRecords = []
-
-        for (const [level, roles] of Object.entries(cprByRole)) {
-          for (const [role, cpr] of Object.entries(roles)) {
-            if (typeof cpr === 'number') {
-              cprRecords.push({
-                member_id: memberId,
-                difficulty_level: parseInt(level),
-                role_name: role,
-                cpr_value: cpr,
-                updated_at: new Date().toISOString()
-              })
-            }
-          }
-        }
-
-        if (cprRecords.length > 0) {
-          const { error: cprError } = await supabase
-            .from('member_cpr')
-            .upsert(cprRecords, {
-              onConflict: 'member_id,difficulty_level,role_name'
-            })
-
-          if (cprError) {
-            console.error(`Error inserting CPR for member ${memberId}:`, cprError)
-          } else {
-            cprRecordsInserted += cprRecords.length
-          }
-        }
-
-        setProgress(prev => ({ ...prev, current: prev.current + 1 }))
-      }
+      const result = await importCprData(data.members, user.apiKey)
 
       setResults({
         type: 'CPR',
-        membersInserted,
-        cprRecordsInserted
+        membersInserted: result.membersCount ?? 0,
+        cprRecordsInserted: result.cprRecordsCount ?? 0,
       })
-
     } catch (err) {
       console.error('Error importing CPR data:', err)
       setError(err.message)
@@ -107,85 +56,13 @@ export default function DataImportUtility() {
         throw new Error('Invalid crimes data format - missing crimes object')
       }
 
-      const crimeEntries = Object.entries(data.crimes)
-      setProgress({ current: 0, total: crimeEntries.length, type: 'Crimes' })
-
-      let crimesInserted = 0
-      let slotsInserted = 0
-
-      for (const [crimeId, crimeData] of crimeEntries) {
-        const { error: crimeError } = await supabase
-          .from('crimes')
-          .upsert({
-            crime_id: crimeId,
-            name: crimeData.name || 'Unknown',
-            difficulty: crimeData.difficulty || 1,
-            status: crimeData.status || 'Unknown',
-            created_at: crimeData.created_at || null,
-            executed_at: crimeData.executed_at || null,
-            total_slots: crimeData.total_slots || 0,
-            filled_slots: crimeData.filled_slots || 0,
-            rewards_money: crimeData.rewards?.money || 0,
-            rewards_respect: crimeData.rewards?.respect || 0,
-            rewards_items: crimeData.rewards?.items ? JSON.stringify(crimeData.rewards.items) : null,
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'crime_id'
-          })
-
-        if (crimeError) {
-          console.error(`Error inserting crime ${crimeId}:`, crimeError)
-          continue
-        }
-
-        crimesInserted++
-
-        const slots = crimeData.slots || []
-        const slotRecords = slots.map(slot => ({
-          crime_id: crimeId,
-          position: slot.position,
-          user_id: slot.user?.id?.toString() || null,
-          user_name: slot.user?.name || null,
-          joined_at: slot.user?.joined_at || null,
-          checkpoint_pass_rate: slot.checkpoint_pass_rate || null,
-          item_requirement_id: slot.item_requirement?.id?.toString() || null,
-          item_requirement_name: slot.item_requirement?.name || null,
-          item_requirement_is_reusable: slot.item_requirement?.is_reusable || false,
-          item_outcome_id: slot.user?.item_outcome?.item_id?.toString() || null,
-          item_outcome_outcome: slot.user?.item_outcome?.outcome || null,
-          updated_at: new Date().toISOString()
-        }))
-
-        if (slotRecords.length > 0) {
-          const { error: deleteError } = await supabase
-            .from('crime_slots')
-            .delete()
-            .eq('crime_id', crimeId)
-
-          if (deleteError) {
-            console.warn(`Error deleting old slots for crime ${crimeId}:`, deleteError)
-          }
-
-          const { error: slotError } = await supabase
-            .from('crime_slots')
-            .insert(slotRecords)
-
-          if (slotError) {
-            console.error(`Error inserting slots for crime ${crimeId}:`, slotError)
-          } else {
-            slotsInserted += slotRecords.length
-          }
-        }
-
-        setProgress(prev => ({ ...prev, current: prev.current + 1 }))
-      }
+      const result = await importCrimesDataApi(data.crimes, user.apiKey)
 
       setResults({
         type: 'Crimes',
-        crimesInserted,
-        slotsInserted
+        crimesInserted: result.crimesCount ?? 0,
+        slotsInserted:  result.slotsCount  ?? 0,
       })
-
     } catch (err) {
       console.error('Error importing crimes data:', err)
       setError(err.message)

@@ -172,6 +172,47 @@ export async function updateWarIsTermed(warId, isTermed, tornApiKey) {
   return callAdminApi('update_war_is_termed', { data: { war_id: warId, is_termed: isTermed } }, tornApiKey)
 }
 
+// ── Member Overview view + threshold CRUD (leadership only) ────────────────
+// Read paths still use the supabase client directly (gated by RLS). Writes
+// go through admin-db so the leadership check is server-side and the
+// per-table write policies can stay tightly scoped.
+
+export async function createOverviewView({ name, columns, user }, tornApiKey) {
+  return callAdminApi('manage_overview_view', {
+    data: { op: 'create', name, columns, user_name: user?.name ?? null },
+  }, tornApiKey)
+}
+
+export async function updateOverviewView(id, { name, columns }, tornApiKey) {
+  return callAdminApi('manage_overview_view', {
+    data: { op: 'update', id, name, columns },
+  }, tornApiKey)
+}
+
+export async function deleteOverviewView(id, tornApiKey) {
+  return callAdminApi('manage_overview_view', {
+    data: { op: 'delete', id },
+  }, tornApiKey)
+}
+
+export async function createOverviewThreshold({ name, thresholds, user }, tornApiKey) {
+  return callAdminApi('manage_overview_threshold', {
+    data: { op: 'create', name, thresholds, user_name: user?.name ?? null },
+  }, tornApiKey)
+}
+
+export async function updateOverviewThreshold(id, { name, thresholds }, tornApiKey) {
+  return callAdminApi('manage_overview_threshold', {
+    data: { op: 'update', id, name, thresholds },
+  }, tornApiKey)
+}
+
+export async function deleteOverviewThreshold(id, tornApiKey) {
+  return callAdminApi('manage_overview_threshold', {
+    data: { op: 'delete', id },
+  }, tornApiKey)
+}
+
 /**
  * Get status message from sync result
  */

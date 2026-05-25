@@ -1,7 +1,13 @@
 import { supabase } from './supabase'
+import * as adminApi from './adminApi'
 
 const VIEWS_TABLE = 'member_overview_views'
 const THRESHOLDS_TABLE = 'member_overview_thresholds'
+
+// Reads stay on the supabase client — RLS now enforces the leadership gate
+// at the DB level. Writes go through admin-db so the leadership check is
+// server-side and the write policies on these tables can be locked down to
+// service-role-only in a later phase.
 
 export async function fetchSavedViews() {
   const { data, error } = await supabase
@@ -19,38 +25,18 @@ export async function fetchSavedViews() {
   }))
 }
 
-export async function createSavedView({ name, columns, user }) {
-  const { data, error } = await supabase
-    .from(VIEWS_TABLE)
-    .insert({
-      name,
-      columns,
-      created_by_id: user?.id != null ? String(user.id) : null,
-      created_by_name: user?.name ?? null,
-    })
-    .select('id, name, columns, created_by_id, created_by_name, updated_at')
-    .single()
-  if (error) throw error
-  return data
+export async function createSavedView({ name, columns, user }, tornApiKey) {
+  const result = await adminApi.createOverviewView({ name, columns, user }, tornApiKey)
+  return result.data
 }
 
-export async function updateSavedView(id, { name, columns }) {
-  const patch = { updated_at: new Date().toISOString() }
-  if (name !== undefined)    patch.name = name
-  if (columns !== undefined) patch.columns = columns
-  const { data, error } = await supabase
-    .from(VIEWS_TABLE)
-    .update(patch)
-    .eq('id', id)
-    .select('id, name, columns, created_by_id, created_by_name, updated_at')
-    .single()
-  if (error) throw error
-  return data
+export async function updateSavedView(id, { name, columns }, tornApiKey) {
+  const result = await adminApi.updateOverviewView(id, { name, columns }, tornApiKey)
+  return result.data
 }
 
-export async function deleteSavedView(id) {
-  const { error } = await supabase.from(VIEWS_TABLE).delete().eq('id', id)
-  if (error) throw error
+export async function deleteSavedView(id, tornApiKey) {
+  await adminApi.deleteOverviewView(id, tornApiKey)
 }
 
 export async function fetchThresholdSets() {
@@ -69,36 +55,16 @@ export async function fetchThresholdSets() {
   }))
 }
 
-export async function createThresholdSet({ name, thresholds, user }) {
-  const { data, error } = await supabase
-    .from(THRESHOLDS_TABLE)
-    .insert({
-      name,
-      thresholds,
-      created_by_id: user?.id != null ? String(user.id) : null,
-      created_by_name: user?.name ?? null,
-    })
-    .select('id, name, thresholds, created_by_id, created_by_name, updated_at')
-    .single()
-  if (error) throw error
-  return data
+export async function createThresholdSet({ name, thresholds, user }, tornApiKey) {
+  const result = await adminApi.createOverviewThreshold({ name, thresholds, user }, tornApiKey)
+  return result.data
 }
 
-export async function updateThresholdSet(id, { name, thresholds }) {
-  const patch = { updated_at: new Date().toISOString() }
-  if (name !== undefined)       patch.name = name
-  if (thresholds !== undefined) patch.thresholds = thresholds
-  const { data, error } = await supabase
-    .from(THRESHOLDS_TABLE)
-    .update(patch)
-    .eq('id', id)
-    .select('id, name, thresholds, created_by_id, created_by_name, updated_at')
-    .single()
-  if (error) throw error
-  return data
+export async function updateThresholdSet(id, { name, thresholds }, tornApiKey) {
+  const result = await adminApi.updateOverviewThreshold(id, { name, thresholds }, tornApiKey)
+  return result.data
 }
 
-export async function deleteThresholdSet(id) {
-  const { error } = await supabase.from(THRESHOLDS_TABLE).delete().eq('id', id)
-  if (error) throw error
+export async function deleteThresholdSet(id, tornApiKey) {
+  await adminApi.deleteOverviewThreshold(id, tornApiKey)
 }
