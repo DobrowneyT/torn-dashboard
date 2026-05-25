@@ -5,12 +5,19 @@
  */
 
 const WAR_ROOM_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/war-room-fetch'
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 async function callWarRoom(action, payload, tornApiKey, signal) {
   const response = await fetch(WAR_ROOM_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      // The Supabase Edge Function gateway requires Authorization on every
+      // call (regardless of verify_jwt setting on the function). The anon
+      // key satisfies the gateway; the function does its own Torn-key auth
+      // via verifyTornUser() using the x-torn-api-key header below.
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'apikey': SUPABASE_ANON_KEY,
       'x-torn-api-key': tornApiKey,
     },
     body: JSON.stringify({ action, ...payload }),
@@ -107,4 +114,15 @@ export async function requestRevive({ url, userID, userName, factionName, source
  */
 export async function mintRealtimeToken(tornApiKey) {
   return callWarRoom('mint_realtime_token', {}, tornApiKey)
+}
+
+/**
+ * Mint a short-lived Supabase JWT (HS256, 4h) for the supabase-js client's
+ * `accessToken` async hook. Same claim shape as the realtime token but a
+ * tighter TTL since it gates REST queries (not a long-lived websocket).
+ *
+ * Returns { token, expires_at } where expires_at is a unix-second timestamp.
+ */
+export async function mintSessionToken(tornApiKey) {
+  return callWarRoom('mint_session_token', {}, tornApiKey)
 }

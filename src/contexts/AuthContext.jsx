@@ -1,12 +1,14 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { config } from '../config'
 import { getTornErrorMessage } from '../utils/apiUtils'
+import * as sessionToken from '../utils/sessionToken'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [tokenReady, setTokenReady] = useState(false)
 
   // Check for existing session on mount
   useEffect(() => {
@@ -22,6 +24,16 @@ export function AuthProvider({ children }) {
     }
     setLoading(false)
   }, [])
+
+  // Keep the session-token module in sync with whoever is logged in.
+  // configure() is non-blocking — login completes regardless of whether the
+  // mint succeeds. Until tokenReady flips true, supabase calls fall back to
+  // the anon key (graceful degradation, see src/utils/supabase.js).
+  useEffect(() => {
+    sessionToken.configure(user)
+    const unsubscribe = sessionToken.subscribeToReady(setTokenReady)
+    return unsubscribe
+  }, [user])
 
   async function login(apiKey) {
     try {
@@ -212,6 +224,7 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
+    sessionToken.clear()
     setUser(null)
     localStorage.removeItem('tornUser')
   }
@@ -222,6 +235,7 @@ export function AuthProvider({ children }) {
     isLeadership: user?.isLeadership || false,
     isAdmin: user?.isAdmin || false,
     loading,
+    tokenReady,
     login,
     logout
   }

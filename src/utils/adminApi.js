@@ -5,6 +5,7 @@
  */
 
 const EDGE_FUNCTION_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/admin-db'
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 /**
  * Call the admin-db Edge Function
@@ -23,6 +24,10 @@ async function callAdminApi(action, payload, tornApiKey) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      // Anon key satisfies the Supabase gateway; real auth happens inside
+      // the function via verifyTornUser(x-torn-api-key).
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'apikey': SUPABASE_ANON_KEY,
       'x-torn-api-key': tornApiKey,
     },
     body: JSON.stringify({

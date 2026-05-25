@@ -538,32 +538,42 @@ async function handleGetDibs(
   return json({ dibs: data })
 }
 
-// ── Realtime authorization ───────────────────────────────────────────────────
-// Mint a short-lived JWT that the frontend hands to supabase.realtime.setAuth()
-// so it can subscribe to PRIVATE war_room:* broadcasts. The JWT is signed with
-// the project's SUPABASE_JWT_SECRET; Supabase Realtime trusts whatever claims
-// it carries.
+// ── JWT minting (realtime + session auth) ────────────────────────────────────
+// Mints JWTs signed with the project's SUPABASE_JWT_SECRET so the frontend
+// can prove identity to PostgREST (REST queries) AND Supabase Realtime
+// (private broadcasts). Both consumers verify the signature against the
+// same secret, so a single token shape works for either path.
 //
-// Caller must already be verified via verifyTornUser() (this action is NOT in
-// POLL_ACTIONS, so the standard auth flow runs before we get here).
+// Caller must already be verified via verifyTornUser() (these actions are NOT
+// in POLL_ACTIONS, so the standard auth flow runs before we get here).
 //
 // Claims:
-//   role          = 'authenticated' (so the RLS policy `TO authenticated` applies)
+//   role          = 'authenticated' (so RLS policies `TO authenticated` apply)
 //   sub           = `torn-{userId}` (stable per Torn account)
 //   torn_user_id  = Torn account id
 //   faction_id    = our faction id
 //   is_leadership = mirrors LEADERSHIP_IDS list
 //   is_admin      = mirrors ADMIN_IDS list
+//
+// Two endpoints exist because they have different lifetimes:
+//   - mint_realtime_token: 24h. Long-lived to match websocket persistence.
+//     Used by WarRoomView's existing realtime.setAuth() loop today.
+//   - mint_session_token: 4h. Shorter so a stolen/stale token loses value
+//     faster, and faction membership re-checks happen ~every 4h. Used by
+//     the supabase-js client's accessToken async hook for REST queries.
+// They can be unified later once the frontend fully consumes the shared
+// sessionToken module for realtime auth too.
 
-const JWT_TTL_SECONDS = 24 * 60 * 60   // 24h
+const JWT_TTL_REALTIME_SECONDS = 24 * 60 * 60   // 24h
+const JWT_TTL_SESSION_SECONDS  =  4 * 60 * 60   //  4h
 
-async function handleMintRealtimeToken(userId: string) {
+async function mintAuthToken(userId: string, ttlSeconds: number) {
   // Set this once via `npx supabase secrets set JWT_SECRET=<value>`.
   // The value comes from Supabase Dashboard → Project Settings → API → JWT Secret.
   // Can't be named SUPABASE_JWT_SECRET — Supabase reserves the SUPABASE_ prefix.
   const jwtSecret = Deno.env.get('jwt_secret')
-  if (!jwtSecret) return json({ error: 'JWT_SECRET secret not set' }, 500)
-  if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
+  if (!jwtSecret) return { error: 'JWT_SECRET secret not set', status: 500 }
+  if (!userId || userId === 'anon') return { error: 'user_id required', status: 400 }
 
   const key = await crypto.subtle.importKey(
     'raw',
@@ -573,7 +583,7 @@ async function handleMintRealtimeToken(userId: string) {
     ['sign', 'verify'],
   )
 
-  const expiresAt = getNumericDate(JWT_TTL_SECONDS)
+  const expiresAt = getNumericDate(ttlSeconds)
   const token = await create(
     { alg: 'HS256', typ: 'JWT' },
     {
@@ -590,7 +600,19 @@ async function handleMintRealtimeToken(userId: string) {
     key,
   )
 
-  return json({ token, expires_at: expiresAt })
+  return { token, expiresAt }
+}
+
+async function handleMintRealtimeToken(userId: string) {
+  const result = await mintAuthToken(userId, JWT_TTL_REALTIME_SECONDS)
+  if ('error' in result) return json({ error: result.error }, result.status)
+  return json({ token: result.token, expires_at: result.expiresAt })
+}
+
+async function handleMintSessionToken(userId: string) {
+  const result = await mintAuthToken(userId, JWT_TTL_SESSION_SECONDS)
+  if ('error' in result) return json({ error: result.error }, result.status)
+  return json({ token: result.token, expires_at: result.expiresAt })
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -656,6 +678,11 @@ serve(async (req: Request) => {
         // userId is set by verifyTornUser() above — this action is NOT in
         // POLL_ACTIONS so the standard Torn-key auth flow runs first.
         return await handleMintRealtimeToken(userId)
+      case 'mint_session_token':
+        // Same auth + claim shape as mint_realtime_token, shorter TTL.
+        // Consumed by the frontend's supabase-js accessToken hook so every
+        // REST call carries the JWT (role=authenticated + custom claims).
+        return await handleMintSessionToken(userId)
       default:
         return json({ error: `Unknown action: ${action}` }, 400)
     }

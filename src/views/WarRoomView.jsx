@@ -11,8 +11,8 @@ import {
   claimDibs,
   releaseDibs,
   requestRevive,
-  mintRealtimeToken,
 } from '../utils/warRoomApi'
+import * as sessionToken from '../utils/sessionToken'
 import { config as appConfig } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
@@ -735,30 +735,35 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     //                     by the Edge Function's LEADERSHIP_IDS check)
 
     let configSub = null, stateSub = null, dibsSub = null
-    let refreshTimer = null
+    let tokenReadyUnsub = null
 
-    async function refreshRealtimeAuth() {
-      if (!userRef.current?.apiKey) return false
+    // Token lifecycle is owned by the sessionToken module (mints, caches,
+    // refreshes before expiry, refreshes on tab focus). We just pull the
+    // current token before subscribing and re-apply it whenever the module
+    // signals a rotation, so realtime stays authenticated through long
+    // sessions without an in-component refresh loop.
+    async function applyAuth() {
+      const token = await sessionToken.get()
+      if (!token) return false
       try {
-        const { token, expires_at } = await mintRealtimeToken(userRef.current.apiKey)
         await supabase.realtime.setAuth(token)
-        // Refresh 1h before expiry, clamped to ≥1min so we never hot-loop.
-        const msUntilRefresh = Math.max(
-          60_000,
-          (expires_at - Math.floor(Date.now() / 1000) - 3600) * 1000,
-        )
-        if (refreshTimer) clearTimeout(refreshTimer)
-        refreshTimer = setTimeout(refreshRealtimeAuth, msUntilRefresh)
         return true
       } catch (e) {
-        console.error('[realtime auth] mint failed — falling back to periodic polling', e)
+        console.error('[realtime auth] setAuth failed', e)
         return false
       }
     }
 
     async function setupRealtime() {
-      const ok = await refreshRealtimeAuth()
+      const ok = await applyAuth()
       if (!mounted || !ok) return
+
+      // Re-apply auth whenever sessionToken rotates (background refresh, tab
+      // focus, etc.). Realtime keeps its websocket open across token rotations;
+      // setAuth pushes the new token to the live connection.
+      tokenReadyUnsub = sessionToken.subscribeToReady(async (ready) => {
+        if (ready && mounted) await applyAuth()
+      })
 
       // private: true is REQUIRED — realtime.broadcast_changes always sends
       // as private (via realtime.send with private=true). Without this flag
@@ -830,7 +835,7 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
 
     return () => {
       mounted = false
-      if (refreshTimer) clearTimeout(refreshTimer)
+      if (tokenReadyUnsub) tokenReadyUnsub()
       if (configSub) supabase.removeChannel(configSub)
       if (stateSub)  supabase.removeChannel(stateSub)
       if (dibsSub)   supabase.removeChannel(dibsSub)

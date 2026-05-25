@@ -361,6 +361,19 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
+# Per-function settings. Both functions below skip the gateway JWT check
+# (verify_jwt = false) because they do their own auth via a custom Torn API
+# key verification (verifyTornUser) using the x-torn-api-key header. The
+# Supabase gateway check would only enforce "any valid Supabase JWT", which
+# the public anon key trivially satisfies — so it adds no real security but
+# breaks the call if a deployment forgets the --no-verify-jwt flag or the
+# anon key is in the new opaque sb_publishable_* format (not a JWT).
+[functions.war-room-fetch]
+verify_jwt = false
+
+[functions.admin-db]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
