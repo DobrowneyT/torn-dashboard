@@ -72,7 +72,9 @@ class CPRScraper:
         """
         Load member API keys from:
           1. MEMBER_API_KEYS GitHub Secret (JSON dict of member_id -> api_key)
-          2. cpr_api_key column in Supabase members table (keys submitted via the website)
+          2. Supabase member_secrets table (keys submitted via the website,
+             stored encrypted; service-role-only access, decrypted via the
+             get_member_cpr_key SECURITY DEFINER RPC)
 
         Both sources are merged; Supabase takes precedence for the same member_id.
         Keys are then validated against current faction membership.
@@ -89,15 +91,19 @@ class CPRScraper:
             logger.error(f"Failed to parse MEMBER_API_KEYS: {e}")
             all_api_keys = {}
 
-        # Source 2: Supabase cpr_api_key column (web-submitted keys, stored encrypted)
+        # Source 2: Supabase member_secrets table (web-submitted keys, stored encrypted)
         if self.supabase:
             cpr_secret = os.environ.get('CPR_KEY_SECRET')
             if not cpr_secret:
                 logger.warning("CPR_KEY_SECRET not set — cannot decrypt Supabase cpr_api_keys")
             else:
                 try:
-                    # Fetch member IDs that have a non-null (encrypted) cpr_api_key
-                    resp = self.supabase.table('members').select('member_id').not_.is_('cpr_api_key', 'null').execute()
+                    # Fetch member IDs that have a CPR key in member_secrets.
+                    # We probe the cached `has_cpr_key` boolean on members
+                    # (kept in sync by a trigger on member_secrets) rather than
+                    # reading the encrypted column directly, which now lives in
+                    # the service-role-only member_secrets table.
+                    resp = self.supabase.table('members').select('member_id').eq('has_cpr_key', True).execute()
                     member_ids_with_key = [str(row['member_id']) for row in (resp.data or [])]
                     logger.info(f"Found {len(member_ids_with_key)} members with a cpr_api_key in Supabase")
 
@@ -422,11 +428,24 @@ class CPRScraper:
         return updates
 
     def _invalidate_cpr_key(self, member_id: str):
-        """Null out cpr_api_key in Supabase when a key is found to be invalid."""
+        """Clear the CPR key for a member when it's found to be invalid.
+
+        Routes through set_member_cpr_key with a null raw key — the SECURITY
+        DEFINER function deletes the member_secrets row, and the trigger on
+        member_secrets flips members.has_cpr_key back to false.
+        """
         if not self.supabase:
             return
+        cpr_secret = os.environ.get('CPR_KEY_SECRET')
+        if not cpr_secret:
+            logger.warning(f"Member {member_id}: CPR_KEY_SECRET not set — cannot clear key")
+            return
         try:
-            self.supabase.table('members').update({'cpr_api_key': None}).eq('member_id', str(member_id)).execute()
+            self.supabase.rpc('set_member_cpr_key', {
+                'p_member_id': str(member_id),
+                'p_raw_key': None,
+                'p_secret': cpr_secret,
+            }).execute()
             logger.info(f"Member {member_id}: cpr_api_key cleared (invalid/expired)")
         except Exception as e:
             logger.warning(f"Member {member_id}: failed to clear cpr_api_key: {e}")
@@ -827,15 +846,16 @@ class CPRScraper:
         logger.info("="*70)
 
         # ── Members without a CPR scraper key ──────────────────────────────
-        # Prefer querying Supabase directly (is_current + cpr_api_key IS NULL)
+        # Prefer querying Supabase directly (is_current + has_cpr_key = false)
         # so the list reflects DB state rather than just what was loaded this run.
+        # has_cpr_key is maintained by a trigger on member_secrets.
         members_missing_key = []
         if self.supabase:
             try:
                 resp = self.supabase.table('members') \
                     .select('member_id, name') \
                     .eq('is_current', True) \
-                    .is_('cpr_api_key', 'null') \
+                    .eq('has_cpr_key', False) \
                     .execute()
                 members_missing_key = sorted(
                     [(str(row['member_id']), row.get('name', str(row['member_id']))) for row in (resp.data or [])],

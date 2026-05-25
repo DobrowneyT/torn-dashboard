@@ -266,7 +266,7 @@ export async function loadMembers() {
   try {
     // Load members and CPR data in parallel
     const [membersResult, cprResult] = await Promise.all([
-      supabase.from('members').select('*'),
+      supabase.from('members').select('member_id, member_name, tier, tier_override, last_scraped, updated_at, is_current, last_seen, first_seen, has_cpr_key'),
       supabase.from('member_cpr').select('*')
     ])
 

@@ -986,25 +986,18 @@ async function handleSubmitCprKey(supabase: any, body: RequestBody, userId: stri
     }
   }
 
-  if (keyToStore === null) {
-    // Removing — just null the column
-    const { error } = await supabase
-      .from('members')
-      .update({ cpr_api_key: null, updated_at: new Date().toISOString() })
-      .eq('member_id', String(userId))
-    if (error) throw error
-  } else {
-    // Encrypt via pgp_sym_encrypt inside the SECURITY DEFINER function
-    const cprSecret = Deno.env.get('CPR_KEY_SECRET')!
-    if (!cprSecret) throw new Error('CPR_KEY_SECRET not configured on this server')
+  // Both set and clear go through the SECURITY DEFINER RPC now that the
+  // cpr_api_key column lives in member_secrets. Passing a null/empty raw key
+  // deletes the secret row (see public.set_member_cpr_key).
+  const cprSecret = Deno.env.get('CPR_KEY_SECRET')!
+  if (!cprSecret) throw new Error('CPR_KEY_SECRET not configured on this server')
 
-    const { error } = await supabase.rpc('set_member_cpr_key', {
-      p_member_id: String(userId),
-      p_raw_key:   keyToStore,
-      p_secret:    cprSecret,
-    })
-    if (error) throw error
-  }
+  const { error } = await supabase.rpc('set_member_cpr_key', {
+    p_member_id: String(userId),
+    p_raw_key:   keyToStore,  // null on clear, encrypted-and-stored otherwise
+    p_secret:    cprSecret,
+  })
+  if (error) throw error
 
   return { success: true, removed: keyToStore === null }
 }

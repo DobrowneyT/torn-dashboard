@@ -28,7 +28,7 @@ export default function TierManagement() {
 
       const { data: membersData, error: membersError } = await supabase
         .from('members')
-        .select('*')
+        .select('member_id, member_name, tier, tier_override, last_scraped, updated_at, is_current, last_seen, first_seen, has_cpr_key')
         .eq('is_current', true)
         .order('member_name')
 

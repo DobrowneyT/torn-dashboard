@@ -35,7 +35,9 @@ export default function DashboardView() {
       const memberId = user.id.toString()
 
       const [memberResult, cprResult, statsResult, payouts, crimes, loaned] = await Promise.all([
-        supabase.from('members').select('*').eq('member_id', memberId).single(),
+        supabase.from('members')
+          .select('member_id, member_name, tier, tier_override, last_scraped, updated_at, is_current, last_seen, first_seen, has_cpr_key')
+          .eq('member_id', memberId).single(),
         supabase.from('member_cpr_v2')
           .select('crime_name, difficulty, position_label, cpr_value')
           .eq('member_id', memberId),
@@ -167,7 +169,7 @@ export default function DashboardView() {
       <OCSummaryCard
         tier={memberData.effectiveTier}
         tierInfo={tierInfo}
-        hasCprKey={!!memberData.cpr_api_key}
+        hasCprKey={!!memberData.has_cpr_key}
         onOpenCprKey={() => setShowCprKeyModal(true)}
         payoutHistory={payoutHistory}
         crimeHistory={crimeHistory}
@@ -187,14 +189,14 @@ export default function DashboardView() {
       {showCprKeyModal && (
         <CprKeyModal
           user={user}
-          hasCprKey={!!memberData.cpr_api_key}
+          hasCprKey={!!memberData.has_cpr_key}
           onClose={() => setShowCprKeyModal(false)}
-          onSuccess={(newKey) => {
-            setMemberData(prev => ({ ...prev, cpr_api_key: newKey }))
+          onSuccess={() => {
+            setMemberData(prev => ({ ...prev, has_cpr_key: true }))
             setShowCprKeyModal(false)
           }}
           onRemove={() => {
-            setMemberData(prev => ({ ...prev, cpr_api_key: null }))
+            setMemberData(prev => ({ ...prev, has_cpr_key: false }))
             setShowCprKeyModal(false)
           }}
         />
