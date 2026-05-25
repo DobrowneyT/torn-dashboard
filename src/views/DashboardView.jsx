@@ -6,7 +6,7 @@ import { calculateTierProgress, getTierInfo } from '../utils/tierProgressUtils'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { submitCprKey } from '../utils/adminApi'
-import { STAT_PATHS, getByPath } from '../utils/statPaths'
+import { STAT_PATHS, DASHBOARD_STAT_KEYS, getByPath } from '../utils/statPaths'
 
 const OUR_FACTION_ID = 10739
 
@@ -556,7 +556,7 @@ function PersonalStatsCard({ stats }) {
   const maxPerDay = Math.max(...gymRows.map(g => g.perDay || 0), 1)
 
   // Personal stats: compute avg per day from the nested path in each snapshot
-  const statRows = STAT_PATHS.map(def => {
+  const statRows = STAT_PATHS.filter(def => DASHBOARD_STAT_KEYS.has(def.key)).map(def => {
     let current = getByPath(latestStats, def.path)
     let old = hasDelta ? getByPath(oldestStats, def.path) : null
     // Convert seconds to hours for activity
