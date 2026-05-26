@@ -320,18 +320,18 @@ function ApiKeyUsageModal({ onClose }) {
                 <table className="w-full text-xs">
                   <tbody>
                     {[
-                      ['Storage', 'Browser localStorage only — never sent to our servers'],
-                      ['Sharing', 'Not shared — visible only to you on your device'],
-                      ['Purpose', 'Verify faction membership and determine your access level (member vs. leadership)'],
-                      ['API Calls', 'GET /v2/key/info · GET /user/?selections=profile'],
-                      ['Access Level', 'Limited Access'],
+                      ['Storage', 'Browser localStorage on your device. Sent to our Edge Functions over HTTPS to verify identity; we cache a SHA-256 hash for 24h. The raw key is never persisted server-side.'],
+                      ['Sharing', 'Not shared with other users'],
+                      ['Purpose', 'Verify faction membership and gate access to leadership features'],
+                      ['Torn API Calls', 'GET /v2/key/info · GET /user/?selections=profile — identity verification only, no quota-consuming gameplay queries on your key'],
+                      ['Access Level', 'Minimal Access'],
                     ].map(([label, value]) => (
                       <tr key={label} className="border-b border-gray-100 dark:border-slate-700 last:border-0">
                         <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300 w-1/3 bg-gray-50 dark:bg-slate-700/40">
                           {label}
                         </td>
                         <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
-                          {label === 'API Calls'
+                          {label === 'Torn API Calls'
                             ? value.split(' · ').map((call, i) => (
                                 <span key={i} className="block font-mono">{call}</span>
                               ))
@@ -358,10 +358,10 @@ function ApiKeyUsageModal({ onClose }) {
                 <table className="w-full text-xs">
                   <tbody>
                     {[
-                      ['Storage', 'Encrypted GitHub Secret — accessible only to repository administrators'],
-                      ['Sharing', 'Key not shared. CPR stats derived from it are visible to faction members'],
-                      ['Purpose', 'Automated nightly scripts collect your Checkpoint Pass Rate (CPR) to assist with OC slot optimisation'],
-                      ['Access Level', 'Limited Access'],
+                      ['Storage', 'Encrypted with pgp_sym_encrypt and stored in a service-role-only Supabase table (member_secrets). Inaccessible to clients, leadership, and the Supabase anon role — only the nightly scraper can decrypt.'],
+                      ['Sharing', 'Key not shared. CPR stats derived from it are visible to faction members.'],
+                      ['Purpose', 'Automated nightly scripts call Torn API to collect your Checkpoint Pass Rate (CPR) for OC slot optimisation'],
+                      ['Access Level', 'Minimal Access'],
                     ].map(([label, value]) => (
                       <tr key={label} className="border-b border-gray-100 dark:border-slate-700 last:border-0">
                         <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300 w-1/3 bg-gray-50 dark:bg-slate-700/40">

@@ -27,19 +27,19 @@ function ApiKeyUsageInfo() {
             <tbody>
               <tr className="border-b border-gray-100 dark:border-slate-700">
                 <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300 w-1/3">Storage</td>
-                <td className="py-1 text-gray-600 dark:text-gray-400">Browser localStorage only — never on our servers</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400">Browser localStorage on your device. Sent to our Edge Functions over HTTPS to verify identity; we cache a SHA-256 hash for 24h. The raw key is never persisted server-side.</td>
               </tr>
               <tr className="border-b border-gray-100 dark:border-slate-700">
                 <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">Sharing</td>
-                <td className="py-1 text-gray-600 dark:text-gray-400">Not shared — visible only to you on your device</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400">Not shared with other users</td>
               </tr>
               <tr className="border-b border-gray-100 dark:border-slate-700">
                 <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">Purpose</td>
-                <td className="py-1 text-gray-600 dark:text-gray-400">Verify faction membership &amp; determine access level</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400">Verify faction membership and gate access to leadership features</td>
               </tr>
               <tr className="border-b border-gray-100 dark:border-slate-700">
-                <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">API Calls</td>
-                <td className="py-1 text-gray-600 dark:text-gray-400"><code className="font-mono">GET /v2/key/info</code>, <code className="font-mono">GET /user/profile</code></td>
+                <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">Torn API Calls</td>
+                <td className="py-1 text-gray-600 dark:text-gray-400"><code className="font-mono">GET /v2/key/info</code> and <code className="font-mono">GET /user/?selections=profile</code> — identity verification only, no quota-consuming gameplay queries on your key</td>
               </tr>
               <tr>
                 <td className="py-1 pr-2 font-medium text-gray-700 dark:text-gray-300">Access Level</td>
