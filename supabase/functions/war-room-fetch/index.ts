@@ -97,7 +97,11 @@ async function verifyTornUser(apiKey: string): Promise<AuthResult> {
     if (data.error) return { success: false, error: `Torn API error: ${data.error.error}` }
 
     const userId = String(data.info.user.id)
-    const factionId = String(data.info.user.faction?.faction_id ?? '')
+    // Torn /v2/key/info returns faction_id as a flat property on user — not
+    // nested under `user.faction`. The old nested lookup always yielded ''
+    // which broke for any non-leadership member (leadership were rescued by
+    // the LEADERSHIP_IDS bypass below).
+    const factionId = String(data.info.user.faction_id ?? '')
 
     if (factionId !== OUR_FACTION_ID && !LEADERSHIP_IDS.includes(userId)) {
       return { success: false, error: 'Not a faction member' }
