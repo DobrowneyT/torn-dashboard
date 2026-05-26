@@ -563,17 +563,17 @@ function SyncTab() {
         <button
           onClick={handleSyncMembers}
           disabled={syncingMembers}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
         >
           {syncingMembers ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              Syncing...
+              Fetching…
             </>
           ) : (
             <>
               <RefreshCw className="w-4 h-4" />
-              Sync Members Now
+              Fetch Members
             </>
           )}
         </button>
@@ -605,17 +605,17 @@ function SyncTab() {
         <button
           onClick={handleSyncCrimes}
           disabled={syncing}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
         >
           {syncing ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              Syncing...
+              Fetching…
             </>
           ) : (
             <>
               <RefreshCw className="w-4 h-4" />
-              Sync Crimes Now
+              Fetch Crimes
             </>
           )}
         </button>
@@ -651,17 +651,17 @@ function SyncTab() {
         <button
           onClick={handleSyncItems}
           disabled={syncingItems}
-          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
         >
           {syncingItems ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              Syncing...
+              Fetching…
             </>
           ) : (
             <>
               <RefreshCw className="w-4 h-4" />
-              Sync Items Now
+              Fetch Items
             </>
           )}
         </button>

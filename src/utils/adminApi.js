@@ -172,6 +172,17 @@ export async function updateWarIsTermed(warId, isTermed, tornApiKey) {
   return callAdminApi('update_war_is_termed', { data: { war_id: warId, is_termed: isTermed } }, tornApiKey)
 }
 
+/**
+ * Fire a GitHub `repository_dispatch` event to kick off one of the long-
+ * running scraper workflows. Leadership only. The event_type must match
+ * the allow-list in admin-db (currently `trigger-faction-attacks-scrape`
+ * and `trigger-war-scrape`). Returns once GitHub accepts the dispatch —
+ * the workflow itself runs async on Actions and may take minutes to finish.
+ */
+export async function triggerWorkflow(eventType, tornApiKey) {
+  return callAdminApi('trigger_workflow', { data: { event_type: eventType } }, tornApiKey)
+}
+
 // ── Member Overview view + threshold CRUD (leadership only) ────────────────
 // Read paths still use the supabase client directly (gated by RLS). Writes
 // go through admin-db so the leadership check is server-side and the

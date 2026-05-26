@@ -299,17 +299,17 @@ export default function CrimesView({ crimesData, isLeadership }) {
               <button
                 onClick={handleSyncWithAPI}
                 disabled={syncing}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {syncing ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Syncing...
+                    Fetching…
                   </>
                 ) : (
                   <>
                     <RefreshCw className="w-4 h-4" />
-                    Sync with Torn API
+                    Fetch Crimes
                   </>
                 )}
               </button>

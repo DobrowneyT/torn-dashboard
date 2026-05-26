@@ -622,7 +622,7 @@ export default function MemberOverview() {
                     <th
                       key={colId}
                       onClick={() => handleSort(colId)}
-                      className="py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700/60 whitespace-nowrap"
+                      className="py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 whitespace-nowrap"
                     >
                       <span className="flex items-center gap-1">
                         {col.label}

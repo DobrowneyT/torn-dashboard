@@ -61,6 +61,20 @@ const corsHeaders = {
 const LEADERSHIP_IDS = ['2250591', '2749598', '2264192', '2407528', '2932241', '2015160']
 const FACTION_ID = '10739'
 
+// GitHub repo where the long-running scraper workflows live. Leadership users
+// can trigger them on demand via the trigger_workflow action below.
+const GH_REPO_OWNER = 'DobrowneyT'
+const GH_REPO_NAME  = 'torn-forge-oc-system'
+
+// Allow-list of `event_type` values that can be dispatched. Must match the
+// `repository_dispatch.types` entries in the workflow YAML files. Keeping
+// this restricted prevents leadership from accidentally (or maliciously)
+// firing arbitrary workflow events.
+const ALLOWED_WORKFLOW_EVENTS = new Set([
+  'trigger-faction-attacks-scrape', // .github/workflows/scrape-faction-attacks.yml
+  'trigger-war-scrape',             // .github/workflows/scrape-wars.yml
+])
+
 // In-memory auth cache: keyed by API key, stores { userId, expiresAt }
 // TTL = 10 minutes. Resets on Edge Function cold start, which is fine.
 const AUTH_CACHE_TTL_MS = 10 * 60 * 1000
@@ -171,6 +185,9 @@ serve(async (req: Request) => {
         break
       case 'manage_overview_threshold':
         result = await handleManageOverviewThreshold(supabase, body, authResult.userId!)
+        break
+      case 'trigger_workflow':
+        result = await handleTriggerWorkflow(body, authResult.userId!)
         break
       default:
         return new Response(
@@ -1134,4 +1151,64 @@ async function handleManageOverviewThreshold(supabase: any, body: RequestBody, u
     default:
       throw new Error(`Unknown overview-threshold op: ${op}`)
   }
+}
+
+// ── GitHub workflow dispatch ──────────────────────────────────────────────────
+// Fires a `repository_dispatch` event on the project's GitHub repo, which
+// kicks off whichever workflow has that event_type listed under its
+// `on.repository_dispatch.types`. Used by the Fetch Attacks / Fetch Wars
+// buttons in WarHistoryView to trigger the long-running Python scrapers
+// without waiting on their cron schedule.
+//
+// Leadership-only. The event_type must be in ALLOWED_WORKFLOW_EVENTS, so a
+// compromised client can't dispatch arbitrary GitHub events.
+//
+// Requires a `gh_pat` secret on the Edge Function: a fine-grained PAT
+// scoped to this repo with `contents: read` + `actions: write` (or
+// `metadata: read` + `actions: write`, depending on Github's current PAT
+// permissions taxonomy). Set via:
+//   npx supabase secrets set gh_pat=ghp_xxxxx
+async function handleTriggerWorkflow(body: RequestBody, userId: string) {
+  if (!LEADERSHIP_IDS.includes(userId)) {
+    throw new Error('Leadership only')
+  }
+
+  const payload = body.data ?? {}
+  const eventType: string = payload.event_type
+
+  if (!eventType || !ALLOWED_WORKFLOW_EVENTS.has(eventType)) {
+    throw new Error(`event_type must be one of: ${Array.from(ALLOWED_WORKFLOW_EVENTS).join(', ')}`)
+  }
+
+  const ghPat = Deno.env.get('gh_pat')
+  if (!ghPat) {
+    throw new Error('gh_pat secret not configured on this Edge Function')
+  }
+
+  const url = `https://api.github.com/repos/${GH_REPO_OWNER}/${GH_REPO_NAME}/dispatches`
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${ghPat}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      event_type: eventType,
+      client_payload: {
+        triggered_by_user_id: userId,
+        triggered_at: new Date().toISOString(),
+        ...(payload.client_payload ?? {}),
+      },
+    }),
+  })
+
+  // GitHub returns 204 No Content on success.
+  if (resp.status !== 204) {
+    const errBody = await resp.text().catch(() => '')
+    throw new Error(`GitHub dispatch failed (${resp.status}): ${errBody.slice(0, 200)}`)
+  }
+
+  return { success: true, event_type: eventType }
 }

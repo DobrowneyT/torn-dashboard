@@ -10,6 +10,21 @@
   .dark body {
     @apply bg-slate-900 text-gray-100;
   }
+
+  /* Tell the browser to render native form controls in dark mode when the
+     site is dark. Affects number-input spinners, date/time pickers, color
+     pickers, the inner scrollbar of <select> dropdowns, etc. Without this
+     they default to the OS light theme and look out-of-place against our
+     dark UI (the "gross grey" up/down arrows on <input type="number">).
+     SCOPED to form controls intentionally — applying color-scheme: dark on
+     the .dark root causes Chromium on Linux/GTK to swap our custom 4px
+     scrollbar for a wider native dark one, resulting in two scrollbars
+     rendering on top of each other. */
+  .dark input,
+  .dark select,
+  .dark textarea {
+    color-scheme: dark;
+  }
 }
 
 @layer components {
@@ -106,4 +121,5 @@
   .dark .modal-dialog [class*="overflow-"]:hover::-webkit-scrollbar-thumb {
     background: rgba(100, 116, 139, 0.3);
   }
+
 }
