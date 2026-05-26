@@ -3,6 +3,7 @@ import { supabase } from '../utils/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import * as adminApi from '../utils/adminApi'
 import { config } from '../config'
+import { CheckCircle2, AlertTriangle } from 'lucide-react'
 
 export default function TierManagement() {
   const { user } = useAuth()
@@ -10,7 +11,7 @@ export default function TierManagement() {
   const [editingMember, setEditingMember] = useState(null)
   const [newTier, setNewTier] = useState(null)
   const [saveSuccess, setSaveSuccess] = useState(null)
-  
+
   const [members, setMembers] = useState([])
   const [sortColumn, setSortColumn] = useState('name')
   const [sortDir, setSortDir] = useState('asc')
@@ -257,9 +258,7 @@ export default function TierManagement() {
         {saveSuccess && (
           <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+              <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5" />
               <p className="text-sm text-green-600 dark:text-green-400">{saveSuccess}</p>
             </div>
           </div>
@@ -413,7 +412,7 @@ export default function TierManagement() {
 }
 
 function TierBadge({ tier }) {
-  const colors = { 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3', 4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6' }
+  const colors = { 0: 'bg-tier-review', 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3', 4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6' }
   return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold text-sm ${colors[tier]}`}>Tier {tier}</span>
 }
 
@@ -425,13 +424,9 @@ function QualificationBadge({ metCount, requiredCount, totalCount, meetsRequirem
       </span>
       <span className="text-xs text-gray-400">(need {requiredCount})</span>
       {meetsRequirement ? (
-        <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
+        <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
       ) : (
-        <svg className="w-4 h-4 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
+        <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
       )}
     </div>
   )

@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../utils/supabase'
 import { formatCurrency, formatCurrencyShort } from '../utils/payoutCalculations'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
+import { X } from 'lucide-react'
 import StatCards from '../components/StatCards'
 
 const OUR_FACTION_ID = 10739
@@ -257,9 +258,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
             </p>
           </div>
           <button onClick={onClose} className="flex-shrink-0 p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-6 h-6" />
           </button>
         </div>
 

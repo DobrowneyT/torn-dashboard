@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { isAdmin } from '../config'
+import { Menu, Key, Info, Eye, ChevronRight, Check, LogOut, X } from 'lucide-react'
 
 export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole, canViewAs }) {
   const { user, logout } = useAuth()
@@ -55,19 +56,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
           className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
           aria-label="Settings"
         >
-          <svg
-            className="w-6 h-6 text-gray-700 dark:text-gray-300"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 6h16M4 12h16M4 18h16"
-            />
-          </svg>
+          <Menu className="w-6 h-6 text-gray-700 dark:text-gray-300" />
         </button>
 
         {isOpen && (
@@ -93,9 +82,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                 onClick={handleApiKeyChange}
                 className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
+                <Key className="w-4 h-4" />
                 Change API Key
               </button>
 
@@ -103,9 +90,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                 onClick={handleApiUsage}
                 className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <Info className="w-4 h-4" />
                 API Key Usage
               </button>
 
@@ -117,15 +102,10 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                     className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center justify-between"
                   >
                     <span className="flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
+                      <Eye className="w-4 h-4" />
                       View As
                     </span>
-                    <svg className={`w-4 h-4 transition-transform ${showViewAsMenu ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
+                    <ChevronRight className={`w-4 h-4 transition-transform ${showViewAsMenu ? 'rotate-90' : ''}`} />
                   </button>
 
                   {showViewAsMenu && (
@@ -137,9 +117,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                         }`}
                       >
                         {viewAsRole === null && (
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                          </svg>
+                          <Check className="w-4 h-4" />
                         )}
                         <span className={viewAsRole === null ? '' : 'ml-6'}>Normal (Admin)</span>
                       </button>
@@ -150,9 +128,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                         }`}
                       >
                         {viewAsRole === 'leadership' && (
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                          </svg>
+                          <Check className="w-4 h-4" />
                         )}
                         <span className={viewAsRole === 'leadership' ? '' : 'ml-6'}>Leadership</span>
                       </button>
@@ -163,9 +139,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                         }`}
                       >
                         {viewAsRole === 'member' && (
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                          </svg>
+                          <Check className="w-4 h-4" />
                         )}
                         <span className={viewAsRole === 'member' ? '' : 'ml-6'}>Member</span>
                       </button>
@@ -180,9 +154,7 @@ export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole
                 onClick={handleLogout}
                 className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
+                <LogOut className="w-4 h-4" />
                 Logout
               </button>
             </div>
@@ -291,9 +263,7 @@ function ApiKeyUsageModal({ onClose }) {
               onClick={onClose}
               className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-5 h-5" />
             </button>
           </div>
 

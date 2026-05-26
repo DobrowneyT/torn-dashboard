@@ -7,6 +7,7 @@ import { syncItemsFromAPI } from '../utils/syncItemsFromAPI'
 import { syncMembersFromAPI } from '../utils/syncMembersFromAPI'
 import { importPayoutCSV } from '../utils/csvPayoutImport'
 import * as adminApi from '../utils/adminApi'
+import { AlertTriangle, Database, RefreshCw, Trash2 } from 'lucide-react'
 
 export default function DataManagement() {
   const { user } = useAuth()
@@ -17,9 +18,7 @@ export default function DataManagement() {
     return (
       <div className="card">
         <div className="text-center py-12">
-          <svg className="mx-auto h-12 w-12 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
+          <AlertTriangle className="mx-auto h-12 w-12 text-red-400" />
           <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
             Access Denied
           </h3>
@@ -36,9 +35,7 @@ export default function DataManagement() {
       {/* Header */}
       <div className="card">
         <div className="flex items-center gap-3">
-          <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-          </svg>
+          <Database className="w-8 h-8 text-purple-600" />
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               Data Management
@@ -575,9 +572,7 @@ function SyncTab() {
             </>
           ) : (
             <>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <RefreshCw className="w-4 h-4" />
               Sync Members Now
             </>
           )}
@@ -619,9 +614,7 @@ function SyncTab() {
             </>
           ) : (
             <>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <RefreshCw className="w-4 h-4" />
               Sync Crimes Now
             </>
           )}
@@ -667,9 +660,7 @@ function SyncTab() {
             </>
           ) : (
             <>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <RefreshCw className="w-4 h-4" />
               Sync Items Now
             </>
           )}
@@ -775,9 +766,7 @@ function ClearDataTab() {
     <div className="space-y-6">
       <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <svg className="w-6 h-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
+          <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
           <div>
             <h3 className="font-semibold text-red-800 dark:text-red-200">Warning: Destructive Actions</h3>
             <p className="text-sm text-red-700 dark:text-red-300 mt-1">
@@ -840,9 +829,7 @@ function ClearDataTab() {
             <div className="flex-1 overflow-y-auto p-6">
             <div className="flex items-start gap-4">
               <div className="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+                <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />
               </div>
               <div className="flex-1">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">

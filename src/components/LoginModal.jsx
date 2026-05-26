@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { Info, ChevronDown, LoaderCircle } from 'lucide-react'
 
 function ApiKeyUsageInfo() {
   const [expanded, setExpanded] = useState(false)
@@ -11,14 +12,10 @@ function ApiKeyUsageInfo() {
         className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
       >
         <span className="flex items-center gap-1.5 font-medium">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <Info className="w-3.5 h-3.5" />
           How is my API key used?
         </span>
-        <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
       {expanded && (
         <div className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 space-y-2 bg-white dark:bg-slate-800">
@@ -134,10 +131,7 @@ export default function LoginModal() {
           >
             {isLoading ? (
               <span className="flex items-center justify-center">
-                <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
+                <LoaderCircle className="animate-spin h-5 w-5 mr-2" />
                 Authenticating...
               </span>
             ) : (

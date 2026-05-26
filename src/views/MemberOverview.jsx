@@ -32,25 +32,25 @@ const BUILT_IN_VIEWS = [
   {
     id: 'default',
     name: 'Default',
-    columns: ['name', 'level', 'last_active', 'donator', 'property', 'attackswon', 'rankedwarhits'],
+    columns: ['name', 'level', 'timeplayed', 'refills', 'xantaken', 'energydrinkused', 'property', 'donator', 'activitystreak'],
     builtin: true,
   },
   {
     id: 'war',
     name: 'War',
-    columns: ['name', 'rankedwarhits', 'rankedwarwins', 'attackswon', 'defendswon', 'respectforfaction', 'networth'],
+    columns: ['name', 'level', 'rankedwarhits', 'attackswon', 'retals', 'respectforfaction'],
     builtin: true,
   },
   {
-    id: 'oc',
-    name: 'OC',
-    columns: ['name', 'organizedcrimes', 'criminaloffenses', 'timeplayed'],
+    id: 'crimes',
+    name: 'Crimes',
+    columns: ['name', 'tier', 'organizedcrimes', 'crimestotal', 'alcoholused', 'bustssuccess', 'nerverefills'],
     builtin: true,
   },
   {
     id: 'activity',
     name: 'Activity',
-    columns: ['name', 'last_active', 'timeplayed', 'refills', 'nerverefills', 'gym_energy'],
+    columns: ['name', 'gym_energy', 'energydrinkused', 'statenhancersused', 'xantaken', 'bloodwithdrawn', 'bustssuccess', 'timeplayed', 'activitystreak'],
     builtin: true,
   },
 ]
@@ -77,7 +77,7 @@ const IDENTITY_COLUMNS = {
     ),
   },
   level: {
-    label: 'Lv',
+    label: 'Level',
     sortValue: r => r.level ?? 0,
     render: r => r.level ?? '—',
   },
@@ -171,13 +171,34 @@ export default function MemberOverview() {
         setLoading(true)
         const since = new Date(Date.now() - (SNAPSHOT_DAYS + 1) * 24 * 60 * 60 * 1000)
           .toISOString().slice(0, 10)
-        const [snapsResp, membersResp, viewsResp, threshResp] = await Promise.all([
-          supabase
-            .from('member_daily_stats')
-            .select('member_id, snapshot_date, personalstats, profile, is_donator, property_name, last_action_timestamp, gym_strength, gym_speed, gym_dexterity, gym_defense, gym_energy')
-            .gte('snapshot_date', since)
-            .order('member_id', { ascending: true })
-            .order('snapshot_date', { ascending: false }),
+
+        // Supabase caps each query at `api.max_rows` (1000 by default). With
+        // ~84 members × ~30 daily snapshots = ~2.5k rows we need to page; a
+        // single non-paged query would silently truncate to the first N
+        // members in member_id text order and the rest would render blank.
+        async function loadAllSnapshots() {
+          const PAGE_SIZE = 1000
+          let all = []
+          let from = 0
+          while (true) {
+            const { data, error } = await supabase
+              .from('member_daily_stats')
+              .select('member_id, snapshot_date, personalstats, profile, is_donator, property_name, last_action_timestamp, gym_strength, gym_speed, gym_dexterity, gym_defense, gym_energy')
+              .gte('snapshot_date', since)
+              .order('member_id', { ascending: true })
+              .order('snapshot_date', { ascending: false })
+              .range(from, from + PAGE_SIZE - 1)
+            if (error) throw error
+            if (!data || data.length === 0) break
+            all = all.concat(data)
+            if (data.length < PAGE_SIZE) break
+            from += PAGE_SIZE
+          }
+          return all
+        }
+
+        const [snapshotsData, membersResp, viewsResp, threshResp] = await Promise.all([
+          loadAllSnapshots(),
           supabase
             .from('members')
             .select('member_id, member_name, tier')
@@ -186,9 +207,8 @@ export default function MemberOverview() {
           fetchThresholdSets().catch(e => { console.warn('threshold sets fetch failed', e); return [] }),
         ])
         if (cancelled) return
-        if (snapsResp.error) throw snapsResp.error
         if (membersResp.error) throw membersResp.error
-        setSnapshots(snapsResp.data ?? [])
+        setSnapshots(snapshotsData)
         setMembers(membersResp.data ?? [])
         setSavedViews(viewsResp ?? [])
         setThresholdSets(threshResp ?? [])

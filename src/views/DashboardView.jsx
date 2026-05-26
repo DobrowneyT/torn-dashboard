@@ -7,6 +7,7 @@ import { formatCurrency } from '../utils/payoutCalculations'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { submitCprKey } from '../utils/adminApi'
 import { STAT_PATHS, DASHBOARD_STAT_KEYS, getByPath } from '../utils/statPaths'
+import { Check, X } from 'lucide-react'
 
 const OUR_FACTION_ID = 10739
 
@@ -482,13 +483,9 @@ function TierProgressCard({ tierProgress }) {
             }`}
           >
             {req.met ? (
-              <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
+              <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
             ) : (
-              <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-4 h-4 text-gray-400 flex-shrink-0" />
             )}
             <span className={`truncate ${req.met ? 'text-green-700 dark:text-green-300' : 'text-gray-600 dark:text-gray-300'}`}>
               {req.isAverage ? `Lv${req.level} Avg` : `${req.role} · ${req.crime}`} {'>'}= {req.minCpr}
@@ -759,9 +756,7 @@ function CprKeyModal({ user, hasCprKey, onClose, onSuccess, onRemove }) {
               onClick={onClose}
               className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-5 h-5" />
             </button>
           </div>
 

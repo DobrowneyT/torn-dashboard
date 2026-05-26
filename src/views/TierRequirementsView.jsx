@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../utils/supabase'
 import { config } from '../config'
+import { Check, X } from 'lucide-react'
 
 export default function TierRequirementsView() {
   const { user } = useAuth()
@@ -148,17 +149,13 @@ function RequirementRow({ req, status, actualValue }) {
   const statusConfig = {
     pass: {
       icon: (
-        <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
+        <Check className="w-5 h-5 text-green-500" />
       ),
       bg: 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
     },
     fail: {
       icon: (
-        <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        <X className="w-5 h-5 text-red-500" />
       ),
       bg: 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
     },

@@ -6,6 +6,7 @@
   body {
     @apply bg-gray-50 text-gray-900 transition-colors duration-200;
   }
+
   .dark body {
     @apply bg-slate-900 text-gray-100;
   }
@@ -15,6 +16,7 @@
   .card {
     @apply bg-white border border-gray-200 rounded-lg shadow-sm p-4 sm:p-6 transition-colors duration-200;
   }
+
   .dark .card {
     @apply bg-slate-800 border-slate-700;
   }
@@ -23,57 +25,31 @@
   .modal-overlay {
     @apply fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4;
   }
+
   /* Responsive modal dialog — full screen on mobile, windowed on sm+ */
   .modal-dialog {
     @apply w-full h-full sm:h-auto sm:max-h-[90vh] sm:rounded-xl bg-white dark:bg-slate-800 shadow-xl flex flex-col overflow-hidden;
   }
+
   .btn-primary {
     @apply px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors;
   }
+
   .input {
     @apply px-4 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200;
   }
+
   .dark .input {
     @apply bg-slate-700 border-slate-600 text-gray-100;
   }
-  
-  /* Tier badge colors */
-  .bg-tier-1 {
-    @apply bg-purple-600;
+
+  /* "Needs manual review" bucket — distinct from any tier color */
+  .bg-tier-review {
+    @apply bg-gray-500;
   }
-  .bg-tier-2 {
-    @apply bg-blue-600;
-  }
-  .bg-tier-3 {
-    @apply bg-green-600;
-  }
-  .bg-tier-4 {
-    @apply bg-yellow-600;
-  }
-  .bg-tier-5 {
-    @apply bg-orange-600;
-  }
-  .bg-tier-6 {
-    @apply bg-gray-600;
-  }
-  
-  .border-tier-1 {
-    @apply border-purple-600;
-  }
-  .border-tier-2 {
-    @apply border-blue-600;
-  }
-  .border-tier-3 {
-    @apply border-green-600;
-  }
-  .border-tier-4 {
-    @apply border-yellow-600;
-  }
-  .border-tier-5 {
-    @apply border-orange-600;
-  }
-  .border-tier-6 {
-    @apply border-gray-600;
+
+  .border-tier-review {
+    @apply border-gray-500;
   }
 
   /* Thin, subtle scrollbar — nearly invisible until hovered.
@@ -85,16 +61,19 @@
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
   }
+
   .scrollbar-thin:hover,
   .card [class*="overflow-"]:hover,
   .modal-dialog [class*="overflow-"]:hover {
     scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
   }
+
   .dark .scrollbar-thin:hover,
   .dark .card [class*="overflow-"]:hover,
   .dark .modal-dialog [class*="overflow-"]:hover {
     scrollbar-color: rgba(100, 116, 139, 0.3) transparent;
   }
+
   /* Webkit (Chrome, Safari, Edge) */
   .scrollbar-thin::-webkit-scrollbar,
   .card [class*="overflow-"]::-webkit-scrollbar,
@@ -102,22 +81,26 @@
     width: 4px;
     height: 4px;
   }
+
   .scrollbar-thin::-webkit-scrollbar-track,
   .card [class*="overflow-"]::-webkit-scrollbar-track,
   .modal-dialog [class*="overflow-"]::-webkit-scrollbar-track {
     background: transparent;
   }
+
   .scrollbar-thin::-webkit-scrollbar-thumb,
   .card [class*="overflow-"]::-webkit-scrollbar-thumb,
   .modal-dialog [class*="overflow-"]::-webkit-scrollbar-thumb {
     background: transparent;
     border-radius: 2px;
   }
+
   .scrollbar-thin:hover::-webkit-scrollbar-thumb,
   .card [class*="overflow-"]:hover::-webkit-scrollbar-thumb,
   .modal-dialog [class*="overflow-"]:hover::-webkit-scrollbar-thumb {
     background: rgba(156, 163, 175, 0.3);
   }
+
   .dark .scrollbar-thin:hover::-webkit-scrollbar-thumb,
   .dark .card [class*="overflow-"]:hover::-webkit-scrollbar-thumb,
   .dark .modal-dialog [class*="overflow-"]:hover::-webkit-scrollbar-thumb {
