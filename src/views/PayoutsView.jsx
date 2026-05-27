@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useViewState } from '../contexts/ViewStateContext'
 import { supabase } from '../utils/supabase'
 import { formatCurrency, formatCurrencyShort, formatTimeHours } from '../utils/payoutCalculations'
-import { X } from 'lucide-react'
+import { X, Info } from 'lucide-react'
 import StatCards from '../components/StatCards'
 
 export default function PayoutsView({ isLeadership }) {
@@ -30,6 +30,9 @@ export default function PayoutsView({ isLeadership }) {
   const [compareWeekIds, setCompareWeekIds] = useState([null, null])
   const [compareData, setCompareData] = useState([null, null])
   const [loadingCompare, setLoadingCompare] = useState(false)
+
+  // Info modal
+  const [showInfo, setShowInfo] = useState(false)
 
   // Persist state
   useEffect(() => {
@@ -215,7 +218,17 @@ export default function PayoutsView({ isLeadership }) {
       {/* Payout History — single card */}
       <div className="card">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-          <h2 className="text-xl font-semibold">Payout History</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold">Payout History</h2>
+            <button
+              onClick={() => setShowInfo(true)}
+              className="p-1 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+              title="How OC payouts are calculated"
+              aria-label="Payout info"
+            >
+              <Info className="w-5 h-5" />
+            </button>
+          </div>
           <div className="flex gap-2 items-center flex-wrap">
             <select
               value={period}
@@ -343,13 +356,70 @@ export default function PayoutsView({ isLeadership }) {
           onClose={() => setSelectedMember(null)}
         />
       )}
+
+      {/* OC Payout Info Modal */}
+      {showInfo && <OcPayoutInfoModal onClose={() => setShowInfo(false)} />}
+    </div>
+  )
+}
+
+function OcPayoutInfoModal({ onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-dialog sm:max-w-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">How OC Payouts Work</h3>
+          <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-4 text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+          <section>
+            <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">Weekly pooled payouts</h4>
+            <p>
+              We run OC payouts weekly and pool all crime rewards together. To keep it fair, we pay based on the crimes you are <em>eligible for</em>, not just the crimes you happened to complete &mdash; that's what the tier system is for.
+            </p>
+          </section>
+
+          <section>
+            <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">The tier system</h4>
+            <p>
+              Each tier has a set of CPR requirements across the higher-level crimes. Meet all of them and you land at Tier&nbsp;1 (highest pay). As your CPR drops below the thresholds, you move down toward Tier&nbsp;6 (lowest pay). New members start at Tier&nbsp;0 (manual review) until a leader assigns them a tier.
+            </p>
+          </section>
+
+          <section>
+            <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">Time-spent scaling</h4>
+            <p>
+              On top of your tier eligibility, payouts are scaled by how much of the week you actually spent in a crime:
+            </p>
+            <ul className="list-disc list-inside mt-2 space-y-1">
+              <li><strong>5/7 days or more</strong> in a crime &rarr; full payout for your tier.</li>
+              <li><strong>2 to 5 days</strong> &rarr; scaled linearly between $0 and full payout.</li>
+              <li><strong>Less than 2/7 days</strong> &rarr; $0 for the week.</li>
+            </ul>
+            <p className="mt-2">
+              So: join crimes, and the moment your current crime finishes, jump straight into another. The more time you spend sitting in an OC, the closer you get to a full payout.
+            </p>
+          </section>
+        </div>
+        <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-slate-700 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm font-medium"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
 
 function TierBadge({ tier }) {
-  const colors = {1:'bg-tier-1',2:'bg-tier-2',3:'bg-tier-3',4:'bg-tier-4',5:'bg-tier-5',6:'bg-tier-6'}
-  return <span className={`inline-block px-2 py-1 rounded text-white font-semibold text-xs ${colors[tier]}`}>T{tier}</span>
+  const colors = {0:'bg-tier-review',1:'bg-tier-1',2:'bg-tier-2',3:'bg-tier-3',4:'bg-tier-4',5:'bg-tier-5',6:'bg-tier-6'}
+  const label = tier === 0 ? 'Review' : `T${tier}`
+  return <span className={`inline-block px-2 py-1 rounded text-white font-semibold text-xs ${colors[tier] ?? 'bg-tier-review'}`}>{label}</span>
 }
 
 function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMemberClick, isLeadership }) {

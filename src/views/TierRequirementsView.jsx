@@ -100,7 +100,7 @@ function getRequirementCpr(req, userCpr) {
 function TierCard({ tier, requirements, userCpr }) {
   const tickets = config.payoutTickets[tier]
   const requiredCount = Math.ceil(requirements.length * (2/3))
-  const borderColors = {1:'border-tier-1',2:'border-tier-2',3:'border-tier-3',4:'border-tier-4',5:'border-tier-5',6:'border-tier-6'}
+  const borderColors = {0:'border-tier-review',1:'border-tier-1',2:'border-tier-2',3:'border-tier-3',4:'border-tier-4',5:'border-tier-5',6:'border-tier-6'}
 
   // Count how many requirements the user meets
   const statuses = requirements.map(req => checkRequirement(req, userCpr))
@@ -183,6 +183,7 @@ function RequirementRow({ req, status, actualValue }) {
 }
 
 function TierBadge({ tier }) {
-  const colors = {1:'bg-tier-1',2:'bg-tier-2',3:'bg-tier-3',4:'bg-tier-4',5:'bg-tier-5',6:'bg-tier-6'}
-  return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold ${colors[tier]}`}>Tier {tier}</span>
+  const colors = {0:'bg-tier-review',1:'bg-tier-1',2:'bg-tier-2',3:'bg-tier-3',4:'bg-tier-4',5:'bg-tier-5',6:'bg-tier-6'}
+  const label = tier === 0 ? 'Review' : `Tier ${tier}`
+  return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold ${colors[tier] ?? 'bg-tier-review'}`}>{label}</span>
 }

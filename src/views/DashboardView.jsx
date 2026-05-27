@@ -56,7 +56,9 @@ export default function DashboardView() {
       const member = memberResult.data
       if (member) {
         const cprV2Data = cprResult.data || []
-        const effectiveTier = member.tier_override || member.tier || 6
+        // Use ?? so tier 0 ("needs manual review") is preserved instead of
+        // falling through to tier 6 like a falsy value would with ||.
+        const effectiveTier = member.tier_override ?? member.tier ?? 6
         setMemberData({ ...member, cprV2Data, effectiveTier })
 
         const progress = calculateTierProgress(cprV2Data, effectiveTier)
@@ -210,9 +212,11 @@ export default function DashboardView() {
 
 function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory, crimeHistory }) {
   const tierColors = {
+    0: 'bg-tier-review',
     1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3',
     4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6',
   }
+  const tierLabel = tier === 0 ? 'Review' : `T${tier}`
 
   const recentPayouts = payoutHistory.slice(0, 5)
   const avgPayout = recentPayouts.length > 0
@@ -224,8 +228,8 @@ function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory,
       {/* Header row: Tier badge left, CPR key status right */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <span className={`text-lg font-bold text-white px-3 py-1 rounded-lg ${tierColors[tier]}`}>
-            T{tier}
+          <span className={`text-lg font-bold text-white px-3 py-1 rounded-lg ${tierColors[tier] ?? 'bg-tier-review'}`}>
+            {tierLabel}
           </span>
           <div>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">OC Summary</h3>

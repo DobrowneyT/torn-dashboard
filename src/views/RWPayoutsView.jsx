@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../utils/supabase'
 import { formatCurrency, formatCurrencyShort } from '../utils/payoutCalculations'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
-import { X } from 'lucide-react'
+import { X, Info } from 'lucide-react'
 import StatCards from '../components/StatCards'
 
 const OUR_FACTION_ID = 10739
@@ -12,6 +12,7 @@ export default function RWPayoutsView() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [warPayouts, setWarPayouts] = useState([])
+  const [showInfo, setShowInfo] = useState(false)
 
   // Modal state
   const [modalWp, setModalWp] = useState(null)
@@ -108,7 +109,17 @@ export default function RWPayoutsView() {
       )}
 
       <div className="card">
-        <h2 className="text-xl font-semibold mb-4">Payout History</h2>
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          Payout History
+          <button
+            onClick={() => setShowInfo(true)}
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            aria-label="How RW payouts work"
+            title="How RW payouts work"
+          >
+            <Info className="w-4 h-4" />
+          </button>
+        </h2>
 
         {warPayouts.length === 0 ? (
           <p className="text-gray-500 dark:text-gray-400 py-4">No war payouts yet.</p>
@@ -177,6 +188,46 @@ export default function RWPayoutsView() {
           onClose={closeModal}
         />
       )}
+
+      {showInfo && <RwPayoutInfoModal onClose={() => setShowInfo(false)} />}
+    </div>
+  )
+}
+
+function RwPayoutInfoModal({ onClose }) {
+  return (
+    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal-dialog sm:max-w-lg">
+        <div className="px-5 py-4 flex items-center justify-between border-b border-gray-200 dark:border-slate-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">How RW payouts work</h3>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="px-5 py-4 overflow-y-auto text-sm text-gray-700 dark:text-gray-300 space-y-3">
+          <p>
+            RW payouts are split based on a combination of <strong>contribution</strong> and <strong>participation</strong> — your war hits/assists and the score they generated.
+          </p>
+          <p>
+            To maximise your pay, focus on landing hits as close to <strong>3.00× FF</strong> as possible.
+          </p>
+          <p>
+            The weight of <strong>assists</strong> changes per war depending on the war's difficulty and how necessary the war leaders judge assists were for winning. So check in before each war to understand the formula being used.
+          </p>
+        </div>
+        <div className="px-5 py-3 border-t border-gray-200 dark:border-slate-700 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

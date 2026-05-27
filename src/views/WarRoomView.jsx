@@ -16,6 +16,8 @@ import * as sessionToken from '../utils/sessionToken'
 import { config as appConfig } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
+import MobileWarRoomView from './MobileWarRoomView'
+import { Smartphone } from 'lucide-react'
 
 const OUR_FACTION_ID = 10739
 const STATUS_FILTERS   = ['Okay', 'Hospital', 'Flying', 'Jail']
@@ -579,6 +581,18 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
   const [statsFilterMin, setStatsFilterMin] = useState('')
   const [statsFilterMax, setStatsFilterMax] = useState('')
 
+  // Mobile War Room overlay (only visible on < md viewport — see launcher button)
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Lock body scroll while the mobile overlay is up, restore on close.
+  // Prevents the page underneath from scrolling on iOS Safari rubber-band.
+  useEffect(() => {
+    if (!mobileOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [mobileOpen])
+
   const pollRef          = useRef(null)
   const ourMembersPollRef = useRef(null)
   const bspFiredRef      = useRef(false)
@@ -1127,6 +1141,39 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     })
   }, [members, statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir])
 
+  // ── Mobile War Room adapters ──────────────────────────────────────────────
+  // Project the desktop's flat enemy `members` rows onto the prop shape that
+  // MobileWarRoomView expects. Pure renaming — no transformation. The mobile
+  // component is presentational; all polling/realtime stays in this parent.
+  const mobileMembers = useMemo(() => members.map(m => ({
+    id:           m.member_id,
+    name:         m.member_name,
+    level:        m.level,
+    activity:     m.last_action_status,
+    lastActionTs: m.last_action_timestamp,
+    state:        m.status_state,
+    description:  m.status_description,
+    until:        m.status_until,
+    bsp:          m.bsp_total,
+    flags: {
+      revivable:      !!m.is_revivable,
+      earlyDischarge: !!m.has_early_discharge,
+      inOc:           !!m.is_in_oc,
+      onWall:         !!m.is_on_wall,
+    },
+  })), [members])
+
+  // Activity-bucket counts for our faction. The mobile header strip wants
+  // { Online, Idle, Offline } shaped the same way ActivityCounts computes.
+  const mobileOurCounts = useMemo(() => {
+    const c = { Online: 0, Idle: 0, Offline: 0 }
+    for (const m of ourMembers) {
+      const k = m.last_action_status
+      if (k && c[k] !== undefined) c[k] += 1
+    }
+    return c
+  }, [ourMembers])
+
   // ── Render helpers ─────────────────────────────────────────────────────────
 
   if (configLoading) {
@@ -1179,6 +1226,15 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> LIVE
                 </span>
               )}
+              {/* Mobile launcher — only visible below md breakpoint (<768px).
+                  Opens the dedicated mobile-optimised War Room overlay. */}
+              <button
+                onClick={() => setMobileOpen(true)}
+                className="md:hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
+              >
+                <Smartphone className="w-4 h-4" />
+                Mobile App
+              </button>
             </div>
             {/* Subtitle / enemy summary */}
             {!isActive && (
@@ -1551,6 +1607,31 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
             <span className="text-sm">War Room is not currently active.</span>
           </div>
         )
+      )}
+
+      {/* ── Mobile War Room overlay ────────────────────────────────────
+          Pure props pass-through — the desktop WarRoomView still owns all
+          state, realtime subscriptions, and handlers. The mobile component
+          is a presentational view of the same data. */}
+      {mobileOpen && (
+        <MobileWarRoomView
+          members={mobileMembers}
+          dibsByEnemyId={dibs}
+          currentUserId={user?.id}
+          factionId={String(config?.faction_id ?? '')}
+          factionName={factionName ?? config?.faction_name}
+          ourCounts={mobileOurCounts}
+          isLeadership={isLeadership}
+          isActive={isActive}
+          paused={!isActive}
+          pollIntervalS={pollIntervalSec}
+          onClaim={handleClaimDibs}
+          onRelease={handleReleaseDibs}
+          onTogglePaused={toggleEnabled}
+          onUpdateSpies={handleUpdateSpies}
+          onSetFactionId={handleSaveAndFetch}
+          onClose={() => setMobileOpen(false)}
+        />
       )}
     </div>
   )

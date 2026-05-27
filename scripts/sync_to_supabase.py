@@ -110,7 +110,7 @@ class SupabaseSync:
                 all_members.append({
                     'member_id': member_id,
                     'member_name': member_data.get('name', f'Member {member_id}'),
-                    'tier': member_data.get('tier', -1),
+                    'tier': member_data.get('tier', 0),  # 0 = needs manual review
                     'last_scraped': last_scraped_value,
                     'updated_at': now
                 })

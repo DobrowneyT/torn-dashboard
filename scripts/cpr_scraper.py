@@ -364,7 +364,8 @@ class CPRScraper:
         
         IMPORTANT: This always reconstructs the member dict to ensure consistent ordering:
         1. name (always updated from sync)
-        2. tier (preserved from existing data, defaults to -1 for new members)
+        2. tier (preserved from existing data, defaults to 0 for new members
+           — 0 = "needs manual review" sentinel)
         3. cpr_by_role (merged - keeps old roles, updates/adds new ones, SORTED by difficulty)
         4. last_scraped (always updated)
         5. tier_last_updated (preserved from existing data)
@@ -383,7 +384,7 @@ class CPRScraper:
         # Get existing member data or create empty structure
         existing_member = cpr_data['members'].get(member_id, {})
         existing_cpr = existing_member.get('cpr_by_role', {})
-        existing_tier = existing_member.get('tier', -1)
+        existing_tier = existing_member.get('tier', 0)
         existing_tier_updated = existing_member.get('tier_last_updated', '')
         
         # Merge CPR data: keep all existing roles, update/add new ones
@@ -710,7 +711,7 @@ class CPRScraper:
                 
                 cpr_data['members'][member_id] = {
                     'name': member_name,
-                    'tier': -1,
+                    'tier': 0,  # 0 = "needs manual review" sentinel
                     'cpr_by_role': {},
                     'last_scraped': '',
                     'tier_last_updated': ''
@@ -902,7 +903,8 @@ class CPRScraper:
         Logic:
         - If new tier is BETTER (lower number) than existing tier → UPGRADE
         - If new tier is WORSE (higher number) or EQUAL → KEEP existing tier
-        - Tier -1 is special case (no data) and can be upgraded to any tier
+        - Tier 0 is special case (no data / needs manual review) and can
+          be upgraded to any real tier
         """
         tier_changes = {
             'promoted': [],
@@ -921,15 +923,15 @@ class CPRScraper:
             
             member_data = cpr_data['members'][member_id]
             member_name = member_data['name']
-            existing_tier = member_data.get('tier', -1)
+            existing_tier = member_data.get('tier', 0)
             new_tier = new_assignment['tier']
-            
+
             # Determine if we should update
             should_update = False
             reason = ""
-            
-            if existing_tier == -1:
-                # Member has no tier yet (new member or no data)
+
+            if existing_tier == 0:
+                # Member has no tier yet (new member or no data — 0 sentinel)
                 should_update = True
                 reason = "New tier assignment (was pending)"
             elif new_tier < existing_tier:
@@ -949,7 +951,7 @@ class CPRScraper:
                 member_data['tier'] = new_tier
                 member_data['tier_last_updated'] = datetime.now().isoformat()
                 
-                if existing_tier != -1 and new_tier < existing_tier:
+                if existing_tier != 0 and new_tier < existing_tier:
                     tier_changes['promoted'].append({
                         'member_id': member_id,
                         'name': member_name,
@@ -996,7 +998,7 @@ def print_faction_tier_summary(cpr_data: Dict, current_member_ids: set) -> None:
         if member_id not in current_member_ids:
             continue
 
-        tier = member_data.get('tier', -1)
+        tier = member_data.get('tier', 0)
         name = member_data.get('name', 'Unknown')
 
         if tier not in tier_distribution:
@@ -1014,9 +1016,9 @@ def print_faction_tier_summary(cpr_data: Dict, current_member_ids: set) -> None:
     logger.info("")
     logger.info("Tier distribution:")
 
-    if -1 in tier_distribution:
-        members = sorted(tier_distribution[-1])
-        logger.info(f"  ⚠️  Tier -1 (NEEDS MANUAL REVIEW): {len(members)} members")
+    if 0 in tier_distribution:
+        members = sorted(tier_distribution[0])
+        logger.info(f"  ⚠️  Tier 0 (NEEDS MANUAL REVIEW): {len(members)} members")
 
     for tier in range(1, 7):
         if tier in tier_distribution:
@@ -1026,10 +1028,10 @@ def print_faction_tier_summary(cpr_data: Dict, current_member_ids: set) -> None:
     logger.info("")
     logger.info("Member breakdown:")
 
-    for tier in [-1] + list(range(1, 7)):
+    for tier in [0] + list(range(1, 7)):
         if tier not in tier_distribution:
             continue
-        label = "⚠️  Tier -1 (NEEDS MANUAL REVIEW)" if tier == -1 else f"Tier {tier}"
+        label = "⚠️  Tier 0 (NEEDS MANUAL REVIEW)" if tier == 0 else f"Tier {tier}"
         members = sorted(tier_distribution[tier])
         logger.info(f"  {label}:")
         for name, mid in members:
@@ -1094,8 +1096,8 @@ def main():
                     tier_data = {}
                     for member_id, member_data in cpr_data['members'].items():
                         tier_data[member_id] = {
-                            'tier': member_data.get('tier', -1),
-                            'previous_tier': member_data.get('tier', -1),
+                            'tier': member_data.get('tier', 0),
+                            'previous_tier': member_data.get('tier', 0),
                             'changed': False,
                             'total_crimes': 0,
                             'requirements_met': 0,

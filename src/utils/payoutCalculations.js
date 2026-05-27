@@ -428,7 +428,7 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
         participatingMembers[userId] = {
           userId: slot.user.id,
           name: displayName,
-          tier: memberData.tier || 6,
+          tier: memberData.tier ?? 6,
           crimesCount: 0,
           timeSpent: 0,
           crimeIds: [],
@@ -1039,7 +1039,10 @@ export function parsePayoutCSV(csvText, weekStart, weekEnd) {
     const payout = parseInt(cleanNumeric(values[payoutCol])) || 0
     const timeSpent = timeCol !== -1 ? parseInt(cleanNumeric(values[timeCol])) || 0 : 0
     const timePercent = timePercentCol !== -1 ? parseFloat(cleanNumeric(values[timePercentCol])) || 0 : 0
-    const tier = tierCol !== -1 ? parseInt(cleanNumeric(values[tierCol])) || 6 : 6
+    // Preserve tier 0 (Review) when present in CSV — only fall back to 6 if
+    // the cell is missing or non-numeric (NaN), not when it parses to 0.
+    const parsedTier = tierCol !== -1 ? parseInt(cleanNumeric(values[tierCol])) : NaN
+    const tier = Number.isFinite(parsedTier) ? parsedTier : 6
     const baseTickets = ticketsCol !== -1 ? parseFloat(cleanNumeric(values[ticketsCol])) || 0 : 0
     const penalty = penaltyCol !== -1 ? parseFloat(cleanNumeric(values[penaltyCol])) || 0 : 0
     const adjustedTickets = adjustedTicketsCol !== -1
@@ -1138,7 +1141,10 @@ export function parsePayoutXLSX(payoutRows, itemRows, weekStart, weekEnd) {
 
     const payout = Math.floor(Number(row[payoutCol]) || 0)
     const timeSpent = Math.floor(Number(row[timeCol]) || 0)
-    const tier = Math.floor(Number(row[tierCol]) || 6)
+    // Preserve tier 0 (Review) when present in XLSX — only fall back to 6
+    // if the cell is empty/non-numeric.
+    const parsedTierRaw = Number(row[tierCol])
+    const tier = Number.isFinite(parsedTierRaw) ? Math.floor(parsedTierRaw) : 6
     const baseTickets = Number(row[ticketsCol]) || 0
     const penalty = Number(row[penaltyCol]) || 0
     const adjustedTickets = Math.max(0, baseTickets + penalty)

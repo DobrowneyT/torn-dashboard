@@ -78,7 +78,7 @@ export default function TierManagement() {
         return {
           id: member.member_id,
           name: member.member_name,
-          tier: member.tier_override || member.tier,
+          tier: member.tier_override ?? member.tier,
           hasOverride: member.tier_override !== null,
           cprByCrime,
           cprByLevel,
@@ -107,8 +107,9 @@ export default function TierManagement() {
     return [...list].sort((a, b) => {
       let aVal, bVal
       if (sortColumn === 'tier') {
-        aVal = a.tier || 6
-        bVal = b.tier || 6
+        // Use ?? to preserve tier 0 (Review) — || would coalesce it to 6.
+        aVal = a.tier ?? 6
+        bVal = b.tier ?? 6
       } else {
         aVal = (a.name || '').toLowerCase()
         bVal = (b.name || '').toLowerCase()
@@ -135,7 +136,7 @@ export default function TierManagement() {
 
   function handleEditTier(member) {
     setEditingMember(member)
-    setNewTier(member.tier || 6)
+    setNewTier(member.tier ?? 6)
     setSaveSuccess(null)
   }
 
@@ -290,7 +291,7 @@ export default function TierManagement() {
                 </tr>
               ) : (
                 filteredMembers.map(member => {
-                  const currentTier = member.tier || 6
+                  const currentTier = member.tier ?? 6
                   const qualification = getMeetsRequirements(member, currentTier)
                   const nextTier = currentTier > 1 ? currentTier - 1 : null
                   const nextQualification = nextTier ? getMeetsRequirements(member, nextTier) : null
@@ -413,7 +414,8 @@ export default function TierManagement() {
 
 function TierBadge({ tier }) {
   const colors = { 0: 'bg-tier-review', 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3', 4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6' }
-  return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold text-sm ${colors[tier]}`}>Tier {tier}</span>
+  const label = tier === 0 ? 'Review' : `Tier ${tier}`
+  return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold text-sm ${colors[tier] ?? 'bg-tier-review'}`}>{label}</span>
 }
 
 function QualificationBadge({ metCount, requiredCount, totalCount, meetsRequirement }) {

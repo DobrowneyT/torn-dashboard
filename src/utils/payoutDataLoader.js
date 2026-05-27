@@ -301,7 +301,7 @@ export async function loadMembers() {
       membersMap[member.member_id] = {
         id: member.member_id,
         name: member.member_name,
-        tier: member.tier_override || member.tier || 6,
+        tier: member.tier_override ?? member.tier ?? 6,
         is_current: member.is_current,
         last_scraped: member.last_scraped,
         cpr_by_role: cprByRole

@@ -205,10 +205,10 @@ class TierAssignment:
 
         if not all_datapoints:
             self.members_no_data.append({'member_id': member_id, 'reason': 'No CPR data'})
-            logger.warning(f"Member {member_id}: No CPR data → Tier -1 for MANUAL REVIEW")
+            logger.warning(f"Member {member_id}: No CPR data → Tier 0 for MANUAL REVIEW")
             return {
-                'tier': -1,
-                'previous_tier': -1,
+                'tier': 0,
+                'previous_tier': 0,
                 'changed': False,
                 'total_crimes': 0,
                 'requirements_met': 0,
@@ -245,7 +245,7 @@ class TierAssignment:
                 )
                 return {
                     'tier': tier,
-                    'previous_tier': -1,
+                    'previous_tier': 0,
                     'changed': True,
                     'total_crimes': 0,
                     'requirements_met': status['requirements_met'],
@@ -264,7 +264,7 @@ class TierAssignment:
         logger.warning(f"Member {member_id}: Has data but qualifies for no tier → Default Tier 6")
         return {
             'tier': 6,
-            'previous_tier': -1,
+            'previous_tier': 0,
             'changed': True,
             'total_crimes': 0,
             'requirements_met': 0,
@@ -302,7 +302,7 @@ class TierAssignment:
         if not role_predictions:
             logger.warning(f"Member {member_id}: KNN failed (not enough neighbors) → Tier 6")
             return {
-                'tier': 6, 'previous_tier': -1, 'changed': True,
+                'tier': 6, 'previous_tier': 0, 'changed': True,
                 'total_crimes': 0, 'requirements_met': 0, 'requirements_needed': 0,
                 'manual_override': False, 'assignment_method': 'knn_failed_default_tier6',
                 'last_updated': datetime.now().isoformat(),
@@ -314,7 +314,7 @@ class TierAssignment:
 
         logger.info(f"Member {member_id}: KNN → Tier {final_tier} (votes: {dict(final_vote_counts)})")
         return {
-            'tier': final_tier, 'previous_tier': -1, 'changed': True,
+            'tier': final_tier, 'previous_tier': 0, 'changed': True,
             'total_crimes': 0, 'requirements_met': 0, 'requirements_needed': 0,
             'manual_override': False, 'assignment_method': 'knn_prediction',
             'knn_num_datapoints': len(role_predictions),
@@ -376,8 +376,8 @@ class TierAssignment:
         logger.info(f"Total members in v2 DB: {len(self.cpr_data)}")
         logger.info(f"Assigned: {len(assignments)}, No data: {len(self.members_no_data)}")
         logger.info("\nTier distribution:")
-        if tier_counts.get(-1):
-            logger.info(f"  ⚠️  Tier -1 (MANUAL REVIEW): {tier_counts[-1]}")
+        if tier_counts.get(0):
+            logger.info(f"  ⚠️  Tier 0 (MANUAL REVIEW): {tier_counts[0]}")
         for tier in range(1, 7):
             if tier_counts.get(tier):
                 logger.info(f"  Tier {tier}: {tier_counts[tier]} members")
