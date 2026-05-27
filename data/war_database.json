@@ -5567,6 +5567,23 @@
       "rank_before": "Diamond II",
       "rank_after": "Diamond I",
       "report_fetched": true
+    },
+    "42698": {
+      "id": 42698,
+      "start_at": 1780167600,
+      "end_at": null,
+      "opponent_id": 10610,
+      "opponent_name": "NPO - Strength",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17100,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -205071,6 +205088,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-05-26T05:02:56.417844"
+    "last_updated": "2026-05-27T05:14:28.502256"
   }
 }
