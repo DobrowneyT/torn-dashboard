@@ -61,19 +61,19 @@ const corsHeaders = {
 const LEADERSHIP_IDS = ['2250591', '2749598', '2264192', '2407528', '2932241', '2015160']
 const FACTION_ID = '10739'
 
-// GitHub repo where the long-running scraper workflows live. Leadership users
-// can trigger them on demand via the trigger_workflow action below.
-const GH_REPO_OWNER = 'DobrowneyT'
-const GH_REPO_NAME  = 'torn-forge-oc-system'
+// Rate limit between Torn API calls for handlers that paginate or fan out.
+// Matches scripts/utils/torn_api.py — ~100 req/min is the Torn budget.
+// At 30 pages this caps the fetch_attacks worst-case at ~18s of waits.
+const TORN_RATE_LIMIT_MS = 600
 
-// Allow-list of `event_type` values that can be dispatched. Must match the
-// `repository_dispatch.types` entries in the workflow YAML files. Keeping
-// this restricted prevents leadership from accidentally (or maliciously)
-// firing arbitrary workflow events.
-const ALLOWED_WORKFLOW_EVENTS = new Set([
-  'trigger-faction-attacks-scrape', // .github/workflows/scrape-faction-attacks.yml
-  'trigger-war-scrape',             // .github/workflows/scrape-wars.yml
-])
+// Torn API error codes that mean "permanently unavailable" for a war report
+// (war too old, invalid id, etc). Mirrors PERMANENT_API_ERROR_CODES in
+// scripts/war_data_update.py. Reports for these wars can't be fetched no
+// matter how many times we try; we still attempt once per fetch_wars call
+// since the DB has no permanent-fail flag — extra failed calls are cheap.
+const PERMANENT_WAR_REPORT_ERROR_CODES = new Set([2, 7, 13, 14])
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 // In-memory auth cache: keyed by API key, stores { userId, expiresAt }
 // TTL = 10 minutes. Resets on Edge Function cold start, which is fine.
@@ -186,8 +186,11 @@ serve(async (req: Request) => {
       case 'manage_overview_threshold':
         result = await handleManageOverviewThreshold(supabase, body, authResult.userId!)
         break
-      case 'trigger_workflow':
-        result = await handleTriggerWorkflow(body, authResult.userId!)
+      case 'fetch_attacks':
+        result = await handleFetchAttacks(supabase, tornApiKey)
+        break
+      case 'fetch_wars':
+        result = await handleFetchWars(supabase, tornApiKey)
         break
       default:
         return new Response(
@@ -1153,62 +1156,330 @@ async function handleManageOverviewThreshold(supabase: any, body: RequestBody, u
   }
 }
 
-// ── GitHub workflow dispatch ──────────────────────────────────────────────────
-// Fires a `repository_dispatch` event on the project's GitHub repo, which
-// kicks off whichever workflow has that event_type listed under its
-// `on.repository_dispatch.types`. Used by the Fetch Attacks / Fetch Wars
-// buttons in WarHistoryView to trigger the long-running Python scrapers
-// without waiting on their cron schedule.
+// ── Faction attacks fetcher ──────────────────────────────────────────────────
+// Pure API-to-DB pipeline replacing the old `trigger_workflow` button that
+// dispatched the Python scraper via GitHub Actions. Mirrors the structure of
+// handleSyncCrimes: read DB cursor, paginate from Torn, bulk upsert,
+// idempotent on attack_id PK.
 //
-// Leadership-only. The event_type must be in ALLOWED_WORKFLOW_EVENTS, so a
-// compromised client can't dispatch arbitrary GitHub events.
+// Pagination is capped at 30 pages (~3,000 attacks per click) to stay inside
+// the Edge Function timeout — at the 600ms rate-limit delay that's ~18s of
+// waits plus upsert time. If we hit the cap, returns `moreAvailable: true`
+// so the UI can offer a "fetch again" follow-up. The cron workflow
+// (.github/workflows/scrape-faction-attacks.yml) is still the right tool for
+// first-time-from-zero backfills which would otherwise require ~440 pages.
+async function handleFetchAttacks(supabase: any, apiKey: string) {
+  // Step 1: cursor = newest stored attack's `started` timestamp (or 0).
+  const { data: newest } = await supabase
+    .from('faction_attacks')
+    .select('started')
+    .order('started', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const fromTimestamp: number = Number(newest?.started ?? 0)
+
+  // Step 2: paginated fetch with cap. Overlap at page boundaries is handled
+  // by the seen-id set; upserts on attack_id are idempotent anyway.
+  const PAGE_CAP = 30
+  const newAttacks: any[] = []
+  const seenIds = new Set<string>()
+  let currentFrom = fromTimestamp
+  let pages = 0
+  let moreAvailable = false
+
+  for (pages = 0; pages < PAGE_CAP; pages++) {
+    if (pages > 0) await sleep(TORN_RATE_LIMIT_MS)
+
+    const url = `https://api.torn.com/v2/faction/attacks?limit=100&sort=ASC&from=${currentFrom}&key=${apiKey}`
+    const resp = await fetch(url)
+    if (!resp.ok) throw new Error(`Torn API error: ${resp.status}`)
+    const data = await resp.json()
+    if (data.error) throw new Error(data.error.error || 'Torn API error')
+
+    const rawAttacks: any[] = data.attacks || []
+    if (rawAttacks.length === 0) break
+
+    for (const raw of rawAttacks) {
+      const aid = String(raw.id)
+      if (seenIds.has(aid)) continue
+      seenIds.add(aid)
+      newAttacks.push(normalizeAttack(raw))
+    }
+
+    if (rawAttacks.length < 100) break
+
+    // Advance cursor to the last attack on the page (Torn returns ASC sort).
+    const last = rawAttacks[rawAttacks.length - 1]
+    currentFrom = Number(last.started ?? currentFrom)
+  }
+  if (pages >= PAGE_CAP) moreAvailable = true
+
+  // Step 3: backfill any new faction IDs we haven't seen in the factions table.
+  const factionIds = new Set<number>()
+  for (const a of newAttacks) {
+    if (a.attacker_faction_id) factionIds.add(Number(a.attacker_faction_id))
+    if (a.defender_faction_id) factionIds.add(Number(a.defender_faction_id))
+  }
+  const factionsBackfilled = await backfillFactions(supabase, apiKey, factionIds)
+
+  // Step 4: bulk upsert.
+  const attacksUpserted = await bulkUpsert(supabase, 'faction_attacks', newAttacks, 'attack_id')
+
+  return {
+    success: true,
+    attacksUpserted,
+    pagesFetched: pages,
+    moreAvailable,
+    factionsBackfilled,
+    fromTimestamp,
+  }
+}
+
+function normalizeAttack(raw: any) {
+  const attacker = raw.attacker || {}
+  const defender = raw.defender || {}
+  const mods = raw.modifiers || {}
+  const attackerFaction = attacker.faction || {}
+  const defenderFaction = defender.faction || {}
+  return {
+    attack_id: raw.id,
+    started: raw.started,
+    ended: raw.ended,
+    attacker_id: attacker.id,
+    attacker_name: attacker.name,
+    attacker_faction_id: attackerFaction.id ?? null,
+    defender_id: defender.id,
+    defender_name: defender.name,
+    defender_faction_id: defenderFaction.id ?? null,
+    result: raw.result,
+    respect_gain: raw.respect_gain ?? 0,
+    chain: raw.chain ?? 0,
+    is_ranked_war: raw.is_ranked_war ?? false,
+    fair_fight: mods.fair_fight ?? 1,
+    war_modifier: mods.war ?? 1,
+    chain_modifier: mods.chain ?? 1,
+    warlord_modifier: mods.warlord ?? 1,
+    is_incoming: Number(defenderFaction.id) === Number(FACTION_ID),
+  }
+}
+
+async function backfillFactions(supabase: any, apiKey: string, factionIds: Set<number>): Promise<number> {
+  if (factionIds.size === 0) return 0
+  const ids = Array.from(factionIds)
+
+  // Find which IDs are already known. PostgREST has a URL length limit on
+  // `in.(...)` filters; 500 ids is safely below it.
+  const knownIds = new Set<number>()
+  const CHUNK = 500
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK)
+    const { data, error } = await supabase.from('factions').select('id').in('id', slice)
+    if (error) {
+      console.warn('Faction backfill lookup error:', error)
+      return 0
+    }
+    for (const r of (data ?? [])) knownIds.add(Number(r.id))
+  }
+
+  const missing = ids.filter(id => !knownIds.has(id))
+  if (missing.length === 0) return 0
+
+  // Fetch each missing faction's basic info, rate-limited. Skip any that
+  // error or return no name (deleted factions etc).
+  const newRows: any[] = []
+  for (let i = 0; i < missing.length; i++) {
+    if (i > 0) await sleep(TORN_RATE_LIMIT_MS)
+    const fid = missing[i]
+    try {
+      const resp = await fetch(`https://api.torn.com/v2/faction/${fid}/basic?key=${apiKey}`)
+      if (!resp.ok) continue
+      const data = await resp.json()
+      if (data.error) continue
+      const basic = data.basic || data
+      if (!basic?.name) continue
+      newRows.push({
+        id: Number(basic.id ?? fid),
+        name: basic.name,
+        tag: basic.tag ?? null,
+        updated_at: new Date().toISOString(),
+      })
+    } catch (e) {
+      console.warn(`Faction ${fid} backfill failed:`, e)
+    }
+  }
+  return bulkUpsert(supabase, 'factions', newRows, 'id')
+}
+
+// ── Ranked wars fetcher ──────────────────────────────────────────────────────
+// Same shape as handleFetchAttacks. Fetches the full war list (always small,
+// ~2 pages for our faction), diffs against DB to identify wars needing a
+// report fetch, and upserts. The `is_termed` column is a manual UI flag
+// (toggled via updateWarIsTermed elsewhere) — we exclude it from the upsert
+// payload so the scraper-driven row data never clobbers it. Postgres upsert
+// leaves omitted columns unchanged.
 //
-// Requires a `gh_pat` secret on the Edge Function: a fine-grained PAT
-// scoped to this repo with `contents: read` + `actions: write` (or
-// `metadata: read` + `actions: write`, depending on Github's current PAT
-// permissions taxonomy). Set via:
-//   npx supabase secrets set gh_pat=ghp_xxxxx
-async function handleTriggerWorkflow(body: RequestBody, userId: string) {
-  if (!LEADERSHIP_IDS.includes(userId)) {
-    throw new Error('Leadership only')
+// Wars with permanently unavailable reports (API errors 2/7/13/14) will be
+// re-attempted on each call since the DB has no permanent-fail flag. That's
+// 1 extra failed API call per such war per click — acceptable cost.
+async function handleFetchWars(supabase: any, apiKey: string) {
+  // Step 1: fetch full war list (paginated, ASC offset).
+  const apiWars: Record<string, any> = {}
+  let offset = 0
+  const LIMIT = 100
+  while (true) {
+    if (offset > 0) await sleep(TORN_RATE_LIMIT_MS)
+    const url = `https://api.torn.com/v2/faction/${FACTION_ID}/rankedwars?offset=${offset}&limit=${LIMIT}&key=${apiKey}`
+    const resp = await fetch(url)
+    if (!resp.ok) throw new Error(`Torn API error: ${resp.status}`)
+    const data = await resp.json()
+    if (data.error) throw new Error(data.error.error || 'Torn API error')
+    const page: any[] = data.rankedwars || data.ranked_wars || []
+    if (page.length === 0) break
+    for (const w of page) apiWars[String(w.id)] = w
+    if (page.length < LIMIT) break
+    offset += LIMIT
   }
 
-  const payload = body.data ?? {}
-  const eventType: string = payload.event_type
+  // Step 2: diff against DB to find wars needing report. A war "needs report"
+  // when it has end_at set (completed) but rewards_items is null (report
+  // never applied). New wars never seen before are also candidates.
+  const { data: existingRows } = await supabase
+    .from('ranked_wars')
+    .select('id, end_at, rewards_items')
+  const existingById = new Map<string, any>()
+  for (const r of (existingRows ?? [])) existingById.set(String(r.id), r)
 
-  if (!eventType || !ALLOWED_WORKFLOW_EVENTS.has(eventType)) {
-    throw new Error(`event_type must be one of: ${Array.from(ALLOWED_WORKFLOW_EVENTS).join(', ')}`)
+  const warRows: any[] = []
+  const contributionRows: any[] = []
+  const reportCandidates: number[] = []
+
+  for (const [warIdStr, raw] of Object.entries(apiWars)) {
+    const normalized = normalizeWar(raw)
+    warRows.push(normalized)
+
+    const existing = existingById.get(warIdStr)
+    const completed = normalized.end_at != null
+    const needsReport = completed && (
+      !existing || existing.rewards_items == null
+    )
+    if (needsReport) reportCandidates.push(Number(raw.id))
   }
 
-  const ghPat = Deno.env.get('gh_pat')
-  if (!ghPat) {
-    throw new Error('gh_pat secret not configured on this Edge Function')
+  // Step 3: fetch reports for completion candidates, capped to keep latency
+  // sane. Apply report data back onto the matching warRow + collect
+  // contributions for the war_member_contributions upsert.
+  const REPORT_CAP = 20
+  let reportsFetched = 0
+  let reportsFailedPermanent = 0
+  let moreReportsAvailable = false
+
+  const toFetch = reportCandidates.slice(0, REPORT_CAP)
+  if (reportCandidates.length > REPORT_CAP) moreReportsAvailable = true
+
+  const warRowById = new Map<number, any>(warRows.map(w => [w.id, w]))
+
+  for (let i = 0; i < toFetch.length; i++) {
+    await sleep(TORN_RATE_LIMIT_MS)
+    const warId = toFetch[i]
+    try {
+      const resp = await fetch(`https://api.torn.com/v2/faction/${warId}/rankedwarreport?key=${apiKey}`)
+      const data = await resp.json().catch(() => ({}))
+
+      if (data?.error) {
+        const code = Number(data.error?.code ?? 0)
+        if (PERMANENT_WAR_REPORT_ERROR_CODES.has(code)) {
+          reportsFailedPermanent++
+          continue
+        }
+        // Transient — log and skip this iteration; next run will retry.
+        console.warn(`War ${warId} report transient error:`, data.error)
+        continue
+      }
+
+      const report = data.rankedwarreport
+      if (!report) continue
+
+      applyWarReport(warRowById.get(warId), report)
+      contributionRows.push(...extractContributions(report))
+      reportsFetched++
+    } catch (e) {
+      console.warn(`War ${warId} report fetch failed:`, e)
+    }
   }
 
-  const url = `https://api.github.com/repos/${GH_REPO_OWNER}/${GH_REPO_NAME}/dispatches`
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${ghPat}`,
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      event_type: eventType,
-      client_payload: {
-        triggered_by_user_id: userId,
-        triggered_at: new Date().toISOString(),
-        ...(payload.client_payload ?? {}),
-      },
-    }),
-  })
+  // Step 4: bulk upsert. is_termed is intentionally NOT in the payload so the
+  // manual UI flag is preserved (Postgres leaves omitted columns alone on
+  // ON CONFLICT DO UPDATE).
+  const warsUpserted = await bulkUpsert(supabase, 'ranked_wars', warRows, 'id')
+  const contributionsUpserted = await bulkUpsert(
+    supabase, 'war_member_contributions', contributionRows, 'war_id,member_id'
+  )
 
-  // GitHub returns 204 No Content on success.
-  if (resp.status !== 204) {
-    const errBody = await resp.text().catch(() => '')
-    throw new Error(`GitHub dispatch failed (${resp.status}): ${errBody.slice(0, 200)}`)
+  return {
+    success: true,
+    warsUpserted,
+    reportsFetched,
+    reportsFailedPermanent,
+    contributionsUpserted,
+    moreReportsAvailable,
   }
+}
 
-  return { success: true, event_type: eventType }
+function normalizeWar(raw: any) {
+  const factions: any[] = raw.factions || []
+  const our = factions.find(f => String(f.id) === FACTION_ID)
+  const opponent = factions.find(f => String(f.id) !== FACTION_ID)
+  return {
+    id: raw.id,
+    start_at: raw.start ?? 0,
+    end_at: raw.end || null,
+    opponent_id: opponent?.id ?? null,
+    opponent_name: opponent?.name ?? null,
+    our_score: our?.score ?? 0,
+    opponent_score: opponent?.score ?? 0,
+    target: raw.target ?? null,
+    winner_faction_id: raw.winner ?? null,
+    forfeit: false,
+    // is_termed deliberately omitted — manual UI flag, never overwritten.
+    rewards_items: null,
+    rank_before: null,
+    rank_after: null,
+  }
+}
+
+function applyWarReport(warRow: any, report: any) {
+  if (!warRow || !report) return
+  const factions: any[] = report.factions || []
+  const our = factions.find(f => String(f.id) === FACTION_ID)
+  if (our) {
+    const rewards = our.rewards || {}
+    // rewards_items is a jsonb column; JSON.stringify gets handled by
+    // postgrest's serializer when we send it as part of the payload.
+    warRow.rewards_items = rewards.items ?? null
+    const rank = our.rank || {}
+    warRow.rank_before = rank.before ?? null
+    warRow.rank_after = rank.after ?? null
+    warRow.our_score = our.score ?? warRow.our_score
+  }
+  warRow.forfeit = report.forfeit ?? false
+}
+
+function extractContributions(report: any): any[] {
+  const rows: any[] = []
+  const warId = report.id
+  for (const faction of (report.factions || [])) {
+    const fid = faction.id
+    for (const m of (faction.members || [])) {
+      rows.push({
+        war_id: warId,
+        member_id: m.id,
+        member_name: m.name ?? null,
+        level: m.level ?? null,
+        attacks: m.attacks ?? 0,
+        score: m.score ?? 0,
+        faction_id: fid,
+      })
+    }
+  }
+  return rows
 }

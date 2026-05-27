@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions } from '../utils/warDataLoader'
-import { updateWarIsTermed, triggerWorkflow } from '../utils/adminApi'
+import { updateWarIsTermed, fetchAttacks as fetchAttacksApi, fetchWars as fetchWarsApi } from '../utils/adminApi'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, RefreshCw } from 'lucide-react'
 
@@ -33,31 +33,57 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
   const [sortCol, setSortCol] = useState('start_at')
   const [sortDir, setSortDir] = useState('desc')
 
-  // Scraper triggers (leadership-only). `dispatching` is the event_type
-  // currently being dispatched, or null. `dispatchMessage` is a small
-  // status banner that auto-clears after ~6s.
-  const [dispatching, setDispatching] = useState(null)
-  const [dispatchMessage, setDispatchMessage] = useState(null)
+  // Fetch buttons (leadership-only). `fetching` is the action currently
+  // running, or null. `fetchMessage` is a small status banner that
+  // auto-clears after ~8s.
+  const [fetching, setFetching] = useState(null)
+  const [fetchMessage, setFetchMessage] = useState(null)
 
-  async function handleTriggerScrape(eventType, label) {
-    if (dispatching) return
-    setDispatching(eventType)
-    setDispatchMessage(null)
+  async function handleFetchAttacks() {
+    if (fetching) return
+    setFetching('attacks')
+    setFetchMessage(null)
     try {
-      await triggerWorkflow(eventType, user.apiKey)
-      setDispatchMessage({
+      const result = await fetchAttacksApi(user.apiKey)
+      const parts = [`${result.attacksUpserted ?? 0} attacks`]
+      if (result.factionsBackfilled > 0) parts.push(`${result.factionsBackfilled} new factions`)
+      parts.push(`${result.pagesFetched} pages`)
+      const more = result.moreAvailable ? ' — more available, click again to continue' : ''
+      setFetchMessage({
         type: 'success',
-        text: `${label} workflow dispatched. It runs on GitHub Actions and typically takes a few minutes — refresh this page later to see new data.`,
+        text: `Fetched ${parts.join(', ')}${more}.`,
       })
     } catch (err) {
-      console.error(`Failed to trigger ${eventType}:`, err)
-      setDispatchMessage({
-        type: 'error',
-        text: `Failed to dispatch ${label}: ${err.message}`,
-      })
+      console.error('fetchAttacks failed:', err)
+      setFetchMessage({ type: 'error', text: `Failed to fetch attacks: ${err.message}` })
     } finally {
-      setDispatching(null)
-      setTimeout(() => setDispatchMessage(null), 6000)
+      setFetching(null)
+      setTimeout(() => setFetchMessage(null), 8000)
+    }
+  }
+
+  async function handleFetchWars() {
+    if (fetching) return
+    setFetching('wars')
+    setFetchMessage(null)
+    try {
+      const result = await fetchWarsApi(user.apiKey)
+      const parts = [`${result.warsUpserted ?? 0} wars`]
+      if (result.reportsFetched > 0) parts.push(`${result.reportsFetched} reports`)
+      if (result.contributionsUpserted > 0) parts.push(`${result.contributionsUpserted} contributions`)
+      const more = result.moreReportsAvailable ? ' — more reports available, click again to continue' : ''
+      setFetchMessage({
+        type: 'success',
+        text: `Fetched ${parts.join(', ')}${more}.`,
+      })
+      // Refresh the visible wars table so new rows appear without a manual reload.
+      fetchWars(0, true)
+    } catch (err) {
+      console.error('fetchWars failed:', err)
+      setFetchMessage({ type: 'error', text: `Failed to fetch wars: ${err.message}` })
+    } finally {
+      setFetching(null)
+      setTimeout(() => setFetchMessage(null), 8000)
     }
   }
 
@@ -206,14 +232,14 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
           {isLeadership && (
             <div className="flex gap-2 items-center">
               <button
-                onClick={() => handleTriggerScrape('trigger-faction-attacks-scrape', 'Fetch Attacks')}
-                disabled={!!dispatching}
+                onClick={handleFetchAttacks}
+                disabled={!!fetching}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
               >
-                {dispatching === 'trigger-faction-attacks-scrape' ? (
+                {fetching === 'attacks' ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Dispatching…
+                    Fetching…
                   </>
                 ) : (
                   <>
@@ -223,14 +249,14 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                 )}
               </button>
               <button
-                onClick={() => handleTriggerScrape('trigger-war-scrape', 'Fetch Wars')}
-                disabled={!!dispatching}
+                onClick={handleFetchWars}
+                disabled={!!fetching}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
               >
-                {dispatching === 'trigger-war-scrape' ? (
+                {fetching === 'wars' ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Dispatching…
+                    Fetching…
                   </>
                 ) : (
                   <>
@@ -243,15 +269,15 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
           )}
         </div>
 
-        {dispatchMessage && (
+        {fetchMessage && (
           <div
             className={`mb-4 p-3 rounded-lg text-sm ${
-              dispatchMessage.type === 'success'
+              fetchMessage.type === 'success'
                 ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
                 : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
             }`}
           >
-            {dispatchMessage.text}
+            {fetchMessage.text}
           </div>
         )}
 

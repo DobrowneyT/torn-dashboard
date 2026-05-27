@@ -173,14 +173,28 @@ export async function updateWarIsTermed(warId, isTermed, tornApiKey) {
 }
 
 /**
- * Fire a GitHub `repository_dispatch` event to kick off one of the long-
- * running scraper workflows. Leadership only. The event_type must match
- * the allow-list in admin-db (currently `trigger-faction-attacks-scrape`
- * and `trigger-war-scrape`). Returns once GitHub accepts the dispatch —
- * the workflow itself runs async on Actions and may take minutes to finish.
+ * Fetch new faction attacks from the Torn API and upsert into Supabase.
+ * Incremental — reads the newest stored attack's `started` timestamp and
+ * pages forward from there. Capped at 30 pages per call (~3,000 attacks).
+ * If `moreAvailable` is true in the result, run again to continue.
+ *
+ * Returns { success, attacksUpserted, pagesFetched, moreAvailable,
+ *           factionsBackfilled, fromTimestamp }.
  */
-export async function triggerWorkflow(eventType, tornApiKey) {
-  return callAdminApi('trigger_workflow', { data: { event_type: eventType } }, tornApiKey)
+export async function fetchAttacks(tornApiKey) {
+  return callAdminApi('fetch_attacks', {}, tornApiKey)
+}
+
+/**
+ * Fetch ranked wars + per-war reports from the Torn API and upsert into
+ * Supabase. Diffs against the DB to fetch reports only for newly-completed
+ * wars. Preserves the manual `is_termed` UI flag on each war.
+ *
+ * Returns { success, warsUpserted, reportsFetched, reportsFailedPermanent,
+ *           contributionsUpserted, moreReportsAvailable }.
+ */
+export async function fetchWars(tornApiKey) {
+  return callAdminApi('fetch_wars', {}, tornApiKey)
 }
 
 // ── Member Overview view + threshold CRUD (leadership only) ────────────────
