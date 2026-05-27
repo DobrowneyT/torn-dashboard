@@ -1,0 +1,727 @@
+/**
+ * Mobile War Room — drop-in module for src/views/MobileWarRoomView.jsx
+ *
+ * A one-handed mobile UI for the War Room. Designed to overlay the
+ * desktop WarRoomView, NOT replace it: the launcher button in
+ * WarRoomView is responsible for mounting/unmounting this component
+ * on mobile viewports.
+ *
+ * --------------------------------------------------------------------
+ *   PROPS
+ * --------------------------------------------------------------------
+ * members        Array of normalised war-room rows (shape below).
+ * dibsByEnemyId  Object map of enemy_id → { claimedBy, claimedName }
+ * currentUserId  String/number — the logged-in user's id (used to
+ *                detect "your dib")
+ * factionId      String — enemy faction id, shown in header
+ * factionName    String — enemy faction name, shown in header
+ * isLeadership   Boolean — gates leadership cog
+ * isActive       Boolean — show LIVE pill (not paused)
+ * paused         Boolean — show PAUSED pill + banner
+ * pollIntervalS  Number — shown in leadership sheet
+ * onClaim(id)        Called when user taps Dibs
+ * onRelease(id)      Called when user taps their own Dibs (release)
+ * onTogglePaused()   Called from leadership sheet
+ * onUpdateSpies()    Called from leadership sheet
+ * onClose()      Called when the red X in the header is tapped (the
+ *                parent should unmount this overlay and return the user
+ *                to the desktop view)
+ *
+ *   Expected member shape:
+ *     {
+ *       id:            Number,        // Torn user id (enemy_id)
+ *       name:          String,
+ *       level:         Number,
+ *       activity:      'Online'|'Idle'|'Offline',
+ *       lastActionTs:  Number,        // seconds since epoch
+ *       state:         'Okay'|'Hospital'|'Traveling'|'Abroad'|'Jail'|'Fallen',
+ *       description:   String|null,   // Torn's raw status_description
+ *       until:         Number|null,   // seconds since epoch, used for countdowns
+ *       bsp:           Number|null,   // battle stats sum (battlescore proxy)
+ *       flags: { revivable, earlyDischarge, inOc, onWall }    // booleans
+ *     }
+ *
+ * --------------------------------------------------------------------
+ *   ICONS
+ * --------------------------------------------------------------------
+ * Uses lucide-react. If you haven't already:
+ *     npm install lucide-react
+ */
+
+import { useState, useEffect, useMemo, useReducer } from 'react'
+import {
+  Check, BriefcaseMedical, Plane, MapPin, Skull, Lock, Clock,
+  Syringe, Zap, Shield, Hand, Plus, Swords, X, ChevronRight,
+  ChevronDown, ChevronUp, ShieldCheck, AlertTriangle,
+  Settings, Search, Pause, Play,
+  SlidersHorizontal, ShoppingBag, HeartPulse,
+} from 'lucide-react'
+
+// ───────────────────────────────────────────────────────────────────
+// Static config — status visuals, activity colours, flag icons
+// ───────────────────────────────────────────────────────────────────
+
+const STATUS_STYLES = {
+  Okay:      { Icon: Check,              chipClass: 'bg-green-100 text-green-800' },
+  Hospital:  { Icon: BriefcaseMedical,   chipClass: 'bg-red-100 text-red-800' },
+  Traveling: { Icon: Plane,              chipClass: 'bg-blue-100 text-blue-800' },
+  Abroad:    { Icon: MapPin,             chipClass: 'bg-orange-100 text-orange-800' },
+  Fallen:    { Icon: Skull,              chipClass: 'bg-purple-100 text-purple-800' },
+  Jail:      { Icon: Lock,               chipClass: 'bg-slate-200 text-slate-700' },
+}
+const ABROAD_HOSP_STYLE = { Icon: Plane, chipClass: 'bg-amber-100 text-amber-800' }
+
+const ACTIVITY = {
+  Online:  { dot: 'bg-green-500', text: 'text-green-700 dark:text-green-400', label: 'Online'  },
+  Idle:    { dot: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-400', label: 'Idle'    },
+  Offline: { dot: 'bg-gray-400',  text: 'text-gray-500  dark:text-gray-400',  label: 'Offline' },
+}
+
+const FLAG_ICONS = [
+  { key: 'revivable',      Icon: Syringe, label: 'Revivable',       color: 'text-orange-600' },
+  { key: 'earlyDischarge', Icon: Zap,     label: 'Early discharge', color: 'text-yellow-600' },
+  { key: 'inOc',           Icon: Lock,    label: 'In OC',           color: 'text-gray-600' },
+  { key: 'onWall',         Icon: Shield,  label: 'On wall',         color: 'text-blue-600' },
+]
+
+const QUICK_LINKS = [
+  { Icon: Swords,            label: 'War'      },
+  { Icon: BriefcaseMedical,  label: 'Medical'  },
+  { Icon: ShoppingBag,       label: 'Items'    },
+  { Icon: HeartPulse,        label: 'Revives'  },
+]
+
+// ───────────────────────────────────────────────────────────────────
+// Helpers — formatters + state parsers
+// ───────────────────────────────────────────────────────────────────
+
+function formatStats(n) {
+  if (n == null) return '???'
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B'
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'k'
+  return String(n)
+}
+
+function formatCountdown(s) {
+  if (s <= 0) return 'Releasing…'
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (d > 0) return `${d}d ${h}h`
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+}
+
+function formatRelative(ts) {
+  if (!ts) return '—'
+  const diff = Math.floor(Date.now() / 1000) - ts
+  if (diff < 60)    return 'just now'
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
+function parseTravel(state, description) {
+  if (state === 'Traveling') {
+    const m = description?.match(/^Traveling from (.+) to (.+)$/)
+    if (m) {
+      const [, from, to] = m
+      return to === 'Torn'
+        ? { returning: true,  label: `from ${from}` }
+        : { returning: false, label: `to ${to}` }
+    }
+  }
+  if (state === 'Abroad') return { returning: false, label: description?.replace(/^In /, '') || '' }
+  return null
+}
+
+function parseAbroadHospital(state, description) {
+  if (state !== 'Hospital' || !description) return null
+  const m = description.match(/^(In (?:a|an) .*? hospital)\b/i)
+  return m ? { label: m[1] } : null
+}
+
+function stateToFilterKey(state, description) {
+  if (state === 'Traveling' || state === 'Abroad') return 'Flying'
+  if (state === 'Hospital' && parseAbroadHospital(state, description)) return 'Flying'
+  if (state === 'Fallen') return 'Fallen'
+  return state
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Sub-components
+// ───────────────────────────────────────────────────────────────────
+
+function ActivityDot({ status, ts }) {
+  const cfg = ACTIVITY[status] || ACTIVITY.Offline
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs ${cfg.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot} ${status === 'Online' ? 'animate-pulse' : ''}`} />
+      <span className="font-medium">{cfg.label}</span>
+      {ts && <span className="font-normal text-gray-400 dark:text-gray-500">· {formatRelative(ts)}</span>}
+    </span>
+  )
+}
+
+function StatusChip({ state, description, size = 'md' }) {
+  const abroadHosp = parseAbroadHospital(state, description)
+  const cfg = abroadHosp ? ABROAD_HOSP_STYLE : (STATUS_STYLES[state] || STATUS_STYLES.Okay)
+  const padding = size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full font-semibold whitespace-nowrap ${cfg.chipClass} ${padding}`}>
+      <cfg.Icon size={size === 'sm' ? 12 : 14} />
+      {abroadHosp ? 'Abroad-hosp' : state}
+    </span>
+  )
+}
+
+function TimerPill({ until, urgentBelow = 300 }) {
+  const [, force] = useReducer(x => x + 1, 0)
+  useEffect(() => { if (!until) return; const id = setInterval(force, 1000); return () => clearInterval(id) }, [until])
+  if (!until) return null
+  const rem = until - Math.floor(Date.now() / 1000)
+  const urgent = rem > 0 && rem < urgentBelow
+  const releasing = rem <= 0
+  const color = releasing ? 'text-orange-600' : urgent ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'
+  return (
+    <span className={`inline-flex items-center gap-1 font-mono text-sm font-semibold tabular-nums ${color} ${releasing ? 'animate-pulse' : ''}`}>
+      <Clock size={13} />
+      {formatCountdown(rem)}
+    </span>
+  )
+}
+
+function FlagPill({ Icon, color, title }) {
+  return (
+    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 dark:bg-slate-700 ${color}`} title={title}>
+      <Icon size={12} />
+    </span>
+  )
+}
+
+function FlagsRow({ flags, state, description }) {
+  const isFlying = stateToFilterKey(state, description) === 'Flying'
+  const active = FLAG_ICONS.filter(f => flags?.[f.key])
+  if (!active.length && !isFlying) return null
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {isFlying && (
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800" title="Flying">
+          <Plane size={12} />
+        </span>
+      )}
+      {active.map(f => <FlagPill key={f.key} Icon={f.Icon} color={f.color} title={f.label} />)}
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Member card — compact, side-by-side actions (per design system spec)
+// ───────────────────────────────────────────────────────────────────
+
+function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
+  const isMyDib = dib && String(dib.claimedBy) === String(currentUserId)
+  const claimedByOther = dib && !isMyDib
+  const subLabel = parseTravel(m.state, m.description) || parseAbroadHospital(m.state, m.description)
+
+  return (
+    <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-3 flex flex-col gap-2">
+      {/* Row 1 — name + id + level + BSP */}
+      <div className="flex justify-between items-baseline gap-2">
+        <div className="min-w-0 flex-1">
+          <a
+            href={`https://www.torn.com/profiles.php?XID=${m.id}`}
+            target="_blank" rel="noopener noreferrer"
+            className="text-[15px] font-bold text-gray-900 dark:text-gray-100 truncate block leading-tight no-underline"
+          >
+            {m.name}
+          </a>
+          <div className="text-[11px] text-gray-500 dark:text-gray-400 flex gap-1.5 items-center mt-0.5">
+            <span>[{m.id}]</span>
+            <span>·</span>
+            <span>Lv{m.level}</span>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className={`font-mono text-[15px] font-bold leading-none tabular-nums ${m.bsp == null ? 'text-gray-400' : 'text-gray-900 dark:text-gray-100'}`}>
+            {formatStats(m.bsp)}
+          </div>
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">BSP</div>
+        </div>
+      </div>
+
+      {/* Row 2 — activity + status + timer */}
+      <div className="flex items-center flex-wrap gap-2">
+        <ActivityDot status={m.activity} ts={m.lastActionTs} />
+        <span className="ml-auto inline-flex gap-2 items-center">
+          {m.until && <TimerPill until={m.until} />}
+          <StatusChip state={m.state} description={m.description} size="sm" />
+        </span>
+      </div>
+
+      {/* Travel sub-label */}
+      {subLabel && (
+        <div className="text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">{subLabel.label}</div>
+      )}
+
+      {/* Row 3 — flags + dibs marker */}
+      {(FLAG_ICONS.some(f => m.flags?.[f.key]) || stateToFilterKey(m.state, m.description) === 'Flying' || dib) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <FlagsRow flags={m.flags} state={m.state} description={m.description} />
+          {dib && (
+            <span className={`ml-auto text-[11px] font-semibold inline-flex items-center gap-1 ${isMyDib ? 'text-blue-600' : 'text-purple-700 dark:text-purple-400'}`}>
+              <Hand size={12} />
+              Dibs: {isMyDib ? 'You' : dib.claimedName}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Row 4 — actions, side-by-side */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => isMyDib ? onRelease(m.id) : onClaim(m.id)}
+          className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] border inline-flex items-center justify-center gap-1.5 transition-colors ${
+            isMyDib
+              ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800'
+              : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700'
+          }`}
+        >
+          {isMyDib ? <Check size={14} /> : <Plus size={14} />}
+          {isMyDib ? 'Your dib' : 'Dibs'}
+        </button>
+        <a
+          href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.id}`}
+          target="_blank" rel="noopener noreferrer"
+          onClick={e => claimedByOther && e.preventDefault()}
+          className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] inline-flex items-center justify-center gap-1.5 no-underline ${
+            claimedByOther
+              ? 'bg-gray-200 text-gray-400 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500'
+              : 'bg-red-600 hover:bg-red-700 text-white'
+          }`}
+        >
+          <Swords size={15} />
+          Attack
+        </a>
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Header bar — sticky, with cog (leadership), close X, filter pill
+// ───────────────────────────────────────────────────────────────────
+
+function HeaderBar({ factionLabel, isActive, paused, isLeadership, activeFilterCount, onOpenFilters, onOpenLeadership, onClose }) {
+  return (
+    <div className="sticky top-0 z-20 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-3.5 py-2.5 flex items-center gap-2">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <h1 className="text-[17px] font-bold leading-tight text-gray-900 dark:text-gray-100">War Room</h1>
+          {isActive && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-[10px] font-bold tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              LIVE
+            </span>
+          )}
+          {paused && <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold tracking-wider">PAUSED</span>}
+        </div>
+        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{factionLabel}</div>
+      </div>
+
+      {isLeadership && (
+        <button onClick={onOpenLeadership} aria-label="Leadership controls" className="w-9 h-9 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 inline-flex items-center justify-center flex-shrink-0">
+          <Settings size={18} />
+        </button>
+      )}
+
+      <button onClick={onOpenFilters} aria-label="Filters" className="relative w-9 h-9 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 inline-flex items-center justify-center flex-shrink-0">
+        <SlidersHorizontal size={18} />
+        {activeFilterCount > 0 && (
+          <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] font-bold inline-flex items-center justify-center">
+            {activeFilterCount}
+          </span>
+        )}
+      </button>
+
+      {onClose && (
+        <button onClick={onClose} aria-label="Exit mobile view" title="Back to desktop" className="w-9 h-9 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 inline-flex items-center justify-center flex-shrink-0">
+          <X size={18} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Faction strip + quick links + filter bar
+// ───────────────────────────────────────────────────────────────────
+
+function FactionStrip({ enemyCounts, ourCounts }) {
+  const dot = (color, n, label) => (
+    <span className="inline-flex items-center gap-1 text-xs">
+      <span className={`w-1.5 h-1.5 rounded-full ${color}`} />
+      <span className="font-semibold text-gray-900 dark:text-gray-100">{n}</span>
+      <span className="text-gray-500 dark:text-gray-400">{label}</span>
+    </span>
+  )
+  return (
+    <div className="px-3.5 py-2 bg-gray-50 dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+      <div className="flex gap-3 items-center">
+        <span className="text-[10px] font-bold text-gray-400 tracking-wider">ENEMY</span>
+        {dot('bg-green-500', enemyCounts.Online, 'on')}
+        {dot('bg-amber-500', enemyCounts.Idle,   'idle')}
+        {dot('bg-gray-400',  enemyCounts.Offline,'off')}
+      </div>
+      <div className="flex gap-2.5 items-center">
+        {dot('bg-green-500', ourCounts.Online, 'on')}
+        {dot('bg-amber-500', ourCounts.Idle,   'idle')}
+        <span className="text-[10px] font-bold text-gray-400 tracking-wider">US</span>
+      </div>
+    </div>
+  )
+}
+
+function QuickLinksBar() {
+  return (
+    <div className="px-3.5 py-2.5 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex justify-between gap-2">
+      {QUICK_LINKS.map(({ Icon, label }) => (
+        <button key={label} className="flex-1 h-12 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-700 dark:text-gray-300 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium">
+          <Icon size={18} />
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function TwoTierFilters({ statusFilter, onToggleStatus, advancedCount, onOpenAdvanced }) {
+  const chip = (label, active, onClick) => (
+    <button
+      key={label}
+      onClick={onClick}
+      className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border ${
+        active
+          ? 'bg-blue-600 text-white border-blue-600'
+          : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700'
+      }`}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div className="px-3 py-2 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex gap-1.5 overflow-x-auto whitespace-nowrap items-center scrollbar-hide">
+      {['Okay', 'Hospital', 'Flying', 'Jail'].map(s => chip(s, statusFilter.has(s), () => onToggleStatus(s)))}
+      <button
+        onClick={onOpenAdvanced}
+        className="flex-shrink-0 px-3 py-1.5 rounded-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 text-xs font-medium inline-flex items-center gap-1.5"
+      >
+        <SlidersHorizontal size={12} />
+        More{advancedCount > 0 ? ` (${advancedCount})` : ''}
+      </button>
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Bottom-sheet primitive
+// ───────────────────────────────────────────────────────────────────
+
+function BottomSheet({ open, onClose, title, children }) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-50 bg-black/45 flex items-end">
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-full bg-white dark:bg-slate-800 rounded-t-2xl max-h-[85vh] flex flex-col"
+        style={{ animation: 'wrSlideUp 220ms cubic-bezier(0.32, 0.72, 0, 1)' }}
+      >
+        <div className="flex justify-center pt-2 pb-1">
+          <div className="w-9 h-1 bg-gray-300 dark:bg-slate-600 rounded-full" />
+        </div>
+        <div className="px-4 pt-1.5 pb-3.5 flex justify-between items-center border-b border-gray-200 dark:border-slate-700">
+          <div className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{title}</div>
+          <button onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-lg text-gray-500 inline-flex items-center justify-center">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Filter sheet — used by "More" button + the always-on filter icon
+// ───────────────────────────────────────────────────────────────────
+
+function FilterSheet({
+  open, onClose,
+  statusFilter, toggleStatus, activityFilter, toggleActivity,
+  statsEnabled, setStatsEnabled, statsMin, setStatsMin, statsMax, setStatsMax,
+  onClear,
+}) {
+  const Section = ({ title, children }) => (
+    <div className="px-4 py-3.5 border-b border-gray-200 dark:border-slate-700">
+      <div className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title}</div>
+      {children}
+    </div>
+  )
+  const chip = (label, active, onClick) => (
+    <button
+      key={label}
+      onClick={onClick}
+      className={`px-3.5 py-2 rounded-full text-[13px] font-medium border ${
+        active
+          ? 'bg-blue-600 text-white border-blue-600'
+          : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700'
+      }`}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <BottomSheet open={open} onClose={onClose} title="Filters">
+      <Section title="Status">
+        <div className="flex gap-1.5 flex-wrap">
+          {['Okay', 'Hospital', 'Flying', 'Jail'].map(s => chip(s, statusFilter.has(s), () => toggleStatus(s)))}
+        </div>
+      </Section>
+      <Section title="Activity">
+        <div className="flex gap-1.5 flex-wrap">
+          {['Online', 'Idle', 'Offline'].map(a => chip(a, activityFilter.has(a), () => toggleActivity(a)))}
+        </div>
+      </Section>
+      <Section title="Battle Stats (BSP)">
+        <div className="flex gap-2 items-center mb-2">
+          <button
+            onClick={() => setStatsEnabled(!statsEnabled)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border ${
+              statsEnabled ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700'
+            }`}
+          >
+            {statsEnabled ? 'On' : 'Off'}
+          </button>
+          <input
+            type="text" placeholder="Min — 3m" value={statsMin}
+            onChange={e => setStatsMin(e.target.value)}
+            className={`flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-[13px] text-gray-900 dark:text-gray-100 font-mono ${statsEnabled ? '' : 'opacity-50'}`}
+          />
+          <span className="text-gray-400">–</span>
+          <input
+            type="text" placeholder="Max — 2.6b" value={statsMax}
+            onChange={e => setStatsMax(e.target.value)}
+            className={`flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-[13px] text-gray-900 dark:text-gray-100 font-mono ${statsEnabled ? '' : 'opacity-50'}`}
+          />
+        </div>
+        <div className="text-[11px] text-gray-500">Suffixes: <code className="font-mono text-[10px] bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 px-1 rounded">k</code> · <code className="font-mono text-[10px] bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 px-1 rounded">m</code> · <code className="font-mono text-[10px] bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 px-1 rounded">b</code></div>
+      </Section>
+      <div className="p-4 flex gap-2.5">
+        <button onClick={onClear} className="flex-1 min-h-[44px] rounded-lg bg-transparent border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 font-medium text-sm">Clear all</button>
+        <button onClick={onClose} className="flex-[2] min-h-[44px] rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm">Apply</button>
+      </div>
+    </BottomSheet>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Leadership sheet
+// ───────────────────────────────────────────────────────────────────
+
+function LeadershipSheet({ open, onClose, paused, pollIntervalS, onTogglePaused, onUpdateSpies, factionId, onSetFactionId }) {
+  const [localFactionId, setLocalFactionId] = useState(factionId)
+  const Section = ({ title, children }) => (
+    <div className="px-4 py-3.5 border-b border-gray-200 dark:border-slate-700">
+      <div className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title}</div>
+      {children}
+    </div>
+  )
+  const Input = (props) => (
+    <input {...props} className={`px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-[13px] text-gray-900 dark:text-gray-100 font-mono min-w-0 ${props.className || ''}`} />
+  )
+  return (
+    <BottomSheet open={open} onClose={onClose} title="Leadership controls">
+      <Section title="Polling">
+        <div className="flex items-center gap-2.5 justify-between">
+          <div>
+            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{paused ? 'Paused' : 'Active'}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">{paused ? 'No live polling — last-known snapshot.' : `Enemy poll every ${pollIntervalS}s`}</div>
+          </div>
+          <button
+            onClick={onTogglePaused}
+            className={`min-h-[36px] px-3.5 rounded-lg font-semibold text-[13px] inline-flex items-center gap-1.5 ${
+              paused ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+            }`}
+          >
+            {paused ? <Play size={14} /> : <Pause size={14} />}
+            {paused ? 'Enable' : 'Stop'}
+          </button>
+        </div>
+      </Section>
+      <Section title="Opponent Faction">
+        <div className="flex items-center gap-2">
+          <Input
+            type="text" placeholder="Faction ID — e.g. 8317"
+            value={localFactionId} onChange={e => setLocalFactionId(e.target.value)}
+            className="flex-1"
+          />
+          <button onClick={() => onSetFactionId(localFactionId)} className="min-h-[40px] px-3.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[13px]">Save</button>
+        </div>
+      </Section>
+      <Section title="Stats Enrichment">
+        <button onClick={onUpdateSpies} className="w-full min-h-[44px] rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold text-[13px] inline-flex items-center justify-center gap-2">
+          <Search size={14} />
+          Update Spies — pull BSP for all enemies
+        </button>
+      </Section>
+      <div className="p-4">
+        <button onClick={onClose} className="w-full min-h-[44px] rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm">Done</button>
+      </div>
+    </BottomSheet>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Top-level component
+// ───────────────────────────────────────────────────────────────────
+
+export default function MobileWarRoomView({
+  members = [],
+  dibsByEnemyId = {},
+  currentUserId,
+  factionId,
+  factionName,
+  ourCounts = { Online: 0, Idle: 0, Offline: 0 },
+  isLeadership = false,
+  isActive = true,
+  paused = false,
+  pollIntervalS = 3,
+  onClaim = () => {},
+  onRelease = () => {},
+  onTogglePaused = () => {},
+  onUpdateSpies = () => {},
+  onSetFactionId = () => {},
+  onClose,
+}) {
+  const [statusFilter, setStatusFilter] = useState(new Set(['Okay']))
+  const [activityFilter, setActivityFilter] = useState(new Set())
+  const [statsEnabled, setStatsEnabled] = useState(false)
+  const [statsMin, setStatsMin] = useState('')
+  const [statsMax, setStatsMax] = useState('')
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [leaderOpen, setLeaderOpen] = useState(false)
+
+  const toggleStatus = s => setStatusFilter(p => { const n = new Set(p); n.has(s) ? n.delete(s) : n.add(s); return n })
+  const toggleActivity = a => setActivityFilter(p => { const n = new Set(p); n.has(a) ? n.delete(a) : n.add(a); return n })
+  const clearFilters = () => { setStatusFilter(new Set()); setActivityFilter(new Set()); setStatsEnabled(false); setStatsMin(''); setStatsMax('') }
+
+  const filtered = useMemo(() => {
+    let list = members
+    if (statusFilter.size > 0)   list = list.filter(m => statusFilter.has(stateToFilterKey(m.state, m.description)))
+    if (activityFilter.size > 0) list = list.filter(m => activityFilter.has(m.activity))
+    return [...list].sort((a, b) => {
+      const aT = a.until && a.state !== 'Okay'
+      const bT = b.until && b.state !== 'Okay'
+      if (aT && bT) return a.until - b.until
+      if (aT) return 1
+      if (bT) return -1
+      return (b.bsp ?? 0) - (a.bsp ?? 0)
+    })
+  }, [members, statusFilter, activityFilter])
+
+  const enemyCounts = useMemo(() => {
+    const c = { Online: 0, Idle: 0, Offline: 0 }
+    for (const m of members) c[m.activity] = (c[m.activity] || 0) + 1
+    return c
+  }, [members])
+
+  const activeFilterCount = statusFilter.size + activityFilter.size + (statsEnabled && (statsMin || statsMax) ? 1 : 0)
+  const advancedCount = activityFilter.size + (statsEnabled && (statsMin || statsMax) ? 1 : 0)
+
+  return (
+    <div className="w-full h-full overflow-y-auto bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 relative">
+      <style>{`
+        @keyframes wrSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { scrollbar-width: none; }
+      `}</style>
+
+      <HeaderBar
+        factionLabel={`${factionName || 'Enemy faction'} [${factionId}]`}
+        isActive={isActive && !paused}
+        paused={paused}
+        isLeadership={isLeadership}
+        activeFilterCount={activeFilterCount}
+        onOpenFilters={() => setFilterOpen(true)}
+        onOpenLeadership={() => setLeaderOpen(true)}
+        onClose={onClose}
+      />
+
+      {paused && (
+        <div className="mx-3 my-2.5 px-3 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs leading-relaxed flex items-start gap-2 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300">
+          <AlertTriangle size={14} className="flex-shrink-0 mt-px" />
+          <span>Paused — showing last-known snapshot. Timers below aren't live.</span>
+        </div>
+      )}
+
+      <FactionStrip enemyCounts={enemyCounts} ourCounts={ourCounts} />
+      <QuickLinksBar />
+      <TwoTierFilters
+        statusFilter={statusFilter}
+        onToggleStatus={toggleStatus}
+        advancedCount={advancedCount}
+        onOpenAdvanced={() => setFilterOpen(true)}
+      />
+
+      <div className="px-3 pt-3 pb-20 flex flex-col gap-2">
+        {filtered.length === 0 ? (
+          <div className="p-8 text-center text-gray-500 text-sm">
+            No members match the current filters.<br />
+            <button onClick={clearFilters} className="mt-3 px-3.5 py-1.5 rounded-full bg-transparent border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 text-xs">Clear filters</button>
+          </div>
+        ) : filtered.map(m => (
+          <MemberCard
+            key={m.id}
+            m={m}
+            dib={dibsByEnemyId[m.id]}
+            currentUserId={currentUserId}
+            onClaim={onClaim}
+            onRelease={onRelease}
+          />
+        ))}
+        <div className="mt-1 text-[11px] text-gray-400 text-center px-3 py-2">
+          Showing {filtered.length} of {members.length} · {paused ? 'Static snapshot' : `Polling every ${pollIntervalS}s`}
+        </div>
+      </div>
+
+      <FilterSheet
+        open={filterOpen} onClose={() => setFilterOpen(false)}
+        statusFilter={statusFilter} toggleStatus={toggleStatus}
+        activityFilter={activityFilter} toggleActivity={toggleActivity}
+        statsEnabled={statsEnabled} setStatsEnabled={setStatsEnabled}
+        statsMin={statsMin} setStatsMin={setStatsMin}
+        statsMax={statsMax} setStatsMax={setStatsMax}
+        onClear={clearFilters}
+      />
+      <LeadershipSheet
+        open={leaderOpen} onClose={() => setLeaderOpen(false)}
+        paused={paused}
+        pollIntervalS={pollIntervalS}
+        onTogglePaused={onTogglePaused}
+        onUpdateSpies={onUpdateSpies}
+        factionId={factionId}
+        onSetFactionId={onSetFactionId}
+      />
+    </div>
+  )
+}

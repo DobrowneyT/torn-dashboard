@@ -777,7 +777,7 @@ function CprKeyModal({ user, hasCprKey, onClose, onSuccess, onRemove }) {
               <p>
                 Torn restricts API faction access for the first 3 days after joining a faction.
                 Your key won't have the permissions our scraper needs until you are off Recruit.
-                You can come back and submit a key once your probationary period ends.
+                You can submit a key and once your probationary period ends it can be used.
               </p>
             </div>
           )}
