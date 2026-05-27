@@ -163,21 +163,21 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // NON-LEADERSHIP USERS: Validate API access level
+      // NON-LEADERSHIP USERS: validate API access level.
+      // We intentionally DO NOT require `access.faction` here — Recruits
+      // (3-day probationary status) have that flag set false by Torn even
+      // though they are real faction members. They can still use everything
+      // on this site that reads from Supabase via their JWT (gated by
+      // faction_id claim, not key access level). Features that DO need
+      // faction-level Torn API access (Fetch Crimes / Fetch Members / etc.)
+      // are leadership-only at the UI layer, so a Recruit never hits them.
+      // Minimal Access (level >= 1) is all the site itself needs.
       const accessLevel = data.info?.access?.level
-      const hasFactionAccess = data.info?.access?.faction
 
-      if (!hasFactionAccess) {
+      if (accessLevel < 1) {
         return {
           success: false,
-          error: 'Insufficient permissions. Your API key does not have faction access enabled. Please notify leadership and they can adjust your role.'
-        }
-      }
-
-      if (accessLevel < 2) {
-        return {
-          success: false,
-          error: 'Insufficient permissions. Your API key has limited access. Please create a Full Access or Limited Access API key.'
+          error: 'Insufficient permissions. Your API key needs at least Minimal Access. Create a new key in Torn Preferences and paste it here.'
         }
       }
 

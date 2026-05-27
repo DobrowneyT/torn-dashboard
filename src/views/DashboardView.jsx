@@ -771,6 +771,17 @@ function CprKeyModal({ user, hasCprKey, onClose, onSuccess, onRemove }) {
             <p>Create at: <a href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">Torn Preferences &rarr; API</a></p>
           </div>
 
+          {user?.factionPosition === 'Recruit' && (
+            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-700 dark:text-amber-300">
+              <p className="font-semibold mb-1">⚠ Heads up — you are on Recruit status</p>
+              <p>
+                Torn restricts API faction access for the first 3 days after joining a faction.
+                Your key won't have the permissions our scraper needs until you are off Recruit.
+                You can come back and submit a key once your probationary period ends.
+              </p>
+            </div>
+          )}
+
           {success ? (
             <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-700 dark:text-green-300 text-center">
               Key saved successfully!

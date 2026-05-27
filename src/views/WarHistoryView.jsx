@@ -45,20 +45,27 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
     setFetchMessage(null)
     try {
       const result = await fetchAttacksApi(user.apiKey)
-      const parts = [`${result.attacksUpserted ?? 0} attacks`]
+      const parts = [
+        `${result.attacksFetched ?? 0} fetched`,
+        `${result.attacksNew ?? 0} new`,
+        `${result.pagesFetched ?? 0} pages`,
+      ]
       if (result.factionsBackfilled > 0) parts.push(`${result.factionsBackfilled} new factions`)
-      parts.push(`${result.pagesFetched} pages`)
-      const more = result.moreAvailable ? ' — more available, click again to continue' : ''
+      const suffix = result.partial
+        ? ` — stopped early (${result.partialReason}). Click again to resume.`
+        : result.moreAvailable
+          ? ' — more available, click again to continue.'
+          : '.'
       setFetchMessage({
-        type: 'success',
-        text: `Fetched ${parts.join(', ')}${more}.`,
+        type: result.partial ? 'warning' : 'success',
+        text: `Attacks: ${parts.join(', ')}${suffix}`,
       })
     } catch (err) {
       console.error('fetchAttacks failed:', err)
       setFetchMessage({ type: 'error', text: `Failed to fetch attacks: ${err.message}` })
     } finally {
       setFetching(null)
-      setTimeout(() => setFetchMessage(null), 8000)
+      setTimeout(() => setFetchMessage(null), 10_000)
     }
   }
 
@@ -68,13 +75,21 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
     setFetchMessage(null)
     try {
       const result = await fetchWarsApi(user.apiKey)
-      const parts = [`${result.warsUpserted ?? 0} wars`]
+      const parts = [
+        `${result.warsFetched ?? 0} fetched`,
+        `${result.warsNew ?? 0} new`,
+        `${result.warsUpdated ?? 0} updated`,
+      ]
       if (result.reportsFetched > 0) parts.push(`${result.reportsFetched} reports`)
       if (result.contributionsUpserted > 0) parts.push(`${result.contributionsUpserted} contributions`)
-      const more = result.moreReportsAvailable ? ' — more reports available, click again to continue' : ''
+      const suffix = result.partial
+        ? ` — stopped early (${result.partialReason}). Click again to resume.`
+        : result.moreReportsAvailable
+          ? ' — more reports available, click again to continue.'
+          : '.'
       setFetchMessage({
-        type: 'success',
-        text: `Fetched ${parts.join(', ')}${more}.`,
+        type: result.partial ? 'warning' : 'success',
+        text: `Wars: ${parts.join(', ')}${suffix}`,
       })
       // Refresh the visible wars table so new rows appear without a manual reload.
       fetchWars(0, true)
@@ -83,7 +98,7 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
       setFetchMessage({ type: 'error', text: `Failed to fetch wars: ${err.message}` })
     } finally {
       setFetching(null)
-      setTimeout(() => setFetchMessage(null), 8000)
+      setTimeout(() => setFetchMessage(null), 10_000)
     }
   }
 
@@ -274,7 +289,9 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
             className={`mb-4 p-3 rounded-lg text-sm ${
               fetchMessage.type === 'success'
                 ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
-                : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
+                : fetchMessage.type === 'warning'
+                  ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'
+                  : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
             }`}
           >
             {fetchMessage.text}

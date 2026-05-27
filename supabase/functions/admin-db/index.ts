@@ -73,7 +73,43 @@ const TORN_RATE_LIMIT_MS = 600
 // since the DB has no permanent-fail flag — extra failed calls are cheap.
 const PERMANENT_WAR_REPORT_ERROR_CODES = new Set([2, 7, 13, 14])
 
+// Torn error codes that are transient and worth retrying later, not failing
+// the whole user-initiated fetch. Includes rate limit (5), IP block (8), API
+// disabled (9), and Torn backend error (17). Per the Torn API docs.
+const TRANSIENT_TORN_ERROR_CODES = new Set([5, 8, 9, 17])
+
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+// Fetch from Torn and classify the result so callers can decide whether to
+// bail (fatal) or return a partial-success summary (transient). HTTP 5xx and
+// the transient Torn error codes above are treated as transient — typically
+// "your API key got rate-limited" or "Torn is briefly down". Everything else
+// is fatal.
+type TornFetchResult<T = any> =
+  | { ok: true; data: T }
+  | { ok: false; transient: true; message: string }
+  | { ok: false; transient: false; message: string }
+
+async function tornFetch<T = any>(url: string): Promise<TornFetchResult<T>> {
+  try {
+    const resp = await fetch(url)
+    if (!resp.ok) {
+      const transient = resp.status >= 500 && resp.status < 600
+      return { ok: false, transient, message: `Torn API HTTP ${resp.status}` }
+    }
+    const data = await resp.json()
+    if (data?.error) {
+      const code = Number(data.error.code ?? 0)
+      const msg = data.error.error || `Torn error ${code}`
+      const transient = TRANSIENT_TORN_ERROR_CODES.has(code)
+      return { ok: false, transient, message: `Torn error ${code}: ${msg}` }
+    }
+    return { ok: true, data: data as T }
+  } catch (e) {
+    // Network / fetch failure — usually transient
+    return { ok: false, transient: true, message: `Torn fetch failed: ${e}` }
+  }
+}
 
 // In-memory auth cache: keyed by API key, stores { userId, expiresAt }
 // TTL = 10 minutes. Resets on Edge Function cold start, which is fine.
@@ -226,8 +262,25 @@ async function verifyTornUser(apiKey: string): Promise<{ success: boolean; error
     const data = await response.json()
 
     if (data.error) {
+      const code = Number(data.error.code ?? 0)
+      const msg = data.error.error || 'Unknown error'
+      // Transient: rate limit, IP block, API disabled, backend error.
+      // Don't evict the cache — the cached entry (if any) is still valid; we
+      // just couldn't re-verify right now. If there's no cache yet, surface
+      // a clear "rate limited" message instead of the misleading
+      // "Invalid API key" we used to return for every error.
+      if (TRANSIENT_TORN_ERROR_CODES.has(code)) {
+        if (cached) {
+          // Extend the cached entry slightly so subsequent requests reuse it
+          // until Torn cools off, rather than re-hitting and re-failing.
+          authCache.set(apiKey, { userId: cached.userId, expiresAt: Date.now() + AUTH_CACHE_TTL_MS })
+          return { success: true, userId: cached.userId }
+        }
+        return { success: false, error: `Torn API temporarily unavailable (${msg}). Try again in a minute.` }
+      }
+      // Genuine bad key / permission error.
       authCache.delete(apiKey)
-      return { success: false, error: 'Invalid API key' }
+      return { success: false, error: `Invalid API key (${msg})` }
     }
 
     const userId = String(data.info?.user?.id)
@@ -1010,6 +1063,19 @@ async function handleSubmitCprKey(supabase: any, body: RequestBody, userId: stri
     if (accessLevel < 1) {
       return { success: false, error: 'API key must be Minimal Access or higher.' }
     }
+
+    // CPR scraper needs faction access on the submitted key — it calls
+    // /faction/{id}/crimes endpoints. Torn disables `access.faction` for
+    // Recruits (3-day probationary status) even though they're real members,
+    // so this is the common case for "submission accepted but scraper never
+    // works". Catch it at submit time with a clear, Recruit-aware message.
+    const hasFactionAccess = data.info?.access?.faction
+    if (!hasFactionAccess) {
+      return {
+        success: false,
+        error: 'This key does not have faction access yet. If you just joined the faction, you are on 3-day Recruit status — Torn restricts API faction access during that period. Please wait until you are off Recruit and try again.',
+      }
+    }
   }
 
   // Both set and clear go through the SECURITY DEFINER RPC now that the
@@ -1179,31 +1245,41 @@ async function handleFetchAttacks(supabase: any, apiKey: string) {
   const fromTimestamp: number = Number(newest?.started ?? 0)
 
   // Step 2: paginated fetch with cap. Overlap at page boundaries is handled
-  // by the seen-id set; upserts on attack_id are idempotent anyway.
+  // by the seen-id set. Transient Torn errors (rate limit, 5xx) break out of
+  // the loop and return a partial result so the user keeps what we got.
   const PAGE_CAP = 30
-  const newAttacks: any[] = []
+  const collected: any[] = []
   const seenIds = new Set<string>()
   let currentFrom = fromTimestamp
   let pages = 0
   let moreAvailable = false
+  let partial = false
+  let partialReason: string | null = null
 
   for (pages = 0; pages < PAGE_CAP; pages++) {
     if (pages > 0) await sleep(TORN_RATE_LIMIT_MS)
 
     const url = `https://api.torn.com/v2/faction/attacks?limit=100&sort=ASC&from=${currentFrom}&key=${apiKey}`
-    const resp = await fetch(url)
-    if (!resp.ok) throw new Error(`Torn API error: ${resp.status}`)
-    const data = await resp.json()
-    if (data.error) throw new Error(data.error.error || 'Torn API error')
+    const result = await tornFetch<any>(url)
 
-    const rawAttacks: any[] = data.attacks || []
+    if (!result.ok) {
+      if (result.transient) {
+        // Stop here, keep what we have. The user can click again to resume.
+        partial = true
+        partialReason = result.message
+        break
+      }
+      throw new Error(result.message)
+    }
+
+    const rawAttacks: any[] = result.data.attacks || []
     if (rawAttacks.length === 0) break
 
     for (const raw of rawAttacks) {
       const aid = String(raw.id)
       if (seenIds.has(aid)) continue
       seenIds.add(aid)
-      newAttacks.push(normalizeAttack(raw))
+      collected.push(normalizeAttack(raw))
     }
 
     if (rawAttacks.length < 100) break
@@ -1214,24 +1290,47 @@ async function handleFetchAttacks(supabase: any, apiKey: string) {
   }
   if (pages >= PAGE_CAP) moreAvailable = true
 
-  // Step 3: backfill any new faction IDs we haven't seen in the factions table.
+  // Step 3: figure out which collected attacks are actually NEW vs. already in
+  // the DB. Distinguishing "fetched" vs "new" gives the user a clearer summary.
+  // We do this via a single SELECT against the collected attack_ids.
+  let newCount = collected.length
+  if (collected.length > 0) {
+    const ids = collected.map(a => a.attack_id)
+    const knownIds = new Set<number>()
+    const CHUNK = 500
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK)
+      const { data: knownRows } = await supabase
+        .from('faction_attacks')
+        .select('attack_id')
+        .in('attack_id', slice)
+      for (const r of (knownRows ?? [])) knownIds.add(Number(r.attack_id))
+    }
+    newCount = collected.filter(a => !knownIds.has(Number(a.attack_id))).length
+  }
+
+  // Step 4: backfill any new faction IDs we haven't seen in the factions table.
   const factionIds = new Set<number>()
-  for (const a of newAttacks) {
+  for (const a of collected) {
     if (a.attacker_faction_id) factionIds.add(Number(a.attacker_faction_id))
     if (a.defender_faction_id) factionIds.add(Number(a.defender_faction_id))
   }
   const factionsBackfilled = await backfillFactions(supabase, apiKey, factionIds)
 
-  // Step 4: bulk upsert.
-  const attacksUpserted = await bulkUpsert(supabase, 'faction_attacks', newAttacks, 'attack_id')
+  // Step 5: bulk upsert (idempotent — re-running over the same data is safe).
+  const attacksUpserted = await bulkUpsert(supabase, 'faction_attacks', collected, 'attack_id')
 
   return {
     success: true,
+    attacksFetched: collected.length,
+    attacksNew: newCount,
     attacksUpserted,
     pagesFetched: pages,
     moreAvailable,
     factionsBackfilled,
     fromTimestamp,
+    partial,
+    partialReason,
   }
 }
 
@@ -1311,117 +1410,155 @@ async function backfillFactions(supabase: any, apiKey: string, factionIds: Set<n
 }
 
 // ── Ranked wars fetcher ──────────────────────────────────────────────────────
-// Same shape as handleFetchAttacks. Fetches the full war list (always small,
-// ~2 pages for our faction), diffs against DB to identify wars needing a
-// report fetch, and upserts. The `is_termed` column is a manual UI flag
-// (toggled via updateWarIsTermed elsewhere) — we exclude it from the upsert
-// payload so the scraper-driven row data never clobbers it. Postgres upsert
-// leaves omitted columns unchanged.
+// Fetches the most recent page (~100 wars) of the faction's ranked war list
+// and diffs against the DB. Only upserts wars that are NEW or have changed
+// (end_at became set, scores moved). Only fetches reports for wars that are
+// completed in the API but have no rewards_items in the DB yet. This means
+// repeated clicks on a fully-synced faction do almost nothing.
 //
-// Wars with permanently unavailable reports (API errors 2/7/13/14) will be
-// re-attempted on each call since the DB has no permanent-fail flag. That's
-// 1 extra failed API call per such war per click — acceptable cost.
+// `is_termed` is a manual UI flag (toggled via updateWarIsTermed elsewhere) —
+// excluded from the upsert payload so the scraper data never clobbers it.
+// `rewards_items` / `rank_before` / `rank_after` / `forfeit` are also omitted
+// from normalizeWar so we don't accidentally null out a previously-fetched
+// report when we only have the war-list view. Postgres ON CONFLICT DO UPDATE
+// leaves columns absent from the payload untouched.
+//
+// Transient Torn errors mid-flight return a partial result rather than
+// throwing — the user keeps whatever progress was made.
 async function handleFetchWars(supabase: any, apiKey: string) {
-  // Step 1: fetch full war list (paginated, ASC offset).
-  const apiWars: Record<string, any> = {}
-  let offset = 0
-  const LIMIT = 100
-  while (true) {
-    if (offset > 0) await sleep(TORN_RATE_LIMIT_MS)
-    const url = `https://api.torn.com/v2/faction/${FACTION_ID}/rankedwars?offset=${offset}&limit=${LIMIT}&key=${apiKey}`
-    const resp = await fetch(url)
-    if (!resp.ok) throw new Error(`Torn API error: ${resp.status}`)
-    const data = await resp.json()
-    if (data.error) throw new Error(data.error.error || 'Torn API error')
-    const page: any[] = data.rankedwars || data.ranked_wars || []
-    if (page.length === 0) break
-    for (const w of page) apiWars[String(w.id)] = w
-    if (page.length < LIMIT) break
-    offset += LIMIT
+  // Step 1: fetch most-recent page only. The API returns wars most-recent
+  // first, and older wars are immutable, so ALL the action is in the latest
+  // 100 entries. The GitHub cron workflow handles deep-history backfill if
+  // ever needed.
+  const url = `https://api.torn.com/v2/faction/${FACTION_ID}/rankedwars?offset=0&limit=100&key=${apiKey}`
+  const result = await tornFetch<any>(url)
+  if (!result.ok) {
+    if (result.transient) {
+      return {
+        success: true, partial: true, partialReason: result.message,
+        warsFetched: 0, warsNew: 0, warsUpdated: 0,
+        warsUpserted: 0, reportsFetched: 0, reportsFailedPermanent: 0,
+        contributionsUpserted: 0, moreReportsAvailable: false,
+      }
+    }
+    throw new Error(result.message)
   }
+  const apiWars: any[] = result.data.rankedwars || result.data.ranked_wars || []
 
-  // Step 2: diff against DB to find wars needing report. A war "needs report"
-  // when it has end_at set (completed) but rewards_items is null (report
-  // never applied). New wars never seen before are also candidates.
-  const { data: existingRows } = await supabase
-    .from('ranked_wars')
-    .select('id, end_at, rewards_items')
+  // Step 2: load existing rows for diffing. Only need a few columns.
+  const apiIds = apiWars.map(w => Number(w.id)).filter(Boolean)
   const existingById = new Map<string, any>()
-  for (const r of (existingRows ?? [])) existingById.set(String(r.id), r)
-
-  const warRows: any[] = []
-  const contributionRows: any[] = []
-  const reportCandidates: number[] = []
-
-  for (const [warIdStr, raw] of Object.entries(apiWars)) {
-    const normalized = normalizeWar(raw)
-    warRows.push(normalized)
-
-    const existing = existingById.get(warIdStr)
-    const completed = normalized.end_at != null
-    const needsReport = completed && (
-      !existing || existing.rewards_items == null
-    )
-    if (needsReport) reportCandidates.push(Number(raw.id))
+  if (apiIds.length > 0) {
+    const { data: existingRows } = await supabase
+      .from('ranked_wars')
+      .select('id, end_at, our_score, opponent_score, rewards_items')
+      .in('id', apiIds)
+    for (const r of (existingRows ?? [])) existingById.set(String(r.id), r)
   }
 
-  // Step 3: fetch reports for completion candidates, capped to keep latency
+  // Step 3: classify each war.
+  //   - new           → upsert + fetch report if completed
+  //   - changed       → upsert (scores or end_at differ)
+  //   - report-needed → upsert (so the report data has a row to land on)
+  //   - unchanged & report present → skip entirely
+  const warRowsToUpsert: any[] = []
+  const reportCandidates: number[] = []
+  let warsNew = 0
+  let warsUpdated = 0
+
+  for (const raw of apiWars) {
+    const normalized = normalizeWar(raw)
+    const existing = existingById.get(String(raw.id))
+    const completed = normalized.end_at != null
+
+    let needsUpsert = false
+    if (!existing) {
+      warsNew++
+      needsUpsert = true
+    } else {
+      const changed =
+        Number(existing.end_at ?? 0)         !== Number(normalized.end_at ?? 0) ||
+        Number(existing.our_score ?? 0)      !== Number(normalized.our_score) ||
+        Number(existing.opponent_score ?? 0) !== Number(normalized.opponent_score)
+      if (changed) {
+        warsUpdated++
+        needsUpsert = true
+      }
+    }
+
+    const needsReport = completed && (!existing || existing.rewards_items == null)
+    if (needsReport) reportCandidates.push(Number(raw.id))
+
+    // Push to upsert if anything's different OR if a report is incoming
+    // (applyWarReport will mutate this same object below before upsert).
+    if (needsUpsert || needsReport) warRowsToUpsert.push(normalized)
+  }
+
+  // Step 4: fetch reports for completion candidates, capped to keep latency
   // sane. Apply report data back onto the matching warRow + collect
-  // contributions for the war_member_contributions upsert.
+  // contributions for the war_member_contributions upsert. Stop on the first
+  // transient error and return what we've got so far.
   const REPORT_CAP = 20
+  const toFetch = reportCandidates.slice(0, REPORT_CAP)
+  const moreReportsAvailable = reportCandidates.length > REPORT_CAP
+  const warRowById = new Map<number, any>(warRowsToUpsert.map(w => [w.id, w]))
+
+  const contributionRows: any[] = []
   let reportsFetched = 0
   let reportsFailedPermanent = 0
-  let moreReportsAvailable = false
-
-  const toFetch = reportCandidates.slice(0, REPORT_CAP)
-  if (reportCandidates.length > REPORT_CAP) moreReportsAvailable = true
-
-  const warRowById = new Map<number, any>(warRows.map(w => [w.id, w]))
+  let partial = false
+  let partialReason: string | null = null
 
   for (let i = 0; i < toFetch.length; i++) {
     await sleep(TORN_RATE_LIMIT_MS)
     const warId = toFetch[i]
-    try {
-      const resp = await fetch(`https://api.torn.com/v2/faction/${warId}/rankedwarreport?key=${apiKey}`)
-      const data = await resp.json().catch(() => ({}))
+    const reportUrl = `https://api.torn.com/v2/faction/${warId}/rankedwarreport?key=${apiKey}`
+    const reportResult = await tornFetch<any>(reportUrl)
 
-      if (data?.error) {
-        const code = Number(data.error?.code ?? 0)
-        if (PERMANENT_WAR_REPORT_ERROR_CODES.has(code)) {
-          reportsFailedPermanent++
-          continue
-        }
-        // Transient — log and skip this iteration; next run will retry.
-        console.warn(`War ${warId} report transient error:`, data.error)
-        continue
+    if (!reportResult.ok) {
+      if (reportResult.transient) {
+        // Stop here — preserve what we've fetched and surface the reason.
+        partial = true
+        partialReason = reportResult.message
+        break
       }
-
-      const report = data.rankedwarreport
-      if (!report) continue
-
-      applyWarReport(warRowById.get(warId), report)
-      contributionRows.push(...extractContributions(report))
-      reportsFetched++
-    } catch (e) {
-      console.warn(`War ${warId} report fetch failed:`, e)
+      // Permanent error: skip this one war, keep going for the others.
+      const isPermanent = PERMANENT_WAR_REPORT_ERROR_CODES.has(
+        Number(reportResult.message.match(/Torn error (\d+)/)?.[1] ?? 0)
+      )
+      if (isPermanent) reportsFailedPermanent++
+      else console.warn(`War ${warId} report error (non-permanent):`, reportResult.message)
+      continue
     }
+
+    const report = reportResult.data.rankedwarreport
+    if (!report) continue
+
+    applyWarReport(warRowById.get(warId), report)
+    contributionRows.push(...extractContributions(report))
+    reportsFetched++
   }
 
-  // Step 4: bulk upsert. is_termed is intentionally NOT in the payload so the
-  // manual UI flag is preserved (Postgres leaves omitted columns alone on
-  // ON CONFLICT DO UPDATE).
-  const warsUpserted = await bulkUpsert(supabase, 'ranked_wars', warRows, 'id')
+  // Step 5: bulk upsert. is_termed / rewards_items / rank_* / forfeit are not
+  // in normalizeWar's output so they're never overwritten unless a report
+  // mutated the row in step 4.
+  const warsUpserted = await bulkUpsert(supabase, 'ranked_wars', warRowsToUpsert, 'id')
   const contributionsUpserted = await bulkUpsert(
     supabase, 'war_member_contributions', contributionRows, 'war_id,member_id'
   )
 
   return {
     success: true,
+    warsFetched: apiWars.length,
+    warsNew,
+    warsUpdated,
     warsUpserted,
     reportsFetched,
     reportsFailedPermanent,
     contributionsUpserted,
     moreReportsAvailable,
+    partial,
+    partialReason,
   }
 }
 
@@ -1439,11 +1576,11 @@ function normalizeWar(raw: any) {
     opponent_score: opponent?.score ?? 0,
     target: raw.target ?? null,
     winner_faction_id: raw.winner ?? null,
-    forfeit: false,
-    // is_termed deliberately omitted — manual UI flag, never overwritten.
-    rewards_items: null,
-    rank_before: null,
-    rank_after: null,
+    // is_termed, forfeit, rewards_items, rank_before, rank_after are all
+    // deliberately omitted — they're either manual UI flags or set only when
+    // a report is fetched. Postgres ON CONFLICT DO UPDATE leaves omitted
+    // columns alone, so we never clobber the manual flag or previously-
+    // fetched report data on subsequent runs.
   }
 }
 
