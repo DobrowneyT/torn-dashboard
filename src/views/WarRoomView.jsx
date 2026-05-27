@@ -1610,28 +1610,32 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       )}
 
       {/* ── Mobile War Room overlay ────────────────────────────────────
-          Pure props pass-through — the desktop WarRoomView still owns all
-          state, realtime subscriptions, and handlers. The mobile component
-          is a presentational view of the same data. */}
+          MobileWarRoomView uses w-full h-full internally, so we wrap it
+          in a fixed full-viewport container to actually take over the
+          screen. Desktop WarRoomView still owns all state, realtime
+          subscriptions, and handlers — the mobile component is purely
+          presentational. */}
       {mobileOpen && (
-        <MobileWarRoomView
-          members={mobileMembers}
-          dibsByEnemyId={dibs}
-          currentUserId={user?.id}
-          factionId={String(config?.faction_id ?? '')}
-          factionName={factionName ?? config?.faction_name}
-          ourCounts={mobileOurCounts}
-          isLeadership={isLeadership}
-          isActive={isActive}
-          paused={!isActive}
-          pollIntervalS={pollIntervalSec}
-          onClaim={handleClaimDibs}
-          onRelease={handleReleaseDibs}
-          onTogglePaused={toggleEnabled}
-          onUpdateSpies={handleUpdateSpies}
-          onSetFactionId={handleSaveAndFetch}
-          onClose={() => setMobileOpen(false)}
-        />
+        <div className="fixed inset-0 z-50 bg-gray-50 dark:bg-slate-900">
+          <MobileWarRoomView
+            members={mobileMembers}
+            dibsByEnemyId={dibs}
+            currentUserId={user?.id}
+            factionId={String(config?.faction_id ?? '')}
+            factionName={factionName ?? config?.faction_name}
+            ourCounts={mobileOurCounts}
+            isLeadership={isLeadership}
+            isActive={isActive}
+            paused={!isActive}
+            pollIntervalS={pollIntervalSec}
+            onClaim={handleClaimDibs}
+            onRelease={handleReleaseDibs}
+            onTogglePaused={toggleEnabled}
+            onUpdateSpies={handleUpdateSpies}
+            onSetFactionId={handleSaveAndFetch}
+            onClose={() => setMobileOpen(false)}
+          />
+        </div>
       )}
     </div>
   )
