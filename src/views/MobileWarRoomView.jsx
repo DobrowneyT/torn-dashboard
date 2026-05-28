@@ -359,27 +359,23 @@ function HeaderBar({ factionLabel, isActive, paused, isLeadership, activeFilterC
 // Faction strip + quick links + filter bar
 // ───────────────────────────────────────────────────────────────────
 
-function FactionStrip({ enemyCounts, ourCounts }) {
-  const dot = (color, n, label) => (
-    <span className="inline-flex items-center gap-1 text-xs">
-      <span className={`w-1.5 h-1.5 rounded-full ${color}`} />
+// Single faction-count row. Always full-width so it fits any phone
+// regardless of how many counts are showing. Used twice — once for
+// enemy (above quick links), once for us (below quick links).
+function FactionCountRow({ label, counts, showOffline = false }) {
+  const dot = (color, n, lbl) => (
+    <span className="inline-flex items-center gap-1 text-xs min-w-0">
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${color}`} />
       <span className="font-semibold text-gray-900 dark:text-gray-100">{n}</span>
-      <span className="text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="text-gray-500 dark:text-gray-400">{lbl}</span>
     </span>
   )
   return (
-    <div className="px-3.5 py-2 bg-gray-50 dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
-      <div className="flex gap-3 items-center">
-        <span className="text-[10px] font-bold text-gray-400 tracking-wider">ENEMY</span>
-        {dot('bg-green-500', enemyCounts.Online, 'on')}
-        {dot('bg-amber-500', enemyCounts.Idle,   'idle')}
-        {dot('bg-gray-400',  enemyCounts.Offline,'off')}
-      </div>
-      <div className="flex gap-2.5 items-center">
-        {dot('bg-green-500', ourCounts.Online, 'on')}
-        {dot('bg-amber-500', ourCounts.Idle,   'idle')}
-        <span className="text-[10px] font-bold text-gray-400 tracking-wider">US</span>
-      </div>
+    <div className="px-3.5 py-2 bg-gray-50 dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 flex items-center gap-3 flex-wrap">
+      <span className="text-[10px] font-bold text-gray-400 tracking-wider">{label}</span>
+      {dot('bg-green-500', counts.Online, 'on')}
+      {dot('bg-amber-500', counts.Idle,   'idle')}
+      {showOffline && dot('bg-gray-400', counts.Offline, 'off')}
     </div>
   )
 }
@@ -692,7 +688,7 @@ export default function MobileWarRoomView({
   const advancedCount = activityFilter.size + (statsEnabled && (statsMin || statsMax) ? 1 : 0)
 
   return (
-    <div className="w-full h-full overflow-y-auto bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 relative">
+    <div className="w-full h-full overflow-y-auto overflow-x-hidden bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 relative">
       <style>{`
         @keyframes wrSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
@@ -717,8 +713,12 @@ export default function MobileWarRoomView({
         </div>
       )}
 
-      <FactionStrip enemyCounts={enemyCounts} ourCounts={ourCounts} />
+      {/* 3-row stack: enemy counts → quick links → our counts. Stacking
+          keeps every row narrow enough for any phone width and groups
+          quick links visually between the two sides. */}
+      <FactionCountRow label="ENEMY" counts={enemyCounts} showOffline />
       <QuickLinksBar />
+      <FactionCountRow label="US" counts={ourCounts} />
       <TwoTierFilters
         statusFilter={statusFilter}
         onToggleStatus={toggleStatus}

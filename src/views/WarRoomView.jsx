@@ -638,13 +638,28 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
   // Mobile War Room overlay (only visible on < md viewport — see launcher button)
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  // Lock body scroll while the mobile overlay is up, restore on close.
-  // Prevents the page underneath from scrolling on iOS Safari rubber-band.
+  // Lock body scroll AND width while the mobile overlay is up. The width
+  // lock is critical: if the desktop page underneath overflows
+  // horizontally on a phone (it does — desktop layout is wider than 375px),
+  // the phone's layout viewport expands past the visual viewport and our
+  // fixed inset-0 overlay covers the wider layout, appearing zoomed-out.
+  // Forcing the body to 100vw + overflow:hidden collapses the layout back
+  // to the visible viewport so the overlay sits at the correct size.
   useEffect(() => {
     if (!mobileOpen) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
+    const body = document.body
+    const prev = {
+      overflow: body.style.overflow,
+      width: body.style.width,
+      position: body.style.position,
+    }
+    body.style.overflow = 'hidden'
+    body.style.width = '100vw'
+    return () => {
+      body.style.overflow = prev.overflow
+      body.style.width = prev.width
+      body.style.position = prev.position
+    }
   }, [mobileOpen])
 
   const pollRef          = useRef(null)
@@ -1634,7 +1649,10 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
           subscriptions, and handlers — MobileWarRoomView is purely
           presentational. */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4 overflow-hidden">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4 overflow-hidden"
+          style={{ width: '100dvw', height: '100dvh' }}
+        >
           <div className="w-full h-full sm:w-[420px] sm:max-w-full sm:h-[90vh] sm:max-h-[900px] sm:rounded-3xl overflow-hidden shadow-2xl bg-gray-50 dark:bg-slate-900 ring-1 ring-black/10 dark:ring-white/10">
             <MobileWarRoomView
               members={mobileMembers}
