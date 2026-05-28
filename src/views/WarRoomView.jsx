@@ -427,7 +427,13 @@ function SortTh({ col, sortCol, sortDir, onSort, children, className = '' }) {
 
 // ── Config panel (leadership only) ────────────────────────────────────────────
 
-function ConfigPanel({ config, onSaveAndFetch, onSaveReviveService, onSaveReviveList, onClearState }) {
+function ConfigPanel({
+  config,
+  isActive, toggling, onToggleEnabled,
+  updatingSpies, onUpdateSpies,
+  pollIntervalSec, onPollIntervalChange,
+  onSaveAndFetch, onSaveReviveService, onSaveReviveList, onClearState,
+}) {
   const [factionId, setFactionId] = useState(String(config?.faction_id ?? ''))
   const [saving, setSaving]       = useState(false)
   const [clearing, setClearing]   = useState(false)
@@ -494,6 +500,54 @@ function ConfigPanel({ config, onSaveAndFetch, onSaveReviveService, onSaveRevive
 
   return (
     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 space-y-3">
+      {/* Live controls — Enable/Stop, Update Spies, Poll rate.
+          Grouped with the rest of the admin controls in this panel so
+          leadership has a single command surface on narrow viewports. */}
+      <div className="flex flex-wrap items-end gap-2">
+        {isActive ? (
+          <button
+            onClick={onToggleEnabled}
+            disabled={toggling}
+            className="px-3 py-1.5 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+          >
+            {toggling ? 'Stopping…' : 'Stop War Room'}
+          </button>
+        ) : (
+          <button
+            onClick={onToggleEnabled}
+            disabled={toggling || !config?.faction_id}
+            title={!config?.faction_id ? 'Set an opponent faction ID first' : ''}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            <span className="w-2 h-2 rounded-full bg-white opacity-80" />
+            {toggling ? 'Enabling…' : 'Enable War Room'}
+          </button>
+        )}
+        <button
+          onClick={onUpdateSpies}
+          disabled={updatingSpies || !config?.faction_id}
+          title={!config?.faction_id ? 'Set a faction ID first' : 'Fetch members + BSP battle stats'}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
+        >
+          {updatingSpies ? '⏳ Fetching…' : '🔍 Update Spies'}
+        </button>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Poll Rate</label>
+          <div className="flex items-center gap-1.5" title="Polling interval in seconds (min 0.5s). With key rotation, lower values give fresher data.">
+            <input
+              type="number"
+              min={0.5}
+              max={60}
+              step={0.5}
+              value={pollIntervalSec}
+              onChange={e => onPollIntervalChange(e.target.value)}
+              className="w-16 px-2 py-1.5 text-sm text-center border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <span className="text-xs text-gray-400 dark:text-gray-500">s</span>
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Opponent Faction ID</label>
@@ -1246,61 +1300,15 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
             )}
           </div>
 
-          {/* Action buttons */}
+          {/* Header right column — just status indicator + error messages.
+              All leadership actions live in ConfigPanel below, grouped
+              with the rest of the admin controls. */}
           <div className="flex flex-col items-end gap-1.5 shrink-0">
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              {isActive && lastFetched && !pollError && (
-                <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block">
-                  {Math.round((Date.now() - lastFetched) / 1000)}s ago
-                </span>
-              )}
-              {isLeadership && (
-                <>
-                  {/* Poll interval — always visible to leadership */}
-                  <div className="flex items-center gap-1.5" title="Polling interval in seconds (min 1s). With key rotation, lower values give fresher data.">
-                    <label className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">Poll</label>
-                    <input
-                      type="number"
-                      min={0.5}
-                      max={60}
-                      step={0.5}
-                      value={pollIntervalSec}
-                      onChange={e => setPollIntervalSec(Math.max(0.5, Number(e.target.value)))}
-                      className="w-14 px-2 py-1 text-xs text-center border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-xs text-gray-400 dark:text-gray-500">s</span>
-                  </div>
-                  {/* Update Spies — always visible to leadership; handles both fetch + BSP when paused */}
-                  <button
-                    onClick={handleUpdateSpies}
-                    disabled={updatingSpies || !config?.faction_id}
-                    title={!config?.faction_id ? 'Set a faction ID first' : 'Fetch members + BSP battle stats'}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
-                  >
-                    {updatingSpies ? '⏳ Fetching…' : '🔍 Update Spies'}
-                  </button>
-                  {isActive ? (
-                    <button
-                      onClick={toggleEnabled}
-                      disabled={toggling}
-                      className="px-3 py-1.5 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-                    >
-                      {toggling ? 'Stopping…' : 'Stop'}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={toggleEnabled}
-                      disabled={toggling || !config?.faction_id}
-                      title={!config?.faction_id ? 'Set an opponent faction ID first' : ''}
-                      className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-white opacity-80" />
-                      {toggling ? 'Enabling…' : 'Enable War Room'}
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
+            {isActive && lastFetched && !pollError && (
+              <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block">
+                {Math.round((Date.now() - lastFetched) / 1000)}s ago
+              </span>
+            )}
             {(pollError || toggleError || spiesMsg || dibsError) && (
               <div className="text-right space-y-0.5">
                 {pollError   && <p className="text-xs text-red-500 dark:text-red-400">⚠ Poll: {pollError}</p>}
@@ -1315,6 +1323,13 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
         {isLeadership && (
           <ConfigPanel
             config={config}
+            isActive={isActive}
+            toggling={toggling}
+            onToggleEnabled={toggleEnabled}
+            updatingSpies={updatingSpies}
+            onUpdateSpies={handleUpdateSpies}
+            pollIntervalSec={pollIntervalSec}
+            onPollIntervalChange={(v) => setPollIntervalSec(Math.max(0.5, Number(v) || 0.5))}
             onSaveAndFetch={handleSaveAndFetch}
             onSaveReviveService={handleSaveReviveService}
             onSaveReviveList={handleSaveReviveList}
@@ -1610,31 +1625,40 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       )}
 
       {/* ── Mobile War Room overlay ────────────────────────────────────
-          MobileWarRoomView uses w-full h-full internally, so we wrap it
-          in a fixed full-viewport container to actually take over the
-          screen. Desktop WarRoomView still owns all state, realtime
-          subscriptions, and handlers — the mobile component is purely
+          On actual phones (<sm) the inner frame fills the viewport. On
+          desktop browsers we render the mobile UI inside a centred
+          phone-shaped frame (max ~420px wide) on a dimmed backdrop so it
+          previews at a realistic mobile resolution and browser zoom
+          scales it relative to itself rather than revealing more page.
+          Desktop WarRoomView still owns all state, realtime
+          subscriptions, and handlers — MobileWarRoomView is purely
           presentational. */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 bg-gray-50 dark:bg-slate-900">
-          <MobileWarRoomView
-            members={mobileMembers}
-            dibsByEnemyId={dibs}
-            currentUserId={user?.id}
-            factionId={String(config?.faction_id ?? '')}
-            factionName={factionName ?? config?.faction_name}
-            ourCounts={mobileOurCounts}
-            isLeadership={isLeadership}
-            isActive={isActive}
-            paused={!isActive}
-            pollIntervalS={pollIntervalSec}
-            onClaim={handleClaimDibs}
-            onRelease={handleReleaseDibs}
-            onTogglePaused={toggleEnabled}
-            onUpdateSpies={handleUpdateSpies}
-            onSetFactionId={handleSaveAndFetch}
-            onClose={() => setMobileOpen(false)}
-          />
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4 overflow-hidden">
+          <div className="w-full h-full sm:w-[420px] sm:max-w-full sm:h-[90vh] sm:max-h-[900px] sm:rounded-3xl overflow-hidden shadow-2xl bg-gray-50 dark:bg-slate-900 ring-1 ring-black/10 dark:ring-white/10">
+            <MobileWarRoomView
+              members={mobileMembers}
+              dibsByEnemyId={dibs}
+              currentUserId={user?.id}
+              factionId={String(config?.faction_id ?? '')}
+              factionName={factionName ?? config?.faction_name}
+              ourCounts={mobileOurCounts}
+              isLeadership={isLeadership}
+              isActive={isActive}
+              paused={!isActive}
+              pollIntervalS={pollIntervalSec}
+              onPollIntervalChange={(s) => setPollIntervalSec(Math.max(0.5, Number(s) || 0.5))}
+              reviveServices={Array.isArray(config?.revive_services) ? config.revive_services : []}
+              activeReviveName={config?.revive_service_name ?? ''}
+              onPickReviveService={handleSaveReviveService}
+              onClaim={handleClaimDibs}
+              onRelease={handleReleaseDibs}
+              onTogglePaused={toggleEnabled}
+              onUpdateSpies={handleUpdateSpies}
+              onSetFactionId={handleSaveAndFetch}
+              onClose={() => setMobileOpen(false)}
+            />
+          </div>
         </div>
       )}
     </div>

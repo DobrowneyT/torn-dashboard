@@ -538,7 +538,11 @@ function FilterSheet({
 // Leadership sheet
 // ───────────────────────────────────────────────────────────────────
 
-function LeadershipSheet({ open, onClose, paused, pollIntervalS, onTogglePaused, onUpdateSpies, factionId, onSetFactionId }) {
+function LeadershipSheet({
+  open, onClose, paused, pollIntervalS, onPollIntervalChange,
+  reviveServices = [], activeReviveName = '', onPickReviveService,
+  onTogglePaused, onUpdateSpies, factionId, onSetFactionId,
+}) {
   const [localFactionId, setLocalFactionId] = useState(factionId)
   const Section = ({ title, children }) => (
     <div className="px-4 py-3.5 border-b border-gray-200 dark:border-slate-700">
@@ -549,6 +553,16 @@ function LeadershipSheet({ open, onClose, paused, pollIntervalS, onTogglePaused,
   const Input = (props) => (
     <input {...props} className={`px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-[13px] text-gray-900 dark:text-gray-100 font-mono min-w-0 ${props.className || ''}`} />
   )
+
+  function handlePickRevive(e) {
+    const picked = e.target.value
+    const found = reviveServices.find(s => s.name === picked)
+    onPickReviveService({
+      revive_service_name: found?.name ?? null,
+      revive_service_url:  found?.url  ?? null,
+    })
+  }
+
   return (
     <BottomSheet open={open} onClose={onClose} title="Leadership controls">
       <Section title="Polling">
@@ -567,6 +581,16 @@ function LeadershipSheet({ open, onClose, paused, pollIntervalS, onTogglePaused,
             {paused ? 'Enable' : 'Stop'}
           </button>
         </div>
+        <div className="mt-3 flex items-center gap-2">
+          <label className="text-[12px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Poll rate</label>
+          <Input
+            type="number" min={0.5} step={0.5}
+            value={pollIntervalS}
+            onChange={e => onPollIntervalChange(e.target.value)}
+            className="w-20 text-center"
+          />
+          <span className="text-[12px] text-gray-500 dark:text-gray-400">seconds (min 0.5)</span>
+        </div>
       </Section>
       <Section title="Opponent Faction">
         <div className="flex items-center gap-2">
@@ -576,6 +600,21 @@ function LeadershipSheet({ open, onClose, paused, pollIntervalS, onTogglePaused,
             className="flex-1"
           />
           <button onClick={() => onSetFactionId(localFactionId)} className="min-h-[40px] px-3.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[13px]">Save</button>
+        </div>
+      </Section>
+      <Section title="Revive Service">
+        <select
+          value={activeReviveName}
+          onChange={handlePickRevive}
+          className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-[13px] text-gray-900 dark:text-gray-100"
+        >
+          <option value="">None</option>
+          {reviveServices.map(s => (
+            <option key={s.name} value={s.name}>{s.name}</option>
+          ))}
+        </select>
+        <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+          Manage the list on desktop — Revives quick-link uses the active service.
         </div>
       </Section>
       <Section title="Stats Enrichment">
@@ -606,6 +645,10 @@ export default function MobileWarRoomView({
   isActive = true,
   paused = false,
   pollIntervalS = 3,
+  onPollIntervalChange = () => {},
+  reviveServices = [],
+  activeReviveName = '',
+  onPickReviveService = () => {},
   onClaim = () => {},
   onRelease = () => {},
   onTogglePaused = () => {},
@@ -717,6 +760,10 @@ export default function MobileWarRoomView({
         open={leaderOpen} onClose={() => setLeaderOpen(false)}
         paused={paused}
         pollIntervalS={pollIntervalS}
+        onPollIntervalChange={onPollIntervalChange}
+        reviveServices={reviveServices}
+        activeReviveName={activeReviveName}
+        onPickReviveService={onPickReviveService}
         onTogglePaused={onTogglePaused}
         onUpdateSpies={onUpdateSpies}
         factionId={factionId}
