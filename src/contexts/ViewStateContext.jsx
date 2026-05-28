@@ -1,19 +1,47 @@
-import { createContext, useContext, useState, useCallback, useMemo } from 'react'
+import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react'
 
 /**
- * ViewStateContext - Persists view state across navigation
- * 
+ * ViewStateContext - Persists view state across navigation AND page reloads
+ *
  * Usage:
  * 1. Wrap your app with <ViewStateProvider>
  * 2. In each view component, use useViewState(viewName)
- * 3. State automatically persists when switching views
+ * 3. State persists when switching views (in-memory) AND across reloads (localStorage)
+ *
+ * Serialization note: anything you store must be JSON-serialisable. Sets/Maps
+ * won't survive — convert to arrays/objects at the persistence boundary.
  */
+
+const STORAGE_KEY = 'tnl-forge-view-states'
+
+function loadInitial() {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
 
 const ViewStateContext = createContext(null)
 
 export function ViewStateProvider({ children }) {
-  // Store state for each view
-  const [viewStates, setViewStates] = useState({})
+  // Hydrate from localStorage on first render so child useViewState() calls
+  // see the persisted values immediately and can use lazy-init useState
+  // to seed their local state without a flash of defaults.
+  const [viewStates, setViewStates] = useState(loadInitial)
+
+  // Persist on every change. JSON.stringify swallows undefined / functions
+  // silently, which is fine — callers are expected to store plain data.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(viewStates))
+    } catch {
+      // Quota / private-mode failures: in-memory state still works.
+    }
+  }, [viewStates])
 
   // Get state for a specific view - memoized with useCallback
   const getViewState = useCallback((viewName) => {

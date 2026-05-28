@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useViewState } from '../contexts/ViewStateContext'
 import { supabase } from '../utils/supabase'
 import {
   fetchWarRoomMembers,
@@ -618,6 +619,10 @@ function ConfigPanel({
 export default function WarRoomView({ isLeadership, isAdmin }) {
   const { user } = useAuth()
 
+  // Reload-persisted prefs: filter chips, stats range, sort, poll rate.
+  // Sets are stored as arrays so JSON.stringify can round-trip them.
+  const [persistedState, setPersistedState] = useViewState('warroom_desktop')
+
   const [config, setConfig]         = useState(null)
   const [configLoading, setConfigLoading] = useState(true)
   const [members, setMembers]       = useState([])   // enemy
@@ -630,13 +635,13 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
   const [toggleError, setToggleError] = useState(null)
   const [updatingSpies, setUpdatingSpies] = useState(false)
   const [spiesMsg, setSpiesMsg]       = useState(null)
-  const [pollIntervalSec, setPollIntervalSec] = useState(3)
+  const [pollIntervalSec, setPollIntervalSec] = useState(() => persistedState.pollIntervalSec ?? 3)
   const [factionName, setFactionName] = useState(null)
 
   // Stats filter
-  const [statsFilterEnabled, setStatsFilterEnabled] = useState(false)
-  const [statsFilterMin, setStatsFilterMin] = useState('')
-  const [statsFilterMax, setStatsFilterMax] = useState('')
+  const [statsFilterEnabled, setStatsFilterEnabled] = useState(() => persistedState.statsFilterEnabled ?? false)
+  const [statsFilterMin, setStatsFilterMin] = useState(() => persistedState.statsFilterMin ?? '')
+  const [statsFilterMax, setStatsFilterMax] = useState(() => persistedState.statsFilterMax ?? '')
 
   // Mobile War Room overlay (only visible on < md viewport — see launcher button)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -738,13 +743,28 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
   useEffect(() => { dibsRef.current = dibs }, [dibs])
   useEffect(() => { userRef.current = user }, [user])
 
-  // Filters — Sets; empty = show all
-  const [statusFilter, setStatusFilter]     = useState(new Set())
-  const [activityFilter, setActivityFilter] = useState(new Set())
+  // Filters — Sets; empty = show all. Seeded from persisted arrays.
+  const [statusFilter, setStatusFilter]     = useState(() => new Set(persistedState.statusFilter ?? []))
+  const [activityFilter, setActivityFilter] = useState(() => new Set(persistedState.activityFilter ?? []))
 
   // Sort state
-  const [sortCol, setSortCol] = useState('timer')
-  const [sortDir, setSortDir] = useState('asc')
+  const [sortCol, setSortCol] = useState(() => persistedState.sortCol ?? 'timer')
+  const [sortDir, setSortDir] = useState(() => persistedState.sortDir ?? 'asc')
+
+  // Sync all reload-persisted prefs back to the context whenever they change.
+  // Sets are flattened to arrays so they survive JSON.stringify.
+  useEffect(() => {
+    setPersistedState({
+      statusFilter: [...statusFilter],
+      activityFilter: [...activityFilter],
+      statsFilterEnabled,
+      statsFilterMin,
+      statsFilterMax,
+      sortCol,
+      sortDir,
+      pollIntervalSec,
+    })
+  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir, pollIntervalSec, setPersistedState])
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')

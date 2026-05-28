@@ -49,6 +49,7 @@
  */
 
 import { useState, useEffect, useMemo, useReducer } from 'react'
+import { useViewState } from '../contexts/ViewStateContext'
 import {
   Check, BriefcaseMedical, Plane, MapPin, Skull, Lock, Clock,
   Syringe, Zap, Shield, Hand, Plus, Swords, X, ChevronRight,
@@ -376,10 +377,10 @@ function HeaderBar({ factionLabel, isActive, paused, isLeadership, activeFilterC
 // Faction strip + quick links + filter bar
 // ───────────────────────────────────────────────────────────────────
 
-// Single faction-count row. Always full-width so it fits any phone
-// regardless of how many counts are showing. Used twice — once for
-// enemy (above quick links), once for us (below quick links).
-function FactionCountRow({ label, counts, showOffline = false }) {
+// Combined two-side count ribbon: ENEMY on the left, US on the right,
+// separated by a vertical divider. Wraps to two stacked rows on
+// extremely narrow viewports via flex-wrap on the outer container.
+function CombinedCountRibbon({ enemyCounts, ourCounts }) {
   const dot = (color, n, lbl) => (
     <span className="inline-flex items-center gap-1 text-xs min-w-0">
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${color}`} />
@@ -388,11 +389,18 @@ function FactionCountRow({ label, counts, showOffline = false }) {
     </span>
   )
   return (
-    <div className="px-3.5 py-2 bg-gray-50 dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 flex items-center gap-3 flex-wrap">
-      <span className="text-[10px] font-bold text-gray-400 tracking-wider">{label}</span>
-      {dot('bg-green-500', counts.Online, 'on')}
-      {dot('bg-amber-500', counts.Idle,   'idle')}
-      {showOffline && dot('bg-gray-400', counts.Offline, 'off')}
+    <div className="px-3.5 py-2 bg-gray-50 dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+        <span className="text-[10px] font-bold text-gray-400 tracking-wider">ENEMY</span>
+        {dot('bg-green-500', enemyCounts.Online, 'on')}
+        {dot('bg-amber-500', enemyCounts.Idle,   'idle')}
+        {dot('bg-gray-400',  enemyCounts.Offline, 'off')}
+      </div>
+      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+        {dot('bg-green-500', ourCounts.Online, 'on')}
+        {dot('bg-amber-500', ourCounts.Idle,   'idle')}
+        <span className="text-[10px] font-bold text-gray-400 tracking-wider">US</span>
+      </div>
     </div>
   )
 }
@@ -577,6 +585,7 @@ function FilterSheet({
   open, onClose,
   statusFilter, toggleStatus, activityFilter, toggleActivity,
   statsEnabled, setStatsEnabled, statsMin, setStatsMin, statsMax, setStatsMax,
+  sortBy, setSortBy, sortDir, setSortDir,
   onClear,
 }) {
   const chip = (label, active, onClick) => (
@@ -594,7 +603,25 @@ function FilterSheet({
   )
 
   return (
-    <BottomSheet open={open} onClose={onClose} title="Filters">
+    <BottomSheet open={open} onClose={onClose} title="Filters & sort">
+      <SheetSection title="Sort by">
+        <div className="flex gap-1.5 flex-wrap">
+          {[
+            { key: 'timer',    label: 'Timer'    },
+            { key: 'stats',    label: 'Stats'    },
+            { key: 'status',   label: 'Status'   },
+            { key: 'activity', label: 'Activity' },
+            { key: 'name',     label: 'Name'     },
+          ].map(opt => chip(opt.label, sortBy === opt.key, () => setSortBy(opt.key)))}
+        </div>
+        <div className="mt-2.5 flex items-center gap-2">
+          <span className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wider">Direction</span>
+          <div className="flex gap-1.5">
+            {chip('Asc ↑',  sortDir === 'asc',  () => setSortDir('asc'))}
+            {chip('Desc ↓', sortDir === 'desc', () => setSortDir('desc'))}
+          </div>
+        </div>
+      </SheetSection>
       <SheetSection title="Status">
         <div className="flex gap-1.5 flex-wrap">
           {['Okay', 'Hospital', 'Flying', 'Jail'].map(s => chip(s, statusFilter.has(s), () => toggleStatus(s)))}
@@ -781,13 +808,38 @@ export default function MobileWarRoomView({
   onClearState = () => {},
   onClose,
 }) {
-  const [statusFilter, setStatusFilter] = useState(new Set(['Okay']))
-  const [activityFilter, setActivityFilter] = useState(new Set())
-  const [statsEnabled, setStatsEnabled] = useState(false)
-  const [statsMin, setStatsMin] = useState('')
-  const [statsMax, setStatsMax] = useState('')
+  // Reload-persisted prefs for the mobile war room. Kept on a separate
+  // key from the desktop view so each surface can have its own
+  // filter/sort defaults — the user often uses them for different goals.
+  const [persistedState, setPersistedState] = useViewState('warroom_mobile')
+
+  // Filter Sets seed from persisted arrays (Set/Map don't JSON-serialise).
+  // Status defaults to "Okay" only when there is no persisted preference
+  // (preserves the previous behaviour for first-time visitors).
+  const [statusFilter, setStatusFilter] = useState(() =>
+    new Set(persistedState.statusFilter ?? ['Okay'])
+  )
+  const [activityFilter, setActivityFilter] = useState(() => new Set(persistedState.activityFilter ?? []))
+  const [statsEnabled, setStatsEnabled] = useState(() => persistedState.statsEnabled ?? false)
+  const [statsMin, setStatsMin] = useState(() => persistedState.statsMin ?? '')
+  const [statsMax, setStatsMax] = useState(() => persistedState.statsMax ?? '')
+  const [sortBy, setSortBy] = useState(() => persistedState.sortBy ?? 'timer')
+  const [sortDir, setSortDir] = useState(() => persistedState.sortDir ?? 'asc')
   const [filterOpen, setFilterOpen] = useState(false)
   const [leaderOpen, setLeaderOpen] = useState(false)
+
+  // Persist any user-tweakable pref back to the context whenever it changes.
+  useEffect(() => {
+    setPersistedState({
+      statusFilter: [...statusFilter],
+      activityFilter: [...activityFilter],
+      statsEnabled,
+      statsMin,
+      statsMax,
+      sortBy,
+      sortDir,
+    })
+  }, [statusFilter, activityFilter, statsEnabled, statsMin, statsMax, sortBy, sortDir, setPersistedState])
 
   const toggleStatus = s => setStatusFilter(p => { const n = new Set(p); n.has(s) ? n.delete(s) : n.add(s); return n })
   const toggleActivity = a => setActivityFilter(p => { const n = new Set(p); n.has(a) ? n.delete(a) : n.add(a); return n })
@@ -803,15 +855,34 @@ export default function MobileWarRoomView({
       if (minVal !== null) list = list.filter(m => m.bsp != null && m.bsp >= minVal)
       if (maxVal !== null) list = list.filter(m => m.bsp != null && m.bsp <= maxVal)
     }
+    const dir = sortDir === 'asc' ? 1 : -1
     return [...list].sort((a, b) => {
-      const aT = a.until && a.state !== 'Okay'
-      const bT = b.until && b.state !== 'Okay'
-      if (aT && bT) return a.until - b.until
-      if (aT) return 1
-      if (bT) return -1
-      return (b.bsp ?? 0) - (a.bsp ?? 0)
+      switch (sortBy) {
+        case 'name':
+          return dir * (a.name || '').localeCompare(b.name || '')
+        case 'activity': {
+          const order = { Online: 0, Idle: 1, Offline: 2 }
+          return dir * ((order[a.activity] ?? 3) - (order[b.activity] ?? 3))
+        }
+        case 'status':
+          return dir * (a.state ?? '').localeCompare(b.state ?? '')
+        case 'stats':
+          return dir * ((a.bsp ?? -1) - (b.bsp ?? -1))
+        case 'timer':
+        default: {
+          // Members with an active timer (Hospital/Jail) sort by timer in
+          // the chosen direction; everyone else drops below them sorted by
+          // BSP desc for a scannable trailing block.
+          const aT = a.until && a.state !== 'Okay'
+          const bT = b.until && b.state !== 'Okay'
+          if (aT && bT) return dir * (a.until - b.until)
+          if (aT) return -1
+          if (bT) return 1
+          return (b.bsp ?? 0) - (a.bsp ?? 0)
+        }
+      }
     })
-  }, [members, statusFilter, activityFilter, statsEnabled, statsMin, statsMax])
+  }, [members, statusFilter, activityFilter, statsEnabled, statsMin, statsMax, sortBy, sortDir])
 
   const enemyCounts = useMemo(() => {
     const c = { Online: 0, Idle: 0, Offline: 0 }
@@ -848,16 +919,14 @@ export default function MobileWarRoomView({
         </div>
       )}
 
-      {/* 3-row stack: enemy counts → quick links → our counts. Stacking
-          keeps every row narrow enough for any phone width and groups
-          quick links visually between the two sides. */}
-      <FactionCountRow label="ENEMY" counts={enemyCounts} showOffline />
+      {/* Quick links sit directly under the header; a single combined ribbon
+          beneath them carries both ENEMY and US activity counts side-by-side. */}
       <QuickLinksBar
         reviveServiceName={activeReviveName}
         reviveServiceUrl={activeReviveUrl}
         onRequestRevive={onRequestRevive}
       />
-      <FactionCountRow label="US" counts={ourCounts} />
+      <CombinedCountRibbon enemyCounts={enemyCounts} ourCounts={ourCounts} />
       <TwoTierFilters
         statusFilter={statusFilter}
         onToggleStatus={toggleStatus}
@@ -893,6 +962,8 @@ export default function MobileWarRoomView({
         statsEnabled={statsEnabled} setStatsEnabled={setStatsEnabled}
         statsMin={statsMin} setStatsMin={setStatsMin}
         statsMax={statsMax} setStatsMax={setStatsMax}
+        sortBy={sortBy} setSortBy={setSortBy}
+        sortDir={sortDir} setSortDir={setSortDir}
         onClear={clearFilters}
       />
       <LeadershipSheet
