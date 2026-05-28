@@ -1687,12 +1687,34 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
               onPollIntervalChange={(s) => setPollIntervalSec(Math.max(0.5, Number(s) || 0.5))}
               reviveServices={Array.isArray(config?.revive_services) ? config.revive_services : []}
               activeReviveName={config?.revive_service_name ?? ''}
+              activeReviveUrl={config?.revive_service_url ?? ''}
               onPickReviveService={handleSaveReviveService}
+              onRequestRevive={async () => {
+                // Mirror desktop ReviveQuickLinkButton: look up the active
+                // service's source/sourceKey from the revive_services list
+                // (those don't live in dedicated config columns) and proxy
+                // through the same requestRevive helper.
+                const active = (config?.revive_services ?? []).find(s => s.name === config?.revive_service_name)
+                return requestRevive(
+                  {
+                    url: config?.revive_service_url,
+                    userID: Number(user?.id),
+                    userName: user?.name,
+                    factionName: appConfig.faction.name,
+                    source: active?.source ?? active?.name ?? 'War Room',
+                    sourceKey: active?.sourceKey ?? 'source',
+                  },
+                  user?.apiKey,
+                )
+              }}
+              updatingSpies={updatingSpies}
+              spiesMsg={spiesMsg}
               onClaim={handleClaimDibs}
               onRelease={handleReleaseDibs}
               onTogglePaused={toggleEnabled}
               onUpdateSpies={handleUpdateSpies}
               onSetFactionId={handleSaveAndFetch}
+              onClearState={handleClearState}
               onClose={() => setMobileOpen(false)}
             />
           </div>

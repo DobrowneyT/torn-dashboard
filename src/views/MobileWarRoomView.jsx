@@ -84,13 +84,6 @@ const FLAG_ICONS = [
   { key: 'onWall',         Icon: Shield,  label: 'On wall',         color: 'text-blue-600' },
 ]
 
-const QUICK_LINKS = [
-  { Icon: Swords,            label: 'War'      },
-  { Icon: BriefcaseMedical,  label: 'Medical'  },
-  { Icon: ShoppingBag,       label: 'Items'    },
-  { Icon: HeartPulse,        label: 'Revives'  },
-]
-
 // ───────────────────────────────────────────────────────────────────
 // Helpers — formatters + state parsers
 // ───────────────────────────────────────────────────────────────────
@@ -101,6 +94,19 @@ function formatStats(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
   if (n >= 1e3) return (n / 1e3).toFixed(0) + 'k'
   return String(n)
+}
+
+// Mirrors WarRoomView.parseStatInput: accepts "3", "3.5", ".8" optionally
+// followed by k/m/b. Returns null for empty/invalid input.
+function parseStatInput(str) {
+  if (!str?.trim()) return null
+  const s = str.trim().toLowerCase()
+  const m = s.match(/^(\d*\.?\d+)\s*([kmb]?)$/)
+  if (!m) return null
+  const n = parseFloat(m[1])
+  if (Number.isNaN(n)) return null
+  const multipliers = { k: 1_000, m: 1_000_000, b: 1_000_000_000 }
+  return n * (multipliers[m[2]] ?? 1)
 }
 
 function formatCountdown(s) {
@@ -284,7 +290,7 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
         <button
           onClick={() => isMyDib ? onRelease(m.id) : onClaim(m.id)}
           disabled={claimedByOther}
-          title={claimedByOther ? `Claimed by ${dib.claimedName}` : undefined}
+          title={claimedByOther ? `Claimed by ${dib.claimedName}` : isMyDib ? 'Press to release your dib' : undefined}
           className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] border inline-flex items-center justify-center gap-1.5 transition-colors ${
             claimedByOther
               ? 'bg-gray-200 text-gray-400 border-gray-200 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500 dark:border-slate-700'
@@ -294,7 +300,14 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
           }`}
         >
           {isMyDib ? <Check size={14} /> : <Plus size={14} />}
-          {isMyDib ? 'Your dib' : 'Dibs'}
+          {isMyDib ? (
+            <span className="flex flex-col items-center leading-tight">
+              <span>Your dib</span>
+              <span className="text-[10px] font-normal opacity-75">Tap to release</span>
+            </span>
+          ) : (
+            'Dibs'
+          )}
         </button>
         <a
           href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.id}`}
@@ -384,16 +397,85 @@ function FactionCountRow({ label, counts, showOffline = false }) {
   )
 }
 
-function QuickLinksBar() {
+function QuickLinksBar({ reviveServiceName, reviveServiceUrl, onRequestRevive }) {
+  const tileBase = 'flex-1 h-12 rounded-lg border flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium no-underline transition-colors'
+  const tileIdle = 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-700 dark:text-gray-300 active:bg-gray-100 dark:active:bg-slate-800'
+
+  // Plain external links (mirror desktop URLs in QuickLinksBar)
+  const links = [
+    { href: 'https://www.torn.com/factions.php?step=your&type=1#/war/rank',                 Icon: Swords,           label: 'War'     },
+    { href: 'https://www.torn.com/factions.php?step=your#/tab=armoury&start=0&sub=medical', Icon: BriefcaseMedical, label: 'Medical' },
+    { href: 'https://www.torn.com/item.php',                                                Icon: ShoppingBag,      label: 'Items'   },
+  ]
+
   return (
     <div className="px-3.5 py-2.5 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex justify-between gap-2">
-      {QUICK_LINKS.map(({ Icon, label }) => (
-        <button key={label} className="flex-1 h-12 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-700 dark:text-gray-300 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium">
+      {links.map(({ href, Icon, label }) => (
+        <a key={label} href={href} target="_blank" rel="noopener noreferrer" className={`${tileBase} ${tileIdle}`}>
           <Icon size={18} />
           {label}
-        </button>
+        </a>
       ))}
+      <ReviveQuickLinkTile
+        serviceName={reviveServiceName}
+        serviceUrl={reviveServiceUrl}
+        onRequestRevive={onRequestRevive}
+        tileBase={tileBase}
+      />
     </div>
+  )
+}
+
+// Mirrors desktop ReviveQuickLinkButton: fires onRequestRevive (parent owns
+// the actual edge-function call + user context). Locks for 2s after firing
+// and surfaces a brief ok/error tint so tappers know it actually went out.
+function ReviveQuickLinkTile({ serviceName, serviceUrl, onRequestRevive, tileBase }) {
+  const [busy, setBusy] = useState(false)
+  const [cooldown, setCooldown] = useState(false)
+  const [feedback, setFeedback] = useState(null)
+  const disabled = !serviceUrl || busy || cooldown
+
+  async function handleClick() {
+    if (disabled) return
+    setBusy(true); setFeedback(null)
+    try {
+      const result = await onRequestRevive()
+      if (result?.ok) {
+        setFeedback({ ok: true, text: 'Sent' })
+      } else {
+        const reason = result?.body?.reason ?? (result?.status ? `HTTP ${result.status}` : 'Failed')
+        setFeedback({ ok: false, text: reason })
+      }
+    } catch (e) {
+      setFeedback({ ok: false, text: e.message })
+    } finally {
+      setBusy(false)
+      setCooldown(true)
+      setTimeout(() => setCooldown(false), 2000)
+      setTimeout(() => setFeedback(null), 5000)
+    }
+  }
+
+  const baseLabel = serviceName || 'Revives'
+  const title = !serviceUrl
+    ? 'Revives — leadership must select a service'
+    : busy ? `${baseLabel} — sending…`
+    : feedback ? `${baseLabel} — ${feedback.text}`
+    : `${baseLabel} — tap to request a revive`
+
+  const stateClasses = feedback?.ok
+    ? 'border-green-400 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
+    : feedback && !feedback.ok
+    ? 'border-red-400 text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
+    : disabled
+    ? 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-300 dark:text-slate-600 cursor-not-allowed'
+    : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-700 dark:text-gray-300 active:bg-gray-100 dark:active:bg-slate-800'
+
+  return (
+    <button type="button" onClick={handleClick} disabled={disabled} title={title} aria-label={baseLabel} className={`${tileBase} ${stateClasses}`}>
+      <HeartPulse size={18} />
+      {busy ? '…' : feedback ? feedback.text : 'Revives'}
+    </button>
   )
 }
 
@@ -422,6 +504,33 @@ function TwoTierFilters({ statusFilter, onToggleStatus, advancedCount, onOpenAdv
         More{advancedCount > 0 ? ` (${advancedCount})` : ''}
       </button>
     </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Sheet primitives — MUST live at module scope so React keeps their
+// component identity stable across parent renders. Previously these
+// were defined inside FilterSheet/LeadershipSheet, which gave them a
+// new identity on every keystroke and caused React to unmount + remount
+// every input → inputs lost focus mid-type, and on iOS the on-screen
+// keyboard dismissed each character (looked like "the sheet closes").
+// ───────────────────────────────────────────────────────────────────
+
+function SheetSection({ title, children }) {
+  return (
+    <div className="px-4 py-3.5 border-b border-gray-200 dark:border-slate-700">
+      <div className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function SheetInput({ className = '', ...props }) {
+  return (
+    <input
+      {...props}
+      className={`px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-[13px] text-gray-900 dark:text-gray-100 font-mono min-w-0 ${className}`}
+    />
   )
 }
 
@@ -470,12 +579,6 @@ function FilterSheet({
   statsEnabled, setStatsEnabled, statsMin, setStatsMin, statsMax, setStatsMax,
   onClear,
 }) {
-  const Section = ({ title, children }) => (
-    <div className="px-4 py-3.5 border-b border-gray-200 dark:border-slate-700">
-      <div className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title}</div>
-      {children}
-    </div>
-  )
   const chip = (label, active, onClick) => (
     <button
       key={label}
@@ -492,17 +595,17 @@ function FilterSheet({
 
   return (
     <BottomSheet open={open} onClose={onClose} title="Filters">
-      <Section title="Status">
+      <SheetSection title="Status">
         <div className="flex gap-1.5 flex-wrap">
           {['Okay', 'Hospital', 'Flying', 'Jail'].map(s => chip(s, statusFilter.has(s), () => toggleStatus(s)))}
         </div>
-      </Section>
-      <Section title="Activity">
+      </SheetSection>
+      <SheetSection title="Activity">
         <div className="flex gap-1.5 flex-wrap">
           {['Online', 'Idle', 'Offline'].map(a => chip(a, activityFilter.has(a), () => toggleActivity(a)))}
         </div>
-      </Section>
-      <Section title="Battle Stats (BSP)">
+      </SheetSection>
+      <SheetSection title="Battle Stats (BSP)">
         <div className="flex gap-2 items-center mb-2">
           <button
             onClick={() => setStatsEnabled(!statsEnabled)}
@@ -525,7 +628,7 @@ function FilterSheet({
           />
         </div>
         <div className="text-[11px] text-gray-500">Suffixes: <code className="font-mono text-[10px] bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 px-1 rounded">k</code> · <code className="font-mono text-[10px] bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 px-1 rounded">m</code> · <code className="font-mono text-[10px] bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 px-1 rounded">b</code></div>
-      </Section>
+      </SheetSection>
       <div className="p-4 flex gap-2.5">
         <button onClick={onClear} className="flex-1 min-h-[44px] rounded-lg bg-transparent border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 font-medium text-sm">Clear all</button>
         <button onClick={onClose} className="flex-[2] min-h-[44px] rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm">Apply</button>
@@ -541,18 +644,10 @@ function FilterSheet({
 function LeadershipSheet({
   open, onClose, paused, pollIntervalS, onPollIntervalChange,
   reviveServices = [], activeReviveName = '', onPickReviveService,
-  onTogglePaused, onUpdateSpies, factionId, onSetFactionId,
+  onTogglePaused, onUpdateSpies, updatingSpies = false, spiesMsg = null,
+  factionId, onSetFactionId, onClearState,
 }) {
   const [localFactionId, setLocalFactionId] = useState(factionId)
-  const Section = ({ title, children }) => (
-    <div className="px-4 py-3.5 border-b border-gray-200 dark:border-slate-700">
-      <div className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title}</div>
-      {children}
-    </div>
-  )
-  const Input = (props) => (
-    <input {...props} className={`px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-[13px] text-gray-900 dark:text-gray-100 font-mono min-w-0 ${props.className || ''}`} />
-  )
 
   function handlePickRevive(e) {
     const picked = e.target.value
@@ -565,7 +660,7 @@ function LeadershipSheet({
 
   return (
     <BottomSheet open={open} onClose={onClose} title="Leadership controls">
-      <Section title="Polling">
+      <SheetSection title="Polling">
         <div className="flex items-center gap-2.5 justify-between">
           <div>
             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{paused ? 'Paused' : 'Active'}</div>
@@ -583,7 +678,7 @@ function LeadershipSheet({
         </div>
         <div className="mt-3 flex items-center gap-2">
           <label className="text-[12px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Poll rate</label>
-          <Input
+          <SheetInput
             type="number" min={0.5} step={0.5}
             value={pollIntervalS}
             onChange={e => onPollIntervalChange(e.target.value)}
@@ -591,18 +686,18 @@ function LeadershipSheet({
           />
           <span className="text-[12px] text-gray-500 dark:text-gray-400">seconds (min 0.5)</span>
         </div>
-      </Section>
-      <Section title="Opponent Faction">
+      </SheetSection>
+      <SheetSection title="Opponent Faction">
         <div className="flex items-center gap-2">
-          <Input
+          <SheetInput
             type="text" placeholder="Faction ID — e.g. 8317"
             value={localFactionId} onChange={e => setLocalFactionId(e.target.value)}
             className="flex-1"
           />
           <button onClick={() => onSetFactionId(localFactionId)} className="min-h-[40px] px-3.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[13px]">Save</button>
         </div>
-      </Section>
-      <Section title="Revive Service">
+      </SheetSection>
+      <SheetSection title="Revive Service">
         <select
           value={activeReviveName}
           onChange={handlePickRevive}
@@ -616,13 +711,38 @@ function LeadershipSheet({
         <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
           Manage the list on desktop — Revives quick-link uses the active service.
         </div>
-      </Section>
-      <Section title="Stats Enrichment">
-        <button onClick={onUpdateSpies} className="w-full min-h-[44px] rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold text-[13px] inline-flex items-center justify-center gap-2">
+      </SheetSection>
+      <SheetSection title="Stats Enrichment">
+        <button
+          onClick={onUpdateSpies}
+          disabled={updatingSpies}
+          className="w-full min-h-[44px] rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold text-[13px] inline-flex items-center justify-center gap-2 disabled:opacity-60"
+        >
           <Search size={14} />
-          Update Spies — pull BSP for all enemies
+          {updatingSpies ? 'Fetching…' : 'Update Spies — pull BSP for all enemies'}
         </button>
-      </Section>
+        {spiesMsg && (
+          <div className={`mt-2 text-[11px] ${spiesMsg.ok ? 'text-purple-700 dark:text-purple-300' : 'text-red-600 dark:text-red-400'}`}>
+            {spiesMsg.text}
+          </div>
+        )}
+      </SheetSection>
+      {onClearState && (
+        <SheetSection title="Danger Zone">
+          <button
+            onClick={async () => {
+              if (!confirm('Clear all war room member data? Do this when starting a new war.')) return
+              try { await onClearState() } catch (e) { alert(e.message) }
+            }}
+            className="w-full min-h-[40px] rounded-lg bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800 font-semibold text-[13px]"
+          >
+            Clear War Room State
+          </button>
+          <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+            Wipes the current member roster. Use when starting a new war.
+          </div>
+        </SheetSection>
+      )}
       <div className="p-4">
         <button onClick={onClose} className="w-full min-h-[44px] rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm">Done</button>
       </div>
@@ -648,12 +768,17 @@ export default function MobileWarRoomView({
   onPollIntervalChange = () => {},
   reviveServices = [],
   activeReviveName = '',
+  activeReviveUrl = '',
   onPickReviveService = () => {},
+  onRequestRevive = async () => ({ ok: false, body: { reason: 'No revive handler wired' } }),
+  updatingSpies = false,
+  spiesMsg = null,
   onClaim = () => {},
   onRelease = () => {},
   onTogglePaused = () => {},
   onUpdateSpies = () => {},
   onSetFactionId = () => {},
+  onClearState = () => {},
   onClose,
 }) {
   const [statusFilter, setStatusFilter] = useState(new Set(['Okay']))
@@ -672,6 +797,12 @@ export default function MobileWarRoomView({
     let list = members
     if (statusFilter.size > 0)   list = list.filter(m => statusFilter.has(stateToFilterKey(m.state, m.description)))
     if (activityFilter.size > 0) list = list.filter(m => activityFilter.has(m.activity))
+    if (statsEnabled) {
+      const minVal = parseStatInput(statsMin)
+      const maxVal = parseStatInput(statsMax)
+      if (minVal !== null) list = list.filter(m => m.bsp != null && m.bsp >= minVal)
+      if (maxVal !== null) list = list.filter(m => m.bsp != null && m.bsp <= maxVal)
+    }
     return [...list].sort((a, b) => {
       const aT = a.until && a.state !== 'Okay'
       const bT = b.until && b.state !== 'Okay'
@@ -680,7 +811,7 @@ export default function MobileWarRoomView({
       if (bT) return -1
       return (b.bsp ?? 0) - (a.bsp ?? 0)
     })
-  }, [members, statusFilter, activityFilter])
+  }, [members, statusFilter, activityFilter, statsEnabled, statsMin, statsMax])
 
   const enemyCounts = useMemo(() => {
     const c = { Online: 0, Idle: 0, Offline: 0 }
@@ -721,7 +852,11 @@ export default function MobileWarRoomView({
           keeps every row narrow enough for any phone width and groups
           quick links visually between the two sides. */}
       <FactionCountRow label="ENEMY" counts={enemyCounts} showOffline />
-      <QuickLinksBar />
+      <QuickLinksBar
+        reviveServiceName={activeReviveName}
+        reviveServiceUrl={activeReviveUrl}
+        onRequestRevive={onRequestRevive}
+      />
       <FactionCountRow label="US" counts={ourCounts} />
       <TwoTierFilters
         statusFilter={statusFilter}
@@ -770,8 +905,11 @@ export default function MobileWarRoomView({
         onPickReviveService={onPickReviveService}
         onTogglePaused={onTogglePaused}
         onUpdateSpies={onUpdateSpies}
+        updatingSpies={updatingSpies}
+        spiesMsg={spiesMsg}
         factionId={factionId}
         onSetFactionId={onSetFactionId}
+        onClearState={onClearState}
       />
     </div>
   )
