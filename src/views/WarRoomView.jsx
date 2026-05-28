@@ -239,15 +239,18 @@ function ActivityCounts({ members }) {
 }
 
 function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, user, factionName }) {
+  // On <md viewports stack into 3 rows so the bar can't overflow a phone
+  // screen (which would inflate the layout viewport and break the mobile
+  // overlay). On md+ keep the original single-row layout.
   return (
-    <div className="card py-3 px-4 flex items-center justify-between gap-4">
-      <div className="flex items-center gap-4">
+    <div className="card py-3 px-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
+      <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-wrap">
         <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide shrink-0">
           {factionLabel ?? 'Enemy'}
         </span>
         <ActivityCounts members={enemyMembers} />
       </div>
-      <div className="flex items-center justify-center shrink-0">
+      <div className="flex items-center justify-center md:justify-center shrink-0 self-center md:self-auto">
         <QuickLinksBar
           reviveServiceName={reviveServiceName}
           reviveServiceUrl={reviveServiceUrl}
@@ -258,7 +261,7 @@ function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServic
         />
       </div>
       {ourMembers.length > 0 ? (
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-wrap md:justify-end">
           <ActivityCounts members={ourMembers} />
           <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide shrink-0">
             Us
@@ -1243,6 +1246,22 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     return c
   }, [ourMembers])
 
+  // The dibs store uses snake_case from the DB (claimed_by / claimed_name);
+  // MobileWarRoomView's MemberCard expects camelCase (claimedBy / claimedName).
+  // Without this adapter every dib would read as "claimed by someone else,"
+  // which both greys out the user's own Attack button and hides the claimer's name.
+  const mobileDibs = useMemo(() => {
+    const out = {}
+    for (const [targetId, d] of Object.entries(dibs)) {
+      out[targetId] = {
+        ...d,
+        claimedBy: d.claimed_by,
+        claimedName: d.claimed_name,
+      }
+    }
+    return out
+  }, [dibs])
+
   // ── Render helpers ─────────────────────────────────────────────────────────
 
   if (configLoading) {
@@ -1656,7 +1675,7 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
           <div className="w-full h-full sm:w-[420px] sm:max-w-full sm:h-[90vh] sm:max-h-[900px] sm:rounded-3xl overflow-hidden shadow-2xl bg-gray-50 dark:bg-slate-900 ring-1 ring-black/10 dark:ring-white/10">
             <MobileWarRoomView
               members={mobileMembers}
-              dibsByEnemyId={dibs}
+              dibsByEnemyId={mobileDibs}
               currentUserId={user?.id}
               factionId={String(config?.faction_id ?? '')}
               factionName={factionName ?? config?.faction_name}

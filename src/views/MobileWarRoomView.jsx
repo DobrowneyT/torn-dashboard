@@ -283,8 +283,12 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
       <div className="flex gap-2">
         <button
           onClick={() => isMyDib ? onRelease(m.id) : onClaim(m.id)}
+          disabled={claimedByOther}
+          title={claimedByOther ? `Claimed by ${dib.claimedName}` : undefined}
           className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] border inline-flex items-center justify-center gap-1.5 transition-colors ${
-            isMyDib
+            claimedByOther
+              ? 'bg-gray-200 text-gray-400 border-gray-200 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500 dark:border-slate-700'
+              : isMyDib
               ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800'
               : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700'
           }`}
