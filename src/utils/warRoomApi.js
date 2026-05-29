@@ -100,8 +100,71 @@ export async function fetchBspStats(memberIds, tornApiKey) {
  * (server-side proxy to bypass CORS). Returns { ok, status, body } where body
  * is the parsed JSON response from the service.
  */
-export async function requestRevive({ url, userID, userName, factionName, source, sourceKey }, tornApiKey) {
-  return callWarRoom('revive_request', { url, userID, userName, factionName, source, sourceKey }, tornApiKey)
+export async function requestRevive({ url, userID, userName, factionName, source, sourceKey, preset, country }, tornApiKey) {
+  // Nuke is gated on source IP fingerprint — the userscript posts from the
+  // user's residential IP (via GM_xmlhttpRequest) and Nuke's revivers pick
+  // those up, but identical payloads sent from our Edge Function (Deno
+  // datacenter IP) appear to be silently shadow-filtered. To match the
+  // userscript's fingerprint we POST directly from the browser. Nuke's
+  // response carries `access-control-allow-origin: *` and the form-urlencoded
+  // content-type is a "simple" CORS request (no preflight), so this works
+  // without any server-side cooperation from them.
+  if (preset === 'nuke') {
+    return requestReviveNukeDirect({ url, userID, userName, country, source })
+  }
+  return callWarRoom('revive_request', { url, userID, userName, factionName, source, sourceKey, preset }, tornApiKey)
+}
+
+async function requestReviveNukeDirect({ url, userID, userName, country, source }) {
+  const formFields = {
+    torn_player_id:      String(userID),
+    torn_player_name:    userName ? `${userName} [${userID}]` : String(userID),
+    torn_player_country: country || 'Torn',
+    app_info:            source || 'TNL War Room',
+  }
+  const body = new URLSearchParams(formFields).toString()
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    })
+    const text = await resp.text()
+    let parsedBody
+    try { parsedBody = JSON.parse(text) } catch { parsedBody = { raw: text } }
+    return { ok: resp.ok, status: resp.status, body: parsedBody, sentPayload: formFields, url }
+  } catch (e) {
+    // Network / CORS failure — surface to caller in the same shape as a
+    // server-side error response so the UI can show the reason.
+    return { ok: false, status: 0, body: { reason: e.message }, sentPayload: formFields, url }
+  }
+}
+
+// Map Torn hospital-description adjectives to Nuke's title-cased country
+// names. Mirrors the server-side logic in war-room-fetch's resolveUserCountry
+// so the direct-browser path produces the same country string the Edge
+// Function would have. Anything that doesn't match is treated as Torn (which
+// covers the standard hospital and "no description available" cases).
+const HOSPITAL_COUNTRY_ADJECTIVES = [
+  [/\bMexican\b/i,       'Mexico'],
+  [/\bCaymanian\b/i,     'Cayman Islands'],
+  [/\bCanadian\b/i,      'Canada'],
+  [/\bHawaiian\b/i,      'Hawaii'],
+  [/\bBritish\b/i,       'United Kingdom'],
+  [/\bArgentinian\b/i,   'Argentina'],
+  [/\bSwiss\b/i,         'Switzerland'],
+  [/\bJapanese\b/i,      'Japan'],
+  [/\bChinese\b/i,       'China'],
+  [/\bEmirati\b/i,       'UAE'],
+  [/\bSouth African\b/i, 'South Africa'],
+]
+
+export function resolveCountryFromDescription(description) {
+  if (!description) return 'Torn'
+  for (const [pattern, country] of HOSPITAL_COUNTRY_ADJECTIVES) {
+    if (pattern.test(description)) return country
+  }
+  return 'Torn'
 }
 
 /**

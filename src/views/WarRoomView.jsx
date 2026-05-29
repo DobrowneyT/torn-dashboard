@@ -12,6 +12,7 @@ import {
   claimDibs,
   releaseDibs,
   requestRevive,
+  resolveCountryFromDescription,
 } from '../utils/warRoomApi'
 import * as sessionToken from '../utils/sessionToken'
 import { config as appConfig } from '../config'
@@ -239,7 +240,7 @@ function ActivityCounts({ members }) {
   )
 }
 
-function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, user, factionName }) {
+function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, reviveServicePreset, userCountry, user, factionName }) {
   // On <md viewports stack into 3 rows so the bar can't overflow a phone
   // screen (which would inflate the layout viewport and break the mobile
   // overlay). On md+ keep the original single-row layout.
@@ -257,6 +258,8 @@ function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServic
           reviveServiceUrl={reviveServiceUrl}
           reviveServiceSource={reviveServiceSource}
           reviveServiceSourceKey={reviveServiceSourceKey}
+          reviveServicePreset={reviveServicePreset}
+          userCountry={userCountry}
           user={user}
           factionName={factionName}
         />
@@ -309,7 +312,7 @@ function QuickLinkButton({ href, title, disabled, children }) {
  * Function proxy (CORS workaround). Disabled while in-flight + 2s cooldown.
  * Mirrors the payload shape from the UHC Tampermonkey script.
  */
-function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, serviceSourceKey, user, factionName }) {
+function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, serviceSourceKey, servicePreset, userCountry, user, factionName }) {
   const [busy, setBusy] = useState(false)
   const [cooldown, setCooldown] = useState(false)
   const [feedback, setFeedback] = useState(null)
@@ -319,19 +322,27 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, service
   async function handleClick() {
     if (disabled) return
     setBusy(true); setFeedback(null)
+    const requestArgs = {
+      url: serviceUrl,
+      userID: Number(user.id),
+      userName: user.name,
+      factionName,
+      // Per-service identifier — falls back to the service name, then a generic label
+      source: serviceSource || serviceName || 'War Room',
+      sourceKey: serviceSourceKey || 'source',
+      // Selects the payload shape + transport on the requestRevive side:
+      //   'json' (UHC/WTF) → Edge Function JSON POST
+      //   'nuke'           → direct browser form POST (matches userscript's
+      //                      residential-IP fingerprint to avoid Nuke's
+      //                      datacenter-IP shadow-filter)
+      preset: servicePreset || 'json',
+      // Required by the Nuke direct-POST path — resolved by the parent from
+      // our own war_room_state row. Ignored by the json path (Edge Function
+      // resolves country server-side).
+      country: userCountry || 'Torn',
+    }
     try {
-      const result = await requestRevive(
-        {
-          url: serviceUrl,
-          userID: Number(user.id),
-          userName: user.name,
-          factionName,
-          // Per-service identifier — falls back to the service name, then a generic label
-          source: serviceSource || serviceName || 'War Room',
-          sourceKey: serviceSourceKey || 'source',
-        },
-        user.apiKey,
-      )
+      const result = await requestRevive(requestArgs, user.apiKey)
       if (result.ok) {
         setFeedback({ ok: true, text: 'Sent' })
       } else {
@@ -381,7 +392,7 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, service
   )
 }
 
-function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, user, factionName }) {
+function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, reviveServicePreset, userCountry, user, factionName }) {
   const iconCls = 'w-5 h-5'
   return (
     <div className="flex items-center gap-1.5">
@@ -399,6 +410,8 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSourc
         serviceUrl={reviveServiceUrl}
         serviceSource={reviveServiceSource}
         serviceSourceKey={reviveServiceSourceKey}
+        servicePreset={reviveServicePreset}
+        userCountry={userCountry}
         user={user}
         factionName={factionName}
       />
@@ -1502,6 +1515,13 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
         const activeService = (config?.revive_services ?? []).find(s => s.name === config?.revive_service_name)
         const activeSource    = activeService?.source    ?? activeService?.name ?? null
         const activeSourceKey = activeService?.sourceKey ?? 'source'
+        const activePreset    = activeService?.preset    ?? 'json'
+        // Resolve the requester's current country from our own faction's
+        // war_room_state row (e.g. "In a Mexican hospital" → "Mexico").
+        // Used by the Nuke direct-POST path which needs to send the country
+        // explicitly (the Edge Function path resolves it server-side).
+        const myRow = ourMembers.find(m => String(m.member_id) === String(user?.id))
+        const userCountry = resolveCountryFromDescription(myRow?.status_description)
         return (
           <FactionStatusBar
             enemyMembers={members}
@@ -1511,6 +1531,8 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
             reviveServiceUrl={config?.revive_service_url}
             reviveServiceSource={activeSource}
             reviveServiceSourceKey={activeSourceKey}
+            reviveServicePreset={activePreset}
+            userCountry={userCountry}
             user={user}
             factionName={appConfig.faction.name}
           />
@@ -1711,10 +1733,14 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
               onPickReviveService={handleSaveReviveService}
               onRequestRevive={async () => {
                 // Mirror desktop ReviveQuickLinkButton: look up the active
-                // service's source/sourceKey from the revive_services list
-                // (those don't live in dedicated config columns) and proxy
-                // through the same requestRevive helper.
+                // service's source/sourceKey/preset from the revive_services
+                // list (those don't live in dedicated config columns) and
+                // proxy through the same requestRevive helper. The preset
+                // selects payload shape AND transport (nuke = direct browser
+                // POST to match userscript fingerprint). `country` is only
+                // consumed by the nuke path.
                 const active = (config?.revive_services ?? []).find(s => s.name === config?.revive_service_name)
+                const myRow = ourMembers.find(m => String(m.member_id) === String(user?.id))
                 return requestRevive(
                   {
                     url: config?.revive_service_url,
@@ -1723,6 +1749,8 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
                     factionName: appConfig.faction.name,
                     source: active?.source ?? active?.name ?? 'War Room',
                     sourceKey: active?.sourceKey ?? 'source',
+                    preset: active?.preset ?? 'json',
+                    country: resolveCountryFromDescription(myRow?.status_description),
                   },
                   user?.apiKey,
                 )

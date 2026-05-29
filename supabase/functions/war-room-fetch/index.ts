@@ -484,16 +484,73 @@ async function handleReleaseDibs(
   return json({ ok: true })
 }
 
+// Hospital status descriptions Torn emits use nationality adjectives. Map
+// each adjective to the title-cased country name Nuke's API expects. Anything
+// not in this table (including the bare "In hospital" form) is treated as
+// Torn — the standard hospital has no nationality prefix.
+const HOSPITAL_COUNTRY_ADJECTIVES: Array<[RegExp, string]> = [
+  [/\bMexican\b/i,       'Mexico'],
+  [/\bCaymanian\b/i,     'Cayman Islands'],
+  [/\bCanadian\b/i,      'Canada'],
+  [/\bHawaiian\b/i,      'Hawaii'],
+  [/\bBritish\b/i,       'United Kingdom'],
+  [/\bArgentinian\b/i,   'Argentina'],
+  [/\bSwiss\b/i,         'Switzerland'],
+  [/\bJapanese\b/i,      'Japan'],
+  [/\bChinese\b/i,       'China'],
+  [/\bEmirati\b/i,       'UAE'],
+  [/\bSouth African\b/i, 'South Africa'],
+]
+
+/**
+ * Resolve the requester's current country from their war_room_state row.
+ * Returns a Nuke-API-compatible title-cased country name, defaulting to
+ * "Torn" when the description doesn't match any nationality (which covers
+ * both the standard hospital and the "user not in our war_room_state" case).
+ */
+async function resolveUserCountry(
+  supabase: ReturnType<typeof createClient>,
+  userID: number | string,
+): Promise<string> {
+  const { data } = await supabase
+    .from('war_room_state')
+    .select('state')
+    .eq('member_id', Number(userID))
+    .maybeSingle()
+  const description: string = data?.state?.status?.description ?? ''
+  for (const [pattern, country] of HOSPITAL_COUNTRY_ADJECTIVES) {
+    if (pattern.test(description)) return country
+  }
+  return 'Torn'
+}
+
 // Server-side proxy for revive-service POST requests. Browser cross-origin
 // POSTs to services like tornuhc.eu would be blocked by CORS, so we forward
 // the call from the Edge Function (server-to-server, no CORS) and return the
 // response. The Tampermonkey script equivalent uses GM.xmlHttpRequest for the
 // same reason.
-async function handleReviveRequest(body: any) {
+//
+// Three payload shapes are supported via the `preset` field:
+//   - 'json' (default): UHC/WTF style — JSON body with a custom source key
+//   - 'nuke': form-encoded body with Nuke's torn_player_id / _name / _country
+//     / app_info fields, country resolved server-side from war_room_state
+async function handleReviveRequest(
+  supabase: ReturnType<typeof createClient>,
+  body: any,
+) {
   const url: string = body.url
   if (!url || typeof url !== 'string') return json({ error: 'url required' }, 400)
   if (!body.userID) return json({ error: 'userID required' }, 400)
 
+  const preset: string = (body.preset ?? 'json').toString().toLowerCase()
+
+  if (preset === 'nuke') {
+    return await sendNukeRequest(supabase, url, body)
+  }
+  return await sendJsonRequest(url, body)
+}
+
+async function sendJsonRequest(url: string, body: any) {
   // Different revive services use different JSON keys for the same value:
   //   UHC → "source"
   //   WTF → "requestChannel"
@@ -508,7 +565,7 @@ async function handleReviveRequest(body: any) {
     [sourceKey]: sourceValue,
   }
 
-  console.log('[revive_request] →', { url, payload })
+  console.log('[revive_request:json] →', { url, payload })
 
   try {
     const resp = await fetch(url, {
@@ -519,10 +576,49 @@ async function handleReviveRequest(body: any) {
     const text = await resp.text()
     let parsedBody: unknown
     try { parsedBody = JSON.parse(text) } catch { parsedBody = { raw: text } }
-    console.log('[revive_request] ←', { status: resp.status, body: parsedBody })
+    console.log('[revive_request:json] ←', { status: resp.status, body: parsedBody })
     return json({ ok: resp.ok, status: resp.status, body: parsedBody, sentPayload: payload, url })
   } catch (e) {
-    console.error('[revive_request] error', e)
+    console.error('[revive_request:json] error', e)
+    return json({ error: `Revive request failed: ${e}` }, 502)
+  }
+}
+
+async function sendNukeRequest(
+  supabase: ReturnType<typeof createClient>,
+  url: string,
+  body: any,
+) {
+  const country = await resolveUserCountry(supabase, body.userID)
+
+  // Mirror the userscript exactly: `torn_player_name` is "Name [id]", and the
+  // app_info string carries the version of our app for their logs.
+  const playerName = body.userName ? `${body.userName} [${body.userID}]` : String(body.userID)
+  const formFields: Record<string, string> = {
+    torn_player_id:      String(body.userID),
+    torn_player_name:    playerName,
+    torn_player_country: country,
+    app_info:            body.source || 'TNL War Room',
+  }
+  const formBody = Object.entries(formFields)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&')
+
+  console.log('[revive_request:nuke] →', { url, formFields })
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formBody,
+    })
+    const text = await resp.text()
+    let parsedBody: unknown
+    try { parsedBody = JSON.parse(text) } catch { parsedBody = { raw: text } }
+    console.log('[revive_request:nuke] ←', { status: resp.status, body: parsedBody })
+    return json({ ok: resp.ok, status: resp.status, body: parsedBody, sentPayload: formFields, url })
+  } catch (e) {
+    console.error('[revive_request:nuke] error', e)
     return json({ error: `Revive request failed: ${e}` }, 502)
   }
 }
@@ -677,7 +773,7 @@ serve(async (req: Request) => {
       case 'get_dibs':
         return await handleGetDibs(supabase, body)
       case 'revive_request':
-        return await handleReviveRequest(body)
+        return await handleReviveRequest(supabase, body)
       case 'mint_realtime_token':
         // userId is set by verifyTornUser() above — this action is NOT in
         // POLL_ACTIONS so the standard Torn-key auth flow runs first.
