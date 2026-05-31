@@ -233,9 +233,26 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
   const claimedByOther = dib && !isMyDib
   const subLabel = parseTravel(m.state, m.description) || parseAbroadHospital(m.state, m.description)
 
+  // Tap the BSP corner to reveal the per-stat breakdown (mobile analogue of
+  // the desktop hover tooltip). Only meaningful when we have a value to show.
+  const [statsOpen, setStatsOpen] = useState(false)
+  const hasBsp = m.bsp != null
+  const isTs = m.spySource === 'tornstats'
+  const sourceLabel = isTs ? 'TS' : 'BSP'
+  const ageTs = isTs && m.tsSpyAt
+    ? Math.floor(new Date(m.tsSpyAt).getTime() / 1000)
+    : (m.bspFetchedAt ? Math.floor(new Date(m.bspFetchedAt).getTime() / 1000) : null)
+  const ageLabel = ageTs ? formatRelative(ageTs) : '—'
+  const breakdownRows = [
+    ['STR', m.bspStr],
+    ['DEF', m.bspDef],
+    ['SPD', m.bspSpd],
+    ['DEX', m.bspDex],
+  ].filter(([, v]) => v != null)
+
   return (
     <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-3 flex flex-col gap-2">
-      {/* Row 1 — name + id + level + BSP */}
+      {/* Row 1 — name + id + level + BSP (tap-to-expand on the BSP corner) */}
       <div className="flex justify-between items-baseline gap-2">
         <div className="min-w-0 flex-1">
           <a
@@ -251,13 +268,54 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
             <span>Lv{m.level}</span>
           </div>
         </div>
-        <div className="text-right">
+        <button
+          type="button"
+          onClick={() => hasBsp && setStatsOpen(o => !o)}
+          aria-expanded={statsOpen}
+          aria-label={hasBsp ? `Toggle stats breakdown for ${m.name}` : 'No stats available'}
+          disabled={!hasBsp}
+          className={`text-right -m-1 p-1 rounded ${hasBsp ? 'cursor-pointer active:bg-gray-100 dark:active:bg-slate-700' : 'cursor-default'}`}
+        >
           <div className={`font-mono text-[15px] font-bold leading-none tabular-nums ${m.bsp == null ? 'text-gray-400' : 'text-gray-900 dark:text-gray-100'}`}>
             {formatStats(m.bsp)}
           </div>
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">BSP</div>
-        </div>
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">
+            {hasBsp ? sourceLabel : 'BSP'}
+          </div>
+        </button>
       </div>
+
+      {/* Stats breakdown — collapsed by default, expanded on BSP tap. Mirrors
+          the desktop hover tooltip: per-stat rows when available, Total, and
+          a "{relative age} ({TS|BSP})" footer. */}
+      {hasBsp && statsOpen && (
+        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 p-2.5 text-[12px] font-mono">
+          {breakdownRows.length > 0 ? (
+            <table className="w-full">
+              <tbody>
+                {breakdownRows.map(([label, v]) => (
+                  <tr key={label}>
+                    <td className="pr-3 text-gray-500 dark:text-gray-400">{label}</td>
+                    <td className="text-right text-gray-900 dark:text-gray-100">{formatStats(v)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-gray-200 dark:border-slate-700">
+                  <td className="pr-3 pt-1 text-gray-500 dark:text-gray-400 font-semibold">Total</td>
+                  <td className="text-right pt-1 text-gray-900 dark:text-gray-100 font-semibold">{formatStats(m.bsp)}</td>
+                </tr>
+              </tbody>
+            </table>
+          ) : (
+            <div className="flex justify-between gap-3">
+              <span className="text-gray-500 dark:text-gray-400 font-semibold">Total</span>
+              <span className="text-gray-900 dark:text-gray-100 font-semibold">{formatStats(m.bsp)}</span>
+            </div>
+          )}
+          <div className="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 text-[10px] text-right whitespace-nowrap">
+            {ageLabel} ({sourceLabel})
+          </div>
+        </div>
+      )}
 
       {/* Row 2 — activity + status + timer */}
       <div className="flex items-center flex-wrap gap-2">

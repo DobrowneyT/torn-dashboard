@@ -1436,6 +1436,15 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
     description:  m.status_description,
     until:        m.status_until,
     bsp:          m.bsp_total,
+    // Stats breakdown + provenance so the mobile card can show the same
+    // expand-on-tap breakdown the desktop shows on hover.
+    bspStr:       m.bsp_str,
+    bspDef:       m.bsp_def,
+    bspSpd:       m.bsp_spd,
+    bspDex:       m.bsp_dex,
+    bspFetchedAt: m.bsp_fetched_at,
+    spySource:    m.spy_source,
+    tsSpyAt:      m.ts_spy_at,
     flags: {
       revivable:      !!m.is_revivable,
       earlyDischarge: !!m.has_early_discharge,
