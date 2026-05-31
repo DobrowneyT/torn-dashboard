@@ -19,7 +19,7 @@ import { config as appConfig } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
 import MobileWarRoomView from './MobileWarRoomView'
-import { Smartphone } from 'lucide-react'
+import { Smartphone, Settings } from 'lucide-react'
 
 const OUR_FACTION_ID = 10739
 const STATUS_FILTERS   = ['Okay', 'Hospital', 'Flying', 'Jail']
@@ -649,6 +649,10 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
   const [updatingSpies, setUpdatingSpies] = useState(false)
   const [spiesMsg, setSpiesMsg]       = useState(null)
   const [pollIntervalSec, setPollIntervalSec] = useState(() => persistedState.pollIntervalSec ?? 3)
+
+  // Leadership controls collapse — default closed so the page reads clean.
+  // Persisted so users who keep it open don't have to reopen on every load.
+  const [leadershipPanelOpen, setLeadershipPanelOpen] = useState(() => persistedState.leadershipPanelOpen ?? false)
   const [factionName, setFactionName] = useState(null)
 
   // Stats filter
@@ -776,8 +780,9 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       sortCol,
       sortDir,
       pollIntervalSec,
+      leadershipPanelOpen,
     })
-  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir, pollIntervalSec, setPersistedState])
+  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir, pollIntervalSec, leadershipPanelOpen, setPersistedState])
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -1390,6 +1395,24 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> LIVE
                 </span>
               )}
+              {/* Leadership controls collapse toggle — sits on the title row
+                  so admins can hide all admin chrome by default and only show
+                  it when needed. Only rendered to leadership. */}
+              {isLeadership && (
+                <button
+                  onClick={() => setLeadershipPanelOpen(v => !v)}
+                  title={leadershipPanelOpen ? 'Hide leadership controls' : 'Show leadership controls'}
+                  aria-expanded={leadershipPanelOpen}
+                  aria-label="Toggle leadership controls"
+                  className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors ${
+                    leadershipPanelOpen
+                      ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                      : 'border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                </button>
+              )}
               {/* Mobile launcher — only visible below md breakpoint (<768px).
                   Opens the dedicated mobile-optimised War Room overlay. */}
               <button
@@ -1430,7 +1453,7 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
           </div>
         </div>
 
-        {isLeadership && (
+        {isLeadership && leadershipPanelOpen && (
           <ConfigPanel
             config={config}
             isActive={isActive}
