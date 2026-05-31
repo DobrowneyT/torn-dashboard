@@ -418,38 +418,43 @@ async function handleFetchBsp(supabase: ReturnType<typeof createClient>, memberI
       .maybeSingle()
     const maxAgeDays: number = cfg?.tornstats_max_age_days ?? 0
 
-    if (maxAgeDays > 0) {
-      const spies = await fetchTornStatsFactionSpies(tsKey, enemyFactionId)
-      const memberIdSet = new Set(memberIds.map(Number))
-      const minTimestamp = Math.floor((Date.now() - maxAgeDays * 86_400_000) / 1000)
+    // Always run the TornStats pass when an API key is configured. The age
+    // setting is just an upper bound on how old a spy is allowed to be:
+    //   N > 0  → reject spies older than N days (fall through to BSP)
+    //   N === 0 → no age filter, accept any TornStats spy we get
+    // Disabling TornStats entirely is done by unsetting TORNSTATS_API_KEY.
+    const spies = await fetchTornStatsFactionSpies(tsKey, enemyFactionId)
+    const memberIdSet = new Set(memberIds.map(Number))
+    const minTimestamp = maxAgeDays > 0
+      ? Math.floor((Date.now() - maxAgeDays * 86_400_000) / 1000)
+      : 0  // 0 disables the age cutoff — anything positive passes
 
-      if (spies?.faction?.members && typeof spies.faction.members === 'object') {
-        const filledIds: number[] = []
-        for (const key of Object.keys(spies.faction.members)) {
-          const entry = spies.faction.members[key]
-          const id = Number(entry?.id ?? key)
-          if (!memberIdSet.has(id)) continue
-          const spy = entry?.spy
-          if (!spy || typeof spy.total !== 'number' || spy.total <= 0) continue
-          if (typeof spy.timestamp !== 'number' || spy.timestamp < minTimestamp) continue
+    if (spies?.faction?.members && typeof spies.faction.members === 'object') {
+      const filledIds: number[] = []
+      for (const key of Object.keys(spies.faction.members)) {
+        const entry = spies.faction.members[key]
+        const id = Number(entry?.id ?? key)
+        if (!memberIdSet.has(id)) continue
+        const spy = entry?.spy
+        if (!spy || typeof spy.total !== 'number' || spy.total <= 0) continue
+        if (typeof spy.timestamp !== 'number' || spy.timestamp < minTimestamp) continue
 
-          const { error: upErr } = await supabase.from('war_room_state').update({
-            bsp_total:      spy.total,
-            bsp_str:        spy.strength ?? null,
-            bsp_spd:        spy.speed ?? null,
-            bsp_def:        spy.defense ?? null,
-            bsp_dex:        spy.dexterity ?? null,
-            bsp_fetched_at: now,
-            spy_source:     'tornstats',
-            ts_spy_at:      new Date(spy.timestamp * 1000).toISOString(),
-          }).eq('member_id', id)
-          if (!upErr) filledIds.push(id)
-        }
-        tornstatsFilled = filledIds.length
-        const filledSet = new Set(filledIds)
-        needBsp = memberIds.filter(id => !filledSet.has(id))
-        console.log(`[update_spies] TornStats: ${tornstatsFilled} filled, ${needBsp.length} remain for BSP`)
+        const { error: upErr } = await supabase.from('war_room_state').update({
+          bsp_total:      spy.total,
+          bsp_str:        spy.strength ?? null,
+          bsp_spd:        spy.speed ?? null,
+          bsp_def:        spy.defense ?? null,
+          bsp_dex:        spy.dexterity ?? null,
+          bsp_fetched_at: now,
+          spy_source:     'tornstats',
+          ts_spy_at:      new Date(spy.timestamp * 1000).toISOString(),
+        }).eq('member_id', id)
+        if (!upErr) filledIds.push(id)
       }
+      tornstatsFilled = filledIds.length
+      const filledSet = new Set(filledIds)
+      needBsp = memberIds.filter(id => !filledSet.has(id))
+      console.log(`[update_spies] TornStats: ${tornstatsFilled} filled (maxAgeDays=${maxAgeDays}), ${needBsp.length} remain for BSP`)
     }
   }
 

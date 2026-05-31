@@ -796,7 +796,7 @@ function LeadershipSheet({
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             className="w-20 text-center"
           />
-          <span className="text-[11px] text-gray-500 dark:text-gray-400">days (0 = disable)</span>
+          <span className="text-[11px] text-gray-500 dark:text-gray-400">days (0 = any age)</span>
         </div>
       </SheetSection>
       {onClearState && (

@@ -549,7 +549,7 @@ function ConfigPanel({
     setMsg(null)
     try {
       await onSaveReviveService({ tornstats_max_age_days: next })
-      setMsg({ ok: true, text: next === 0 ? 'TornStats disabled.' : `TornStats spy age set to ${next} days.` })
+      setMsg({ ok: true, text: next === 0 ? 'TornStats age filter disabled — any spy age allowed.' : `TornStats spy age set to ${next} days.` })
     } catch (e) {
       setMsg({ ok: false, text: e.message })
     }
@@ -684,7 +684,7 @@ function ConfigPanel({
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            TornStats max spy age <span className="text-gray-400 dark:text-gray-600">(days, 0 = disable)</span>
+            TornStats max spy age <span className="text-gray-400 dark:text-gray-600">(days, 0 = any age)</span>
           </label>
           <input
             type="number"
@@ -695,7 +695,7 @@ function ConfigPanel({
             onBlur={commitTsMaxAge}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="0"
-            title="When Update Spies runs, try TornStats first and use any spy newer than this; BSP fills in the rest. 0 = skip TornStats."
+            title="Upper bound on TornStats spy age. 0 = no age filter (always use TornStats spy if one exists). BSP only fills members TornStats has no spy for, or whose spy is older than this value."
             className="w-24 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
