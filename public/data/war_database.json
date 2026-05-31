@@ -5574,8 +5574,8 @@
       "end_at": null,
       "opponent_id": 10610,
       "opponent_name": "NPO - Strength",
-      "our_score": 0,
-      "opponent_score": 0,
+      "our_score": 12431,
+      "opponent_score": 9790,
       "target": 17100,
       "winner_faction_id": null,
       "forfeit": false,
@@ -205088,6 +205088,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-05-30T04:52:53.040922"
+    "last_updated": "2026-05-31T05:17:42.618392"
   }
 }
