@@ -1195,7 +1195,30 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
 
   // ── Filtered + sorted member list ─────────────────────────────────────────
 
+  // Farm-mode tracking: stamp each member with the moment they were observed
+  // transitioning into Okay during this session, so fresh kills float to the
+  // top of the Okay tier. People already Okay when polling begins get no
+  // stamp (BSP-desc fallback below them), keeping the freshly-released pulse
+  // distinct from the standing pool.
+  const prevStatesRef = useRef(new Map())  // member_id → previous status_state
+  const okayAtRef     = useRef(new Map())  // member_id → ms-since-epoch first observed as Okay
+
   const filtered = useMemo(() => {
+    // Update farm-mode transition tracker as a side effect of recomputing.
+    // Cheap and safe — the refs are only read by the sort below.
+    const prev = prevStatesRef.current
+    const okayAt = okayAtRef.current
+    const now = Date.now()
+    for (const m of members) {
+      const wasState = prev.get(m.member_id)
+      if (m.status_state === 'Okay' && wasState && wasState !== 'Okay') {
+        okayAt.set(m.member_id, now)
+      } else if (m.status_state !== 'Okay') {
+        okayAt.delete(m.member_id)
+      }
+      prev.set(m.member_id, m.status_state)
+    }
+
     let list = members
 
     if (statusFilter.size > 0) {
@@ -1222,6 +1245,26 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
         }
         case 'status':
           return d * (a.status_state ?? '').localeCompare(b.status_state ?? '')
+        case 'farm': {
+          // Tiered farm sort:
+          //   tier 0 — Okay (recently transitioned first, then BSP desc)
+          //   tier 1 — has timer + not Okay (until ascending = next out first)
+          //   tier 2 — everything else (Flying / Abroad / Fallen) by BSP desc
+          // sortDir is intentionally ignored — farm has fixed semantics.
+          const tier = m => m.status_state === 'Okay'
+            ? 0
+            : (m.status_until && m.status_state !== 'Okay' ? 1 : 2)
+          const tA = tier(a), tB = tier(b)
+          if (tA !== tB) return tA - tB
+          if (tA === 0) {
+            const aAt = okayAt.get(a.member_id) ?? -1
+            const bAt = okayAt.get(b.member_id) ?? -1
+            if (aAt !== bAt) return bAt - aAt
+            return (b.bsp_total ?? 0) - (a.bsp_total ?? 0)
+          }
+          if (tA === 1) return (a.status_until ?? Infinity) - (b.status_until ?? Infinity)
+          return (b.bsp_total ?? 0) - (a.bsp_total ?? 0)
+        }
         case 'timer': {
           // Members with an active timer (Hospital/Jail with status_until) sort by
           // timer in the chosen direction. Everyone else (Okay / Flying / Fallen
@@ -1457,6 +1500,30 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Farm mode toggle — overrides column-header sort with a tiered
+                "Okay (most-recently-released first) → timer ascending → other"
+                layout designed for watching hospital list during farming.
+                Clicking any sortable column header turns farm off again. */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Sort:</span>
+              <button
+                onClick={() => setSortCol(c => c === 'farm' ? 'timer' : 'farm')}
+                title="Tiered sort: Okay at top (just-released first), then hospital/jail by timer ascending. Click a column header to leave farm mode."
+                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                  sortCol === 'farm'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
+                }`}
+              >
+                {sortCol === 'farm' ? 'Farm mode — ON' : 'Farm mode'}
+              </button>
+              {sortCol === 'farm' && (
+                <span className="text-[11px] text-gray-500 dark:text-gray-500">
+                  Okay first (just-released at top), then timer ascending. Click a column to exit.
+                </span>
+              )}
             </div>
 
             {/* Stats filter */}

@@ -48,7 +48,7 @@
  *     npm install lucide-react
  */
 
-import { useState, useEffect, useMemo, useReducer } from 'react'
+import { useState, useEffect, useMemo, useReducer, useRef } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
 import {
   Check, BriefcaseMedical, Plane, MapPin, Skull, Lock, Clock,
@@ -612,15 +612,22 @@ function FilterSheet({
             { key: 'status',   label: 'Status'   },
             { key: 'activity', label: 'Activity' },
             { key: 'name',     label: 'Name'     },
+            { key: 'farm',     label: 'Farm'     },
           ].map(opt => chip(opt.label, sortBy === opt.key, () => setSortBy(opt.key)))}
         </div>
-        <div className="mt-2.5 flex items-center gap-2">
-          <span className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wider">Direction</span>
-          <div className="flex gap-1.5">
-            {chip('Asc ↑',  sortDir === 'asc',  () => setSortDir('asc'))}
-            {chip('Desc ↓', sortDir === 'desc', () => setSortDir('desc'))}
+        {sortBy === 'farm' ? (
+          <div className="mt-2.5 text-[11px] text-gray-500 dark:text-gray-400">
+            Okay at top (most-recently-released first), then hospital/jail by timer ascending. Direction toggle doesn't apply.
           </div>
-        </div>
+        ) : (
+          <div className="mt-2.5 flex items-center gap-2">
+            <span className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wider">Direction</span>
+            <div className="flex gap-1.5">
+              {chip('Asc ↑',  sortDir === 'asc',  () => setSortDir('asc'))}
+              {chip('Desc ↓', sortDir === 'desc', () => setSortDir('desc'))}
+            </div>
+          </div>
+        )}
       </SheetSection>
       <SheetSection title="Status">
         <div className="flex gap-1.5 flex-wrap">
@@ -845,7 +852,30 @@ export default function MobileWarRoomView({
   const toggleActivity = a => setActivityFilter(p => { const n = new Set(p); n.has(a) ? n.delete(a) : n.add(a); return n })
   const clearFilters = () => { setStatusFilter(new Set()); setActivityFilter(new Set()); setStatsEnabled(false); setStatsMin(''); setStatsMax('') }
 
+  // Farm-mode tracking: remember when each member transitioned INTO Okay
+  // during the current session, so freshly-released targets bubble to the
+  // very top of the Okay tier. Members already Okay when mobile opens get
+  // no timestamp (they fall back to BSP-desc within the Okay group), so a
+  // brand-new transition reliably outranks the standing pool.
+  const prevStatesRef = useRef(new Map())  // memberId → last observed state
+  const okayAtRef     = useRef(new Map())  // memberId → ms-since-epoch first observed as Okay
+
   const filtered = useMemo(() => {
+    // Update transition tracker as a side effect of recomputing the filtered
+    // list. Safe because the only consumer of these refs is the sort below.
+    const prev = prevStatesRef.current
+    const okayAt = okayAtRef.current
+    const now = Date.now()
+    for (const m of members) {
+      const wasState = prev.get(m.id)
+      if (m.state === 'Okay' && wasState && wasState !== 'Okay') {
+        okayAt.set(m.id, now)
+      } else if (m.state !== 'Okay') {
+        okayAt.delete(m.id)
+      }
+      prev.set(m.id, m.state)
+    }
+
     let list = members
     if (statusFilter.size > 0)   list = list.filter(m => statusFilter.has(stateToFilterKey(m.state, m.description)))
     if (activityFilter.size > 0) list = list.filter(m => activityFilter.has(m.activity))
@@ -868,6 +898,24 @@ export default function MobileWarRoomView({
           return dir * (a.state ?? '').localeCompare(b.state ?? '')
         case 'stats':
           return dir * ((a.bsp ?? -1) - (b.bsp ?? -1))
+        case 'farm': {
+          // Tiered sort designed for farming targets out of hospital/jail:
+          //   tier 0 — Okay (recently transitioned first, then BSP desc)
+          //   tier 1 — has timer + not Okay (until ascending = next out first)
+          //   tier 2 — everything else (Flying / Abroad / Fallen) by BSP desc
+          // sortDir is intentionally ignored — farm has fixed semantics.
+          const tier = m => m.state === 'Okay' ? 0 : (m.until && m.state !== 'Okay' ? 1 : 2)
+          const tA = tier(a), tB = tier(b)
+          if (tA !== tB) return tA - tB
+          if (tA === 0) {
+            const aAt = okayAt.get(a.id) ?? -1
+            const bAt = okayAt.get(b.id) ?? -1
+            if (aAt !== bAt) return bAt - aAt
+            return (b.bsp ?? 0) - (a.bsp ?? 0)
+          }
+          if (tA === 1) return (a.until ?? Infinity) - (b.until ?? Infinity)
+          return (b.bsp ?? 0) - (a.bsp ?? 0)
+        }
         case 'timer':
         default: {
           // Members with an active timer (Hospital/Jail) sort by timer in
