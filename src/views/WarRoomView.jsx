@@ -85,6 +85,80 @@ function formatRelative(ts) {
   return `${Math.floor(diff / 86_400)}d ago`
 }
 
+// Hover tooltip on a member's BSP total — shows the per-stat breakdown
+// (str/dex/spd/def), total, and "{relative age} ({TS|BSP})" so leadership
+// can see at a glance how trustworthy the number is. CSS-only show/hide via
+// the `group-hover` Tailwind variant (no JS state, no portal).
+//
+// Behaviour by row state:
+//   - `m.bsp_total == null` → render dim "???", no tooltip.
+//   - TornStats source AND ts_spy_at present → age from ts_spy_at, "(TS)".
+//   - BSP source (or unknown) → age from bsp_fetched_at, "(BSP)".
+//   - Breakdown rows render only when the corresponding field is non-null
+//     so BSP-only rows (often no per-stat) just show Total + source.
+function BspCell({ member: m }) {
+  if (m.bsp_total === null || m.bsp_total === undefined) {
+    return (
+      <span className="font-mono text-xs text-gray-400 dark:text-gray-600 italic">
+        ???
+      </span>
+    )
+  }
+
+  const isTs = m.spy_source === 'tornstats'
+  // ts_spy_at is the real spy capture time; bsp_fetched_at is when we polled.
+  // BSP rows don't have a "real" spy timestamp so we use the fetch time.
+  const ageSourceTs = isTs && m.ts_spy_at
+    ? Math.floor(new Date(m.ts_spy_at).getTime() / 1000)
+    : (m.bsp_fetched_at ? Math.floor(new Date(m.bsp_fetched_at).getTime() / 1000) : null)
+  const sourceLabel = isTs ? 'TS' : 'BSP'
+  const ageLabel = ageSourceTs ? formatRelative(ageSourceTs) : '—'
+
+  const rows = [
+    ['STR', m.bsp_str],
+    ['DEF', m.bsp_def],
+    ['SPD', m.bsp_spd],
+    ['DEX', m.bsp_dex],
+  ].filter(([, v]) => v !== null && v !== undefined)
+
+  return (
+    <span className="relative group inline-block">
+      <span className="font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold cursor-help underline decoration-dotted decoration-gray-400 dark:decoration-slate-600 underline-offset-2">
+        {formatStats(m.bsp_total)}
+      </span>
+      <span
+        role="tooltip"
+        className="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute right-0 top-full mt-1 z-30 min-w-[150px] rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg text-left p-2.5 text-[11px]"
+      >
+        {rows.length > 0 ? (
+          <table className="font-mono w-full">
+            <tbody>
+              {rows.map(([label, v]) => (
+                <tr key={label}>
+                  <td className="pr-3 text-gray-500 dark:text-gray-400">{label}</td>
+                  <td className="text-right text-gray-900 dark:text-gray-100">{formatStats(v)}</td>
+                </tr>
+              ))}
+              <tr className="border-t border-gray-200 dark:border-slate-700">
+                <td className="pr-3 pt-1 text-gray-500 dark:text-gray-400 font-semibold">Total</td>
+                <td className="text-right pt-1 text-gray-900 dark:text-gray-100 font-semibold">{formatStats(m.bsp_total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <div className="font-mono flex justify-between gap-3">
+            <span className="text-gray-500 dark:text-gray-400 font-semibold">Total</span>
+            <span className="text-gray-900 dark:text-gray-100 font-semibold">{formatStats(m.bsp_total)}</span>
+          </div>
+        )}
+        <div className="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 text-[10px] text-right whitespace-nowrap">
+          {ageLabel} ({sourceLabel})
+        </div>
+      </span>
+    </span>
+  )
+}
+
 function parseHospitalInfo(description) {
   if (!description) return null
   const match = description.match(/^(In (?:a|an) .*? hospital)\b/i)
@@ -460,6 +534,27 @@ function ConfigPanel({
   const services = Array.isArray(config?.revive_services) ? config.revive_services : []
   const activeReviveName = config?.revive_service_name ?? ''
 
+  // TornStats max-age — number of days a TornStats spy is "fresh enough" to
+  // use before falling back to BSP. 0 disables TornStats entirely. Local
+  // state mirrors the config and only commits on blur, so typing doesn't
+  // hammer the DB.
+  const [tsMaxAge, setTsMaxAge] = useState(String(config?.tornstats_max_age_days ?? 0))
+  // Resync when external config updates land (initial load / realtime).
+  useEffect(() => {
+    setTsMaxAge(String(config?.tornstats_max_age_days ?? 0))
+  }, [config?.tornstats_max_age_days])
+  async function commitTsMaxAge() {
+    const next = Math.max(0, Math.floor(Number(tsMaxAge) || 0))
+    if (next === (config?.tornstats_max_age_days ?? 0)) return
+    setMsg(null)
+    try {
+      await onSaveReviveService({ tornstats_max_age_days: next })
+      setMsg({ ok: true, text: next === 0 ? 'TornStats disabled.' : `TornStats spy age set to ${next} days.` })
+    } catch (e) {
+      setMsg({ ok: false, text: e.message })
+    }
+  }
+
   // Dropdown change → look up the preset and persist its name + url as the active selection.
   async function handlePickReviveService(e) {
     const picked = e.target.value
@@ -581,6 +676,29 @@ function ConfigPanel({
           className="px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors">
           {clearing ? 'Clearing…' : 'Clear State'}
         </button>
+      </div>
+
+      {/* TornStats integration — sets how old a TornStats spy can be before
+          we fall back to BSP for that member. 0 disables the TornStats pass
+          entirely (Update Spies just runs BSP, same as before). */}
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            TornStats max spy age <span className="text-gray-400 dark:text-gray-600">(days, 0 = disable)</span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={tsMaxAge}
+            onChange={e => setTsMaxAge(e.target.value)}
+            onBlur={commitTsMaxAge}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="0"
+            title="When Update Spies runs, try TornStats first and use any spy newer than this; BSP fills in the rest. 0 = skip TornStats."
+            className="w-24 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
       </div>
 
       {/* Revive service — preset dropdown + gear to manage the list */}
@@ -1115,10 +1233,20 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
       if (!workingMembers.length) throw new Error('No members loaded — check the faction ID')
       const ids = workingMembers.map(m => m.member_id)
       // Show progress BEFORE the await so it reflects in-flight state, not completion.
-      setSpiesMsg({ ok: true, text: `Enriching ${ids.length} members with BSP stats…` })
-      await fetchBspStats(ids, user.apiKey)
-      setSpiesMsg({ ok: true, text: `✓ Updated ${ids.length} members` })
-      setTimeout(() => setSpiesMsg(null), 4000)
+      setSpiesMsg({ ok: true, text: `Fetching spies for ${ids.length} members…` })
+      const result = await fetchBspStats(ids, user.apiKey)
+      // Edge Function returns { fetched, tornstats, bsp, requested }. Older
+      // deploys (pre-TornStats) only return { fetched } — fall back gracefully.
+      const ts = Number(result?.tornstats ?? 0)
+      const bsp = Number(result?.bsp ?? result?.fetched ?? 0)
+      const total = ts + bsp
+      setSpiesMsg({
+        ok: true,
+        text: ts > 0
+          ? `✓ Fetched ${ts} spies from TS and ${bsp} spies from BSP (${total}/${ids.length})`
+          : `✓ Fetched ${bsp} spies from BSP (${bsp}/${ids.length})`,
+      })
+      setTimeout(() => setSpiesMsg(null), 6000)
     } catch (e) {
       setSpiesMsg({ ok: false, text: e.message })
       setTimeout(() => setSpiesMsg(null), 5000)
@@ -1697,11 +1825,9 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
                           <CountdownCell until={m.status_until} />
                         </td>
 
-                        {/* Stats */}
+                        {/* Stats — hover for str/dex/spd/def breakdown + source. */}
                         <td className="py-2.5 px-3 whitespace-nowrap text-right">
-                          <span className={`font-mono text-xs ${m.bsp_total === null ? 'text-gray-400 dark:text-gray-600 italic' : 'text-gray-800 dark:text-gray-200 font-semibold'}`}>
-                            {formatStats(m.bsp_total)}
-                          </span>
+                          <BspCell member={m} />
                         </td>
 
                         {/* Flags */}
@@ -1848,6 +1974,8 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
               }}
               updatingSpies={updatingSpies}
               spiesMsg={spiesMsg}
+              tornstatsMaxAgeDays={config?.tornstats_max_age_days ?? 0}
+              onChangeTornstatsMaxAge={(n) => handleSaveReviveService({ tornstats_max_age_days: n })}
               onClaim={handleClaimDibs}
               onRelease={handleReleaseDibs}
               onTogglePaused={toggleEnabled}

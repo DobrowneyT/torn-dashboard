@@ -349,16 +349,116 @@ async function handleSetConfig(
   return json({ ok: true })
 }
 
+// Fetch the full faction-spy payload from TornStats.
+// API shape (from the userscript reference):
+//   GET https://www.tornstats.com/api/v2/{key}/spy/faction/{factionId}
+//   → { status, message?, faction: { members: { [id]: { id, spy: {
+//        timestamp, strength, speed, defense, dexterity, total } } } } }
+// `status: false` plus a `message` field is how TornStats signals errors
+// (invalid key, faction not found, rate-limited).
+async function fetchTornStatsFactionSpies(apiKey: string, factionId: number) {
+  try {
+    const resp = await fetch(`https://www.tornstats.com/api/v2/${apiKey}/spy/faction/${factionId}`)
+    if (!resp.ok) {
+      console.warn('[tornstats] HTTP', resp.status)
+      return null
+    }
+    const data = await resp.json()
+    if (data?.status === false) {
+      console.warn('[tornstats] error:', data?.message)
+      return null
+    }
+    return data
+  } catch (e) {
+    console.warn('[tornstats] fetch failed:', e)
+    return null
+  }
+}
+
+// Two-pass spy update: TornStats first (real spies w/ breakdown + capture
+// timestamp), then BSP fills in the gaps. The action keeps its legacy
+// 'fetch_bsp' name + `fetchBspStats(...)` client helper for backwards
+// compatibility — internally it's now an "update spies" operation.
+//
+// Skip conditions for the TornStats pass (any one → falls through to BSP-only):
+//   - TORNSTATS_API_KEY env not set
+//   - tornstats_max_age_days config is 0 (explicit disable)
+//   - Couldn't resolve the enemy faction id from war_room_state
+//   - TornStats API returned an error (network / bad key / rate limited)
 async function handleFetchBsp(supabase: ReturnType<typeof createClient>, memberIds: number[]) {
   const bspKey = Deno.env.get('BSP_API_KEY')
+  const tsKey = Deno.env.get('TORNSTATS_API_KEY')
   if (!bspKey) return json({ error: 'BSP_API_KEY secret not set' }, 500)
+  if (!tsKey) return json({ error: 'TORNSTATS_API_KEY secret not set' }, 500)
   if (!memberIds?.length) return json({ error: 'member_ids required' }, 400)
 
+  const now = new Date().toISOString()
+  let tornstatsFilled = 0
+  let needBsp: number[] = memberIds.slice()
+
+  // ── Pass 1: TornStats ──────────────────────────────────────────────────
+
+  // Look up the enemy faction id from any row in war_room_state matching
+  // the requested member ids and NOT belonging to our faction. Filter on
+  // OUR_FACTION_ID guards against accidentally querying our own stats.
+  const { data: enemySample } = await supabase
+    .from('war_room_state')
+    .select('faction_id')
+    .in('member_id', memberIds)
+    .neq('faction_id', Number(OUR_FACTION_ID))
+    .limit(1)
+    .maybeSingle()
+  const enemyFactionId: number | null = enemySample?.faction_id ?? null
+
+  if (tsKey && enemyFactionId) {
+    const { data: cfg } = await supabase
+      .from('war_room_config')
+      .select('tornstats_max_age_days')
+      .eq('id', 1)
+      .maybeSingle()
+    const maxAgeDays: number = cfg?.tornstats_max_age_days ?? 0
+
+    if (maxAgeDays > 0) {
+      const spies = await fetchTornStatsFactionSpies(tsKey, enemyFactionId)
+      const memberIdSet = new Set(memberIds.map(Number))
+      const minTimestamp = Math.floor((Date.now() - maxAgeDays * 86_400_000) / 1000)
+
+      if (spies?.faction?.members && typeof spies.faction.members === 'object') {
+        const filledIds: number[] = []
+        for (const key of Object.keys(spies.faction.members)) {
+          const entry = spies.faction.members[key]
+          const id = Number(entry?.id ?? key)
+          if (!memberIdSet.has(id)) continue
+          const spy = entry?.spy
+          if (!spy || typeof spy.total !== 'number' || spy.total <= 0) continue
+          if (typeof spy.timestamp !== 'number' || spy.timestamp < minTimestamp) continue
+
+          const { error: upErr } = await supabase.from('war_room_state').update({
+            bsp_total:      spy.total,
+            bsp_str:        spy.strength ?? null,
+            bsp_spd:        spy.speed ?? null,
+            bsp_def:        spy.defense ?? null,
+            bsp_dex:        spy.dexterity ?? null,
+            bsp_fetched_at: now,
+            spy_source:     'tornstats',
+            ts_spy_at:      new Date(spy.timestamp * 1000).toISOString(),
+          }).eq('member_id', id)
+          if (!upErr) filledIds.push(id)
+        }
+        tornstatsFilled = filledIds.length
+        const filledSet = new Set(filledIds)
+        needBsp = memberIds.filter(id => !filledSet.has(id))
+        console.log(`[update_spies] TornStats: ${tornstatsFilled} filled, ${needBsp.length} remain for BSP`)
+      }
+    }
+  }
+
+  // ── Pass 2: BSP for anyone TornStats didn't fill ───────────────────────
   const BSP_DELAY_MS = 30
   const results: Record<number, { total: number | null; str: number | null; spd: number | null; def: number | null; dex: number | null }> = {}
 
-  for (let i = 0; i < memberIds.length; i++) {
-    const id = memberIds[i]
+  for (let i = 0; i < needBsp.length; i++) {
+    const id = needBsp[i]
     try {
       const resp = await fetch(`http://www.lol-manager.com/api/battlestats/${bspKey}/${id}/TornForge`)
       const data = await resp.json()
@@ -377,27 +477,35 @@ async function handleFetchBsp(supabase: ReturnType<typeof createClient>, memberI
       results[id] = { total: null, str: null, spd: null, def: null, dex: null }
     }
 
-    if (i < memberIds.length - 1) {
+    if (i < needBsp.length - 1) {
       await new Promise(r => setTimeout(r, BSP_DELAY_MS))
     }
   }
 
-  // Upsert BSP stats into war_room_state
-  const now = new Date().toISOString()
+  let bspFilled = 0
   for (const [idStr, stats] of Object.entries(results)) {
     const id = Number(idStr)
     if (stats.total === null) continue
     await supabase.from('war_room_state').update({
-      bsp_total:     stats.total,
-      bsp_str:       stats.str,
-      bsp_spd:       stats.spd,
-      bsp_def:       stats.def,
-      bsp_dex:       stats.dex,
+      bsp_total:      stats.total,
+      bsp_str:        stats.str,
+      bsp_spd:        stats.spd,
+      bsp_def:        stats.def,
+      bsp_dex:        stats.dex,
       bsp_fetched_at: now,
+      spy_source:     'bsp',
+      ts_spy_at:      null,    // BSP is a prediction, not a real spy
     }).eq('member_id', id)
+    bspFilled++
   }
 
-  return json({ ok: true, fetched: Object.keys(results).length })
+  return json({
+    ok: true,
+    fetched: tornstatsFilled + bspFilled,
+    tornstats: tornstatsFilled,
+    bsp: bspFilled,
+    requested: memberIds.length,
+  })
 }
 
 async function handleClearState(

@@ -696,9 +696,18 @@ function LeadershipSheet({
   open, onClose, paused, pollIntervalS, onPollIntervalChange,
   reviveServices = [], activeReviveName = '', onPickReviveService,
   onTogglePaused, onUpdateSpies, updatingSpies = false, spiesMsg = null,
+  tornstatsMaxAgeDays = 0, onChangeTornstatsMaxAge = () => {},
   factionId, onSetFactionId, onClearState,
 }) {
   const [localFactionId, setLocalFactionId] = useState(factionId)
+  const [localTsMaxAge, setLocalTsMaxAge] = useState(String(tornstatsMaxAgeDays ?? 0))
+  // Resync when external config updates land.
+  useEffect(() => { setLocalTsMaxAge(String(tornstatsMaxAgeDays ?? 0)) }, [tornstatsMaxAgeDays])
+  function commitTsMaxAge() {
+    const next = Math.max(0, Math.floor(Number(localTsMaxAge) || 0))
+    if (next === (tornstatsMaxAgeDays ?? 0)) return
+    onChangeTornstatsMaxAge(next)
+  }
 
   function handlePickRevive(e) {
     const picked = e.target.value
@@ -770,13 +779,25 @@ function LeadershipSheet({
           className="w-full min-h-[44px] rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold text-[13px] inline-flex items-center justify-center gap-2 disabled:opacity-60"
         >
           <Search size={14} />
-          {updatingSpies ? 'Fetching…' : 'Update Spies — pull BSP for all enemies'}
+          {updatingSpies ? 'Fetching…' : 'Update Spies — pull spies for all enemies'}
         </button>
         {spiesMsg && (
           <div className={`mt-2 text-[11px] ${spiesMsg.ok ? 'text-purple-700 dark:text-purple-300' : 'text-red-600 dark:text-red-400'}`}>
             {spiesMsg.text}
           </div>
         )}
+        <div className="mt-3 flex items-center gap-2">
+          <label className="text-[12px] text-gray-600 dark:text-gray-400 whitespace-nowrap">TornStats age</label>
+          <SheetInput
+            type="number" min={0} step={1}
+            value={localTsMaxAge}
+            onChange={e => setLocalTsMaxAge(e.target.value)}
+            onBlur={commitTsMaxAge}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            className="w-20 text-center"
+          />
+          <span className="text-[11px] text-gray-500 dark:text-gray-400">days (0 = disable)</span>
+        </div>
       </SheetSection>
       {onClearState && (
         <SheetSection title="Danger Zone">
@@ -824,6 +845,8 @@ export default function MobileWarRoomView({
   onRequestRevive = async () => ({ ok: false, body: { reason: 'No revive handler wired' } }),
   updatingSpies = false,
   spiesMsg = null,
+  tornstatsMaxAgeDays = 0,
+  onChangeTornstatsMaxAge = () => {},
   onClaim = () => {},
   onRelease = () => {},
   onTogglePaused = () => {},
@@ -1047,6 +1070,8 @@ export default function MobileWarRoomView({
         onUpdateSpies={onUpdateSpies}
         updatingSpies={updatingSpies}
         spiesMsg={spiesMsg}
+        tornstatsMaxAgeDays={tornstatsMaxAgeDays}
+        onChangeTornstatsMaxAge={onChangeTornstatsMaxAge}
         factionId={factionId}
         onSetFactionId={onSetFactionId}
         onClearState={onClearState}
