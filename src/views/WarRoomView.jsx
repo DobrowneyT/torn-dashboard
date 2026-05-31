@@ -1747,16 +1747,17 @@ export default function WarRoomView({ isLeadership, isAdmin }) {
                           )}
                         </td>
 
-                        {/* Attack — disabled if someone else has dibs to avoid duplicate hits */}
+                        {/* Attack / Assist — flips to a blue "Assist" link
+                            when someone else has dibs, so allies can still
+                            jump in and help instead of being locked out. */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {dib && !isMyDib ? (
-                            <span
-                              title={`Claimed by ${dib.claimed_name} — don't attack`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-300 dark:bg-slate-700 text-gray-500 dark:text-gray-500 rounded text-xs font-medium cursor-not-allowed select-none"
-                              aria-disabled="true"
-                            >
-                              ⚔ Attack
-                            </span>
+                            <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
+                              target="_blank" rel="noopener noreferrer"
+                              title={`${dib.claimed_name} called dibs — click to assist`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors">
+                              ⚔ Assist {dib.claimed_name}
+                            </a>
                           ) : (
                             <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
                               target="_blank" rel="noopener noreferrer"

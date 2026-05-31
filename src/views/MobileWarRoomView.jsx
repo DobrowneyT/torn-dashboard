@@ -310,18 +310,21 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
             'Dibs'
           )}
         </button>
+        {/* Attack / Assist — flips to a blue "Assist" link when someone
+            else has dibs, so allies can still jump in and help instead of
+            being locked out. Same destination either way. */}
         <a
           href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.id}`}
           target="_blank" rel="noopener noreferrer"
-          onClick={e => claimedByOther && e.preventDefault()}
+          title={claimedByOther ? `${dib.claimedName} called dibs — tap to assist` : undefined}
           className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] inline-flex items-center justify-center gap-1.5 no-underline ${
             claimedByOther
-              ? 'bg-gray-200 text-gray-400 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500'
+              ? 'bg-blue-600 hover:bg-blue-700 text-white'
               : 'bg-red-600 hover:bg-red-700 text-white'
           }`}
         >
           <Swords size={15} />
-          Attack
+          {claimedByOther ? `Assist ${dib.claimedName}` : 'Attack'}
         </a>
       </div>
     </div>
