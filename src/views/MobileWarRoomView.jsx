@@ -487,14 +487,19 @@ function ReviveQuickLinkTile({ serviceName, serviceUrl, onRequestRevive, tileBas
   )
 }
 
-function TwoTierFilters({ statusFilter, onToggleStatus, advancedCount, onOpenAdvanced }) {
-  const chip = (label, active, onClick) => (
+function TwoTierFilters({
+  statusFilter, onToggleStatus,
+  activityFilter, onToggleActivity,
+  sortBy, onToggleFarm,
+  advancedCount, onOpenAdvanced,
+}) {
+  const chip = (label, active, onClick, activeClass = 'bg-blue-600 text-white border-blue-600') => (
     <button
       key={label}
       onClick={onClick}
       className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border ${
         active
-          ? 'bg-blue-600 text-white border-blue-600'
+          ? activeClass
           : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700'
       }`}
     >
@@ -503,7 +508,16 @@ function TwoTierFilters({ statusFilter, onToggleStatus, advancedCount, onOpenAdv
   )
   return (
     <div className="px-3 py-2 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex gap-1.5 overflow-x-auto whitespace-nowrap items-center scrollbar-hide">
-      {['Okay', 'Hospital', 'Flying', 'Jail'].map(s => chip(s, statusFilter.has(s), () => onToggleStatus(s)))}
+      {/* Status filters — Flying/Jail moved to the More sheet to make room
+          for an activity (Online) chip and the Farm sort toggle. */}
+      {chip('Okay',     statusFilter.has('Okay'),     () => onToggleStatus('Okay'))}
+      {chip('Hospital', statusFilter.has('Hospital'), () => onToggleStatus('Hospital'))}
+      {/* Activity filter — single-purpose Online toggle. Idle/Offline still
+          live in the More sheet's Activity section. */}
+      {chip('Online', activityFilter.has('Online'), () => onToggleActivity('Online'))}
+      {/* Farm-mode sort toggle. Distinct emerald active styling so it reads
+          as "mode" rather than another filter chip. */}
+      {chip('Farm', sortBy === 'farm', onToggleFarm, 'bg-emerald-600 text-white border-emerald-600')}
       <button
         onClick={onOpenAdvanced}
         className="flex-shrink-0 px-3 py-1.5 rounded-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 text-xs font-medium inline-flex items-center gap-1.5"
@@ -978,6 +992,10 @@ export default function MobileWarRoomView({
       <TwoTierFilters
         statusFilter={statusFilter}
         onToggleStatus={toggleStatus}
+        activityFilter={activityFilter}
+        onToggleActivity={toggleActivity}
+        sortBy={sortBy}
+        onToggleFarm={() => setSortBy(s => s === 'farm' ? 'timer' : 'farm')}
         advancedCount={advancedCount}
         onOpenAdvanced={() => setFilterOpen(true)}
       />
