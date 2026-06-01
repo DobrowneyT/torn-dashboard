@@ -1,15 +1,21 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import RWPayoutsView from './RWPayoutsView'
 import WarHistoryView from './WarHistoryView'
 import WarPayoutManagement from '../components/WarPayoutManagement'
 import WarRoomView from './WarRoomView'
 import ErrorBoundary from '../components/ErrorBoundary'
 
+// Lazy-loaded because it pulls in Plotly (~1.7 MB gzipped on its own). Splitting
+// keeps the rest of the app fast — Plotly only downloads when leadership
+// actually opens the War Overview tab.
+const WarOverviewView = lazy(() => import('./WarOverviewView'))
+
 const TABS = [
   { id: 'payouts', label: 'Payouts', roles: ['member'] },
   { id: 'rw-history', label: 'RW History', roles: ['member'] },
   { id: 'war-room', label: 'War Room', roles: ['member'] },
   { id: 'payout-mgmt', label: 'Payout Management', roles: ['leadership'] },
+  { id: 'war-overview', label: 'War Overview', roles: ['leadership'] },
 ]
 
 export default function RWPage({ isLeadership, isAdmin }) {
@@ -48,6 +54,18 @@ export default function RWPage({ isLeadership, isAdmin }) {
         </ErrorBoundary>
       )}
       {activeTab === 'payout-mgmt' && isLeadership && <WarPayoutManagement />}
+      {activeTab === 'war-overview' && isLeadership && (
+        <ErrorBoundary name="War Overview">
+          <Suspense fallback={
+            <div className="card flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+              Loading charting library…
+            </div>
+          }>
+            <WarOverviewView />
+          </Suspense>
+        </ErrorBoundary>
+      )}
     </div>
   )
 }

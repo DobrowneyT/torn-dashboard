@@ -197,6 +197,19 @@ export async function fetchWars(tornApiKey) {
   return callAdminApi('fetch_wars', {}, tornApiKey)
 }
 
+/**
+ * Fetch all incoming revives for one ranked war and upsert into
+ * faction_revives. Re-running over the same war is a no-op because the
+ * server-side handler uses ignoreDuplicates on revive_id.
+ *
+ * Returns { success, war_id, opponent, window: {from, to, live},
+ *           revivesFetched, revivesNew, revivesUpserted,
+ *           pagesFetched, moreAvailable, partial, partialReason }.
+ */
+export async function fetchRevives(warId, tornApiKey) {
+  return callAdminApi('fetch_revives', { war_id: warId }, tornApiKey)
+}
+
 // ── Member Overview view + threshold CRUD (leadership only) ────────────────
 // Read paths still use the supabase client directly (gated by RLS). Writes
 // go through admin-db so the leadership check is server-side and the

@@ -587,6 +587,48 @@ class TornAPI:
             params["to"] = to_timestamp
         return self._make_request(url, params)
 
+    def get_faction_revives(
+        self,
+        from_timestamp: int = 0,
+        to_timestamp: Optional[int] = None,
+        filters: str = "incoming",
+        limit: int = 100,
+        sort: str = "ASC",
+        comment: str = "Forge_War_Revives"
+    ) -> Dict:
+        """
+        Get faction revives.
+
+        Args:
+            from_timestamp: Start unix seconds (inclusive). Use 0 for "from the
+                beginning" or the last stored revive's `timestamp` to page
+                forward (ASC).
+            to_timestamp: End unix seconds (inclusive). Omit for open-ended ASC
+                walk up to "now".
+            filters: Torn supports 'incoming' / 'outgoing' / 'all'. We default
+                to 'incoming' since that's what war post-mortems care about
+                (revives our members received).
+            limit: Max results per page (100 is the Torn cap).
+            sort: 'ASC' for forward pagination.
+            comment: Tracking comment in the Torn API logs.
+
+        Returns:
+            Dict with a `revives` list and Torn's `_metadata` block.
+        """
+        url = f"{self.BASE_URL}/faction/revives"
+        params = {
+            "filters": filters,
+            "limit": limit,
+            "sort": sort,
+            "from": from_timestamp,
+            "key": self.api_key,
+            "comment": comment,
+            "striptags": "true",
+        }
+        if to_timestamp is not None:
+            params["to"] = to_timestamp
+        return self._make_request(url, params)
+
     def get_faction_basic(
         self,
         faction_id: int,

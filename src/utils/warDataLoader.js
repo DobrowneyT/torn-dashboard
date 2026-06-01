@@ -136,6 +136,34 @@ export async function loadFactionAttacksByWindow(startAt, endAt) {
 }
 
 /**
+ * Load all incoming revives stored against a ranked war (faster than a
+ * window query thanks to the (rw_id, timestamp) index on faction_revives).
+ * Pages through PostgREST's default 1000-row response cap.
+ *
+ * @param {number} warId
+ * @returns {Promise<Array>}
+ */
+export async function loadFactionRevivesByWar(warId) {
+  const PAGE_SIZE = 1000
+  const all = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('faction_revives')
+      .select('*')
+      .eq('rw_id', warId)
+      .order('timestamp', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE_SIZE) break
+    offset += PAGE_SIZE
+  }
+  return all
+}
+
+/**
  * Load saved payouts for a specific war (newest first).
  * Includes the associated member records.
  *

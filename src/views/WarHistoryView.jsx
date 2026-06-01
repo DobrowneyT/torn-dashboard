@@ -1,9 +1,14 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions } from '../utils/warDataLoader'
-import { updateWarIsTermed, fetchAttacks as fetchAttacksApi, fetchWars as fetchWarsApi } from '../utils/adminApi'
+import {
+  updateWarIsTermed,
+  fetchAttacks as fetchAttacksApi,
+  fetchWars as fetchWarsApi,
+  fetchRevives as fetchRevivesApi,
+} from '../utils/adminApi'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
-import { X, RefreshCw } from 'lucide-react'
+import { X, RefreshCw, Heart } from 'lucide-react'
 
 const OUR_FACTION_ID = 10739
 const PAGE_SIZE = 50
@@ -39,6 +44,11 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
   const [fetching, setFetching] = useState(null)
   const [fetchMessage, setFetchMessage] = useState(null)
 
+  // Revives fetch — war picker modal state. We let the user pick which war
+  // to scrape; the edge function resolves the start/end window from the
+  // ranked_wars row (live war → walks up to "now").
+  const [revivesPickerOpen, setRevivesPickerOpen] = useState(false)
+
   async function handleFetchAttacks() {
     if (fetching) return
     setFetching('attacks')
@@ -63,6 +73,38 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
     } catch (err) {
       console.error('fetchAttacks failed:', err)
       setFetchMessage({ type: 'error', text: `Failed to fetch attacks: ${err.message}` })
+    } finally {
+      setFetching(null)
+      setTimeout(() => setFetchMessage(null), 10_000)
+    }
+  }
+
+  async function handleFetchRevives(warId) {
+    if (fetching) return
+    setRevivesPickerOpen(false)
+    setFetching('revives')
+    setFetchMessage(null)
+    try {
+      const result = await fetchRevivesApi(warId, user.apiKey)
+      const parts = [
+        `${result.revivesFetched ?? 0} fetched`,
+        `${result.revivesNew ?? 0} new`,
+        `${result.pagesFetched ?? 0} pages`,
+      ]
+      const live = result.window?.live ? ' (live war)' : ''
+      const opp = result.opponent ? ` vs ${result.opponent}` : ''
+      const suffix = result.partial
+        ? ` — stopped early (${result.partialReason}). Click again to resume.`
+        : result.moreAvailable
+          ? ' — more available, click again to continue.'
+          : '.'
+      setFetchMessage({
+        type: result.partial ? 'warning' : 'success',
+        text: `Revives for war ${warId}${opp}${live}: ${parts.join(', ')}${suffix}`,
+      })
+    } catch (err) {
+      console.error('fetchRevives failed:', err)
+      setFetchMessage({ type: 'error', text: `Failed to fetch revives: ${err.message}` })
     } finally {
       setFetching(null)
       setTimeout(() => setFetchMessage(null), 10_000)
@@ -280,9 +322,37 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                   </>
                 )}
               </button>
+              <button
+                onClick={() => setRevivesPickerOpen(true)}
+                disabled={!!fetching}
+                className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
+              >
+                {fetching === 'revives' ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Fetching…
+                  </>
+                ) : (
+                  <>
+                    <Heart className="w-4 h-4" />
+                    Fetch Revives
+                  </>
+                )}
+              </button>
             </div>
           )}
         </div>
+
+        {/* Revives war-picker modal — leadership picks a war, the edge function
+            resolves start/end from ranked_wars and paginates. Live wars walk
+            up to "now"; revive_id is the PK so re-running is idempotent. */}
+        {revivesPickerOpen && (
+          <RevivesPickerModal
+            wars={wars}
+            onPick={handleFetchRevives}
+            onClose={() => setRevivesPickerOpen(false)}
+          />
+        )}
 
         {fetchMessage && (
           <div
@@ -513,6 +583,88 @@ function ContributionsModal({ war, result, contributions, loading, sort, onSort,
               </tbody>
             </table>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Lightweight war picker for the Revives fetch. We re-use the already-loaded
+// `wars` list (newest first) — leadership almost always wants a recent war
+// for a post-mortem, so paginating into the deep past isn't worth the UX cost.
+// LIVE wars (end_at is null) are flagged so leadership knows the fetch will
+// walk up to "now" rather than a fixed end timestamp.
+function RevivesPickerModal({ wars, onPick, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-2xl my-12" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-700">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Fetch revives — pick a war</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              The window comes from ranked_wars (start_at → end_at, or "now" for live wars).
+              Re-running a war that's already been fetched is a no-op.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto">
+          {wars.length === 0 ? (
+            <p className="p-6 text-sm text-gray-500 dark:text-gray-400 text-center">
+              No wars loaded yet — click <em>Fetch Wars</em> first.
+            </p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-slate-900/50 sticky top-0">
+                <tr>
+                  <th className="text-left px-4 py-2 font-medium text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">War</th>
+                  <th className="text-left px-4 py-2 font-medium text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Opponent</th>
+                  <th className="text-left px-4 py-2 font-medium text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Window</th>
+                  <th className="text-right px-4 py-2 font-medium text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wars.map(w => {
+                  const isLive = w.end_at == null
+                  const opponent = w.opponent_name || `faction ${w.opponent_id}`
+                  return (
+                    <tr key={w.id} className="border-t border-gray-100 dark:border-slate-700/50">
+                      <td className="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">{w.id}</td>
+                      <td className="px-4 py-2 text-gray-900 dark:text-white">
+                        {opponent}
+                        {isLive && (
+                          <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded text-[10px] font-semibold uppercase">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400">
+                        {formatWarDateRange(w.start_at, w.end_at)}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <button
+                          onClick={() => onPick(w.id)}
+                          className="px-3 py-1 bg-rose-600 text-white rounded hover:bg-rose-700 text-xs"
+                        >
+                          Fetch
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="p-3 border-t border-gray-200 dark:border-slate-700 text-right">
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-sm"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>

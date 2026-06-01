@@ -124,6 +124,7 @@ interface RequestBody {
   onConflict?: string
   crimeIds?: string[]
   weekId?: number
+  war_id?: number
 }
 
 serve(async (req: Request) => {
@@ -227,6 +228,9 @@ serve(async (req: Request) => {
         break
       case 'fetch_wars':
         result = await handleFetchWars(supabase, tornApiKey)
+        break
+      case 'fetch_revives':
+        result = await handleFetchRevives(supabase, tornApiKey, Number(body.war_id))
         break
       default:
         return new Response(
@@ -1559,6 +1563,166 @@ async function handleFetchWars(supabase: any, apiKey: string) {
     moreReportsAvailable,
     partial,
     partialReason,
+  }
+}
+
+// ── Fetch revives for one ranked war ────────────────────────────────────────
+//
+// Mirrors the fetch_revives_for_war.py script, but server-side so leadership
+// can trigger it from the RW History page. Looks up the war's start_at /
+// end_at in ranked_wars, ASC-paginates /v2/faction/revives?filters=incoming
+// over that window, and upserts into faction_revives with ignore_duplicates so
+// re-running over the same war is a true no-op (revive ids are immutable).
+//
+// Behaviour by war state:
+//   * end_at = null              → walk up to "now" (live war)
+//   * start_at in the future     → 400 (war hasn't started)
+//   * end_at set, fully past     → fixed window
+async function handleFetchRevives(supabase: any, apiKey: string, warId: number) {
+  if (!warId || !Number.isFinite(warId)) {
+    throw new Error('war_id required')
+  }
+
+  const { data: war, error: warErr } = await supabase
+    .from('ranked_wars')
+    .select('id, start_at, end_at, opponent_name')
+    .eq('id', warId)
+    .maybeSingle()
+  if (warErr) throw new Error(`ranked_wars lookup failed: ${warErr.message}`)
+  if (!war) throw new Error(`War ${warId} not found in ranked_wars`)
+
+  const nowSec = Math.floor(Date.now() / 1000)
+  const startAt: number = Number(war.start_at)
+  const endAtRaw: number | null = war.end_at == null ? null : Number(war.end_at)
+  if (!startAt) throw new Error(`War ${warId} has no start_at`)
+  if (startAt > nowSec) throw new Error(`War ${warId} hasn't started yet`)
+  const endAt = endAtRaw ?? nowSec
+  const isLive = endAtRaw === null
+
+  // Step 1: ASC-paginate. Cursor advances by last_seen_timestamp + 1 to avoid
+  // an infinite loop if multiple revives share the same epoch second.
+  const PAGE_CAP = 60   // 60 * 100 = 6000 revives. War usually well under this.
+  const seenIds = new Set<number>()
+  const collected: any[] = []
+  let cursor = startAt
+  let pages = 0
+  let partial = false
+  let partialReason: string | null = null
+  let moreAvailable = false
+
+  for (pages = 0; pages < PAGE_CAP; pages++) {
+    if (pages > 0) await sleep(TORN_RATE_LIMIT_MS)
+
+    const url = `https://api.torn.com/v2/faction/revives`
+      + `?filters=incoming&limit=100&sort=ASC&from=${cursor}&to=${endAt}`
+      + `&striptags=true&key=${apiKey}`
+    const result = await tornFetch<any>(url)
+
+    if (!result.ok) {
+      if (result.transient) {
+        partial = true
+        partialReason = result.message
+        break
+      }
+      throw new Error(result.message)
+    }
+
+    const rawRevives: any[] = result.data.revives || []
+    if (rawRevives.length === 0) break
+
+    let lastTs = cursor
+    for (const raw of rawRevives) {
+      const rid = Number(raw.id)
+      if (seenIds.has(rid)) continue
+      seenIds.add(rid)
+      collected.push(normalizeRevive(raw, warId))
+      const ts = Number(raw.timestamp)
+      if (Number.isFinite(ts) && ts > lastTs) lastTs = ts
+    }
+
+    // Partial page → we've reached the tail of the window.
+    if (rawRevives.length < 100) break
+
+    cursor = lastTs + 1
+    if (cursor > endAt) break
+  }
+  if (pages >= PAGE_CAP) moreAvailable = true
+
+  // Step 2: count NEW vs already-known so the toast can report correctly.
+  let newCount = collected.length
+  if (collected.length > 0) {
+    const ids = collected.map(r => r.revive_id)
+    const knownIds = new Set<number>()
+    const CHUNK = 500
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK)
+      const { data: knownRows } = await supabase
+        .from('faction_revives')
+        .select('revive_id')
+        .in('revive_id', slice)
+      for (const r of (knownRows ?? [])) knownIds.add(Number(r.revive_id))
+    }
+    newCount = collected.filter(r => !knownIds.has(Number(r.revive_id))).length
+  }
+
+  // Step 3: bulk upsert with ignore_duplicates. The PK on revive_id plus
+  // ignoreDuplicates means re-runs over an already-fetched window are no-ops
+  // — matches the user requirement of "skip if revive_id already exists".
+  let upserted = 0
+  if (collected.length > 0) {
+    const CHUNK = 500
+    for (let i = 0; i < collected.length; i += CHUNK) {
+      const slice = collected.slice(i, i + CHUNK)
+      const { error } = await supabase
+        .from('faction_revives')
+        .upsert(slice, { onConflict: 'revive_id', ignoreDuplicates: true })
+      if (error) {
+        console.error(`faction_revives upsert chunk failed: ${error.message}`)
+      } else {
+        upserted += slice.length
+      }
+    }
+  }
+
+  return {
+    success: true,
+    war_id: warId,
+    opponent: war.opponent_name ?? null,
+    window: { from: startAt, to: endAt, live: isLive },
+    revivesFetched: collected.length,
+    revivesNew: newCount,
+    revivesUpserted: upserted,
+    pagesFetched: pages,
+    moreAvailable,
+    partial,
+    partialReason,
+  }
+}
+
+function normalizeRevive(raw: any, warId: number) {
+  const reviver = raw.reviver || {}
+  const target = raw.target || {}
+  const reviverFaction = reviver.faction || {}
+  const targetFaction = target.faction || {}
+  return {
+    revive_id:            raw.id,
+    rw_id:                warId,
+    timestamp:            raw.timestamp,
+    reviver_id:           reviver.id ?? null,
+    reviver_name:         reviver.name ?? null,
+    reviver_faction_id:   reviverFaction.id ?? null,
+    reviver_faction_name: reviverFaction.name ?? null,
+    reviver_skill:        reviver.skill ?? null,
+    target_id:            target.id ?? null,
+    target_name:          target.name ?? null,
+    target_faction_id:    targetFaction.id ?? null,
+    target_faction_name:  targetFaction.name ?? null,
+    hospital_reason:      target.hospital_reason ?? null,
+    early_discharge:      Boolean(target.early_discharge),
+    target_last_action:   target.last_action ?? null,
+    target_online_status: target.online_status ?? null,
+    success_chance:       raw.success_chance ?? null,
+    result:               raw.result ?? null,
   }
 }
 

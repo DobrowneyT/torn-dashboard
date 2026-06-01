@@ -367,6 +367,7 @@ export default function MembersView({ isLeadership }) {
             className="px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
           >
             <option value="all">All Tiers</option>
+            <option value="0">Tier 0 – Review</option>
             <option value="1">Tier 1</option>
             <option value="2">Tier 2</option>
             <option value="3">Tier 3</option>
