@@ -1,6 +1,15 @@
-// DEPLOYMENT NOTE: Deploy with --no-verify-jwt flag
-// Deploy command: npx supabase functions deploy war-room-fetch --no-verify-jwt
-// Uses custom Torn API key authentication instead of Supabase JWT
+// DEPLOYMENT NOTE: Deploy without --no-verify-jwt
+// Deploy command: npx supabase functions deploy war-room-fetch
+//
+// Auth layering:
+//   - Gateway: Supabase verifies an `Authorization: Bearer <jwt>` header on
+//     every request. Both warRoomApi.js and warRoomApiV2.js send the project
+//     anon key, which is itself a JWT signed with the project secret and
+//     satisfies the gateway. (Session tokens minted by mint_session_token
+//     also work — they carry `role=authenticated` + custom claims, used by
+//     PostgREST/RPC calls via the supabase-js accessToken hook.)
+//   - Function: actions not in POLL_ACTIONS still call verifyTornUser()
+//     against the `x-torn-api-key` header for user-identity auth.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"

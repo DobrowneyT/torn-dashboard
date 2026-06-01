@@ -14,12 +14,20 @@
 import { supabase } from './supabase'
 
 const WAR_ROOM_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/war-room-fetch'
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 async function callWarRoom(action, payload, tornApiKey, signal) {
   const response = await fetch(WAR_ROOM_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      // The Supabase Edge Function gateway requires Authorization on every
+      // call when JWT verification is enabled (i.e., deployed without
+      // --no-verify-jwt). The anon key satisfies the gateway. The function
+      // still does its own Torn-key auth via verifyTornUser() against the
+      // x-torn-api-key header below — no change to the in-function auth.
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'apikey': SUPABASE_ANON_KEY,
       'x-torn-api-key': tornApiKey,
     },
     body: JSON.stringify({ action, ...payload }),
