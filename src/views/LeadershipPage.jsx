@@ -1,51 +1,44 @@
-import { useState } from 'react'
+import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import InventoryManagement from '../components/InventoryManagement'
 import DataManagement from './DataManagement'
 import MemberOverview from './MemberOverview'
 import ErrorBoundary from '../components/ErrorBoundary'
 
 const TABS = [
-  { id: 'member-overview', label: 'Member Overview', roles: ['leadership'] },
-  { id: 'inventory',       label: 'Inventory',       roles: ['leadership'] },
-  { id: 'data-mgmt',       label: 'Data Management', roles: ['admin'] },
+  { to: '/leadership/member-overview',   label: 'Member Overview', admin: false },
+  { to: '/leadership/inventory',         label: 'Inventory',       admin: false },
+  { to: '/leadership/data-management',   label: 'Data Management', admin: true  },
 ]
 
-export default function LeadershipPage({ isLeadership, isAdmin }) {
-  const [activeTab, setActiveTab] = useState('member-overview')
+const tabClass = ({ isActive }) =>
+  `px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+    isActive
+      ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-slate-600'
+  }`
 
-  const visibleTabs = TABS.filter(tab => {
-    if (tab.roles.includes('admin') && !isAdmin) return false
-    if (tab.roles.includes('leadership') && !isLeadership) return false
-    return true
-  })
+export default function LeadershipPage({ isLeadership, isAdmin }) {
+  const visibleTabs = TABS.filter(t => !t.admin || isAdmin)
 
   return (
     <div className="space-y-6">
-      {/* Sub-tab navigation */}
       <div className="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-slate-700">
         {visibleTabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-              activeTab === tab.id
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-slate-600'
-            }`}
-          >
-            {tab.label}
-          </button>
+          <NavLink key={tab.to} to={tab.to} className={tabClass}>{tab.label}</NavLink>
         ))}
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'member-overview' && (
-        <ErrorBoundary name="Member Overview">
-          <MemberOverview isLeadership={isLeadership} isAdmin={isAdmin} />
-        </ErrorBoundary>
-      )}
-      {activeTab === 'inventory' && isLeadership && <InventoryManagement />}
-      {activeTab === 'data-mgmt' && isAdmin && <DataManagement />}
+      <Routes>
+        <Route index element={<Navigate to="/leadership/member-overview" replace />} />
+        <Route path="member-overview" element={
+          <ErrorBoundary name="Member Overview">
+            <MemberOverview isLeadership={isLeadership} isAdmin={isAdmin} />
+          </ErrorBoundary>
+        } />
+        <Route path="inventory"       element={<InventoryManagement />} />
+        {isAdmin && <Route path="data-management" element={<DataManagement />} />}
+        <Route path="*" element={<Navigate to="/leadership/member-overview" replace />} />
+      </Routes>
     </div>
   )
 }

@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { isAdmin } from '../config'
 import { Menu, Key, Info, Eye, ChevronRight, Check, LogOut, X } from 'lucide-react'
 
-export default function SettingsDropdown({ onNavigate, viewAsRole, setViewAsRole, canViewAs }) {
+export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs }) {
   const { user, logout } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [showApiKeyModal, setShowApiKeyModal] = useState(false)

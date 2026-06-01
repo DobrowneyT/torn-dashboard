@@ -5,7 +5,7 @@ import { config } from '../config'
 
 import { Moon, Sun } from 'lucide-react'
 
-export default function Header({ onNavigate, viewAsRole, setViewAsRole, canViewAs }) {
+export default function Header({ viewAsRole, setViewAsRole, canViewAs }) {
   const { theme, toggleTheme } = useTheme()
   const { user, logout, isLeadership } = useAuth()
 
@@ -37,7 +37,6 @@ export default function Header({ onNavigate, viewAsRole, setViewAsRole, canViewA
 
             {user && (
               <SettingsDropdown
-                onNavigate={onNavigate}
                 viewAsRole={viewAsRole}
                 setViewAsRole={setViewAsRole}
                 canViewAs={canViewAs}

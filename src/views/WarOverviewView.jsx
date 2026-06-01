@@ -73,11 +73,11 @@ function buildColorMap(eventGroups, topN) {
  * Bucket events into time bins per faction.
  * Returns { traces, otherCount } where traces is a list of Plotly bar specs.
  */
-function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, xaxis, yaxis) {
+function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, xaxis, yaxis, groupPrefix = '', groupTitle = '') {
   const nBins = Math.max(1, Math.floor((toTs - fromTs) / binSeconds) + 1)
   const byFaction = new Map()
   const otherCounts = new Array(nBins).fill(0)
-  const fallbackCounts = new Array(nBins).fill(0)  // events with no faction id
+  const fallbackCounts = new Array(nBins).fill(0)
 
   for (const e of events) {
     const ts = e.ts
@@ -96,14 +96,14 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
     }
   }
 
-  // X axis values as UTC strings ("YYYY-MM-DD HH:MM:SS"). Plotly treats
-  // string dates without a timezone suffix as UTC — so the axis shows TCT.
   const xs = Array.from({ length: nBins }, (_, i) =>
     new Date((fromTs + i * binSeconds) * 1000).toISOString().replace('T', ' ').slice(0, 19)
   )
 
+  const lg = (key) => groupPrefix ? `${groupPrefix}_${key}` : key
+  const titleProp = groupTitle ? { legendgrouptitle: { text: groupTitle } } : {}
+
   const traces = []
-  // Largest stack at the bottom for visual rhythm.
   const orderedFactions = [...byFaction.keys()].sort((a, b) => {
     const sa = byFaction.get(a).reduce((s, v) => s + v, 0)
     const sb = byFaction.get(b).reduce((s, v) => s + v, 0)
@@ -116,31 +116,24 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
       y: byFaction.get(fid),
       name: nameLookup[fid] ? `${nameLookup[fid]} [${fid}]` : `faction ${fid}`,
       marker: { color: colorMap[fid] || '#777' },
-      legendgroup: `f${fid}`,
+      legendgroup: lg(`f${fid}`),
+      ...(traces.length === 0 ? titleProp : {}),
       hovertemplate: '%{y} events<br>%{x|%b %d %H:%M}<extra>%{fullData.name}</extra>',
       xaxis, yaxis,
     })
   }
   if (otherCounts.some(c => c > 0)) {
     traces.push({
-      type: 'bar',
-      x: xs,
-      y: otherCounts,
-      name: 'Other',
-      marker: { color: '#888' },
-      legendgroup: 'other',
+      type: 'bar', x: xs, y: otherCounts, name: 'Other',
+      marker: { color: '#888' }, legendgroup: lg('other'),
       hovertemplate: '%{y} events<br>%{x|%b %d %H:%M}<extra>Other</extra>',
       xaxis, yaxis,
     })
   }
   if (fallbackCounts.some(c => c > 0)) {
     traces.push({
-      type: 'bar',
-      x: xs,
-      y: fallbackCounts,
-      name: '(no faction)',
-      marker: { color: '#444' },
-      legendgroup: 'nofac',
+      type: 'bar', x: xs, y: fallbackCounts, name: '(no faction)',
+      marker: { color: '#444' }, legendgroup: lg('nofac'),
       hovertemplate: '%{y} events<br>%{x|%b %d %H:%M}<extra>(no faction)</extra>',
       xaxis, yaxis,
     })
@@ -152,7 +145,7 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
  * Scatter mode: one dot per event at its exact UTC timestamp (y = 1 always).
  * Faction colour coding is shared with the histogram via the same colorMap.
  */
-function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, yaxis) {
+function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, yaxis, groupPrefix = '', groupTitle = '') {
   const byFaction = new Map()
   const otherX = []
   const fallbackX = []
@@ -171,6 +164,9 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
     }
   }
 
+  const lg = (key) => groupPrefix ? `${groupPrefix}_${key}` : key
+  const titleProp = groupTitle ? { legendgrouptitle: { text: groupTitle } } : {}
+
   const traces = []
   for (const [fid, xs] of byFaction.entries()) {
     traces.push({
@@ -178,7 +174,8 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
       x: xs, y: new Array(xs.length).fill(1),
       name: nameLookup[fid] ? `${nameLookup[fid]} [${fid}]` : `faction ${fid}`,
       marker: { color: colorMap[fid] || '#777', size: 8, opacity: 0.75 },
-      legendgroup: `f${fid}`,
+      legendgroup: lg(`f${fid}`),
+      ...(traces.length === 0 ? titleProp : {}),
       hovertemplate: '%{x|%b %d %H:%M:%S} TCT<extra>%{fullData.name}</extra>',
       xaxis, yaxis,
     })
@@ -188,7 +185,7 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
       type: 'scatter', mode: 'markers',
       x: otherX, y: new Array(otherX.length).fill(1),
       name: 'Other', marker: { color: '#888', size: 8, opacity: 0.75 },
-      legendgroup: 'other',
+      legendgroup: lg('other'),
       hovertemplate: '%{x|%b %d %H:%M:%S} TCT<extra>Other</extra>',
       xaxis, yaxis,
     })
@@ -198,7 +195,7 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
       type: 'scatter', mode: 'markers',
       x: fallbackX, y: new Array(fallbackX.length).fill(1),
       name: '(no faction)', marker: { color: '#444', size: 8, opacity: 0.75 },
-      legendgroup: 'nofac',
+      legendgroup: lg('nofac'),
       hovertemplate: '%{x|%b %d %H:%M:%S} TCT<extra>(no faction)</extra>',
       xaxis, yaxis,
     })
@@ -346,6 +343,9 @@ export default function WarOverviewView() {
     })
 
     if (viewMode === 'faction') {
+      const outAtkEvents = attacks
+        .filter(a => a.attacker_faction_id === OUR_FACTION_ID)
+        .map(a => ({ ts: a.started, faction: a.defender_faction_id }))
       const incAtkEvents = attacks
         .filter(a => a.defender_faction_id === OUR_FACTION_ID)
         .map(a => ({ ts: a.started, faction: a.attacker_faction_id }))
@@ -353,25 +353,27 @@ export default function WarOverviewView() {
         .filter(r => r.target_faction_id === OUR_FACTION_ID)
         .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id }))
 
-      const { colorMap, topFactions } = buildColorMap([incAtkEvents, incRevEvents], topN)
+      const { colorMap, topFactions } = buildColorMap([outAtkEvents, incAtkEvents, incRevEvents], topN)
       const traces = isScatter ? [
-        ...buildScatterTraces(incAtkEvents, colorMap, topFactions, nameLookup, 'x', 'y'),
-        ...buildScatterTraces(incRevEvents, colorMap, topFactions, nameLookup, 'x', 'y2'),
+        ...buildScatterTraces(outAtkEvents, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
+        ...buildScatterTraces(incAtkEvents, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
+        ...buildScatterTraces(incRevEvents, colorMap, topFactions, nameLookup, 'x', 'y3', 'rev', 'Revives'),
       ] : [
-        ...buildStackedTraces(incAtkEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y'),
-        ...buildStackedTraces(incRevEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y2'),
+        ...buildStackedTraces(outAtkEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
+        ...buildStackedTraces(incAtkEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
+        ...buildStackedTraces(incRevEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y3', 'rev', 'Revives'),
       ]
       const layout = {
         ...(isScatter ? {} : { barmode: 'stack', bargap: 0.05 }),
-        height: 720,
+        height: 880,
         margin: { l: 60, r: 30, t: 50, b: 70 },
-        grid: { rows: 2, columns: 1, pattern: 'coupled' },
-        legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 11 } },
-        yaxis:  isScatter ? scatterY('Incoming attacks') : { title: `Incoming attacks / ${binLabel}`, domain: [0.55, 1.0] },
-        yaxis2: isScatter ? { ...scatterY('Incoming revives'), domain: [0.0, 0.45] } : { title: `Incoming revives / ${binLabel}`, domain: [0.0, 0.45] },
-        xaxis: { type: 'date', rangeslider: { visible: true, thickness: 0.06 } },
+        grid: { rows: 3, columns: 1, pattern: 'coupled' },
+        legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 11 }, tracegroupgap: 20 },
+        yaxis:  isScatter ? { ...scatterY('Outgoing attacks'),  domain: [0.7, 1.0]   } : { title: `Outgoing attacks / ${binLabel}`,  domain: [0.7, 1.0]   },
+        yaxis2: isScatter ? { ...scatterY('Incoming attacks'),  domain: [0.36, 0.66] } : { title: `Incoming attacks / ${binLabel}`,  domain: [0.36, 0.66] },
+        yaxis3: isScatter ? { ...scatterY('Incoming revives'),  domain: [0.0, 0.32]  } : { title: `Incoming revives / ${binLabel}`,  domain: [0.0, 0.32]  },
+        xaxis: { type: 'date', rangeslider: { visible: true, thickness: 0.05 } },
       }
-      if (!isScatter) layout.yaxis.domain = [0.55, 1.0]
       return { traces, layout }
     }
 
@@ -389,30 +391,21 @@ export default function WarOverviewView() {
       .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id }))
 
     const { colorMap, topFactions } = buildColorMap([outgoing, incoming, revIn], topN)
-    const rawTraces = isScatter ? [
-      ...buildScatterTraces(outgoing, colorMap, topFactions, nameLookup, 'x', 'y'),
-      ...buildScatterTraces(incoming, colorMap, topFactions, nameLookup, 'x', 'y2'),
-      ...buildScatterTraces(revIn,    colorMap, topFactions, nameLookup, 'x', 'y3'),
+    const traces = isScatter ? [
+      ...buildScatterTraces(outgoing, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
+      ...buildScatterTraces(incoming, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
+      ...buildScatterTraces(revIn,    colorMap, topFactions, nameLookup, 'x', 'y3', 'rev', 'Revives'),
     ] : [
-      ...buildStackedTraces(outgoing, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y'),
-      ...buildStackedTraces(incoming, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y2'),
-      ...buildStackedTraces(revIn,    fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y3'),
+      ...buildStackedTraces(outgoing, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
+      ...buildStackedTraces(incoming, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
+      ...buildStackedTraces(revIn,    fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y3', 'rev', 'Revives'),
     ]
-    // Each subplot produces its own trace per faction, so the same faction
-    // can appear in the legend 2–3×. Deduplicate by keeping showlegend:true
-    // only on the first trace for each legendgroup.
-    const seenGroups = new Set()
-    const traces = rawTraces.map(t => {
-      if (seenGroups.has(t.legendgroup)) return { ...t, showlegend: false }
-      seenGroups.add(t.legendgroup)
-      return t
-    })
     const layout = {
       ...(isScatter ? {} : { barmode: 'stack', bargap: 0.05 }),
       height: 880,
       margin: { l: 60, r: 30, t: 50, b: 70 },
       grid: { rows: 3, columns: 1, pattern: 'coupled' },
-      legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 11 } },
+      legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 11 }, tracegroupgap: 20 },
       yaxis:  isScatter ? { ...scatterY('Outgoing hits'),    domain: [0.7, 1.0]   } : { title: `Outgoing hits / ${binLabel}`,    domain: [0.7, 1.0]   },
       yaxis2: isScatter ? { ...scatterY('Incoming hits'),    domain: [0.36, 0.66] } : { title: `Incoming hits / ${binLabel}`,    domain: [0.36, 0.66] },
       yaxis3: isScatter ? { ...scatterY('Incoming revives'), domain: [0.0, 0.32]  } : { title: `Incoming revives / ${binLabel}`, domain: [0.0, 0.32]  },
