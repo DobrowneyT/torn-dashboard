@@ -623,8 +623,8 @@ function ConfigPanel({
           {updatingSpies ? '⏳ Fetching…' : '🔍 Update Spies'}
         </button>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Poll Rate</label>
-          <div className="flex items-center gap-1.5" title="Polling interval in seconds (min 0.5s). With key rotation, lower values give fresher data.">
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">UI Refresh</label>
+          <div className="flex items-center gap-1.5" title="How often the UI re-reads the DB (delta poll). Torn API polling is now centralised server-side via pg_cron at 500ms — this slider only controls UI freshness from DB.">
             <input
               type="number"
               min={0.5}
@@ -799,8 +799,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     }
   }, [mobileOpen])
 
-  const pollRef          = useRef(null)
-  const ourMembersPollRef = useRef(null)
   const bspFiredRef      = useRef(false)
   const opponentFidRef = useRef(null)
   const membersRef     = useRef([])
@@ -902,42 +900,18 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     fetchBspStatsV2(missing, user.apiKey).catch(e => console.error('BSP auto-fetch error:', e))
   }, [members.length, config?.enabled, user?.apiKey])
 
-  // ── Write-side polling loop ───────────────────────────────────────────────
-  // This is the Torn-API → DB pump. It's separate from the DB → UI pump
-  // (useWarRoomPoll) which polls the delta RPCs every tick. Setting the
-  // interval here controls how fresh the DB is; setting intervalMs on
-  // useWarRoomPoll controls how quickly the UI reflects the DB.
-
-  const poll = useCallback(async () => {
-    if (!user?.apiKey || !config?.faction_id) return
-    try {
-      await fetchWarRoomMembersV2(config.faction_id, user.apiKey)
-    } catch (e) {
-      console.error('War room poll error:', e)
-    }
-  }, [user?.apiKey, config?.faction_id])
-
-  useEffect(() => {
-    if (pollRef.current) clearInterval(pollRef.current)
-    if (config?.enabled && config?.faction_id) {
-      poll()
-      pollRef.current = setInterval(poll, pollIntervalSec * 1000)
-    }
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [config?.enabled, config?.faction_id, poll, pollIntervalSec])
-
-  // Our members poll — uses Torn cache, runs every 30s
-  useEffect(() => {
-    if (ourMembersPollRef.current) clearInterval(ourMembersPollRef.current)
-    if (config?.enabled && user?.apiKey) {
-      fetchOurMembersV2(user.apiKey).catch(e => console.error('Our members poll error:', e))
-      ourMembersPollRef.current = setInterval(
-        () => fetchOurMembersV2(userRef.current?.apiKey).catch(e => console.error('Our members poll error:', e)),
-        30_000
-      )
-    }
-    return () => { if (ourMembersPollRef.current) clearInterval(ourMembersPollRef.current) }
-  }, [config?.enabled, user?.apiKey])
+  // ── Torn polling is now CENTRALISED via pg_cron ───────────────────────────
+  // (see supabase/migrations/20260601000003_war_room_v2_cron_polling.sql)
+  //
+  // Previously every viewer's browser ran its own setInterval and fired
+  // fetch_members_v2 / fetch_our_members_v2, so Torn API hits scaled with
+  // viewer count. Now a single Postgres cron job triggers the Edge Function
+  // (cron_poll_war_room) which polls Torn once globally every 500ms and
+  // writes to war_room_state_v2. The hook below picks up the changes via
+  // delta-poll, same as before.
+  //
+  // The Save flow and Update Spies still trigger one-shot fetches (leader
+  // actions, not periodic).
 
   // ── Leadership actions ────────────────────────────────────────────────────
 

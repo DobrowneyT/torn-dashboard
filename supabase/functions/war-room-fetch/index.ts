@@ -1195,6 +1195,71 @@ async function handleReleaseDibsV2(
   return json({ ok: true })
 }
 
+// ── Centralised cron-driven polling ──────────────────────────────────────────
+// Replaces N×viewer × (1 / pollIntervalSec) Torn API calls with a single
+// global tick driven by pg_cron. The client no longer runs the Torn fetch
+// loop in useEffect — only the Save flow and Update Spies trigger one-shot
+// fetches. The hook still polls the DB delta RPCs for UI updates.
+//
+// Auth: this action skips the x-torn-api-key requirement at the top of the
+// handler (see CRON_ACTIONS in the dispatcher). It authenticates via the
+// x-cron-secret header against the CRON_SECRET Edge Function env var, set
+// once via `npx supabase secrets set CRON_SECRET=<value>`.
+//
+// The same secret must be stored in Vault as `war_room_cron_secret` for
+// the Postgres-side cron to read. See the war_room_cron migration.
+
+// Sub-second polling: pg_cron's minimum interval is 1s, but each cron tick
+// invocation runs TWO fetch cycles 500ms apart. Effective polling rate ≈
+// 500ms when the Edge Function runtime is fast enough to keep up.
+// Tune INNER_TICKS / SLEEP_MS together to change the effective rate.
+const CRON_INNER_TICKS = 2
+const CRON_INNER_SLEEP_MS = 500
+
+async function handleCronPoll(
+  supabase: ReturnType<typeof createClient>,
+  req: Request,
+) {
+  const cronSecret = Deno.env.get('CRON_SECRET')
+  if (!cronSecret) return json({ error: 'CRON_SECRET not configured' }, 500)
+  if (req.headers.get('x-cron-secret') !== cronSecret) {
+    return json({ error: 'Invalid cron secret' }, 401)
+  }
+
+  const { data: cfg, error: cfgErr } = await supabase
+    .from('war_room_config_v2')
+    .select('enabled, faction_id')
+    .eq('id', 1)
+    .maybeSingle()
+  if (cfgErr) return json({ error: `config read failed: ${cfgErr.message}` }, 500)
+
+  if (!cfg?.enabled || !cfg.faction_id) {
+    return json({ ok: true, skipped: true, reason: cfg?.enabled ? 'no faction' : 'paused' })
+  }
+
+  const ticks: Array<{ enemy: any; our: any }> = []
+
+  for (let i = 0; i < CRON_INNER_TICKS; i++) {
+    // Fire both polls in parallel within a tick — they're independent. We
+    // re-use the existing action handlers (which return Response objects)
+    // so this stays a thin orchestrator.
+    const [enemyResp, ourResp] = await Promise.all([
+      handleFetchMembersV2(supabase, cfg.faction_id),
+      handleFetchOurMembersV2(supabase),
+    ])
+    const enemy = await enemyResp.json().catch(() => ({ error: 'json parse failed' }))
+    const our   = await ourResp.json().catch(() => ({ error: 'json parse failed' }))
+    ticks.push({ enemy, our })
+
+    // Sleep between inner ticks; skip after the last one.
+    if (i < CRON_INNER_TICKS - 1) {
+      await new Promise(r => setTimeout(r, CRON_INNER_SLEEP_MS))
+    }
+  }
+
+  return json({ ok: true, ticks })
+}
+
 // ── JWT minting (realtime + session auth) ────────────────────────────────────
 // Mints JWTs signed with the project's SUPABASE_JWT_SECRET so the frontend
 // can prove identity to PostgREST (REST queries) AND Supabase Realtime
@@ -1280,9 +1345,6 @@ serve(async (req: Request) => {
   }
 
   try {
-    const tornApiKey = req.headers.get('x-torn-api-key')
-    if (!tornApiKey) return json({ error: 'Missing x-torn-api-key header' }, 401)
-
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -1291,6 +1353,11 @@ serve(async (req: Request) => {
 
     const body = await req.json()
     const action: string = body.action
+
+    // Cron-driven actions authenticate via x-cron-secret instead of a Torn
+    // API key. Skip the x-torn-api-key requirement and the verifyTornUser
+    // call entirely; the action handler does its own auth check.
+    const CRON_ACTIONS = new Set(['cron_poll_war_room'])
 
     // Polling actions are high-frequency and use server-side TORN_API_KEYS — the
     // user's key is irrelevant to what data gets fetched, so skip the Torn auth
@@ -1306,10 +1373,14 @@ serve(async (req: Request) => {
     ])
 
     let userId = 'anon'
-    if (!POLL_ACTIONS.has(action)) {
-      const auth = await verifyTornUser(tornApiKey)
-      if (!auth.success) return json({ error: auth.error }, 403)
-      userId = auth.userId!
+    if (!CRON_ACTIONS.has(action)) {
+      const tornApiKey = req.headers.get('x-torn-api-key')
+      if (!tornApiKey) return json({ error: 'Missing x-torn-api-key header' }, 401)
+      if (!POLL_ACTIONS.has(action)) {
+        const auth = await verifyTornUser(tornApiKey)
+        if (!auth.success) return json({ error: auth.error }, 403)
+        userId = auth.userId!
+      }
     }
 
     // Resolve display name for dibs (passed by client to avoid extra API call)
@@ -1362,6 +1433,10 @@ serve(async (req: Request) => {
         return await handleClaimDibsV2(supabase, body, String(body.user_id ?? ''), userName)
       case 'release_dibs_v2':
         return await handleReleaseDibsV2(supabase, body, String(body.user_id ?? ''))
+
+      // ── Centralised cron-driven polling ──────────────────────────────
+      case 'cron_poll_war_room':
+        return await handleCronPoll(supabase, req)
 
       default:
         return json({ error: `Unknown action: ${action}` }, 400)
