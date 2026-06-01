@@ -4,12 +4,16 @@ import RWPayoutsView from './RWPayoutsView'
 import WarHistoryView from './WarHistoryView'
 import WarPayoutManagement from '../components/WarPayoutManagement'
 import WarRoomView from './WarRoomView'
+import WarRoomViewV2 from './WarRoomViewV2'
 import ErrorBoundary from '../components/ErrorBoundary'
 
 const WarOverviewView = lazy(() => import('./WarOverviewView'))
 
 const TABS = [
   { to: '/rw/war-room',          label: 'War Room',           leadership: false },
+  // v2 (delta polling) — runs alongside v1 for side-by-side validation.
+  // Will replace v1 in Phase 5 of the war-room-v2 rollout plan.
+  { to: '/rw/war-room-v2',       label: 'War Room v2',        leadership: false },
   { to: '/rw/payouts',           label: 'Payouts',            leadership: false },
   { to: '/rw/rw-history',        label: 'RW History',         leadership: false },
   { to: '/rw/payout-management', label: 'Payout Management',  leadership: true  },
@@ -39,6 +43,11 @@ export default function RWPage({ isLeadership, isAdmin }) {
         <Route path="war-room" element={
           <ErrorBoundary name="War Room">
             <WarRoomView isLeadership={isLeadership} isAdmin={isAdmin} />
+          </ErrorBoundary>
+        } />
+        <Route path="war-room-v2" element={
+          <ErrorBoundary name="War Room v2">
+            <WarRoomViewV2 isLeadership={isLeadership} isAdmin={isAdmin} />
           </ErrorBoundary>
         } />
         <Route path="payouts"   element={<RWPayoutsView />} />

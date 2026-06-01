@@ -6,12 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 **How to bump:** Before committing a release, add a new `## [X.Y.Z] - YYYY-MM-DD` block
-at the top (below `[Unreleased]`). The deploy pipeline reads the first versioned block
+at the top (below `[Released]`). The deploy pipeline reads the first versioned block
 and stamps the footer automatically.
 
 ---
 
-## [Unreleased]
+## [Released]
+
+
+## [1.1.0] - 2026-06-01
+
+### Added
+
+- **War Room v2 using HTTP Polling**
 
 ## [1.0.1] - 2026-06-01
 
