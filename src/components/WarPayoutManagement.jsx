@@ -125,7 +125,7 @@ function WarDropdown({ wars, totalWars, selectedWar, onSelect, page, onPageChang
   )
 }
 
-function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilter, sortCol, sortDir, onSort, opponentId }) {
+function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilter, sortCol, sortDir, onSort, opponentId, cutoff = null }) {
   // Unique opposing faction IDs from the attacks, derived once per attack set
   const opposingIds = (() => {
     const ids = new Set()
@@ -161,6 +161,12 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
   function selectNone() { setFactionFilter(new Set()) }
 
   const rows = buildHitReport(attacks, effectiveFilter)
+
+  // In race wars, also build a post-cutoff-only report so each cell can show
+  // `pre (post)`. preRow/postRow are keyed by memberId for O(1) lookup.
+  const postByMember = cutoff
+    ? new Map(buildHitReport(attacks.filter(a => (Number(a.started) || 0) > cutoff), effectiveFilter).map(r => [r.memberId, r]))
+    : null
 
   // Sort
   const dir = sortDir === 'asc' ? 1 : -1
@@ -285,21 +291,16 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
                 <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">
                   {r.memberName}
                 </td>
-                {outgoingCols.map((c, i) => {
+                {[...outgoingCols, ...incomingCols].map((c, i) => {
                   const [side, key] = c.key.split('.')
                   const v = r[side][key]
+                  const isFirst = i === 0 || i === outgoingCols.length
+                  // Race wars: split into `pre (post)` using the post-cutoff report.
+                  const post = postByMember ? (postByMember.get(r.memberId)?.[side]?.[key] ?? 0) : 0
+                  const pre = v - post
                   return (
-                    <td key={c.key} className={`px-2 py-1.5 text-right ${v === 0 ? 'text-gray-400 dark:text-gray-600' : 'text-gray-700 dark:text-gray-300'} ${i === 0 ? 'border-l border-gray-200 dark:border-slate-700' : ''}`}>
-                      {v}
-                    </td>
-                  )
-                })}
-                {incomingCols.map((c, i) => {
-                  const [side, key] = c.key.split('.')
-                  const v = r[side][key]
-                  return (
-                    <td key={c.key} className={`px-2 py-1.5 text-right ${v === 0 ? 'text-gray-400 dark:text-gray-600' : 'text-gray-700 dark:text-gray-300'} ${i === 0 ? 'border-l border-gray-200 dark:border-slate-700' : ''}`}>
-                      {v}
+                    <td key={c.key} className={`px-2 py-1.5 text-right ${v === 0 ? 'text-gray-400 dark:text-gray-600' : 'text-gray-700 dark:text-gray-300'} ${isFirst ? 'border-l border-gray-200 dark:border-slate-700' : ''}`}>
+                      {cutoff ? <SplitCount pre={pre} post={post} /> : v}
                     </td>
                   )
                 })}
@@ -309,6 +310,22 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
         </table>
       </div>
     </div>
+  )
+}
+
+// TCT == UTC. Convert between a unix-seconds timestamp and the value string a
+// native <input type="datetime-local"> expects, interpreting the field as TCT.
+const tsToTctInput = ts => ts ? new Date(ts * 1000).toISOString().slice(0, 16) : ''
+const tctInputToTs = s => s ? Math.floor(Date.parse(s + ':00Z') / 1000) : null
+
+// Render a count as `pre (post)` with the post-cutoff portion in the
+// post-cutoff purple. Used for race-war Payout Sheet / Hit Report cells.
+function SplitCount({ pre = 0, post = 0, fmt = (n) => n }) {
+  return (
+    <>
+      {fmt(pre)}
+      {post > 0 && <span className="text-purple-600 dark:text-purple-400"> ({fmt(post)})</span>}
+    </>
   )
 }
 
@@ -338,22 +355,21 @@ export default function WarPayoutManagement() {
   const [cutoffHours, setCutoffHours] = useState(24)
   const [notes, setNotes] = useState('')
   // Real war formula settings
-  const [warHitMult, setWarHitMult]   = useState(1.25)
+  const [warHitMult, setWarHitMult]   = useState(1.00)
   const [assistMult, setAssistMult]   = useState(0.50)
   const [lossMult, setLossMult]       = useState(0.50)
-  const [mugMult, setMugMult]         = useState(-1.00)
+  const [mugMult, setMugMult]         = useState(0.00)
   const [partWeight, setPartWeight]   = useState(50)   // integer 0–100; contrib = 100 - partWeight
-  const [regularHitMult, setRegularHitMult] = useState(0.00)
-  const [mercCost, setMercCost]         = useState(0)
-  const [reviverCost, setReviverCost]   = useState(0)
-  const [factionTopUp, setFactionTopUp] = useState(0)
+  const [regularHitMult, setRegularHitMult] = useState(1.00)
+  const [mercCost, setMercCost]         = useState('')
+  const [reviverCost, setReviverCost]   = useState('')
+  const [factionTopUp, setFactionTopUp] = useState('')
   // Per-member multiplier overrides
   const [memberMultiplierOverrides, setMemberMultiplierOverrides] = useState({})
 
   // Race mode settings
   const [raceTargetScore, setRaceTargetScore] = useState(0)
   const [raceCutoffMode, setRaceCutoffMode] = useState('auto') // 'auto' | 'manual'
-  const [raceManualCutoff, setRaceManualCutoff] = useState('')
   const [raceCutoffTimestamp, setRaceCutoffTimestamp] = useState(null)
   const [racePostCutoffMode, setRacePostCutoffMode] = useState('flat') // 'flat' | 'scaling'
   const [racePreCutoffPercent, setRacePreCutoffPercent] = useState(50)
@@ -433,16 +449,15 @@ export default function WarPayoutManagement() {
     setWarType(war.is_termed ? 'termed' : 'real')
     setTotalReward(0)
     setNotes('')
-    setMercCost(0)
-    setReviverCost(0)
-    setFactionTopUp(0)
+    setMercCost('')
+    setReviverCost('')
+    setFactionTopUp('')
     setTermedMode('flat')
     setMemberShares({})
     setCutoffHours(24)
     setMemberMultiplierOverrides({})
     setRaceTargetScore(0)
     setRaceCutoffMode('auto')
-    setRaceManualCutoff('')
     setRaceCutoffTimestamp(null)
     setRacePostCutoffMode('flat')
     setRacePreCutoffPercent(50)
@@ -1090,7 +1105,7 @@ export default function WarPayoutManagement() {
                             min="0"
                             step="1"
                             value={value}
-                            onChange={e => set(Number(e.target.value) || 0)}
+                            onChange={e => set(e.target.value)}
                             placeholder="0"
                             className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                           />
@@ -1168,7 +1183,7 @@ export default function WarPayoutManagement() {
                     </button>
                     {raceCutoffTimestamp && (
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                        Cutoff detected: {new Date(raceCutoffTimestamp * 1000).toLocaleString()} (TCT)
+                        Cutoff detected: {new Date(raceCutoffTimestamp * 1000).toISOString().slice(0, 16).replace('T', ' ')} TCT
                       </p>
                     )}
                     {raceCutoffTimestamp === null && raceTargetScore > 0 && (
@@ -1182,23 +1197,17 @@ export default function WarPayoutManagement() {
                 {raceCutoffMode === 'manual' && (
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Manual Cutoff (Unix timestamp)
+                      Manual Cutoff (TCT)
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={raceManualCutoff}
-                      onChange={e => {
-                        setRaceManualCutoff(e.target.value)
-                        setRaceCutoffTimestamp(Number(e.target.value) || null)
-                      }}
-                      placeholder="Unix timestamp"
+                      type="datetime-local"
+                      value={tsToTctInput(raceCutoffTimestamp)}
+                      onChange={e => setRaceCutoffTimestamp(tctInputToTs(e.target.value))}
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                     />
                     {raceCutoffTimestamp && (
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        {new Date(raceCutoffTimestamp * 1000).toLocaleString()} (TCT)
+                        {new Date(raceCutoffTimestamp * 1000).toISOString().slice(0, 16).replace('T', ' ')} TCT
                       </p>
                     )}
                   </div>
@@ -1246,11 +1255,11 @@ export default function WarPayoutManagement() {
                   </div>
                 </div>
 
-                {racePostCutoffMode === 'scaling' && (
+                {racePostCutoffMode === 'flat' && (
                   <>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        Score Threshold (for post-cutoff scaling)
+                        Minimum Post-Cutoff Score
                       </label>
                       <input
                         type="number"
@@ -1261,20 +1270,18 @@ export default function WarPayoutManagement() {
                         className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        Cutoff Hours (for post-cutoff scaling window)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={cutoffHours}
-                        onChange={e => setCutoffHours(Number(e.target.value) || 0)}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                      />
-                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/40 px-3 py-2 rounded">
+                      Every member who scores at least this much from hits made after the cutoff
+                      gets an equal share of the post-cutoff pool.
+                    </p>
                   </>
+                )}
+
+                {racePostCutoffMode === 'scaling' && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/40 px-3 py-2 rounded">
+                    The post-cutoff pool is split proportionally by each member's score from hits
+                    made after the cutoff (bonus-chain hits normalized to 10 respect).
+                  </p>
                 )}
               </>
             )}
@@ -1353,6 +1360,7 @@ export default function WarPayoutManagement() {
                 else { setHitSortCol(col); setHitSortDir('desc') }
               }}
               opponentId={selectedWar?.opponent_id}
+              cutoff={warType === 'race' ? raceCutoffTimestamp : null}
             />
           )}
 
@@ -1562,6 +1570,10 @@ export default function WarPayoutManagement() {
                   const hasOverride = (key) => memberMultiplierOverrides[m.memberId]?.[key] !== undefined
                   const overrideCls = 'border border-amber-400 dark:border-amber-500'
                   const normalCls = 'border border-gray-200 dark:border-slate-600'
+                  // Race wars show hit counts as `pre (post)`; other wars show the full total.
+                  const hc = (key) => warType === 'race'
+                    ? <SplitCount pre={m.pre?.[key] ?? 0} post={m.post?.[key] ?? 0} />
+                    : (m[key] ?? 0)
                   const multInput = (multKey, settingKey, globalVal) => (
                     <td className="px-0 py-0.5 text-right" key={multKey}>
                       <input type="number" step="0.05"
@@ -1589,15 +1601,15 @@ export default function WarPayoutManagement() {
                     </td>
                     {(warType === 'real' || warType === 'race') && (
                       <>
-                        {/* ── Hit Report ── */}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{m.leaves ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.mugs ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.hosp ?? 0}</td>
-                        <td className="px-2 py-1 text-right font-medium text-blue-700 dark:text-blue-400">{m.warHits ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.won ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.assists ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.losses ?? 0}</td>
-                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{m.totalHits ?? 0}</td>
+                        {/* ── Hit Report ── (race wars show `pre (post)`) */}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{hc('leaves')}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{hc('mugs')}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{hc('hosp')}</td>
+                        <td className="px-2 py-1 text-right font-medium text-blue-700 dark:text-blue-400">{hc('warHits')}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{hc('won')}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{hc('assists')}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{hc('losses')}</td>
+                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{hc('totalHits')}</td>
                         {/* ── Participation Score ── */}
                         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{(m.warHitScore ?? 0).toFixed(2)}</td>
                         {viewMode === 'leader' && multInput('effWarHitMult', 'warHitMultiplier', warHitMult)}
@@ -1613,9 +1625,11 @@ export default function WarPayoutManagement() {
                         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
                           {((m.participationShare ?? 0) * 100).toFixed(2)}%
                         </td>
-                        {/* ── Contribution Score ── */}
+                        {/* ── Contribution Score ── (race wars show `pre (post)` respect) */}
                         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">
-                          {Number(m.respectGained ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          {warType === 'race'
+                            ? <SplitCount pre={m.preCutoffScore ?? 0} post={m.postCutoffScore ?? 0} fmt={n => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })} />
+                            : Number(m.respectGained ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-2 py-1 text-right text-amber-600 dark:text-amber-400">
                           {(m.bonusRespect ?? 0) > 0 ? `−${m.bonusRespect.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : ''}

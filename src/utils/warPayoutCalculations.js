@@ -740,58 +740,100 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     ineligibleMembers,
   })
 
-  // ── Post-cutoff: termed formula ───────────────────────────────────
-  const postResult = calculateTermedWarPayouts(contributions, {
-    totalReward: postCutoffPool,  // Directly use as pool
-    factionCutPercent: 0,
-    minScoreThreshold,
-    termedMode: racePostCutoffMode,
-    memberShares,
-    attacks: postAttacks,
-    warStartAt: cutoff,  // post-cutoff "start" is the cutoff itself
-    cutoffHours,
-    ineligibleMembers,
-  })
+  // ── Post-cutoff: distribute postCutoffPool directly by post-cutoff score ──
+  // calculateCutoffScores normalizes bonus-chain hits to 10 respect and splits
+  // each member's outgoing ranked-war respect at the single race cutoff. We use
+  // its postCutoffScore directly so post-cutoff pay reflects *only* hits made
+  // after the cutoff (fixes the old double-cutoff bug that zeroed this out).
+  const cutoffScores = calculateCutoffScores(attacks, cutoff)
+  const postThreshold = Number(minScoreThreshold) || 0
+
+  const postScoreOf = (memberId) => {
+    if (ineligibleMembers.has(memberId)) return 0
+    const cs = cutoffScores.get(memberId)
+    return cs ? Math.max(0, cs.postCutoffScore) : 0
+  }
+
+  let postPayList
+  if (racePostCutoffMode === 'scaling') {
+    // Proportional: each member's share of postCutoffPool ∝ their post-cutoff score.
+    const totalPostScore = contributions.reduce((s, m) => s + postScoreOf(m.member_id), 0)
+    postPayList = contributions.map(m => {
+      const ps = postScoreOf(m.member_id)
+      return {
+        memberId: m.member_id,
+        postScore: ps,
+        payoutAmount: totalPostScore > 0 ? Math.floor((ps / totalPostScore) * postCutoffPool) : 0,
+      }
+    })
+    postPayList = distributeRemainder(postPayList, postCutoffPool, m => m.postScore)
+  } else {
+    // Flat: equal split among members whose post-cutoff score meets the threshold
+    // (and who scored at all after the cutoff).
+    const eligible = contributions.filter(m => {
+      const ps = postScoreOf(m.member_id)
+      return ps > 0 && ps >= postThreshold
+    })
+    const eligibleIds = new Set(eligible.map(m => m.member_id))
+    const per = eligible.length > 0 ? Math.floor(postCutoffPool / eligible.length) : 0
+    postPayList = contributions.map(m => ({
+      memberId: m.member_id,
+      postScore: postScoreOf(m.member_id),
+      payoutAmount: eligibleIds.has(m.member_id) ? per : 0,
+    }))
+    postPayList = distributeRemainder(postPayList, postCutoffPool, m => m.postScore)
+  }
+  const postPayByMember = new Map(postPayList.map(m => [m.memberId, m.payoutAmount]))
 
   // ── Combine per-member results ────────────────────────────────────
   const preByMember = new Map(preResult.members.map(m => [m.memberId, m]))
-  const postByMember = new Map(postResult.members.map(m => [m.memberId, m]))
 
-  // Hit Report columns must reflect the full war window (pre + post cutoff),
-  // not just pre-cutoff.  Build stats from the entire (filtered) attack set.
-  const fullStats = buildMemberAttackStats(attacks)
+  // Pre/post attack-stat buckets power the "80 (16)" split display.
+  // preAttacks + postAttacks partition the full window, so their sum equals the
+  // full-window count used for sorting / pay-per-hit.
+  const preStats = buildMemberAttackStats(preAttacks)
+  const postStats = buildMemberAttackStats(postAttacks)
 
   const members = contributions.map(m => {
     const memberId = m.member_id
     const pre = preByMember.get(memberId) || { payoutAmount: 0 }
-    const post = postByMember.get(memberId) || { payoutAmount: 0, shares: 0 }
-    const full = fullStats.get(memberId) ?? { ...emptyHitBucket(), bonusRespect: 0 }
+    const preS = preStats.get(memberId) ?? { ...emptyHitBucket(), bonusRespect: 0 }
+    const postS = postStats.get(memberId) ?? { ...emptyHitBucket(), bonusRespect: 0 }
+    const cs = cutoffScores.get(memberId) || { preCutoffScore: 0, postCutoffScore: 0 }
+    const postPay = postPayByMember.get(memberId) || 0
+    const prePay = pre.payoutAmount || 0
 
     return {
       // Carry participation/contribution score fields from pre-cutoff result
       ...pre,
       memberId,
       memberName: m.member_name,
-      // Hit Report columns: full war window
-      leaves:      full.leaves,
-      mugs:        full.mugs,
-      hosp:        full.hosp,
-      warHits:     full.warHits,
-      regularHits: full.regularHits,
-      won:         full.won,
-      assists:     full.assists,
-      losses:      full.losses,
-      totalHits:   full.totalHits,
-      // Race-specific breakdowns
-      preCutoffPayout: pre.payoutAmount,
-      postCutoffPayout: post.payoutAmount,
-      postCutoffShares: post.shares || 0,
-      payoutAmount: pre.payoutAmount + post.payoutAmount,
-      isEligible: !ineligibleMembers.has(memberId) && (pre.payoutAmount + post.payoutAmount) > 0,
+      // Hit Report columns: full war window (pre + post)
+      leaves:      (preS.leaves || 0) + (postS.leaves || 0),
+      mugs:        (preS.mugs || 0) + (postS.mugs || 0),
+      hosp:        (preS.hosp || 0) + (postS.hosp || 0),
+      warHits:     (preS.warHits || 0) + (postS.warHits || 0),
+      regularHits: (preS.regularHits || 0) + (postS.regularHits || 0),
+      won:         (preS.won || 0) + (postS.won || 0),
+      assists:     (preS.assists || 0) + (postS.assists || 0),
+      losses:      (preS.losses || 0) + (postS.losses || 0),
+      totalHits:   (preS.totalHits || 0) + (postS.totalHits || 0),
+      // Pre/post split buckets (for the "80 (16)" display in race mode)
+      pre: preS,
+      post: postS,
+      preCutoffScore:  Math.round((cs.preCutoffScore || 0) * 100) / 100,
+      postCutoffScore: Math.round((cs.postCutoffScore || 0) * 100) / 100,
+      // Race-specific payout breakdown
+      preCutoffPayout: prePay,
+      postCutoffPayout: postPay,
+      payoutAmount: prePay + postPay,
+      isEligible: !ineligibleMembers.has(memberId) && (prePay + postPay) > 0,
     }
   })
 
-  const membersD = distributeRemainder(members, memberPool, m => m.totalHits || 0)
+  // Pre and post pools were each distributed in full above, so no further
+  // remainder pass is needed — payoutAmount === preCutoffPayout + postCutoffPayout.
+  const membersD = members
   const totalPayout = membersD.reduce((s, m) => s + m.payoutAmount, 0)
   const totalWarHits = membersD.reduce((s, m) => s + (m.totalHits || 0), 0)
   const payPerHit = totalWarHits > 0 ? Math.floor(totalPayout / totalWarHits) : 0

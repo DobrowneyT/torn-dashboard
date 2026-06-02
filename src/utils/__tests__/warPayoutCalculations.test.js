@@ -889,19 +889,32 @@ describe('calculateRaceWarPayouts', () => {
     expect(bob.preCutoffPayout).toBeGreaterThan(0)
   })
 
-  it('post-cutoff flat shares mode splits pool equally among eligible', () => {
-    // All 3 contributions are eligible (threshold=0), each gets 1 share
+  it('post-cutoff flat shares mode splits pool equally among members with post-cutoff score', () => {
+    // Flat eligibility is based on POST-CUTOFF score (threshold=0 means "scored at all
+    // after the cutoff"). Alice (post=50) and Bob (post=25) qualify; Carol made no
+    // scoring hits after the cutoff (only a 0-respect assist + loss) → not eligible.
     const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
     const alice = result.members.find(m => m.memberId === 100)
     const bob   = result.members.find(m => m.memberId === 200)
     const carol = result.members.find(m => m.memberId === 300)
-    // floor(5M / 3) = 1,666,666; remainder = 2 → distributed top-down by shares (all equal,
-    // stable sort order: Alice, Bob, Carol), so Alice and Bob each get +1.
-    expect(alice.postCutoffPayout).toBe(Math.floor(5_000_000 / 3) + 1)
-    expect(bob.postCutoffPayout).toBe(Math.floor(5_000_000 / 3) + 1)
-    expect(carol.postCutoffPayout).toBe(Math.floor(5_000_000 / 3))
+    // 5M / 2 eligible = 2.5M each, no remainder.
+    expect(alice.postCutoffPayout).toBe(2_500_000)
+    expect(bob.postCutoffPayout).toBe(2_500_000)
+    expect(carol.postCutoffPayout).toBe(0)
     // Total post-cutoff equals the post-cutoff pool exactly
     expect(alice.postCutoffPayout + bob.postCutoffPayout + carol.postCutoffPayout).toBe(5_000_000)
+  })
+
+  it('flat mode honors a non-zero minimum post-cutoff score', () => {
+    // Threshold 30: Alice (post=50) qualifies, Bob (post=25) does not, Carol (0) does not.
+    const settings = { ...baseSettings, racePostCutoffMode: 'flat', minScoreThreshold: 30 }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    const carol = result.members.find(m => m.memberId === 300)
+    expect(alice.postCutoffPayout).toBe(5_000_000)  // sole eligible → whole pool
+    expect(bob.postCutoffPayout).toBe(0)
+    expect(carol.postCutoffPayout).toBe(0)
   })
 
   it('applies faction cut before splitting pools', () => {
@@ -919,18 +932,23 @@ describe('calculateRaceWarPayouts', () => {
     expect(result.totalPayout).toBeLessThanOrEqual(result.memberPayoutPool)
   })
 
-  it('handles post-cutoff scaling mode', () => {
-    const settings = {
-      ...baseSettings,
-      racePostCutoffMode: 'scaling',
-      minScoreThreshold: 50,
-      cutoffHours: 24,
-    }
+  it('post-cutoff scaling mode distributes pool proportionally by post-cutoff score', () => {
+    // Post-cutoff scores: Alice 50, Bob 25, Carol 0 → total 75. Pool 5M.
+    // Alice floor(50/75 × 5M) = 3,333,333; Bob floor(25/75 × 5M) = 1,666,666;
+    // remainder 1 → top by score (Alice) → Alice 3,333,334. Carol 0.
+    const settings = { ...baseSettings, racePostCutoffMode: 'scaling' }
     const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
-    // Post-cutoff scaling uses termed scaling formula
-    // Members need to qualify based on their scores and post-cutoff attack data
-    expect(result.totalPayout).toBeGreaterThanOrEqual(0)
-    expect(result.totalPayout).toBeLessThanOrEqual(result.memberPayoutPool)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    const carol = result.members.find(m => m.memberId === 300)
+    // Bug regression: post-cutoff payouts must be non-zero for active members.
+    expect(alice.postCutoffPayout).toBeGreaterThan(0)
+    expect(bob.postCutoffPayout).toBeGreaterThan(0)
+    expect(carol.postCutoffPayout).toBe(0)
+    // Alice (post score 50) earns ~2× Bob (post score 25).
+    expect(alice.postCutoffPayout).toBeGreaterThan(bob.postCutoffPayout)
+    // Pool is fully distributed.
+    expect(alice.postCutoffPayout + bob.postCutoffPayout + carol.postCutoffPayout).toBe(5_000_000)
   })
 })
 
