@@ -729,6 +729,21 @@ export default function WarPayoutManagement() {
   const totalPayout = effectiveMembers.reduce((s, m) => s + (m.isEligible ? m.payoutAmount : 0), 0)
   const eligibleCount = effectiveMembers.filter(m => m.isEligible).length
 
+  // Race wars: pay-per-hit and hit counts split across the cutoff, so leaders can
+  // see the pre- vs post-cutoff rate. Uses each member's pre/post hit buckets and
+  // the respective pre/post pool from the calc.
+  const raceHitSplit = (() => {
+    if (warType !== 'race' || !payoutResults) return null
+    const preHits  = effectiveMembers.reduce((s, m) => s + (m.pre?.totalHits || 0), 0)
+    const postHits = effectiveMembers.reduce((s, m) => s + (m.post?.totalHits || 0), 0)
+    return {
+      preHits,
+      postHits,
+      prePayPerHit:  preHits  > 0 ? Math.floor((payoutResults.preCutoffPool  ?? 0) / preHits)  : 0,
+      postPayPerHit: postHits > 0 ? Math.floor((payoutResults.postCutoffPool ?? 0) / postHits) : 0,
+    }
+  })()
+
   function handleSortCol(col) {
     if (sortCol === col) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -1443,13 +1458,29 @@ export default function WarPayoutManagement() {
                 {eligibleCount}/{effectiveMembers.length}
               </span>
             </div>
-            {(warType === 'real' || warType === 'race') && payoutResults.payPerHit > 0 && (
+            {warType === 'real' && payoutResults.payPerHit > 0 && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Pay / War Hit: </span>
                 <span className="font-semibold text-blue-700 dark:text-blue-400">
                   {formatCurrency(payoutResults.payPerHit)}
                 </span>
                 <span className="text-gray-400 ml-1">({payoutResults.totalWarHits} hits)</span>
+              </div>
+            )}
+            {warType === 'race' && raceHitSplit && (raceHitSplit.preHits > 0 || raceHitSplit.postHits > 0) && (
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Pay / Hit: </span>
+                <span className="font-semibold text-blue-700 dark:text-blue-400">
+                  {formatCurrency(raceHitSplit.prePayPerHit)}
+                </span>
+                {raceHitSplit.postPayPerHit > 0 && (
+                  <span className="font-semibold text-purple-600 dark:text-purple-400">
+                    {' '}({formatCurrency(raceHitSplit.postPayPerHit)})
+                  </span>
+                )}
+                <span className="text-gray-400 ml-1">
+                  (<SplitCount pre={raceHitSplit.preHits} post={raceHitSplit.postHits} /> hits)
+                </span>
               </div>
             )}
             {(warType === 'real' || warType === 'race') && factionFilter && factionFilter.size > 0 && (
