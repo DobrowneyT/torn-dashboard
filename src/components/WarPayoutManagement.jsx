@@ -750,7 +750,9 @@ export default function WarPayoutManagement() {
     }))
 
     try {
-      const newIsTermed = warType === 'termed' || warType === 'race'
+      // is_termed is a two-way flag (Termed vs Real). Race wars are recorded as
+      // Real, so only an explicit Termed payout marks the war as termed.
+      const newIsTermed = warType === 'termed'
       if (Boolean(selectedWar.is_termed) !== newIsTermed) {
         await updateWarIsTermed(selectedWar.id, newIsTermed, user.apiKey)
         setSelectedWar(prev => prev ? { ...prev, is_termed: newIsTermed } : prev)
