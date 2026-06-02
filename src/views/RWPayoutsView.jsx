@@ -57,7 +57,7 @@ export default function RWPayoutsView() {
     try {
       const { data, error } = await supabase
         .from('war_payout_members')
-        .select('member_id, member_name, payout_amount, is_eligible, war_hits, assist_attacks, losses, mugs, regular_hits, score')
+        .select('member_id, member_name, payout_amount, is_eligible, war_hits, assist_attacks, losses, mugs, regular_hits, score, race_breakdown')
         .eq('payout_id', wp.payout_id)
         .order('payout_amount', { ascending: false })
 
@@ -254,6 +254,10 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
   const memberPool = totalReward > 0 ? Math.round(totalReward * (1 - factionCutPct / 100)) : (payoutData?.total_payout ?? 0)
 
   const isReal = payoutData?.war_type === 'real' || payoutData?.war_type === 'race'
+  const isRace = payoutData?.war_type === 'race'
+  // Race payouts saved after the overhaul carry a per-window breakdown.
+  const hasBreakdown = isRace && members.some(m => m.race_breakdown)
+  const bd = (m, win, key) => m.race_breakdown?.[win]?.[key] ?? 0
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -334,12 +338,30 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
           >
             Payout Sheet
           </button>
-          <button
-            onClick={() => setTab('hits')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${tab === 'hits' ? 'bg-white dark:bg-slate-800 border border-b-white dark:border-slate-600 dark:border-b-slate-800 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
-          >
-            Hit Report
-          </button>
+          {!(isRace && hasBreakdown) && (
+            <button
+              onClick={() => setTab('hits')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${tab === 'hits' ? 'bg-white dark:bg-slate-800 border border-b-white dark:border-slate-600 dark:border-b-slate-800 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+            >
+              Hit Report
+            </button>
+          )}
+          {isRace && hasBreakdown && (
+            <>
+              <button
+                onClick={() => setTab('hits-pre')}
+                className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${tab === 'hits-pre' ? 'bg-white dark:bg-slate-800 border border-b-white dark:border-slate-600 dark:border-b-slate-800 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+              >
+                Hit Report (Pre-Cutoff)
+              </button>
+              <button
+                onClick={() => setTab('hits-post')}
+                className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${tab === 'hits-post' ? 'bg-white dark:bg-slate-800 border border-b-white dark:border-slate-600 dark:border-b-slate-800 text-purple-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+              >
+                Hit Report (Post-Cutoff)
+              </button>
+            </>
+          )}
         </div>
 
         {/* Tab content */}
@@ -378,7 +400,19 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
                       className={`border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-slate-700/30 ${!m.is_eligible ? 'opacity-40' : ''}`}
                     >
                       <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">{m.member_name}</td>
-                      {isReal && (
+                      {isReal && hasBreakdown && (
+                        <>
+                          <td className="px-2 py-1.5 text-right font-medium text-blue-700 dark:text-blue-400"><Split pre={bd(m,'pre','warHits')} post={bd(m,'post','warHits')} /></td>
+                          <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400"><Split pre={bd(m,'pre','assists')} post={bd(m,'post','assists')} /></td>
+                          <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400"><Split pre={bd(m,'pre','losses')} post={bd(m,'post','losses')} /></td>
+                          <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400"><Split pre={bd(m,'pre','mugs')} post={bd(m,'post','mugs')} /></td>
+                          <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400"><Split pre={bd(m,'pre','regularHits')} post={bd(m,'post','regularHits')} /></td>
+                          <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400">
+                            <Split pre={bd(m,'pre','respectGained')} post={bd(m,'post','respectGained')} fmt={n => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })} />
+                          </td>
+                        </>
+                      )}
+                      {isReal && !hasBreakdown && (
                         <>
                           <td className="px-2 py-1.5 text-right font-medium text-blue-700 dark:text-blue-400">{m.war_hits ?? 0}</td>
                           <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.assist_attacks ?? 0}</td>
@@ -457,10 +491,55 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
                 </table>
               </div>
             )}
+
+            {(tab === 'hits-pre' || tab === 'hits-post') && (() => {
+              const win = tab === 'hits-pre' ? 'pre' : 'post'
+              const cols = [
+                ['leaves', 'Leaves'], ['mugs', 'Mugs'], ['hosp', 'Hosp'], ['warHits', 'War'],
+                ['won', 'Won'], ['assists', 'Assist'], ['losses', 'Lost'], ['totalHits', 'Total'],
+              ]
+              return (
+                <table className="w-full text-xs border-separate border-spacing-0">
+                  <thead>
+                    <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700">
+                      <th className="px-2 py-2 text-xs font-semibold text-left sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">Member</th>
+                      {cols.map(([, lbl]) => (
+                        <th key={lbl} className="px-2 py-2 text-xs font-semibold text-right sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">{lbl}</th>
+                      ))}
+                      <th className="px-2 py-2 text-xs font-semibold text-right sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">Respect</th>
+                      <th className="px-2 py-2 text-xs font-semibold text-right sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">{win === 'pre' ? 'Pre-Cutoff $' : 'Post-Cutoff $'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedMembers.map(m => (
+                      <tr key={m.member_id} className={`border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-slate-700/30 ${!m.is_eligible ? 'opacity-40' : ''}`}>
+                        <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">{m.member_name}</td>
+                        {cols.map(([key]) => (
+                          <td key={key} className={`px-2 py-1.5 text-right ${key === 'warHits' ? 'font-medium text-blue-700 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>{bd(m, win, key)}</td>
+                        ))}
+                        <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400">{Number(bd(m, win, 'respectGained')).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                        <td className={`px-2 py-1.5 text-right font-semibold font-mono whitespace-nowrap ${win === 'pre' ? 'text-blue-700 dark:text-blue-400' : 'text-purple-600 dark:text-purple-400'}`}>{formatCurrency(bd(m, win, 'payout'))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            })()}
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+// Render `pre (post)` with the post-cutoff portion in purple. Used in the
+// member-facing race payout sheet.
+function Split({ pre = 0, post = 0, fmt = (n) => n }) {
+  return (
+    <>
+      {fmt(pre)}
+      {post > 0 && <span className="text-purple-600 dark:text-purple-400"> ({fmt(post)})</span>}
+    </>
   )
 }
 

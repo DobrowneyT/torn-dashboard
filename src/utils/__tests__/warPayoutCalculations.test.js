@@ -889,32 +889,51 @@ describe('calculateRaceWarPayouts', () => {
     expect(bob.preCutoffPayout).toBeGreaterThan(0)
   })
 
-  it('post-cutoff flat shares mode splits pool equally among members with post-cutoff score', () => {
-    // Flat eligibility is based on POST-CUTOFF score (threshold=0 means "scored at all
-    // after the cutoff"). Alice (post=50) and Bob (post=25) qualify; Carol made no
-    // scoring hits after the cutoff (only a 0-respect assist + loss) → not eligible.
-    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
-    const alice = result.members.find(m => m.memberId === 100)
-    const bob   = result.members.find(m => m.memberId === 200)
-    const carol = result.members.find(m => m.memberId === 300)
-    // 5M / 2 eligible = 2.5M each, no remainder.
-    expect(alice.postCutoffPayout).toBe(2_500_000)
-    expect(bob.postCutoffPayout).toBe(2_500_000)
-    expect(carol.postCutoffPayout).toBe(0)
-    // Total post-cutoff equals the post-cutoff pool exactly
-    expect(alice.postCutoffPayout + bob.postCutoffPayout + carol.postCutoffPayout).toBe(5_000_000)
-  })
-
-  it('flat mode honors a non-zero minimum post-cutoff score', () => {
-    // Threshold 30: Alice (post=50) qualifies, Bob (post=25) does not, Carol (0) does not.
-    const settings = { ...baseSettings, racePostCutoffMode: 'flat', minScoreThreshold: 30 }
+  it('post-cutoff uses its own real-war formula (participation by post war hits)', () => {
+    // Post window: Alice 3 war wins, Bob 1 war win + 1 non-ranked (regular) hit, Carol 0.
+    // Post multipliers: war=1, regular=0, others=0, participation-only → participation
+    // shares Alice 3 / Bob 1 / Carol 0 of the 5M post pool.
+    const settings = {
+      ...baseSettings,
+      postWarHitMultiplier: 1, postRegularHitMultiplier: 0, postAssistMultiplier: 0,
+      postLossMultiplier: 0, postMugMultiplier: 0,
+      postParticipationWeight: 1, postContributionWeight: 0,
+    }
     const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
     const alice = result.members.find(m => m.memberId === 100)
     const bob   = result.members.find(m => m.memberId === 200)
     const carol = result.members.find(m => m.memberId === 300)
-    expect(alice.postCutoffPayout).toBe(5_000_000)  // sole eligible → whole pool
-    expect(bob.postCutoffPayout).toBe(0)
+    expect(alice.postCutoffPayout).toBe(3_750_000) // 3/4 × 5M
+    expect(bob.postCutoffPayout).toBe(1_250_000)   // 1/4 × 5M
     expect(carol.postCutoffPayout).toBe(0)
+    expect(alice.postCutoffPayout + bob.postCutoffPayout + carol.postCutoffPayout).toBe(5_000_000)
+  })
+
+  it('post-cutoff regular-hit multiplier is independent of pre-cutoff', () => {
+    // Only regular (non-ranked) post hits count: Bob has 1 (id29), Alice/Carol have none.
+    // So Bob takes the entire post pool regardless of his war hits.
+    const settings = {
+      ...baseSettings,
+      postWarHitMultiplier: 0, postRegularHitMultiplier: 1, postAssistMultiplier: 0,
+      postLossMultiplier: 0, postMugMultiplier: 0,
+      postParticipationWeight: 1, postContributionWeight: 0,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    expect(bob.postCutoffPayout).toBe(5_000_000)
+    expect(alice.postCutoffPayout).toBe(0)
+  })
+
+  it('exposes full pre and post breakdowns per member', () => {
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    const alice = result.members.find(m => m.memberId === 100)
+    // Pre window: 2 war wins; Post window: 3 war wins.
+    expect(alice.pre.warHits).toBe(2)
+    expect(alice.post.warHits).toBe(3)
+    expect(alice.warHits).toBe(5) // top-level = pre + post
+    // Combined payout is the sum of the two windows.
+    expect(alice.payoutAmount).toBe(alice.preCutoffPayout + alice.postCutoffPayout)
   })
 
   it('applies faction cut before splitting pools', () => {
@@ -932,23 +951,21 @@ describe('calculateRaceWarPayouts', () => {
     expect(result.totalPayout).toBeLessThanOrEqual(result.memberPayoutPool)
   })
 
-  it('post-cutoff scaling mode distributes pool proportionally by post-cutoff score', () => {
-    // Post-cutoff scores: Alice 50, Bob 25, Carol 0 → total 75. Pool 5M.
-    // Alice floor(50/75 × 5M) = 3,333,333; Bob floor(25/75 × 5M) = 1,666,666;
-    // remainder 1 → top by score (Alice) → Alice 3,333,334. Carol 0.
-    const settings = { ...baseSettings, racePostCutoffMode: 'scaling' }
+  it('pre and post multiplier sets are independent', () => {
+    // Pre pays war hits only; post pays nothing (all post multipliers 0).
+    const settings = {
+      ...baseSettings,
+      participationWeight: 1, contributionWeight: 0,
+      warHitMultiplier: 1, regularHitMultiplier: 0, assistMultiplier: 0, lossMultiplier: 0, mugMultiplier: 0,
+      postParticipationWeight: 1, postContributionWeight: 0,
+      postWarHitMultiplier: 0, postRegularHitMultiplier: 0, postAssistMultiplier: 0,
+      postLossMultiplier: 0, postMugMultiplier: 0,
+    }
     const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
-    const alice = result.members.find(m => m.memberId === 100)
-    const bob   = result.members.find(m => m.memberId === 200)
-    const carol = result.members.find(m => m.memberId === 300)
-    // Bug regression: post-cutoff payouts must be non-zero for active members.
-    expect(alice.postCutoffPayout).toBeGreaterThan(0)
-    expect(bob.postCutoffPayout).toBeGreaterThan(0)
-    expect(carol.postCutoffPayout).toBe(0)
-    // Alice (post score 50) earns ~2× Bob (post score 25).
-    expect(alice.postCutoffPayout).toBeGreaterThan(bob.postCutoffPayout)
-    // Pool is fully distributed.
-    expect(alice.postCutoffPayout + bob.postCutoffPayout + carol.postCutoffPayout).toBe(5_000_000)
+    const totalPost = result.members.reduce((s, m) => s + m.postCutoffPayout, 0)
+    const totalPre  = result.members.reduce((s, m) => s + m.preCutoffPayout, 0)
+    expect(totalPost).toBe(0)          // post participation all zero, no contribution weight → no post pay
+    expect(totalPre).toBeGreaterThan(0)
   })
 })
 

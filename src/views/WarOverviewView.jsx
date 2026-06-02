@@ -73,11 +73,36 @@ function buildColorMap(eventGroups, topN) {
  * Bucket events into time bins per faction.
  * Returns { traces, otherCount } where traces is a list of Plotly bar specs.
  */
+// Group a bin's reason strings into a compact tooltip suffix:
+// "<br>Hospitalized by X ×3<br>Mugged ×1 …", top 8 reasons, "+N more" overflow.
+// Returns '' when there are no reasons (e.g. attack panels), so the hover line
+// simply doesn't appear.
+function formatReasonTooltip(reasonMap) {
+  if (!reasonMap || reasonMap.size === 0) return ''
+  const sorted = [...reasonMap.entries()].sort((a, b) => b[1] - a[1])
+  const lines = sorted.slice(0, 8).map(([r, c]) => `${r} ×${c}`)
+  if (sorted.length > 8) lines.push(`+${sorted.length - 8} more`)
+  return '<br>' + lines.join('<br>')
+}
+
+// Increment a reason counter inside a per-bin Map<reason,count>, lazily creating
+// the bin's map. No-op when the event carries no reason (attacks).
+function tallyReason(reasonBins, binIndex, reason) {
+  if (!reason) return
+  if (!reasonBins[binIndex]) reasonBins[binIndex] = new Map()
+  const m = reasonBins[binIndex]
+  m.set(reason, (m.get(reason) ?? 0) + 1)
+}
+
 function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, xaxis, yaxis, groupPrefix = '', groupTitle = '') {
   const nBins = Math.max(1, Math.floor((toTs - fromTs) / binSeconds) + 1)
   const byFaction = new Map()
   const otherCounts = new Array(nBins).fill(0)
   const fallbackCounts = new Array(nBins).fill(0)
+  // Parallel per-bin reason maps (only populated when events carry a `reason`).
+  const byFactionReasons = new Map()
+  const otherReasons = new Array(nBins)
+  const fallbackReasons = new Array(nBins)
 
   for (const e of events) {
     const ts = e.ts
@@ -86,13 +111,19 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
     const fid = e.faction
     if (!fid) {
       fallbackCounts[i] += 1
+      tallyReason(fallbackReasons, i, e.reason)
       continue
     }
     if (topFactions.has(fid)) {
-      if (!byFaction.has(fid)) byFaction.set(fid, new Array(nBins).fill(0))
+      if (!byFaction.has(fid)) {
+        byFaction.set(fid, new Array(nBins).fill(0))
+        byFactionReasons.set(fid, new Array(nBins))
+      }
       byFaction.get(fid)[i] += 1
+      tallyReason(byFactionReasons.get(fid), i, e.reason)
     } else {
       otherCounts[i] += 1
+      tallyReason(otherReasons, i, e.reason)
     }
   }
 
@@ -102,6 +133,7 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
 
   const lg = (key) => groupPrefix ? `${groupPrefix}_${key}` : key
   const titleProp = groupTitle ? { legendgrouptitle: { text: groupTitle } } : {}
+  const HOVER = '%{y} events<br>%{x|%b %d %H:%M}%{customdata}<extra>%{fullData.name}</extra>'
 
   const traces = []
   const orderedFactions = [...byFaction.keys()].sort((a, b) => {
@@ -110,32 +142,34 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
     return sb - sa
   })
   for (const fid of orderedFactions) {
+    const reasons = byFactionReasons.get(fid)
     traces.push({
       type: 'bar',
       x: xs,
       y: byFaction.get(fid),
+      customdata: reasons.map(formatReasonTooltip),
       name: nameLookup[fid] ? `${nameLookup[fid]} [${fid}]` : `faction ${fid}`,
       marker: { color: colorMap[fid] || '#777' },
       legendgroup: lg(`f${fid}`),
       ...(traces.length === 0 ? titleProp : {}),
-      hovertemplate: '%{y} events<br>%{x|%b %d %H:%M}<extra>%{fullData.name}</extra>',
+      hovertemplate: HOVER,
       xaxis, yaxis,
     })
   }
   if (otherCounts.some(c => c > 0)) {
     traces.push({
       type: 'bar', x: xs, y: otherCounts, name: 'Other',
+      customdata: otherReasons.map(formatReasonTooltip),
       marker: { color: '#888' }, legendgroup: lg('other'),
-      hovertemplate: '%{y} events<br>%{x|%b %d %H:%M}<extra>Other</extra>',
-      xaxis, yaxis,
+      hovertemplate: HOVER, xaxis, yaxis,
     })
   }
   if (fallbackCounts.some(c => c > 0)) {
     traces.push({
       type: 'bar', x: xs, y: fallbackCounts, name: '(no faction)',
+      customdata: fallbackReasons.map(formatReasonTooltip),
       marker: { color: '#444' }, legendgroup: lg('nofac'),
-      hovertemplate: '%{y} events<br>%{x|%b %d %H:%M}<extra>(no faction)</extra>',
-      xaxis, yaxis,
+      hovertemplate: HOVER, xaxis, yaxis,
     })
   }
   return traces
@@ -146,59 +180,53 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
  * Faction colour coding is shared with the histogram via the same colorMap.
  */
 function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, yaxis, groupPrefix = '', groupTitle = '') {
-  const byFaction = new Map()
-  const otherX = []
-  const fallbackX = []
+  const byFaction = new Map()       // fid → { x: [], reasons: [] }
+  const other = { x: [], reasons: [] }
+  const fallback = { x: [], reasons: [] }
 
   for (const e of events) {
     if (e.ts == null) continue
     const x = new Date(e.ts * 1000).toISOString().replace('T', ' ').slice(0, 19)
+    const reason = e.reason ? `<br>${e.reason}` : ''
     const fid = e.faction
     if (!fid) {
-      fallbackX.push(x)
+      fallback.x.push(x); fallback.reasons.push(reason)
     } else if (topFactions.has(fid)) {
-      if (!byFaction.has(fid)) byFaction.set(fid, [])
-      byFaction.get(fid).push(x)
+      if (!byFaction.has(fid)) byFaction.set(fid, { x: [], reasons: [] })
+      const b = byFaction.get(fid); b.x.push(x); b.reasons.push(reason)
     } else {
-      otherX.push(x)
+      other.x.push(x); other.reasons.push(reason)
     }
   }
 
   const lg = (key) => groupPrefix ? `${groupPrefix}_${key}` : key
   const titleProp = groupTitle ? { legendgrouptitle: { text: groupTitle } } : {}
+  const mkScatter = (extra) => ({
+    type: 'scatter', mode: 'markers',
+    y: new Array(extra.x.length).fill(1),
+    marker: { size: 8, opacity: 0.75, ...extra.marker },
+    hovertemplate: '%{x|%b %d %H:%M:%S} TCT%{customdata}<extra>' + extra.tag + '</extra>',
+    xaxis, yaxis,
+    x: extra.x, customdata: extra.reasons, name: extra.name, legendgroup: extra.legendgroup,
+    ...(extra.titleProp || {}),
+  })
 
   const traces = []
-  for (const [fid, xs] of byFaction.entries()) {
-    traces.push({
-      type: 'scatter', mode: 'markers',
-      x: xs, y: new Array(xs.length).fill(1),
+  for (const [fid, b] of byFaction.entries()) {
+    traces.push(mkScatter({
+      x: b.x, reasons: b.reasons,
       name: nameLookup[fid] ? `${nameLookup[fid]} [${fid}]` : `faction ${fid}`,
-      marker: { color: colorMap[fid] || '#777', size: 8, opacity: 0.75 },
+      tag: '%{fullData.name}',
+      marker: { color: colorMap[fid] || '#777' },
       legendgroup: lg(`f${fid}`),
-      ...(traces.length === 0 ? titleProp : {}),
-      hovertemplate: '%{x|%b %d %H:%M:%S} TCT<extra>%{fullData.name}</extra>',
-      xaxis, yaxis,
-    })
+      titleProp: traces.length === 0 ? titleProp : {},
+    }))
   }
-  if (otherX.length > 0) {
-    traces.push({
-      type: 'scatter', mode: 'markers',
-      x: otherX, y: new Array(otherX.length).fill(1),
-      name: 'Other', marker: { color: '#888', size: 8, opacity: 0.75 },
-      legendgroup: lg('other'),
-      hovertemplate: '%{x|%b %d %H:%M:%S} TCT<extra>Other</extra>',
-      xaxis, yaxis,
-    })
+  if (other.x.length > 0) {
+    traces.push(mkScatter({ x: other.x, reasons: other.reasons, name: 'Other', tag: 'Other', marker: { color: '#888' }, legendgroup: lg('other') }))
   }
-  if (fallbackX.length > 0) {
-    traces.push({
-      type: 'scatter', mode: 'markers',
-      x: fallbackX, y: new Array(fallbackX.length).fill(1),
-      name: '(no faction)', marker: { color: '#444', size: 8, opacity: 0.75 },
-      legendgroup: lg('nofac'),
-      hovertemplate: '%{x|%b %d %H:%M:%S} TCT<extra>(no faction)</extra>',
-      xaxis, yaxis,
-    })
+  if (fallback.x.length > 0) {
+    traces.push(mkScatter({ x: fallback.x, reasons: fallback.reasons, name: '(no faction)', tag: '(no faction)', marker: { color: '#444' }, legendgroup: lg('nofac') }))
   }
   return traces
 }
@@ -328,10 +356,8 @@ export default function WarOverviewView() {
     const toTs = war.end_at || Math.floor(Date.now() / 1000)
 
     // Bin size: manual override or auto-pick from war duration.
-    const BIN_LABEL_MAP = { 60: '1 min', 300: '5 min', 3600: '1 h', 21600: '6 h', 86400: '1 d' }
-    const [autoSeconds, autoLabel] = pickBinSeconds(toTs - fromTs)
+    const [autoSeconds] = pickBinSeconds(toTs - fromTs)
     const binSeconds = binSizeSeconds ?? autoSeconds
-    const binLabel   = binSizeSeconds ? (BIN_LABEL_MAP[binSizeSeconds] ?? `${binSizeSeconds}s`) : autoLabel
 
     const nameLookup = buildNameLookup(revives, factionNames)
     const isScatter = displayMode === 'scatter'
@@ -355,7 +381,7 @@ export default function WarOverviewView() {
         .map(a => ({ ts: a.started, faction: a.attacker_faction_id }))
       const incRevEvents = revives
         .filter(r => r.target_faction_id === OUR_FACTION_ID)
-        .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id }))
+        .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id, reason: r.hospital_reason }))
 
       const { colorMap, topFactions } = buildColorMap([outAtkEvents, incAtkEvents, incRevEvents], topN)
       const traces = isScatter ? [
@@ -392,7 +418,7 @@ export default function WarOverviewView() {
       .map(a => ({ ts: a.started, faction: a.attacker_faction_id }))
     const revIn = revives
       .filter(r => r.target_id === selectedMemberId)
-      .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id }))
+      .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id, reason: r.hospital_reason }))
 
     const { colorMap, topFactions } = buildColorMap([outgoing, incoming, revIn], topN)
     const traces = isScatter ? [
