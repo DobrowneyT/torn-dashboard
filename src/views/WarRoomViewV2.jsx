@@ -1,10 +1,7 @@
 // War Room v2 — delta-polling architecture.
-// JSX, filters, and layout are intentionally a duplicate of v1 so the two
-// versions can run side-by-side during validation. The data layer is the
-// only intentional difference; see useWarRoomPoll + warRoomApiV2.
-//
-// `resolveCountryFromDescription` is still imported from the v1 module —
-// it's a pure function with no v1 coupling.
+// At Phase 5 cutover this is the canonical War Room implementation. The
+// "V2" suffix in filenames + exports is a vestige of side-by-side
+// validation; renaming is deferred to a quiet follow-up commit.
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useViewState } from '../contexts/ViewStateContext'
@@ -18,8 +15,8 @@ import {
   claimDibsV2,
   releaseDibsV2,
   requestRevive,
+  resolveCountryFromDescription,
 } from '../utils/warRoomApiV2'
-import { resolveCountryFromDescription } from '../utils/warRoomApi'
 import { useWarRoomPoll } from '../hooks/useWarRoomPoll'
 import { config as appConfig } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
