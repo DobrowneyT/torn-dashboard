@@ -336,10 +336,14 @@ export default function WarOverviewView() {
     const nameLookup = buildNameLookup(revives, factionNames)
     const isScatter = displayMode === 'scatter'
 
-    // Shared y-axis config for scatter subplots — all events sit at y=1,
-    // so we hide tick labels and clamp the range to avoid meaningless auto-scale.
-    const scatterY = (title) => ({
-      title, range: [0, 2], showticklabels: false, fixedrange: true,
+    // Shared y-axis builder. `automargin` guarantees the rotated title always
+    // has room (otherwise the tight left margin clips it). Scatter panels hide
+    // tick labels since every event sits at y=1.
+    const yAxis = (title, domain) => ({
+      title: { text: title, font: { size: 13 }, standoff: 6 },
+      domain,
+      automargin: true,
+      ...(isScatter ? { range: [0, 2], showticklabels: false, fixedrange: true } : {}),
     })
 
     if (viewMode === 'faction') {
@@ -369,9 +373,9 @@ export default function WarOverviewView() {
         margin: { l: 60, r: 30, t: 50, b: 70 },
         grid: { rows: 3, columns: 1, pattern: 'coupled' },
         legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 11 }, tracegroupgap: 20 },
-        yaxis:  isScatter ? { ...scatterY('Outgoing attacks'),  domain: [0.7, 1.0]   } : { title: `Outgoing attacks / ${binLabel}`,  domain: [0.7, 1.0]   },
-        yaxis2: isScatter ? { ...scatterY('Incoming attacks'),  domain: [0.36, 0.66] } : { title: `Incoming attacks / ${binLabel}`,  domain: [0.36, 0.66] },
-        yaxis3: isScatter ? { ...scatterY('Incoming revives'),  domain: [0.0, 0.32]  } : { title: `Incoming revives / ${binLabel}`,  domain: [0.0, 0.32]  },
+        yaxis:  yAxis('Outgoing', [0.7, 1.0]),
+        yaxis2: yAxis('Incoming', [0.36, 0.66]),
+        yaxis3: yAxis('Revives',  [0.0, 0.32]),
         xaxis: { type: 'date', rangeslider: { visible: true, thickness: 0.05 } },
       }
       return { traces, layout }
@@ -406,9 +410,9 @@ export default function WarOverviewView() {
       margin: { l: 60, r: 30, t: 50, b: 70 },
       grid: { rows: 3, columns: 1, pattern: 'coupled' },
       legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 11 }, tracegroupgap: 20 },
-      yaxis:  isScatter ? { ...scatterY('Outgoing hits'),    domain: [0.7, 1.0]   } : { title: `Outgoing hits / ${binLabel}`,    domain: [0.7, 1.0]   },
-      yaxis2: isScatter ? { ...scatterY('Incoming hits'),    domain: [0.36, 0.66] } : { title: `Incoming hits / ${binLabel}`,    domain: [0.36, 0.66] },
-      yaxis3: isScatter ? { ...scatterY('Incoming revives'), domain: [0.0, 0.32]  } : { title: `Incoming revives / ${binLabel}`, domain: [0.0, 0.32]  },
+      yaxis:  yAxis('Outgoing', [0.7, 1.0]),
+      yaxis2: yAxis('Incoming', [0.36, 0.66]),
+      yaxis3: yAxis('Revives',  [0.0, 0.32]),
       xaxis: { type: 'date', rangeslider: { visible: true, thickness: 0.05 } },
     }
     return { traces, layout }
