@@ -1420,11 +1420,31 @@ export default function WarPayoutManagement() {
                   </div>
                   <input
                     type="range"
-                    min="0" max="100" step="5"
+                    min="0" max="100" step="1"
                     value={racePreCutoffPercent}
                     onChange={e => setRacePreCutoffPercent(Number(e.target.value))}
                     className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-gradient-to-r from-blue-400 to-purple-400"
                   />
+                  <div className="flex gap-2 mt-1.5">
+                    <div className="flex-1">
+                      <label className="text-xs text-blue-600 dark:text-blue-400">Pre %</label>
+                      <input
+                        type="number" min="0" max="100" step="1"
+                        value={racePreCutoffPercent}
+                        onChange={e => setRacePreCutoffPercent(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                        className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-xs text-purple-600 dark:text-purple-400">Post %</label>
+                      <input
+                        type="number" min="0" max="100" step="1"
+                        value={100 - racePreCutoffPercent}
+                        onChange={e => setRacePreCutoffPercent(100 - Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                        className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {/* Post-Cutoff Formula — own participation/contribution weight + multipliers */}
