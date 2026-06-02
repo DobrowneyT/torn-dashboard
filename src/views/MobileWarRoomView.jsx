@@ -368,22 +368,34 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
             'Dibs'
           )}
         </button>
-        {/* Attack / Assist — flips to a blue "Assist" link when someone
-            else has dibs, so allies can still jump in and help instead of
-            being locked out. Same destination either way. */}
-        <a
-          href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.id}`}
-          target="_blank" rel="noopener noreferrer"
-          title={claimedByOther ? `${dib.claimedName} called dibs — tap to assist` : undefined}
-          className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] inline-flex items-center justify-center gap-1.5 no-underline ${
-            claimedByOther
+        {/* Attack — 3 states (priority order):
+              1. Green Attack: target is Online AND Okay (overrides dibs —
+                 a fresh-kill window shouldn't be locked behind a claim).
+              2. Blue Assist <name>: someone else holds dibs AND target
+                 isn't in the green window.
+              3. Red Attack: default — Idle / Offline / hospitalised. */}
+        {(() => {
+          const isOnlineOkay = m.activity === 'Online' && m.state === 'Okay'
+          const showAssist   = !isOnlineOkay && claimedByOther
+          const colorClass   = isOnlineOkay
+            ? 'bg-green-600 hover:bg-green-700 text-white'
+            : showAssist
               ? 'bg-blue-600 hover:bg-blue-700 text-white'
               : 'bg-red-600 hover:bg-red-700 text-white'
-          }`}
-        >
-          <Swords size={15} />
-          {claimedByOther ? `Assist ${dib.claimedName}` : 'Attack'}
-        </a>
+          const label = showAssist ? `Assist ${dib.claimedName}` : 'Attack'
+          const title = showAssist ? `${dib.claimedName} called dibs — tap to assist` : undefined
+          return (
+            <a
+              href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.id}`}
+              target="_blank" rel="noopener noreferrer"
+              title={title}
+              className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] inline-flex items-center justify-center gap-1.5 no-underline ${colorClass}`}
+            >
+              <Swords size={15} />
+              {label}
+            </a>
+          )
+        })()}
       </div>
     </div>
   )

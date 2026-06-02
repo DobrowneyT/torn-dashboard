@@ -1280,11 +1280,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   <Settings className="w-4 h-4" />
                 </button>
               )}
-              {/* Mobile launcher — only visible below md breakpoint (<768px).
+              {/* Mobile launcher — always visible, regardless of viewport.
                   Opens the dedicated mobile-optimised War Room overlay. */}
               <button
                 onClick={() => setMobileOpen(true)}
-                className="md:hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
               >
                 <Smartphone className="w-4 h-4" />
                 Mobile App
@@ -1612,24 +1612,34 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                           )}
                         </td>
 
-                        {/* Attack / Assist — flips to a blue "Assist" link
-                            when someone else has dibs, so allies can still
-                            jump in and help instead of being locked out. */}
+                        {/* Attack — 3 states (priority order):
+                              1. Green Attack: target is Online AND Okay
+                                 (overrides dibs — a fresh kill is everyone's
+                                 to grab, can't lose the window to a claim).
+                              2. Blue Assist <name>: someone else holds dibs
+                                 AND the target isn't a fresh-kill window.
+                              3. Red Attack: default — Idle / Offline /
+                                 hospitalised, no contesting dib.            */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
-                          {dib && !isMyDib ? (
-                            <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
-                              target="_blank" rel="noopener noreferrer"
-                              title={`${dib.claimed_name} called dibs — click to assist`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors">
-                              ⚔ Assist {dib.claimed_name}
-                            </a>
-                          ) : (
-                            <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
-                              target="_blank" rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors">
-                              ⚔ Attack
-                            </a>
-                          )}
+                          {(() => {
+                            const isOnlineOkay = m.last_action_status === 'Online' && m.status_state === 'Okay'
+                            const showAssist   = !isOnlineOkay && dib && !isMyDib
+                            const colorClass   = isOnlineOkay
+                              ? 'bg-green-600 hover:bg-green-700'
+                              : showAssist
+                                ? 'bg-blue-600 hover:bg-blue-700'
+                                : 'bg-red-600 hover:bg-red-700'
+                            const label = showAssist ? `⚔ Assist ${dib.claimed_name}` : '⚔ Attack'
+                            const title = showAssist ? `${dib.claimed_name} called dibs — click to assist` : undefined
+                            return (
+                              <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
+                                target="_blank" rel="noopener noreferrer"
+                                title={title}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-white rounded text-xs font-medium transition-colors ${colorClass}`}>
+                                {label}
+                              </a>
+                            )
+                          })()}
                         </td>
                       </tr>
                     )

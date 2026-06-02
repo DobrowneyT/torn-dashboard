@@ -18,7 +18,9 @@ and stamps the footer automatically.
 
 ### Added
 
-- **War Room v2 using HTTP Polling**
+- War Room v2 using HTTP Polling.
+- Green attack button state added for online and okay.
+- Mobile app launcher persists on all pages.
 
 ## [1.0.1] - 2026-06-01
 
