@@ -344,8 +344,12 @@ export default function WarPayoutManagement() {
   const [attacks, setAttacks] = useState([])
   const [loadingWarData, setLoadingWarData] = useState(false)
 
-  // Payout settings
-  const [warType, setWarType] = useState('real')
+  // Payout settings.
+  // The payout engine is unified on the Race calculation. `warType` stays 'race'
+  // internally so all the race rendering/calc paths apply; `warClass` is the
+  // historical Real/Termed tag the user picks (saved as war_type + is_termed).
+  const [warType] = useState('race')
+  const [warClass, setWarClass] = useState('real')   // 'real' | 'termed'
   const [factionCutPercent, setFactionCutPercent] = useState(20)
   const [totalReward, setTotalReward] = useState(0)
   // Termed settings
@@ -374,6 +378,11 @@ export default function WarPayoutManagement() {
   const [postRegularHitMult, setPostRegularHitMult] = useState(0.00)  // typically 0 post-cutoff
   const [postPartWeight, setPostPartWeight]         = useState(50)
   const [postMemberMultiplierOverrides, setPostMemberMultiplierOverrides] = useState({})
+  // Post-cutoff distribution: 'formula' (multipliers) or 'flat' (equal shares ± scale)
+  const [postDistMode, setPostDistMode]       = useState('formula')
+  const [postFlatThreshold, setPostFlatThreshold] = useState(50)
+  const [postScaleEnabled, setPostScaleEnabled]   = useState(false)
+  const [postScaleHours, setPostScaleHours]       = useState(24)
 
   // Race mode settings
   const [raceTargetScore, setRaceTargetScore] = useState(0)
@@ -445,6 +454,27 @@ export default function WarPayoutManagement() {
     setWarPage(newPage)
   }
 
+  // Apply a sensible starting configuration for a Real or Termed classification.
+  // The engine is the unified Race calc, so:
+  //   • Real   = cutoff at war end → every attack is "pre", whole pool paid by
+  //              the real-war formula (post window unused).
+  //   • Termed = cutoff at war start (0) → every attack is "post", whole pool
+  //              paid by the post window (default flat shares).
+  // The user can still customise (e.g. set a mid-war cutoff + pre/post split to
+  // make it an actual race) — this only sets the defaults + the historical tag.
+  function applyClassPreset(cls, war) {
+    setWarClass(cls)
+    if (cls === 'termed') {
+      setRaceCutoffTimestamp(0)
+      setRacePreCutoffPercent(0)
+      setPostDistMode('flat')
+    } else {
+      setRaceCutoffTimestamp(war?.end_at || 99999999999)
+      setRacePreCutoffPercent(100)
+      setPostDistMode('formula')
+    }
+  }
+
   async function handleSelectWar(war) {
     setSelectedWar(war)
     setHasCalculated(false)
@@ -457,7 +487,6 @@ export default function WarPayoutManagement() {
     setShowHistory(false)
     setHistoricalPayouts([])
 
-    setWarType(war.is_termed ? 'termed' : 'real')
     setTotalReward(0)
     setNotes('')
     setMercCost('')
@@ -474,11 +503,14 @@ export default function WarPayoutManagement() {
     setPostRegularHitMult(0.00)
     setPostPartWeight(50)
     setPostMemberMultiplierOverrides({})
+    setPostFlatThreshold(50)
+    setPostScaleEnabled(false)
+    setPostScaleHours(24)
     setRaceTargetScore(0)
-    setRaceCutoffMode('auto')
-    setRaceCutoffTimestamp(null)
+    setRaceCutoffMode('manual')
     setRacePostCutoffMode('flat')
-    setRacePreCutoffPercent(50)
+    // Classification + its preset (cutoff / pre-split / post mode) from the war's flag.
+    applyClassPreset(war.is_termed ? 'termed' : 'real', war)
 
     setActiveTab('payout')
     setFactionFilter(null)
@@ -603,6 +635,12 @@ export default function WarPayoutManagement() {
         postParticipationWeight:  ppw,
         postContributionWeight:   Math.round((1 - ppw) * 1000) / 1000,
         postMemberMultiplierOverrides,
+        // Post-cutoff distribution mode
+        postDistMode,
+        postFlatThreshold: Number(postFlatThreshold) || 0,
+        postScaleEnabled,
+        postScaleHours: Number(postScaleHours) || 0,
+        warStartAt: selectedWar.start_at || 0,
       })
     }
 
@@ -687,13 +725,13 @@ export default function WarPayoutManagement() {
 
     const payoutData = {
       war_id: selectedWar.id,
-      war_type: warType,
+      war_type: warClass,
       faction_cut_percent: Number(factionCutPercent),
       total_reward: Number(totalReward) || 0,
       total_payout: Math.floor(totalPayout),
       member_count: effectiveMembers.length,
       min_score_threshold: Number(minScoreThreshold),
-      termed_mode: warType === 'termed' ? termedMode : (warType === 'race' ? racePostCutoffMode : null),
+      termed_mode: postDistMode,
       merc_cost:      Number(mercCost) || 0,
       reviver_cost:   Number(reviverCost) || 0,
       faction_top_up: Number(factionTopUp) || 0,
@@ -703,19 +741,22 @@ export default function WarPayoutManagement() {
       mug_multiplier:         Number(mugMult),
       regular_hit_multiplier: Number(regularHitMult),
       participation_weight:   Number(partWeight),
-      // Race fields
-      race_target_score:       warType === 'race' ? (Number(raceTargetScore) || null) : null,
-      race_cutoff_mode:        warType === 'race' ? raceCutoffMode : null,
-      race_cutoff_timestamp:   warType === 'race' ? (Number(raceCutoffTimestamp) || null) : null,
-      race_post_cutoff_mode:   warType === 'race' ? racePostCutoffMode : null,
-      race_pre_cutoff_percent: warType === 'race' ? Number(racePreCutoffPercent) : null,
-      // Post-cutoff formula settings (race only)
-      post_war_hit_multiplier:     warType === 'race' ? Number(postWarHitMult) : null,
-      post_assist_multiplier:      warType === 'race' ? Number(postAssistMult) : null,
-      post_loss_multiplier:        warType === 'race' ? Number(postLossMult) : null,
-      post_mug_multiplier:         warType === 'race' ? Number(postMugMult) : null,
-      post_regular_hit_multiplier: warType === 'race' ? Number(postRegularHitMult) : null,
-      post_participation_weight:   warType === 'race' ? Number(postPartWeight) : null,
+      // Unified engine fields (always saved — every payout is race-engine now)
+      race_target_score:       Number(raceTargetScore) || null,
+      race_cutoff_mode:        raceCutoffMode,
+      race_cutoff_timestamp:   Number(raceCutoffTimestamp) || null,
+      race_post_cutoff_mode:   racePostCutoffMode,
+      race_pre_cutoff_percent: Number(racePreCutoffPercent),
+      post_war_hit_multiplier:     Number(postWarHitMult),
+      post_assist_multiplier:      Number(postAssistMult),
+      post_loss_multiplier:        Number(postLossMult),
+      post_mug_multiplier:         Number(postMugMult),
+      post_regular_hit_multiplier: Number(postRegularHitMult),
+      post_participation_weight:   Number(postPartWeight),
+      post_dist_mode:      postDistMode,
+      post_flat_threshold: Number(postFlatThreshold) || 0,
+      post_scale_enabled:  postScaleEnabled,
+      post_scale_hours:    Number(postScaleHours) || 0,
       notes: notes || null,
     }
     // For race wars, persist the per-window breakdown so the member view can
@@ -729,6 +770,8 @@ export default function WarPayoutManagement() {
         participationScore: w.participationScore, participationShare: w.participationShare,
         respectGained: w.respectGained, bonusRespect: w.bonusRespect,
         adjustedRespect: w.adjustedRespect, contributionShare: w.contributionShare,
+        // Flat-distribution fields (present when post mode is 'flat')
+        score: w.score, shares: w.shares,
         payout,
       } : null
       return { pre: win(m.pre, m.preCutoffPayout), post: win(m.post, m.postCutoffPayout) }
@@ -750,9 +793,8 @@ export default function WarPayoutManagement() {
     }))
 
     try {
-      // is_termed is a two-way flag (Termed vs Real). Race wars are recorded as
-      // Real, so only an explicit Termed payout marks the war as termed.
-      const newIsTermed = warType === 'termed'
+      // is_termed mirrors the Real/Termed classification the user picked.
+      const newIsTermed = warClass === 'termed'
       if (Boolean(selectedWar.is_termed) !== newIsTermed) {
         await updateWarIsTermed(selectedWar.id, newIsTermed, user.apiKey)
         setSelectedWar(prev => prev ? { ...prev, is_termed: newIsTermed } : prev)
@@ -892,10 +934,18 @@ export default function WarPayoutManagement() {
   // from m.pre / m.post and each editing its own per-member multiplier overrides.
   const racePartColSpan = viewMode === 'leader' ? 12 : 7
 
-  function raceGroupHeaders(label) {
+  function raceGroupHeaders(label, flat = false) {
     const th = (cls, span, text) => (
       <th className={`px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 text-center ${cls}`} colSpan={span}>{text}</th>
     )
+    if (flat) {
+      return (
+        <>
+          {th('bg-blue-50 dark:bg-slate-800 text-blue-800 dark:text-blue-300', 8, `${label} · Hit Report`)}
+          {th('bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300', 2, `${label} · Flat Shares`)}
+        </>
+      )
+    }
     return (
       <>
         {th('bg-blue-50 dark:bg-slate-800 text-blue-800 dark:text-blue-300', 8, `${label} · Hit Report`)}
@@ -905,12 +955,12 @@ export default function WarPayoutManagement() {
     )
   }
 
-  function raceColHeaders(winKey) {
+  function raceColHeaders(winKey, flat = false) {
     const c = (k) => `${winKey}.${k}`
     const mh = () => viewMode === 'leader'
       ? <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>
       : null
-    return (
+    const hitReport = (
       <>
         <SortHeader col={c('leaves')}    label="Leaves" className="text-right border-l border-gray-200 dark:border-slate-700" />
         <SortHeader col={c('mugs')}      label="Mugs"   className="text-right" />
@@ -920,6 +970,20 @@ export default function WarPayoutManagement() {
         <SortHeader col={c('assists')}   label="Assists" className="text-right" />
         <SortHeader col={c('losses')}    label="Lost"   className="text-right" />
         <SortHeader col={c('totalHits')} label="Total"  className="text-right border-r border-gray-200 dark:border-slate-700" />
+      </>
+    )
+    if (flat) {
+      return (
+        <>
+          {hitReport}
+          <SortHeader col={c('score')}  label="Score"  className="text-right border-l border-gray-200 dark:border-slate-700" />
+          <SortHeader col={c('shares')} label="Shares" className="text-right border-r border-gray-200 dark:border-slate-700" />
+        </>
+      )
+    }
+    return (
+      <>
+        {hitReport}
         <SortHeader col={c('warHitScore')} label="War hit" className="text-right border-l border-gray-200 dark:border-slate-700" />
         {mh()}
         <SortHeader col={c('assistScore')} label="Assist" className="text-right" />
@@ -940,7 +1004,7 @@ export default function WarPayoutManagement() {
     )
   }
 
-  function raceWindowCells(m, winKey, globalMults, overrides, setOverrides) {
+  function raceWindowCells(m, winKey, globalMults, overrides, setOverrides, flat = false) {
     const w = m[winKey] || {}
     const hasOverride = (key) => overrides[m.memberId]?.[key] !== undefined
     const overrideCls = 'border border-amber-400 dark:border-amber-500'
@@ -973,6 +1037,14 @@ export default function WarPayoutManagement() {
         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{w.assists ?? 0}</td>
         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{w.losses ?? 0}</td>
         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{w.totalHits ?? 0}</td>
+        {flat ? (
+          <>
+            {/* Flat shares: windowed score + shares */}
+            <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{num(w.score)}</td>
+            <td className="px-2 py-1 text-right font-medium text-purple-700 dark:text-purple-400 border-r border-gray-200 dark:border-slate-700">{(w.shares ?? 0).toFixed(2)}</td>
+          </>
+        ) : (
+        <>
         {/* Participation */}
         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{(w.warHitScore ?? 0).toFixed(2)}</td>
         {viewMode === 'leader' && multInput('effWarHitMult', 'warHitMultiplier', globalMults.warHit)}
@@ -991,6 +1063,8 @@ export default function WarPayoutManagement() {
         <td className="px-2 py-1 text-right text-amber-600 dark:text-amber-400">{(w.bonusRespect ?? 0) > 0 ? `−${num(w.bonusRespect)}` : ''}</td>
         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{num(w.adjustedRespect)}</td>
         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{((w.contributionShare ?? 0) * 100).toFixed(2)}%</td>
+        </>
+        )}
       </>
     )
   }
@@ -1048,13 +1122,13 @@ export default function WarPayoutManagement() {
 
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                War Type
+                Classification
               </label>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setWarType('real')}
+                  onClick={() => applyClassPreset('real', selectedWar)}
                   className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
-                    warType === 'real'
+                    warClass === 'real'
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
                       : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
                   }`}
@@ -1062,26 +1136,20 @@ export default function WarPayoutManagement() {
                   Real
                 </button>
                 <button
-                  onClick={() => setWarType('termed')}
+                  onClick={() => applyClassPreset('termed', selectedWar)}
                   className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
-                    warType === 'termed'
+                    warClass === 'termed'
                       ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
                       : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
                   }`}
                 >
                   Termed
                 </button>
-                <button
-                  onClick={() => setWarType('race')}
-                  className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
-                    warType === 'race'
-                      ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
-                      : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
-                  }`}
-                >
-                  Race
-                </button>
               </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Historical tag + a starting preset. All payouts use the unified
+                pre/post engine below — set a mid-war cutoff &amp; pool split to run a race.
+              </p>
             </div>
 
             <div>
@@ -1449,71 +1517,140 @@ export default function WarPayoutManagement() {
                   </div>
                 </div>
 
-                {/* Post-Cutoff Formula — own participation/contribution weight + multipliers */}
+                {/* Post-Cutoff distribution — Formula or Flat shares */}
                 <h4 className="text-xs font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wider mt-4">
-                  Post-Cutoff Formula
+                  Post-Cutoff Distribution
                 </h4>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Same real-war formula as pre-cutoff, with its own multipliers — e.g. set Regular ×
-                  to 0 so non-war hits aren't paid after the cutoff.
-                </p>
-
-                <div>
-                  <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
-                    <span className="font-medium">Participation / Contribution</span>
-                    <span className="text-gray-400">{postPartWeight}% / {100 - postPartWeight}%</span>
-                  </div>
-                  <input
-                    type="range" min="0" max="100" step="1"
-                    value={postPartWeight}
-                    onChange={e => setPostPartWeight(Number(e.target.value))}
-                    className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-gradient-to-r from-blue-400 to-emerald-400"
-                  />
-                  <div className="flex gap-2 mt-1.5">
-                    <div className="flex-1">
-                      <label className="text-xs text-blue-600 dark:text-blue-400">Participation %</label>
-                      <input
-                        type="number" min="0" max="100" step="1"
-                        value={postPartWeight}
-                        onChange={e => setPostPartWeight(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
-                        className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-xs text-emerald-600 dark:text-emerald-400">Contribution %</label>
-                      <input
-                        type="number" min="0" max="100" step="1"
-                        value={100 - postPartWeight}
-                        onChange={e => setPostPartWeight(100 - Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
-                        className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                      />
-                    </div>
-                  </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPostDistMode('formula')}
+                    className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                      postDistMode === 'formula'
+                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
+                        : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                    }`}
+                  >
+                    Formula
+                  </button>
+                  <button
+                    onClick={() => setPostDistMode('flat')}
+                    className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                      postDistMode === 'flat'
+                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
+                        : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
+                    }`}
+                  >
+                    Flat Shares
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
-                    Post-Cutoff Multipliers
-                  </label>
-                  <div className="space-y-1.5">
-                    {[
-                      { label: 'War Hit ×', value: postWarHitMult,     set: setPostWarHitMult },
-                      { label: 'Regular ×', value: postRegularHitMult, set: setPostRegularHitMult },
-                      { label: 'Assist ×',  value: postAssistMult,     set: setPostAssistMult },
-                      { label: 'Loss ×',    value: postLossMult,       set: setPostLossMult },
-                      { label: 'Mug ×',     value: postMugMult,        set: setPostMugMult },
-                    ].map(({ label, value, set }) => (
-                      <div key={label} className="flex items-center gap-2">
-                        <span className="text-xs text-gray-600 dark:text-gray-400 w-16 sm:w-20 flex-shrink-0">{label}</span>
+                {postDistMode === 'formula' && (
+                  <>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Same real-war formula as pre-cutoff, with its own multipliers — e.g. set Regular ×
+                      to 0 so non-war hits aren't paid after the cutoff.
+                    </p>
+                    <div>
+                      <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        <span className="font-medium">Participation / Contribution</span>
+                        <span className="text-gray-400">{postPartWeight}% / {100 - postPartWeight}%</span>
+                      </div>
+                      <input
+                        type="range" min="0" max="100" step="1"
+                        value={postPartWeight}
+                        onChange={e => setPostPartWeight(Number(e.target.value))}
+                        className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-gradient-to-r from-blue-400 to-emerald-400"
+                      />
+                      <div className="flex gap-2 mt-1.5">
+                        <div className="flex-1">
+                          <label className="text-xs text-blue-600 dark:text-blue-400">Participation %</label>
+                          <input
+                            type="number" min="0" max="100" step="1"
+                            value={postPartWeight}
+                            onChange={e => setPostPartWeight(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                            className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-xs text-emerald-600 dark:text-emerald-400">Contribution %</label>
+                          <input
+                            type="number" min="0" max="100" step="1"
+                            value={100 - postPartWeight}
+                            onChange={e => setPostPartWeight(100 - Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                            className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
+                        Post-Cutoff Multipliers
+                      </label>
+                      <div className="space-y-1.5">
+                        {[
+                          { label: 'War Hit ×', value: postWarHitMult,     set: setPostWarHitMult },
+                          { label: 'Regular ×', value: postRegularHitMult, set: setPostRegularHitMult },
+                          { label: 'Assist ×',  value: postAssistMult,     set: setPostAssistMult },
+                          { label: 'Loss ×',    value: postLossMult,       set: setPostLossMult },
+                          { label: 'Mug ×',     value: postMugMult,        set: setPostMugMult },
+                        ].map(({ label, value, set }) => (
+                          <div key={label} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 dark:text-gray-400 w-16 sm:w-20 flex-shrink-0">{label}</span>
+                            <input
+                              type="number" step="0.05" value={value}
+                              onChange={e => set(e.target.value)}
+                              className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {postDistMode === 'flat' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Minimum Score
+                      </label>
+                      <input
+                        type="number" min="0" step="1"
+                        value={postFlatThreshold}
+                        onChange={e => setPostFlatThreshold(e.target.value)}
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={postScaleEnabled}
+                        onChange={e => setPostScaleEnabled(e.target.checked)}
+                        className="rounded border-gray-300 dark:border-slate-600 text-purple-600"
+                      />
+                      <span>Scale shares after a set number of hours</span>
+                    </label>
+                    {postScaleEnabled && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Hours from war start
+                        </label>
                         <input
-                          type="number" step="0.05" value={value}
-                          onChange={e => set(e.target.value)}
-                          className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                          type="number" min="0" step="1"
+                          value={postScaleHours}
+                          onChange={e => setPostScaleHours(e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                         />
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    )}
+                    <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/40 px-3 py-2 rounded">
+                      {postScaleEnabled
+                        ? `Members get 1 base share for reaching the minimum score within ${postScaleHours || 0}h of war start, plus a fractional share for every additional “minimum score” worth of respect earned after that. Pool is split by total shares.`
+                        : 'Every member who reaches the minimum score gets an equal share of the post-cutoff pool.'}
+                    </p>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -1777,7 +1914,7 @@ export default function WarPayoutManagement() {
                   {warType === 'race' && (
                     <>
                       {raceGroupHeaders('Pre-Cutoff')}
-                      {raceGroupHeaders('Post-Cutoff')}
+                      {raceGroupHeaders('Post-Cutoff', postDistMode === 'flat')}
                       <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300 text-center" colSpan={5}>
                         Pay Out
                       </th>
@@ -1832,7 +1969,7 @@ export default function WarPayoutManagement() {
                   {warType === 'race' && (
                     <>
                       {raceColHeaders('pre')}
-                      {raceColHeaders('post')}
+                      {raceColHeaders('post', postDistMode === 'flat')}
                       {/* Pay Out columns: Effort, Pre-Cutoff, Post-Cutoff, Payout */}
                       <SortHeader col="effort"           label="Effort%"     className="text-right border-l border-gray-200 dark:border-slate-700" />
                       <SortHeader col="preCutoffPayout"  label="Pre-Cutoff"  className="text-right" />
@@ -1936,7 +2073,7 @@ export default function WarPayoutManagement() {
                     {warType === 'race' && (
                       <>
                         {raceWindowCells(m, 'pre',  preMults,  memberMultiplierOverrides,     setMemberMultiplierOverrides)}
-                        {raceWindowCells(m, 'post', postMults, postMemberMultiplierOverrides, setPostMemberMultiplierOverrides)}
+                        {raceWindowCells(m, 'post', postMults, postMemberMultiplierOverrides, setPostMemberMultiplierOverrides, postDistMode === 'flat')}
                         {/* ── Pay Out: Effort, Pre-Cutoff, Post-Cutoff ── */}
                         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
                           {payoutResults && payoutResults.memberPayoutPool > 0

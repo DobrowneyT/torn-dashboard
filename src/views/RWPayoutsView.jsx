@@ -254,9 +254,10 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
   const memberPool = totalReward > 0 ? Math.round(totalReward * (1 - factionCutPct / 100)) : (payoutData?.total_payout ?? 0)
 
   const isReal = payoutData?.war_type === 'real' || payoutData?.war_type === 'race'
-  const isRace = payoutData?.war_type === 'race'
-  // Race payouts saved after the overhaul carry a per-window breakdown.
-  const hasBreakdown = isRace && members.some(m => m.race_breakdown)
+  // Payouts saved by the unified engine carry a per-window breakdown — that
+  // (not the war_type tag) decides whether to show the pre/post split. Older
+  // payouts (no breakdown) fall back to their original real/termed rendering.
+  const hasBreakdown = members.some(m => m.race_breakdown)
   const bd = (m, win, key) => m.race_breakdown?.[win]?.[key] ?? 0
 
   function handleSort(col) {
@@ -338,7 +339,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
           >
             Payout Sheet
           </button>
-          {!(isRace && hasBreakdown) && (
+          {!hasBreakdown && (
             <button
               onClick={() => setTab('hits')}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${tab === 'hits' ? 'bg-white dark:bg-slate-800 border border-b-white dark:border-slate-600 dark:border-b-slate-800 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
@@ -346,7 +347,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
               Hit Report
             </button>
           )}
-          {isRace && hasBreakdown && (
+          {hasBreakdown && (
             <>
               <button
                 onClick={() => setTab('hits-pre')}
@@ -377,7 +378,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
                 <thead>
                   <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700">
                     <SortTh col="member_name" label="Member" className="text-left" />
-                    {isReal && (
+                    {(hasBreakdown || isReal) && (
                       <>
                         <SortTh col="war_hits"      label="War"     className="text-right" />
                         <SortTh col="assist_attacks" label="Assist" className="text-right" />
@@ -387,7 +388,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
                         <SortTh col="score"          label="Respect" className="text-right" />
                       </>
                     )}
-                    {!isReal && (
+                    {!hasBreakdown && !isReal && (
                       <SortTh col="score" label="Score" className="text-right" />
                     )}
                     <SortTh col="payout_amount" label="Payout" className="text-right" />
@@ -400,7 +401,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
                       className={`border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-slate-700/30 ${!m.is_eligible ? 'opacity-40' : ''}`}
                     >
                       <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap">{m.member_name}</td>
-                      {isReal && hasBreakdown && (
+                      {hasBreakdown && (
                         <>
                           <td className="px-2 py-1.5 text-right font-medium text-blue-700 dark:text-blue-400"><Split pre={bd(m,'pre','warHits')} post={bd(m,'post','warHits')} /></td>
                           <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400"><Split pre={bd(m,'pre','assists')} post={bd(m,'post','assists')} /></td>
@@ -412,7 +413,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
                           </td>
                         </>
                       )}
-                      {isReal && !hasBreakdown && (
+                      {!hasBreakdown && isReal && (
                         <>
                           <td className="px-2 py-1.5 text-right font-medium text-blue-700 dark:text-blue-400">{m.war_hits ?? 0}</td>
                           <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400">{m.assist_attacks ?? 0}</td>
@@ -424,7 +425,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
                           </td>
                         </>
                       )}
-                      {!isReal && (
+                      {!hasBreakdown && !isReal && (
                         <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400">
                           {Number(m.score ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>

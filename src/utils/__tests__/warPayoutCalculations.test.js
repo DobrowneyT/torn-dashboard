@@ -951,6 +951,37 @@ describe('calculateRaceWarPayouts', () => {
     expect(result.totalPayout).toBeLessThanOrEqual(result.memberPayoutPool)
   })
 
+  it('post-cutoff flat mode splits the pool equally among members above threshold', () => {
+    // Post window scorers: Alice 50, Bob 25, Carol 0. Threshold 10 → Alice & Bob
+    // each get 1 equal share of the 5M post pool; Carol gets nothing.
+    const settings = { ...baseSettings, postDistMode: 'flat', postFlatThreshold: 10 }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    const carol = result.members.find(m => m.memberId === 300)
+    expect(alice.postCutoffPayout).toBe(2_500_000)
+    expect(bob.postCutoffPayout).toBe(2_500_000)
+    expect(carol.postCutoffPayout).toBe(0)
+    expect(alice.post.shares).toBe(1)
+  })
+
+  it('post-cutoff flat-then-scale grants a base share plus scaled shares after N hours', () => {
+    // Scale split at war start + 0h → ALL post-window score counts as "after".
+    // baseShares = 0 (nothing within 0h window), additional = score/threshold.
+    // Alice after=50, Bob after=25, threshold 25 → shares 2 vs 1 → 2:1 split of 5M.
+    const settings = {
+      ...baseSettings, postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 0, warStartAt: WAR_START,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    expect(alice.post.additionalShares).toBeCloseTo(2, 5) // 50 / 25
+    expect(bob.post.additionalShares).toBeCloseTo(1, 5)   // 25 / 25
+    expect(alice.postCutoffPayout).toBeGreaterThan(bob.postCutoffPayout)
+    expect(alice.postCutoffPayout + bob.postCutoffPayout).toBe(5_000_000)
+  })
+
   it('pre and post multiplier sets are independent', () => {
     // Pre pays war hits only; post pays nothing (all post multipliers 0).
     const settings = {
