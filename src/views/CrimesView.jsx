@@ -250,6 +250,8 @@ export default function CrimesView({ crimesData, isLeadership }) {
 
   return (
     <div className="space-y-6">
+      <CurrentCrimesPanel apiKey={user?.apiKey} memberId={user?.id} />
+
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
         <div className="card">
           <div className="text-sm text-gray-600 dark:text-gray-400">Total Crimes</div>
@@ -500,5 +502,179 @@ function DifficultyBadge({ difficulty }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
       Level {difficulty}
     </span>
+  )
+}
+
+// ── Current Crimes (live) ───────────────────────────────────────────────────
+// Pulls the faction's available crimes straight from the Torn API (cat=available)
+// so members can see what's open, how long until a recruiting crime stalls, and
+// which crimes are still empty — plus their own CPR for each open slot.
+function formatCountdown(secs) {
+  if (secs == null) return '—'
+  const a = Math.abs(secs)
+  const d = Math.floor(a / 86400)
+  const h = Math.floor((a % 86400) / 3600)
+  const m = Math.floor((a % 3600) / 60)
+  const s = a % 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d > 0 ? d + 'd ' : ''}${pad(h)}:${pad(m)}:${pad(s)}`
+}
+
+function CurrentCrimesPanel({ apiKey, memberId }) {
+  const [crimes, setCrimes] = useState(null)
+  const [myCpr, setMyCpr] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [, setTick] = useState(0)
+
+  // Tick once a second so the countdowns stay live.
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  // The viewer's own CPR per crime/position, to show their fit on open slots.
+  useEffect(() => {
+    if (!memberId) return
+    let cancelled = false
+    supabase.from('member_cpr_v2').select('crime_name, position_label, cpr_value').eq('member_id', String(memberId))
+      .then(({ data }) => {
+        if (cancelled) return
+        const map = {}
+        for (const r of (data || [])) map[`${r.crime_name}||${r.position_label}`] = r.cpr_value
+        setMyCpr(map)
+      })
+    return () => { cancelled = true }
+  }, [memberId])
+
+  useEffect(() => {
+    if (!apiKey) { setError('Log in with an API key to see current crimes.'); setLoading(false); return }
+    let cancelled = false
+    setLoading(true); setError(null)
+    fetch(`https://api.torn.com/v2/faction/crimes?cat=available&sort=ASC&key=${apiKey}&comment=Forge_OC_Current`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        if (data.error) { setError(data.error.error || 'Torn API error'); setCrimes([]) }
+        else setCrimes(data.crimes || [])
+      })
+      .catch(e => { if (!cancelled) { setError(e.message); setCrimes([]) } })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [apiKey])
+
+  const now = Math.floor(Date.now() / 1000)
+
+  const groups = useMemo(() => {
+    const g = { recruiting: [], empty: [], planning: [] }
+    for (const c of (crimes || [])) {
+      if (c.status === 'Planning') g.planning.push(c)
+      else if (c.status === 'Recruiting') (c.planning_at == null ? g.empty : g.recruiting).push(c)
+    }
+    g.recruiting.sort((a, b) => (a.ready_at || 0) - (b.ready_at || 0))
+    g.empty.sort((a, b) => (a.expired_at || 0) - (b.expired_at || 0))
+    g.planning.sort((a, b) => (a.ready_at || 0) - (b.ready_at || 0))
+    return g
+  }, [crimes])
+
+  const openSlots = (c) => c.slots.filter(s => !s.user)
+  const cprFor = (crimeName, slot) => {
+    const label = slot.position_info?.label || slot.position
+    return myCpr[`${crimeName}||${label}`]
+  }
+
+  function CrimeRow({ c, timerTs, timerLabel, pausedLabel }) {
+    const open = openSlots(c)
+    const overdue = timerTs != null && timerTs <= now
+    return (
+      <div className="flex flex-col gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <DifficultyBadge difficulty={c.difficulty} />
+            <span className="font-medium text-gray-900 dark:text-white">{c.name}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {c.slots.length - open.length}/{c.slots.length} filled
+            </span>
+          </div>
+          <span className={`font-mono text-sm ${overdue ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-700 dark:text-gray-300'}`}>
+            {overdue ? `⏸ ${pausedLabel}` : `${timerLabel} ${formatCountdown(timerTs - now)}`}
+          </span>
+        </div>
+        {open.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {open.map((s, i) => {
+              const label = s.position_info?.label || s.position
+              const cpr = cprFor(c.name, s)
+              return (
+                <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  {label}
+                  {cpr != null && <span className="text-gray-500 dark:text-gray-400">· your CPR {Math.round(cpr)}</span>}
+                </span>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white">Current Crimes</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Live from Torn — open slots, join deadlines, and empty crimes to help you pick.</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-4">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" /> Loading current crimes…
+        </div>
+      ) : error ? (
+        <p className="text-sm text-amber-600 dark:text-amber-400 py-2">{error}</p>
+      ) : (crimes && crimes.length === 0) ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-2">No recruiting or planning crimes right now.</p>
+      ) : (
+        <div className="space-y-4">
+          {groups.empty.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-1.5">
+                Empty — needs a starter ({groups.empty.length})
+              </h3>
+              <div className="space-y-1.5">
+                {groups.empty.map(c => (
+                  <CrimeRow key={c.id} c={c} timerTs={c.expired_at} timerLabel="Expires in" pausedLabel="Expired" />
+                ))}
+              </div>
+            </div>
+          )}
+          {groups.recruiting.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1.5">
+                Recruiting — has open slots ({groups.recruiting.length})
+              </h3>
+              <div className="space-y-1.5">
+                {groups.recruiting.map(c => (
+                  <CrimeRow key={c.id} c={c} timerTs={c.ready_at} timerLabel="Pauses in" pausedLabel="Stalled — needs a member" />
+                ))}
+              </div>
+            </div>
+          )}
+          {groups.planning.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1.5">
+                In Planning — full ({groups.planning.length})
+              </h3>
+              <div className="space-y-1.5">
+                {groups.planning.map(c => (
+                  <CrimeRow key={c.id} c={c} timerTs={c.ready_at} timerLabel="Ready in" pausedLabel="Ready" />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
