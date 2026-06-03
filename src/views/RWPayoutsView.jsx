@@ -34,6 +34,7 @@ export default function RWPayoutsView() {
           payout_amount, payout_id,
           war_payouts(
             id, war_id, total_reward, total_payout, faction_cut_percent,
+            merc_cost, reviver_cost, faction_top_up,
             member_count, war_type, termed_mode, notes, created_at,
             ranked_wars(start_at, end_at, opponent_name, opponent_id, winner_faction_id, our_score, opponent_score)
           )
@@ -251,7 +252,15 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
 
   const factionCutPct = payoutData?.faction_cut_percent ?? 0
   const totalReward = payoutData?.total_reward ?? 0
-  const memberPool = totalReward > 0 ? Math.round(totalReward * (1 - factionCutPct / 100)) : (payoutData?.total_payout ?? 0)
+  // Mirror the payout engine: mercs/revivers come off the top, the faction cut
+  // applies to the post-cost subtotal, then the faction top-up is added back.
+  const costs = (payoutData?.merc_cost ?? 0) + (payoutData?.reviver_cost ?? 0)
+  const factionTopUp = payoutData?.faction_top_up ?? 0
+  const afterCosts = Math.max(0, totalReward - costs)
+  const factionCutAmount = Math.floor(afterCosts * (factionCutPct / 100))
+  const memberPool = totalReward > 0
+    ? Math.max(0, afterCosts - factionCutAmount) + factionTopUp
+    : (payoutData?.total_payout ?? 0)
 
   const isReal = payoutData?.war_type === 'real' || payoutData?.war_type === 'race'
   // Payouts saved by the unified engine carry a per-window breakdown — that
@@ -322,7 +331,9 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
         <div className="flex-shrink-0 px-4 pt-4 pb-2">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard label="Total Reward" value={formatCurrency(totalReward)} />
-            <StatCard label={`Faction Cut (${factionCutPct}%)`} value={formatCurrency(Math.round(totalReward * factionCutPct / 100))} />
+            {costs > 0 && <StatCard label="Costs (mercs/revivers)" value={`−${formatCurrency(costs)}`} color="text-red-500" />}
+            <StatCard label={`Faction Cut (${factionCutPct}%)`} value={formatCurrency(factionCutAmount)} />
+            {factionTopUp > 0 && <StatCard label="Faction Top-up" value={`+${formatCurrency(factionTopUp)}`} color="text-green-600" />}
             <StatCard label="Member Pool" value={formatCurrency(memberPool)} color="text-blue-600" />
             <StatCard label="Total Payout" value={formatCurrency(totalEligiblePayout)} color="text-green-600" />
             <StatCard label="Members" value={`${eligibleMembers.length} / ${members.length}`} />
