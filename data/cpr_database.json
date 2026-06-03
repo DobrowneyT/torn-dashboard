@@ -6291,7 +6291,7 @@
     },
     "3058543": {
       "name": "Gank",
-      "tier": 2,
+      "tier": 1,
       "cpr_by_role": {
         "1": {
           "Looter": 97,
@@ -6367,7 +6367,7 @@
         }
       },
       "last_scraped": "2026-06-03T05:15:35.564707",
-      "tier_last_updated": "2026-01-30T04:06:21.176633"
+      "tier_last_updated": "2026-06-03T05:15:50.296580"
     },
     "3120070": {
       "name": "HiUpDown",
@@ -11527,7 +11527,7 @@
   },
   "metadata": {
     "version": "2.0",
-    "last_updated": "2026-06-03T05:15:47.383461",
+    "last_updated": "2026-06-03T05:15:50.297867",
     "total_members": 197
   }
 }
