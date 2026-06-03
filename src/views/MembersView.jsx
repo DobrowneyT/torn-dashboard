@@ -59,9 +59,9 @@ export default function MembersView({ isLeadership }) {
         throw error
       }
 
-      // Get CPR averages
+      // Get CPR averages (v2 — crime/position keyed)
       const { data: cprData } = await supabase
-        .from('member_cpr')
+        .from('member_cpr_v2')
         .select('member_id, cpr_value')
 
       // Calculate average CPR per member

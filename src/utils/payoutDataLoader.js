@@ -264,10 +264,10 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
  */
 export async function loadMembers() {
   try {
-    // Load members and CPR data in parallel
+    // Load members and CPR data in parallel (v2 — crime/position keyed)
     const [membersResult, cprResult] = await Promise.all([
       supabase.from('members').select('member_id, member_name, tier, tier_override, last_scraped, updated_at, is_current, last_seen, first_seen, has_cpr_key'),
-      supabase.from('member_cpr').select('*')
+      supabase.from('member_cpr_v2').select('member_id, difficulty, position_label, cpr_value')
     ])
 
     if (membersResult.error) throw membersResult.error
@@ -289,13 +289,13 @@ export async function loadMembers() {
     for (const member of members) {
       const memberCpr = cprByMember.get(member.member_id) || []
 
-      // Build cpr_by_role structure
+      // Build cpr_by_role structure (difficulty → position → cpr) from v2 rows
       const cprByRole = {}
       for (const cpr of memberCpr) {
-        if (!cprByRole[cpr.difficulty_level]) {
-          cprByRole[cpr.difficulty_level] = {}
-        }
-        cprByRole[cpr.difficulty_level][cpr.role_name] = parseFloat(cpr.cpr_value)
+        const level = cpr.difficulty
+        if (level == null) continue
+        if (!cprByRole[level]) cprByRole[level] = {}
+        cprByRole[level][cpr.position_label] = parseFloat(cpr.cpr_value)
       }
 
       membersMap[member.member_id] = {
