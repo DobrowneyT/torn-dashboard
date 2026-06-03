@@ -244,31 +244,34 @@ class CPRScraper:
     
     def _fetch_available_crimes(self, api_key: str, member_id: str) -> Optional[Dict]:
         """
-        Fetch available crimes from Torn API with error handling
-        
+        Fetch the key owner's CPR via the user/organizedcrimes selection.
+
+        As of the 2026-06-01 deprecation, `faction` -> `crimes` reports the key
+        owner's CPR for empty Recruiting slots as 0, so the old faction empty-slot
+        trick no longer works. `user/organizedcrimes` returns empty slots for
+        Recruiting crimes with the KEY OWNER's checkpoint_pass_rate instead.
+
+        The response is keyed `organizedcrimes`; we normalise it to the
+        `{'crimes': [...]}` shape the extractors already expect (every slot is
+        empty, so they attribute each slot's CPR to this member).
+
         Args:
             api_key: Member's API key
             member_id: Member ID (for logging)
-            
+
         Returns:
-            Crimes data or None if failed
+            Crimes data (normalised) or None if failed
         """
         try:
             api = TornAPI(api_key)
-            
-            # Get available crimes sorted by creation date
-            result = api.get_faction_crimes(
-                category="available",
-                filters="created_at",
-                offset=0,
-                sort="DESC",
-                comment="TNL Forge CPR Scraper"
-            )
-            
-            crimes = result.get('crimes', [])
-            logger.info(f"Member {member_id}: Fetched {len(crimes)} available crimes")
-            return result
-            
+
+            result = api.get_user_organized_crimes(comment="TNL Forge CPR Scraper")
+
+            crimes = result.get('organizedcrimes', [])
+            logger.info(f"Member {member_id}: Fetched {len(crimes)} recruiting crimes (user/organizedcrimes)")
+            # Normalise to the shape the CPR extractors expect.
+            return {'crimes': crimes}
+
         except TornAPIError as e:
             logger.warning(f"Member {member_id}: API error - {e}")
             logger.warning(f"Member {member_id}: Skipping CPR update (existing data unchanged)")

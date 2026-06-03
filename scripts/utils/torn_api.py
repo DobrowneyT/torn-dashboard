@@ -376,6 +376,27 @@ class TornAPI:
         logger.info(f"Completed pagination: fetched {len(all_crimes)} total crimes")
         return all_crimes
 
+    def get_user_organized_crimes(
+        self,
+        comment: str = "Forge_OC2_User_CPR"
+    ) -> Dict:
+        """
+        Get the key owner's organized crimes via /v2/user/organizedcrimes.
+
+        This is the post-deprecation source for an individual member's CPR.
+        As of 2026-06-01, `faction` -> `crimes` reports the key owner's CPR for
+        empty Recruiting slots as 0. The `user/organizedcrimes` selection instead
+        returns only empty slots for crimes with 'Recruiting' status, with the
+        `checkpoint_pass_rate` reflecting the KEY OWNER's pass rate — exactly the
+        per-member CPR we need. Requires only a minimal-access key.
+
+        Returns:
+            Dict shaped like { "organizedcrimes": [ { ..., "slots": [...] } ] }
+        """
+        url = f"{self.BASE_URL}/user/organizedcrimes"
+        params = {"key": self.api_key, "comment": comment}
+        return self._make_request(url, params)
+
     # ==================== FACTION MEMBERS METHODS ====================
 
     def get_faction_members(
