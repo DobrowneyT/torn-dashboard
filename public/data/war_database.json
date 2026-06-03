@@ -5610,6 +5610,23 @@
       "rank_before": "Diamond I",
       "rank_after": "Diamond II",
       "report_fetched": true
+    },
+    "43268": {
+      "id": 43268,
+      "start_at": 1780768800,
+      "end_at": null,
+      "opponent_id": 35507,
+      "opponent_name": "The Nest",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 16100,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -206718,6 +206735,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-02T05:29:47.053354"
+    "last_updated": "2026-06-03T06:03:01.656807"
   }
 }
