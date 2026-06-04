@@ -3,7 +3,7 @@ import { useViewState } from '../contexts/ViewStateContext'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../utils/supabase'
 import { syncCrimesFromAPI, getSyncStatusMessage } from '../utils/syncCrimesFromAPI'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, ChevronRight } from 'lucide-react'
 import { 
   getCrimeStatusLabel, 
   getCrimeStatusColor, 
@@ -496,6 +496,7 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
   const [memberNames, setMemberNames] = useState({})   // member_id → name (slots give id only)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [freeingOpen, setFreeingOpen] = useState(false)   // collapse the "coming out" list by default
   const [, setTick] = useState(0)
 
   // Tick once a second so the countdowns stay live.
@@ -691,25 +692,31 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
 
           {summary.freeing.length > 0 && (
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
-                Freeing up — soonest first
-              </h3>
-              <div className="flex flex-wrap gap-1.5">
-                {summary.freeing.map((f, i) => {
-                  const secs = f.readyAt - now
-                  const ready = secs <= 0
-                  return (
-                    <a key={i} href={crimeUrl(f.crimeId)} target="_blank" rel="noreferrer"
-                      title={`${f.crimeName} — ${f.position}`}
-                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:brightness-95">
-                      <span className="font-medium text-gray-700 dark:text-gray-300">{memberNames[f.id] || `#${f.id}`}</span>
-                      <span className={`font-mono ${ready ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}>
-                        {ready ? 'ready' : formatCountdown(secs)}
-                      </span>
-                    </a>
-                  )
-                })}
-              </div>
+              <button
+                onClick={() => setFreeingOpen(o => !o)}
+                className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 mb-1.5"
+              >
+                <ChevronRight className={`w-3.5 h-3.5 transition-transform ${freeingOpen ? 'rotate-90' : ''}`} />
+                Coming out in the next 24h ({summary.freeing.length})
+              </button>
+              {freeingOpen && (
+                <div className="flex flex-wrap gap-1.5">
+                  {summary.freeing.map((f, i) => {
+                    const secs = f.readyAt - now
+                    const ready = secs <= 0
+                    return (
+                      <a key={i} href={crimeUrl(f.crimeId)} target="_blank" rel="noreferrer"
+                        title={`${f.crimeName} — ${f.position}`}
+                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:brightness-95">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">{memberNames[f.id] || `#${f.id}`}</span>
+                        <span className={`font-mono ${ready ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}>
+                          {ready ? 'ready' : formatCountdown(secs)}
+                        </span>
+                      </a>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 
