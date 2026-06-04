@@ -523,6 +523,7 @@ function formatCountdown(secs) {
 function CurrentCrimesPanel({ apiKey, memberId }) {
   const [crimes, setCrimes] = useState(null)
   const [myCpr, setMyCpr] = useState({})
+  const [memberNames, setMemberNames] = useState({})   // member_id → name (slots give id only)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [, setTick] = useState(0)
@@ -531,6 +532,19 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 1000)
     return () => clearInterval(id)
+  }, [])
+
+  // Member id → name lookup (the crimes API only returns slot user IDs).
+  useEffect(() => {
+    let cancelled = false
+    supabase.from('members').select('member_id, member_name')
+      .then(({ data }) => {
+        if (cancelled) return
+        const map = {}
+        for (const m of (data || [])) map[String(m.member_id)] = m.member_name
+        setMemberNames(map)
+      })
+    return () => { cancelled = true }
   }, [])
 
   // The viewer's own CPR per crime/position, to show their fit on open slots.
@@ -577,43 +591,71 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
     return g
   }, [crimes])
 
-  const openSlots = (c) => c.slots.filter(s => !s.user)
-  const cprFor = (crimeName, slot) => {
-    const label = slot.position_info?.label || slot.position
-    return myCpr[`${crimeName}||${label}`]
+  // Deep-link straight to a crime on the faction OC tab.
+  const crimeUrl = (id) => `https://www.torn.com/factions.php?step=your&type=12#/tab=crimes&crimeId=${id}`
+
+  // Colour a box green/amber/red by a CPR vs its requirement (default 75 when unconfigured).
+  const fitClass = (cpr, req) => {
+    if (cpr == null) return 'border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800'  // no CPR data
+    if (cpr >= req) return 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
+    if (req - cpr <= 5) return 'border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20'
+    return 'border-2 border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20'
   }
 
-  function CrimeRow({ c, timerTs, timerLabel, pausedLabel }) {
-    const open = openSlots(c)
+  // One slot as a two-line cell: position on top; occupant + CPR (or your fit) below.
+  // colorFilled = colour filled slots by the occupant's CPR (Planning); otherwise they stay gray.
+  function SlotCell({ crimeName, crimeId, slot, colorFilled }) {
+    const label = slot.position_info?.label || slot.position
+    const req = config.cprRequirements?.[crimeName]?.positions?.[label] ?? 75
+
+    if (slot.user) {
+      const name = memberNames[String(slot.user.id)] || `#${slot.user.id}`
+      const cpr = slot.checkpoint_pass_rate
+      const cls = colorFilled
+        ? fitClass(cpr, req)
+        : 'border-gray-200 dark:border-slate-600 bg-gray-100 dark:bg-slate-700'
+      return (
+        <div className={`flex flex-col px-2 py-1 rounded border text-xs min-w-[7rem] ${cls}`}>
+          <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{label}</span>
+          <span className="text-gray-600 dark:text-gray-400 truncate">
+            {name}{cpr != null ? ` · ${Math.round(cpr)}` : ''}
+          </span>
+        </div>
+      )
+    }
+
+    // Open — colour by the viewer's CPR; the whole box links to the crime to join.
+    const mine = myCpr[`${crimeName}||${label}`]
+    return (
+      <a href={crimeUrl(crimeId)} target="_blank" rel="noreferrer"
+        className={`flex flex-col px-2 py-1 rounded border text-xs min-w-[7rem] transition hover:brightness-95 ${fitClass(mine, req)}`}>
+        <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{label}</span>
+        <span className="text-gray-500 dark:text-gray-400 truncate">
+          EMPTY{mine != null ? ` · you ${Math.round(mine)}` : ''} / {req}
+        </span>
+      </a>
+    )
+  }
+
+  function CrimeRow({ c, timerTs, timerLabel, pausedLabel, colorFilled }) {
+    const filled = c.slots.filter(s => s.user).length
     const overdue = timerTs != null && timerTs <= now
     return (
-      <div className="flex flex-col gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+      <div className="flex flex-col gap-2 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <DifficultyBadge difficulty={c.difficulty} />
-            <span className="font-medium text-gray-900 dark:text-white">{c.name}</span>
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              {c.slots.length - open.length}/{c.slots.length} filled
-            </span>
+            <a href={crimeUrl(c.id)} target="_blank" rel="noreferrer"
+              className="font-medium text-blue-600 dark:text-blue-400 hover:underline">{c.name}</a>
+            <span className="text-xs text-gray-500 dark:text-gray-400">{filled}/{c.slots.length} filled</span>
           </div>
           <span className={`font-mono text-sm ${overdue ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-700 dark:text-gray-300'}`}>
             {overdue ? `⏸ ${pausedLabel}` : `${timerLabel} ${formatCountdown(timerTs - now)}`}
           </span>
         </div>
-        {open.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {open.map((s, i) => {
-              const label = s.position_info?.label || s.position
-              const cpr = cprFor(c.name, s)
-              return (
-                <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                  {label}
-                  {cpr != null && <span className="text-gray-500 dark:text-gray-400">· your CPR {Math.round(cpr)}</span>}
-                </span>
-              )
-            })}
-          </div>
-        )}
+        <div className="flex flex-wrap gap-1.5">
+          {c.slots.map((s, i) => <SlotCell key={i} crimeName={c.name} crimeId={c.id} slot={s} colorFilled={colorFilled} />)}
+        </div>
       </div>
     )
   }
@@ -644,7 +686,7 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
               </h3>
               <div className="space-y-1.5">
                 {groups.empty.map(c => (
-                  <CrimeRow key={c.id} c={c} timerTs={c.expired_at} timerLabel="Expires in" pausedLabel="Expired" />
+                  <CrimeRow key={c.id} c={c} timerTs={c.expired_at} timerLabel="Expires in" pausedLabel="Expired" colorFilled={false} />
                 ))}
               </div>
             </div>
@@ -656,7 +698,7 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
               </h3>
               <div className="space-y-1.5">
                 {groups.recruiting.map(c => (
-                  <CrimeRow key={c.id} c={c} timerTs={c.ready_at} timerLabel="Pauses in" pausedLabel="Stalled — needs a member" />
+                  <CrimeRow key={c.id} c={c} timerTs={c.ready_at} timerLabel="Pauses in" pausedLabel="Stalled — needs a member" colorFilled={false} />
                 ))}
               </div>
             </div>
@@ -668,7 +710,7 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
               </h3>
               <div className="space-y-1.5">
                 {groups.planning.map(c => (
-                  <CrimeRow key={c.id} c={c} timerTs={c.ready_at} timerLabel="Ready in" pausedLabel="Ready" />
+                  <CrimeRow key={c.id} c={c} timerTs={c.ready_at} timerLabel="Ready in" pausedLabel="Ready" colorFilled={true} />
                 ))}
               </div>
             </div>
