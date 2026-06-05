@@ -3,7 +3,7 @@ import { useViewState } from '../contexts/ViewStateContext'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../utils/supabase'
 import { syncCrimesFromAPI, getSyncStatusMessage } from '../utils/syncCrimesFromAPI'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, ChevronRight } from 'lucide-react'
 import { 
   getCrimeStatusLabel, 
   getCrimeStatusColor, 
@@ -250,56 +250,32 @@ export default function CrimesView({ crimesData, isLeadership }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-        <div className="card">
-          <div className="text-sm text-gray-600 dark:text-gray-400">Total Crimes</div>
-          <div className="text-2xl font-bold">{statusCounts.total || 0}</div>
-        </div>
-        
-        <div className="card border-l-4 border-green-500">
-          <div className="text-sm text-gray-600 dark:text-gray-400">Success</div>
-          <div className="text-2xl font-bold text-green-600">{statusCounts.Success || 0}</div>
-        </div>
-        
-        <div className="card border-l-4 border-blue-500">
-          <div className="text-sm text-gray-600 dark:text-gray-400">Planning</div>
-          <div className="text-2xl font-bold text-blue-600">{statusCounts.Planning || 0}</div>
-        </div>
-        
-        <div className="card border-l-4 border-yellow-500">
-          <div className="text-sm text-gray-600 dark:text-gray-400">Recruiting</div>
-          <div className="text-2xl font-bold text-yellow-600">{statusCounts.Recruiting || 0}</div>
-        </div>
-        
-        <div className="card border-l-4 border-red-500">
-          <div className="text-sm text-gray-600 dark:text-gray-400">Failed</div>
-          <div className="text-2xl font-bold text-red-600">{statusCounts.Failed || 0}</div>
-        </div>
-      </div>
+      <CurrentCrimesPanel apiKey={user?.apiKey} memberId={user?.id} />
 
       <div className="card">
-        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-          <div className="flex-1">
-            <label className="block text-sm font-medium mb-2">Filter by Status:</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="input w-full sm:w-auto sm:min-w-[200px]"
-            >
-              {CRIME_STATUS_OPTIONS.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <h2 className="text-xl font-semibold">Executed Crimes</h2>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium whitespace-nowrap">Filter:</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="input w-full sm:w-auto sm:min-w-[160px]"
+              >
+                {CRIME_STATUS_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {isLeadership && (
-            <div className="flex gap-2 items-center sm:ml-auto">
+            {isLeadership && (
               <button
                 onClick={handleSyncWithAPI}
                 disabled={syncing}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap"
               >
                 {syncing ? (
                   <>
@@ -313,25 +289,21 @@ export default function CrimesView({ crimesData, isLeadership }) {
                   </>
                 )}
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-        
+
         {syncMessage && (
-          <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+          <div className="mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
             <p className="text-sm text-green-600 dark:text-green-400">{syncMessage}</p>
           </div>
         )}
-        
+
         {syncError && (
-          <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+          <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
             <p className="text-sm text-red-600 dark:text-red-400">{syncError}</p>
           </div>
         )}
-      </div>
-
-      <div className="card">
-        <h2 className="text-xl font-semibold mb-4">Crimes List</h2>
         <div className="overflow-auto max-h-[70vh] relative">
           <table className="w-full text-sm border-separate border-spacing-0">
             <thead>
@@ -500,5 +472,292 @@ function DifficultyBadge({ difficulty }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
       Level {difficulty}
     </span>
+  )
+}
+
+// ── Current Crimes (live) ───────────────────────────────────────────────────
+// Pulls the faction's available crimes straight from the Torn API (cat=available)
+// so members can see what's open, how long until a recruiting crime stalls, and
+// which crimes are still empty — plus their own CPR for each open slot.
+function formatCountdown(secs) {
+  if (secs == null) return '—'
+  const a = Math.abs(secs)
+  const d = Math.floor(a / 86400)
+  const h = Math.floor((a % 86400) / 3600)
+  const m = Math.floor((a % 3600) / 60)
+  const s = a % 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d > 0 ? d + 'd ' : ''}${pad(h)}:${pad(m)}:${pad(s)}`
+}
+
+function CurrentCrimesPanel({ apiKey, memberId }) {
+  const [crimes, setCrimes] = useState(null)
+  const [myCpr, setMyCpr] = useState({})
+  const [memberNames, setMemberNames] = useState({})   // member_id → name (slots give id only)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [freeingOpen, setFreeingOpen] = useState(false)   // collapse the "coming out" list by default
+  const [, setTick] = useState(0)
+
+  // Tick once a second so the countdowns stay live.
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Member id → name lookup (the crimes API only returns slot user IDs).
+  useEffect(() => {
+    let cancelled = false
+    supabase.from('members').select('member_id, member_name')
+      .then(({ data }) => {
+        if (cancelled) return
+        const map = {}
+        for (const m of (data || [])) map[String(m.member_id)] = m.member_name
+        setMemberNames(map)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  // The viewer's own CPR per crime/position, to show their fit on open slots.
+  useEffect(() => {
+    if (!memberId) return
+    let cancelled = false
+    supabase.from('member_cpr_v2').select('crime_name, position_label, cpr_value').eq('member_id', String(memberId))
+      .then(({ data }) => {
+        if (cancelled) return
+        const map = {}
+        for (const r of (data || [])) map[`${r.crime_name}||${r.position_label}`] = r.cpr_value
+        setMyCpr(map)
+      })
+    return () => { cancelled = true }
+  }, [memberId])
+
+  useEffect(() => {
+    if (!apiKey) { setError('Log in with an API key to see current crimes.'); setLoading(false); return }
+    let cancelled = false
+    setLoading(true); setError(null)
+    fetch(`https://api.torn.com/v2/faction/crimes?cat=available&sort=ASC&key=${apiKey}&comment=Forge_OC_Current`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        if (data.error) { setError(data.error.error || 'Torn API error'); setCrimes([]) }
+        else setCrimes(data.crimes || [])
+      })
+      .catch(e => { if (!cancelled) { setError(e.message); setCrimes([]) } })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [apiKey])
+
+  const now = Math.floor(Date.now() / 1000)
+
+  const groups = useMemo(() => {
+    const g = { recruiting: [], empty: [], planning: [] }
+    for (const c of (crimes || [])) {
+      if (c.status === 'Planning') g.planning.push(c)
+      else if (c.status === 'Recruiting') (c.planning_at == null ? g.empty : g.recruiting).push(c)
+    }
+    g.recruiting.sort((a, b) => (a.ready_at || 0) - (b.ready_at || 0))
+    g.empty.sort((a, b) => (a.expired_at || 0) - (b.expired_at || 0))
+    g.planning.sort((a, b) => (a.ready_at || 0) - (b.ready_at || 0))
+    return g
+  }, [crimes])
+
+  // At-a-glance actionables: open slots to fill, and who frees up (OCs executing) within 24h.
+  // A member is only ever in one OC, so each person appears at most once in `freeing`.
+  const summary = useMemo(() => {
+    const all = crimes || []
+    const horizon = Math.floor(Date.now() / 1000) + 86400
+    let openSpots = 0
+    const freeing = []
+    for (const c of all) {
+      for (const s of (c.slots || [])) if (!s.user) openSpots++
+      if (c.status === 'Planning' && c.ready_at && c.ready_at <= horizon) {
+        for (const s of (c.slots || [])) {
+          if (s.user) freeing.push({
+            id: String(s.user.id),
+            crimeId: c.id,
+            crimeName: c.name,
+            position: s.position_info?.label || s.position,
+            readyAt: c.ready_at,
+          })
+        }
+      }
+    }
+    freeing.sort((a, b) => (a.readyAt || 0) - (b.readyAt || 0))
+    const crimesFreeing = new Set(freeing.map(f => f.crimeId)).size
+    return { openSpots, freeing, crimesFreeing, totalCrimes: all.length }
+  }, [crimes])
+
+  // Deep-link straight to a crime on the faction OC tab.
+  const crimeUrl = (id) => `https://www.torn.com/factions.php?step=your&type=12#/tab=crimes&crimeId=${id}`
+
+  // Colour a box green/amber/red by a CPR vs its requirement (default 75 when unconfigured).
+  const fitClass = (cpr, req) => {
+    if (cpr == null) return 'border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800'  // no CPR data
+    if (cpr >= req) return 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
+    if (req - cpr <= 5) return 'border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20'
+    return 'border-2 border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20'
+  }
+
+  // One slot as a two-line cell: position on top; occupant + CPR (or your fit) below.
+  // colorFilled = colour filled slots by the occupant's CPR (Planning); otherwise they stay gray.
+  function SlotCell({ crimeName, crimeId, slot, colorFilled }) {
+    const label = slot.position_info?.label || slot.position
+    const req = config.cprRequirements?.[crimeName]?.positions?.[label] ?? 75
+
+    if (slot.user) {
+      const name = memberNames[String(slot.user.id)] || `#${slot.user.id}`
+      const cpr = slot.checkpoint_pass_rate
+      const cls = colorFilled
+        ? fitClass(cpr, req)
+        : 'border-gray-200 dark:border-slate-600 bg-gray-100 dark:bg-slate-700'
+      return (
+        <div className={`flex flex-col px-2 py-1 rounded border text-xs min-w-[7rem] ${cls}`}>
+          <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{label}</span>
+          <span className="text-gray-600 dark:text-gray-400 truncate">
+            {name}{cpr != null ? ` · ${Math.round(cpr)}` : ''}
+          </span>
+        </div>
+      )
+    }
+
+    // Open — colour by the viewer's CPR; the whole box links to the crime to join.
+    const mine = myCpr[`${crimeName}||${label}`]
+    return (
+      <a href={crimeUrl(crimeId)} target="_blank" rel="noreferrer"
+        className={`flex flex-col px-2 py-1 rounded border text-xs min-w-[7rem] transition hover:brightness-95 ${fitClass(mine, req)}`}>
+        <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{label}</span>
+        <span className="text-gray-500 dark:text-gray-400 truncate">
+          EMPTY{mine != null ? ` · you ${Math.round(mine)}` : ''} / {req}
+        </span>
+      </a>
+    )
+  }
+
+  function CrimeRow({ c, timerTs, timerLabel, pausedLabel, colorFilled }) {
+    const filled = c.slots.filter(s => s.user).length
+    const overdue = timerTs != null && timerTs <= now
+    return (
+      <div className="flex flex-col gap-2 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <DifficultyBadge difficulty={c.difficulty} />
+            <a href={crimeUrl(c.id)} target="_blank" rel="noreferrer"
+              className="font-medium text-blue-600 dark:text-blue-400 hover:underline">{c.name}</a>
+            <span className="text-xs text-gray-500 dark:text-gray-400">{filled}/{c.slots.length} filled</span>
+          </div>
+          <span className={`font-mono text-sm ${overdue ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-700 dark:text-gray-300'}`}>
+            {overdue ? `⏸ ${pausedLabel}` : `${timerLabel} ${formatCountdown(timerTs - now)}`}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {c.slots.map((s, i) => <SlotCell key={i} crimeName={c.name} crimeId={c.id} slot={s} colorFilled={colorFilled} />)}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white">Current Crimes</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Live from Torn — who's freeing up, where the open spots are, and join deadlines.</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-4">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" /> Loading current crimes…
+        </div>
+      ) : error ? (
+        <p className="text-sm text-amber-600 dark:text-amber-400 py-2">{error}</p>
+      ) : (crimes && crimes.length === 0) ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-2">No recruiting or planning crimes right now.</p>
+      ) : (
+        <div className="space-y-4">
+          {/* At-a-glance: open spots to fill + who's coming out in the next 24h */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2">
+              <div className="text-xs text-amber-700 dark:text-amber-300">Open spots to fill</div>
+              <div className="text-2xl font-bold text-amber-700 dark:text-amber-300">{summary.openSpots}</div>
+              <div className="text-[11px] text-amber-600/80 dark:text-amber-400/80">across {summary.totalCrimes} active {summary.totalCrimes === 1 ? 'crime' : 'crimes'}</div>
+            </div>
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2">
+              <div className="text-xs text-emerald-700 dark:text-emerald-300">Coming out in 24h</div>
+              <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{summary.freeing.length}</div>
+              <div className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80">from {summary.crimesFreeing} executing {summary.crimesFreeing === 1 ? 'crime' : 'crimes'}</div>
+            </div>
+          </div>
+
+          {summary.freeing.length > 0 && (
+            <div>
+              <button
+                onClick={() => setFreeingOpen(o => !o)}
+                className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 mb-1.5"
+              >
+                <ChevronRight className={`w-3.5 h-3.5 transition-transform ${freeingOpen ? 'rotate-90' : ''}`} />
+                Coming out in the next 24h ({summary.freeing.length})
+              </button>
+              {freeingOpen && (
+                <div className="flex flex-wrap gap-1.5">
+                  {summary.freeing.map((f, i) => {
+                    const secs = f.readyAt - now
+                    const ready = secs <= 0
+                    return (
+                      <a key={i} href={crimeUrl(f.crimeId)} target="_blank" rel="noreferrer"
+                        title={`${f.crimeName} — ${f.position}`}
+                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:brightness-95">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">{memberNames[f.id] || `#${f.id}`}</span>
+                        <span className={`font-mono ${ready ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}>
+                          {ready ? 'ready' : formatCountdown(secs)}
+                        </span>
+                      </a>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {groups.empty.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-1.5">
+                Empty — needs a starter ({groups.empty.length})
+              </h3>
+              <div className="space-y-1.5">
+                {groups.empty.map(c => (
+                  <CrimeRow key={c.id} c={c} timerTs={c.expired_at} timerLabel="Expires in" pausedLabel="Expired" colorFilled={false} />
+                ))}
+              </div>
+            </div>
+          )}
+          {groups.recruiting.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1.5">
+                Recruiting — has open slots ({groups.recruiting.length})
+              </h3>
+              <div className="space-y-1.5">
+                {groups.recruiting.map(c => (
+                  <CrimeRow key={c.id} c={c} timerTs={c.ready_at} timerLabel="Pauses in" pausedLabel="Stalled — needs a member" colorFilled={false} />
+                ))}
+              </div>
+            </div>
+          )}
+          {groups.planning.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1.5">
+                In Planning — full ({groups.planning.length})
+              </h3>
+              <div className="space-y-1.5">
+                {groups.planning.map(c => (
+                  <CrimeRow key={c.id} c={c} timerTs={c.ready_at} timerLabel="Ready in" pausedLabel="Ready" colorFilled={true} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

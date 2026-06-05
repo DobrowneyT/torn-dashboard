@@ -66,10 +66,17 @@ class TierAssignment:
         ],
     }
 
-    def __init__(self, proportion_threshold: float = 2/3, knn_k: int = 5):
+    def __init__(self, proportion_threshold: float = 2/3, knn_k: int = 5,
+                 member_cpr: Optional[Dict] = None, crime_types: Optional[Dict] = None):
         self.proportion_threshold = proportion_threshold
         self.knn_k = knn_k
-        self.cpr_data, self.crime_types = self.load_cpr_data()
+        # DB-native callers inject the in-memory v2 data directly; standalone
+        # runs fall back to reading the (legacy) JSON file.
+        if member_cpr is not None and crime_types is not None:
+            self.cpr_data, self.crime_types = member_cpr, crime_types
+            logger.info(f"✓ Using injected CPR v2 data: {len(member_cpr)} members, {len(crime_types)} crime types")
+        else:
+            self.cpr_data, self.crime_types = self.load_cpr_data()
         self.knn_list: List[Dict] = []
         self.members_no_data: List[Dict] = []
         self.pass1_assignments: Dict = {}

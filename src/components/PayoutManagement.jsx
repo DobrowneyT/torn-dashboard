@@ -1598,17 +1598,11 @@ function StatCard({ label, value, color, clickable, onClick }) {
 }
 
 function TierBadge({ tier }) {
-  const colors = {
-    1: 'bg-yellow-500',
-    2: 'bg-orange-500',
-    3: 'bg-red-500',
-    4: 'bg-purple-500',
-    5: 'bg-blue-500',
-    6: 'bg-gray-500'
-  }
+  const colors = { 0: 'bg-tier-review', 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3', 4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6' }
+  const label = tier === 0 ? 'Review' : `T${tier}`
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-white font-semibold text-xs ${colors[tier]}`}>
-      T{tier}
+    <span className={`inline-block px-2 py-0.5 rounded text-white font-semibold text-xs ${colors[tier] ?? 'bg-tier-review'}`}>
+      {label}
     </span>
   )
 }

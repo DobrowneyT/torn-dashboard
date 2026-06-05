@@ -59,9 +59,9 @@ export default function MembersView({ isLeadership }) {
         throw error
       }
 
-      // Get CPR averages
+      // Get CPR averages (v2 — crime/position keyed)
       const { data: cprData } = await supabase
-        .from('member_cpr')
+        .from('member_cpr_v2')
         .select('member_id, cpr_value')
 
       // Calculate average CPR per member
@@ -564,7 +564,7 @@ function CrimesModal({ member, crimes, loading, onClose }) {
   }
 
   return (
-    <div className="modal-overlay">
+    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal-dialog sm:max-w-4xl">
         <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
           <div>
@@ -636,7 +636,7 @@ function PayoutsModal({ member, payouts, loading, onClose, isLeadership }) {
   const totalTheoretical = payouts.reduce((sum, p) => sum + (p.theoretical_payout || 0), 0)
 
   return (
-    <div className="modal-overlay">
+    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal-dialog sm:max-w-4xl">
         <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
           <div>
@@ -747,7 +747,7 @@ function LoanedItemsModal({ member, items, loading, onClose }) {
   const totalValue = sorted.reduce((sum, item) => sum + ((item.market_value || 0) * (item.loaned_to_member || 1)), 0)
 
   return (
-    <div className="modal-overlay">
+    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal-dialog sm:max-w-3xl">
         <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
           <div>
@@ -840,7 +840,7 @@ function CprModal({ member, cprData, loading, onClose }) {
     : null
 
   return (
-    <div className="modal-overlay">
+    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal-dialog sm:max-w-lg">
         <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
           <div>

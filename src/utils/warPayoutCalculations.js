@@ -670,15 +670,108 @@ export function detectRaceCutoff(attacks, targetScore) {
 
 
 /**
- * Calculate race war payouts — hybrid real + termed.
+ * Sum raw outgoing ranked-war WIN respect per member within an attack window.
+ * This is the windowed "contribution" score fed to the real-war formula for each
+ * race sub-period (pre / post cutoff), so contribution reflects only that window.
+ */
+function windowedRespectByMember(attacks) {
+  const m = new Map()
+  for (const a of attacks) {
+    const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
+    if (isIncoming || a.attacker_faction_id !== OUR_FACTION_ID) continue
+    if (!WIN_RESULTS.has(a.result || '')) continue
+    const isRankedWar = a.is_ranked_war === true || a.is_ranked_war === 'true' || a.is_ranked_war === 1
+    if (!isRankedWar) continue
+    const id = a.attacker_id
+    m.set(id, (m.get(id) || 0) + (parseFloat(a.respect_gain) || 0))
+  }
+  return m
+}
+
+/**
+ * Flat-shares distribution for a window's pool. Returns a `{ members }` result
+ * shaped like calculateRealWarPayouts so the race combiner can treat it uniformly.
  *
- * Splits attacks into pre-cutoff and post-cutoff windows.
- * Pre-cutoff pool uses the real war formula (participation + contribution).
- * Post-cutoff pool uses the termed formula (flat shares or scaling).
+ * Two sub-modes:
+ *   • Flat (scaleEnabled = false): every member whose windowed score meets the
+ *     threshold gets 1 equal share.
+ *   • Flat-then-scale (scaleEnabled = true): 1 base share for reaching the
+ *     threshold within `scaleHours` of war start, plus `scoreAfter / threshold`
+ *     fractional shares for score earned after that mark. (Mirrors the old
+ *     Termed scaling mode.)
+ *
+ * Score is bonus-chain-normalized respect from outgoing ranked-war wins
+ * (via calculateCutoffScores), consistent with the rest of the payout math.
+ */
+function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
+  const {
+    threshold = 0, scaleEnabled = false, scaleHours = 24,
+    warStartAt = 0, ineligibleMembers = new Set(),
+  } = opts
+  const stats = buildMemberAttackStats(windowAttacks)
+  // When scaling, split the window at warStart + scaleHours; otherwise everything
+  // counts as "within" so total score = within.
+  const innerCutoff = scaleEnabled ? (Number(warStartAt) + Number(scaleHours) * 3600) : Number.MAX_SAFE_INTEGER
+  const cutoffScores = calculateCutoffScores(windowAttacks, innerCutoff)
+  const thr = Number(threshold) || 0
+
+  const memberList = contributions.map(m => {
+    const id = m.member_id
+    const s = stats.get(id) ?? { ...emptyHitBucket(), bonusRespect: 0 }
+    const cs = cutoffScores.get(id) || { preCutoffScore: 0, postCutoffScore: 0, bonusReduction: 0 }
+    const within = cs.preCutoffScore     // score within threshold period (all of it when no scaling)
+    const after  = cs.postCutoffScore    // score after the N-hour mark (0 when no scaling)
+    const totalScore = within + after
+    const manuallyIneligible = ineligibleMembers.has(id)
+
+    let baseShares, additionalShares
+    if (scaleEnabled) {
+      baseShares = (!manuallyIneligible && within >= thr) ? 1 : 0
+      additionalShares = (!manuallyIneligible && after > 0 && thr > 0) ? after / thr : 0
+    } else {
+      const meets = thr > 0 ? totalScore >= thr : totalScore > 0
+      baseShares = (!manuallyIneligible && meets) ? 1 : 0
+      additionalShares = 0
+    }
+    const shares = Math.round((baseShares + additionalShares) * 100) / 100
+
+    return {
+      memberId: id,
+      memberName: m.member_name,
+      leaves: s.leaves, mugs: s.mugs, hosp: s.hosp, warHits: s.warHits, regularHits: s.regularHits,
+      won: s.won, assists: s.assists, losses: s.losses, totalHits: s.totalHits,
+      score: Math.round(totalScore * 100) / 100,
+      scoreWithin: Math.round(within * 100) / 100,
+      scoreAfter: Math.round(after * 100) / 100,
+      baseShares, additionalShares, shares,
+      respectGained: Math.round(totalScore * 100) / 100,
+      isEligible: !manuallyIneligible && shares > 0,
+    }
+  })
+
+  const totalShares = memberList.reduce((s, m) => s + m.shares, 0)
+  const withPay = memberList.map(m => ({
+    ...m,
+    payoutAmount: totalShares > 0 ? Math.floor((m.shares / totalShares) * pool) : 0,
+  }))
+  return { members: distributeRemainder(withPay, pool, m => m.shares), totalShares }
+}
+
+/**
+ * Calculate race war payouts — two symmetric real-war calculations.
+ *
+ * The member pool is split into a pre-cutoff pool and a post-cutoff pool (by
+ * `racePreCutoffPercent`). Each window is then run through the SAME real-war
+ * formula (participation + contribution) but with its OWN multiplier set and
+ * weight, so leaders can, e.g., pay regular/non-war hits during the war but
+ * zero them out after the cutoff — without filtering any attacks out.
+ *
+ * Contribution per window = raw outgoing ranked-war respect earned in that
+ * window (not the full-war API score), so pre and post don't double-count.
  *
  * @param {Array}  contributions - war_member_contributions rows (our faction only)
  * @param {Array}  attacks       - faction_attacks rows (pre-filtered to war window)
- * @param {object} settings      - combined real + termed + race settings
+ * @param {object} settings      - combined real + race settings
  */
 export function calculateRaceWarPayouts(contributions, attacks, settings) {
   const {
@@ -687,23 +780,33 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     mercCost     = 0,
     reviverCost  = 0,
     factionTopUp = 0,
-    // Race-specific
     raceCutoffTimestamp,
     racePreCutoffPercent = 50,
-    racePostCutoffMode = 'flat',  // 'flat' | 'scaling'
-    // Real-war multipliers (for pre-cutoff)
-    warHitMultiplier     =  1.25,
+    // Pre-cutoff formula
+    warHitMultiplier     =  1.00,
     assistMultiplier     =  0.50,
     lossMultiplier       =  0.50,
-    mugMultiplier        = -1.00,
-    regularHitMultiplier =  0.00,
+    mugMultiplier        =  0.00,
+    regularHitMultiplier =  1.00,
+    participationWeight  =  0.50,
+    contributionWeight   =  0.50,
     memberMultiplierOverrides = {},
-    participationWeight = 0.50,
-    contributionWeight  = 0.50,
-    // Termed settings (for post-cutoff)
-    memberShares = {},
-    minScoreThreshold = 0,
-    cutoffHours = 24,
+    // Post-cutoff formula (its own independent set)
+    postWarHitMultiplier     =  1.00,
+    postAssistMultiplier     =  0.50,
+    postLossMultiplier       =  0.50,
+    postMugMultiplier        =  0.00,
+    postRegularHitMultiplier =  0.00,
+    postParticipationWeight  =  0.50,
+    postContributionWeight   =  0.50,
+    postMemberMultiplierOverrides = {},
+    // Post-cutoff distribution: 'formula' (participation+contribution) or 'flat'
+    // (equal shares above a score threshold, optionally flat-then-scale).
+    postDistMode    = 'formula',
+    postFlatThreshold = 0,
+    postScaleEnabled  = false,
+    postScaleHours    = 24,
+    warStartAt        = 0,
     // Manual eligibility overrides
     ineligibleMembers = new Set(),
   } = settings
@@ -718,86 +821,85 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
   const preCutoffPool = Math.floor(memberPool * (Number(racePreCutoffPercent) / 100))
   const postCutoffPool = memberPool - preCutoffPool
 
-  // Split attacks into pre/post cutoff
+  // Partition attacks at the cutoff (started <= cutoff is "pre").
   const preAttacks = attacks.filter(a => (Number(a.started) || 0) <= cutoff)
   const postAttacks = attacks.filter(a => (Number(a.started) || 0) > cutoff)
 
-  // ── Pre-cutoff: real war formula ──────────────────────────────────
-  const preResult = calculateRealWarPayouts(contributions, preAttacks, {
-    totalReward: preCutoffPool,  // Directly use as pool (no cuts — already applied)
-    factionCutPercent: 0,
-    mercCost: 0,
-    reviverCost: 0,
-    factionTopUp: 0,
-    warHitMultiplier,
-    assistMultiplier,
-    lossMultiplier,
-    mugMultiplier,
-    regularHitMultiplier,
-    memberMultiplierOverrides,
-    participationWeight,
-    contributionWeight,
-    ineligibleMembers,
+  // Windowed contribution: each window's real-war calc sees only the respect
+  // earned in that window (overrides the full-war API score per member).
+  const preRespect = windowedRespectByMember(preAttacks)
+  const postRespect = windowedRespectByMember(postAttacks)
+  const preContribs  = contributions.map(c => ({ ...c, score: preRespect.get(c.member_id) || 0 }))
+  const postContribs = contributions.map(c => ({ ...c, score: postRespect.get(c.member_id) || 0 }))
+
+  // ── Pre-cutoff: real-war formula with the pre multiplier set ──────────
+  const preResult = calculateRealWarPayouts(preContribs, preAttacks, {
+    totalReward: preCutoffPool, factionCutPercent: 0, mercCost: 0, reviverCost: 0, factionTopUp: 0,
+    warHitMultiplier, assistMultiplier, lossMultiplier, mugMultiplier, regularHitMultiplier,
+    memberMultiplierOverrides, participationWeight, contributionWeight, ineligibleMembers,
   })
 
-  // ── Post-cutoff: termed formula ───────────────────────────────────
-  const postResult = calculateTermedWarPayouts(contributions, {
-    totalReward: postCutoffPool,  // Directly use as pool
-    factionCutPercent: 0,
-    minScoreThreshold,
-    termedMode: racePostCutoffMode,
-    memberShares,
-    attacks: postAttacks,
-    warStartAt: cutoff,  // post-cutoff "start" is the cutoff itself
-    cutoffHours,
-    ineligibleMembers,
-  })
+  // ── Post-cutoff: either the real-war formula or flat-shares distribution ──
+  const postResult = postDistMode === 'flat'
+    ? flatWindowResult(contributions, postAttacks, postCutoffPool, {
+        threshold: postFlatThreshold, scaleEnabled: postScaleEnabled, scaleHours: postScaleHours,
+        warStartAt, ineligibleMembers,
+      })
+    : calculateRealWarPayouts(postContribs, postAttacks, {
+        totalReward: postCutoffPool, factionCutPercent: 0, mercCost: 0, reviverCost: 0, factionTopUp: 0,
+        warHitMultiplier: postWarHitMultiplier,
+        assistMultiplier: postAssistMultiplier,
+        lossMultiplier: postLossMultiplier,
+        mugMultiplier: postMugMultiplier,
+        regularHitMultiplier: postRegularHitMultiplier,
+        memberMultiplierOverrides: postMemberMultiplierOverrides,
+        participationWeight: postParticipationWeight,
+        contributionWeight: postContributionWeight,
+        ineligibleMembers,
+      })
 
   // ── Combine per-member results ────────────────────────────────────
   const preByMember = new Map(preResult.members.map(m => [m.memberId, m]))
   const postByMember = new Map(postResult.members.map(m => [m.memberId, m]))
 
-  // Hit Report columns must reflect the full war window (pre + post cutoff),
-  // not just pre-cutoff.  Build stats from the entire (filtered) attack set.
-  const fullStats = buildMemberAttackStats(attacks)
-
   const members = contributions.map(m => {
     const memberId = m.member_id
-    const pre = preByMember.get(memberId) || { payoutAmount: 0 }
-    const post = postByMember.get(memberId) || { payoutAmount: 0, shares: 0 }
-    const full = fullStats.get(memberId) ?? { ...emptyHitBucket(), bonusRespect: 0 }
+    const pre  = preByMember.get(memberId)  || { payoutAmount: 0 }
+    const post = postByMember.get(memberId) || { payoutAmount: 0 }
+    const prePay = pre.payoutAmount || 0
+    const postPay = post.payoutAmount || 0
 
     return {
-      // Carry participation/contribution score fields from pre-cutoff result
-      ...pre,
       memberId,
       memberName: m.member_name,
-      // Hit Report columns: full war window
-      leaves:      full.leaves,
-      mugs:        full.mugs,
-      hosp:        full.hosp,
-      warHits:     full.warHits,
-      regularHits: full.regularHits,
-      won:         full.won,
-      assists:     full.assists,
-      losses:      full.losses,
-      totalHits:   full.totalHits,
-      // Race-specific breakdowns
-      preCutoffPayout: pre.payoutAmount,
-      postCutoffPayout: post.payoutAmount,
-      postCutoffShares: post.shares || 0,
-      payoutAmount: pre.payoutAmount + post.payoutAmount,
-      isEligible: !ineligibleMembers.has(memberId) && (pre.payoutAmount + post.payoutAmount) > 0,
+      // Full per-window real-war breakdowns (hit report + participation + contribution).
+      pre,
+      post,
+      // Top-level convenience fields (full window = pre + post) for sorting / totals.
+      leaves:      (pre.leaves || 0) + (post.leaves || 0),
+      mugs:        (pre.mugs || 0) + (post.mugs || 0),
+      hosp:        (pre.hosp || 0) + (post.hosp || 0),
+      warHits:     (pre.warHits || 0) + (post.warHits || 0),
+      regularHits: (pre.regularHits || 0) + (post.regularHits || 0),
+      won:         (pre.won || 0) + (post.won || 0),
+      assists:     (pre.assists || 0) + (post.assists || 0),
+      losses:      (pre.losses || 0) + (post.losses || 0),
+      totalHits:   (pre.totalHits || 0) + (post.totalHits || 0),
+      respectGained: (pre.respectGained || 0) + (post.respectGained || 0),
+      // Payout breakdown.
+      preCutoffPayout: prePay,
+      postCutoffPayout: postPay,
+      payoutAmount: prePay + postPay,
+      isEligible: !ineligibleMembers.has(memberId) && (prePay + postPay) > 0,
     }
   })
 
-  const membersD = distributeRemainder(members, memberPool, m => m.totalHits || 0)
-  const totalPayout = membersD.reduce((s, m) => s + m.payoutAmount, 0)
-  const totalWarHits = membersD.reduce((s, m) => s + (m.totalHits || 0), 0)
+  const totalPayout = members.reduce((s, m) => s + m.payoutAmount, 0)
+  const totalWarHits = members.reduce((s, m) => s + (m.totalHits || 0), 0)
   const payPerHit = totalWarHits > 0 ? Math.floor(totalPayout / totalWarHits) : 0
 
   return {
-    members: membersD,
+    members,
     totalPayout,
     cacheValue: totalCacheValue,
     memberPayoutPool: memberPool,

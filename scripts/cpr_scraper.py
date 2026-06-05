@@ -27,7 +27,6 @@ from scripts.assign_tiers import TierAssignment
 
 SKIP_GOOGLE_SHEETS = os.environ.get('SKIP_GOOGLE_SHEETS', '').lower() in ('true', '1', 'yes')
 from scripts.utils.torn_api import TornAPI, TornAPIError
-from scripts.utils.gist_updater import update_gist
 
 # Set up logging
 logging.basicConfig(
@@ -199,76 +198,36 @@ class CPRScraper:
         except Exception as e:
             logger.warning(f"Member sync failed (non-fatal): {e}")
 
-    def _load_cpr_database(self) -> Dict:
-        """
-        Load the CPR database from storage
-        Now includes tier data for each member
-        """
-        cpr_data = self.storage.read_json('cpr_database.json')
-        
-        if not cpr_data:
-            # Initialize if doesn't exist
-            cpr_data = {
-                'members': {},
-                'metadata': {
-                    'last_updated': datetime.now().isoformat(),
-                    'total_members': 0,
-                    'version': '2.0'  # Updated version for tier integration
-                }
-            }
-            self.storage.write_json('cpr_database.json', cpr_data, create_backup=False)
-        
-        return cpr_data
-    
-    def _save_cpr_database(self, cpr_data: Dict):
-        """Save the CPR database to storage with sorted difficulty levels"""
-        cpr_data['metadata']['last_updated'] = datetime.now().isoformat()
-        cpr_data['metadata']['total_members'] = len(cpr_data.get('members', {}))
-        cpr_data['metadata']['version'] = '2.0'
-        
-        # Sort difficulty levels numerically for all members (if not already)
-        for member_id in cpr_data.get('members', {}):
-            if 'cpr_by_role' in cpr_data['members'][member_id]:
-                sorted_cpr = {}
-                for level in sorted(cpr_data['members'][member_id]['cpr_by_role'].keys(), key=int):
-                    sorted_cpr[level] = cpr_data['members'][member_id]['cpr_by_role'][level]
-                cpr_data['members'][member_id]['cpr_by_role'] = sorted_cpr
-        
-        self.storage.write_json(
-            'cpr_database.json',
-            cpr_data,
-            create_backup=True,
-            commit_message="Update CPR database and tiers"
-        )
-        logger.info("CPR database with tiers saved")
-    
     def _fetch_available_crimes(self, api_key: str, member_id: str) -> Optional[Dict]:
         """
-        Fetch available crimes from Torn API with error handling
-        
+        Fetch the key owner's CPR via the user/organizedcrimes selection.
+
+        As of the 2026-06-01 deprecation, `faction` -> `crimes` reports the key
+        owner's CPR for empty Recruiting slots as 0, so the old faction empty-slot
+        trick no longer works. `user/organizedcrimes` returns empty slots for
+        Recruiting crimes with the KEY OWNER's checkpoint_pass_rate instead.
+
+        The response is keyed `organizedcrimes`; we normalise it to the
+        `{'crimes': [...]}` shape the extractors already expect (every slot is
+        empty, so they attribute each slot's CPR to this member).
+
         Args:
             api_key: Member's API key
             member_id: Member ID (for logging)
-            
+
         Returns:
-            Crimes data or None if failed
+            Crimes data (normalised) or None if failed
         """
         try:
             api = TornAPI(api_key)
-            
-            # Get available crimes sorted by creation date
-            result = api.get_faction_crimes(
-                category="available",
-                filters="created_at",
-                offset=0,
-                sort="DESC",
-                comment="TNL Forge CPR Scraper"
-            )
-            
-            crimes = result.get('crimes', [])
-            logger.info(f"Member {member_id}: Fetched {len(crimes)} available crimes")
-            return result
-            
+
+            result = api.get_user_organized_crimes(comment="TNL Forge CPR Scraper")
+
+            crimes = result.get('organizedcrimes', [])
+            logger.info(f"Member {member_id}: Fetched {len(crimes)} recruiting crimes (user/organizedcrimes)")
+            # Normalise to the shape the CPR extractors expect.
+            return {'crimes': crimes}
+
         except TornAPIError as e:
             logger.warning(f"Member {member_id}: API error - {e}")
             logger.warning(f"Member {member_id}: Skipping CPR update (existing data unchanged)")
@@ -276,157 +235,6 @@ class CPRScraper:
         except Exception as e:
             logger.error(f"Member {member_id}: Unexpected error - {e}")
             return None
-
-    def _extract_cpr_from_crimes(self, crimes_data: Dict, member_id: str) -> Dict[str, Dict[str, int]]:
-        """
-        Extract CPR requirements from empty slots in crimes
-        
-        Args:
-            crimes_data: Raw crimes data from API
-            member_id: Member ID (for logging)
-            
-        Returns:
-            Dictionary: {difficulty_level: {position: cpr_value}}
-        """
-        cpr_by_level = {}
-        
-        if not crimes_data or 'crimes' not in crimes_data:
-            return cpr_by_level
-        
-        for crime in crimes_data['crimes']:
-            difficulty = str(crime['difficulty'])
-            crime_name = crime.get('name', 'Unknown')
-            
-            if difficulty not in cpr_by_level:
-                cpr_by_level[difficulty] = {}
-            
-            # Check all slots for empty positions OR slots occupied by this member
-            for slot in crime.get('slots', []):
-                slot_user = slot.get('user')
-                # Process if empty OR if this member is in the slot
-                is_empty = slot_user is None
-                is_member_slot = slot_user and str(slot_user.get('id', '')) == str(member_id)
-                if is_empty or is_member_slot:
-                    position = slot.get('position', 'Unknown')
-                    cpr = slot.get('checkpoint_pass_rate', 0)
-
-                    # Always overwrite — Torn can change CPR values at any time
-                    if cpr != cpr_by_level[difficulty].get(position):
-                        cpr_by_level[difficulty][position] = cpr
-                        logger.debug(f"Member {member_id}: {crime_name} Lvl {difficulty} - {position} = {cpr} CPR")
-        
-        return cpr_by_level
-
-    def _extract_cpr_from_available_crimes_all_members(self, crimes_data: Dict) -> Dict[str, Dict[str, Dict[str, int]]]:
-        """
-        Extract CPR data for ALL members from available crimes (even without their API keys)
-        
-        Args:
-            crimes_data: Raw crimes data from faction API
-            
-        Returns:
-            Dictionary: {member_id: {difficulty_level: {position: cpr_value}}}
-        """
-        member_cpr_data = {}
-        
-        if not crimes_data or 'crimes' not in crimes_data:
-            return member_cpr_data
-        
-        for crime in crimes_data['crimes']:
-            difficulty = str(crime['difficulty'])
-            crime_name = crime.get('name', 'Unknown')
-            
-            # Check all slots for filled positions
-            for slot in crime.get('slots', []):
-                user_data = slot.get('user')
-                
-                # Only process slots with users (filled positions)
-                if user_data and user_data.get('id'):
-                    member_id = str(user_data['id'])
-                    position = slot.get('position', 'Unknown')
-                    cpr = slot.get('checkpoint_pass_rate', 0)
-                    
-                    # Initialize nested structure if needed
-                    if member_id not in member_cpr_data:
-                        member_cpr_data[member_id] = {}
-                    if difficulty not in member_cpr_data[member_id]:
-                        member_cpr_data[member_id][difficulty] = {}
-                    
-                    # Always overwrite — Torn can change CPR values at any time
-                    member_cpr_data[member_id][difficulty][position] = cpr
-                    logger.debug(f"Member {member_id}: {crime_name} Lvl {difficulty} - {position} = {cpr} CPR (from available crimes)")
-        
-        return member_cpr_data
-
-    def _update_member_cpr(self, cpr_data: Dict, member_id: str, member_name: str, new_cpr: Dict[str, Dict[str, int]]) -> int:
-        """
-        Update a member's CPR data (API data is always source of truth)
-        
-        IMPORTANT: This always reconstructs the member dict to ensure consistent ordering:
-        1. name (always updated from sync)
-        2. tier (preserved from existing data, defaults to 0 for new members
-           — 0 = "needs manual review" sentinel)
-        3. cpr_by_role (merged - keeps old roles, updates/adds new ones, SORTED by difficulty)
-        4. last_scraped (always updated)
-        5. tier_last_updated (preserved from existing data)
-        
-        Args:
-            cpr_data: Full CPR database
-            member_id: Member ID (as string)
-            member_name: Member name (from faction sync)
-            new_cpr: New CPR data from API scrape
-            
-        Returns:
-            Number of updates made
-        """
-        updates = 0
-        
-        # Get existing member data or create empty structure
-        existing_member = cpr_data['members'].get(member_id, {})
-        existing_cpr = existing_member.get('cpr_by_role', {})
-        existing_tier = existing_member.get('tier', 0)
-        existing_tier_updated = existing_member.get('tier_last_updated', '')
-        
-        # Merge CPR data: keep all existing roles, update/add new ones
-        merged_cpr = {}
-        
-        # First, copy all existing CPR data
-        for level, roles in existing_cpr.items():
-            merged_cpr[level] = roles.copy()
-        
-        # Then update with new data
-        for level, roles in new_cpr.items():
-            if level not in merged_cpr:
-                merged_cpr[level] = {}
-            
-            for role, new_value in roles.items():
-                old_value = merged_cpr[level].get(role, 0)
-                
-                if new_value != old_value:
-                    merged_cpr[level][role] = new_value
-                    updates += 1
-                    
-                    if old_value == 0:
-                        logger.info(f"Member {member_name} ({member_id}): NEW - Lvl {level} {role} = {new_value}")
-                    else:
-                        direction = "↑" if new_value > old_value else "↓"
-                        logger.info(f"Member {member_name} ({member_id}): UPDATE - Lvl {level} {role} = {new_value} {direction} (was {old_value})")
-        
-        # Sort the merged CPR by difficulty level (numerically)
-        sorted_cpr = {}
-        for level in sorted(merged_cpr.keys(), key=int):
-            sorted_cpr[level] = merged_cpr[level]
-        
-        # Reconstruct member dict with consistent ordering INCLUDING tier
-        cpr_data['members'][member_id] = {
-            'name': member_name,  # Always use current name from faction sync
-            'tier': existing_tier,  # Preserve existing tier (updated separately by tier assignment)
-            'cpr_by_role': sorted_cpr,  # Now sorted by difficulty
-            'last_scraped': datetime.now().isoformat(),
-            'tier_last_updated': existing_tier_updated  # Preserve tier update timestamp
-        }
-        
-        return updates
 
     def _invalidate_cpr_key(self, member_id: str):
         """Clear the CPR key for a member when it's found to be invalid.
@@ -455,28 +263,136 @@ class CPRScraper:
     # CPR v2 helpers  (crime-name + position-label keyed, separate from v1)
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _load_cpr_v2_database(self) -> Dict:
-        """Load (or initialise) the crime-based CPR v2 database."""
-        v2_data = self.storage.read_json('cpr_database_v2.json')
-        if not v2_data:
-            v2_data = {
-                'crime_types': {},
-                'member_cpr': {},
-                'metadata': {'last_updated': '', 'version': '1.0'}
-            }
-            self.storage.write_json('cpr_database_v2.json', v2_data, create_backup=False)
-        return v2_data
+    def _fetch_all_rows(self, table: str, columns: str) -> List[Dict]:
+        """Read every row from a table, paging past PostgREST's 1000-row cap."""
+        rows: List[Dict] = []
+        page, SIZE = 0, 1000
+        while True:
+            resp = self.supabase.table(table).select(columns).range(page * SIZE, page * SIZE + SIZE - 1).execute()
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < SIZE:
+                break
+            page += 1
+        return rows
 
-    def _save_cpr_v2_database(self, v2_data: Dict):
-        """Save the v2 database to storage."""
-        v2_data['metadata']['last_updated'] = datetime.now().isoformat()
-        self.storage.write_json(
-            'cpr_database_v2.json',
-            v2_data,
-            create_backup=False,
-            commit_message="Update CPR v2 database"
+    def _bulk_upsert_db(self, table: str, records: List[Dict], on_conflict: str) -> int:
+        """Chunked upsert to Supabase. Returns rows sent."""
+        if not records:
+            return 0
+        total = 0
+        for i in range(0, len(records), 500):
+            chunk = records[i:i + 500]
+            self.supabase.table(table).upsert(chunk, on_conflict=on_conflict).execute()
+            total += len(chunk)
+        return total
+
+    def _load_cpr_v2_from_db(self) -> Dict:
+        """
+        Reconstruct the in-memory CPR v2 structure from Supabase. This is the
+        single source of truth now — no JSON baseline. Shape matches what
+        _merge_cpr_v2 / TierAssignment expect:
+          { 'crime_types': {name: {difficulty, first_seen, positions:{label:id}}},
+            'member_cpr':  {member_id: {crime: {position: {cpr_value, ...}}}} }
+        """
+        v2 = {'crime_types': {}, 'member_cpr': {}, 'metadata': {'version': '2.0'}}
+        if not self.supabase:
+            logger.warning("No Supabase client — starting from an empty v2 baseline")
+            return v2
+
+        for t in self._fetch_all_rows('oc_crime_types', 'name,difficulty,first_seen_at'):
+            v2['crime_types'][t['name']] = {
+                'difficulty': t.get('difficulty'),
+                'first_seen': t.get('first_seen_at'),
+                'positions': {},
+            }
+        for p in self._fetch_all_rows('oc_crime_positions', 'crime_name,position_label,position_id'):
+            ct = v2['crime_types'].setdefault(p['crime_name'], {'difficulty': None, 'first_seen': None, 'positions': {}})
+            ct['positions'][p['position_label']] = p.get('position_id')
+
+        rows = self._fetch_all_rows(
+            'member_cpr_v2',
+            'member_id,crime_name,position_label,cpr_value,observation_count,first_seen_at,last_seen_at'
         )
-        logger.info("CPR v2 database saved")
+        for r in rows:
+            mc = v2['member_cpr'].setdefault(str(r['member_id']), {})
+            cc = mc.setdefault(r['crime_name'], {})
+            cc[r['position_label']] = {
+                'cpr_value': float(r['cpr_value']),
+                'observation_count': int(r.get('observation_count') or 1),
+                'first_seen_at': r.get('first_seen_at'),
+                'last_seen_at': r.get('last_seen_at'),
+            }
+        logger.info(
+            f"Loaded v2 baseline from DB: {len(v2['member_cpr'])} members, "
+            f"{len(v2['crime_types'])} crime types, {len(rows)} CPR rows"
+        )
+        return v2
+
+    def _save_cpr_v2_to_db(self, v2_data: Dict, touched_members: set) -> None:
+        """
+        Upsert the v2 data back to Supabase. Crime types/positions are tiny so
+        they're upserted wholesale; member CPR rows are upserted only for members
+        touched this run (optimization).
+        """
+        if not self.supabase:
+            logger.warning("No Supabase client — skipping v2 DB save")
+            return
+        now = datetime.now().isoformat()
+
+        ct_records = [
+            {'name': name, 'difficulty': info.get('difficulty'), 'first_seen_at': info.get('first_seen') or now}
+            for name, info in v2_data['crime_types'].items()
+        ]
+        pos_records = [
+            {'crime_name': name, 'position_label': label, 'position_id': pid}
+            for name, info in v2_data['crime_types'].items()
+            for label, pid in info.get('positions', {}).items()
+        ]
+        cpr_records = []
+        for mid in touched_members:
+            for cname, positions in v2_data['member_cpr'].get(mid, {}).items():
+                difficulty = v2_data['crime_types'].get(cname, {}).get('difficulty')
+                for label, rec in positions.items():
+                    cpr_records.append({
+                        'member_id': mid, 'crime_name': cname, 'position_label': label,
+                        'difficulty': difficulty, 'cpr_value': float(rec['cpr_value']),
+                        'observation_count': int(rec.get('observation_count', 1)),
+                        'first_seen_at': rec.get('first_seen_at') or now,
+                        'last_seen_at': rec.get('last_seen_at') or now,
+                    })
+
+        self._bulk_upsert_db('oc_crime_types', ct_records, 'name')
+        self._bulk_upsert_db('oc_crime_positions', pos_records, 'crime_name,position_label')
+        n = self._bulk_upsert_db('member_cpr_v2', cpr_records, 'member_id,crime_name,position_label')
+        logger.info(
+            f"Saved v2 to DB: {len(ct_records)} crime types, {len(pos_records)} positions, "
+            f"{n} CPR rows for {len(touched_members)} touched members"
+        )
+
+    def _save_tiers_to_db(self, current_members: Dict[str, str], assignments: Dict) -> None:
+        """
+        Write each current member's freshly-computed tier straight to the members
+        table (always-apply — downgrades allowed). Members with no v2 CPR data get
+        Tier 0 (manual review), never -1. Only `tier`/name/timestamps are written,
+        so manual `tier_override` and other columns are preserved.
+        """
+        if not self.supabase:
+            logger.warning("No Supabase client — skipping tier DB save")
+            return
+        now = datetime.now().isoformat()
+        records = [
+            {
+                'member_id': mid,
+                'member_name': name,
+                'tier': (assignments.get(mid) or {}).get('tier', 0),
+                'last_scraped': now,
+                'updated_at': now,
+            }
+            for mid, name in current_members.items()
+        ]
+        n = self._bulk_upsert_db('members', records, 'member_id')
+        logger.info(f"Saved tiers to DB for {n} members (always-apply, Tier 0 = no data)")
 
     def _extract_cpr_v2_from_crimes(
         self,
@@ -608,130 +524,67 @@ class CPRScraper:
         member_id: str,
         api_key: str,
         member_name: str,
-        cpr_data: Dict,
-        v2_data: Optional[Dict] = None,
+        v2_data: Dict,
+        touched: set,
     ) -> Tuple[bool, int, Optional[str]]:
         """
-        Scrape CPR data for a single member.
+        Scrape a single member's CPR via user/organizedcrimes and merge into the
+        in-memory v2 structure. Empty slots carry the key owner's CPR, so every
+        returned slot is attributed to this member.
 
-        Args:
-            member_id: Member ID
-            api_key: Member's API key
-            member_name: Member name
-            cpr_data: CPR v1 database to update (unchanged behaviour)
-            v2_data: CPR v2 database to update (optional; None skips v2 logic)
-
-        Returns:
-            Tuple of (success, updates_count, error_message)
+        Returns (success, records_merged, error_message).
         """
         logger.info(f"Starting scrape for {member_name} ({member_id})")
 
-        # Fetch available crimes
         crimes_data = self._fetch_available_crimes(api_key, member_id)
-
         if crimes_data is None:
-            # API call failed — key may be invalid/expired
             return False, 0, "API fetch failed - key may be invalid or expired"
 
-        # ── v1: existing logic (completely unchanged) ──────────────────────
-        new_cpr = self._extract_cpr_from_crimes(crimes_data, member_id)
+        v2_entries = self._extract_cpr_v2_from_crimes(crimes_data, member_id_context=member_id)
+        touched.update(e['member_id'] for e in v2_entries)
+        updates = self._merge_cpr_v2(v2_data, v2_entries)
 
-        if not new_cpr:
-            logger.warning(f"Member {member_name} ({member_id}): No empty/member slots found in available crimes")
-            # Key is valid (we got a response), just no data this run
-            # Still attempt v2 extraction — filled slots from other members are useful
-            if v2_data is not None:
-                v2_entries = self._extract_cpr_v2_from_crimes(crimes_data, member_id_context=member_id)
-                self._merge_cpr_v2(v2_data, v2_entries)
-            return True, 0, "No matching slots available"
-
-        updates = self._update_member_cpr(cpr_data, member_id, member_name, new_cpr)
-
-        # ── v2: extract crime-keyed CPR (empty slots attributed to this member)
-        if v2_data is not None:
-            v2_entries = self._extract_cpr_v2_from_crimes(crimes_data, member_id_context=member_id)
-            self._merge_cpr_v2(v2_data, v2_entries)
-
-        logger.info(f"Member {member_name} ({member_id}): Scrape complete - {updates} updates made")
+        logger.info(f"Member {member_name} ({member_id}): {updates} CPR records merged")
         return True, updates, None
 
-    def scrape_all_members(self) -> Dict:
+    def scrape_all_members(self) -> Optional[Tuple[Dict, Dict, set]]:
         """
-        Scrape CPR data for all members using multi-stage approach:
-        1. Get all current faction members (skeleton)
-        2. Extract CPR from available crimes (all visible members)
-        3. Merge existing CPR database data
-        4. Scrape individual members with API keys
-        
-        Returns:
-            CPR database with updated data
+        DB-native multi-stage CPR scrape (v2 only):
+          1. Load the CPR v2 baseline from Supabase (no JSON).
+          2. Fetch the current faction roster from Torn.
+          3. Faction available-crimes scan → filled-slot CPR for any slotted member.
+          4. Per-member user/organizedcrimes scan → the key owner's CPR.
+
+        Returns (v2_data, current_members, touched_members), or None on fatal error.
         """
-        logger.info(f"Starting multi-stage CPR scrape")
+        logger.info("Starting multi-stage CPR scrape (DB-native, v2 only)")
 
-        # Load existing CPR database (v1 — unchanged)
-        cpr_data = self._load_cpr_database()
+        v2_data = self._load_cpr_v2_from_db()
+        touched: set = set()
 
-        # Load CPR v2 database (crime-name keyed)
-        v2_data = self._load_cpr_v2_database()
-        
-        # Get current faction members - this is our source of truth
         torn_api_key = os.environ.get('TORN_API_KEY')
         if not torn_api_key:
             logger.error("TORN_API_KEY not found - cannot fetch current faction members")
-            return cpr_data
-        
-        # STAGE 1: Get current faction members
+            return None
+
+        api = TornAPI(torn_api_key)
+
+        # STAGE 1: current faction roster
         logger.info("\n" + "="*70)
         logger.info("STAGE 1: Fetching current faction members")
         logger.info("="*70)
-        
         try:
-            api = TornAPI(torn_api_key)
             faction_response = api.get_faction_members()
             current_members = {str(m['id']): m['name'] for m in faction_response.get('members', [])}
             logger.info(f"Retrieved {len(current_members)} current faction members")
-
-            # Save current faction member IDs for post-processing summary
-            self.storage.write_json('faction_members.json', {
-                'members': current_members,
-                'fetched_at': datetime.now().isoformat()
-            }, create_backup=False)
         except Exception as e:
             logger.error(f"Failed to fetch faction members: {e}")
-            return cpr_data
+            return None
 
-        # Initialize structure for all current members
-        logger.info("\nInitializing CPR database entries for all faction members...")
-        new_members_added = 0
-        
-        for member_id, member_name in current_members.items():
-            if member_id not in cpr_data.get('members', {}):
-                if 'members' not in cpr_data:
-                    cpr_data['members'] = {}
-                
-                cpr_data['members'][member_id] = {
-                    'name': member_name,
-                    'tier': 0,  # 0 = "needs manual review" sentinel
-                    'cpr_by_role': {},
-                    'last_scraped': '',
-                    'tier_last_updated': ''
-                }
-                logger.info(f"Added new member skeleton: {member_name} ({member_id})")
-                new_members_added += 1
-            else:
-                # Update name if it changed
-                if cpr_data['members'][member_id].get('name') != member_name:
-                    old_name = cpr_data['members'][member_id].get('name', 'Unknown')
-                    cpr_data['members'][member_id]['name'] = member_name
-                    logger.info(f"Updated member name: {old_name} → {member_name} ({member_id})")
-        
-        logger.info(f"Stage 1 complete: {new_members_added} new member skeletons added")
-        
-        # STAGE 2: Extract CPR from available crimes
+        # STAGE 2: faction available-crimes filled-slot scan → v2
         logger.info("\n" + "="*70)
-        logger.info("STAGE 2: Extracting CPR data from available crimes")
+        logger.info("STAGE 2: Faction available-crimes filled-slot scan")
         logger.info("="*70)
-        
         try:
             crimes_response = api.get_faction_crimes(
                 category="available",
@@ -740,142 +593,68 @@ class CPRScraper:
                 sort="DESC",
                 comment="TNL Forge CPR Scraper - Available Crimes Scan"
             )
-            
-            available_crimes_cpr = self._extract_cpr_from_available_crimes_all_members(crimes_response)
-            logger.info(f"Extracted CPR data for {len(available_crimes_cpr)} members from available crimes")
-            
-            # Merge this data into CPR database
-            members_updated_from_crimes = 0
-            for member_id, difficulty_data in available_crimes_cpr.items():
-                if member_id in cpr_data.get('members', {}):
-                    member_name = cpr_data['members'][member_id]['name']
-                    existing_cpr = cpr_data['members'][member_id].get('cpr_by_role', {})
-                    
-                    # Merge the data - keep highest CPR for each role
-                    for difficulty, roles in difficulty_data.items():
-                        if difficulty not in existing_cpr:
-                            existing_cpr[difficulty] = {}
-                        
-                        for role, new_cpr in roles.items():
-                            old_cpr = existing_cpr[difficulty].get(role)
-                            if new_cpr != old_cpr:
-                                existing_cpr[difficulty][role] = new_cpr
-                                if old_cpr is None or old_cpr == 0:
-                                    logger.info(f"Member {member_name} ({member_id}): NEW from available crimes - Lvl {difficulty} {role} = {new_cpr}")
-                                else:
-                                    direction = "↑" if new_cpr > old_cpr else "↓"
-                                    logger.info(f"Member {member_name} ({member_id}): UPDATE from available crimes - Lvl {difficulty} {role} = {new_cpr} {direction} (was {old_cpr})")
-                    
-                    cpr_data['members'][member_id]['cpr_by_role'] = existing_cpr
-                    members_updated_from_crimes += 1
-            
-            logger.info(f"Stage 2 complete: Updated {members_updated_from_crimes} members from available crimes")
-
-            # ── v2 addendum: attribute filled-slot CPR by crime name ─────────
-            try:
-                v2_entries = self._extract_cpr_v2_from_crimes(crimes_response, member_id_context=None)
-                v2_stage2_count = self._merge_cpr_v2(v2_data, v2_entries)
-                logger.info(f"CPR v2 Stage 2: {v2_stage2_count} records merged from available crimes")
-            except Exception as v2_err:
-                logger.warning(f"CPR v2 Stage 2 extraction failed (non-fatal): {v2_err}")
-
+            v2_entries = self._extract_cpr_v2_from_crimes(crimes_response, member_id_context=None)
+            touched.update(e['member_id'] for e in v2_entries)
+            merged = self._merge_cpr_v2(v2_data, v2_entries)
+            logger.info(f"Stage 2 complete: {merged} filled-slot CPR records merged ({len(touched)} members touched)")
         except Exception as e:
-            logger.error(f"Failed to extract CPR from available crimes: {e}")
+            logger.error(f"Failed faction available-crimes scan: {e}")
             logger.warning("Continuing with individual member scrapes...")
-        
-        # STAGE 3: Individual member scrapes with API keys
+
+        # STAGE 3: per-member user/organizedcrimes (key owner CPR)
         logger.info("\n" + "="*70)
         logger.info(f"STAGE 3: Scraping {len(self.member_api_keys)} members with API keys")
         logger.info("="*70)
-        
-        stats = {
-            'successful_scrapes': 0,
-            'failed_scrapes': 0,
-            'total_updates': 0,
-            'members_scraped': [],
-            'new_members_added': new_members_added,
-            'members_updated_from_crimes': members_updated_from_crimes
-        }
-        
-        for i, (member_id, api_key) in enumerate(self.member_api_keys.items(), 1):
-            # Get member name from current faction members (guaranteed to exist now)
-            member_name = current_members.get(member_id, f"Member_{member_id}")
-            
-            logger.info(f"Processing {i}/{len(self.member_api_keys)}: {member_name} ({member_id})")
-            
-            try:
-                success, updates, error_msg = self.scrape_member(member_id, api_key, member_name, cpr_data, v2_data=v2_data)
 
+        stats = {'successful_scrapes': 0, 'failed_scrapes': 0, 'total_updates': 0}
+        for i, (member_id, api_key) in enumerate(self.member_api_keys.items(), 1):
+            member_name = current_members.get(member_id, f"Member_{member_id}")
+            logger.info(f"Processing {i}/{len(self.member_api_keys)}: {member_name} ({member_id})")
+            try:
+                success, updates, error_msg = self.scrape_member(member_id, api_key, member_name, v2_data, touched)
                 if success:
                     stats['successful_scrapes'] += 1
                     stats['total_updates'] += updates
-                    stats['members_scraped'].append(member_id)
                 else:
                     stats['failed_scrapes'] += 1
                     # Key failed — null it out so the dashboard shows red and member re-submits
                     self._invalidate_cpr_key(member_id)
-
             except Exception as e:
                 logger.error(f"Member {member_name} ({member_id}): Unexpected error - {e}")
                 stats['failed_scrapes'] += 1
                 self._invalidate_cpr_key(member_id)
-            
-            # Rate limiting
             if i < len(self.member_api_keys):
                 time.sleep(0.01)
-        
-        # No extra cleanup needed — members without a key simply have cpr_api_key = NULL already.
-        # The scraper only touches cpr_api_key when a key actively fails validation.
-
-        # Save the updated CPR databases
-        self._save_cpr_database(cpr_data)
-
-        # Save CPR v2 database (crime-name keyed)
-        try:
-            self._save_cpr_v2_database(v2_data)
-        except Exception as v2_err:
-            logger.warning(f"CPR v2 save failed (non-fatal): {v2_err}")
 
         logger.info("\n" + "="*70)
         logger.info("CPR SCRAPE SUMMARY")
         logger.info("="*70)
-        logger.info(f"Stage 1 - New member skeletons: {stats['new_members_added']}")
-        logger.info(f"Stage 2 - Members updated from available crimes: {stats['members_updated_from_crimes']}")
         logger.info(f"Stage 3 - Successful API key scrapes: {stats['successful_scrapes']}")
-        logger.info(f"Stage 3 - Total CPR updates from API keys: {stats['total_updates']}")
-        logger.info(f"Total members in database: {len(cpr_data.get('members', {}))}")
+        logger.info(f"Stage 3 - Failed (key invalidated): {stats['failed_scrapes']}")
+        logger.info(f"Stage 3 - Total CPR records merged: {stats['total_updates']}")
+        logger.info(f"Members touched this run: {len(touched)}")
         logger.info("="*70)
 
-        # ── Members without a CPR scraper key ──────────────────────────────
-        # Prefer querying Supabase directly (is_current + has_cpr_key = false)
-        # so the list reflects DB state rather than just what was loaded this run.
-        # has_cpr_key is maintained by a trigger on member_secrets.
+        self._log_members_missing_key(current_members)
+
+        return v2_data, current_members, touched
+
+    def _log_members_missing_key(self, current_members: Dict[str, str]) -> None:
+        """Informational: list current members with no CPR scraper key (from Supabase)."""
         members_missing_key = []
         if self.supabase:
             try:
                 resp = self.supabase.table('members') \
-                    .select('member_id, name') \
+                    .select('member_id, member_name') \
                     .eq('is_current', True) \
                     .eq('has_cpr_key', False) \
                     .execute()
                 members_missing_key = sorted(
-                    [(str(row['member_id']), row.get('name', str(row['member_id']))) for row in (resp.data or [])],
+                    [(str(row['member_id']), row.get('member_name') or str(row['member_id'])) for row in (resp.data or [])],
                     key=lambda x: x[1].lower()
                 )
             except Exception as e:
                 logger.warning(f"Could not query Supabase for missing-key list: {e}")
-                # Fall back to in-memory check
-                scraped_ids = set(self.member_api_keys.keys())
-                members_missing_key = sorted(
-                    [(mid, name) for mid, name in current_members.items() if mid not in scraped_ids],
-                    key=lambda x: x[1].lower()
-                )
-        else:
-            scraped_ids = set(self.member_api_keys.keys())
-            members_missing_key = sorted(
-                [(mid, name) for mid, name in current_members.items() if mid not in scraped_ids],
-                key=lambda x: x[1].lower()
-            )
 
         logger.info("\n" + "="*70)
         if members_missing_key:
@@ -884,262 +663,74 @@ class CPRScraper:
             for mid, name in members_missing_key:
                 logger.info(f"  {name} [{mid}]")
         else:
-            logger.info("✓ All current faction members have a CPR scraper key.")
+            logger.info("✓ All current faction members have a CPR scraper key (or none missing).")
         logger.info("="*70)
 
-        return cpr_data
-    
-    def update_member_tiers(self, cpr_data: Dict, new_tier_assignments: Dict) -> Dict:
-        """
-        Update member tiers with upgrade-only logic
-        
-        Args:
-            cpr_data: CPR database with existing tier data
-            new_tier_assignments: New tier assignments from tier assignment algorithm
-            
-        Returns:
-            Dictionary of tier changes made
-        
-        Logic:
-        - If new tier is BETTER (lower number) than existing tier → UPGRADE
-        - If new tier is WORSE (higher number) or EQUAL → KEEP existing tier
-        - Tier 0 is special case (no data / needs manual review) and can
-          be upgraded to any real tier
-        """
-        tier_changes = {
-            'promoted': [],
-            'unchanged': [],
-            'upgrade_rejected': []
-        }
-        
-        logger.info("\n" + "="*70)
-        logger.info("TIER UPDATE PROCESSING (Upgrade-Only Logic)")
-        logger.info("="*70)
-        
-        for member_id, new_assignment in new_tier_assignments.items():
-            if member_id not in cpr_data['members']:
-                logger.warning(f"Member {member_id} not in CPR database, skipping tier update")
-                continue
-            
-            member_data = cpr_data['members'][member_id]
-            member_name = member_data['name']
-            existing_tier = member_data.get('tier', 0)
-            new_tier = new_assignment['tier']
-
-            # Determine if we should update
-            should_update = False
-            reason = ""
-
-            if existing_tier == 0:
-                # Member has no tier yet (new member or no data — 0 sentinel)
-                should_update = True
-                reason = "New tier assignment (was pending)"
-            elif new_tier < existing_tier:
-                # New tier is better (lower number) - UPGRADE
-                should_update = True
-                reason = f"Promotion: Tier {existing_tier} → {new_tier}"
-            elif new_tier == existing_tier:
-                # Same tier - keep existing
-                should_update = False
-                reason = f"Unchanged: Tier {existing_tier}"
-            else:
-                # New tier is worse (higher number) - REJECT
-                should_update = False
-                reason = f"Upgrade rejected: Would downgrade from Tier {existing_tier} to Tier {new_tier}"
-            
-            if should_update:
-                member_data['tier'] = new_tier
-                member_data['tier_last_updated'] = datetime.now().isoformat()
-                
-                if existing_tier != 0 and new_tier < existing_tier:
-                    tier_changes['promoted'].append({
-                        'member_id': member_id,
-                        'name': member_name,
-                        'old_tier': existing_tier,
-                        'new_tier': new_tier,
-                        'reason': reason
-                    })
-                    logger.info(f"✓ {member_name} ({member_id}): {reason}")
-                else:
-                    tier_changes['unchanged'].append({
-                        'member_id': member_id,
-                        'name': member_name,
-                        'tier': new_tier
-                    })
-                    logger.info(f"✓ {member_name} ({member_id}): {reason}")
-            else:
-                tier_changes['upgrade_rejected'].append({
-                    'member_id': member_id,
-                    'name': member_name,
-                    'existing_tier': existing_tier,
-                    'proposed_tier': new_tier,
-                    'reason': reason
-                })
-                logger.info(f"⊗ {member_name} ({member_id}): {reason}")
-        
-        # Print summary
-        logger.info("\n" + "="*70)
-        logger.info("TIER UPDATE SUMMARY")
-        logger.info("="*70)
-        logger.info(f"Promotions: {len(tier_changes['promoted'])}")
-        logger.info(f"Unchanged: {len(tier_changes['unchanged'])}")
-        logger.info(f"Upgrades rejected (would downgrade): {len(tier_changes['upgrade_rejected'])}")
-        logger.info("="*70 + "\n")
-        
-        return tier_changes
-
-
-def print_faction_tier_summary(cpr_data: Dict, current_member_ids: set) -> None:
-    """Print tier distribution for current faction members only"""
-    tier_distribution = {}
-    no_data_members = []
-
-    for member_id, member_data in cpr_data.get('members', {}).items():
-        if member_id not in current_member_ids:
-            continue
-
-        tier = member_data.get('tier', 0)
-        name = member_data.get('name', 'Unknown')
-
-        if tier not in tier_distribution:
-            tier_distribution[tier] = []
-        tier_distribution[tier].append((name, member_id))
-
-        if not member_data.get('cpr_by_role'):
-            no_data_members.append((name, member_id))
+def print_faction_tier_summary(assignments: Dict, current_members: Dict[str, str]) -> None:
+    """Print tier distribution for current faction members from fresh assignments."""
+    tier_distribution: Dict[int, list] = {}
+    for mid, name in current_members.items():
+        tier = (assignments.get(mid) or {}).get('tier', 0)
+        tier_distribution.setdefault(tier, []).append((name, mid))
 
     logger.info("\n" + "="*60)
     logger.info("CURRENT FACTION MEMBER TIER DISTRIBUTION")
     logger.info("="*60)
-    logger.info(f"Total current faction members: {len(current_member_ids)}")
-    logger.info(f"Members found in CPR database: {sum(len(v) for v in tier_distribution.values())}")
+    logger.info(f"Total current faction members: {len(current_members)}")
     logger.info("")
-    logger.info("Tier distribution:")
-
-    if 0 in tier_distribution:
-        members = sorted(tier_distribution[0])
-        logger.info(f"  ⚠️  Tier 0 (NEEDS MANUAL REVIEW): {len(members)} members")
-
-    for tier in range(1, 7):
-        if tier in tier_distribution:
-            members = sorted(tier_distribution[tier])
-            logger.info(f"  Tier {tier}: {len(members)} members")
-
-    logger.info("")
-    logger.info("Member breakdown:")
-
     for tier in [0] + list(range(1, 7)):
-        if tier not in tier_distribution:
+        members = tier_distribution.get(tier, [])
+        if not members:
             continue
         label = "⚠️  Tier 0 (NEEDS MANUAL REVIEW)" if tier == 0 else f"Tier {tier}"
-        members = sorted(tier_distribution[tier])
-        logger.info(f"  {label}:")
-        for name, mid in members:
+        logger.info(f"  {label}: {len(members)} members")
+        for name, mid in sorted(members):
             logger.info(f"    - {name} [{mid}]")
-
-    if no_data_members:
-        logger.info(f"\n⚠ Members with no CPR data ({len(no_data_members)}):")
-        for name, mid in sorted(no_data_members):
-            logger.info(f"  - {name} [{mid}]")
-
     logger.info("="*60)
 
 
 def main():
-    """Main execution function"""
+    """Main execution: DB-native CPR scrape (v2) + always-apply tier assignment."""
     logger.info("="*60)
-    logger.info("Starting Enhanced CPR Scraper with Tier Management")
+    logger.info("Starting CPR Scraper (DB-native, v2) with Tier Assignment")
     logger.info("="*60)
 
     try:
-        # Initialize scraper
         scraper = CPRScraper()
-        
-        # Step 1: Scrape CPR data (also loads existing tier data)
-        cpr_data = scraper.scrape_all_members()
-        
-        # Step 2: Run tier assignment algorithm
+
+        # Step 1: Scrape CPR into the in-memory v2 structure (baseline from DB).
+        result = scraper.scrape_all_members()
+        if not result:
+            logger.error("Scrape aborted (no roster) — nothing written.")
+            sys.exit(1)
+        v2_data, current_members, touched = result
+
+        # Step 2: Compute tiers from the fresh v2 data (always-apply; no upgrade-only).
         logger.info("\nRunning tier assignment algorithm...")
+        assignments = {}
         try:
-            tier_system = TierAssignment()
-            
-            # Generate new tier assignments based on CPR data
-            new_tier_assignments = tier_system.generate_tier_assignments()
-            
-            # Step 3: Update tiers with upgrade-only logic
-            tier_changes = scraper.update_member_tiers(cpr_data, new_tier_assignments)
-            
-            # Step 4: Save updated database (now with new tiers)
-            scraper._save_cpr_database(cpr_data)
-            
-            # Step 5: Update Google Sheets
-            logger.info("\nUpdating Google Sheets...")
-            try:
-                # Update CPR scores
-                cpr_scores = {}
-                for member_id, member_data in cpr_data['members'].items():
-                    all_cprs = []
-                    for level, roles in member_data.get('cpr_by_role', {}).items():
-                        all_cprs.extend(roles.values())
-                    
-                    avg_cpr = round(sum(all_cprs) / len(all_cprs), 2) if all_cprs else 0
-                    
-                    cpr_scores[member_id] = {
-                        'average_cpr': avg_cpr,
-                        'cpr_by_difficulty': member_data.get('cpr_by_role', {})
-                    }
-                
-                if scraper.sheets:
-                    scraper.sheets.update_member_cpr_scores(cpr_scores)
-
-                    # Update tier data (extract tier assignments)
-                    tier_data = {}
-                    for member_id, member_data in cpr_data['members'].items():
-                        tier_data[member_id] = {
-                            'tier': member_data.get('tier', 0),
-                            'previous_tier': member_data.get('tier', 0),
-                            'changed': False,
-                            'total_crimes': 0,
-                            'requirements_met': 0,
-                            'requirements_needed': 0,
-                            'manual_override': False,
-                            'assignment_method': 'upgrade_only',
-                            'last_updated': member_data.get('tier_last_updated', '')
-                        }
-
-                    scraper.sheets.update_member_tier_data(tier_data)
-                    logger.info("✓ Google Sheets updated successfully")
-                else:
-                    logger.info("⏭ Google Sheets update skipped")
-                
-            except Exception as e:
-                logger.error(f"Error updating Google Sheets: {e}")
-            
-            # Step 6: Update GitHub Gist
-            logger.info("\nUpdating public GitHub Gist...")
-            try:
-                update_gist()
-                logger.info("✓ Gist updated successfully")
-            except Exception as e:
-                logger.error(f"Gist update failed: {e}")
-            
-            logger.info("\n✓ CPR scrape and tier management completed successfully!")
-
+            tier_system = TierAssignment(
+                member_cpr=v2_data['member_cpr'],
+                crime_types=v2_data['crime_types'],
+            )
+            assignments = tier_system.generate_tier_assignments()
         except Exception as e:
             logger.error(f"Tier assignment failed: {e}")
             import traceback
             traceback.print_exc()
-            # Don't exit - CPR scrape was successful
 
-        # Print faction tier summary (filtered to current members only)
+        # Step 3: Persist to Supabase (CPR v2 for touched members + every member's tier).
         try:
-            faction_data = scraper.storage.read_json('faction_members.json') or {}
-            current_member_ids = set(faction_data.get('members', {}).keys())
-            if current_member_ids:
-                updated_cpr = scraper._load_cpr_database()
-                print_faction_tier_summary(updated_cpr, current_member_ids)
+            scraper._save_cpr_v2_to_db(v2_data, touched)
         except Exception as e:
-            logger.error(f"Error printing faction tier summary: {e}")
+            logger.error(f"Saving CPR v2 to DB failed: {e}")
+        try:
+            scraper._save_tiers_to_db(current_members, assignments)
+        except Exception as e:
+            logger.error(f"Saving tiers to DB failed: {e}")
+
+        print_faction_tier_summary(assignments, current_members)
+        logger.info("\n✓ CPR scrape and tier assignment completed successfully!")
 
     except Exception as e:
         logger.error(f"Fatal error in CPR scraper: {e}")

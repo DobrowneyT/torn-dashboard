@@ -370,7 +370,7 @@ function ViewTab() {
 
   const tableOptions = [
     { value: 'members', label: 'Members' },
-    { value: 'member_cpr', label: 'Member CPR' },
+    { value: 'member_cpr_v2', label: 'Member CPR' },
     { value: 'crimes', label: 'Crimes' },
     { value: 'crime_slots', label: 'Crime Slots' },
     { value: 'crime_reward_items', label: 'Crime Reward Items' },
@@ -701,8 +701,8 @@ function ClearDataTab() {
     {
       id: 'members',
       label: 'Clear All Members',
-      description: 'Deletes all data from: members, member_cpr',
-      tables: ['member_cpr', 'members'],
+      description: 'Deletes all data from: members, member_cpr_v2',
+      tables: ['member_cpr_v2', 'members'],
       color: 'orange'
     },
     {

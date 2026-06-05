@@ -32,13 +32,13 @@ export default function OCPage({ isLeadership }) {
       </div>
 
       <Routes>
-        <Route index element={<Navigate to="/oc/payouts" replace />} />
+        <Route index element={<Navigate to="/oc/oc-history" replace />} />
         <Route path="payouts"           element={<PayoutsView isLeadership={isLeadership} />} />
         <Route path="oc-history"        element={<CrimesView isLeadership={isLeadership} />} />
         <Route path="tier-requirements" element={<TierRequirementsView />} />
         {isLeadership && <Route path="payout-management" element={<PayoutManagement />} />}
         {isLeadership && <Route path="tier-management"   element={<TierManagement />} />}
-        <Route path="*" element={<Navigate to="/oc/payouts" replace />} />
+        <Route path="*" element={<Navigate to="/oc/oc-history" replace />} />
       </Routes>
     </div>
   )

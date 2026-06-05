@@ -646,7 +646,8 @@ class SupabaseSync:
 def main():
     """Main entry point"""
     if len(sys.argv) < 2:
-        print("Usage: python sync_to_supabase.py [cpr|cpr_v2|crimes|wars|attacks|all]")
+        print("Usage: python sync_to_supabase.py [crimes|wars|attacks|all]")
+        print("Note: CPR/tier data is now written to Supabase directly by cpr_scraper.py.")
         sys.exit(1)
 
     sync_type = sys.argv[1].lower()
@@ -655,23 +656,8 @@ def main():
         syncer = SupabaseSync()
         results = []
 
-        if sync_type in ['cpr', 'all']:
-            cpr_path = 'data/cpr_database.json'
-            if os.path.exists(cpr_path):
-                logger.info("=== Syncing CPR Data ===")
-                result = syncer.sync_cpr_data(cpr_path)
-                results.append(result)
-            else:
-                logger.warning(f"CPR data file not found: {cpr_path}")
-
-        if sync_type in ['cpr_v2', 'all']:
-            cpr_v2_path = 'data/cpr_database_v2.json'
-            if os.path.exists(cpr_v2_path):
-                logger.info("=== Syncing CPR v2 Data ===")
-                result = syncer.sync_cpr_v2_data(cpr_v2_path)
-                results.append(result)
-            else:
-                logger.warning(f"CPR v2 data file not found: {cpr_v2_path}")
+        # NOTE: CPR (v1) and CPR v2 sync paths were removed — cpr_scraper.py is
+        # now DB-native and writes tiers + member_cpr_v2 to Supabase itself.
 
         if sync_type in ['crimes', 'all']:
             crimes_path = 'data/crimes_database.json'
