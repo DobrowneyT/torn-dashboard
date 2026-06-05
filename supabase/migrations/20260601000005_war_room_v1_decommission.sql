@@ -13,13 +13,12 @@
 -- picks up where it left off."
 
 -- ── 1. Drop v1 Realtime broadcast infrastructure ────────────────────────────
--- Created by 20260524000001_war_room_broadcast_fix.sql. With v2's polling
--- architecture there are no subscribers; these are pure overhead.
+-- The triggers were named inconsistently across hand-applied SQL — some envs
+-- have `*_broadcast`, others have `*_broadcast_trg`. DROP FUNCTION ... CASCADE
+-- picks up every dependent trigger regardless of naming, so we don't have to
+-- chase the variants.
 
-DROP TRIGGER IF EXISTS war_room_state_broadcast  ON public.war_room_state;
-DROP TRIGGER IF EXISTS war_room_dibs_broadcast   ON public.war_room_dibs;
-DROP TRIGGER IF EXISTS war_room_config_broadcast ON public.war_room_config;
-DROP FUNCTION IF EXISTS public.war_room_broadcast();
+DROP FUNCTION IF EXISTS public.war_room_broadcast() CASCADE;
 
 -- ── 2. Drop scoped RLS policy on realtime.messages ──────────────────────────
 -- Allowed `authenticated` to SELECT war_room:* topics; v2 doesn't subscribe.
