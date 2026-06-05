@@ -84,13 +84,53 @@ export async function releaseDibsV2(targetId, tornApiKey, opts = {}) {
   )
 }
 
-// Revive request still uses the v1 action (Edge-Function-side proxy is shared).
+// Revive request still uses the v1 action name (Edge-Function-side proxy is
+// shared between v1 and v2 — the action handler itself reads from whichever
+// war_room_state* table is canonical at the time).
 export async function requestRevive({ url, userID, userName, factionName, source, sourceKey, preset }, tornApiKey) {
   return callWarRoom(
     'revive_request',
     { url, userID, userName, factionName, source, sourceKey, preset },
     tornApiKey,
   )
+}
+
+/**
+ * Mint a short-lived Supabase JWT (HS256, 4h) for the supabase-js client's
+ * `accessToken` async hook. Same claim shape as the realtime token but a
+ * tighter TTL since it gates REST queries (not a long-lived websocket).
+ *
+ * Returns { token, expires_at } where expires_at is a unix-second timestamp.
+ */
+export async function mintSessionToken(tornApiKey) {
+  return callWarRoom('mint_session_token', {}, tornApiKey)
+}
+
+// Map Torn hospital-description adjectives to Nuke's title-cased country
+// names. Mirrors the server-side logic in war-room-fetch's resolveUserCountry
+// so the direct-browser path produces the same country string the Edge
+// Function would have. Anything that doesn't match is treated as Torn (which
+// covers the standard hospital and "no description available" cases).
+const HOSPITAL_COUNTRY_ADJECTIVES = [
+  [/\bMexican\b/i,       'Mexico'],
+  [/\bCaymanian\b/i,     'Cayman Islands'],
+  [/\bCanadian\b/i,      'Canada'],
+  [/\bHawaiian\b/i,      'Hawaii'],
+  [/\bBritish\b/i,       'United Kingdom'],
+  [/\bArgentinian\b/i,   'Argentina'],
+  [/\bSwiss\b/i,         'Switzerland'],
+  [/\bJapanese\b/i,      'Japan'],
+  [/\bChinese\b/i,       'China'],
+  [/\bEmirati\b/i,       'UAE'],
+  [/\bSouth African\b/i, 'South Africa'],
+]
+
+export function resolveCountryFromDescription(description) {
+  if (!description) return 'Torn'
+  for (const [pattern, country] of HOSPITAL_COUNTRY_ADJECTIVES) {
+    if (pattern.test(description)) return country
+  }
+  return 'Torn'
 }
 
 // ── PostgREST RPC (delta polling reads) ──────────────────────────────────────

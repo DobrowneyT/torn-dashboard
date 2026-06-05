@@ -3,17 +3,15 @@ import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import RWPayoutsView from './RWPayoutsView'
 import WarHistoryView from './WarHistoryView'
 import WarPayoutManagement from '../components/WarPayoutManagement'
-import WarRoomView from './WarRoomView'
 import WarRoomViewV2 from './WarRoomViewV2'
 import ErrorBoundary from '../components/ErrorBoundary'
 
 const WarOverviewView = lazy(() => import('./WarOverviewView'))
 
 const TABS = [
+  // v2 is now the canonical War Room. /rw/war-room-v2 redirects to /rw/war-room
+  // so any bookmarks from the validation window still resolve.
   { to: '/rw/war-room',          label: 'War Room',           leadership: false },
-  // v2 (delta polling) — runs alongside v1 for side-by-side validation.
-  // Will replace v1 in Phase 5 of the war-room-v2 rollout plan.
-  { to: '/rw/war-room-v2',       label: 'War Room v2',        leadership: false },
   { to: '/rw/payouts',           label: 'Payouts',            leadership: false },
   { to: '/rw/rw-history',        label: 'RW History',         leadership: false },
   { to: '/rw/payout-management', label: 'Payout Management',  leadership: true  },
@@ -42,14 +40,11 @@ export default function RWPage({ isLeadership, isAdmin }) {
         <Route index element={<Navigate to="/rw/war-room" replace />} />
         <Route path="war-room" element={
           <ErrorBoundary name="War Room">
-            <WarRoomView isLeadership={isLeadership} isAdmin={isAdmin} />
-          </ErrorBoundary>
-        } />
-        <Route path="war-room-v2" element={
-          <ErrorBoundary name="War Room v2">
             <WarRoomViewV2 isLeadership={isLeadership} isAdmin={isAdmin} />
           </ErrorBoundary>
         } />
+        {/* Legacy validation route — redirect bookmarks to the canonical path. */}
+        <Route path="war-room-v2" element={<Navigate to="/rw/war-room" replace />} />
         <Route path="payouts"   element={<RWPayoutsView />} />
         <Route path="rw-history" element={<WarHistoryView isLeadership={isLeadership} isAdmin={isAdmin} />} />
         {isLeadership && <Route path="payout-management" element={<WarPayoutManagement />} />}

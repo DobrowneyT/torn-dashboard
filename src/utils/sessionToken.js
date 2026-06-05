@@ -27,7 +27,7 @@
  * still work, writes that require the JWT will fail clearly.
  */
 
-import { mintSessionToken as mintSessionTokenApi } from './warRoomApi'
+import { mintSessionToken as mintSessionTokenApi } from './warRoomApiV2'
 
 const STORAGE_PREFIX = 'tornSessionToken:'
 const REFRESH_MARGIN_SECONDS = 30 * 60      // refresh 30 min before exp

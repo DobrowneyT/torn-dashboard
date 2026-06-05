@@ -175,189 +175,6 @@ function stateEqual(a: any, b: any): boolean {
       && a.revive_setting        === b.revive_setting
 }
 
-async function handleFetchMembers(supabase: ReturnType<typeof createClient>, factionId: number) {
-  const tornKey = nextTornKey()
-  if (!tornKey) return json({ error: 'TORN_API_KEYS secret not set' }, 500)
-
-  const url = `https://api.torn.com/v2/faction/${factionId}/members?striptags=true&comment=WarRoom&timestamp=${Math.floor(Date.now() / 1000)}&key=${tornKey}`
-  const resp = await fetch(url)
-  if (!resp.ok) return json({ error: `Torn API HTTP ${resp.status}` }, 502)
-
-  const data = await resp.json()
-  if (data.error) return json({ error: `Torn API error ${data.error.code}: ${data.error.error}` }, 502)
-
-  const members = data.members as Record<string, unknown>[]
-  const now = Math.floor(Date.now() / 1000)
-
-  // Lazily backfill the faction's display name. Only hits Torn /basic when
-  // the faction isn't already cached — first save after a Clear State, or a
-  // war against a faction we've never seen. Returned in the response so the
-  // client can update the header without waiting on a useEffect re-run.
-  let factionName: string | null = null
-  const { data: cached } = await supabase
-    .from('factions').select('name').eq('id', factionId).maybeSingle()
-  if (cached?.name) {
-    factionName = cached.name as string
-  } else {
-    try {
-      const basicResp = await fetch(`https://api.torn.com/v2/faction/${factionId}/basic?key=${tornKey}`)
-      if (basicResp.ok) {
-        const basicData = await basicResp.json()
-        const basic = basicData?.basic ?? {}
-        if (basic.name) {
-          factionName = basic.name as string
-          await supabase.from('factions').upsert({
-            id: factionId,
-            name: basic.name,
-            tag: basic.tag ?? null,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'id' })
-        }
-      }
-    } catch (e) {
-      console.error('faction basic lookup failed:', e)
-    }
-  }
-
-  // Load current state for this faction so we can skip rows whose volatile
-  // state hasn't actually changed. Every skipped row is a Realtime UPDATE event
-  // we don't emit — the whole point of this fix.
-  const { data: current } = await supabase
-    .from('war_room_state')
-    .select('member_id, state')
-    .eq('faction_id', factionId)
-  const currentMap = new Map<number, any>((current ?? []).map((r: any) => [r.member_id, r.state]))
-
-  const changed = members
-    .map((m: any) => ({
-      member_id:   m.id,
-      member_name: m.name,
-      faction_id:  factionId,
-      level:       m.level,
-      position:    m.position ?? null,
-      state:       buildMemberState(m),
-    }))
-    .filter(row => !stateEqual(currentMap.get(row.member_id), row.state))
-
-  if (changed.length > 0) {
-    const { error } = await supabase
-      .from('war_room_state')
-      .upsert(changed, { onConflict: 'member_id' })
-    if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
-  }
-
-  return json({ ok: true, count: changed.length, total: members.length, fetched_at: now, faction_name: factionName })
-}
-
-async function handleFetchOurMembers(supabase: ReturnType<typeof createClient>) {
-  const tornKey = nextTornKey()
-  if (!tornKey) return json({ error: 'TORN_API_KEYS secret not set' }, 500)
-
-  // Must specify OUR_FACTION_ID explicitly — without it, /v2/faction/members
-  // returns whichever faction the rotating API key owner belongs to. If
-  // TORN_API_KEYS includes a key from outside our faction, we'd silently
-  // upsert that other faction's roster with faction_id = OUR_FACTION_ID,
-  // polluting the table with members who were never in our faction.
-  const url = `https://api.torn.com/v2/faction/${OUR_FACTION_ID}/members?striptags=true&comment=WarRoom&key=${tornKey}`
-  const resp = await fetch(url)
-  if (!resp.ok) return json({ error: `Torn API HTTP ${resp.status}` }, 502)
-
-  const data = await resp.json()
-  if (data.error) return json({ error: `Torn API error ${data.error.code}: ${data.error.error}` }, 502)
-
-  const members = data.members as Record<string, unknown>[]
-  const ourFactionId = Number(OUR_FACTION_ID)
-
-  // Same diff-based upsert as the enemy fetch — only push rows whose volatile
-  // state changed since the last poll.
-  const { data: current } = await supabase
-    .from('war_room_state')
-    .select('member_id, state')
-    .eq('faction_id', ourFactionId)
-  const currentMap = new Map<number, any>((current ?? []).map((r: any) => [r.member_id, r.state]))
-
-  const candidates = members.map((m: any) => ({
-    member_id:   m.id,
-    member_name: m.name,
-    faction_id:  ourFactionId,
-    level:       m.level,
-    position:    m.position ?? null,
-    state:       buildMemberState(m),
-  }))
-  const changed = candidates.filter(row => !stateEqual(currentMap.get(row.member_id), row.state))
-
-  if (changed.length > 0) {
-    const { error } = await supabase
-      .from('war_room_state')
-      .upsert(changed, { onConflict: 'member_id' })
-    if (error) return json({ error: `DB upsert error: ${error.message}` }, 500)
-  }
-
-  // Prune ex-members: anyone with faction_id = OUR_FACTION_ID who is no
-  // longer in the current roster (left the faction at some point). Enemy
-  // side doesn't need this because the Save flow already wipes on faction
-  // switch, but our roster has no such reset — without this prune, the
-  // "Us" counts in the header drift upward forever.
-  const currentIds = new Set(candidates.map(c => c.member_id))
-  const stale = (current ?? [])
-    .map((r: any) => r.member_id)
-    .filter((id: number) => !currentIds.has(id))
-  let pruned = 0
-  if (stale.length > 0) {
-    const { error: delError, count } = await supabase
-      .from('war_room_state')
-      .delete({ count: 'exact' })
-      .eq('faction_id', ourFactionId)
-      .in('member_id', stale)
-    if (delError) return json({ error: `DB prune error: ${delError.message}` }, 500)
-    pruned = count ?? stale.length
-  }
-
-  return json({ ok: true, count: changed.length, pruned, total: members.length })
-}
-
-async function handleGetConfig(supabase: ReturnType<typeof createClient>) {
-  const { data, error } = await supabase
-    .from('war_room_config')
-    .select('*')
-    .eq('id', 1)
-    .single()
-
-  if (error) return json({ error: error.message }, 500)
-  return json({ config: data })
-}
-
-async function handleSetConfig(
-  supabase: ReturnType<typeof createClient>,
-  body: any,
-  userId: string
-) {
-  if (!LEADERSHIP_IDS.includes(userId)) {
-    return json({ error: 'Leadership only' }, 403)
-  }
-
-  const update: Record<string, unknown> = {}
-  if ('enabled' in body) update.enabled = body.enabled
-  if ('faction_id' in body) update.faction_id = body.faction_id
-  if ('faction_name' in body) update.faction_name = body.faction_name
-  if ('revive_service_name' in body) update.revive_service_name = body.revive_service_name
-  if ('revive_service_url'  in body) update.revive_service_url  = body.revive_service_url
-  if ('revive_services'     in body) update.revive_services     = body.revive_services
-
-  if (body.enabled === true) {
-    update.started_by = Number(userId)
-    update.started_at = new Date().toISOString()
-  }
-
-  const { error } = await supabase
-    .from('war_room_config')
-    .update(update)
-    .eq('id', 1)
-
-  if (error) return json({ error: error.message }, 500)
-  return json({ ok: true })
-}
-
 // Fetch the full faction-spy payload from TornStats.
 // API shape (from the userscript reference):
 //   GET https://www.tornstats.com/api/v2/{key}/spy/faction/{factionId}
@@ -384,228 +201,6 @@ async function fetchTornStatsFactionSpies(apiKey: string, factionId: number) {
   }
 }
 
-// Two-pass spy update: TornStats first (real spies w/ breakdown + capture
-// timestamp), then BSP fills in the gaps. The action keeps its legacy
-// 'fetch_bsp' name + `fetchBspStats(...)` client helper for backwards
-// compatibility — internally it's now an "update spies" operation.
-//
-// Skip conditions for the TornStats pass (any one → falls through to BSP-only):
-//   - TORNSTATS_API_KEY env not set
-//   - tornstats_max_age_days config is 0 (explicit disable)
-//   - Couldn't resolve the enemy faction id from war_room_state
-//   - TornStats API returned an error (network / bad key / rate limited)
-async function handleFetchBsp(supabase: ReturnType<typeof createClient>, memberIds: number[]) {
-  const bspKey = Deno.env.get('BSP_API_KEY')
-  const tsKey = Deno.env.get('TORNSTATS_API_KEY')
-  if (!bspKey) return json({ error: 'BSP_API_KEY secret not set' }, 500)
-  if (!tsKey) return json({ error: 'TORNSTATS_API_KEY secret not set' }, 500)
-  if (!memberIds?.length) return json({ error: 'member_ids required' }, 400)
-
-  const now = new Date().toISOString()
-  let tornstatsFilled = 0
-  let needBsp: number[] = memberIds.slice()
-
-  // ── Pass 1: TornStats ──────────────────────────────────────────────────
-
-  // Look up the enemy faction id from any row in war_room_state matching
-  // the requested member ids and NOT belonging to our faction. Filter on
-  // OUR_FACTION_ID guards against accidentally querying our own stats.
-  const { data: enemySample } = await supabase
-    .from('war_room_state')
-    .select('faction_id')
-    .in('member_id', memberIds)
-    .neq('faction_id', Number(OUR_FACTION_ID))
-    .limit(1)
-    .maybeSingle()
-  const enemyFactionId: number | null = enemySample?.faction_id ?? null
-
-  if (tsKey && enemyFactionId) {
-    const { data: cfg } = await supabase
-      .from('war_room_config')
-      .select('tornstats_max_age_days')
-      .eq('id', 1)
-      .maybeSingle()
-    const maxAgeDays: number = cfg?.tornstats_max_age_days ?? 0
-
-    // Always run the TornStats pass when an API key is configured. The age
-    // setting is just an upper bound on how old a spy is allowed to be:
-    //   N > 0  → reject spies older than N days (fall through to BSP)
-    //   N === 0 → no age filter, accept any TornStats spy we get
-    // Disabling TornStats entirely is done by unsetting TORNSTATS_API_KEY.
-    const spies = await fetchTornStatsFactionSpies(tsKey, enemyFactionId)
-    const memberIdSet = new Set(memberIds.map(Number))
-    const minTimestamp = maxAgeDays > 0
-      ? Math.floor((Date.now() - maxAgeDays * 86_400_000) / 1000)
-      : 0  // 0 disables the age cutoff — anything positive passes
-
-    if (spies?.faction?.members && typeof spies.faction.members === 'object') {
-      const filledIds: number[] = []
-      for (const key of Object.keys(spies.faction.members)) {
-        const entry = spies.faction.members[key]
-        const id = Number(entry?.id ?? key)
-        if (!memberIdSet.has(id)) continue
-        const spy = entry?.spy
-        if (!spy || typeof spy.total !== 'number' || spy.total <= 0) continue
-        if (typeof spy.timestamp !== 'number' || spy.timestamp < minTimestamp) continue
-
-        const { error: upErr } = await supabase.from('war_room_state').update({
-          bsp_total:      spy.total,
-          bsp_str:        spy.strength ?? null,
-          bsp_spd:        spy.speed ?? null,
-          bsp_def:        spy.defense ?? null,
-          bsp_dex:        spy.dexterity ?? null,
-          bsp_fetched_at: now,
-          spy_source:     'tornstats',
-          ts_spy_at:      new Date(spy.timestamp * 1000).toISOString(),
-        }).eq('member_id', id)
-        if (!upErr) filledIds.push(id)
-      }
-      tornstatsFilled = filledIds.length
-      const filledSet = new Set(filledIds)
-      needBsp = memberIds.filter(id => !filledSet.has(id))
-      console.log(`[update_spies] TornStats: ${tornstatsFilled} filled (maxAgeDays=${maxAgeDays}), ${needBsp.length} remain for BSP`)
-    }
-  }
-
-  // ── Pass 2: BSP for anyone TornStats didn't fill ───────────────────────
-  const BSP_DELAY_MS = 30
-  const results: Record<number, { total: number | null; str: number | null; spd: number | null; def: number | null; dex: number | null }> = {}
-
-  for (let i = 0; i < needBsp.length; i++) {
-    const id = needBsp[i]
-    try {
-      const resp = await fetch(`http://www.lol-manager.com/api/battlestats/${bspKey}/${id}/TornForge`)
-      const data = await resp.json()
-      if (data && (data.Result === 1 || data.Result === 6) && data.TBS) {
-        results[id] = {
-          total: data.TBS ?? null,
-          str:   data.Strength ?? null,
-          spd:   data.Speed ?? null,
-          def:   data.Defense ?? null,
-          dex:   data.Dexterity ?? null,
-        }
-      } else {
-        results[id] = { total: null, str: null, spd: null, def: null, dex: null }
-      }
-    } catch {
-      results[id] = { total: null, str: null, spd: null, def: null, dex: null }
-    }
-
-    if (i < needBsp.length - 1) {
-      await new Promise(r => setTimeout(r, BSP_DELAY_MS))
-    }
-  }
-
-  let bspFilled = 0
-  for (const [idStr, stats] of Object.entries(results)) {
-    const id = Number(idStr)
-    if (stats.total === null) continue
-    await supabase.from('war_room_state').update({
-      bsp_total:      stats.total,
-      bsp_str:        stats.str,
-      bsp_spd:        stats.spd,
-      bsp_def:        stats.def,
-      bsp_dex:        stats.dex,
-      bsp_fetched_at: now,
-      spy_source:     'bsp',
-      ts_spy_at:      null,    // BSP is a prediction, not a real spy
-    }).eq('member_id', id)
-    bspFilled++
-  }
-
-  return json({
-    ok: true,
-    fetched: tornstatsFilled + bspFilled,
-    tornstats: tornstatsFilled,
-    bsp: bspFilled,
-    requested: memberIds.length,
-  })
-}
-
-async function handleClearState(
-  supabase: ReturnType<typeof createClient>,
-  userId: string
-) {
-  if (!LEADERSHIP_IDS.includes(userId)) {
-    return json({ error: 'Leadership only' }, 403)
-  }
-
-  // Clear dibs too — they're tied to the current war's targets and are
-  // meaningless once members are wiped.
-  await supabase.from('war_room_dibs').delete().neq('id', 0)
-
-  const { error } = await supabase.from('war_room_state').delete().neq('member_id', 0)
-  if (error) return json({ error: error.message }, 500)
-  return json({ ok: true })
-}
-
-async function handleClaimDibs(
-  supabase: ReturnType<typeof createClient>,
-  body: any,
-  userId: string,
-  userName: string
-) {
-  const targetId = body.target_id
-  if (!targetId) return json({ error: 'target_id required' }, 400)
-  if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
-
-  // Is the target already claimed by someone else?
-  const { data: existing } = await supabase
-    .from('war_room_dibs')
-    .select('id, claimed_by, claimed_name')
-    .eq('target_id', targetId)
-    .maybeSingle()
-
-  if (existing && String(existing.claimed_by) !== userId) {
-    return json({
-      error: `Already claimed by ${existing.claimed_name}`,
-      owner: { id: existing.claimed_by, name: existing.claimed_name },
-    }, 409)
-  }
-
-  // Single-dibs enforcement: hard-delete any other claims this user holds
-  // (including the same target if re-claiming). The table is reusable —
-  // released rows leave no trace.
-  await supabase.from('war_room_dibs')
-    .delete()
-    .eq('claimed_by', Number(userId))
-
-  const { error } = await supabase.from('war_room_dibs').insert({
-    target_id: targetId,
-    claimed_by: Number(userId),
-    claimed_name: userName,
-    war_id: body.war_id ?? null,
-  })
-
-  if (error) return json({ error: error.message }, 500)
-  return json({ ok: true })
-}
-
-async function handleReleaseDibs(
-  supabase: ReturnType<typeof createClient>,
-  body: any,
-  userId: string
-) {
-  const targetId = body.target_id
-  if (!targetId) return json({ error: 'target_id required' }, 400)
-  if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
-
-  const query = supabase
-    .from('war_room_dibs')
-    .delete()
-    .eq('target_id', targetId)
-
-  // Only admins can release anyone's dibs. Everyone else (including non-admin
-  // leadership) can only release their own.
-  if (!ADMIN_IDS.includes(String(userId))) {
-    query.eq('claimed_by', Number(userId))
-  }
-
-  const { error } = await query
-  if (error) return json({ error: error.message }, 500)
-  return json({ ok: true })
-}
-
 // Hospital status descriptions Torn emits use nationality adjectives. Map
 // each adjective to the title-cased country name Nuke's API expects. Anything
 // not in this table (including the bare "In hospital" form) is treated as
@@ -625,19 +220,21 @@ const HOSPITAL_COUNTRY_ADJECTIVES: Array<[RegExp, string]> = [
 ]
 
 /**
- * Resolve the requester's current country from their war_room_state row.
+ * Resolve the requester's current country from their war_room_state_v2 row.
  * Returns a Nuke-API-compatible title-cased country name, defaulting to
  * "Torn" when the description doesn't match any nationality (which covers
- * both the standard hospital and the "user not in our war_room_state" case).
+ * both the standard hospital and the "user not in our war_room_state_v2"
+ * case). Filters tombstones because a soft-deleted row is "not in state."
  */
 async function resolveUserCountry(
   supabase: ReturnType<typeof createClient>,
   userID: number | string,
 ): Promise<string> {
   const { data } = await supabase
-    .from('war_room_state')
+    .from('war_room_state_v2')
     .select('state')
     .eq('member_id', Number(userID))
+    .is('deleted_at', null)
     .maybeSingle()
   const description: string = data?.state?.status?.description ?? ''
   for (const [pattern, country] of HOSPITAL_COUNTRY_ADJECTIVES) {
@@ -745,36 +342,18 @@ async function sendNukeRequest(
   }
 }
 
-async function handleGetDibs(
-  supabase: ReturnType<typeof createClient>,
-  body: any
-) {
-  let query = supabase
-    .from('war_room_dibs')
-    .select('id, target_id, claimed_by, claimed_name, claimed_at, war_id')
-
-  if (body.war_id) query = query.eq('war_id', body.war_id)
-
-  const { data, error } = await query
-  if (error) return json({ error: error.message }, 500)
-  return json({ dibs: data })
-}
-
 // ═════════════════════════════════════════════════════════════════════════════
-// War Room v2 actions — HTTP delta-polling architecture
+// War Room action handlers — HTTP delta-polling architecture
 // ═════════════════════════════════════════════════════════════════════════════
 //
 // Writes go to war_room_state_v2 / war_room_dibs_v2 / war_room_config_v2.
-// Reads are done by the client directly via RPCs (war_room_*_v2_delta) — no
-// v2 "get" actions exist here.
+// Reads are done by the client directly via PostgREST RPCs
+// (war_room_*_v2_delta) — no "get" actions exist here.
 //
 // Soft delete: every row has updated_at + deleted_at. To "remove" a row we
 // UPDATE deleted_at = now() (the table trigger bumps updated_at). The next
 // delta poll sweeps the tombstone to all clients. A scheduled cleanup job
-// will hard-delete tombstones older than 24h.
-//
-// Helpers (buildMemberState, stateEqual, fetchTornStatsFactionSpies,
-// HOSPITAL_COUNTRY_ADJECTIVES) are shared with v1 — same shape, same logic.
+// hard-deletes tombstones older than 24 h.
 
 async function handleFetchMembersV2(
   supabase: ReturnType<typeof createClient>,
@@ -1286,8 +865,7 @@ async function handleCronPoll(
 // They can be unified later once the frontend fully consumes the shared
 // sessionToken module for realtime auth too.
 
-const JWT_TTL_REALTIME_SECONDS = 24 * 60 * 60   // 24h
-const JWT_TTL_SESSION_SECONDS  =  4 * 60 * 60   //  4h
+const JWT_TTL_SESSION_SECONDS = 4 * 60 * 60   // 4h
 
 async function mintAuthToken(userId: string, ttlSeconds: number) {
   // Set this once via `npx supabase secrets set JWT_SECRET=<value>`.
@@ -1325,12 +903,6 @@ async function mintAuthToken(userId: string, ttlSeconds: number) {
   return { token, expiresAt }
 }
 
-async function handleMintRealtimeToken(userId: string) {
-  const result = await mintAuthToken(userId, JWT_TTL_REALTIME_SECONDS)
-  if ('error' in result) return json({ error: result.error }, result.status)
-  return json({ token: result.token, expires_at: result.expiresAt })
-}
-
 async function handleMintSessionToken(userId: string) {
   const result = await mintAuthToken(userId, JWT_TTL_SESSION_SECONDS)
   if ('error' in result) return json({ error: result.error }, result.status)
@@ -1365,10 +937,9 @@ serve(async (req: Request) => {
     // Dibs are also unverified — they're already serialised by the DB unique
     // constraint, and the user_id is sent in the body. Trade-off documented.
     const POLL_ACTIONS = new Set([
-      'fetch_members', 'fetch_our_members', 'get_config', 'get_dibs',
-      'claim_dibs', 'release_dibs', 'revive_request',
-      // v2 polling/dibs actions follow the same trust model — high-frequency,
-      // server-side TORN_API_KEYS, claim_dibs serialised by DB constraint.
+      'revive_request',
+      // v2 polling/dibs actions are high-frequency. Server-side TORN_API_KEYS,
+      // claim_dibs serialised by the war_room_dibs_v2 unique partial index.
       'fetch_members_v2', 'fetch_our_members_v2', 'claim_dibs_v2', 'release_dibs_v2',
     ])
 
@@ -1387,35 +958,12 @@ serve(async (req: Request) => {
     const userName: string = body.user_name ?? 'Unknown'
 
     switch (action) {
-      case 'fetch_members':
-        return await handleFetchMembers(supabase, body.faction_id)
-      case 'fetch_our_members':
-        return await handleFetchOurMembers(supabase)
-      case 'fetch_bsp':
-        return await handleFetchBsp(supabase, body.member_ids)
-      case 'get_config':
-        return await handleGetConfig(supabase)
-      case 'set_config':
-        return await handleSetConfig(supabase, body, userId)
-      case 'clear_state':
-        return await handleClearState(supabase, userId)
-      case 'claim_dibs':
-        // user_id comes from the body since claim_dibs skips auth (POLL_ACTIONS)
-        return await handleClaimDibs(supabase, body, String(body.user_id ?? ''), userName)
-      case 'release_dibs':
-        return await handleReleaseDibs(supabase, body, String(body.user_id ?? ''))
-      case 'get_dibs':
-        return await handleGetDibs(supabase, body)
       case 'revive_request':
         return await handleReviveRequest(supabase, body)
-      case 'mint_realtime_token':
-        // userId is set by verifyTornUser() above — this action is NOT in
-        // POLL_ACTIONS so the standard Torn-key auth flow runs first.
-        return await handleMintRealtimeToken(userId)
       case 'mint_session_token':
-        // Same auth + claim shape as mint_realtime_token, shorter TTL.
-        // Consumed by the frontend's supabase-js accessToken hook so every
-        // REST call carries the JWT (role=authenticated + custom claims).
+        // Mints a 4h JWT (role=authenticated + custom claims) consumed by the
+        // frontend's supabase-js accessToken hook so PostgREST/RPC calls
+        // carry the JWT. Auth runs via verifyTornUser() in the gate above.
         return await handleMintSessionToken(userId)
 
       // ── War Room v2 actions ──────────────────────────────────────────
