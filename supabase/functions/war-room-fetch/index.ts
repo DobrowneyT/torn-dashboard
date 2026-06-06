@@ -872,22 +872,31 @@ async function pollOurChain(
   const chain = await fetchChainFromTorn(Number(OUR_FACTION_ID))
   if (!chain) return { polled: false, reason: 'torn fetch failed' }
 
-  // Clear the save claim when the chain advances (claimer made the hit) OR
-  // when the chain enters cooldown (drop — no one needs to save anymore).
-  const newCurrent  = chain.current  ?? 0
-  const newCooldown = chain.cooldown ?? 0
+  // Torn's v2 /faction/{id}/chain returns timeout and cooldown as
+  // SECONDS REMAINING, not unix timestamps (only `start` and `end` are
+  // timestamps). Convert to absolute unix timestamps at write time so the
+  // client and throttle logic can do simple `value > now` comparisons.
+  const nowSec        = Math.floor(Date.now() / 1000)
+  const timeoutSecs   = Number(chain.timeout  ?? 0)
+  const cooldownSecs  = Number(chain.cooldown ?? 0)
+  const timeoutAbs    = timeoutSecs  > 0 ? nowSec + timeoutSecs  : 0
+  const cooldownAbs   = cooldownSecs > 0 ? nowSec + cooldownSecs : 0
+
+  const newCurrent   = chain.current ?? 0
   const prevCurrent  = prev?.current  ?? 0
   const prevCooldown = prev?.cooldown ?? 0
-  const hitDetected      = newCurrent > prevCurrent
-  const droppedToCooldown = newCooldown > 0 && prevCooldown === 0
+  // Clear the save claim when the chain advances (claimer made the hit) OR
+  // when the chain enters cooldown (drop — no one needs to save anymore).
+  const hitDetected       = newCurrent > prevCurrent
+  const droppedToCooldown = cooldownAbs > 0 && prevCooldown === 0
 
   const update: Record<string, unknown> = {
     current:             newCurrent,
     max:                 chain.max ?? null,
     modifier:            chain.modifier ?? null,
-    timeout:             chain.timeout ?? null,
+    timeout:             timeoutAbs,
     start_ts:            chain.start ?? null,
-    cooldown:            newCooldown,
+    cooldown:            cooldownAbs,
     end_ts:              chain.end ?? null,
     our_last_fetched_at: new Date().toISOString(),
   }
@@ -909,14 +918,19 @@ async function pollEnemyChain(
   const chain = await fetchChainFromTorn(enemyFactionId)
   if (!chain) return { polled: false, reason: 'torn fetch failed' }
 
+  // Same seconds-remaining → unix-timestamp normalisation as pollOurChain.
+  const nowSec       = Math.floor(Date.now() / 1000)
+  const timeoutSecs  = Number(chain.timeout  ?? 0)
+  const cooldownSecs = Number(chain.cooldown ?? 0)
+
   // Enemy chain is value+cooldown only. Store as JSONB so future fields land
   // for free. Top-level columns stay reserved for OUR chain.
   const enemyPayload = {
     current:  chain.current  ?? 0,
     max:      chain.max      ?? null,
     modifier: chain.modifier ?? null,
-    timeout:  chain.timeout  ?? null,
-    cooldown: chain.cooldown ?? 0,
+    timeout:  timeoutSecs  > 0 ? nowSec + timeoutSecs  : 0,
+    cooldown: cooldownSecs > 0 ? nowSec + cooldownSecs : 0,
     end:      chain.end      ?? 0,
     start:    chain.start    ?? 0,
   }
