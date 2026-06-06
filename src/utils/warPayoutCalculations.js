@@ -47,7 +47,7 @@ const OUR_FACTION_ID = 10739
 export const BONUS_HITS = new Set([10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000])
 
 // Win result types from the Torn API
-const WIN_RESULTS = new Set(['Attacked', 'Mugged', 'Hospitalized', 'Arrested', 'Looted'])
+export const WIN_RESULTS = new Set(['Attacked', 'Mugged', 'Hospitalized', 'Arrested', 'Looted'])
 
 // Item name → price field mapping (matches war_payouts table columns)
 export const CACHE_ITEM_MAP = {

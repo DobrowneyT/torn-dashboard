@@ -5,6 +5,9 @@
  */
 
 import { supabase } from './supabase'
+import { BONUS_HITS, WIN_RESULTS } from './warPayoutCalculations'
+
+const OUR_FACTION_ID = 10739
 
 /**
  * Load faction lookup rows for a given set of IDs.
@@ -93,6 +96,82 @@ export async function loadWarContributions(warId) {
 
   if (error) throw error
   return data || []
+}
+
+/**
+ * Build a live leaderboard for an ongoing (or just-ended) ranked war by
+ * aggregating faction_attacks rows in the war's [start_at, end_at] window
+ * directly — the war_member_contributions table is only populated after a
+ * war is fully reported by Torn (often hours after a win/forfeit), so this
+ * is the only way to show a current scoreboard while a war is still live.
+ *
+ * Scoring rules match the existing termed-war payout math in
+ * warPayoutCalculations.calculateCutoffScores:
+ *   - filter to OUR faction's outgoing ranked-war wins only
+ *   - cap respect_gain at 10 for chain-bonus hits (10, 25, 50, 100, ...) —
+ *     matches Torn's flat-score-per-hit rule in termed wars and prevents
+ *     bonus-milestone outliers from skewing the leaderboard
+ *
+ * Returned rows match the shape of `loadWarContributions` so the existing
+ * ContributionsModal renderer can consume them unchanged; `level` is null
+ * (the members table doesn't store it; war_room_state_v2 has it only while
+ * the war room polls and isn't reliable here).
+ */
+export async function loadLiveContributionsFromAttacks(war) {
+  if (!war?.start_at) return []
+
+  const PAGE_SIZE = 1000
+  const all = []
+  let offset = 0
+  while (true) {
+    let q = supabase
+      .from('faction_attacks')
+      .select('attacker_id, attacker_name, respect_gain, chain')
+      .eq('attacker_faction_id', OUR_FACTION_ID)
+      .eq('is_ranked_war', true)
+      .eq('is_incoming', false)
+      .in('result', [...WIN_RESULTS])
+      .gte('started', war.start_at)
+      .range(offset, offset + PAGE_SIZE - 1)
+
+    if (war.end_at && war.end_at > 0) q = q.lte('started', war.end_at)
+
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE_SIZE) break
+    offset += PAGE_SIZE
+  }
+
+  // Aggregate per attacker with bonus-hit cap. Keep the latest seen
+  // member_name for each id — some attacks may carry old names if a member
+  // renamed mid-war.
+  const agg = new Map()
+  for (const a of all) {
+    const id = Number(a.attacker_id)
+    if (!id) continue
+    const raw = parseFloat(a.respect_gain) || 0
+    const chain = Number(a.chain) || 0
+    const score = BONUS_HITS.has(chain) ? Math.min(raw, 10) : raw
+    let row = agg.get(id)
+    if (!row) {
+      row = {
+        member_id:   id,
+        member_name: a.attacker_name,
+        level:       null,
+        attacks:     0,
+        score:       0,
+        faction_id:  OUR_FACTION_ID,
+      }
+      agg.set(id, row)
+    }
+    row.member_name = a.attacker_name ?? row.member_name
+    row.attacks += 1
+    row.score   += score
+  }
+
+  return [...agg.values()].sort((a, b) => b.score - a.score)
 }
 
 /**

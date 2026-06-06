@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { loadWars, loadWarsCount, loadWarContributions } from '../utils/warDataLoader'
+import {
+  loadWars,
+  loadWarsCount,
+  loadWarContributions,
+  loadLiveContributionsFromAttacks,
+} from '../utils/warDataLoader'
 import {
   updateWarIsTermed,
   fetchAttacks as fetchAttacksApi,
@@ -27,6 +32,11 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
   const [modalWarId, setModalWarId] = useState(null)
   const [contributions, setContributions] = useState({})
   const [loadingContributions, setLoadingContributions] = useState(false)
+  // Set of war IDs whose contributions were computed live from faction_attacks
+  // rather than fetched from war_member_contributions. Used to show the
+  // "Live (bonus-normalized)" badge in the modal so members understand the
+  // distinction between in-progress numbers and final Torn-reported totals.
+  const [liveContribIds, setLiveContribIds] = useState(() => new Set())
 
   // Contributions sort
   const [contribSort, setContribSort] = useState({ col: 'score', dir: 'desc' })
@@ -176,8 +186,35 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
     if (!contributions[warId]) {
       setLoadingContributions(true)
       try {
-        const data = await loadWarContributions(warId)
-        setContributions(prev => ({ ...prev, [warId]: data }))
+        // 1) Try the canonical post-war source first.
+        const finalData = await loadWarContributions(warId)
+        const war = wars.find(w => w.id === warId)
+        const isOngoing = war && (!war.end_at || war.end_at === 0)
+        const finalIsEmpty = !finalData || finalData.length === 0
+
+        // 2) For ongoing wars (Torn hasn't reported contributions yet) OR
+        //    when the table happens to be empty for some other reason,
+        //    derive a live leaderboard from scraped faction_attacks. Score
+        //    follows the same bonus-cap-at-10 normalization the termed-war
+        //    payout math uses, so what members see here matches how shares
+        //    will be computed later.
+        if (war && (isOngoing || finalIsEmpty)) {
+          try {
+            const liveData = await loadLiveContributionsFromAttacks(war)
+            setContributions(prev => ({ ...prev, [warId]: liveData }))
+            setLiveContribIds(prev => {
+              const next = new Set(prev)
+              next.add(warId)
+              return next
+            })
+          } catch (liveErr) {
+            // Fall back to the (possibly empty) final data if live fails.
+            console.error('Error computing live contributions:', liveErr)
+            setContributions(prev => ({ ...prev, [warId]: finalData }))
+          }
+        } else {
+          setContributions(prev => ({ ...prev, [warId]: finalData }))
+        }
       } catch (err) {
         console.error('Error loading contributions:', err)
       } finally {
@@ -483,6 +520,7 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
           result={getWarResult(modalWar)}
           contributions={sortedModalContribs}
           loading={loadingContributions}
+          isLive={liveContribIds.has(modalWarId)}
           sort={contribSort}
           onSort={(col) => setContribSort(prev => ({
             col,
@@ -495,7 +533,7 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
   )
 }
 
-function ContributionsModal({ war, result, contributions, loading, sort, onSort, onClose }) {
+function ContributionsModal({ war, result, contributions, loading, isLive, sort, onSort, onClose }) {
   const resultLabel = result === 'win' ? 'Win' : result === 'loss' ? 'Loss' : 'Ongoing'
   const resultColor = result === 'win' ? 'text-green-600' : result === 'loss' ? 'text-red-500' : 'text-yellow-600'
 
@@ -517,7 +555,17 @@ function ContributionsModal({ war, result, contributions, loading, sort, onSort,
       <div className="modal-dialog sm:max-w-2xl">
         <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold">War Contributions</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-lg font-semibold">War Contributions</h3>
+              {isLive && (
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300"
+                  title="Computed live from scraped attacks (faction_attacks). Bonus chain hits are normalised to 10 score each, matching how termed-war shares get computed. Numbers refresh on the next Fetch Attacks run."
+                >
+                  Live · bonus-normalized
+                </span>
+              )}
+            </div>
             <p className="text-sm text-gray-600 dark:text-gray-400">
               <span className={`font-medium ${resultColor}`}>{resultLabel}</span>
               {' vs '}
@@ -573,7 +621,7 @@ function ContributionsModal({ war, result, contributions, loading, sort, onSort,
                 {contributions.map(c => (
                   <tr key={c.member_id} className="border-b border-gray-100 dark:border-slate-700/50 last:border-0">
                     <td className="py-1.5 px-3 text-xs font-medium text-gray-900 dark:text-white">{c.member_name}</td>
-                    <td className="py-1.5 px-3 text-xs text-right text-gray-600 dark:text-gray-400">{c.level}</td>
+                    <td className="py-1.5 px-3 text-xs text-right text-gray-600 dark:text-gray-400">{c.level ?? '—'}</td>
                     <td className="py-1.5 px-3 text-xs text-right font-mono text-gray-900 dark:text-white">
                       {Math.round(Number(c.score)).toLocaleString()}
                     </td>
