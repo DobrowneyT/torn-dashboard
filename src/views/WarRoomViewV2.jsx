@@ -14,6 +14,8 @@ import {
   clearWarRoomStateV2,
   claimDibsV2,
   releaseDibsV2,
+  claimChainSaveV2,
+  releaseChainSaveV2,
   requestRevive,
   resolveCountryFromDescription,
 } from '../utils/warRoomApiV2'
@@ -22,7 +24,7 @@ import { config as appConfig } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
 import MobileWarRoomView from './MobileWarRoomView'
-import { Smartphone, Settings } from 'lucide-react'
+import { Smartphone, Settings, Crosshair } from 'lucide-react'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -271,7 +273,13 @@ function CountdownCell({ until }) {
 function ActivityCounts({ members }) {
   const online  = members.filter(m => m.last_action_status === 'Online').length
   const idle    = members.filter(m => m.last_action_status === 'Idle').length
-  const offline = members.filter(m => m.last_action_status === 'Offline').length
+  // "Okay in Torn" — strict: status_state AND status_description both 'Okay'.
+  // Excludes Traveling/Abroad/Hospital/Jail. The parenthetical Online subset
+  // shows how many of the Okay pool are also active right now (decision input
+  // for "how many of them could chain-hit at this moment").
+  const okayInTorn = members.filter(m => m.status_state === 'Okay' && m.status_description === 'Okay')
+  const okayCount  = okayInTorn.length
+  const okayOnline = okayInTorn.filter(m => m.last_action_status === 'Online').length
   return (
     <div className="flex items-center gap-4 text-sm">
       <span className="flex items-center gap-1.5 text-green-700 dark:text-green-400">
@@ -282,49 +290,187 @@ function ActivityCounts({ members }) {
         <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
         <span className="font-semibold">{idle}</span> Idle
       </span>
-      <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
-        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 shrink-0" />
-        <span className="font-semibold">{offline}</span> Offline
+      <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+        <span className="font-semibold">{okayCount}</span> Okay
+        <span className="text-xs text-emerald-600/70 dark:text-emerald-500/70">({okayOnline} online)</span>
       </span>
     </div>
   )
 }
 
-function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, reviveServicePreset, userCountry, user, factionName }) {
+// ── Chain timer ─────────────────────────────────────────────────────────────
+// Reads from war_room_chain_v2 (singleton, polled by the cron tick at 5s/30s
+// with force-on-deadline). Countdown ticks client-side every second for smooth
+// visual; the underlying numbers refresh from the DB delta poll.
+
+function formatChainTime(secs) {
+  if (secs <= 0) return '0:00'
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function chainStateOf(chain) {
+  if (!chain) return 'idle'
+  const nowSec = Math.floor(Date.now() / 1000)
+  if (chain.cooldown && chain.cooldown > nowSec) return 'cooldown'
+  if (chain.timeout && chain.timeout > nowSec && (chain.current ?? 0) > 0) return 'active'
+  return 'idle'
+}
+
+function ChainTimerCard({ chain, userId, isAdmin, onClaim, onRelease, claimError }) {
+  // Tick local clock every second for smooth countdown.
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000))
+  useEffect(() => {
+    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const state = chainStateOf(chain)
+  const secsLeft = state === 'active' && chain?.timeout ? Math.max(0, chain.timeout - now) : 0
+  const cooldownLeft = state === 'cooldown' && chain?.cooldown ? Math.max(0, chain.cooldown - now) : 0
+
+  // Color ramp matches the tampermonkey reference: green ≥3min, yellow 1-3min,
+  // red <1min (pulsing). Cooldown and idle are gray.
+  let timerClass = 'text-gray-500 dark:text-gray-400'
+  let bgClass = 'bg-gray-50 dark:bg-slate-800/50'
+  if (state === 'active') {
+    if (secsLeft < 60)        { timerClass = 'text-red-600 dark:text-red-400 font-bold'; bgClass = 'bg-red-50 dark:bg-red-900/30 animate-pulse' }
+    else if (secsLeft <= 180) { timerClass = 'text-amber-600 dark:text-amber-400 font-semibold'; bgClass = 'bg-amber-50 dark:bg-amber-900/20' }
+    else                      { timerClass = 'text-green-600 dark:text-green-400 font-semibold'; bgClass = 'bg-green-50 dark:bg-green-900/20' }
+  }
+
+  const claimedByMe = chain?.save_claimed_by && String(chain.save_claimed_by) === String(userId)
+  const claimedBySomeone = !!chain?.save_claimed_by
+  const canRelease = claimedByMe || (claimedBySomeone && isAdmin)
+
+  // Enemy chain readout — value + cooldown only per plan.
+  const enemy = chain?.enemy
+  const enemyCooldownLeft = enemy?.cooldown && enemy.cooldown > now ? enemy.cooldown - now : 0
+  const enemyState = enemy
+    ? (enemyCooldownLeft > 0 ? 'cooldown' : ((enemy.current ?? 0) > 0 ? 'active' : 'idle'))
+    : 'unknown'
+  const enemyLabel =
+    enemyState === 'active'   ? `${(enemy.current ?? 0).toLocaleString()}× chained` :
+    enemyState === 'cooldown' ? `${(enemy.current ?? 0).toLocaleString()}× — cooldown ${formatChainTime(enemyCooldownLeft)}` :
+    enemyState === 'idle'     ? 'no chain' :
+                                '—'
+
+  return (
+    <div className={`flex items-center gap-3 px-3 py-1.5 rounded-md border border-gray-200 dark:border-slate-700 ${bgClass} transition-colors`}>
+      {/* Our chain — timer + value */}
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Chain</span>
+        {state === 'active' && (
+          <>
+            <span className={`font-mono text-lg leading-none ${timerClass}`}>{formatChainTime(secsLeft)}</span>
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              <span className="font-semibold">{(chain.current ?? 0).toLocaleString()}×</span>
+              {chain.modifier ? <span className="text-xs ml-1 text-gray-500">R{Number(chain.modifier).toFixed(2)}</span> : null}
+            </span>
+          </>
+        )}
+        {state === 'cooldown' && (
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            cooldown <span className="font-mono">{formatChainTime(cooldownLeft)}</span>
+          </span>
+        )}
+        {state === 'idle' && (
+          <span className="text-xs text-gray-400 dark:text-gray-500">no chain</span>
+        )}
+      </div>
+
+      {/* Save claim controls — only when chain is active */}
+      {state === 'active' && (
+        <div className="flex items-center gap-2 ml-auto">
+          {!claimedBySomeone && (
+            <button
+              onClick={onClaim}
+              className="text-xs px-2.5 py-1 rounded border border-blue-400 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:hover:bg-blue-900/60 dark:text-blue-300 dark:border-blue-700 font-medium transition-colors"
+            >
+              Save Chain
+            </button>
+          )}
+          {claimedBySomeone && (
+            <span className={`text-xs ${claimedByMe ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>
+              {claimedByMe ? "You're saving" : `${chain.save_claimed_name} is saving`}
+            </span>
+          )}
+          {canRelease && (
+            <button
+              onClick={onRelease}
+              title={claimedByMe ? 'Release your claim' : 'Admin override: release claim'}
+              className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 underline"
+            >
+              Release
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Enemy chain readout — pushed to the right when no save controls */}
+      <div className={`flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 ${state === 'active' ? '' : 'ml-auto'}`}>
+        <span className="uppercase tracking-wide font-semibold">Enemy:</span>
+        <span className={enemyState === 'active' ? 'text-purple-600 dark:text-purple-400 font-medium' : ''}>
+          {enemyLabel}
+        </span>
+      </div>
+
+      {claimError && (
+        <span className="text-xs text-red-500 dark:text-red-400 ml-2">⚠ {claimError}</span>
+      )}
+    </div>
+  )
+}
+
+function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, reviveServicePreset, userCountry, user, factionName, chain, onClaimChainSave, onReleaseChainSave, chainClaimError, isAdmin }) {
   // On <md viewports stack into 3 rows so the bar can't overflow a phone
   // screen (which would inflate the layout viewport and break the mobile
   // overlay). On md+ keep the original single-row layout.
+  // ChainTimerCard renders as a top sub-row when the cron has any chain data.
   return (
-    <div className="card py-3 px-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
-      <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-wrap">
-        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide shrink-0">
-          {factionLabel ?? 'Enemy'}
-        </span>
-        <ActivityCounts members={enemyMembers} />
-      </div>
-      <div className="flex items-center justify-center md:justify-center shrink-0 self-center md:self-auto">
-        <QuickLinksBar
-          reviveServiceName={reviveServiceName}
-          reviveServiceUrl={reviveServiceUrl}
-          reviveServiceSource={reviveServiceSource}
-          reviveServiceSourceKey={reviveServiceSourceKey}
-          reviveServicePreset={reviveServicePreset}
-          userCountry={userCountry}
-          user={user}
-          factionName={factionName}
+    <div className="card py-3 px-4 flex flex-col gap-3">
+      {chain && (
+        <ChainTimerCard
+          chain={chain}
+          userId={user?.id}
+          isAdmin={isAdmin}
+          onClaim={onClaimChainSave}
+          onRelease={onReleaseChainSave}
+          claimError={chainClaimError}
         />
-      </div>
-      {ourMembers.length > 0 ? (
-        <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-wrap md:justify-end">
-          <ActivityCounts members={ourMembers} />
-          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide shrink-0">
-            Us
-          </span>
-        </div>
-      ) : (
-        // Keeps justify-between's spacing balanced when our counts are hidden
-        <span aria-hidden className="shrink-0" />
       )}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
+        <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-wrap">
+          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide shrink-0">
+            {factionLabel ?? 'Enemy'}
+          </span>
+          <ActivityCounts members={enemyMembers} />
+        </div>
+        <div className="flex items-center justify-center md:justify-center shrink-0 self-center md:self-auto">
+          <QuickLinksBar
+            reviveServiceName={reviveServiceName}
+            reviveServiceUrl={reviveServiceUrl}
+            reviveServiceSource={reviveServiceSource}
+            reviveServiceSourceKey={reviveServiceSourceKey}
+            reviveServicePreset={reviveServicePreset}
+            userCountry={userCountry}
+            user={user}
+            factionName={factionName}
+          />
+        </div>
+        {ourMembers.length > 0 ? (
+          <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-wrap md:justify-end">
+            <ActivityCounts members={ourMembers} />
+            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide shrink-0">
+              Us
+            </span>
+          </div>
+        ) : (
+          // Keeps justify-between's spacing balanced when our counts are hidden
+          <span aria-hidden className="shrink-0" />
+        )}
+      </div>
     </div>
   )
 }
@@ -442,6 +588,104 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, service
   )
 }
 
+// Find Target — emergency chain-save. Single click opens a random Torn user
+// page in the configured ID range. Range defaults to the tampermonkey script's
+// 3.6M–3.9M (likely-inactive accounts that are still attackable). Range is
+// per-user via localStorage so each leader can tune for their own preference.
+// A small gear next to the button opens an inline popover with the inputs.
+
+const FT_RANGE_MIN_KEY = 'warroom_find_target_min'
+const FT_RANGE_MAX_KEY = 'warroom_find_target_max'
+const FT_DEFAULT_MIN = 3_600_000
+const FT_DEFAULT_MAX = 3_900_000
+
+function FindTargetButton() {
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  // localStorage seed on mount — keep as numbers internally.
+  const [minId, setMinId] = useState(() => Number(localStorage.getItem(FT_RANGE_MIN_KEY)) || FT_DEFAULT_MIN)
+  const [maxId, setMaxId] = useState(() => Number(localStorage.getItem(FT_RANGE_MAX_KEY)) || FT_DEFAULT_MAX)
+  const popoverRef = useRef(null)
+
+  // Close popover on outside click.
+  useEffect(() => {
+    if (!settingsOpen) return
+    function onClick(e) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) setSettingsOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [settingsOpen])
+
+  function pickAndOpen() {
+    // Defensive clamp in case localStorage has garbage.
+    const lo = Math.max(1, Math.min(minId, maxId) || FT_DEFAULT_MIN)
+    const hi = Math.max(lo,  Math.max(minId, maxId) || FT_DEFAULT_MAX)
+    const id = Math.floor(Math.random() * (hi - lo + 1)) + lo
+    window.open(`https://www.torn.com/loader.php?sid=attack&user2ID=${id}`, '_blank', 'noopener,noreferrer')
+  }
+
+  function commitMin(v) {
+    const n = Math.max(1, Math.floor(Number(v) || FT_DEFAULT_MIN))
+    setMinId(n)
+    localStorage.setItem(FT_RANGE_MIN_KEY, String(n))
+  }
+  function commitMax(v) {
+    const n = Math.max(1, Math.floor(Number(v) || FT_DEFAULT_MAX))
+    setMaxId(n)
+    localStorage.setItem(FT_RANGE_MAX_KEY, String(n))
+  }
+
+  const base = 'inline-flex items-center justify-center w-9 h-9 rounded-lg border transition-colors'
+  return (
+    <div className="relative inline-flex items-center gap-0.5" ref={popoverRef}>
+      <button
+        type="button"
+        onClick={pickAndOpen}
+        title={`Find Target — open random attack page in ID range ${minId.toLocaleString()}–${maxId.toLocaleString()}. Use when the chain timer is critical and you can't waste a second picking a target.`}
+        className={`${base} border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:border-amber-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20`}
+      >
+        <Crosshair className="w-5 h-5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => setSettingsOpen(o => !o)}
+        title="Adjust Find Target ID range (stored per-user in localStorage)"
+        className="inline-flex items-center justify-center w-5 h-9 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+      >
+        <Settings className="w-3 h-3" />
+      </button>
+      {settingsOpen && (
+        <div className="absolute top-full right-0 mt-1 z-20 p-3 rounded-lg shadow-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 w-64 space-y-2">
+          <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">Find Target ID range</div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500 dark:text-gray-400 w-8">Min</label>
+            <input
+              type="number"
+              value={minId}
+              onChange={e => setMinId(Number(e.target.value) || 0)}
+              onBlur={e => commitMin(e.target.value)}
+              className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-white"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500 dark:text-gray-400 w-8">Max</label>
+            <input
+              type="number"
+              value={maxId}
+              onChange={e => setMaxId(Number(e.target.value) || 0)}
+              onBlur={e => commitMax(e.target.value)}
+              className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-white"
+            />
+          </div>
+          <div className="text-[10px] text-gray-400 dark:text-gray-500">
+            Defaults: {FT_DEFAULT_MIN.toLocaleString()}–{FT_DEFAULT_MAX.toLocaleString()}. Saved per-user.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSource, reviveServiceSourceKey, reviveServicePreset, userCountry, user, factionName }) {
   const iconCls = 'w-5 h-5'
   return (
@@ -465,6 +709,7 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSourc
         user={user}
         factionName={factionName}
       />
+      <FindTargetButton />
     </div>
   )
 }
@@ -529,6 +774,26 @@ function ConfigPanel({
     } catch (e) {
       setMsg({ ok: false, text: e.message })
     }
+  }
+
+  // Chain poll cadences — how often the cron fetches /v2/faction/{id}/chain.
+  // Ours defaults to 5s (we care a lot), enemy 30s (intel only). Both clamp
+  // server-side to [1, 600]s in the Edge Function. Same commit-on-blur pattern.
+  const [chainOursSec,  setChainOursSec]  = useState(String(config?.chain_poll_interval_ours_sec  ?? 5))
+  const [chainEnemySec, setChainEnemySec] = useState(String(config?.chain_poll_interval_enemy_sec ?? 30))
+  useEffect(() => { setChainOursSec(String(config?.chain_poll_interval_ours_sec  ?? 5)) },  [config?.chain_poll_interval_ours_sec])
+  useEffect(() => { setChainEnemySec(String(config?.chain_poll_interval_enemy_sec ?? 30)) }, [config?.chain_poll_interval_enemy_sec])
+  async function commitChainOurs() {
+    const next = Math.min(600, Math.max(1, Math.floor(Number(chainOursSec) || 5)))
+    if (next === (config?.chain_poll_interval_ours_sec ?? 5)) return
+    try { await onSaveReviveService({ chain_poll_interval_ours_sec: next });  setMsg({ ok: true, text: `Our chain poll set to ${next}s.` }) }
+    catch (e) { setMsg({ ok: false, text: e.message }) }
+  }
+  async function commitChainEnemy() {
+    const next = Math.min(600, Math.max(1, Math.floor(Number(chainEnemySec) || 30)))
+    if (next === (config?.chain_poll_interval_enemy_sec ?? 30)) return
+    try { await onSaveReviveService({ chain_poll_interval_enemy_sec: next }); setMsg({ ok: true, text: `Enemy chain poll set to ${next}s.` }) }
+    catch (e) { setMsg({ ok: false, text: e.message }) }
   }
 
   // Dropdown change → look up the preset and persist its name + url as the active selection.
@@ -675,6 +940,44 @@ function ConfigPanel({
             className="w-24 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+
+        {/* Chain poll cadences — server-side throttle for /v2/faction/{id}/chain. */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Our chain poll <span className="text-gray-400 dark:text-gray-600">(s)</span>
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={600}
+            step={1}
+            value={chainOursSec}
+            onChange={e => setChainOursSec(e.target.value)}
+            onBlur={commitChainOurs}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="5"
+            title="How often the server polls our chain endpoint. Clamped to 1–600s. The cron forces an extra poll when the chain timer is within 6s of expiring regardless of this value."
+            className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Enemy chain poll <span className="text-gray-400 dark:text-gray-600">(s)</span>
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={600}
+            step={1}
+            value={chainEnemySec}
+            onChange={e => setChainEnemySec(e.target.value)}
+            onBlur={commitChainEnemy}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="30"
+            title="How often the server polls the enemy faction's chain endpoint. Clamped to 1–600s. Pauses while enemy is in cooldown."
+            className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
       </div>
 
       {/* Revive service — preset dropdown + gear to manage the list */}
@@ -744,6 +1047,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     ourMembers,
     dibs,
     config,
+    chain,
     isInitialLoading: configLoading,
     lastTick: lastFetched,
     pollError,
@@ -758,6 +1062,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const [toggleError, setToggleError] = useState(null)
   const [updatingSpies, setUpdatingSpies] = useState(false)
   const [spiesMsg, setSpiesMsg]       = useState(null)
+  const [chainClaimError, setChainClaimError] = useState(null)
 
   // Leadership controls collapse — default closed so the page reads clean.
   // Persisted so users who keep it open don't have to reopen on every load.
@@ -1053,6 +1358,33 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     }
   }
 
+  // ── Chain-save claim handlers ─────────────────────────────────────────────
+  // Same shape as the dibs handlers — pollNow() flushes the DB delta within
+  // ~50 ms so the UI reflects the claim immediately.
+  async function handleClaimChainSave() {
+    if (!user?.id) return
+    setChainClaimError(null)
+    try {
+      await claimChainSaveV2(user.apiKey, { userId: user.id, userName: user.name })
+      await pollNow()
+    } catch (e) {
+      setChainClaimError(e.message)
+      setTimeout(() => setChainClaimError(null), 4000)
+    }
+  }
+
+  async function handleReleaseChainSave() {
+    if (!user?.id) return
+    setChainClaimError(null)
+    try {
+      await releaseChainSaveV2(user.apiKey, { userId: user.id })
+      await pollNow()
+    } catch (e) {
+      setChainClaimError(e.message)
+      setTimeout(() => setChainClaimError(null), 4000)
+    }
+  }
+
   // ── Filtered + sorted member list ─────────────────────────────────────────
 
   // Farm-mode tracking: stamp each member with the moment they were observed
@@ -1180,13 +1512,21 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     },
   })), [members])
 
-  // Activity-bucket counts for our faction. The mobile header strip wants
-  // { Online, Idle, Offline } shaped the same way ActivityCounts computes.
+  // Activity-bucket counts for our faction. Phase 7e shape:
+  //   { Online, Idle, Okay, OkayOnline }
+  // - Online/Idle: last_action_status buckets (Offline dropped intentionally).
+  // - Okay: strict "Okay AND in Torn" — both status_state and status_description = 'Okay'.
+  // - OkayOnline: subset of Okay who are also Online (decision input for
+  //   "how many of us could actually swing a chain hit right now").
   const mobileOurCounts = useMemo(() => {
-    const c = { Online: 0, Idle: 0, Offline: 0 }
+    const c = { Online: 0, Idle: 0, Okay: 0, OkayOnline: 0 }
     for (const m of ourMembers) {
-      const k = m.last_action_status
-      if (k && c[k] !== undefined) c[k] += 1
+      if (m.last_action_status === 'Online') c.Online += 1
+      else if (m.last_action_status === 'Idle') c.Idle += 1
+      if (m.status_state === 'Okay' && m.status_description === 'Okay') {
+        c.Okay += 1
+        if (m.last_action_status === 'Online') c.OkayOnline += 1
+      }
     }
     return c
   }, [ourMembers])
@@ -1489,6 +1829,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             userCountry={userCountry}
             user={user}
             factionName={appConfig.faction.name}
+            chain={chain}
+            onClaimChainSave={handleClaimChainSave}
+            onReleaseChainSave={handleReleaseChainSave}
+            chainClaimError={chainClaimError}
+            isAdmin={isAdmin}
           />
         )
       })()}

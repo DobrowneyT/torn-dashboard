@@ -461,17 +461,25 @@ function CombinedCountRibbon({ enemyCounts, ourCounts }) {
       <span className="text-gray-500 dark:text-gray-400">{lbl}</span>
     </span>
   )
+  const okayChip = (n, online) => (
+    <span className="inline-flex items-center gap-1 text-xs min-w-0 text-emerald-700 dark:text-emerald-400">
+      <span className="font-semibold">{n}</span>
+      <span>Okay</span>
+      <span className="text-emerald-600/70 dark:text-emerald-500/70">({online})</span>
+    </span>
+  )
   return (
     <div className="px-3.5 py-2 bg-gray-50 dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between gap-3 flex-wrap">
       <div className="flex items-center gap-2 min-w-0 flex-wrap">
         <span className="text-[10px] font-bold text-gray-400 tracking-wider">ENEMY</span>
         {dot('bg-green-500', enemyCounts.Online, 'on')}
         {dot('bg-amber-500', enemyCounts.Idle,   'idle')}
-        {dot('bg-gray-400',  enemyCounts.Offline, 'off')}
+        {okayChip(enemyCounts.Okay ?? 0, enemyCounts.OkayOnline ?? 0)}
       </div>
       <div className="flex items-center gap-2 min-w-0 flex-wrap">
-        {dot('bg-green-500', ourCounts.Online, 'on')}
+        {okayChip(ourCounts.Okay ?? 0, ourCounts.OkayOnline ?? 0)}
         {dot('bg-amber-500', ourCounts.Idle,   'idle')}
+        {dot('bg-green-500', ourCounts.Online, 'on')}
         <span className="text-[10px] font-bold text-gray-400 tracking-wider">US</span>
       </div>
     </div>
@@ -902,7 +910,7 @@ export default function MobileWarRoomView({
   currentUserId,
   factionId,
   factionName,
-  ourCounts = { Online: 0, Idle: 0, Offline: 0 },
+  ourCounts = { Online: 0, Idle: 0, Okay: 0, OkayOnline: 0 },
   isLeadership = false,
   isActive = true,
   paused = false,
@@ -1042,9 +1050,19 @@ export default function MobileWarRoomView({
     })
   }, [members, statusFilter, activityFilter, statsEnabled, statsMin, statsMax, sortBy, sortDir])
 
+  // Phase 7e shape: { Online, Idle, Okay, OkayOnline }. Offline dropped.
+  // Okay = strict in-Torn (state AND description both 'Okay');
+  // OkayOnline = subset of Okay also Online.
   const enemyCounts = useMemo(() => {
-    const c = { Online: 0, Idle: 0, Offline: 0 }
-    for (const m of members) c[m.activity] = (c[m.activity] || 0) + 1
+    const c = { Online: 0, Idle: 0, Okay: 0, OkayOnline: 0 }
+    for (const m of members) {
+      if (m.activity === 'Online') c.Online += 1
+      else if (m.activity === 'Idle') c.Idle += 1
+      if (m.state === 'Okay' && m.description === 'Okay') {
+        c.Okay += 1
+        if (m.activity === 'Online') c.OkayOnline += 1
+      }
+    }
     return c
   }, [members])
 

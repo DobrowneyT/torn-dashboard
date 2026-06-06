@@ -165,3 +165,19 @@ export async function pollConfigDelta(since) {
   if (error) throw error
   return unwrapDelta(data)
 }
+
+export async function pollChainDelta(since) {
+  const { data, error } = await supabase.rpc('war_room_chain_v2_delta', { p_since: since })
+  if (error) throw error
+  return unwrapDelta(data)
+}
+
+// ── Chain-save claim Edge Function actions ───────────────────────────────────
+
+export async function claimChainSaveV2(tornApiKey, opts = {}) {
+  return callWarRoom('claim_chain_save_v2', { user_id: opts.userId, user_name: opts.userName }, tornApiKey, opts.signal)
+}
+
+export async function releaseChainSaveV2(tornApiKey, opts = {}) {
+  return callWarRoom('release_chain_save_v2', { user_id: opts.userId }, tornApiKey, opts.signal)
+}

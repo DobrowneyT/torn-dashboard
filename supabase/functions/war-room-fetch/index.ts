@@ -663,6 +663,8 @@ async function handleSetConfigV2(
   if ('revive_service_url'  in body) update.revive_service_url  = body.revive_service_url
   if ('revive_services'     in body) update.revive_services     = body.revive_services
   if ('tornstats_max_age_days' in body) update.tornstats_max_age_days = body.tornstats_max_age_days
+  if ('chain_poll_interval_ours_sec'  in body) update.chain_poll_interval_ours_sec  = body.chain_poll_interval_ours_sec
+  if ('chain_poll_interval_enemy_sec' in body) update.chain_poll_interval_enemy_sec = body.chain_poll_interval_enemy_sec
 
   if (body.enabled === true) {
     update.started_by = Number(userId)
@@ -774,6 +776,214 @@ async function handleReleaseDibsV2(
   return json({ ok: true })
 }
 
+// ── Chain telemetry ─────────────────────────────────────────────────────────
+// State lives in the singleton war_room_chain_v2 (id=1). The cron tick reads
+// the row, decides per-side whether to poll, fires Torn API calls in parallel,
+// and updates the row. Throttle/force/pause logic per the plan doc:
+//
+//   * Active chain (cooldown <= now): poll on the cadence below, but FORCE
+//     a poll when timeout - now <= 6s so we catch the hit-vs-drop transition.
+//   * Cooldown chain (cooldown > now): skip entirely until cooldown ends.
+//     The first tick after cooldown ends triggers a confirming poll.
+//   * Idle (no chain): poll on normal cadence to detect a new chain start.
+//
+// Cadences: ours = 5s, enemy = 30s. Tunable here only.
+
+// Defaults if config columns are unset. Leadership can override per-side via
+// the chain_poll_interval_*_sec columns on war_room_config_v2.
+const CHAIN_POLL_INTERVAL_OURS_MS_DEFAULT  = 5_000
+const CHAIN_POLL_INTERVAL_ENEMY_MS_DEFAULT = 30_000
+const CHAIN_FORCE_BEFORE_EXPIRY_S          = 6
+
+type ChainRow = {
+  current:               number | null
+  max:                   number | null
+  modifier:              number | null
+  timeout:               number | null
+  start_ts:              number | null
+  cooldown:              number | null
+  end_ts:                number | null
+  save_claimed_by:       number | null
+  save_claimed_name:     string | null
+  save_claimed_at:       string | null
+  enemy:                 any
+  our_last_fetched_at:   string | null
+  enemy_last_fetched_at: string | null
+}
+
+function chainSidePollDecision(
+  side: 'ours' | 'enemy',
+  row: ChainRow | null,
+  nowMs: number,
+  oursIntervalMs: number,
+  enemyIntervalMs: number,
+): boolean {
+  const intervalMs = side === 'ours' ? oursIntervalMs : enemyIntervalMs
+  const nowSec = Math.floor(nowMs / 1000)
+
+  // For enemy chain we look at row.enemy.{...}; for ours at the top-level fields.
+  const cooldown = side === 'ours' ? row?.cooldown : row?.enemy?.cooldown
+  const timeout  = side === 'ours' ? row?.timeout  : row?.enemy?.timeout
+  const lastIso  = side === 'ours' ? row?.our_last_fetched_at : row?.enemy_last_fetched_at
+
+  // Cooldown in the future → pause polling.
+  if (cooldown && cooldown > nowSec) return false
+
+  // Force when timeout is within the safety window.
+  if (timeout && timeout > nowSec && timeout - nowSec <= CHAIN_FORCE_BEFORE_EXPIRY_S) return true
+
+  // Force one confirming poll right after cooldown ends, even if cadence hasn't elapsed.
+  if (cooldown && cooldown > 0 && cooldown <= nowSec) {
+    const lastMs = lastIso ? new Date(lastIso).getTime() : 0
+    if (lastMs < cooldown * 1000) return true
+  }
+
+  // Normal cadence.
+  const lastMs = lastIso ? new Date(lastIso).getTime() : 0
+  return nowMs - lastMs >= intervalMs
+}
+
+// Fetch /v2/faction/{id}/chain. Returns null on any failure so the caller can
+// short-circuit without aborting the cron tick.
+async function fetchChainFromTorn(factionId: number): Promise<any | null> {
+  const tornKey = nextTornKey()
+  if (!tornKey) return null
+  try {
+    const resp = await fetch(
+      `https://api.torn.com/v2/faction/${factionId}/chain?key=${tornKey}&comment=WarRoom`,
+    )
+    if (!resp.ok) return null
+    const data = await resp.json()
+    if (data.error) {
+      console.warn(`[chain] faction ${factionId} torn error:`, data.error)
+      return null
+    }
+    return data.chain ?? null
+  } catch (e) {
+    console.warn(`[chain] faction ${factionId} fetch failed:`, e)
+    return null
+  }
+}
+
+async function pollOurChain(
+  supabase: ReturnType<typeof createClient>,
+  prev: ChainRow | null,
+): Promise<{ polled: boolean; reason?: string }> {
+  const chain = await fetchChainFromTorn(Number(OUR_FACTION_ID))
+  if (!chain) return { polled: false, reason: 'torn fetch failed' }
+
+  // Clear the save claim when the chain advances (claimer made the hit) OR
+  // when the chain enters cooldown (drop — no one needs to save anymore).
+  const newCurrent  = chain.current  ?? 0
+  const newCooldown = chain.cooldown ?? 0
+  const prevCurrent  = prev?.current  ?? 0
+  const prevCooldown = prev?.cooldown ?? 0
+  const hitDetected      = newCurrent > prevCurrent
+  const droppedToCooldown = newCooldown > 0 && prevCooldown === 0
+
+  const update: Record<string, unknown> = {
+    current:             newCurrent,
+    max:                 chain.max ?? null,
+    modifier:            chain.modifier ?? null,
+    timeout:             chain.timeout ?? null,
+    start_ts:            chain.start ?? null,
+    cooldown:            newCooldown,
+    end_ts:              chain.end ?? null,
+    our_last_fetched_at: new Date().toISOString(),
+  }
+  if (hitDetected || droppedToCooldown) {
+    update.save_claimed_by   = null
+    update.save_claimed_name = null
+    update.save_claimed_at   = null
+  }
+
+  const { error } = await supabase.from('war_room_chain_v2').update(update).eq('id', 1)
+  if (error) return { polled: false, reason: error.message }
+  return { polled: true }
+}
+
+async function pollEnemyChain(
+  supabase: ReturnType<typeof createClient>,
+  enemyFactionId: number,
+): Promise<{ polled: boolean; reason?: string }> {
+  const chain = await fetchChainFromTorn(enemyFactionId)
+  if (!chain) return { polled: false, reason: 'torn fetch failed' }
+
+  // Enemy chain is value+cooldown only. Store as JSONB so future fields land
+  // for free. Top-level columns stay reserved for OUR chain.
+  const enemyPayload = {
+    current:  chain.current  ?? 0,
+    max:      chain.max      ?? null,
+    modifier: chain.modifier ?? null,
+    timeout:  chain.timeout  ?? null,
+    cooldown: chain.cooldown ?? 0,
+    end:      chain.end      ?? 0,
+    start:    chain.start    ?? 0,
+  }
+
+  const { error } = await supabase.from('war_room_chain_v2').update({
+    enemy:                 enemyPayload,
+    enemy_last_fetched_at: new Date().toISOString(),
+  }).eq('id', 1)
+  if (error) return { polled: false, reason: error.message }
+  return { polled: true }
+}
+
+// ── Chain save claim actions ────────────────────────────────────────────────
+
+async function handleClaimChainSaveV2(
+  supabase: ReturnType<typeof createClient>,
+  _body: any,
+  userId: string,
+  userName: string,
+) {
+  if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
+
+  const { data: existing } = await supabase
+    .from('war_room_chain_v2')
+    .select('save_claimed_by, save_claimed_name')
+    .eq('id', 1)
+    .maybeSingle()
+
+  if (existing?.save_claimed_by && String(existing.save_claimed_by) !== userId) {
+    return json({
+      error: `Already claimed by ${existing.save_claimed_name}`,
+      owner: { id: existing.save_claimed_by, name: existing.save_claimed_name },
+    }, 409)
+  }
+
+  const { error } = await supabase.from('war_room_chain_v2').update({
+    save_claimed_by:   Number(userId),
+    save_claimed_name: userName,
+    save_claimed_at:   new Date().toISOString(),
+  }).eq('id', 1)
+  if (error) return json({ error: error.message }, 500)
+  return json({ ok: true })
+}
+
+async function handleReleaseChainSaveV2(
+  supabase: ReturnType<typeof createClient>,
+  _body: any,
+  userId: string,
+) {
+  if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
+
+  let query = supabase.from('war_room_chain_v2').update({
+    save_claimed_by:   null,
+    save_claimed_name: null,
+    save_claimed_at:   null,
+  }).eq('id', 1)
+
+  // Non-admins can only release their own claim.
+  if (!ADMIN_IDS.includes(String(userId))) {
+    query = query.eq('save_claimed_by', Number(userId))
+  }
+
+  const { error } = await query
+  if (error) return json({ error: error.message }, 500)
+  return json({ ok: true })
+}
+
 // ── Centralised cron-driven polling ──────────────────────────────────────────
 // Replaces N×viewer × (1 / pollIntervalSec) Torn API calls with a single
 // global tick driven by pg_cron. The client no longer runs the Torn fetch
@@ -807,13 +1017,39 @@ async function handleCronPoll(
 
   const { data: cfg, error: cfgErr } = await supabase
     .from('war_room_config_v2')
-    .select('enabled, faction_id')
+    .select('enabled, faction_id, chain_poll_interval_ours_sec, chain_poll_interval_enemy_sec')
     .eq('id', 1)
     .maybeSingle()
   if (cfgErr) return json({ error: `config read failed: ${cfgErr.message}` }, 500)
 
   if (!cfg?.enabled || !cfg.faction_id) {
     return json({ ok: true, skipped: true, reason: cfg?.enabled ? 'no faction' : 'paused' })
+  }
+
+  // Resolve per-side chain cadences from config with sane fallbacks.
+  // Clamp to [1, 600] seconds so a typo in the UI can't accidentally stop
+  // polling entirely or pin Torn 1000×/s.
+  const oursIntervalMs = Math.min(600, Math.max(1, Number(cfg.chain_poll_interval_ours_sec ?? 5)))  * 1000
+  const enemyIntervalMs = Math.min(600, Math.max(1, Number(cfg.chain_poll_interval_enemy_sec ?? 30))) * 1000
+
+  // Chain polling fires AT MOST ONCE per cron invocation (not per inner tick).
+  // chainSidePollDecision() decides whether each side is actually due — most
+  // ticks no-op. Member polling stays on the inner-tick loop for 500ms effect.
+  const { data: chainRow } = await supabase
+    .from('war_room_chain_v2').select('*').eq('id', 1).maybeSingle()
+  const nowMs = Date.now()
+  const chainTasks: Array<Promise<{ side: string; polled: boolean; reason?: string }>> = []
+  if (chainSidePollDecision('ours', chainRow as ChainRow | null, nowMs, oursIntervalMs, enemyIntervalMs)) {
+    chainTasks.push(
+      pollOurChain(supabase, chainRow as ChainRow | null)
+        .then(r => ({ side: 'ours', ...r })),
+    )
+  }
+  if (chainSidePollDecision('enemy', chainRow as ChainRow | null, nowMs, oursIntervalMs, enemyIntervalMs)) {
+    chainTasks.push(
+      pollEnemyChain(supabase, Number(cfg.faction_id))
+        .then(r => ({ side: 'enemy', ...r })),
+    )
   }
 
   const ticks: Array<{ enemy: any; our: any }> = []
@@ -836,7 +1072,8 @@ async function handleCronPoll(
     }
   }
 
-  return json({ ok: true, ticks })
+  const chains = await Promise.all(chainTasks)
+  return json({ ok: true, ticks, chains })
 }
 
 // ── JWT minting (realtime + session auth) ────────────────────────────────────
@@ -941,6 +1178,9 @@ serve(async (req: Request) => {
       // v2 polling/dibs actions are high-frequency. Server-side TORN_API_KEYS,
       // claim_dibs serialised by the war_room_dibs_v2 unique partial index.
       'fetch_members_v2', 'fetch_our_members_v2', 'claim_dibs_v2', 'release_dibs_v2',
+      // Chain-save claim uses the same trust model — body carries user_id,
+      // single-row table serialises naturally on conflict.
+      'claim_chain_save_v2', 'release_chain_save_v2',
     ])
 
     let userId = 'anon'
@@ -981,6 +1221,12 @@ serve(async (req: Request) => {
         return await handleClaimDibsV2(supabase, body, String(body.user_id ?? ''), userName)
       case 'release_dibs_v2':
         return await handleReleaseDibsV2(supabase, body, String(body.user_id ?? ''))
+
+      // ── Chain-save claim ─────────────────────────────────────────────
+      case 'claim_chain_save_v2':
+        return await handleClaimChainSaveV2(supabase, body, String(body.user_id ?? ''), userName)
+      case 'release_chain_save_v2':
+        return await handleReleaseChainSaveV2(supabase, body, String(body.user_id ?? ''))
 
       // ── Centralised cron-driven polling ──────────────────────────────
       case 'cron_poll_war_room':

@@ -11,7 +11,12 @@
  * consumer view is a small diff from WarRoomView.jsx.
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { pollStateDelta, pollDibsDelta, pollConfigDelta } from '../utils/warRoomApiV2'
+import {
+  pollStateDelta,
+  pollDibsDelta,
+  pollConfigDelta,
+  pollChainDelta,
+} from '../utils/warRoomApiV2'
 
 const HIDDEN_INTERVAL_MS = 5_000   // when document.visibilityState !== 'visible'
 
@@ -47,13 +52,14 @@ export function useWarRoomPoll({ intervalMs = 1000, enabled = true, ourFactionId
   const [ourMembers, setOurMembers] = useState([])
   const [dibs,       setDibs]       = useState({})
   const [config,     setConfig]     = useState(null)
+  const [chain,      setChain]      = useState(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [lastTick,   setLastTick]   = useState(null)
   const [pollError,  setPollError]  = useState(null)
 
   // Watermarks — server-returned timestamps. null on first poll → server
   // treats as -infinity and returns the full snapshot.
-  const watermarksRef = useRef({ state: null, dibs: null, config: null })
+  const watermarksRef = useRef({ state: null, dibs: null, config: null, chain: null })
 
   // Latest values, for the imperatively-called pollNow without stale closures.
   const intervalMsRef = useRef(intervalMs)
@@ -113,22 +119,31 @@ export function useWarRoomPoll({ intervalMs = 1000, enabled = true, ourFactionId
     setConfig(rows[rows.length - 1])
   }, [])
 
-  // One tick: poll all three in parallel, advance watermarks atomically per
-  // channel using the server-returned timestamp.
+  const applyChainDelta = useCallback((rows) => {
+    if (!rows?.length) return
+    // Singleton table.
+    setChain(rows[rows.length - 1])
+  }, [])
+
+  // One tick: poll all four delta channels in parallel, advance watermarks
+  // atomically per channel using the server-returned timestamp.
   const tick = useCallback(async () => {
     if (!enabledRef.current) return
     try {
-      const [s, d, c] = await Promise.all([
+      const [s, d, c, h] = await Promise.all([
         pollStateDelta(watermarksRef.current.state),
         pollDibsDelta(watermarksRef.current.dibs),
         pollConfigDelta(watermarksRef.current.config),
+        pollChainDelta(watermarksRef.current.chain),
       ])
       applyStateDelta(s.rows)
       applyDibsDelta(d.rows)
       applyConfigDelta(c.rows)
+      applyChainDelta(h.rows)
       if (s.serverNow) watermarksRef.current.state  = s.serverNow
       if (d.serverNow) watermarksRef.current.dibs   = d.serverNow
       if (c.serverNow) watermarksRef.current.config = c.serverNow
+      if (h.serverNow) watermarksRef.current.chain  = h.serverNow
       setLastTick(Date.now())
       setPollError(null)
     } catch (e) {
@@ -137,7 +152,7 @@ export function useWarRoomPoll({ intervalMs = 1000, enabled = true, ourFactionId
     } finally {
       setIsInitialLoading(false)
     }
-  }, [applyStateDelta, applyDibsDelta, applyConfigDelta])
+  }, [applyStateDelta, applyDibsDelta, applyConfigDelta, applyChainDelta])
 
   // Schedule loop. Re-creates the interval when intervalMs / enabled / tab
   // visibility changes. Polls immediately on each (re)schedule for a fast
@@ -177,6 +192,7 @@ export function useWarRoomPoll({ intervalMs = 1000, enabled = true, ourFactionId
     ourMembers,
     dibs,
     config,
+    chain,
     isInitialLoading,
     lastTick,
     pollError,
