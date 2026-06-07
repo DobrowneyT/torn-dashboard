@@ -704,6 +704,30 @@ async function handleClearStateV2(
     .is('deleted_at', null)
   if (dibsErr) return json({ error: `dibs clear error: ${dibsErr.message}` }, 500)
 
+  // Reset the chain singleton to a blank slate so a brand-new war doesn't
+  // inherit the prior chain's value, save-claim, cooldown, or enemy readout.
+  // Zeroing the fetched-at watermarks makes the cron immediately re-fetch
+  // both sides on the next tick rather than waiting out the cadence.
+  const { error: chainErr } = await supabase
+    .from('war_room_chain_v2')
+    .update({
+      current:               0,
+      max:                   null,
+      modifier:              null,
+      timeout:               0,
+      start_ts:              0,
+      cooldown:              0,
+      end_ts:                0,
+      save_claimed_by:       null,
+      save_claimed_name:     null,
+      save_claimed_at:       null,
+      enemy:                 null,
+      our_last_fetched_at:   null,
+      enemy_last_fetched_at: null,
+    })
+    .eq('id', 1)
+  if (chainErr) return json({ error: `chain clear error: ${chainErr.message}` }, 500)
+
   return json({ ok: true })
 }
 
@@ -946,6 +970,31 @@ async function pollEnemyChain(
 }
 
 // ── Chain save claim actions ────────────────────────────────────────────────
+
+// One-shot chain fetch — used by the Save flow to seed war_room_chain_v2
+// with current values for our + the new enemy faction BEFORE war room is
+// enabled. Bypasses the cron's cadence and cooldown gating because the
+// caller has explicit intent ("I just switched factions, I want fresh data
+// regardless of when the last poll happened").
+async function handleFetchChainsV2(
+  supabase: ReturnType<typeof createClient>,
+  body: any,
+) {
+  const enemyFactionId = Number(body?.enemy_faction_id) || null
+  const { data: prevRow } = await supabase
+    .from('war_room_chain_v2').select('*').eq('id', 1).maybeSingle()
+
+  const tasks: Array<Promise<{ side: string; polled: boolean; reason?: string }>> = [
+    pollOurChain(supabase, prevRow as ChainRow | null).then(r => ({ side: 'ours', ...r })),
+  ]
+  if (enemyFactionId) {
+    tasks.push(
+      pollEnemyChain(supabase, enemyFactionId).then(r => ({ side: 'enemy', ...r })),
+    )
+  }
+  const results = await Promise.all(tasks)
+  return json({ ok: true, results })
+}
 
 async function handleClaimChainSaveV2(
   supabase: ReturnType<typeof createClient>,
@@ -1197,6 +1246,8 @@ serve(async (req: Request) => {
       // Chain-save claim uses the same trust model — body carries user_id,
       // single-row table serialises naturally on conflict.
       'claim_chain_save_v2', 'release_chain_save_v2',
+      // One-shot chain fetch (Save flow); uses server-side TORN_API_KEYS.
+      'fetch_chains_v2',
     ])
 
     let userId = 'anon'
@@ -1243,6 +1294,10 @@ serve(async (req: Request) => {
         return await handleClaimChainSaveV2(supabase, body, String(body.user_id ?? ''), userName)
       case 'release_chain_save_v2':
         return await handleReleaseChainSaveV2(supabase, body, String(body.user_id ?? ''))
+
+      // ── One-shot chain fetch (Save flow) ─────────────────────────────
+      case 'fetch_chains_v2':
+        return await handleFetchChainsV2(supabase, body)
 
       // ── Centralised cron-driven polling ──────────────────────────────
       case 'cron_poll_war_room':

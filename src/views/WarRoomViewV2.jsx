@@ -16,6 +16,7 @@ import {
   releaseDibsV2,
   claimChainSaveV2,
   releaseChainSaveV2,
+  fetchChainsV2,
   requestRevive,
   resolveCountryFromDescription,
 } from '../utils/warRoomApiV2'

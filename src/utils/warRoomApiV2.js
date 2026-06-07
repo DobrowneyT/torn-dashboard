@@ -181,3 +181,12 @@ export async function claimChainSaveV2(tornApiKey, opts = {}) {
 export async function releaseChainSaveV2(tornApiKey, opts = {}) {
   return callWarRoom('release_chain_save_v2', { user_id: opts.userId }, tornApiKey, opts.signal)
 }
+
+/**
+ * One-shot fetch of both chains. Used by the Save flow to seed
+ * war_room_chain_v2 with current state for our + the new enemy faction
+ * before war room is enabled. Bypasses the cron throttle/cooldown gating.
+ */
+export async function fetchChainsV2(enemyFactionId, tornApiKey) {
+  return callWarRoom('fetch_chains_v2', { enemy_faction_id: enemyFactionId }, tornApiKey)
+}
