@@ -303,11 +303,22 @@ function ActivityCounts({ members }) {
 // with force-on-deadline). Countdown ticks client-side every second for smooth
 // visual; the underlying numbers refresh from the DB delta poll.
 
-function formatChainTime(secs) {
+// Active chain timer — capped by Torn at ~5 min, so MM:SS suffices.
+function formatActiveTime(secs) {
   if (secs <= 0) return '0:00'
   const m = Math.floor(secs / 60)
   const s = secs % 60
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+// Cooldown countdown — can run multi-hour, so always HH:MM:SS. Hours can
+// exceed 24 (e.g. a long chain cooldown) and grow naturally.
+function formatCooldownTime(secs) {
+  if (secs <= 0) return '00:00:00'
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  const s = secs % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
 function chainStateOf(chain) {
@@ -352,7 +363,7 @@ function ChainTimerCard({ chain, userId, isAdmin, onClaim, onRelease, claimError
     : 'unknown'
   const enemyLabel =
     enemyState === 'active'   ? `${(enemy.current ?? 0).toLocaleString()}× chained` :
-    enemyState === 'cooldown' ? `${(enemy.current ?? 0).toLocaleString()}× — cooldown ${formatChainTime(enemyCooldownLeft)}` :
+    enemyState === 'cooldown' ? `${(enemy.current ?? 0).toLocaleString()}× — cooldown ${formatCooldownTime(enemyCooldownLeft)}` :
     enemyState === 'idle'     ? 'no chain' :
                                 '—'
 
@@ -363,7 +374,7 @@ function ChainTimerCard({ chain, userId, isAdmin, onClaim, onRelease, claimError
         <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Chain</span>
         {state === 'active' && (
           <>
-            <span className={`font-mono text-lg leading-none ${timerClass}`}>{formatChainTime(secsLeft)}</span>
+            <span className={`font-mono text-lg leading-none ${timerClass}`}>{formatActiveTime(secsLeft)}</span>
             <span className="text-sm text-gray-700 dark:text-gray-300">
               <span className="font-semibold">{(chain.current ?? 0).toLocaleString()}×</span>
               {chain.modifier ? <span className="text-xs ml-1 text-gray-500">R{Number(chain.modifier).toFixed(2)}</span> : null}
@@ -372,7 +383,7 @@ function ChainTimerCard({ chain, userId, isAdmin, onClaim, onRelease, claimError
         )}
         {state === 'cooldown' && (
           <span className="text-xs text-gray-500 dark:text-gray-400">
-            cooldown <span className="font-mono">{formatChainTime(cooldownLeft)}</span>
+            cooldown <span className="font-mono">{formatCooldownTime(cooldownLeft)}</span>
           </span>
         )}
         {state === 'idle' && (

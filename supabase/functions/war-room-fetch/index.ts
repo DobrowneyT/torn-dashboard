@@ -872,15 +872,17 @@ async function pollOurChain(
   const chain = await fetchChainFromTorn(Number(OUR_FACTION_ID))
   if (!chain) return { polled: false, reason: 'torn fetch failed' }
 
-  // Torn's v2 /faction/{id}/chain returns timeout and cooldown as
-  // SECONDS REMAINING, not unix timestamps (only `start` and `end` are
-  // timestamps). Convert to absolute unix timestamps at write time so the
-  // client and throttle logic can do simple `value > now` comparisons.
-  const nowSec        = Math.floor(Date.now() / 1000)
-  const timeoutSecs   = Number(chain.timeout  ?? 0)
-  const cooldownSecs  = Number(chain.cooldown ?? 0)
-  const timeoutAbs    = timeoutSecs  > 0 ? nowSec + timeoutSecs  : 0
-  const cooldownAbs   = cooldownSecs > 0 ? nowSec + cooldownSecs : 0
+  // Torn's v2 /faction/{id}/chain returns the two time fields in DIFFERENT
+  // shapes (verified against live DB data + the user's bug report):
+  //   * `timeout` = SECONDS REMAINING until the chain drops (e.g., 296).
+  //     Convert to an absolute unix timestamp at write time.
+  //   * `cooldown` = ABSOLUTE UNIX TIMESTAMP at which cooldown ends.
+  //     Store as-is. 0 means no cooldown active.
+  // `start` and `end` are also absolute unix timestamps, stored as-is.
+  const nowSec       = Math.floor(Date.now() / 1000)
+  const timeoutSecs  = Number(chain.timeout  ?? 0)
+  const timeoutAbs   = timeoutSecs > 0 ? nowSec + timeoutSecs : 0
+  const cooldownAbs  = Number(chain.cooldown ?? 0)
 
   const newCurrent   = chain.current ?? 0
   const prevCurrent  = prev?.current  ?? 0
@@ -918,10 +920,10 @@ async function pollEnemyChain(
   const chain = await fetchChainFromTorn(enemyFactionId)
   if (!chain) return { polled: false, reason: 'torn fetch failed' }
 
-  // Same seconds-remaining → unix-timestamp normalisation as pollOurChain.
-  const nowSec       = Math.floor(Date.now() / 1000)
-  const timeoutSecs  = Number(chain.timeout  ?? 0)
-  const cooldownSecs = Number(chain.cooldown ?? 0)
+  // Same normalisation as pollOurChain: timeout is seconds-remaining (convert);
+  // cooldown is already an absolute unix timestamp (store as-is).
+  const nowSec      = Math.floor(Date.now() / 1000)
+  const timeoutSecs = Number(chain.timeout ?? 0)
 
   // Enemy chain is value+cooldown only. Store as JSONB so future fields land
   // for free. Top-level columns stay reserved for OUR chain.
@@ -929,8 +931,8 @@ async function pollEnemyChain(
     current:  chain.current  ?? 0,
     max:      chain.max      ?? null,
     modifier: chain.modifier ?? null,
-    timeout:  timeoutSecs  > 0 ? nowSec + timeoutSecs  : 0,
-    cooldown: cooldownSecs > 0 ? nowSec + cooldownSecs : 0,
+    timeout:  timeoutSecs > 0 ? nowSec + timeoutSecs : 0,
+    cooldown: Number(chain.cooldown ?? 0),
     end:      chain.end      ?? 0,
     start:    chain.start    ?? 0,
   }
