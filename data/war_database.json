@@ -5617,8 +5617,8 @@
       "end_at": null,
       "opponent_id": 35507,
       "opponent_name": "The Nest",
-      "our_score": 0,
-      "opponent_score": 0,
+      "our_score": 16018,
+      "opponent_score": 6695,
       "target": 16100,
       "winner_faction_id": null,
       "forfeit": false,
@@ -206735,6 +206735,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-06T04:53:25.901841"
+    "last_updated": "2026-06-07T05:21:37.980314"
   }
 }
