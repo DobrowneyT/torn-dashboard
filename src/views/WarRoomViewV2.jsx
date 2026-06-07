@@ -1269,16 +1269,21 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       await setWarRoomConfigV2({ enabled: false }, user.apiKey)
       await new Promise(r => setTimeout(r, 500))
     }
-    // 2. Clear state (soft-deletes all current rows; hook prunes via tombstones).
+    // 2. Clear state (soft-deletes all current rows + zeroes the chain row).
     await clearWarRoomStateV2(user.apiKey)
     bspFiredRef.current = false
     // 3. Persist the new faction_id (and reset cached name).
     await setWarRoomConfigV2({ faction_id: newFactionId, faction_name: null }, user.apiKey)
     setFactionName(null)
-    // 4. Initial enemy + our fetch in parallel.
+    // 4. Initial enemy + our fetch in parallel. Chain seed runs alongside
+    //    so the ChainTimerCard shows the current state of both factions
+    //    even before leadership enables war room. Chain fetch is best-effort:
+    //    if Torn rejects (e.g., enemy ID typo) the member fetch result still
+    //    drives the rest of the Save flow.
     const [enemyResp] = await Promise.all([
       fetchWarRoomMembersV2(newFactionId, user.apiKey),
       fetchOurMembersV2(user.apiKey),
+      fetchChainsV2(newFactionId, user.apiKey).catch(e => console.warn('Chain seed failed:', e)),
     ])
     if (enemyResp?.faction_name) setFactionName(enemyResp.faction_name)
     // 5. Trigger an immediate poll so the new state appears within ~50ms.
