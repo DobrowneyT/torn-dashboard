@@ -105,6 +105,12 @@ export async function loadWarContributions(warId) {
  * war is fully reported by Torn (often hours after a win/forfeit), so this
  * is the only way to show a current scoreboard while a war is still live.
  *
+ * The leaderboard is seeded from `members` (is_current = true) so every
+ * faction member appears with 0 score / 0 attacks even if they haven't
+ * landed a war hit yet. This lets a member look themselves up and see
+ * exactly how far they are from the base-share threshold — the original
+ * "only show people with score" behaviour made non-participants invisible.
+ *
  * Scoring rules match the existing termed-war payout math in
  * warPayoutCalculations.calculateCutoffScores:
  *   - filter to OUR faction's outgoing ranked-war wins only
@@ -120,6 +126,34 @@ export async function loadWarContributions(warId) {
 export async function loadLiveContributionsFromAttacks(war) {
   if (!war?.start_at) return []
 
+  // Seed: every current faction member starts at 0. Fall back gracefully
+  // if the members table read fails so the leaderboard still works in
+  // attack-only mode.
+  const agg = new Map()
+  try {
+    const { data: members, error } = await supabase
+      .from('members')
+      .select('member_id, member_name')
+      .eq('is_current', true)
+    if (!error && members) {
+      for (const m of members) {
+        const id = Number(m.member_id)
+        if (!id) continue
+        agg.set(id, {
+          member_id:   id,
+          member_name: m.member_name,
+          level:       null,
+          attacks:     0,
+          score:       0,
+          faction_id:  OUR_FACTION_ID,
+        })
+      }
+    }
+  } catch (e) {
+    console.warn('[live leaderboard] members seed failed; continuing attack-only:', e)
+  }
+
+  // Page through faction_attacks in the war window.
   const PAGE_SIZE = 1000
   const all = []
   let offset = 0
@@ -144,10 +178,9 @@ export async function loadLiveContributionsFromAttacks(war) {
     offset += PAGE_SIZE
   }
 
-  // Aggregate per attacker with bonus-hit cap. Keep the latest seen
-  // member_name for each id — some attacks may carry old names if a member
-  // renamed mid-war.
-  const agg = new Map()
+  // Aggregate per attacker with bonus-hit cap. If an attacker isn't in the
+  // members seed (mid-war joiner, recently left, or members table was stale),
+  // create their row on the fly using the attack's attacker_name.
   for (const a of all) {
     const id = Number(a.attacker_id)
     if (!id) continue
@@ -166,12 +199,19 @@ export async function loadLiveContributionsFromAttacks(war) {
       }
       agg.set(id, row)
     }
+    // Prefer the live attack's name (catches mid-war renames) over the
+    // possibly-stale members.member_name.
     row.member_name = a.attacker_name ?? row.member_name
     row.attacks += 1
     row.score   += score
   }
 
-  return [...agg.values()].sort((a, b) => b.score - a.score)
+  // Sort: score desc, then name asc for stable display of all the 0-score
+  // members at the bottom.
+  return [...agg.values()].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    return (a.member_name || '').localeCompare(b.member_name || '')
+  })
 }
 
 /**
