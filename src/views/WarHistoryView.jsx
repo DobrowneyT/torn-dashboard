@@ -623,7 +623,14 @@ function ContributionsModal({ war, result, contributions, loading, isLive, sort,
                     <td className="py-1.5 px-3 text-xs font-medium text-gray-900 dark:text-white">{c.member_name}</td>
                     <td className="py-1.5 px-3 text-xs text-right text-gray-600 dark:text-gray-400">{c.level ?? '—'}</td>
                     <td className="py-1.5 px-3 text-xs text-right font-mono text-gray-900 dark:text-white">
-                      {Math.round(Number(c.score)).toLocaleString()}
+                      {/* Live computed scores are aggregated per-attack with
+                          decimal respect_gain values, so 2dp keeps the
+                          precision visible (e.g., 223.54). Final scores from
+                          war_member_contributions are reported by Torn as
+                          whole numbers, so keep them rounded to stay tidy. */}
+                      {isLive
+                        ? Number(c.score).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : Math.round(Number(c.score)).toLocaleString()}
                     </td>
                     <td className="py-1.5 px-3 text-xs text-right text-gray-600 dark:text-gray-400">{c.attacks}</td>
                   </tr>
