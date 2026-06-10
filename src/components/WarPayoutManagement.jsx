@@ -811,18 +811,40 @@ export default function WarPayoutManagement() {
     }
   }
 
+  // Matches the OC PayoutManagement flow: copy first, then ask about saving.
+  // 1) Generate the URL.
+  // 2) Copy it to the clipboard immediately (the user usually wants the URL
+  //    in hand within one click; the on-screen copy button is a fallback).
+  // 3) Surface the URL panel so the user can still copy it manually.
+  // 4) If this payout hasn't been persisted yet, ask whether to save.
+  //    A "no" answer leaves the URL available for use without a DB row.
   async function handleGenerateBatchURL() {
     if (!hasCalculated) return
 
-    if (!savedPayoutId) {
-      await handleSave()
-      if (saveError) return
-    }
-
     const effectiveMembers = getEffectiveMembers()
     const url = generateWarBatchPayoutURL(effectiveMembers)
+    if (!url) {
+      setSaveError('No valid payouts to generate URL')
+      return
+    }
     setBatchURL(url)
     setShowBatchURL(true)
+
+    // Best-effort copy. Some browsers reject clipboard writes without a
+    // recent user gesture; the on-screen Copy URL button covers that case.
+    try {
+      await navigator.clipboard.writeText(url)
+      setBatchURLCopied(true)
+      setTimeout(() => setBatchURLCopied(false), 2000)
+    } catch (e) {
+      console.warn('Auto-copy failed; user can use the Copy URL button:', e)
+    }
+
+    if (!savedPayoutId) {
+      if (window.confirm('Batch URL copied! Would you like to save this payout to the database?')) {
+        await handleSave()
+      }
+    }
   }
 
   async function handleCopyURL() {
