@@ -5648,6 +5648,23 @@
       "rank_before": "Diamond II",
       "rank_after": "Diamond III",
       "report_fetched": true
+    },
+    "43719": {
+      "id": 43719,
+      "start_at": 1781283600,
+      "end_at": null,
+      "opponent_id": 12893,
+      "opponent_name": "DARKLINE",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17700,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -208234,6 +208251,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-09T05:04:25.023812"
+    "last_updated": "2026-06-10T05:17:00.974590"
   }
 }
