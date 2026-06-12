@@ -1064,11 +1064,19 @@ async function handleReleaseChainSaveV2(
 // the Postgres-side cron to read. See the war_room_cron migration.
 
 // Sub-second polling: pg_cron's minimum interval is 1s, but each cron tick
-// invocation runs TWO fetch cycles 500ms apart. Effective polling rate ≈
-// 500ms when the Edge Function runtime is fast enough to keep up.
-// Tune INNER_TICKS / SLEEP_MS together to change the effective rate.
+// invocation runs N fetch cycles spaced by INNER_SLEEP_MS. Effective rate ≈
+// SLEEP_MS when the Edge Function runtime is fast enough to keep up.
+//
+// Current setting: 2 inner ticks × 250 ms = ~250 ms effective polling rate.
+// Budget check at 250 ms: with the ~13-key TORN_API_KEYS rotation, each key
+// gets ~18 req/min for the members path — well under Torn's 100 req/min cap.
+// Per cron invocation runtime ≈ 2×(~150 ms Torn round-trip) + 1×250 ms sleep
+// + chain logic ≈ 650 ms total, still inside pg_cron's 1 s interval.
+// If cron.job_run_details shows duration ≥ 1 s (stack-up) or _http_response
+// shows Torn rate-limit errors, raise SLEEP_MS back to 500 or move to an
+// external scheduler (see docs/war-room-v2-plan.md future-work section).
 const CRON_INNER_TICKS = 2
-const CRON_INNER_SLEEP_MS = 500
+const CRON_INNER_SLEEP_MS = 250
 
 async function handleCronPoll(
   supabase: ReturnType<typeof createClient>,

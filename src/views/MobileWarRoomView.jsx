@@ -55,7 +55,7 @@ import {
   Syringe, Zap, Shield, Hand, Plus, Swords, X, ChevronRight,
   ChevronDown, ChevronUp, ShieldCheck, AlertTriangle,
   Settings, Search, Pause, Play,
-  SlidersHorizontal, ShoppingBag, HeartPulse,
+  SlidersHorizontal, ShoppingBag, HeartPulse, Loader2,
 } from 'lucide-react'
 
 // ───────────────────────────────────────────────────────────────────
@@ -231,6 +231,7 @@ function FlagsRow({ flags, state, description }) {
 function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
   const isMyDib = dib && String(dib.claimedBy) === String(currentUserId)
   const claimedByOther = dib && !isMyDib
+  const isPending = !!(dib && dib._pending)
   const subLabel = parseTravel(m.state, m.description) || parseAbroadHospital(m.state, m.description)
 
   // Tap the BSP corner to reveal the per-stat breakdown (mobile analogue of
@@ -348,21 +349,21 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
       <div className="flex gap-2">
         <button
           onClick={() => isMyDib ? onRelease(m.id) : onClaim(m.id)}
-          disabled={claimedByOther}
-          title={claimedByOther ? `Claimed by ${dib.claimedName}` : isMyDib ? 'Press to release your dib' : undefined}
+          disabled={claimedByOther || isPending}
+          title={claimedByOther ? `Claimed by ${dib.claimedName}` : isPending ? 'Waiting for server confirmation…' : isMyDib ? 'Press to release your dib' : undefined}
           className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] border inline-flex items-center justify-center gap-1.5 transition-colors ${
             claimedByOther
               ? 'bg-gray-200 text-gray-400 border-gray-200 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500 dark:border-slate-700'
               : isMyDib
-              ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800'
+              ? `bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800 ${isPending ? 'opacity-70' : ''}`
               : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700'
           }`}
         >
-          {isMyDib ? <Check size={14} /> : <Plus size={14} />}
+          {isPending ? <Loader2 size={14} className="animate-spin" /> : isMyDib ? <Check size={14} /> : <Plus size={14} />}
           {isMyDib ? (
             <span className="flex flex-col items-center leading-tight">
               <span>Your dib</span>
-              <span className="text-[10px] font-normal opacity-75">Tap to release</span>
+              <span className="text-[10px] font-normal opacity-75">{isPending ? 'Claiming…' : 'Tap to release'}</span>
             </span>
           ) : (
             'Dibs'

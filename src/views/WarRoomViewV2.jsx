@@ -25,7 +25,7 @@ import { config as appConfig } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
 import MobileWarRoomView from './MobileWarRoomView'
-import { Smartphone, Settings, Crosshair } from 'lucide-react'
+import { Smartphone, Settings, Crosshair, Loader2 } from 'lucide-react'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -1119,6 +1119,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const userRef        = useRef(user)
   const dibsAbortRef   = useRef(null)   // cancels in-flight claim when user clicks another
   const [dibsError, setDibsError] = useState(null)
+  // Tracks in-flight dibs writes per member so the row can flip optimistically
+  // the moment the user clicks. Shape: { [memberId]: 'claim' | 'release' }.
+  // Cleared in the handler's finally block after pollNow() returns canonical
+  // truth (so a server-rejected claim disappears on the next render).
+  const [pendingDibsOps, setPendingDibsOps] = useState({})
 
   // No refreshDibs / scheduleDibsRefresh in v2 — useWarRoomPoll polls the
   // dibs delta RPC every tick. Write handlers below call pollNow() after
@@ -1339,13 +1344,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
   // ── Dibs ──────────────────────────────────────────────────────────────────
 
-  // v2 dibs handlers: no optimistic state. After the server confirms, we call
-  // pollNow() to fetch the new truth within ~50ms. AbortController is kept so
-  // rapid double-clicks don't race themselves. The DB unique partial index
+  // v2 dibs handlers: optimistic. We set a pendingDibsOps entry the instant
+  // the user clicks so effectiveDibs flips immediately (claim → injects a
+  // _pending synthetic row; release → hides my row). pollNow() flushes the
+  // server truth within ~50ms and the finally block clears the pending
+  // entry, so a server-rejected claim disappears on the next render.
+  // AbortController guards rapid double-clicks; the DB unique partial index
   // on active target_id still resolves concurrent claims server-side.
   async function handleClaimDibs(memberId) {
     if (!user?.id) return
     setDibsError(null)
+    setPendingDibsOps(prev => ({ ...prev, [memberId]: 'claim' }))
 
     if (dibsAbortRef.current) dibsAbortRef.current.abort()
     const controller = new AbortController()
@@ -1360,18 +1369,28 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       setTimeout(() => setDibsError(null), 4000)
     } finally {
       if (dibsAbortRef.current === controller) dibsAbortRef.current = null
+      setPendingDibsOps(prev => {
+        if (prev[memberId] !== 'claim') return prev
+        const next = { ...prev }; delete next[memberId]; return next
+      })
     }
   }
 
   async function handleReleaseDibs(memberId) {
     if (!user?.id) return
     setDibsError(null)
+    setPendingDibsOps(prev => ({ ...prev, [memberId]: 'release' }))
     try {
       await releaseDibsV2(memberId, user.apiKey, { userId: user.id })
       await pollNow()
     } catch (e) {
       setDibsError(e.message)
       setTimeout(() => setDibsError(null), 4000)
+    } finally {
+      setPendingDibsOps(prev => {
+        if (prev[memberId] !== 'release') return prev
+        const next = { ...prev }; delete next[memberId]; return next
+      })
     }
   }
 
@@ -1552,9 +1571,37 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // MobileWarRoomView's MemberCard expects camelCase (claimedBy / claimedName).
   // Without this adapter every dib would read as "claimed by someone else,"
   // which both greys out the user's own Attack button and hides the claimer's name.
+  // effectiveDibs = polled truth + in-flight optimistic ops. Claims inject a
+  // synthetic _pending row so the UI flips to "You" instantly; releases hide
+  // the existing row. Polled truth wins on conflict — if a claim is already
+  // present in `dibs` for a target the user is trying to claim, we don't
+  // override (someone else got there first; server will reject).
+  const effectiveDibs = useMemo(() => {
+    const ops = Object.keys(pendingDibsOps)
+    if (ops.length === 0) return dibs
+    const out = { ...dibs }
+    for (const memberId of ops) {
+      const op = pendingDibsOps[memberId]
+      if (op === 'claim' && !out[memberId]) {
+        out[memberId] = {
+          target_id: Number(memberId),
+          claimed_by: user?.id,
+          claimed_name: user?.name,
+          _pending: true,
+        }
+      } else if (op === 'release' && out[memberId] && String(out[memberId].claimed_by) === String(user?.id)) {
+        delete out[memberId]
+      } else if (op === 'claim' && out[memberId] && String(out[memberId].claimed_by) === String(user?.id)) {
+        // Re-claim of an already-mine dib (rare; keep the spinner visible).
+        out[memberId] = { ...out[memberId], _pending: true }
+      }
+    }
+    return out
+  }, [dibs, pendingDibsOps, user?.id, user?.name])
+
   const mobileDibs = useMemo(() => {
     const out = {}
-    for (const [targetId, d] of Object.entries(dibs)) {
+    for (const [targetId, d] of Object.entries(effectiveDibs)) {
       out[targetId] = {
         ...d,
         claimedBy: d.claimed_by,
@@ -1562,7 +1609,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       }
     }
     return out
-  }, [dibs])
+  }, [effectiveDibs])
 
   // ── Render helpers ─────────────────────────────────────────────────────────
 
@@ -1887,8 +1934,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     </tr>
                   )}
                   {filtered.map((m, idx) => {
-                    const dib = dibs[m.member_id]
+                    const dib = effectiveDibs[m.member_id]
                     const isMyDib = dib && String(dib.claimed_by) === String(user?.id)
+                    const isPendingRelease = pendingDibsOps[m.member_id] === 'release'
                     const rowBg = idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-gray-50/50 dark:bg-slate-800/40'
 
                     return (
@@ -1948,14 +1996,19 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                           })()}
                         </td>
 
-                        {/* Dibs */}
+                        {/* Dibs — optimistic: clicking flips the cell instantly
+                            via effectiveDibs; the Loader2 spinner signals the
+                            server hasn't confirmed yet. Releases also show a
+                            pending state by rendering a disabled "Releasing…"
+                            stub until polling clears the row entirely. */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {dib ? (
-                            <div className="flex items-center gap-1.5">
+                            <div className={`flex items-center gap-1.5 ${dib._pending ? 'opacity-70' : ''}`}>
                               <span className={`text-xs font-medium ${isMyDib ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>
                                 {isMyDib ? 'You' : dib.claimed_name}
                               </span>
-                              {(isMyDib || isAdmin) && (
+                              {dib._pending && <Loader2 size={11} className="animate-spin text-blue-500 dark:text-blue-400" />}
+                              {(isMyDib || isAdmin) && !dib._pending && (
                                 <button onClick={() => handleReleaseDibs(m.member_id)}
                                   title={isMyDib ? 'Release your dibs' : 'Admin override: release this claim'}
                                   className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 underline">
@@ -1963,6 +2016,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                 </button>
                               )}
                             </div>
+                          ) : isPendingRelease ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
+                              <Loader2 size={11} className="animate-spin" />
+                              Releasing…
+                            </span>
                           ) : (
                             <button onClick={() => handleClaimDibs(m.member_id)}
                               className="text-xs px-2 py-0.5 rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
