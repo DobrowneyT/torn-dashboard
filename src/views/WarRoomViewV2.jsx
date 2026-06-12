@@ -608,8 +608,8 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, service
 
 const FT_RANGE_MIN_KEY = 'warroom_find_target_min'
 const FT_RANGE_MAX_KEY = 'warroom_find_target_max'
-const FT_DEFAULT_MIN = 3_600_000
-const FT_DEFAULT_MAX = 3_900_000
+const FT_DEFAULT_MIN = 4_200_000
+const FT_DEFAULT_MAX = 4_300_000
 
 function FindTargetButton() {
   const [settingsOpen, setSettingsOpen] = useState(false)
