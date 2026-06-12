@@ -1606,10 +1606,26 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         ...d,
         claimedBy: d.claimed_by,
         claimedName: d.claimed_name,
+        _pendingOp: d._pending ? 'claim' : undefined,
+      }
+    }
+    // Re-inject pending releases — effectiveDibs hides them so the desktop
+    // can render a standalone "Releasing…" stub, but mobile keeps the row
+    // visible so the dib button itself flips to "Releasing…" + spinner.
+    for (const [memberId, op] of Object.entries(pendingDibsOps)) {
+      if (op !== 'release' || out[memberId]) continue
+      const prev = dibs[memberId]
+      if (!prev) continue
+      out[memberId] = {
+        ...prev,
+        claimedBy: prev.claimed_by,
+        claimedName: prev.claimed_name,
+        _pending: true,
+        _pendingOp: 'release',
       }
     }
     return out
-  }, [effectiveDibs])
+  }, [effectiveDibs, dibs, pendingDibsOps])
 
   // ── Render helpers ─────────────────────────────────────────────────────────
 

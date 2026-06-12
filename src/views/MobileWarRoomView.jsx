@@ -232,6 +232,8 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
   const isMyDib = dib && String(dib.claimedBy) === String(currentUserId)
   const claimedByOther = dib && !isMyDib
   const isPending = !!(dib && dib._pending)
+  const isPendingRelease = dib?._pendingOp === 'release'
+  const isPendingClaim   = dib?._pendingOp === 'claim'
   const subLabel = parseTravel(m.state, m.description) || parseAbroadHospital(m.state, m.description)
 
   // Tap the BSP corner to reveal the per-stat breakdown (mobile analogue of
@@ -360,10 +362,14 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
           }`}
         >
           {isPending ? <Loader2 size={14} className="animate-spin" /> : isMyDib ? <Check size={14} /> : <Plus size={14} />}
-          {isMyDib ? (
+          {isPendingRelease ? (
+            <span className="flex flex-col items-center leading-tight">
+              <span>Releasing…</span>
+            </span>
+          ) : isMyDib ? (
             <span className="flex flex-col items-center leading-tight">
               <span>Your dib</span>
-              <span className="text-[10px] font-normal opacity-75">{isPending ? 'Claiming…' : 'Tap to release'}</span>
+              <span className="text-[10px] font-normal opacity-75">{isPendingClaim ? 'Claiming…' : 'Tap to release'}</span>
             </span>
           ) : (
             'Dibs'

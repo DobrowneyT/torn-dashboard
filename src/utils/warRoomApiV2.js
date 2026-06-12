@@ -87,12 +87,50 @@ export async function releaseDibsV2(targetId, tornApiKey, opts = {}) {
 // Revive request still uses the v1 action name (Edge-Function-side proxy is
 // shared between v1 and v2 — the action handler itself reads from whichever
 // war_room_state* table is canonical at the time).
-export async function requestRevive({ url, userID, userName, factionName, source, sourceKey, preset }, tornApiKey) {
+//
+// Nuke is the exception: it is gated on source IP fingerprint — the
+// userscript posts from the user's residential IP (via GM_xmlhttpRequest)
+// and Nuke's revivers pick those up, but identical payloads sent from our
+// Edge Function (Deno datacenter IP) appear to be silently shadow-filtered
+// (Nuke returns 200 but the request never reaches the reviver pool). To
+// match the userscript's fingerprint we POST directly from the browser.
+// Nuke's response carries `access-control-allow-origin: *` and the
+// form-urlencoded content-type is a "simple" CORS request (no preflight),
+// so this works without any server-side cooperation from them.
+export async function requestRevive({ url, userID, userName, factionName, source, sourceKey, preset, country }, tornApiKey) {
+  if (preset === 'nuke') {
+    return requestReviveNukeDirect({ url, userID, userName, country, source })
+  }
   return callWarRoom(
     'revive_request',
     { url, userID, userName, factionName, source, sourceKey, preset },
     tornApiKey,
   )
+}
+
+async function requestReviveNukeDirect({ url, userID, userName, country, source }) {
+  const formFields = {
+    torn_player_id:      String(userID),
+    torn_player_name:    userName ? `${userName} [${userID}]` : String(userID),
+    torn_player_country: country || 'Torn',
+    app_info:            source || 'TNL War Room',
+  }
+  const body = new URLSearchParams(formFields).toString()
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    })
+    const text = await resp.text()
+    let parsedBody
+    try { parsedBody = JSON.parse(text) } catch { parsedBody = { raw: text } }
+    return { ok: resp.ok, status: resp.status, body: parsedBody, sentPayload: formFields, url }
+  } catch (e) {
+    // Network / CORS failure — surface to caller in the same shape as a
+    // server-side error response so the UI can show the reason.
+    return { ok: false, status: 0, body: { reason: e.message }, sentPayload: formFields, url }
+  }
 }
 
 /**
