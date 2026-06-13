@@ -633,7 +633,7 @@ function FindTargetButton() {
     const lo = Math.max(1, Math.min(minId, maxId) || FT_DEFAULT_MIN)
     const hi = Math.max(lo,  Math.max(minId, maxId) || FT_DEFAULT_MAX)
     const id = Math.floor(Math.random() * (hi - lo + 1)) + lo
-    window.open(`https://www.torn.com/loader.php?sid=attack&user2ID=${id}`, '_blank', 'noopener,noreferrer')
+    window.open(`https://www.torn.com/page.php?sid=attack&user2ID=${id}`, '_blank', 'noopener,noreferrer')
   }
 
   function commitMin(v) {

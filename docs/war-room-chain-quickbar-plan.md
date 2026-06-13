@@ -145,7 +145,7 @@ Applied to both panes (enemy left, us right).
 
 Two new items in the center cluster, alongside the existing faction/items/revives/inventory icons:
 
-- **Find Target** button — random ID in a configurable range, opens `https://www.torn.com/loader.php?sid=attack&user2ID={id}` in a new tab. Range is stored in localStorage with sensible defaults (we'll pick fresh numbers — the script's `3600000-3900000` is dated).
+- **Find Target** button — random ID in a configurable range, opens `https://www.torn.com/page.php?sid=attack&user2ID={id}` in a new tab. Range is stored in localStorage with sensible defaults (we'll pick fresh numbers — the script's `3600000-3900000` is dated).
 - Live-but-tiny **Chain ribbon** when chain is active (just the time + count) so it's visible even if `ChainTimerCard` is scrolled out of view on mobile. Optional, decide during impl.
 
 ---
