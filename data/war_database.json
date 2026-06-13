@@ -5655,8 +5655,8 @@
       "end_at": null,
       "opponent_id": 12893,
       "opponent_name": "DARKLINE",
-      "our_score": 0,
-      "opponent_score": 0,
+      "our_score": 3997,
+      "opponent_score": 5140,
       "target": 17700,
       "winner_faction_id": null,
       "forfeit": false,
@@ -208251,6 +208251,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-11T05:27:26.716237"
+    "last_updated": "2026-06-13T05:20:11.420043"
   }
 }
