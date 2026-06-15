@@ -5652,19 +5652,40 @@
     "43719": {
       "id": 43719,
       "start_at": 1781283600,
-      "end_at": null,
+      "end_at": 1781379887,
       "opponent_id": 12893,
       "opponent_name": "DARKLINE",
-      "our_score": 3997,
-      "opponent_score": 5140,
+      "our_score": 6727,
+      "opponent_score": 23905,
       "target": 17700,
-      "winner_faction_id": null,
+      "winner_faction_id": 12893,
       "forfeit": false,
       "is_termed": false,
-      "rewards_items": null,
-      "rank_before": null,
-      "rank_after": null,
-      "report_fetched": false
+      "rewards_items": [
+        {
+          "id": 1118,
+          "name": "Armor Cache",
+          "quantity": 6
+        },
+        {
+          "id": 1121,
+          "name": "Medium Arms Cache",
+          "quantity": 4
+        },
+        {
+          "id": 1119,
+          "name": "Melee Cache",
+          "quantity": 2
+        },
+        {
+          "id": 1120,
+          "name": "Small Arms Cache",
+          "quantity": 3
+        }
+      ],
+      "rank_before": "Diamond III",
+      "rank_after": "Diamond II",
+      "report_fetched": true
     }
   },
   "contributions": {
@@ -208248,9 +208269,1703 @@
         "score": 0,
         "faction_id": 35507
       }
+    ],
+    "43719": [
+      {
+        "war_id": 43719,
+        "member_id": 2749598,
+        "member_name": "Uncensored",
+        "level": 100,
+        "attacks": 27,
+        "score": 486.92,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2478585,
+        "member_name": "Gekents",
+        "level": 91,
+        "attacks": 36,
+        "score": 439.28,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2407528,
+        "member_name": "Pickles_616",
+        "level": 100,
+        "attacks": 32,
+        "score": 410.71,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3452212,
+        "member_name": "GoobersKitten",
+        "level": 71,
+        "attacks": 50,
+        "score": 378.68,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2264192,
+        "member_name": "McGummy_616",
+        "level": 100,
+        "attacks": 24,
+        "score": 356.57,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3659813,
+        "member_name": "Lussia",
+        "level": 59,
+        "attacks": 37,
+        "score": 355.16,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2932241,
+        "member_name": "Marnix0126",
+        "level": 99,
+        "attacks": 28,
+        "score": 351.52,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1712182,
+        "member_name": "Muttley_616",
+        "level": 100,
+        "attacks": 32,
+        "score": 341.68,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2808985,
+        "member_name": "Sexy-Alexis",
+        "level": 99,
+        "attacks": 25,
+        "score": 341.98,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 873341,
+        "member_name": "Goosey",
+        "level": 100,
+        "attacks": 25,
+        "score": 318.91,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2642228,
+        "member_name": "FLY",
+        "level": 100,
+        "attacks": 13,
+        "score": 199.91,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3225628,
+        "member_name": "Polio",
+        "level": 83,
+        "attacks": 13,
+        "score": 171.64,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2739056,
+        "member_name": "Rokiyam",
+        "level": 100,
+        "attacks": 8,
+        "score": 157.85,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2786798,
+        "member_name": "Dan0",
+        "level": 97,
+        "attacks": 13,
+        "score": 155.87,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2881245,
+        "member_name": "Psycho-Panda",
+        "level": 86,
+        "attacks": 12,
+        "score": 148.5,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2250591,
+        "member_name": "MonChoon_616",
+        "level": 100,
+        "attacks": 9,
+        "score": 144,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3058543,
+        "member_name": "Gank",
+        "level": 99,
+        "attacks": 14,
+        "score": 142.98,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3074032,
+        "member_name": "Josiah",
+        "level": 89,
+        "attacks": 10,
+        "score": 128.4,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1915463,
+        "member_name": "Tonyle6500",
+        "level": 60,
+        "attacks": 18,
+        "score": 116.59,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2720023,
+        "member_name": "Frambojan",
+        "level": 93,
+        "attacks": 12,
+        "score": 112.06,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1654809,
+        "member_name": "Reece",
+        "level": 93,
+        "attacks": 13,
+        "score": 107.69,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3012215,
+        "member_name": "UncleI",
+        "level": 92,
+        "attacks": 8,
+        "score": 101.89,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1957682,
+        "member_name": "PerfectPlayer",
+        "level": 100,
+        "attacks": 11,
+        "score": 97.8,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2926373,
+        "member_name": "Apilli",
+        "level": 91,
+        "attacks": 7,
+        "score": 88.17,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2214797,
+        "member_name": "Onyx",
+        "level": 92,
+        "attacks": 10,
+        "score": 86.01,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 580210,
+        "member_name": "Tahiayemone",
+        "level": 100,
+        "attacks": 5,
+        "score": 73.54,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3291056,
+        "member_name": "Helios-",
+        "level": 75,
+        "attacks": 5,
+        "score": 65.67,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3511228,
+        "member_name": "Jayturn",
+        "level": 67,
+        "attacks": 8,
+        "score": 63.27,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1606156,
+        "member_name": "SilentSteg",
+        "level": 100,
+        "attacks": 3,
+        "score": 61,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 428286,
+        "member_name": "AlleyCat_616",
+        "level": 100,
+        "attacks": 4,
+        "score": 55.06,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3458076,
+        "member_name": "darkshinji",
+        "level": 65,
+        "attacks": 6,
+        "score": 55.65,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3323412,
+        "member_name": "stresas_",
+        "level": 76,
+        "attacks": 5,
+        "score": 54.51,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2163818,
+        "member_name": "Pierce",
+        "level": 100,
+        "attacks": 3,
+        "score": 53.15,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3136837,
+        "member_name": "Sanityloss",
+        "level": 69,
+        "attacks": 6,
+        "score": 49.72,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2465113,
+        "member_name": "SnowBadger87",
+        "level": 100,
+        "attacks": 4,
+        "score": 48.63,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3618338,
+        "member_name": "Pear08",
+        "level": 67,
+        "attacks": 4,
+        "score": 44.81,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2477183,
+        "member_name": "Aderon",
+        "level": 87,
+        "attacks": 3,
+        "score": 35.01,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3359654,
+        "member_name": "EdgingGooner",
+        "level": 71,
+        "attacks": 6,
+        "score": 33.81,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2778101,
+        "member_name": "Erectangle",
+        "level": 95,
+        "attacks": 6,
+        "score": 32.77,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3383262,
+        "member_name": "Zyuunii",
+        "level": 58,
+        "attacks": 2,
+        "score": 33.04,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3437705,
+        "member_name": "Flamehusky",
+        "level": 69,
+        "attacks": 2,
+        "score": 29.66,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2146235,
+        "member_name": "m3llow",
+        "level": 87,
+        "attacks": 3,
+        "score": 27.27,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3015831,
+        "member_name": "Warwinds",
+        "level": 99,
+        "attacks": 5,
+        "score": 27.63,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2327020,
+        "member_name": "BWub",
+        "level": 100,
+        "attacks": 2,
+        "score": 23.24,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3663303,
+        "member_name": "mcswagger",
+        "level": 60,
+        "attacks": 3,
+        "score": 23.31,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 669537,
+        "member_name": "Nurv",
+        "level": 97,
+        "attacks": 2,
+        "score": 16.86,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2854737,
+        "member_name": "MasterF1re",
+        "level": 97,
+        "attacks": 1,
+        "score": 12.36,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 455068,
+        "member_name": "jennaTills",
+        "level": 100,
+        "attacks": 1,
+        "score": 11.07,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3820837,
+        "member_name": "SpacePickle",
+        "level": 43,
+        "attacks": 1,
+        "score": 10,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2743617,
+        "member_name": "Jjsmad",
+        "level": 55,
+        "attacks": 1,
+        "score": 8.3,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2363889,
+        "member_name": "TheRake",
+        "level": 41,
+        "attacks": 1,
+        "score": 7.26,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3130493,
+        "member_name": "Cheetoe_616",
+        "level": 85,
+        "attacks": 1,
+        "score": 8.04,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3516575,
+        "member_name": "ClubsOG",
+        "level": 49,
+        "attacks": 1,
+        "score": 7.7,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2384023,
+        "member_name": "Sciz",
+        "level": 60,
+        "attacks": 1,
+        "score": 5,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3267437,
+        "member_name": "smajlovski",
+        "level": 63,
+        "attacks": 2,
+        "score": 5.66,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3538517,
+        "member_name": "RealJoker",
+        "level": 70,
+        "attacks": 1,
+        "score": 3.94,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2632966,
+        "member_name": "CalliBee",
+        "level": 99,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2763324,
+        "member_name": "yerodaktuilos",
+        "level": 75,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 430470,
+        "member_name": "Nutte",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2253786,
+        "member_name": "Fucitol",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 462912,
+        "member_name": "JJC",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1659147,
+        "member_name": "Albatra",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2672505,
+        "member_name": "ewakes",
+        "level": 91,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2864154,
+        "member_name": "RavenInfinity",
+        "level": 73,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3680626,
+        "member_name": "Chef_Tris",
+        "level": 64,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 330505,
+        "member_name": "The_Pit",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2672100,
+        "member_name": "Acid",
+        "level": 98,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3395364,
+        "member_name": "scrolllock404",
+        "level": 30,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3629708,
+        "member_name": "CaptShen_616",
+        "level": 63,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2882851,
+        "member_name": "Berkshire",
+        "level": 89,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3655519,
+        "member_name": "DerangedEvil",
+        "level": 56,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1853567,
+        "member_name": "El_Colonel",
+        "level": 99,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2799525,
+        "member_name": "caioluis",
+        "level": 90,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3352315,
+        "member_name": "LadyLolita",
+        "level": 68,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2453050,
+        "member_name": "Wraith_Paradox",
+        "level": 59,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2443436,
+        "member_name": "Darkstream",
+        "level": 64,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2892606,
+        "member_name": "P_R",
+        "level": 50,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 4023921,
+        "member_name": "Vochlu",
+        "level": 34,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3839589,
+        "member_name": "Lokimm",
+        "level": 15,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2159205,
+        "member_name": "Sargeant_Rock",
+        "level": 98,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 4090594,
+        "member_name": "FancyPantsHI",
+        "level": 30,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 4014975,
+        "member_name": "WalkMode",
+        "level": 40,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 4014949,
+        "member_name": "SirJury",
+        "level": 34,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 4030092,
+        "member_name": "DANNOLAD",
+        "level": 35,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 4184810,
+        "member_name": "senzapatente",
+        "level": 20,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 4253103,
+        "member_name": "Aiko24",
+        "level": 23,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 4236665,
+        "member_name": "DanteRook",
+        "level": 22,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 4221125,
+        "member_name": "JoshJon7",
+        "level": 24,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2888653,
+        "member_name": "Jelve",
+        "level": 81,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3667849,
+        "member_name": "TreeBark",
+        "level": 37,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 10739
+      },
+      {
+        "war_id": 43719,
+        "member_id": 467306,
+        "member_name": "Zorfar",
+        "level": 100,
+        "attacks": 84,
+        "score": 1326.9,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2012107,
+        "member_name": "Lewiss",
+        "level": 100,
+        "attacks": 72,
+        "score": 1152.66,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2531272,
+        "member_name": "Llyfr",
+        "level": 100,
+        "attacks": 67,
+        "score": 1029.64,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2818164,
+        "member_name": "JircnivElnix",
+        "level": 99,
+        "attacks": 50,
+        "score": 937.49,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2737541,
+        "member_name": "-Mike-",
+        "level": 100,
+        "attacks": 53,
+        "score": 888.02,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 882839,
+        "member_name": "JDub",
+        "level": 100,
+        "attacks": 12,
+        "score": 865.48,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2333133,
+        "member_name": "-Pineapple-",
+        "level": 89,
+        "attacks": 60,
+        "score": 851.83,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2132740,
+        "member_name": "ShaggShaggins",
+        "level": 100,
+        "attacks": 50,
+        "score": 812.95,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 302832,
+        "member_name": "Duk4",
+        "level": 51,
+        "attacks": 56,
+        "score": 742.96,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2282199,
+        "member_name": "Frodo",
+        "level": 100,
+        "attacks": 41,
+        "score": 734.6,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2111026,
+        "member_name": "Tash",
+        "level": 100,
+        "attacks": 48,
+        "score": 714.53,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3597510,
+        "member_name": "Anatoly",
+        "level": 70,
+        "attacks": 47,
+        "score": 667.68,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2193307,
+        "member_name": "AtHisFinest",
+        "level": 92,
+        "attacks": 57,
+        "score": 648.17,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2660552,
+        "member_name": "TDup",
+        "level": 100,
+        "attacks": 38,
+        "score": 598.41,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3455236,
+        "member_name": "GreasyDiddy",
+        "level": 77,
+        "attacks": 45,
+        "score": 536.4,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1746140,
+        "member_name": "tamboyd",
+        "level": 100,
+        "attacks": 34,
+        "score": 521.1,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3118573,
+        "member_name": "MortisElixir",
+        "level": 84,
+        "attacks": 32,
+        "score": 517.28,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2439530,
+        "member_name": "Goodboy21",
+        "level": 100,
+        "attacks": 33,
+        "score": 496.15,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1052320,
+        "member_name": "Darren",
+        "level": 100,
+        "attacks": 31,
+        "score": 487.35,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2673048,
+        "member_name": "cazylecious",
+        "level": 100,
+        "attacks": 29,
+        "score": 456.26,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 259560,
+        "member_name": "Reilly",
+        "level": 100,
+        "attacks": 32,
+        "score": 411.41,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 356358,
+        "member_name": "Sager",
+        "level": 85,
+        "attacks": 28,
+        "score": 352.78,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2314586,
+        "member_name": "NightDrive",
+        "level": 89,
+        "attacks": 31,
+        "score": 351.7,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2892280,
+        "member_name": "Str1ngerBell",
+        "level": 91,
+        "attacks": 25,
+        "score": 345,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3687690,
+        "member_name": "iiZod",
+        "level": 63,
+        "attacks": 32,
+        "score": 337.08,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2983735,
+        "member_name": "Dogfox",
+        "level": 86,
+        "attacks": 24,
+        "score": 335.65,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2164827,
+        "member_name": "miettine",
+        "level": 100,
+        "attacks": 21,
+        "score": 328.39,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2518619,
+        "member_name": "Sepesh",
+        "level": 100,
+        "attacks": 21,
+        "score": 326.44,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3567688,
+        "member_name": "Murdahface",
+        "level": 65,
+        "attacks": 27,
+        "score": 321.93,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2217078,
+        "member_name": "Nuvak",
+        "level": 100,
+        "attacks": 21,
+        "score": 281.59,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2166861,
+        "member_name": "-ImHOtep-",
+        "level": 100,
+        "attacks": 17,
+        "score": 255.92,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 146327,
+        "member_name": "SaltyClam",
+        "level": 100,
+        "attacks": 15,
+        "score": 252.98,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2451218,
+        "member_name": "simonyin123",
+        "level": 85,
+        "attacks": 19,
+        "score": 251.82,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2465883,
+        "member_name": "WetPussy",
+        "level": 98,
+        "attacks": 24,
+        "score": 245.26,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2575544,
+        "member_name": "Sitram",
+        "level": 63,
+        "attacks": 23,
+        "score": 241.33,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2032555,
+        "member_name": "jonthegray",
+        "level": 99,
+        "attacks": 14,
+        "score": 233.03,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3001016,
+        "member_name": "amkoo",
+        "level": 91,
+        "attacks": 18,
+        "score": 228.91,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2108769,
+        "member_name": "Odin0111",
+        "level": 100,
+        "attacks": 14,
+        "score": 224.09,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 588278,
+        "member_name": "mutley",
+        "level": 100,
+        "attacks": 13,
+        "score": 222.3,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2017876,
+        "member_name": "CrYpTeR",
+        "level": 100,
+        "attacks": 17,
+        "score": 223.21,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3489900,
+        "member_name": "Sammael",
+        "level": 64,
+        "attacks": 18,
+        "score": 218.48,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2375560,
+        "member_name": "Gallowzz",
+        "level": 100,
+        "attacks": 16,
+        "score": 216.62,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3902987,
+        "member_name": "-Ash",
+        "level": 60,
+        "attacks": 21,
+        "score": 214.27,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1958780,
+        "member_name": "awkward",
+        "level": 100,
+        "attacks": 18,
+        "score": 203.24,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2901183,
+        "member_name": "Shlefter",
+        "level": 95,
+        "attacks": 18,
+        "score": 192.66,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3352805,
+        "member_name": "ChillxThrill",
+        "level": 49,
+        "attacks": 17,
+        "score": 188.08,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1082621,
+        "member_name": "darth",
+        "level": 79,
+        "attacks": 3,
+        "score": 171.15,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 502884,
+        "member_name": "Slash_Rules",
+        "level": 100,
+        "attacks": 11,
+        "score": 161.52,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3417265,
+        "member_name": "Cocozeta",
+        "level": 88,
+        "attacks": 21,
+        "score": 155.33,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2756597,
+        "member_name": "kribenzis",
+        "level": 100,
+        "attacks": 16,
+        "score": 150.07,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2620098,
+        "member_name": "Ardylon",
+        "level": 69,
+        "attacks": 12,
+        "score": 142.89,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3959304,
+        "member_name": "_SYTRY_",
+        "level": 39,
+        "attacks": 15,
+        "score": 104.4,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3320382,
+        "member_name": "Whoopurassbad",
+        "level": 81,
+        "attacks": 9,
+        "score": 99.88,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3657047,
+        "member_name": "slapnuts",
+        "level": 54,
+        "attacks": 10,
+        "score": 94.86,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2708376,
+        "member_name": "EazzyPeazzy",
+        "level": 100,
+        "attacks": 7,
+        "score": 90.96,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3182826,
+        "member_name": "Ade1975",
+        "level": 66,
+        "attacks": 12,
+        "score": 88.6,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2361192,
+        "member_name": "Inglorious_T",
+        "level": 86,
+        "attacks": 4,
+        "score": 78.17,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3895005,
+        "member_name": "OmarLittal",
+        "level": 51,
+        "attacks": 9,
+        "score": 62.94,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3094624,
+        "member_name": "Dredd_",
+        "level": 42,
+        "attacks": 7,
+        "score": 58.88,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2342723,
+        "member_name": "xojxstin",
+        "level": 78,
+        "attacks": 4,
+        "score": 52.56,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3960669,
+        "member_name": "Morgan__",
+        "level": 31,
+        "attacks": 6,
+        "score": 48.3,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2482317,
+        "member_name": "TheGoblinOfMars",
+        "level": 99,
+        "attacks": 2,
+        "score": 44.88,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2751839,
+        "member_name": "jonodown",
+        "level": 96,
+        "attacks": 3,
+        "score": 41.4,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2084007,
+        "member_name": "Vitrebreaker",
+        "level": 100,
+        "attacks": 2,
+        "score": 38.93,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2553944,
+        "member_name": "Eyjafjalla",
+        "level": 99,
+        "attacks": 3,
+        "score": 34.49,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2132043,
+        "member_name": "TonberryKing",
+        "level": 100,
+        "attacks": 4,
+        "score": 32.24,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2487518,
+        "member_name": "Wintance",
+        "level": 100,
+        "attacks": 2,
+        "score": 23.02,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2790523,
+        "member_name": "Srdann93",
+        "level": 94,
+        "attacks": 3,
+        "score": 21.78,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2305193,
+        "member_name": "beansrreal",
+        "level": 43,
+        "attacks": 3,
+        "score": 17.98,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2770945,
+        "member_name": "Euro",
+        "level": 91,
+        "attacks": 1,
+        "score": 17.47,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3145223,
+        "member_name": "arntatis",
+        "level": 89,
+        "attacks": 1,
+        "score": 15.77,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3864267,
+        "member_name": "evi1_nugg3t",
+        "level": 53,
+        "attacks": 2,
+        "score": 15.73,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3443765,
+        "member_name": "prodigalsun",
+        "level": 42,
+        "attacks": 1,
+        "score": 13.3,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3771311,
+        "member_name": "Reno-",
+        "level": 53,
+        "attacks": 2,
+        "score": 12.94,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1095541,
+        "member_name": "Drake",
+        "level": 74,
+        "attacks": 3,
+        "score": 10.84,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1863097,
+        "member_name": "Darth-Sidious",
+        "level": 99,
+        "attacks": 1,
+        "score": 7.21,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3146198,
+        "member_name": "bundahlini",
+        "level": 86,
+        "attacks": 1,
+        "score": 6.72,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2153666,
+        "member_name": "Tukoks",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2250850,
+        "member_name": "Ham",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2407906,
+        "member_name": "Milje",
+        "level": 99,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2460448,
+        "member_name": "Asterisco",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 674226,
+        "member_name": "cerb",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2008838,
+        "member_name": "xyzz",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1968512,
+        "member_name": "mansTJ",
+        "level": 64,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2318723,
+        "member_name": "Nihu",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2472606,
+        "member_name": "Callum8009",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2432605,
+        "member_name": "Vhris",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1767533,
+        "member_name": "Midwinter",
+        "level": 90,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3667325,
+        "member_name": "BeaverOfDoom",
+        "level": 59,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2722961,
+        "member_name": "Power",
+        "level": 95,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2902922,
+        "member_name": "Zwiepy",
+        "level": 84,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2512992,
+        "member_name": "DazaiOsama23",
+        "level": 100,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 1884523,
+        "member_name": "Chilldafuqout",
+        "level": 58,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3547685,
+        "member_name": "Lily83",
+        "level": 55,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 117315,
+        "member_name": "JBF89",
+        "level": 60,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 3624845,
+        "member_name": "BigMudz",
+        "level": 62,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2754743,
+        "member_name": "223steppa",
+        "level": 40,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      },
+      {
+        "war_id": 43719,
+        "member_id": 2865642,
+        "member_name": "SexyDexy",
+        "level": 69,
+        "attacks": 0,
+        "score": 0,
+        "faction_id": 12893
+      }
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-13T05:20:11.420043"
+    "last_updated": "2026-06-15T06:22:35.847791"
   }
 }
