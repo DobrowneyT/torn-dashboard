@@ -3,14 +3,20 @@
  *
  * Exact formula matching the faction DL War Pay spreadsheet:
  *
- *  PARTICIPATION (from faction_attacks outgoing hits)
- *    War hit  (is_ranked_war=true, won)         × 1.25
- *    Assist   (result='Assist')                  × 0.50
- *    Loss     (result='Lost')                    × 0.50
- *    Mug      (result='Mugged', any target)      × −1.00  (penalty, stacks with War hit)
- *    Regular  (won, is_ranked_war=false)          × 0.00
+ *  PARTICIPATION (from faction_attacks outgoing hits) — non-overlapping
+ *  categories so each column is one count × one multiplier with no
+ *  double-counting:
+ *    War hit  (is_ranked_war=true, won, NOT mugged)         × 1.25
+ *    Assist   (is_ranked_war=true, result='Assist')         × 0.50
+ *    Loss     (is_ranked_war=true, result ∈ Lost/Timeout/…) × 0.50
+ *    War Mug  (is_ranked_war=true, result='Mugged')         × −1.00 (standalone, NOT additive)
+ *    Outside  (is_ranked_war=false, any win type)           × 0.00
  *
  *    participationShare[i] = max(0, score[i]) / Σ max(0, score[j])
+ *
+ *  Non-war assists/losses are NOT scored. Non-war mugs fall into Outside
+ *  along with non-war leaves/hosp — the type distinction only matters
+ *  inside a war hit, where mugs are penalised for delivering less respect.
  *
  *  CONTRIBUTION (from rankedwarreport score + faction_attacks chain bonuses)
  *    Respect gained   = score from war_member_contributions (API source of truth)
@@ -92,15 +98,25 @@ export function calculateCacheValue(rewardsItems, cachePrices) {
  */
 function emptyHitBucket() {
   return {
+    // Raw totals — surfaced by the Hit Report tab so leaders see the full
+    // result-type breakdown regardless of war/non-war context.
     leaves: 0,
     mugs: 0,
     hosp: 0,
-    warHits: 0,
-    regularHits: 0,
-    won: 0,
-    assists: 0,
-    losses: 0,
+    warHits: 0,         // any win where is_ranked_war = true (includes war mugs)
+    regularHits: 0,     // any win where is_ranked_war = false (all non-war wins)
+    won: 0,             // leaves + mugs + hosp
+    assists: 0,         // result = Assist (war + non-war)
+    losses: 0,          // result ∈ Lost/Timeout/... (war + non-war)
     totalHits: 0,
+    // War-scoped slices — used by the Participation calculator so that
+    //   • mug penalty applies only to mugs that happened during a war hit
+    //   • assist/loss credit applies only when the attack was a war hit
+    //   • non-war wins (regularHits) are grouped as "outside hits" with no
+    //     result-type distinction
+    warMugs: 0,         // wins where result = Mugged AND is_ranked_war = true
+    warAssists: 0,      // assists where is_ranked_war = true
+    warLosses: 0,       // losses where is_ranked_war = true
   }
 }
 
@@ -108,15 +124,9 @@ function emptyHitBucket() {
  * Apply a single attack's result to a bucket.  Shared by `buildMemberAttackStats`
  * and `buildHitReport` so both views agree on what counts as a win, loss, etc.
  *
- *   leaves     — wins where result ∈ {Attacked, Arrested, Looted, Special}
- *   mugs       — wins where result = Mugged
- *   hosp       — wins where result = Hospitalized
- *   warHits    — any win where is_ranked_war = true
- *   regularHits — any win where is_ranked_war = false
- *   won        — leaves + mugs + hosp
- *   assists    — result = Assist
- *   losses     — result ∈ {Lost, Timeout, Interrupted, Stalemate, Escape}
- *   totalHits  — won + assists + losses
+ * See `emptyHitBucket` for the meaning of each field. The war-scoped slices
+ * (warMugs / warAssists / warLosses) are populated here so the Participation
+ * calculator can score non-overlapping columns.
  */
 function applyAttackToBucket(bucket, attack) {
   const result = attack.result || ''
@@ -124,9 +134,11 @@ function applyAttackToBucket(bucket, attack) {
 
   if (result === 'Assist') {
     bucket.assists += 1
+    if (isRankedWar) bucket.warAssists += 1
     bucket.totalHits += 1
   } else if (result === 'Lost' || result === 'Timeout' || result === 'Interrupted' || result === 'Stalemate' || result === 'Escape') {
     bucket.losses += 1
+    if (isRankedWar) bucket.warLosses += 1
     bucket.totalHits += 1
   } else if (WIN_RESULTS.has(result) || result === 'Special') {
     bucket.won += 1
@@ -134,8 +146,12 @@ function applyAttackToBucket(bucket, attack) {
     else if (result === 'Hospitalized') bucket.hosp += 1
     else bucket.leaves += 1  // Attacked, Arrested, Looted, Special
 
-    if (isRankedWar) bucket.warHits += 1
-    else bucket.regularHits += 1
+    if (isRankedWar) {
+      bucket.warHits += 1
+      if (result === 'Mugged') bucket.warMugs += 1
+    } else {
+      bucket.regularHits += 1
+    }
 
     bucket.totalHits += 1
   }
@@ -524,12 +540,23 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     const effMugMult     = overrides.mugMultiplier         ?? mugMultiplier
     const effRegularMult = overrides.regularHitMultiplier  ?? regularHitMultiplier
 
-    // Participation score
-    const warHitScore     = s.warHits     * effWarHitMult
+    // Participation score — non-overlapping categories:
+    //   • War Hit  = war wins that aren't mugs (warHits − warMugs)
+    //   • War Mug  = war wins that are mugs (was: any mug, war or non-war —
+    //                that double-counted non-war mugs against regularHits)
+    //   • Assist   = war assists only (non-war assists are ignored)
+    //   • Loss     = war losses only (non-war losses are ignored)
+    //   • Outside  = all non-war wins, type-agnostic (regularHits)
+    // NOTE: mugMultiplier is now standalone (per-mug score), not additive on
+    // top of warHitMultiplier as it was pre-fix. A leader who had mugMult=-1
+    // expecting a 0.25 net (1.25 + -1) will now see -1 per war mug — they
+    // should set mugMult ≈ 0.25 for the equivalent effective weight.
+    const warNonMugHits   = Math.max(0, s.warHits - s.warMugs)
+    const warHitScore     = warNonMugHits * effWarHitMult
     const regularHitScore = s.regularHits * effRegularMult
-    const mugScore        = s.mugs        * effMugMult
-    const assistScore     = s.assists     * effAssistMult
-    const lossScore       = s.losses      * effLossMult
+    const mugScore        = s.warMugs     * effMugMult
+    const assistScore     = s.warAssists  * effAssistMult
+    const lossScore       = s.warLosses   * effLossMult
     const participationScore = warHitScore + regularHitScore + mugScore + assistScore + lossScore
 
     // Contribution score
@@ -540,7 +567,7 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     return {
       memberId,
       memberName: m.member_name,
-      // Hit report
+      // Hit report (raw totals — all attacks, war + non-war)
       leaves:      s.leaves,
       mugs:        s.mugs,
       hosp:        s.hosp,
@@ -550,6 +577,12 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
       assists:     s.assists,
       losses:      s.losses,
       totalHits:   s.totalHits,
+      // War-scoped slices used by the Participation calculator
+      warMugs:     s.warMugs,
+      warAssists:  s.warAssists,
+      warLosses:   s.warLosses,
+      // Count actually scored under the War Hit multiplier (war wins ex-mugs)
+      warNonMugHits,
       // Effective multipliers (for UI display / per-member override columns)
       effWarHitMult,
       effAssistMult,
@@ -740,6 +773,8 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
       memberName: m.member_name,
       leaves: s.leaves, mugs: s.mugs, hosp: s.hosp, warHits: s.warHits, regularHits: s.regularHits,
       won: s.won, assists: s.assists, losses: s.losses, totalHits: s.totalHits,
+      warMugs: s.warMugs, warAssists: s.warAssists, warLosses: s.warLosses,
+      warNonMugHits: Math.max(0, s.warHits - s.warMugs),
       score: Math.round(totalScore * 100) / 100,
       scoreWithin: Math.round(within * 100) / 100,
       scoreAfter: Math.round(after * 100) / 100,
@@ -876,15 +911,19 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
       pre,
       post,
       // Top-level convenience fields (full window = pre + post) for sorting / totals.
-      leaves:      (pre.leaves || 0) + (post.leaves || 0),
-      mugs:        (pre.mugs || 0) + (post.mugs || 0),
-      hosp:        (pre.hosp || 0) + (post.hosp || 0),
-      warHits:     (pre.warHits || 0) + (post.warHits || 0),
-      regularHits: (pre.regularHits || 0) + (post.regularHits || 0),
-      won:         (pre.won || 0) + (post.won || 0),
-      assists:     (pre.assists || 0) + (post.assists || 0),
-      losses:      (pre.losses || 0) + (post.losses || 0),
-      totalHits:   (pre.totalHits || 0) + (post.totalHits || 0),
+      leaves:        (pre.leaves || 0) + (post.leaves || 0),
+      mugs:          (pre.mugs || 0) + (post.mugs || 0),
+      hosp:          (pre.hosp || 0) + (post.hosp || 0),
+      warHits:       (pre.warHits || 0) + (post.warHits || 0),
+      regularHits:   (pre.regularHits || 0) + (post.regularHits || 0),
+      won:           (pre.won || 0) + (post.won || 0),
+      assists:       (pre.assists || 0) + (post.assists || 0),
+      losses:        (pre.losses || 0) + (post.losses || 0),
+      totalHits:     (pre.totalHits || 0) + (post.totalHits || 0),
+      warMugs:       (pre.warMugs || 0) + (post.warMugs || 0),
+      warAssists:    (pre.warAssists || 0) + (post.warAssists || 0),
+      warLosses:     (pre.warLosses || 0) + (post.warLosses || 0),
+      warNonMugHits: (pre.warNonMugHits || 0) + (post.warNonMugHits || 0),
       respectGained: (pre.respectGained || 0) + (post.respectGained || 0),
       // Payout breakdown.
       preCutoffPayout: prePay,

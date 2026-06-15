@@ -673,9 +673,11 @@ describe('calculateRealWarPayouts — per-member overrides', () => {
     const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, attacks, settings)
     const alice = members.find(m => m.memberId === 100)
     expect(alice.regularHitScore).toBe(0.25) // 1 * 0.25
-    // participationScore includes regularHitScore
+    // participationScore — non-war loss no longer scored (warLosses=0 since
+    // Alice's only Lost is is_ranked_war=false). 4 war hosps × 1.25 + 1
+    // non-war Attacked × 0.25 = 5.25.
     expect(alice.participationScore).toBe(
-      Math.round((4 * 1.25 + 1 * 0.25 + 0 * 0.50 + 1 * 0.50 + 0 * -1.00) * 100) / 100
+      Math.round((4 * 1.25 + 1 * 0.25 + 0 * 0.50 + 0 * 0.50 + 0 * -1.00) * 100) / 100
     )
   })
 
@@ -705,11 +707,71 @@ describe('calculateRealWarPayouts — per-member overrides', () => {
     }
     const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
     const bob = members.find(m => m.memberId === 200)
-    // Bob: 2 war hits * 1.25 + 2 mugs * 0 + 1 assist * 0.5 = 3.0
+    // Bob: 2 war wins, both Mugged → warMugs=2, warNonMugHits=0. Score with
+    // warHitMult=1.25, mugMult=0 (override), assistMult=0.5 = 0*1.25 + 2*0 +
+    // 1*0.5 = 0.5. (Before the fix, war hits included mugs and mug penalty
+    // stacked — 2*1.25 + 2*0 + 0.5 = 3.0. Now the war-hit count excludes
+    // mugs, so removing the mug penalty leaves only the assist.)
     expect(bob.mugScore).toBe(0)
-    expect(bob.participationScore).toBe(3.0)
+    expect(bob.participationScore).toBe(0.5)
     expect(bob.effMugMult).toBe(0)
     expect(bob.effWarHitMult).toBe(1.25)  // unchanged
+  })
+
+  it('non-war assists/losses do not contribute to participation score', () => {
+    // Carol has 1 war attack (warHits=1) + 1 war assist (warAssists=1, assists=1).
+    // Add 1 non-war assist + 1 non-war loss — both must be ignored by scoring
+    // even though they show in the Hit Report totals (assists=2, losses=1).
+    const attacks = [
+      ...SAMPLE_ATTACKS,
+      { id: 80, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist', is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+      { id: 81, attacker_id: 300, attacker_faction_id: 10739, result: 'Lost',   is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+    ]
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, attacks, baseSettings)
+    const carol = members.find(m => m.memberId === 300)
+    // Hit Report totals reflect all assists/losses (war + non-war)…
+    expect(carol.assists).toBe(2)
+    expect(carol.losses).toBe(1)
+    // …but war-scoped slices only count the ones that were war hits.
+    expect(carol.warAssists).toBe(1)
+    expect(carol.warLosses).toBe(0)
+    // Score = 1 war hit × 1.25 + 1 war assist × 0.5 + 0 war loss × 0.5 = 1.75.
+    // Pre-fix this would have been 1.25 + 2*0.5 + 1*0.5 = 2.75.
+    expect(carol.participationScore).toBe(1.75)
+  })
+
+  it('non-war mugs are not penalised by mug multiplier', () => {
+    // 1 non-war Mugged + nothing else. Pre-fix scored it as a non-war regular
+    // hit (regularHits=1, score 0 with default regMult) AND applied the mug
+    // penalty (mugs=1, -1.00). Now it only counts as an outside hit; war-mug
+    // penalty doesn't apply because warMugs=0.
+    const attacks = [
+      { id: 90, attacker_id: 100, attacker_faction_id: 10739, result: 'Mugged', is_ranked_war: false, is_incoming: false, chain: 1, respect_gain: 2 },
+    ]
+    const contribs = [{ member_id: 100, member_name: 'Alice', score: 0, attacks: 1 }]
+    const settings = { ...baseSettings, regularHitMultiplier: 1.0 }
+    const { members } = calculateRealWarPayouts(contribs, attacks, settings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.mugs).toBe(1)             // raw count for Hit Report
+    expect(alice.warMugs).toBe(0)          // not a war mug
+    expect(alice.regularHits).toBe(1)      // counted under Outside
+    expect(alice.mugScore).toBeCloseTo(0)  // no war-mug penalty applies (0 × -1 → -0)
+    expect(alice.regularHitScore).toBe(1)  // 1 outside hit × 1.0
+    expect(alice.participationScore).toBe(1)
+  })
+
+  it('war mugs are excluded from the war-hit count and penalised separately', () => {
+    // Bob: 2 war mugs (from SAMPLE_ATTACKS) — warHits=2, warMugs=2, so the
+    // War Hit column scores 0 and the War Mug column carries the full penalty.
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings)
+    const bob = members.find(m => m.memberId === 200)
+    expect(bob.warHits).toBe(2)
+    expect(bob.warMugs).toBe(2)
+    expect(bob.warNonMugHits).toBe(0)
+    expect(bob.warHitScore).toBe(0)    // 0 non-mug war wins × 1.25
+    expect(bob.mugScore).toBe(-2)      // 2 war mugs × -1.00 (standalone)
+    // Plus 1 war assist × 0.5 → participation = -1.5
+    expect(bob.participationScore).toBe(-1.5)
   })
 
   it('effective multipliers are returned per member', () => {

@@ -1006,15 +1006,15 @@ export default function WarPayoutManagement() {
     return (
       <>
         {hitReport}
-        <SortHeader col={c('warHitScore')} label="War hit" className="text-right border-l border-gray-200 dark:border-slate-700" />
+        <SortHeader col={c('warHitScore')} label="War hit" title="War wins excluding war mugs" className="text-right border-l border-gray-200 dark:border-slate-700" />
         {mh()}
-        <SortHeader col={c('assistScore')} label="Assist" className="text-right" />
+        <SortHeader col={c('assistScore')} label="Assist" title="War assists only" className="text-right" />
         {mh()}
-        <SortHeader col={c('lossScore')} label="Loss" className="text-right" />
+        <SortHeader col={c('lossScore')} label="Loss" title="War losses only" className="text-right" />
         {mh()}
-        <SortHeader col={c('regularHitScore')} label="Regular" className="text-right" />
+        <SortHeader col={c('mugScore')} label="War Mug" title="Mugs that happened during war hits" className="text-right" />
         {mh()}
-        <SortHeader col={c('mugScore')} label="Mug" className="text-right" />
+        <SortHeader col={c('regularHitScore')} label="Outside" title="All non-war wins (leaves + mugs + hosp combined)" className="text-right" />
         {mh()}
         <SortHeader col={c('participationScore')} label="Total" className="text-right" />
         <SortHeader col={c('participationShare')} label="Part%" className="text-right border-r border-gray-200 dark:border-slate-700" />
@@ -1067,17 +1067,26 @@ export default function WarPayoutManagement() {
           </>
         ) : (
         <>
-        {/* Participation */}
-        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{(w.warHitScore ?? 0).toFixed(2)}</td>
+        {/* Participation — non-overlapping categories.
+            War Hit = warHits − warMugs (war wins ex-mugs)
+            War Mug = warMugs (war wins that are mugs)
+            Assist  / Loss = war-only
+            Outside = regularHits (all non-war wins, type-agnostic) */}
+        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700"
+            title={`${w.warNonMugHits ?? Math.max(0, (w.warHits ?? 0) - (w.warMugs ?? 0))} war hits × ${(w.effWarHitMult ?? globalMults.warHit) ?? 0}`}>{(w.warHitScore ?? 0).toFixed(2)}</td>
         {viewMode === 'leader' && multInput('effWarHitMult', 'warHitMultiplier', globalMults.warHit)}
-        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{(w.assistScore ?? 0).toFixed(2)}</td>
+        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
+            title={`${w.warAssists ?? 0} war assists × ${(w.effAssistMult ?? globalMults.assist) ?? 0}`}>{(w.assistScore ?? 0).toFixed(2)}</td>
         {viewMode === 'leader' && multInput('effAssistMult', 'assistMultiplier', globalMults.assist)}
-        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{(w.lossScore ?? 0).toFixed(2)}</td>
+        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
+            title={`${w.warLosses ?? 0} war losses × ${(w.effLossMult ?? globalMults.loss) ?? 0}`}>{(w.lossScore ?? 0).toFixed(2)}</td>
         {viewMode === 'leader' && multInput('effLossMult', 'lossMultiplier', globalMults.loss)}
-        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{(w.regularHitScore ?? 0).toFixed(2)}</td>
-        {viewMode === 'leader' && multInput('effRegularMult', 'regularHitMultiplier', globalMults.regular)}
-        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400">{(w.mugScore ?? 0).toFixed(2)}</td>
+        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400"
+            title={`${w.warMugs ?? 0} war mugs × ${(w.effMugMult ?? globalMults.mug) ?? 0}`}>{(w.mugScore ?? 0).toFixed(2)}</td>
         {viewMode === 'leader' && multInput('effMugMult', 'mugMultiplier', globalMults.mug)}
+        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
+            title={`${w.regularHits ?? 0} outside hits × ${(w.effRegularMult ?? globalMults.regular) ?? 0}`}>{(w.regularHitScore ?? 0).toFixed(2)}</td>
+        {viewMode === 'leader' && multInput('effRegularMult', 'regularHitMultiplier', globalMults.regular)}
         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300">{(w.participationScore ?? 0).toFixed(2)}</td>
         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{((w.participationShare ?? 0) * 100).toFixed(2)}%</td>
         {/* Contribution */}
@@ -1358,10 +1367,10 @@ export default function WarPayoutManagement() {
                     <div className="space-y-1.5">
                       {[
                         { label: 'War Hit ×',    value: warHitMult,    set: setWarHitMult,    step: '0.05' },
-                        { label: 'Regular ×',    value: regularHitMult, set: setRegularHitMult, step: '0.05' },
                         { label: 'Assist ×',     value: assistMult,    set: setAssistMult,    step: '0.05' },
                         { label: 'Loss ×',       value: lossMult,      set: setLossMult,      step: '0.05' },
-                        { label: 'Mug ×',        value: mugMult,       set: setMugMult,       step: '0.05' },
+                        { label: 'War Mug ×',    value: mugMult,       set: setMugMult,       step: '0.05' },
+                        { label: 'Outside ×',    value: regularHitMult, set: setRegularHitMult, step: '0.05' },
                       ].map(({ label, value, set, step }) => (
                         <div key={label} className="flex items-center gap-2">
                           <span className="text-xs text-gray-600 dark:text-gray-400 w-16 sm:w-20 flex-shrink-0">{label}</span>
@@ -1569,7 +1578,7 @@ export default function WarPayoutManagement() {
                 {postDistMode === 'formula' && (
                   <>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Same real-war formula as pre-cutoff, with its own multipliers — e.g. set Regular ×
+                      Same real-war formula as pre-cutoff, with its own multipliers — e.g. set Outside ×
                       to 0 so non-war hits aren't paid after the cutoff.
                     </p>
                     <div>
@@ -1611,11 +1620,11 @@ export default function WarPayoutManagement() {
                       </label>
                       <div className="space-y-1.5">
                         {[
-                          { label: 'War Hit ×', value: postWarHitMult,     set: setPostWarHitMult },
-                          { label: 'Regular ×', value: postRegularHitMult, set: setPostRegularHitMult },
-                          { label: 'Assist ×',  value: postAssistMult,     set: setPostAssistMult },
-                          { label: 'Loss ×',    value: postLossMult,       set: setPostLossMult },
-                          { label: 'Mug ×',     value: postMugMult,        set: setPostMugMult },
+                          { label: 'War Hit ×',  value: postWarHitMult,     set: setPostWarHitMult },
+                          { label: 'Assist ×',   value: postAssistMult,     set: setPostAssistMult },
+                          { label: 'Loss ×',     value: postLossMult,       set: setPostLossMult },
+                          { label: 'War Mug ×',  value: postMugMult,        set: setPostMugMult },
+                          { label: 'Outside ×',  value: postRegularHitMult, set: setPostRegularHitMult },
                         ].map(({ label, value, set }) => (
                           <div key={label} className="flex items-center gap-2">
                             <span className="text-xs text-gray-600 dark:text-gray-400 w-16 sm:w-20 flex-shrink-0">{label}</span>
@@ -1967,15 +1976,15 @@ export default function WarPayoutManagement() {
                       <SortHeader col="losses"    label="Lost"    className="text-right" />
                       <SortHeader col="totalHits" label="Total"   className="text-right border-r border-gray-200 dark:border-slate-700" />
                       {/* Participation Score columns */}
-                      <SortHeader col="warHitScore"     label="War hit"  className="text-right border-l border-gray-200 dark:border-slate-700" />
+                      <SortHeader col="warHitScore"     label="War hit"  title="War wins excluding war mugs" className="text-right border-l border-gray-200 dark:border-slate-700" />
                       {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
-                      <SortHeader col="assistScore"     label="Assist"   className="text-right" />
+                      <SortHeader col="assistScore"     label="Assist"   title="War assists only" className="text-right" />
                       {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
-                      <SortHeader col="lossScore"       label="Loss"     className="text-right" />
+                      <SortHeader col="lossScore"       label="Loss"     title="War losses only" className="text-right" />
                       {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
-                      <SortHeader col="regularHitScore" label="Regular"  className="text-right" />
+                      <SortHeader col="mugScore"        label="War Mug"  title="Mugs that happened during war hits" className="text-right" />
                       {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
-                      <SortHeader col="mugScore"        label="Mug"      className="text-right" />
+                      <SortHeader col="regularHitScore" label="Outside"  title="All non-war wins (leaves + mugs + hosp combined)" className="text-right" />
                       {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
                       <SortHeader col="partScore"       label="Total"    className="text-right" />
                       <SortHeader col="partShare"       label="Part%"    className="text-right border-r border-gray-200 dark:border-slate-700" />
@@ -2058,17 +2067,22 @@ export default function WarPayoutManagement() {
                         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.assists ?? 0}</td>
                         <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.losses ?? 0}</td>
                         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{m.totalHits ?? 0}</td>
-                        {/* ── Participation Score ── */}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{(m.warHitScore ?? 0).toFixed(2)}</td>
+                        {/* ── Participation Score — non-overlapping categories ── */}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700"
+                            title={`${m.warNonMugHits ?? Math.max(0, (m.warHits ?? 0) - (m.warMugs ?? 0))} war hits × ${m.effWarHitMult ?? warHitMult}`}>{(m.warHitScore ?? 0).toFixed(2)}</td>
                         {viewMode === 'leader' && multInput('effWarHitMult', 'warHitMultiplier', warHitMult)}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{(m.assistScore ?? 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
+                            title={`${m.warAssists ?? 0} war assists × ${m.effAssistMult ?? assistMult}`}>{(m.assistScore ?? 0).toFixed(2)}</td>
                         {viewMode === 'leader' && multInput('effAssistMult', 'assistMultiplier', assistMult)}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{(m.lossScore ?? 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
+                            title={`${m.warLosses ?? 0} war losses × ${m.effLossMult ?? lossMult}`}>{(m.lossScore ?? 0).toFixed(2)}</td>
                         {viewMode === 'leader' && multInput('effLossMult', 'lossMultiplier', lossMult)}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{(m.regularHitScore ?? 0).toFixed(2)}</td>
-                        {viewMode === 'leader' && multInput('effRegularMult', 'regularHitMultiplier', regularHitMult)}
-                        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400">{(m.mugScore ?? 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400"
+                            title={`${m.warMugs ?? 0} war mugs × ${m.effMugMult ?? mugMult}`}>{(m.mugScore ?? 0).toFixed(2)}</td>
                         {viewMode === 'leader' && multInput('effMugMult', 'mugMultiplier', mugMult)}
+                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
+                            title={`${m.regularHits ?? 0} outside hits × ${m.effRegularMult ?? regularHitMult}`}>{(m.regularHitScore ?? 0).toFixed(2)}</td>
+                        {viewMode === 'leader' && multInput('effRegularMult', 'regularHitMultiplier', regularHitMult)}
                         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300">{(m.participationScore ?? 0).toFixed(2)}</td>
                         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
                           {((m.participationShare ?? 0) * 100).toFixed(2)}%
