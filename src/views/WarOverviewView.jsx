@@ -27,6 +27,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import Plot from 'react-plotly.js'
 import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds } from '../utils/warDataLoader'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
+import { fetchAttacks as fetchAttacksApi, fetchRevives as fetchRevivesApi } from '../utils/adminApi'
+import { useAuth } from '../contexts/AuthContext'
 
 const OUR_FACTION_ID = 10739
 
@@ -70,22 +72,29 @@ function pickBinSeconds(windowSeconds) {
 
 /**
  * Build a faction-id → color map shared across all panels of a single chart.
- * Pre-rank by total event count so the busiest faction always gets index 0.
+ * Pre-rank selected factions by total event count so the busiest one gets
+ * palette index 0 — keeps colours stable and the most-active faction the
+ * most visually distinct, even when the user has 30+ factions checked.
+ * Unselected factions get no entry (their events are dropped from traces).
  */
-function buildColorMap(eventGroups, topN) {
+function buildColorMap(eventGroups, selectedFactionIds) {
   const totals = new Map()
   for (const events of eventGroups) {
     for (const e of events) {
       const fid = e.faction
-      if (!fid) continue
+      if (!fid || !selectedFactionIds.has(fid)) continue
       totals.set(fid, (totals.get(fid) ?? 0) + 1)
     }
   }
+  // Include selected factions that had zero events this war so the colour
+  // map still has them; rank-by-count puts them at the end of the palette.
+  for (const fid of selectedFactionIds) {
+    if (!totals.has(fid)) totals.set(fid, 0)
+  }
   const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([fid]) => fid)
-  const top = ranked.slice(0, topN)
   const map = {}
-  top.forEach((fid, i) => { map[fid] = PALETTE[i % PALETTE.length] })
-  return { colorMap: map, topFactions: new Set(top) }
+  ranked.forEach((fid, i) => { map[fid] = PALETTE[i % PALETTE.length] })
+  return { colorMap: map, topFactions: new Set(ranked) }
 }
 
 /**
@@ -168,11 +177,9 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
       byFaction.get(fid)[i] += 1
       tallyReason(byFactionReasons.get(fid), i, e.reason)
       tallyType(byFactionTypes.get(fid), i, e.type)
-    } else {
-      otherCounts[i] += 1
-      tallyReason(otherReasons, i, e.reason)
-      tallyType(otherTypes, i, e.type)
     }
+    // Unselected factions are dropped entirely — the explicit checkbox
+    // filter replaces the old Top-N rollup, so there's no "Other" bucket.
   }
 
   const xs = Array.from({ length: nBins }, (_, i) =>
@@ -252,9 +259,8 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
     } else if (topFactions.has(fid)) {
       if (!byFaction.has(fid)) byFaction.set(fid, { x: [], reasons: [], symbols: [], typeNames: [] })
       push(byFaction.get(fid))
-    } else {
-      push(other)
     }
+    // Unselected factions are dropped — see histogram path above.
   }
 
   const lg = (key) => groupPrefix ? `${groupPrefix}_${key}` : key
@@ -308,6 +314,7 @@ function buildNameLookup(revives, dbNames) {
 }
 
 export default function WarOverviewView() {
+  const { user } = useAuth()
   const [wars, setWars] = useState([])
   const [warsLoading, setWarsLoading] = useState(true)
   const [selectedWarId, setSelectedWarId] = useState(null)
@@ -322,10 +329,22 @@ export default function WarOverviewView() {
   const [displayMode, setDisplayMode] = useState('histogram') // 'histogram' | 'scatter'
   const [binSizeSeconds, setBinSizeSeconds] = useState(null)  // null = auto
   const [selectedMemberId, setSelectedMemberId] = useState(null)
-  const [topN, setTopN] = useState(8)
+  // Faction filter — replaces the old Top-N cutoff with a full checkbox
+  // list (matches the RW Payout Management Hit Report filter). null means
+  // "all selected"; an explicit Set is the user's manual selection. Reset
+  // to null whenever the war changes so a new war starts with everything on.
+  const [selectedFactionIds, setSelectedFactionIds] = useState(null)
+  const [factionFilterCollapsed, setFactionFilterCollapsed] = useState(true)
 
   // Time-window state driven by the range slider. null = full war range.
   const [windowRange, setWindowRange] = useState(null)
+
+  // Staleness / fetch UI state for the "your data may be stale, want to
+  // fetch fresh attacks / revives from Torn?" banner.
+  const [fetching, setFetching] = useState(null)   // null | 'attacks' | 'revives'
+  const [fetchMessage, setFetchMessage] = useState(null)  // { type, text }
+  // Wars the user dismissed staleness prompts for this session.
+  const [dismissedStaleWars, setDismissedStaleWars] = useState({})  // { [warId]: { attacks?: true, revives?: true } }
 
   // ── Load wars list (newest first, plenty for a dropdown) ────────────────
   useEffect(() => {
@@ -343,50 +362,187 @@ export default function WarOverviewView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Reload attacks + revives + war row from the DB. Used both by the
+  // initial war-selection effect and by the staleness banner's Fetch
+  // buttons (which call the admin API to refresh from Torn first, then
+  // re-pull the freshly-persisted rows here).
+  const reloadWarData = useCallback(async (warId, { resetWindow = true } = {}) => {
+    if (warId == null) return
+    setDataLoading(true)
+    setDataError(null)
+    if (resetWindow) {
+      setWindowRange(null)
+      setSelectedMemberId(null)
+      setSelectedFactionIds(null)  // re-enable all factions for the new war
+    }
+    try {
+      const warRow = await loadWar(warId)
+      setWar(warRow)
+      const startAt = warRow.start_at
+      const endAt = warRow.end_at || Math.floor(Date.now() / 1000)
+      const [revs, atks] = await Promise.all([
+        loadFactionRevivesByWar(warId),
+        loadFactionAttacksByWindow(startAt, endAt),
+      ])
+      const factionIds = new Set()
+      for (const r of revs) {
+        if (r.reviver_faction_id) factionIds.add(r.reviver_faction_id)
+        if (r.target_faction_id)  factionIds.add(r.target_faction_id)
+      }
+      for (const a of atks) {
+        if (a.attacker_faction_id) factionIds.add(a.attacker_faction_id)
+        if (a.defender_faction_id) factionIds.add(a.defender_faction_id)
+      }
+      const fmap = await loadFactionsByIds(factionIds)
+      setRevives(revs)
+      setAttacks(atks)
+      const names = {}
+      for (const [id, row] of fmap.entries()) names[id] = row.name
+      setFactionNames(names)
+    } catch (e) {
+      setDataError(e.message || String(e))
+    } finally {
+      setDataLoading(false)
+    }
+  }, [])
+
   // ── Load attacks + revives + war row whenever the war changes ───────────
   useEffect(() => {
     if (selectedWarId == null) return
     let cancelled = false
-    setDataLoading(true)
-    setDataError(null)
-    setWindowRange(null)  // reset window on war switch
-    setSelectedMemberId(null)
     ;(async () => {
-      try {
-        const warRow = await loadWar(selectedWarId)
-        if (cancelled) return
-        setWar(warRow)
-        const startAt = warRow.start_at
-        const endAt = warRow.end_at || Math.floor(Date.now() / 1000)
-        const [revs, atks] = await Promise.all([
-          loadFactionRevivesByWar(selectedWarId),
-          loadFactionAttacksByWindow(startAt, endAt),
-        ])
-        // Collect all faction IDs so we can resolve names from the factions table.
-        const factionIds = new Set()
-        for (const r of revs) {
-          if (r.reviver_faction_id) factionIds.add(r.reviver_faction_id)
-          if (r.target_faction_id)  factionIds.add(r.target_faction_id)
-        }
-        for (const a of atks) {
-          if (a.attacker_faction_id) factionIds.add(a.attacker_faction_id)
-          if (a.defender_faction_id) factionIds.add(a.defender_faction_id)
-        }
-        const fmap = await loadFactionsByIds(factionIds)
-        if (cancelled) return
-        setRevives(revs)
-        setAttacks(atks)
-        const names = {}
-        for (const [id, row] of fmap.entries()) names[id] = row.name
-        setFactionNames(names)
-      } catch (e) {
-        if (!cancelled) setDataError(e.message || String(e))
-      } finally {
-        if (!cancelled) setDataLoading(false)
-      }
+      await reloadWarData(selectedWarId)
+      if (cancelled) return
     })()
     return () => { cancelled = true }
-  }, [selectedWarId])
+  }, [selectedWarId, reloadWarData])
+
+  // ── Freshness: detect when DB data may not yet reflect Torn ─────────────
+  //
+  // Two regimes:
+  //   • War ended → we want to have fetched AFTER end_at. If our latest
+  //     ingest for this war predates the war's end, the daily scraper
+  //     hasn't caught the tail and we should prompt.
+  //   • War ongoing → there's no end timestamp to compare against, so we
+  //     flag anything older than STALE_ONGOING_SEC.
+  //
+  // Returns counts + timestamps used to render the banner text.
+  const STALE_ONGOING_SEC = 15 * 60  // 15 min — tweak if it feels too eager
+  const freshness = useMemo(() => {
+    if (!war) return null
+    const nowSec = Math.floor(Date.now() / 1000)
+    const warEnded = !!(war.end_at && war.end_at <= nowSec)
+    const target = warEnded ? war.end_at : nowSec
+
+    // Most-recent ingest timestamps. created_at on faction_attacks marks
+    // when the row was persisted, not when the attack occurred — same for
+    // fetched_at on faction_revives.
+    const maxOf = (rows, key) => {
+      let max = 0
+      for (const r of rows) {
+        const t = r[key] ? Math.floor(new Date(r[key]).getTime() / 1000) : 0
+        if (t > max) max = t
+      }
+      return max
+    }
+    const attacksLast = maxOf(attacks, 'created_at')
+    const revivesLast = maxOf(revives, 'fetched_at')
+
+    const attacksStale = attacks.length === 0
+      || (warEnded ? attacksLast < target : (nowSec - attacksLast) > STALE_ONGOING_SEC)
+    const revivesStale = revives.length === 0
+      || (warEnded ? revivesLast < target : (nowSec - revivesLast) > STALE_ONGOING_SEC)
+
+    return { warEnded, attacksLast, revivesLast, attacksStale, revivesStale }
+  }, [war, attacks, revives])
+
+  // ── Fetch handlers — mirror the WarHistoryView flow, then reload ─────────
+  async function handleFetchAttacks() {
+    if (fetching || !user?.apiKey) return
+    setFetching('attacks')
+    setFetchMessage(null)
+    try {
+      const result = await fetchAttacksApi(user.apiKey)
+      const parts = [`${result.attacksFetched ?? 0} fetched`, `${result.attacksNew ?? 0} new`]
+      const suffix = result.partial ? ` — stopped early (${result.partialReason}). Click again to resume.` : '.'
+      setFetchMessage({ type: result.partial ? 'warning' : 'success', text: `Attacks: ${parts.join(', ')}${suffix}` })
+      await reloadWarData(selectedWarId, { resetWindow: false })
+    } catch (err) {
+      console.error('fetchAttacks failed:', err)
+      setFetchMessage({ type: 'error', text: `Failed to fetch attacks: ${err.message}` })
+    } finally {
+      setFetching(null)
+      setTimeout(() => setFetchMessage(null), 10_000)
+    }
+  }
+
+  async function handleFetchRevives() {
+    if (fetching || !user?.apiKey || selectedWarId == null) return
+    setFetching('revives')
+    setFetchMessage(null)
+    try {
+      const result = await fetchRevivesApi(selectedWarId, user.apiKey)
+      const parts = [`${result.revivesFetched ?? 0} fetched`, `${result.revivesNew ?? 0} new`]
+      const suffix = result.partial ? ` — stopped early (${result.partialReason}). Click again to resume.` : '.'
+      setFetchMessage({ type: result.partial ? 'warning' : 'success', text: `Revives: ${parts.join(', ')}${suffix}` })
+      await reloadWarData(selectedWarId, { resetWindow: false })
+    } catch (err) {
+      console.error('fetchRevives failed:', err)
+      setFetchMessage({ type: 'error', text: `Failed to fetch revives: ${err.message}` })
+    } finally {
+      setFetching(null)
+      setTimeout(() => setFetchMessage(null), 10_000)
+    }
+  }
+
+  function dismissStale(kind) {
+    if (selectedWarId == null) return
+    setDismissedStaleWars(prev => ({ ...prev, [selectedWarId]: { ...(prev[selectedWarId] ?? {}), [kind]: true } }))
+  }
+
+  // All factions that appear in this war's attacks + revives. Sorted
+  // opponent → our faction → alphabetical, exactly like the RW Payout
+  // Management Hit Report filter so leaders can pick what to slice by.
+  const allFactionsInWar = useMemo(() => {
+    const ids = new Set()
+    for (const a of attacks) {
+      if (a.attacker_faction_id) ids.add(Number(a.attacker_faction_id))
+      if (a.defender_faction_id) ids.add(Number(a.defender_faction_id))
+    }
+    for (const r of revives) {
+      if (r.reviver_faction_id) ids.add(Number(r.reviver_faction_id))
+      if (r.target_faction_id)  ids.add(Number(r.target_faction_id))
+    }
+    const oppId = war?.opponent_id ? Number(war.opponent_id) : null
+    return [...ids]
+      .map(id => ({ id, name: factionNames[id] || `Faction #${id}` }))
+      .sort((a, b) => {
+        if (a.id === oppId) return -1
+        if (b.id === oppId) return 1
+        if (a.id === OUR_FACTION_ID) return -1
+        if (b.id === OUR_FACTION_ID) return 1
+        return a.name.localeCompare(b.name)
+      })
+  }, [attacks, revives, factionNames, war?.opponent_id])
+
+  // Effective selected set — defaults to "all" until the user touches the
+  // checkboxes. Memoised so we don't allocate a Set every render and so
+  // it's stable for downstream useMemo dependencies.
+  const effectiveSelectedFactions = useMemo(() => {
+    if (selectedFactionIds) return selectedFactionIds
+    return new Set(allFactionsInWar.map(f => f.id))
+  }, [selectedFactionIds, allFactionsInWar])
+
+  function toggleFactionSelected(id) {
+    setSelectedFactionIds(prev => {
+      const base = prev ?? new Set(allFactionsInWar.map(f => f.id))
+      const next = new Set(base)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function selectAllFactions()  { setSelectedFactionIds(new Set(allFactionsInWar.map(f => f.id))) }
+  function selectNoFactions()   { setSelectedFactionIds(new Set()) }
 
   // Members of our faction that appear in the loaded data (for the dropdown).
   const ourMembers = useMemo(() => {
@@ -443,7 +599,7 @@ export default function WarOverviewView() {
         .filter(r => r.target_faction_id === OUR_FACTION_ID)
         .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id, reason: r.hospital_reason }))
 
-      const { colorMap, topFactions } = buildColorMap([outAtkEvents, incAtkEvents, incRevEvents], topN)
+      const { colorMap, topFactions } = buildColorMap([outAtkEvents, incAtkEvents, incRevEvents], effectiveSelectedFactions)
       const traces = isScatter ? [
         ...buildScatterTraces(outAtkEvents, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
         ...buildScatterTraces(incAtkEvents, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
@@ -480,7 +636,7 @@ export default function WarOverviewView() {
       .filter(r => r.target_id === selectedMemberId)
       .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id, reason: r.hospital_reason }))
 
-    const { colorMap, topFactions } = buildColorMap([outgoing, incoming, revIn], topN)
+    const { colorMap, topFactions } = buildColorMap([outgoing, incoming, revIn], effectiveSelectedFactions)
     const traces = isScatter ? [
       ...buildScatterTraces(outgoing, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
       ...buildScatterTraces(incoming, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
@@ -502,7 +658,7 @@ export default function WarOverviewView() {
       xaxis: { type: 'date', rangeslider: { visible: true, thickness: 0.05 } },
     }
     return { traces, layout }
-  }, [war, attacks, revives, factionNames, displayMode, binSizeSeconds, viewMode, selectedMemberId, topN])
+  }, [war, attacks, revives, factionNames, displayMode, binSizeSeconds, viewMode, selectedMemberId, effectiveSelectedFactions])
 
   // ── Windowed summary stats (driven by range-slider drag events) ─────────
   const summary = useMemo(() => {
@@ -511,14 +667,16 @@ export default function WarOverviewView() {
     const toTs = windowRange?.[1] ?? (war.end_at || Math.floor(Date.now() / 1000))
 
     if (viewMode === 'faction') {
-      let inc = 0, rev = 0
+      let out = 0, inc = 0, rev = 0
       for (const a of attacks) {
-        if (a.defender_faction_id === OUR_FACTION_ID && a.started >= fromTs && a.started <= toTs) inc += 1
+        if (a.started < fromTs || a.started > toTs) continue
+        if (a.attacker_faction_id === OUR_FACTION_ID) out += 1
+        if (a.defender_faction_id === OUR_FACTION_ID) inc += 1
       }
       for (const r of revives) {
         if (r.target_faction_id === OUR_FACTION_ID && r.timestamp >= fromTs && r.timestamp <= toTs) rev += 1
       }
-      return { fromTs, toTs, incoming: inc, revives: rev }
+      return { fromTs, toTs, outgoing: out, incoming: inc, revives: rev }
     }
 
     if (selectedMemberId == null) return null
@@ -669,15 +827,57 @@ export default function WarOverviewView() {
               </select>
             </div>
           )}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Top-N factions</label>
-            <input
-              type="number" min={3} max={20} value={topN}
-              onChange={e => setTopN(Math.max(3, Math.min(20, Number(e.target.value) || 8)))}
-              className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
         </div>
+
+        {/* Faction filter — collapsible checkbox card. Mirrors the RW
+            Payout Management Hit Report filter so leaders can pick exactly
+            which factions to include in the plot + summary. */}
+        {war && allFactionsInWar.length > 0 && (
+          <div className="mb-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-700/30">
+            <button
+              type="button"
+              onClick={() => setFactionFilterCollapsed(c => !c)}
+              className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors rounded-lg"
+              aria-expanded={!factionFilterCollapsed}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {factionFilterCollapsed ? '▶' : '▼'}
+                </span>
+                <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                  Filter by Faction ({effectiveSelectedFactions.size}/{allFactionsInWar.length})
+                </h4>
+              </div>
+              <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                <button onClick={selectAllFactions}  className="text-xs px-2 py-0.5 rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700">All</button>
+                <button onClick={selectNoFactions}   className="text-xs px-2 py-0.5 rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700">None</button>
+              </div>
+            </button>
+            {!factionFilterCollapsed && (
+              <div className="px-3 pb-3 pt-1 border-t border-gray-200 dark:border-slate-700">
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  {allFactionsInWar.map(f => {
+                    const isOpponent = war?.opponent_id && Number(f.id) === Number(war.opponent_id)
+                    const isOurs     = Number(f.id) === OUR_FACTION_ID
+                    return (
+                      <label key={f.id} className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={effectiveSelectedFactions.has(f.id)}
+                          onChange={() => toggleFactionSelected(f.id)}
+                          className="rounded border-gray-300 dark:border-slate-600 text-blue-600"
+                        />
+                        <span className={isOpponent ? 'font-semibold text-red-600 dark:text-red-400' : isOurs ? 'font-semibold text-blue-600 dark:text-blue-400' : ''}>
+                          {f.name} <span className="text-gray-400 dark:text-gray-500 font-normal">[{f.id}]</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Status banner */}
         {dataError && (
@@ -689,6 +889,86 @@ export default function WarOverviewView() {
           <div className="mb-3 text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
             Loading attacks + revives…
+          </div>
+        )}
+
+        {/* Staleness prompt — shown when the DB data lags the war state.
+            Each dataset (attacks / revives) is independently dismissable
+            per war for the current session. */}
+        {!dataLoading && war && freshness && (() => {
+          const dismissed = dismissedStaleWars[selectedWarId] ?? {}
+          const showAttacks = freshness.attacksStale && !dismissed.attacks
+          const showRevives = freshness.revivesStale && !dismissed.revives
+          if (!showAttacks && !showRevives) return null
+          const fmtAgo = (ts) => {
+            if (!ts) return 'never'
+            const nowSec = Math.floor(Date.now() / 1000)
+            const diff = nowSec - ts
+            if (diff < 60) return `${diff}s ago`
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+            return `${Math.floor(diff / 86400)}d ago`
+          }
+          return (
+            <div className="mb-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm">
+              <p className="font-semibold text-amber-800 dark:text-amber-300 mb-1.5">
+                Data for this war may not be up to date.
+              </p>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-amber-700 dark:text-amber-400">
+                {showAttacks && (
+                  <div className="inline-flex items-center gap-2">
+                    <span>
+                      Attacks last ingested: <strong>{fmtAgo(freshness.attacksLast)}</strong>
+                      {freshness.warEnded && freshness.attacksLast < war.end_at && ' (before war ended)'}
+                    </span>
+                    <button
+                      onClick={handleFetchAttacks}
+                      disabled={!!fetching || !user?.apiKey}
+                      className="px-2 py-0.5 rounded bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {fetching === 'attacks' ? 'Fetching…' : 'Fetch Attacks'}
+                    </button>
+                    <button
+                      onClick={() => dismissStale('attacks')}
+                      className="text-xs underline hover:no-underline"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+                {showRevives && (
+                  <div className="inline-flex items-center gap-2">
+                    <span>
+                      Revives last fetched: <strong>{fmtAgo(freshness.revivesLast)}</strong>
+                      {freshness.warEnded && freshness.revivesLast < war.end_at && ' (before war ended)'}
+                    </span>
+                    <button
+                      onClick={handleFetchRevives}
+                      disabled={!!fetching || !user?.apiKey}
+                      className="px-2 py-0.5 rounded bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {fetching === 'revives' ? 'Fetching…' : 'Fetch Revives'}
+                    </button>
+                    <button
+                      onClick={() => dismissStale('revives')}
+                      className="text-xs underline hover:no-underline"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+        {/* Fetch result toast (success / partial / error feedback). */}
+        {fetchMessage && (
+          <div className={`mb-3 p-2.5 rounded-lg text-sm border ${
+            fetchMessage.type === 'error'   ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
+            : fetchMessage.type === 'warning' ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-400'
+            : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+          }`}>
+            {fetchMessage.text}
           </div>
         )}
 
@@ -723,8 +1003,40 @@ export default function WarOverviewView() {
         )}
 
         {/* Windowed summary */}
-        {summary && (
+        {summary && (() => {
+          // Header line — opponent name for the faction summary, member
+          // name + Torn ID for the per-member summary. Falls back to the
+          // raw faction id if we couldn't resolve a name.
+          let headerLabel = null
+          if (viewMode === 'faction' && war) {
+            const oppName = war.opponent_name || factionNames[war.opponent_id] || (war.opponent_id ? `faction ${war.opponent_id}` : '')
+            const oppId   = war.opponent_id
+            if (oppName) {
+              headerLabel = (
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  vs <span className="text-gray-900 dark:text-white">{oppName}</span>
+                  {oppId && <span className="text-gray-500 dark:text-gray-400 font-normal"> [{oppId}]</span>}
+                </span>
+              )
+            }
+          } else if (viewMode === 'member' && selectedMemberId != null) {
+            const m = ourMembers.find(x => x.id === selectedMemberId)
+            if (m) {
+              headerLabel = (
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  <span className="text-gray-900 dark:text-white">{m.name}</span>
+                  <span className="text-gray-500 dark:text-gray-400 font-normal"> [{m.id}]</span>
+                </span>
+              )
+            }
+          }
+          return (
           <div className="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
+            {headerLabel && (
+              <div className="mb-2 pb-2 border-b border-gray-200 dark:border-slate-700">
+                {headerLabel}
+              </div>
+            )}
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
               Window: {new Date(summary.fromTs * 1000).toUTCString().slice(5, 22)}
               {' → '}
@@ -734,6 +1046,7 @@ export default function WarOverviewView() {
             <div className="flex flex-wrap gap-4 text-sm">
               {viewMode === 'faction' ? (
                 <>
+                  <StatPill label="Outgoing attacks" value={summary.outgoing} color="text-emerald-600 dark:text-emerald-400" />
                   <StatPill label="Incoming attacks" value={summary.incoming} color="text-red-600 dark:text-red-400" />
                   <StatPill label="Incoming revives" value={summary.revives} color="text-blue-600 dark:text-blue-400" />
                 </>
@@ -764,7 +1077,8 @@ export default function WarOverviewView() {
               )}
             </div>
           </div>
-        )}
+          )
+        })()}
       </div>
     </div>
   )

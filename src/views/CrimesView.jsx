@@ -3,6 +3,7 @@ import { useViewState } from '../contexts/ViewStateContext'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../utils/supabase'
 import { syncCrimesFromAPI, getSyncStatusMessage } from '../utils/syncCrimesFromAPI'
+import { getTornErrorMessage } from '../utils/apiUtils'
 import { RefreshCw, ChevronRight } from 'lucide-react'
 import { 
   getCrimeStatusLabel, 
@@ -540,7 +541,19 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
       .then(r => r.json())
       .then(data => {
         if (cancelled) return
-        if (data.error) { setError(data.error.error || 'Torn API error'); setCrimes([]) }
+        if (data.error) {
+          // The faction crimes endpoint requires Limited Access (or higher)
+          // on the API key. Torn's raw code-16 wording ("Access level of
+          // this key is not high enough") doesn't tell the user what to
+          // do — translate via getTornErrorMessage, and for code 16
+          // specifically point them at where to upgrade their key.
+          const friendly = getTornErrorMessage(data.error)
+          const guidance = data.error.code === 16
+            ? ' This page needs Limited Access. Regenerate your key in Torn Preferences with Limited Access ticked, then log in again.'
+            : ''
+          setError(friendly + guidance)
+          setCrimes([])
+        }
         else setCrimes(data.crimes || [])
       })
       .catch(e => { if (!cancelled) { setError(e.message); setCrimes([]) } })
