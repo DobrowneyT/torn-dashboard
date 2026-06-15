@@ -30,6 +30,25 @@ import { formatWarDateRange } from '../utils/warPayoutCalculations'
 
 const OUR_FACTION_ID = 10739
 
+// Faction_attacks.result classifier — mirrors the same buckets the payout
+// calculator uses so "attack / assist / loss" mean the same thing here as
+// they do in the Hit Report. Wins (leave/mug/hosp) collapse to 'attack' for
+// the member-inspector breakdown.
+const WIN_RESULTS = new Set(['Attacked', 'Mugged', 'Hospitalized', 'Arrested', 'Looted', 'Special'])
+const LOSS_RESULTS = new Set(['Lost', 'Timeout', 'Interrupted', 'Stalemate', 'Escape'])
+function classifyEventType(result) {
+  if (!result) return null
+  if (result === 'Assist') return 'assist'
+  if (WIN_RESULTS.has(result)) return 'attack'
+  if (LOSS_RESULTS.has(result)) return 'loss'
+  return null
+}
+
+// Plotly marker symbols for each event type — visible at a glance even when
+// faction color is shared. Matches the legend annotation below the plot.
+const TYPE_MARKER = { attack: 'circle', assist: 'diamond', loss: 'x' }
+const TYPE_LABEL  = { attack: 'Attack', assist: 'Assist', loss: 'Loss' }
+
 // Categorical 20-color palette (matches matplotlib's tab20 — same colors used
 // by the Python script so the two stay visually consistent).
 const PALETTE = [
@@ -180,22 +199,28 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
  * Faction colour coding is shared with the histogram via the same colorMap.
  */
 function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, yaxis, groupPrefix = '', groupTitle = '') {
-  const byFaction = new Map()       // fid → { x: [], reasons: [] }
-  const other = { x: [], reasons: [] }
-  const fallback = { x: [], reasons: [] }
+  // If any event carries a `type` (attack / assist / loss), encode it as the
+  // per-point marker symbol so the legend can stay grouped by faction while
+  // shape distinguishes event class. Hover text also calls it out by name.
+  const byFaction = new Map()       // fid → { x: [], reasons: [], symbols: [], typeNames: [] }
+  const other = { x: [], reasons: [], symbols: [], typeNames: [] }
+  const fallback = { x: [], reasons: [], symbols: [], typeNames: [] }
 
   for (const e of events) {
     if (e.ts == null) continue
     const x = new Date(e.ts * 1000).toISOString().replace('T', ' ').slice(0, 19)
     const reason = e.reason ? `<br>${e.reason}` : ''
+    const symbol = TYPE_MARKER[e.type] || 'circle'
+    const typeName = e.type ? `<br>Type: ${TYPE_LABEL[e.type]}` : ''
     const fid = e.faction
+    const push = (bucket) => { bucket.x.push(x); bucket.reasons.push(reason); bucket.symbols.push(symbol); bucket.typeNames.push(typeName) }
     if (!fid) {
-      fallback.x.push(x); fallback.reasons.push(reason)
+      push(fallback)
     } else if (topFactions.has(fid)) {
-      if (!byFaction.has(fid)) byFaction.set(fid, { x: [], reasons: [] })
-      const b = byFaction.get(fid); b.x.push(x); b.reasons.push(reason)
+      if (!byFaction.has(fid)) byFaction.set(fid, { x: [], reasons: [], symbols: [], typeNames: [] })
+      push(byFaction.get(fid))
     } else {
-      other.x.push(x); other.reasons.push(reason)
+      push(other)
     }
   }
 
@@ -204,17 +229,19 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
   const mkScatter = (extra) => ({
     type: 'scatter', mode: 'markers',
     y: new Array(extra.x.length).fill(1),
-    marker: { size: 8, opacity: 0.75, ...extra.marker },
-    hovertemplate: '%{x|%b %d %H:%M:%S} TCT%{customdata}<extra>' + extra.tag + '</extra>',
+    marker: { size: 9, opacity: 0.8, symbol: extra.symbols, ...extra.marker },
+    // customdata is [reason, typeName] so hover can show both lines.
+    customdata: extra.x.map((_, i) => [extra.reasons[i], extra.typeNames[i]]),
+    hovertemplate: '%{x|%b %d %H:%M:%S} TCT%{customdata[0]}%{customdata[1]}<extra>' + extra.tag + '</extra>',
     xaxis, yaxis,
-    x: extra.x, customdata: extra.reasons, name: extra.name, legendgroup: extra.legendgroup,
+    x: extra.x, name: extra.name, legendgroup: extra.legendgroup,
     ...(extra.titleProp || {}),
   })
 
   const traces = []
   for (const [fid, b] of byFaction.entries()) {
     traces.push(mkScatter({
-      x: b.x, reasons: b.reasons,
+      x: b.x, reasons: b.reasons, symbols: b.symbols, typeNames: b.typeNames,
       name: nameLookup[fid] ? `${nameLookup[fid]} [${fid}]` : `faction ${fid}`,
       tag: '%{fullData.name}',
       marker: { color: colorMap[fid] || '#777' },
@@ -223,10 +250,10 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
     }))
   }
   if (other.x.length > 0) {
-    traces.push(mkScatter({ x: other.x, reasons: other.reasons, name: 'Other', tag: 'Other', marker: { color: '#888' }, legendgroup: lg('other') }))
+    traces.push(mkScatter({ x: other.x, reasons: other.reasons, symbols: other.symbols, typeNames: other.typeNames, name: 'Other', tag: 'Other', marker: { color: '#888' }, legendgroup: lg('other') }))
   }
   if (fallback.x.length > 0) {
-    traces.push(mkScatter({ x: fallback.x, reasons: fallback.reasons, name: '(no faction)', tag: '(no faction)', marker: { color: '#444' }, legendgroup: lg('nofac') }))
+    traces.push(mkScatter({ x: fallback.x, reasons: fallback.reasons, symbols: fallback.symbols, typeNames: fallback.typeNames, name: '(no faction)', tag: '(no faction)', marker: { color: '#444' }, legendgroup: lg('nofac') }))
   }
   return traces
 }
@@ -412,10 +439,10 @@ export default function WarOverviewView() {
 
     const outgoing = attacks
       .filter(a => a.attacker_id === selectedMemberId)
-      .map(a => ({ ts: a.started, faction: a.defender_faction_id }))
+      .map(a => ({ ts: a.started, faction: a.defender_faction_id, type: classifyEventType(a.result) }))
     const incoming = attacks
       .filter(a => a.defender_id === selectedMemberId)
-      .map(a => ({ ts: a.started, faction: a.attacker_faction_id }))
+      .map(a => ({ ts: a.started, faction: a.attacker_faction_id, type: classifyEventType(a.result) }))
     const revIn = revives
       .filter(r => r.target_id === selectedMemberId)
       .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id, reason: r.hospital_reason }))
@@ -462,11 +489,22 @@ export default function WarOverviewView() {
     }
 
     if (selectedMemberId == null) return null
-    let out = 0, inc = 0, rev = 0
+    // Break out by event type so the user can see the attack/assist/loss
+    // breakdown that drives payout participation.
+    let rev = 0
+    const out = { attack: 0, assist: 0, loss: 0, total: 0 }
+    const inc = { attack: 0, assist: 0, loss: 0, total: 0 }
     for (const a of attacks) {
       if (a.started < fromTs || a.started > toTs) continue
-      if (a.attacker_id === selectedMemberId) out += 1
-      if (a.defender_id === selectedMemberId) inc += 1
+      const t = classifyEventType(a.result)
+      if (a.attacker_id === selectedMemberId) {
+        out.total += 1
+        if (t) out[t] += 1
+      }
+      if (a.defender_id === selectedMemberId) {
+        inc.total += 1
+        if (t) inc[t] += 1
+      }
     }
     for (const r of revives) {
       if (r.timestamp >= fromTs && r.timestamp <= toTs && r.target_id === selectedMemberId) rev += 1
@@ -634,6 +672,17 @@ export default function WarOverviewView() {
             />
           </div>
         )}
+        {/* Shape-key legend — only meaningful for member scatter where event
+            type is encoded as the marker symbol. */}
+        {figure && !dataLoading && viewMode === 'member' && displayMode === 'scatter' && (
+          <div className="mt-2 px-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+            <span className="font-medium">Marker shape:</span>
+            <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-gray-500 dark:bg-gray-400" /> Attack (leave/mug/hosp)</span>
+            <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rotate-45 bg-gray-500 dark:bg-gray-400" /> Assist</span>
+            <span className="inline-flex items-center gap-1.5"><span className="font-mono font-bold text-gray-500 dark:text-gray-400">✕</span> Loss</span>
+            <span className="italic">Color still encodes faction.</span>
+          </div>
+        )}
         {!dataLoading && !figure && viewMode === 'member' && (
           <p className="text-sm text-gray-500 dark:text-gray-400 italic">
             Pick a member to render the per-player breakdown.
@@ -656,11 +705,29 @@ export default function WarOverviewView() {
                   <StatPill label="Incoming revives" value={summary.revives} color="text-blue-600 dark:text-blue-400" />
                 </>
               ) : (
-                <>
-                  <StatPill label="Outgoing hits" value={summary.outgoing ?? 0} color="text-emerald-600 dark:text-emerald-400" />
-                  <StatPill label="Incoming hits" value={summary.incoming ?? 0} color="text-red-600 dark:text-red-400" />
-                  <StatPill label="Incoming revives" value={summary.revives ?? 0} color="text-blue-600 dark:text-blue-400" />
-                </>
+                <div className="flex flex-col gap-2 w-full">
+                  {/* Outgoing breakdown: attacks (wins) / assists / losses */}
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Outgoing</span>
+                    <StatPill label="Attack" value={summary.outgoing?.attack ?? 0} color="text-emerald-600 dark:text-emerald-400" />
+                    <StatPill label="Assist" value={summary.outgoing?.assist ?? 0} color="text-emerald-600 dark:text-emerald-400" />
+                    <StatPill label="Loss"   value={summary.outgoing?.loss   ?? 0} color="text-emerald-600 dark:text-emerald-400" />
+                    <StatPill label="Total"  value={summary.outgoing?.total  ?? 0} color="text-emerald-700 dark:text-emerald-300" />
+                  </div>
+                  {/* Incoming breakdown (attacker's result — Loss here = the
+                      member successfully defended). */}
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <span className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">Incoming</span>
+                    <StatPill label="Attack" value={summary.incoming?.attack ?? 0} color="text-red-600 dark:text-red-400" />
+                    <StatPill label="Assist" value={summary.incoming?.assist ?? 0} color="text-red-600 dark:text-red-400" />
+                    <StatPill label="Loss"   value={summary.incoming?.loss   ?? 0} color="text-red-600 dark:text-red-400" />
+                    <StatPill label="Total"  value={summary.incoming?.total  ?? 0} color="text-red-700 dark:text-red-300" />
+                  </div>
+                  <div className="flex items-baseline gap-x-4">
+                    <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Revives</span>
+                    <StatPill label="Incoming" value={summary.revives ?? 0} color="text-blue-600 dark:text-blue-400" />
+                  </div>
+                </div>
               )}
             </div>
           </div>
