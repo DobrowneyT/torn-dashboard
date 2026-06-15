@@ -113,6 +113,27 @@ function tallyReason(reasonBins, binIndex, reason) {
   m.set(reason, (m.get(reason) ?? 0) + 1)
 }
 
+// Parallel of tallyReason for event type (attack / assist / loss). Bins only
+// get a Map when at least one classified event lands in them, so attack-less
+// directions (revives) skip the work.
+function tallyType(typeBins, binIndex, type) {
+  if (!type) return
+  if (!typeBins[binIndex]) typeBins[binIndex] = { attack: 0, assist: 0, loss: 0 }
+  typeBins[binIndex][type] += 1
+}
+
+// Tooltip suffix for the type breakdown — shows up like
+// "<br>Attack ×3 · Assist ×1 · Loss ×2". Empty when no classified events
+// (e.g. revive traces) so the hover line silently collapses.
+function formatTypeTooltip(typeMap) {
+  if (!typeMap) return ''
+  const parts = []
+  if (typeMap.attack) parts.push(`Attack ×${typeMap.attack}`)
+  if (typeMap.assist) parts.push(`Assist ×${typeMap.assist}`)
+  if (typeMap.loss)   parts.push(`Loss ×${typeMap.loss}`)
+  return parts.length ? '<br>' + parts.join(' · ') : ''
+}
+
 function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, xaxis, yaxis, groupPrefix = '', groupTitle = '') {
   const nBins = Math.max(1, Math.floor((toTs - fromTs) / binSeconds) + 1)
   const byFaction = new Map()
@@ -122,6 +143,10 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
   const byFactionReasons = new Map()
   const otherReasons = new Array(nBins)
   const fallbackReasons = new Array(nBins)
+  // Parallel per-bin type breakdown (only populated when events carry `type`).
+  const byFactionTypes = new Map()
+  const otherTypes = new Array(nBins)
+  const fallbackTypes = new Array(nBins)
 
   for (const e of events) {
     const ts = e.ts
@@ -131,18 +156,22 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
     if (!fid) {
       fallbackCounts[i] += 1
       tallyReason(fallbackReasons, i, e.reason)
+      tallyType(fallbackTypes, i, e.type)
       continue
     }
     if (topFactions.has(fid)) {
       if (!byFaction.has(fid)) {
         byFaction.set(fid, new Array(nBins).fill(0))
         byFactionReasons.set(fid, new Array(nBins))
+        byFactionTypes.set(fid, new Array(nBins))
       }
       byFaction.get(fid)[i] += 1
       tallyReason(byFactionReasons.get(fid), i, e.reason)
+      tallyType(byFactionTypes.get(fid), i, e.type)
     } else {
       otherCounts[i] += 1
       tallyReason(otherReasons, i, e.reason)
+      tallyType(otherTypes, i, e.type)
     }
   }
 
@@ -154,6 +183,11 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
   const titleProp = groupTitle ? { legendgrouptitle: { text: groupTitle } } : {}
   const HOVER = '%{y} events<br>%{x|%b %d %H:%M}%{customdata}<extra>%{fullData.name}</extra>'
 
+  // Concatenate the type-breakdown line and the reason line. Both come back
+  // as '' when their source is empty, so we never emit stray <br>s.
+  const buildCustomdata = (typeArr, reasonArr) =>
+    typeArr.map((_, i) => formatTypeTooltip(typeArr[i]) + formatReasonTooltip(reasonArr[i]))
+
   const traces = []
   const orderedFactions = [...byFaction.keys()].sort((a, b) => {
     const sa = byFaction.get(a).reduce((s, v) => s + v, 0)
@@ -161,12 +195,11 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
     return sb - sa
   })
   for (const fid of orderedFactions) {
-    const reasons = byFactionReasons.get(fid)
     traces.push({
       type: 'bar',
       x: xs,
       y: byFaction.get(fid),
-      customdata: reasons.map(formatReasonTooltip),
+      customdata: buildCustomdata(byFactionTypes.get(fid), byFactionReasons.get(fid)),
       name: nameLookup[fid] ? `${nameLookup[fid]} [${fid}]` : `faction ${fid}`,
       marker: { color: colorMap[fid] || '#777' },
       legendgroup: lg(`f${fid}`),
@@ -178,7 +211,7 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
   if (otherCounts.some(c => c > 0)) {
     traces.push({
       type: 'bar', x: xs, y: otherCounts, name: 'Other',
-      customdata: otherReasons.map(formatReasonTooltip),
+      customdata: buildCustomdata(otherTypes, otherReasons),
       marker: { color: '#888' }, legendgroup: lg('other'),
       hovertemplate: HOVER, xaxis, yaxis,
     })
@@ -186,7 +219,7 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
   if (fallbackCounts.some(c => c > 0)) {
     traces.push({
       type: 'bar', x: xs, y: fallbackCounts, name: '(no faction)',
-      customdata: fallbackReasons.map(formatReasonTooltip),
+      customdata: buildCustomdata(fallbackTypes, fallbackReasons),
       marker: { color: '#444' }, legendgroup: lg('nofac'),
       hovertemplate: HOVER, xaxis, yaxis,
     })
@@ -402,10 +435,10 @@ export default function WarOverviewView() {
     if (viewMode === 'faction') {
       const outAtkEvents = attacks
         .filter(a => a.attacker_faction_id === OUR_FACTION_ID)
-        .map(a => ({ ts: a.started, faction: a.defender_faction_id }))
+        .map(a => ({ ts: a.started, faction: a.defender_faction_id, type: classifyEventType(a.result) }))
       const incAtkEvents = attacks
         .filter(a => a.defender_faction_id === OUR_FACTION_ID)
-        .map(a => ({ ts: a.started, faction: a.attacker_faction_id }))
+        .map(a => ({ ts: a.started, faction: a.attacker_faction_id, type: classifyEventType(a.result) }))
       const incRevEvents = revives
         .filter(r => r.target_faction_id === OUR_FACTION_ID)
         .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id, reason: r.hospital_reason }))
