@@ -58,7 +58,16 @@ export default function LoginModal() {
   const [apiKey, setApiKey] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
-  const { login } = useAuth()
+  const { login, authError, clearAuthError } = useAuth()
+
+  // When the session revalidator (or future periodic checker) forces a
+  // logout, it stashes the reason in authError so this modal can show it
+  // *above* the standard login form. We don't auto-clear — the message
+  // stays visible until the user either logs in successfully (login()
+  // clears it) or actively dismisses it.
+  function dismissAuthError() {
+    clearAuthError?.()
+  }
 
   async function handleLogin(e) {
     e.preventDefault()
@@ -77,7 +86,8 @@ export default function LoginModal() {
       setError(result.error)
       setIsLoading(false)
     }
-    // On success, the user state will update and modal will disappear
+    // On success, the user state will update and modal will disappear.
+    // authError is cleared by the wrapped login() in AuthContext.
   }
 
   return (
@@ -89,6 +99,24 @@ export default function LoginModal() {
             Enter your Torn API key to access the OC Dashboard
           </p>
         </div>
+
+        {authError && (
+          <div className="mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg p-3 flex items-start gap-2">
+            <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-0.5">Session ended</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400">{authError}</p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissAuthError}
+              className="text-xs text-amber-700 dark:text-amber-400 hover:underline whitespace-nowrap"
+              aria-label="Dismiss"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>

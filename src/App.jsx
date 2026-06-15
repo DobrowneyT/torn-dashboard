@@ -17,7 +17,7 @@ import Footer from './components/Footer'
 
 
 function DashboardLayout() {
-  const { isAuthenticated, isLeadership, user, loading: authLoading } = useAuth()
+  const { isAuthenticated, isLeadership, isWarLead, user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -29,18 +29,28 @@ function DashboardLayout() {
   const effectiveIsLeadership = viewAsRole === null
     ? isLeadership
     : (viewAsRole === 'leadership' || viewAsRole === 'admin')
+  // War Overview is broader than leadership — warleads + admins also get it,
+  // and any "view as" role of leadership/admin re-grants it.
+  const effectiveCanAccessWarOverview = viewAsRole === null
+    ? (isLeadership || userIsAdmin || isWarLead)
+    : (viewAsRole === 'leadership' || viewAsRole === 'admin' || viewAsRole === 'warlead')
 
   // Reset viewAsRole when user changes
   useEffect(() => { setViewAsRole(null) }, [user?.id])
 
-  // If viewAs drops leadership and we're on a leadership-only route, go home
+  // If viewAs drops leadership and we're on a leadership-only route, go home.
+  // War Overview is special-cased because it's available to warleads too —
+  // only redirect there when the user doesn't meet the broader access set.
   useEffect(() => {
-    const leadershipPaths = ['/leadership', '/rw/payout-management', '/rw/war-overview',
+    const leadershipPaths = ['/leadership', '/rw/payout-management',
       '/oc/payout-management', '/oc/tier-management']
     if (!effectiveIsLeadership && leadershipPaths.some(p => location.pathname.startsWith(p))) {
       navigate('/', { replace: true })
     }
-  }, [effectiveIsLeadership, location.pathname, navigate])
+    if (!effectiveCanAccessWarOverview && location.pathname.startsWith('/rw/war-overview')) {
+      navigate('/', { replace: true })
+    }
+  }, [effectiveIsLeadership, effectiveCanAccessWarOverview, location.pathname, navigate])
 
   if (authLoading) {
     return (
@@ -80,7 +90,7 @@ function DashboardLayout() {
               <Route index element={<DashboardView />} />
               <Route path="members" element={<MembersView isLeadership={effectiveIsLeadership} />} />
               <Route path="oc/*" element={<OCPage isLeadership={effectiveIsLeadership} />} />
-              <Route path="rw/*" element={<RWPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />} />
+              <Route path="rw/*" element={<RWPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} canAccessWarOverview={effectiveCanAccessWarOverview} />} />
               <Route path="leadership/*" element={
                 <ProtectedRoute requireLeadership>
                   <LeadershipPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />

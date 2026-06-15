@@ -34,6 +34,10 @@ export const config = {
     '2407528', // DiabolicPickles
     '2932241', // Marnix0126
     `873341`, // Goosey
+    `2478585`, // Gekents
+    `2642228`, // FLY
+    `1712182`, // Muttley
+    `3058543`, // Gank
   ],
 
   ocmanagerUserIds: [

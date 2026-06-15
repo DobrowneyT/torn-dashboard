@@ -11,11 +11,13 @@ const WarOverviewView = lazy(() => import('./WarOverviewView'))
 const TABS = [
   // v2 is now the canonical War Room. /rw/war-room-v2 redirects to /rw/war-room
   // so any bookmarks from the validation window still resolve.
-  { to: '/rw/war-room',          label: 'War Room',           leadership: false },
-  { to: '/rw/payouts',           label: 'Payouts',            leadership: false },
-  { to: '/rw/rw-history',        label: 'RW History',         leadership: false },
-  { to: '/rw/payout-management', label: 'Payout Management',  leadership: true  },
-  { to: '/rw/war-overview',      label: 'War Overview',       leadership: true  },
+  // `gate` is checked per-render against the auth flags passed into RWPage.
+  // 'leadership' = leadership-only; 'warOverview' = leadership/admin/warlead.
+  { to: '/rw/war-room',          label: 'War Room',           gate: null            },
+  { to: '/rw/payouts',           label: 'Payouts',            gate: null            },
+  { to: '/rw/rw-history',        label: 'RW History',         gate: null            },
+  { to: '/rw/payout-management', label: 'Payout Management',  gate: 'leadership'    },
+  { to: '/rw/war-overview',      label: 'War Overview',       gate: 'warOverview'   },
 ]
 
 const tabClass = ({ isActive }) =>
@@ -25,8 +27,14 @@ const tabClass = ({ isActive }) =>
       : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-slate-600'
   }`
 
-export default function RWPage({ isLeadership, isAdmin }) {
-  const visibleTabs = TABS.filter(t => !t.leadership || isLeadership)
+export default function RWPage({ isLeadership, isAdmin, canAccessWarOverview }) {
+  const tabPasses = (gate) => {
+    if (gate === null) return true
+    if (gate === 'leadership') return isLeadership
+    if (gate === 'warOverview') return !!canAccessWarOverview
+    return false
+  }
+  const visibleTabs = TABS.filter(t => tabPasses(t.gate))
 
   return (
     <div className="space-y-6">
@@ -48,7 +56,7 @@ export default function RWPage({ isLeadership, isAdmin }) {
         <Route path="payouts"   element={<RWPayoutsView />} />
         <Route path="rw-history" element={<WarHistoryView isLeadership={isLeadership} isAdmin={isAdmin} />} />
         {isLeadership && <Route path="payout-management" element={<WarPayoutManagement />} />}
-        {isLeadership && <Route path="war-overview" element={
+        {canAccessWarOverview && <Route path="war-overview" element={
           <ErrorBoundary name="War Overview">
             <Suspense fallback={
               <div className="card flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
