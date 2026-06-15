@@ -259,11 +259,22 @@ class SupabaseSync:
                     item_id = reward_item.get('id')
                     if not item_id:
                         continue
+                    # Torn lists potential drops with quantity=0 for items the
+                    # crime *could* have produced but didn't actually award —
+                    # most visible on Window of Opportunity. Skip them so the
+                    # Item Rewards Breakdown only shows things we received.
+                    # Mirrors the same filter in supabase/functions/admin-db.
+                    try:
+                        qty = int(reward_item.get('quantity') or 0)
+                    except (TypeError, ValueError):
+                        qty = 0
+                    if qty <= 0:
+                        continue
                     all_reward_items.append({
                         'crime_id': crime_id,
                         'item_id': str(item_id),
                         'item_name': reward_item.get('name'),
-                        'quantity': reward_item.get('quantity', 1),
+                        'quantity': qty,
                         'unit_value': 0,
                         'total_value': 0,
                         'created_at': now,

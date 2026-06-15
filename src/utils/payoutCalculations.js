@@ -334,17 +334,25 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
       crimesByDifficulty[difficulty].success++
       crimesByDifficulty[difficulty].total++
 
-      // Collect reward item details
+      // Collect reward item details — skip quantity=0 rows. Torn's API
+      // lists potential drops the crime *could* have produced even when
+      // nothing was actually awarded (most visible on Window of
+      // Opportunity). The Edge Function ingest filters these out, but the
+      // Python scraper has historically not, so stale 0-qty rows can sit
+      // in crime_reward_items. Defense in depth so the breakdown never
+      // shows a Quantity 0 row even if the upstream filter misses.
       if (crime.reward_items && crime.reward_items.length > 0) {
         for (const item of crime.reward_items) {
+          const qty = Number(item.quantity) || 0
+          if (qty <= 0) continue
           rewardItemDetails.push({
             crimeId,
             crimeName: crime.name,
             itemId: item.item_id,
             itemName: item.item_name,
-            quantity: item.quantity,
+            quantity: qty,
             unitValue: item.unit_value || 0,
-            totalValue: (item.unit_value || 0) * (item.quantity || 1)
+            totalValue: (item.unit_value || 0) * qty,
           })
         }
       }

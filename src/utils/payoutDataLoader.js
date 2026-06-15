@@ -192,9 +192,13 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
         } : null
       }))
 
-      // Calculate total item reward value
+      // Calculate total item reward value — `quantity || 1` would silently
+      // inflate stale qty=0 rows (Window of Opportunity "potential drops")
+      // by multiplying their unit_value by 1 instead of 0. Use `|| 0` so
+      // those rows contribute nothing until the upstream ingest cleanup
+      // removes them.
       const itemRewardValue = crimeRewardItems.reduce((sum, item) => {
-        return sum + ((item.unit_value || 0) * (item.quantity || 1))
+        return sum + ((item.unit_value || 0) * (Number(item.quantity) || 0))
       }, 0)
 
       // Calculate total consumed item cost
