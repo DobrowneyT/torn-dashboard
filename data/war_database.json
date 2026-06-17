@@ -5686,6 +5686,23 @@
       "rank_before": "Diamond III",
       "rank_after": "Diamond II",
       "report_fetched": true
+    },
+    "43973": {
+      "id": 43973,
+      "start_at": 1781809200,
+      "end_at": null,
+      "opponent_id": 8336,
+      "opponent_name": "Monarch HQ",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17400,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -209966,6 +209983,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-16T06:32:55.303385"
+    "last_updated": "2026-06-17T06:09:38.899343"
   }
 }
