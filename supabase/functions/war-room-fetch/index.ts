@@ -578,6 +578,13 @@ async function handleFetchBspV2(
         if (!spy || typeof spy.total !== 'number' || spy.total <= 0) continue
         if (typeof spy.timestamp !== 'number' || spy.timestamp < minTimestamp) continue
 
+        // Record source = 'tornstats' and the spy's original capture
+        // timestamp so the UI can show real spy age (and the (TS) label).
+        // The bsp_* column names are legacy — they hold whichever source's
+        // values; spy_source is the truth.
+        const tsSpyAt = typeof spy.timestamp === 'number'
+          ? new Date(spy.timestamp * 1000).toISOString()
+          : null
         const { error: upErr } = await supabase.from('war_room_state_v2').update({
           bsp_total:      spy.total,
           bsp_str:        spy.strength ?? null,
@@ -585,6 +592,8 @@ async function handleFetchBspV2(
           bsp_def:        spy.defense ?? null,
           bsp_dex:        spy.dexterity ?? null,
           bsp_fetched_at: now,
+          spy_source:     'tornstats',
+          ts_spy_at:      tsSpyAt,
         }).eq('member_id', id)
         if (!upErr) filledIds.push(id)
       }
@@ -626,6 +635,8 @@ async function handleFetchBspV2(
   for (const [idStr, stats] of Object.entries(results)) {
     const id = Number(idStr)
     if (stats.total === null) continue
+    // BSP fill — explicitly clear ts_spy_at since BSP doesn't expose
+    // capture time; the UI will fall back to bsp_fetched_at for age.
     await supabase.from('war_room_state_v2').update({
       bsp_total:      stats.total,
       bsp_str:        stats.str,
@@ -633,6 +644,8 @@ async function handleFetchBspV2(
       bsp_def:        stats.def,
       bsp_dex:        stats.dex,
       bsp_fetched_at: now,
+      spy_source:     'bsp',
+      ts_spy_at:      null,
     }).eq('member_id', id)
     bspFilled++
   }

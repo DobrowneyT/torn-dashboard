@@ -1055,7 +1055,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // bigint faction_id column the polling RPC returns.
   const OUR_FACTION_ID = Number(appConfig.faction.id)
   const {
-    members,
+    members: rawMembers,
     ourMembers,
     dibs,
     config,
@@ -1069,6 +1069,21 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     enabled: !!user?.apiKey,
     ourFactionId: OUR_FACTION_ID,
   })
+
+  // Hide enemy members who are effectively non-combatants:
+  //   • Fallen   — Torn's "Resting in Peace" status; account is preserved
+  //                so the faction can exceed 100 members but the player
+  //                can't act and shouldn't be a chain target.
+  //   • Federal  — federal jail, regular or permanent. Account is held
+  //                and unreachable for the foreseeable future.
+  // Both statuses still persist in war_room_state_v2 (we just filter at
+  // render time) so any audit/history queries keep the original snapshot.
+  // The polling delta keeps flowing for them, so when a player exits
+  // federal jail they automatically reappear on the next tick.
+  const members = useMemo(
+    () => rawMembers.filter(m => m.status_state !== 'Fallen' && m.status_state !== 'Federal'),
+    [rawMembers]
+  )
 
   const [toggling, setToggling]       = useState(false)
   const [toggleError, setToggleError] = useState(null)
