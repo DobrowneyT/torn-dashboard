@@ -5693,8 +5693,8 @@
       "end_at": null,
       "opponent_id": 8336,
       "opponent_name": "Monarch HQ",
-      "our_score": 7247,
-      "opponent_score": 7895,
+      "our_score": 7295,
+      "opponent_score": 9792,
       "target": 17400,
       "winner_faction_id": null,
       "forfeit": false,
@@ -209983,6 +209983,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-19T06:17:21.712666"
+    "last_updated": "2026-06-20T05:12:28.996966"
   }
 }
