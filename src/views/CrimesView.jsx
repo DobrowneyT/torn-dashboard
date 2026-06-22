@@ -491,14 +491,17 @@ function formatCountdown(secs) {
   return `${d > 0 ? d + 'd ' : ''}${pad(h)}:${pad(m)}:${pad(s)}`
 }
 
-// Compact faction-tier tag (T0 = needs review … T6 = default), mirroring the
-// tier values managed on the Members page so OC managers can plan slotting.
+// Compact faction-tier tag (T0 = needs review … T6 = default). Uses the same
+// tier colour mapping as the badges elsewhere on the site (T1 red → T6 indigo)
+// so OC managers can read tiers at a glance.
+const TIER_COLORS = { 0: 'bg-tier-review', 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3', 4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6' }
+
 function TierTag({ tier }) {
   if (tier == null) return null
   return (
     <span
       title={`Faction tier ${tier}`}
-      className="font-mono text-[10px] leading-none px-1 py-0.5 rounded bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300"
+      className={`text-[10px] leading-none px-1.5 py-0.5 rounded text-white font-semibold ${TIER_COLORS[tier] ?? 'bg-tier-review'}`}
     >
       T{tier}
     </span>
