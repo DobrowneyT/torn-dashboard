@@ -1,0 +1,192 @@
+"""
+Mug Bot configuration — thresholds, windows, channel IDs, and Torn URLs.
+
+Defaults here are the boot values; the runtime-tunable ones (mug percentages,
+thresholds, windows) are mirrored into the SQLite ``config`` table and can be
+edited live via Discord slash commands. Secrets / channel IDs come from the
+environment (mug-bot/.env, with ../.secrets/.env as a fallback) — see .env.example.
+
+IMPORTANT: load the .env files (dotenv) *before* importing this module, since the
+constants below are evaluated at import time.
+"""
+
+import os
+
+# ---- Discord ----
+DISCORD_TOKEN = os.environ.get("MUG_BOT_DISCORD_TOKEN")
+LOGS_CHANNEL_ID = int(os.environ.get("MUG_LOGS_CHANNEL_ID", "0") or 0)
+STATUS_CHANNEL_ID = int(os.environ.get("MUG_STATUS_CHANNEL_ID", "0") or 0)
+ITEMS_CHANNEL_ID = int(os.environ.get("MUG_ITEMS_CHANNEL_ID", "0") or 0)
+PREVIEW_CHANNEL_ID = int(os.environ.get("MUG_PREVIEW_CHANNEL_ID", "0") or 0)
+# Your server's id — set it so slash commands (/mugmin) register instantly in that guild
+# (global registration can take up to an hour). Right-click your server icon -> Copy Server ID.
+GUILD_ID = int(os.environ.get("MUG_GUILD_ID", "0") or 0)
+# Optional role to ping at the top of each outgoing alert. Enable Discord Developer Mode, then
+# right-click the role -> Copy Role ID. Leave 0 to not ping. LOGS = mug alerts, ITEMS = deals.
+LOGS_ROLE_ID = int(os.environ.get("MUG_LOGS_ROLE_ID", "0") or 0)
+ITEMS_ROLE_ID = int(os.environ.get("MUG_ITEMS_ROLE_ID", "0") or 0)
+
+# ---- Server ----
+SERVER_HOST = os.environ.get("MUG_SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(os.environ.get("MUG_SERVER_PORT", "3001"))
+# Data lives OUTSIDE the install dir so package upgrades/reinstalls never touch it. db.init_db
+# falls back to a local file if this dir isn't writable (e.g. local dev without the package).
+DB_PATH = os.environ.get("MUG_DB_PATH") or "/var/lib/mug-bot/mug_bot.db"
+DB_PATH_FALLBACK = os.path.join(os.path.dirname(__file__), "mug_bot.db")
+
+# ---- Torn / enrichment API keys ----
+TORN_API_KEYS = [k.strip() for k in (os.environ.get("TORN_API_KEYS", "") or "").split(",") if k.strip()]
+BSP_API_KEY = os.environ.get("BSP_API_KEY")
+TORNSTATS_API_KEY = os.environ.get("TORNSTATS_API_KEY")
+# The `comment` attached to every Torn API call (visible to key owners in their API log).
+API_COMMENT = os.environ.get("MUG_API_COMMENT", "MonChoon Market Tracker")
+
+# ---- Rate limiting ----
+# On a Torn "too many requests" (error 5), cool that key down for this long (the rotation skips
+# it; if every key is cooling down, all calls pause until one recovers).
+RATE_LIMIT_BACKOFF_SECONDS = int(os.environ.get("MUG_RATE_LIMIT_BACKOFF", "60"))
+# If true, a single rate-limit pauses ALL keys for the backoff (vs only the offending key).
+RATE_LIMIT_GLOBAL_PAUSE = (os.environ.get("MUG_RATE_LIMIT_GLOBAL_PAUSE", "false") or "").strip().lower() in ("1", "true", "yes")
+
+# ---- Debugging ----
+# Verbose gear reconciliation: log, per poll, how every uid was classified (tracked / matched by
+# uid / matched by price / anon / unmatched) + each /gear capture stored. Turn on to diagnose
+# "weapons won't leave the uncached list". MUG_DEBUG_GEAR=1.
+DEBUG_GEAR = (os.environ.get("MUG_DEBUG_GEAR", "false") or "").strip().lower() in ("1", "true", "yes")
+
+# ---- Detection mode ----
+#   api  : poll the item-market API (gear tracked by uid) + item-matcher sellers — the SAFE path.
+#   ws   : the market-tracker WebSocket path (Phase 1, stackable items).
+#   both : run both sources into the shared mug/alert pipeline.
+DETECTION_MODE = (os.environ.get("MUG_DETECTION_MODE", "api") or "api").strip().lower()
+
+
+def detection_api_enabled() -> bool:
+    return DETECTION_MODE in ("api", "both")
+
+
+def detection_ws_enabled() -> bool:
+    return DETECTION_MODE in ("ws", "both")
+
+
+# ---- API poller (gear + items) ----
+# Poll every ~30s to match the API's 30s global cache (polling faster just returns stale data).
+GEAR_POLL_INTERVAL_SECONDS = int(os.environ.get("MUG_GEAR_POLL_INTERVAL", "30"))
+# Emit a gear sale once a tracked uid has been absent for this many consecutive polls. 2 (= ~60s)
+# absorbs a delist→relist reprice: a seller who removes an item and re-lists it at a new price has
+# the uid briefly absent; one missed poll won't fire a false "sale" (the uid reappears, its tracked
+# entry just migrates to the new price). Raise further if repricing still trips false sales.
+GEAR_VANISH_CONFIRM_POLLS = int(os.environ.get("MUG_GEAR_VANISH_CONFIRM_POLLS", "2"))
+# Only treat a vanished uid as a SALE if it was re-confirmed on the market AFTER its seller was
+# attributed (i.e. seen in >1 poll). A uid attributed then never seen again was matched from a
+# stale capture — e.g. you mark a backlog of old uncached items whose listings were already gone —
+# so its "disappearance" isn't a real sale. Drop those silently. Set false to revert.
+GEAR_REQUIRE_RESEEN = (os.environ.get("MUG_GEAR_REQUIRE_RESEEN", "true") or "").strip().lower() in ("1", "true", "yes")
+# Poll items CONCURRENTLY (asyncio) so a big watch list still finishes within the interval instead
+# of falling behind (late detection = mugs that already got banked). This many item-polls run at
+# once; 0 = auto (= number of active API keys, so each in-flight call lands on a different key).
+# Keep it near your key count to respect Torn's ~100 req/min per-key budget.
+MAX_CONCURRENT_POLLS = int(os.environ.get("MUG_MAX_CONCURRENT_POLLS", "0"))
+
+# Only fetch GEAR listings with a bonus (the valuable mug targets) — slashes volume. "Any" or "".
+GEAR_BONUS_FILTER = os.environ.get("MUG_GEAR_BONUS_FILTER", "Any").strip()
+# Gear that should instead be polled with NO bonus filter (capture EVERY listing, not just bonus
+# ones) — e.g. melee weapons that sell high without a bonus. Comma-separated seed of gear category
+# names (Primary/Secondary/Melee/Defensive) and/or item ids; editable live via /gear allbonus.
+GEAR_ALL_BONUS = [t.strip() for t in (os.environ.get("MUG_GEAR_ALL_BONUS", "") or "").split(",") if t.strip()]
+# Max itemmarket pages (100 listings each) fetched per item per poll, split by type:
+#   GEAR  — paginate fully. A valuable bonus piece can sit on ANY page, so we want every listing
+#           (the bonus=Any filter keeps the volume sane). Capped for safety; the poller stops early
+#           once a page returns < 100, so it naturally fetches "all pages".
+#   ITEM  — just the first page. The cheapest 100 stackables are the only ones that ever sell;
+#           deeper pages are absurd prices = wasted API budget + more 504s.
+MAX_PAGES_GEAR = int(os.environ.get("MUG_MAX_PAGES_GEAR", "50"))
+MAX_PAGES_ITEM = int(os.environ.get("MUG_MAX_PAGES_ITEM", "1"))
+# Optional allowlist of item ids to poll (comma-separated). Empty = poll every item we have
+# captures for. Use this to "start small" (e.g. a few rifles + specific armour).
+WATCH_ITEM_IDS = [int(x) for x in (os.environ.get("MUG_WATCH_ITEM_IDS", "") or "").split(",") if x.strip().isdigit()]
+
+# Items: a quantity drop at a unique price is a confident sale; a unique-priced listing fully
+# vanishing is ambiguous (sale vs delist vs reprice). Default: only alert on quantity drops.
+ITEM_VANISH_CONFIRM_POLLS = int(os.environ.get("MUG_ITEM_VANISH_CONFIRM_POLLS", "1"))
+ITEM_ALERT_ON_REMOVE = (os.environ.get("MUG_ITEM_ALERT_ON_REMOVE", "false") or "").strip().lower() in ("1", "true", "yes")
+
+# Delist guard (GEAR): a vanished uid is ambiguous (buy vs the seller pulling it). On a real buy the
+# BUYER acts, so the seller's last action can be old; on a delist the SELLER acts right then. So if
+# the seller acted within this many seconds of the vanish, treat it as a delist (they removed/
+# relisted/traded it) — drop it instead of firing a $0 mug. 0 disables the guard.
+DELIST_GUARD_SECONDS = int(os.environ.get("MUG_DELIST_GUARD_SECONDS", "180"))
+
+# ---- Mug calculation (runtime-tunable) ----
+# Matches the reference "Mr. Blobby" bot: 5%-15% of accumulated sales (the 5% min is also what
+# the alert threshold is measured against). e.g. 45,488,286 -> $2,274,414 - $6,823,243.
+MUG_PCT_MIN = 0.05
+MUG_PCT_MAX = 0.15
+CLOTHING_STORE_MULTIPLIER = 0.25     # 7-star Clothing Store => 75% mug reduction
+# Alert (from the MUG perspective) when mug_min (= sales * 5% * clothing) >= this. /mugmin tunes it.
+MIN_MUG_VALUE = 5_000_000
+
+# Rolling window over which a seller's sales accumulate into "value change".
+SALE_WINDOW_SECONDS = 60 * 60 * 6    # 6h
+
+# ---- Mug history decay (avoid re-counting cash that's been banked or already mugged) ----
+# After a mug alert posts we assume the cash was taken (the alert => a mug), so those sales are
+# "claimed" and never counted again — this stops the window from re-counting the same sales across
+# alerts (e.g. a later hospital alert re-listing the Donator Packs from the first alert).
+MUG_CLAIM_ON_ALERT = (os.environ.get("MUG_CLAIM_ON_ALERT", "true") or "").strip().lower() in ("1", "true", "yes")
+# Banking assumption: a sale's muggable value decays as the seller stays ACTIVE after it (they've
+# had time to bank). Full value if they went quiet within GRACE of the sale; zero once they've been
+# active ASSUME seconds past it; linear in between. (Uses the seller's last_action time.)
+MUG_BANK_GRACE_SECONDS = int(os.environ.get("MUG_BANK_GRACE_SECONDS", str(15 * 60)))     # 15m
+MUG_BANK_ASSUME_SECONDS = int(os.environ.get("MUG_BANK_ASSUME_SECONDS", str(6 * 60 * 60)))  # 6h
+# Don't re-alert the same seller more often than this (they keep accumulating meanwhile).
+ALERT_COOLDOWN_SECONDS = 60 * 10     # 10m
+# Clothing-store (job) + BSP are slow-changing — refresh once a day. (Company job perks only
+# apply after 3 days, so a daily refresh is plenty to catch a job change.)
+SELLER_ENRICH_TTL_SECONDS = 60 * 60 * 24  # 24h
+# Hospital status changes often and is only ever refreshed when a sale is made, capped by this TTL.
+SELLER_STATUS_TTL_SECONDS = 120
+# Hospital-accumulation: post the held alert this many seconds before they're released.
+HOSPITAL_RELEASE_LEAD_SECONDS = 60
+
+# ---- Items deal-finder (items channel) ----
+ITEM_DEAL_PCT = 50                   # alert when listed <= (100 - this)% of market value
+
+# ---- Hospitalize factions ----
+# Sellers in these factions are flagged HOSPITALIZE (don't mug — put them in hospital) on the alert.
+# Seed list (comma-separated faction ids); editable live via /faction add|remove (config table).
+HOSPITALIZE_FACTION_IDS = [int(x) for x in (os.environ.get("MUG_HOSPITALIZE_FACTION_IDS", "") or "").split(",") if x.strip().isdigit()]
+
+# ---- Status tracker ----
+# A page must heartbeat at least this often (only happens while actively viewed);
+# otherwise it is shown red/offline in status-tracker.
+STATUS_STALE_SECONDS = 90
+# How often the bot refreshes the status-tracker panel + checks hospital releases.
+STATUS_REFRESH_SECONDS = 30
+# When captures arrive, coalesce status-panel edits and apply them after this quiet period (so
+# rapid marking results in one edit shortly after you stop, not a 30s wait).
+STATUS_DEBOUNCE_SECONDS = 3
+# Hard floor between actual Discord message edits (PATCH). Editing the same status message faster
+# than this gets HTTP 429 rate-limited (which is what happened during heavy marking), so the
+# debounced refresh never edits more often than this regardless of how fast captures arrive.
+STATUS_MIN_EDIT_INTERVAL = int(os.environ.get("MUG_STATUS_MIN_EDIT_INTERVAL", "6"))
+# The watch list is split into one Discord message per category. A full refresh edits several
+# messages; space them out so we stay under Discord's per-channel edit rate limit (~5/5s).
+STATUS_EDIT_SPACING = float(os.environ.get("MUG_STATUS_EDIT_SPACING", "1.2"))
+
+# ---- Torn URLs ----
+PROFILE_URL = "https://www.torn.com/profiles.php?XID={user_id}"
+ATTACK_URL = "https://www.torn.com/page.php?sid=attack&user2ID={user_id}"
+ITEM_MARKET_URL = "https://www.torn.com/page.php?sid=ItemMarket#/market/view=search&itemID={item_id}"
+
+# Tracked drug/consumable set (mirrors the userscript itemMap).
+ITEM_MAP = {
+    106: "Parachute", 206: "Xanax", 283: "Donator Pack", 329: "Skateboard",
+    330: "Boxing Gloves", 331: "Dumbbells", 103: "Firewalk Virus", 366: "Erotic DVD",
+    367: "Feathery Hotel Coupon", 370: "Drug Pack", 396: "Business Class Ticket",
+    428: "Casino Pass", 532: "Can of Red Cow", 533: "Can of Taurine Elite",
+    554: "Can of Rockstar Rudolph", 555: "Can of X-MASS", 818: "Six-Pack of Energy Drink",
+    865: "Poison Mistletoe", 1029: "Strippogram Voucher", 1118: "Armor Cache",
+    1119: "Melee Cache", 1120: "Small Arms Cache", 1121: "Medium Arms Cache",
+    1122: "Heavy Arms Cache",
+}

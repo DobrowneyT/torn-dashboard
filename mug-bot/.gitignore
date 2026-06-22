@@ -1,0 +1,12 @@
+.env
+.venv/
+build/
+__pycache__/
+*.pyc
+*.db
+*.db-journal
+bot/state.json
+bot/state.json.*
+scratch/dumps/
+# Userscripts hold a live Torn session token (market-tracker wsToken) — keep them out of git.
+userscripts/

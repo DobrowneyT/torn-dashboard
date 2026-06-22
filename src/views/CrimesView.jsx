@@ -491,13 +491,30 @@ function formatCountdown(secs) {
   return `${d > 0 ? d + 'd ' : ''}${pad(h)}:${pad(m)}:${pad(s)}`
 }
 
+// Compact faction-tier tag (T0 = needs review … T6 = default), mirroring the
+// tier values managed on the Members page so OC managers can plan slotting.
+function TierTag({ tier }) {
+  if (tier == null) return null
+  return (
+    <span
+      title={`Faction tier ${tier}`}
+      className="font-mono text-[10px] leading-none px-1 py-0.5 rounded bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300"
+    >
+      T{tier}
+    </span>
+  )
+}
+
 function CurrentCrimesPanel({ apiKey, memberId }) {
   const [crimes, setCrimes] = useState(null)
   const [myCpr, setMyCpr] = useState({})
   const [memberNames, setMemberNames] = useState({})   // member_id → name (slots give id only)
+  const [memberTiers, setMemberTiers] = useState({})   // member_id → effective faction tier (0–6)
+  const [currentMembers, setCurrentMembers] = useState([])  // is_current roster: [{ id, name, tier }]
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [freeingOpen, setFreeingOpen] = useState(false)   // collapse the "coming out" list by default
+  const [notInOcOpen, setNotInOcOpen] = useState(false)   // collapse the "not in an OC" list by default
   const [, setTick] = useState(0)
 
   // Tick once a second so the countdowns stay live.
@@ -506,15 +523,27 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
     return () => clearInterval(id)
   }, [])
 
-  // Member id → name lookup (the crimes API only returns slot user IDs).
+  // Member id → name / tier lookup (the crimes API only returns slot user IDs),
+  // plus the current roster so we can list who's free to take a new OC.
   useEffect(() => {
     let cancelled = false
-    supabase.from('members').select('member_id, member_name')
+    supabase.from('members').select('member_id, member_name, tier, tier_override, is_current')
       .then(({ data }) => {
         if (cancelled) return
-        const map = {}
-        for (const m of (data || [])) map[String(m.member_id)] = m.member_name
-        setMemberNames(map)
+        const names = {}
+        const tiers = {}
+        const current = []
+        for (const m of (data || [])) {
+          const id = String(m.member_id)
+          names[id] = m.member_name
+          // ?? (not ||) so tier 0 ("needs review") is preserved, not coalesced to 6.
+          const tier = m.tier_override ?? m.tier ?? 6
+          tiers[id] = tier
+          if (m.is_current) current.push({ id, name: m.member_name, tier })
+        }
+        setMemberNames(names)
+        setMemberTiers(tiers)
+        setCurrentMembers(current)
       })
     return () => { cancelled = true }
   }, [])
@@ -600,6 +629,19 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
     const crimesFreeing = new Set(freeing.map(f => f.crimeId)).size
     return { openSpots, freeing, crimesFreeing, totalCrimes: all.length }
   }, [crimes])
+
+  // Current members who aren't occupying a slot in any active crime — i.e. free
+  // to be slotted into a new OC. Sorted by tier (Review/T0 last), then name.
+  const notInOc = useMemo(() => {
+    const inOc = new Set()
+    for (const c of (crimes || [])) {
+      for (const s of (c.slots || [])) if (s.user) inOc.add(String(s.user.id))
+    }
+    const rank = (t) => (t === 0 ? 99 : t)   // push "needs review" to the bottom
+    return currentMembers
+      .filter(m => !inOc.has(m.id))
+      .sort((a, b) => rank(a.tier) - rank(b.tier) || a.name.localeCompare(b.name))
+  }, [crimes, currentMembers])
 
   // Deep-link straight to a crime on the faction OC tab.
   const crimeUrl = (id) => `https://www.torn.com/factions.php?step=your&type=12#/tab=crimes&crimeId=${id}`
@@ -689,8 +731,8 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
         <p className="text-sm text-gray-500 dark:text-gray-400 py-2">No recruiting or planning crimes right now.</p>
       ) : (
         <div className="space-y-4">
-          {/* At-a-glance: open spots to fill + who's coming out in the next 24h */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* At-a-glance: open spots, who's coming out in 24h, and who's free now */}
+          <div className="grid grid-cols-3 gap-3">
             <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2">
               <div className="text-xs text-amber-700 dark:text-amber-300">Open spots to fill</div>
               <div className="text-2xl font-bold text-amber-700 dark:text-amber-300">{summary.openSpots}</div>
@@ -700,6 +742,11 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
               <div className="text-xs text-emerald-700 dark:text-emerald-300">Coming out in 24h</div>
               <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{summary.freeing.length}</div>
               <div className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80">from {summary.crimesFreeing} executing {summary.crimesFreeing === 1 ? 'crime' : 'crimes'}</div>
+            </div>
+            <div className="rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 px-3 py-2">
+              <div className="text-xs text-sky-700 dark:text-sky-300">Not in an OC</div>
+              <div className="text-2xl font-bold text-sky-700 dark:text-sky-300">{notInOc.length}</div>
+              <div className="text-[11px] text-sky-600/80 dark:text-sky-400/80">free to be slotted</div>
             </div>
           </div>
 
@@ -722,12 +769,36 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
                         title={`${f.crimeName} — ${f.position}`}
                         className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:brightness-95">
                         <span className="font-medium text-gray-700 dark:text-gray-300">{memberNames[f.id] || `#${f.id}`}</span>
+                        <TierTag tier={memberTiers[f.id]} />
                         <span className={`font-mono ${ready ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}>
                           {ready ? 'ready' : formatCountdown(secs)}
                         </span>
                       </a>
                     )
                   })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {notInOc.length > 0 && (
+            <div>
+              <button
+                onClick={() => setNotInOcOpen(o => !o)}
+                className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 mb-1.5"
+              >
+                <ChevronRight className={`w-3.5 h-3.5 transition-transform ${notInOcOpen ? 'rotate-90' : ''}`} />
+                Not in an OC ({notInOc.length})
+              </button>
+              {notInOcOpen && (
+                <div className="flex flex-wrap gap-1.5">
+                  {notInOc.map((m) => (
+                    <span key={m.id}
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800">
+                      <span className="font-medium text-gray-700 dark:text-gray-300">{m.name}</span>
+                      <TierTag tier={m.tier} />
+                    </span>
+                  ))}
                 </div>
               )}
             </div>
