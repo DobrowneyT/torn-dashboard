@@ -363,7 +363,9 @@ export default function CrimesView({ crimesData, isLeadership }) {
                     key={crime.id}
                     className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50"
                   >
-                    <td className="py-2 px-2 text-xs relative sticky left-0 z-[5] bg-white dark:bg-slate-800">
+                    <td className={`py-2 px-2 text-xs relative sticky left-0 bg-white dark:bg-slate-800 ${
+                      selectedCrimeId === (crime.id || crime.crime_id) ? 'z-40' : 'z-[5]'
+                    }`}>
                       <button
                         onClick={() => handleToggleCrimeDetails(crime.id || crime.crime_id)}
                         className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer text-left"

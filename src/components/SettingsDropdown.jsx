@@ -208,6 +208,14 @@ function ApiKeyModal({ onClose }) {
             Update Torn API Key
           </h3>
 
+          {user?.apiKey && (
+            <div className="mb-4 p-2.5 rounded-lg bg-gray-50 dark:bg-slate-700/40 border border-gray-200 dark:border-slate-600 flex items-center gap-2 text-sm">
+              <Key className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <span className="text-gray-600 dark:text-gray-400">Current key:</span>
+              <span className="font-mono text-gray-800 dark:text-gray-200">••••••••••••{user.apiKey.slice(-4)}</span>
+            </div>
+          )}
+
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
               API Key <span className="font-normal text-gray-500 dark:text-gray-400">(Limited Access)</span>
