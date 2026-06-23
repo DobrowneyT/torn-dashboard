@@ -599,15 +599,27 @@ async def gear_poll_item_ids() -> List[int]:
 async def get_gear_uid_map(item_id) -> Dict[str, Dict]:
     """Captured gear keyed by the stored uid (armoury_uid) — the exact, collision-proof join
     used when the item-matcher captured the API uid."""
+    # ORDER BY updated_at ASC (rowid as tiebreaker for same-second captures) so the MOST RECENT
+    # capture for a uid wins (later rows overwrite earlier ones in the dict) — re-marking an item
+    # updates its seller even if an older/wrong capture lingers.
     cur = await _db.execute(
         "SELECT armoury_uid, seller_id, item_name FROM listings "
-        "WHERE is_gear=1 AND seller_id IS NOT NULL AND armoury_uid IS NOT NULL AND item_id=?",
+        "WHERE is_gear=1 AND seller_id IS NOT NULL AND armoury_uid IS NOT NULL AND item_id=? "
+        "ORDER BY updated_at ASC, rowid ASC",
         (item_id,),
     )
     return {
         str(r["armoury_uid"]): {"seller_id": r["seller_id"], "item_name": r["item_name"]}
         for r in await cur.fetchall()
     }
+
+
+async def unlink_gear_uid(uid) -> None:
+    """Drop the captured seller↔uid pairing (delete the listing rows for this uid) when the item
+    leaves the market. The sale itself is already recorded in `sales` for the mug-value window, so
+    losing the listing is fine — and a relisted uid then shows as unmatched until it's re-marked."""
+    await _db.execute("DELETE FROM listings WHERE armoury_uid=?", (str(uid),))
+    await _db.commit()
 
 
 # ------------------------------ tracked_gear (poller) ---------------------------------

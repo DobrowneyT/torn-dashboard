@@ -214,8 +214,10 @@ serve(async (req: Request) => {
       case 'update_war_is_termed':
         result = await handleUpdateWarIsTermed(supabase, body)
         break
+      // 2.0: single consolidated key. submit_cpr_key kept as a back-compat alias.
+      case 'submit_api_key':
       case 'submit_cpr_key':
-        result = await handleSubmitCprKey(supabase, body, authResult.userId!)
+        result = await handleSubmitApiKey(supabase, body, authResult.userId!)
         break
       case 'manage_overview_view':
         result = await handleManageOverviewView(supabase, body, authResult.userId!)
@@ -1035,19 +1037,27 @@ async function handleUpdateWarIsTermed(supabase: any, body: RequestBody) {
   return { success: true, war_id, is_termed }
 }
 
-async function handleSubmitCprKey(supabase: any, body: RequestBody, userId: string) {
-  const { cpr_api_key } = body.data ?? {}
+// 2.0: the member's single consolidated Limited-access key (used for identity,
+// CPR scraping, War Room rotation, and faction-wide scrapers). Replaces the
+// old separate CPR-key submission. Accepts the new `api_key` field and the
+// legacy `cpr_api_key` field for backward compatibility.
+async function handleSubmitApiKey(supabase: any, body: RequestBody, userId: string) {
+  const raw = body.data?.api_key ?? body.data?.cpr_api_key
+  const consentVersion = body.data?.consent_version ?? null
 
   if (!userId) throw new Error('Could not identify user')
-
-  if (cpr_api_key === null || cpr_api_key === undefined) {
-    throw new Error('Missing cpr_api_key')
+  if (raw === null || raw === undefined) {
+    throw new Error('Missing api_key')
   }
 
-  // If an empty string was passed, the member is removing their key
-  const keyToStore = cpr_api_key.trim() === '' ? null : cpr_api_key.trim()
+  // Empty string => member is clearing their key.
+  const keyToStore = String(raw).trim() === '' ? null : String(raw).trim()
 
-  // Validate the key against Torn API before storing (if a key was provided)
+  let keyLevel: number | null = null
+  let hasFactionAccess: boolean | null = null
+  const memberRank: string | null = body.data?.rank ?? null
+
+  // Validate the key against Torn API before storing (if a key was provided).
   if (keyToStore) {
     const resp = await fetch(`https://api.torn.com/v2/key/info?key=${keyToStore}`)
     const data = await resp.json()
@@ -1056,46 +1066,46 @@ async function handleSubmitCprKey(supabase: any, body: RequestBody, userId: stri
       return { success: false, error: 'Invalid Torn API key — please check and try again.' }
     }
 
-    // Confirm it belongs to the submitting user
+    // Confirm it belongs to the submitting user.
     const keyUserId = String(data.info?.user?.id)
     if (keyUserId !== String(userId)) {
       return { success: false, error: 'This API key does not belong to your Torn account.' }
     }
 
-    // Must be at least Minimal Access (level 1+)
-    const accessLevel = data.info?.access?.level ?? 0
-    if (accessLevel < 1) {
-      return { success: false, error: 'API key must be Minimal Access or higher.' }
-    }
-
-    // CPR scraper needs faction access on the submitted key — it calls
-    // /faction/{id}/crimes endpoints. Torn disables `access.faction` for
-    // Recruits (3-day probationary status) even though they're real members,
-    // so this is the common case for "submission accepted but scraper never
-    // works". Catch it at submit time with a clear, Recruit-aware message.
-    const hasFactionAccess = data.info?.access?.faction
-    if (!hasFactionAccess) {
+    // The consolidated key must be Limited Access (level 3) or higher — it
+    // covers user + faction selections for every feature on the site.
+    keyLevel = data.info?.access?.level ?? 0
+    if ((keyLevel ?? 0) < 3) {
       return {
         success: false,
-        error: 'This key does not have faction access yet. If you just joined the faction, you are on 3-day Recruit status — Torn restricts API faction access during that period. Please wait until you are off Recruit and try again.',
+        error: 'This dashboard needs a Limited Access key. Use the "Generate Limited key" link, then paste the new key here.',
       }
     }
+
+    // Recruits (3-day probation) have access.faction = false. We DO NOT reject
+    // them — they keep full access to the site. We just record the flag so the
+    // faction-scoped rotation pool skips their key; faction-only features wait
+    // until they're off Recruit.
+    hasFactionAccess = !!data.info?.access?.faction
   }
 
-  // Both set and clear go through the SECURITY DEFINER RPC now that the
-  // cpr_api_key column lives in member_secrets. Passing a null/empty raw key
-  // deletes the secret row (see public.set_member_cpr_key).
-  const cprSecret = Deno.env.get('CPR_KEY_SECRET')!
-  if (!cprSecret) throw new Error('CPR_KEY_SECRET not configured on this server')
+  // Both set and clear go through the SECURITY DEFINER RPC. Passing a null/empty
+  // raw key deletes the secret row (see public.set_member_api_key).
+  const secret = Deno.env.get('APP_KEY_SECRET') ?? Deno.env.get('CPR_KEY_SECRET')
+  if (!secret) throw new Error('APP_KEY_SECRET not configured on this server')
 
-  const { error } = await supabase.rpc('set_member_cpr_key', {
-    p_member_id: String(userId),
-    p_raw_key:   keyToStore,  // null on clear, encrypted-and-stored otherwise
-    p_secret:    cprSecret,
+  const { error } = await supabase.rpc('set_member_api_key', {
+    p_member_id:          String(userId),
+    p_raw_key:            keyToStore,  // null on clear, encrypted-and-stored otherwise
+    p_secret:             secret,
+    p_key_level:          keyLevel,
+    p_has_faction_access: hasFactionAccess,
+    p_member_rank:        memberRank,
+    p_consent_version:    consentVersion,
   })
   if (error) throw error
 
-  return { success: true, removed: keyToStore === null }
+  return { success: true, removed: keyToStore === null, has_faction_access: hasFactionAccess }
 }
 
 // ── Leadership Member-Overview view & threshold management ────────────────────

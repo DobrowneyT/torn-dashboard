@@ -27,6 +27,7 @@ from scripts.assign_tiers import TierAssignment
 
 SKIP_GOOGLE_SHEETS = os.environ.get('SKIP_GOOGLE_SHEETS', '').lower() in ('true', '1', 'yes')
 from scripts.utils.torn_api import TornAPI, TornAPIError
+from scripts.utils.key_pool import claim_next_api_key, EmptyKeyPoolError
 
 # Set up logging
 logging.basicConfig(
@@ -70,48 +71,54 @@ class CPRScraper:
     def _load_api_keys(self) -> Dict[str, str]:
         """
         Load member API keys from:
-          1. MEMBER_API_KEYS GitHub Secret (JSON dict of member_id -> api_key)
-          2. Supabase member_secrets table (keys submitted via the website,
-             stored encrypted; service-role-only access, decrypted via the
-             get_member_cpr_key SECURITY DEFINER RPC)
+          1. Supabase member_secrets table — every consenting member's single
+             consolidated key (stored encrypted; service-role-only access,
+             decrypted via the get_member_api_key SECURITY DEFINER RPC). This is
+             the primary source as of 2.0 (everyone who logs in is enrolled).
+          2. MEMBER_API_KEYS GitHub Secret (JSON dict) — DEPRECATED legacy
+             fallback, kept only for members not yet migrated.
 
         Both sources are merged; Supabase takes precedence for the same member_id.
         Keys are then validated against current faction membership.
 
+        Note: CPR reads each member's OWN organized crimes (a user selection),
+        so this targeted per-member usage works even for Recruits. It is NOT the
+        rotation pool — that's only for faction-wide scrapers.
+
         Returns:
             Dictionary mapping member IDs to API keys (only for current faction members)
         """
-        # Source 1: GitHub Secret
+        # Source 1 (legacy fallback): MEMBER_API_KEYS GitHub Secret
         api_keys_json = os.environ.get('MEMBER_API_KEYS', '{}')
         try:
             all_api_keys = json.loads(api_keys_json)
-            logger.info(f"Loaded {len(all_api_keys)} API keys from MEMBER_API_KEYS secret")
+            if all_api_keys:
+                logger.info(f"Loaded {len(all_api_keys)} keys from the deprecated MEMBER_API_KEYS secret")
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse MEMBER_API_KEYS: {e}")
             all_api_keys = {}
 
-        # Source 2: Supabase member_secrets table (web-submitted keys, stored encrypted)
+        # Source 2 (primary): Supabase member_secrets — the consolidated keys.
         if self.supabase:
-            cpr_secret = os.environ.get('CPR_KEY_SECRET')
-            if not cpr_secret:
-                logger.warning("CPR_KEY_SECRET not set — cannot decrypt Supabase cpr_api_keys")
+            secret = os.environ.get('APP_KEY_SECRET') or os.environ.get('CPR_KEY_SECRET')
+            if not secret:
+                logger.warning("APP_KEY_SECRET/CPR_KEY_SECRET not set — cannot decrypt stored keys")
             else:
                 try:
-                    # Fetch member IDs that have a CPR key in member_secrets.
-                    # We probe the cached `has_cpr_key` boolean on members
-                    # (kept in sync by a trigger on member_secrets) rather than
-                    # reading the encrypted column directly, which now lives in
-                    # the service-role-only member_secrets table.
+                    # Probe the cached `has_cpr_key` boolean on members (kept in
+                    # sync by a trigger on member_secrets) rather than reading the
+                    # encrypted column directly, which lives in the service-role-
+                    # only member_secrets table.
                     resp = self.supabase.table('members').select('member_id').eq('has_cpr_key', True).execute()
                     member_ids_with_key = [str(row['member_id']) for row in (resp.data or [])]
-                    logger.info(f"Found {len(member_ids_with_key)} members with a cpr_api_key in Supabase")
+                    logger.info(f"Found {len(member_ids_with_key)} members with a stored key in Supabase")
 
                     supabase_keys = {}
                     for mid in member_ids_with_key:
                         try:
-                            dec = self.supabase.rpc('get_member_cpr_key', {
+                            dec = self.supabase.rpc('get_member_api_key', {
                                 'p_member_id': mid,
-                                'p_secret': cpr_secret,
+                                'p_secret': secret,
                             }).execute()
                             if dec.data:
                                 supabase_keys[mid] = dec.data
@@ -122,13 +129,15 @@ class CPRScraper:
                     # Supabase takes precedence over the legacy MEMBER_API_KEYS secret
                     all_api_keys.update(supabase_keys)
                 except Exception as e:
-                    logger.warning(f"Could not load Supabase cpr_api_keys: {e}")
+                    logger.warning(f"Could not load Supabase keys: {e}")
 
         try:
-            # Get current faction members to validate against
-            torn_api_key = os.environ.get('TORN_API_KEY')
-            if not torn_api_key:
-                logger.error("TORN_API_KEY not found - cannot validate faction membership")
+            # Get current faction members to validate against, using a key from
+            # the consented rotation pool (user keys only).
+            try:
+                torn_api_key = claim_next_api_key(faction_only=True)
+            except EmptyKeyPoolError:
+                logger.error("No eligible keys in the pool — cannot validate faction membership")
                 return all_api_keys
 
             api = TornAPI(torn_api_key)
@@ -237,27 +246,27 @@ class CPRScraper:
             return None
 
     def _invalidate_cpr_key(self, member_id: str):
-        """Clear the CPR key for a member when it's found to be invalid.
+        """Clear the stored key for a member when it's found to be invalid.
 
-        Routes through set_member_cpr_key with a null raw key — the SECURITY
+        Routes through set_member_api_key with a null raw key — the SECURITY
         DEFINER function deletes the member_secrets row, and the trigger on
         member_secrets flips members.has_cpr_key back to false.
         """
         if not self.supabase:
             return
-        cpr_secret = os.environ.get('CPR_KEY_SECRET')
-        if not cpr_secret:
-            logger.warning(f"Member {member_id}: CPR_KEY_SECRET not set — cannot clear key")
+        secret = os.environ.get('APP_KEY_SECRET') or os.environ.get('CPR_KEY_SECRET')
+        if not secret:
+            logger.warning(f"Member {member_id}: APP_KEY_SECRET/CPR_KEY_SECRET not set — cannot clear key")
             return
         try:
-            self.supabase.rpc('set_member_cpr_key', {
+            self.supabase.rpc('set_member_api_key', {
                 'p_member_id': str(member_id),
                 'p_raw_key': None,
-                'p_secret': cpr_secret,
+                'p_secret': secret,
             }).execute()
-            logger.info(f"Member {member_id}: cpr_api_key cleared (invalid/expired)")
+            logger.info(f"Member {member_id}: stored key cleared (invalid/expired)")
         except Exception as e:
-            logger.warning(f"Member {member_id}: failed to clear cpr_api_key: {e}")
+            logger.warning(f"Member {member_id}: failed to clear stored key: {e}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # CPR v2 helpers  (crime-name + position-label keyed, separate from v1)
@@ -562,9 +571,12 @@ class CPRScraper:
         v2_data = self._load_cpr_v2_from_db()
         touched: set = set()
 
-        torn_api_key = os.environ.get('TORN_API_KEY')
-        if not torn_api_key:
-            logger.error("TORN_API_KEY not found - cannot fetch current faction members")
+        # Faction roster + available-crimes scan need a faction-eligible key from
+        # the consented rotation pool (user keys only).
+        try:
+            torn_api_key = claim_next_api_key(faction_only=True)
+        except EmptyKeyPoolError:
+            logger.error("No eligible keys in the pool - cannot fetch current faction members")
             return None
 
         api = TornAPI(torn_api_key)

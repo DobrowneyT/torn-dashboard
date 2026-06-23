@@ -61,9 +61,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Run war-specific pytest tests
+    - name: Run self-contained pytest tests
       # Only run tests that are self-contained and don't require external APIs/credentials.
       # Pre-existing tests in tests/ may require Google Sheets, live API keys, etc.
       env:
         TESTING_MODE: 'true'
-      run: pytest tests/test_war_data_update.py tests/test_war_sync.py -v
+      run: pytest tests/test_war_data_update.py tests/test_war_sync.py tests/test_key_pool.py -v

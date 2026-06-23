@@ -1,7 +1,23 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { config } from '../config'
 import { getTornErrorMessage } from '../utils/apiUtils'
+import { submitApiKey } from '../utils/adminApi'
 import * as sessionToken from '../utils/sessionToken'
+
+// Persist the member's consented key + ToS acceptance into member_secrets so it
+// joins the rotating pool (War Room + scrapers) and the CPR scraper. Best-effort:
+// the key already validated, so a transient storage hiccup must not block login —
+// the pool just won't include this key until the next successful store.
+async function persistConsentedKey(apiKey, rank) {
+  try {
+    await submitApiKey(apiKey, apiKey, {
+      rank: rank ?? null,
+      consentVersion: config.apiKey.consentVersion,
+    })
+  } catch (e) {
+    console.warn('Could not persist consented API key:', e?.message || e)
+  }
+}
 
 const AuthContext = createContext(null)
 
@@ -71,10 +87,10 @@ async function revalidateSession(savedUser) {
     }
   }
   const liveAccessLevel = data.info?.access?.level ?? 0
-  if (liveAccessLevel < 1) {
+  if (liveAccessLevel < config.apiKey.requiredLevel) {
     return {
       ok: false,
-      reason: 'Your API key no longer has Minimal Access. Please generate a new key in Torn Preferences and log in again.',
+      reason: 'Your API key no longer has Limited Access. Please generate a new Limited key in Torn Preferences and log in again.',
     }
   }
   return { ok: true }
@@ -167,6 +183,19 @@ export function AuthProvider({ children }) {
       const userFactionId = data.info?.user?.faction_id
       const requiredFactionId = parseInt(config.faction.id)
 
+      // 2.0: the single consolidated key must be Limited Access (level 3+) for
+      // EVERYONE — it powers identity, CPR, the War Room rotation pool, and the
+      // faction scrapers. This is independent of `access.faction`, which is
+      // false for Recruits; Recruits with a Limited key still log in fine (we
+      // just flag their key so faction-scoped pool usage skips it).
+      const accessLevel = data.info?.access?.level ?? 0
+      if (accessLevel < config.apiKey.requiredLevel) {
+        return {
+          success: false,
+          error: 'This dashboard needs a Limited Access key. Use the "Generate Limited Key" button below, then paste the new key here.',
+        }
+      }
+
       // LEADERSHIP USERS: Skip all permission checks
       if (isLeader) {
         console.log(`Leadership user ${userId} detected - bypassing all permission checks`)
@@ -193,10 +222,12 @@ export function AuthProvider({ children }) {
           isLeadership: true,
           isAdmin: isAdminUser,
           isWarLead: isWarLeadUser,
+          consentVersion: config.apiKey.consentVersion,
           lastLogin: new Date().toISOString()
         }
 
-        // Save to state and localStorage
+        // Store the consented key (leaders' keys feed the pool too) then save.
+        await persistConsentedKey(apiKey, userObj.factionPosition)
         setUser(userObj)
         localStorage.setItem('tornUser', JSON.stringify(userObj))
 
@@ -232,9 +263,11 @@ export function AuthProvider({ children }) {
           isLeadership: isLeader,
           isAdmin: true,
           isWarLead: isWarLeadUser,
+          consentVersion: config.apiKey.consentVersion,
           lastLogin: new Date().toISOString()
         }
 
+        await persistConsentedKey(apiKey, userObj.factionPosition)
         setUser(userObj)
         localStorage.setItem('tornUser', JSON.stringify(userObj))
 
@@ -258,23 +291,11 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // NON-LEADERSHIP USERS: validate API access level.
-      // We intentionally DO NOT require `access.faction` here — Recruits
-      // (3-day probationary status) have that flag set false by Torn even
-      // though they are real faction members. They can still use everything
-      // on this site that reads from Supabase via their JWT (gated by
-      // faction_id claim, not key access level). Features that DO need
-      // faction-level Torn API access (Fetch Crimes / Fetch Members / etc.)
-      // are leadership-only at the UI layer, so a Recruit never hits them.
-      // Minimal Access (level >= 1) is all the site itself needs.
-      const accessLevel = data.info?.access?.level
-
-      if (accessLevel < 1) {
-        return {
-          success: false,
-          error: 'Insufficient permissions. Your API key needs at least Minimal Access. Create a new key in Torn Preferences and paste it here.'
-        }
-      }
+      // Access level was already validated above (Limited, uniform for all
+      // roles). We do NOT additionally require `access.faction` — Recruits have
+      // it false but still get full access to everything the site reads from
+      // Supabase via their JWT; their key is simply flagged out of the
+      // faction-scoped rotation pool until they're off Recruit.
 
       // NON-LEADERSHIP USERS: Fetch user details for name and faction position
       const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
@@ -298,10 +319,12 @@ export function AuthProvider({ children }) {
         isLeadership: isLeader,
         isAdmin: false,
         isWarLead: isWarLeadUser,
+        consentVersion: config.apiKey.consentVersion,
         lastLogin: new Date().toISOString()
       }
 
-      // Save to state and localStorage
+      // Store the consented key (powers CPR + the rotation pool) then save.
+      await persistConsentedKey(apiKey, userObj.factionPosition)
       setUser(userObj)
       localStorage.setItem('tornUser', JSON.stringify(userObj))
 

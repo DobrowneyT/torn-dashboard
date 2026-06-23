@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { isAdmin } from '../config'
+import { isAdmin, tornKeyGenUrl } from '../config'
 import { Menu, Key, Info, Eye, ChevronRight, Check, LogOut, X } from 'lucide-react'
+import ApiKeyDisclosure from './ApiKeyDisclosure'
 
 export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs }) {
   const { user, logout } = useAuth()
@@ -209,17 +210,26 @@ function ApiKeyModal({ onClose }) {
 
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-              API Key
+              API Key <span className="font-normal text-gray-500 dark:text-gray-400">(Limited Access)</span>
             </label>
             <input
               type="text"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               className="input w-full font-mono text-sm"
-              placeholder="Enter your Torn API key"
+              placeholder="Paste your Limited Access key"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Get your API key from Torn Settings &gt; API
+              Need a key? {' '}
+              <a
+                href={tornKeyGenUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Generate a Limited Access key
+              </a>
+              , then paste it here.
             </p>
           </div>
 
@@ -267,89 +277,7 @@ function ApiKeyUsageModal({ onClose }) {
             </button>
           </div>
 
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            This dashboard uses your Torn API key in accordance with{' '}
-            <a
-              href="https://www.torn.com/wiki.php#chapter=Terms-of-Service"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              Torn's API Terms of Service
-            </a>
-            . Here is exactly how your key is used.
-          </p>
-
-          <div className="space-y-5">
-            {/* Login Key */}
-            <div>
-              <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                Login API Key
-              </h4>
-              <div className="rounded-lg border border-gray-200 dark:border-slate-600 overflow-hidden">
-                <table className="w-full text-xs">
-                  <tbody>
-                    {[
-                      ['Storage', 'Browser localStorage on your device. Sent to our Edge Functions over HTTPS to verify identity; we cache a SHA-256 hash for 24h. The raw key is never persisted server-side.'],
-                      ['Sharing', 'Not shared with other users'],
-                      ['Purpose', 'Verify faction membership and gate access to leadership features'],
-                      ['Torn API Calls', 'GET /v2/key/info · GET /user/?selections=profile — identity verification only, no quota-consuming gameplay queries on your key'],
-                      ['Access Level', 'Minimal Access'],
-                    ].map(([label, value]) => (
-                      <tr key={label} className="border-b border-gray-100 dark:border-slate-700 last:border-0">
-                        <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300 w-1/3 bg-gray-50 dark:bg-slate-700/40">
-                          {label}
-                        </td>
-                        <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
-                          {label === 'Torn API Calls'
-                            ? value.split(' · ').map((call, i) => (
-                                <span key={i} className="block font-mono">{call}</span>
-                              ))
-                            : value
-                          }
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-500 mt-1.5 italic">
-                Your login key is cleared from storage when you log out. You can revoke access at any time by generating a new API key in Torn.
-              </p>
-            </div>
-
-            {/* CPR Scraper Key */}
-            <div>
-              <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                CPR Scraper Key{' '}
-                <span className="text-xs font-normal text-gray-500 dark:text-gray-400">(optional — for members on the CPR roster)</span>
-              </h4>
-              <div className="rounded-lg border border-gray-200 dark:border-slate-600 overflow-hidden">
-                <table className="w-full text-xs">
-                  <tbody>
-                    {[
-                      ['Storage', 'Encrypted with pgp_sym_encrypt and stored in a service-role-only Supabase table (member_secrets). Inaccessible to clients, leadership, and the Supabase anon role — only the nightly scraper can decrypt.'],
-                      ['Sharing', 'Key not shared. CPR stats derived from it are visible to faction members.'],
-                      ['Purpose', 'Automated nightly scripts call Torn API to collect your Checkpoint Pass Rate (CPR) for OC slot optimisation'],
-                      ['Access Level', 'Minimal Access'],
-                    ].map(([label, value]) => (
-                      <tr key={label} className="border-b border-gray-100 dark:border-slate-700 last:border-0">
-                        <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300 w-1/3 bg-gray-50 dark:bg-slate-700/40">
-                          {label}
-                        </td>
-                        <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
-                          {value}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-500 mt-1.5 italic">
-                You are only added to the CPR roster by leadership with your consent. You can revoke access at any time by generating a new Torn API key and notifying leadership.
-              </p>
-            </div>
-          </div>
+          <ApiKeyDisclosure />
 
           <div className="mt-5 flex justify-end">
             <button

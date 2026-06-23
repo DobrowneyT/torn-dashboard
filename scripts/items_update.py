@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 import requests
 from supabase import create_client
 
+from utils.key_pool import claim_next_api_key
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -67,16 +69,15 @@ def transform(items: list) -> list:
 
 
 def main() -> int:
-    api_key = os.environ.get('TORN_API_KEY')
     supabase_url = os.environ.get('VITE_SUPABASE_URL')
     supabase_key = os.environ.get('VITE_SUPABASE_SERVICE_ROLE_KEY')
 
-    if not api_key:
-        logger.error("TORN_API_KEY not set")
-        return 1
     if not supabase_url or not supabase_key:
         logger.error("Missing VITE_SUPABASE_URL or VITE_SUPABASE_SERVICE_ROLE_KEY")
         return 1
+
+    # Items catalog is public, so any consented key works (Recruits included).
+    api_key = claim_next_api_key(faction_only=False)
 
     client = create_client(supabase_url, supabase_key)
 

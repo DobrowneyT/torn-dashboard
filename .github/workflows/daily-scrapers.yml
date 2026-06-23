@@ -16,6 +16,13 @@ on:
 #   3. commit-data  — runs after all jobs finish; downloads every data
 #                     artifact, merges into the workspace, and does one
 #                     atomic commit + push.
+#
+# 2.0: each faction-wide scraper claims a key from the consented rotation pool
+# (member_secrets, user keys only) at runtime via scripts/utils/key_pool.py, so
+# every parallel runner uses a distinct member key. That's why the scraper run
+# steps now carry the Supabase service-role + APP_KEY_SECRET env (needed to call
+# the get_active_key_pool / claim_next_api_key RPCs). The old TORN_API_KEY and
+# MEMBER_API_KEYS secrets are no longer used.
 
 jobs:
 
@@ -55,27 +62,15 @@ jobs:
         name: initial-data
         path: data/
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+    - name: Set up scraper environment
+      uses: ./.github/actions/scraper-setup
 
     - name: Run daily crime update
       env:
-        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        APP_KEY_SECRET: ${{ secrets.APP_KEY_SECRET }}
+        CPR_KEY_SECRET: ${{ secrets.CPR_KEY_SECRET }}
         SKIP_GOOGLE_SHEETS: 'true'
         SKIP_GIT_PUSH: 'true'
       run: python scripts/daily_crime_update.py
@@ -120,45 +115,15 @@ jobs:
         name: initial-data
         path: data/
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-
-    - name: Verify API keys configuration
-      env:
-        MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
-      run: |
-        python -c "
-        import os, json
-        keys = json.loads(os.environ.get('MEMBER_API_KEYS', '{}'))
-        print(f'✓ API keys configured for {len(keys)} members')
-        if keys:
-          print('Members:', ', '.join(keys.keys()))
-        else:
-          print('⚠ Warning: No member API keys found!')
-        "
+    - name: Set up scraper environment
+      uses: ./.github/actions/scraper-setup
 
     - name: Run CPR scraper (writes tiers + CPR v2 directly to Supabase)
       env:
         SKIP_GOOGLE_SHEETS: 'true'
-        MEMBER_API_KEYS: ${{ secrets.MEMBER_API_KEYS }}
-        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        APP_KEY_SECRET: ${{ secrets.APP_KEY_SECRET }}
         CPR_KEY_SECRET: ${{ secrets.CPR_KEY_SECRET }}
         SKIP_GIT_PUSH: 'true'
       run: python scripts/cpr_scraper.py
@@ -189,27 +154,15 @@ jobs:
         name: initial-data
         path: data/
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+    - name: Set up scraper environment
+      uses: ./.github/actions/scraper-setup
 
     - name: Run war data update
       env:
-        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        APP_KEY_SECRET: ${{ secrets.APP_KEY_SECRET }}
+        CPR_KEY_SECRET: ${{ secrets.CPR_KEY_SECRET }}
         VITE_FACTION_ID: '10739'
         SKIP_GIT_PUSH: 'true'
       run: python scripts/war_data_update.py
@@ -255,27 +208,15 @@ jobs:
         name: initial-data
         path: data/
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+    - name: Set up scraper environment
+      uses: ./.github/actions/scraper-setup
 
     - name: Fetch faction attacks
       env:
-        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        APP_KEY_SECRET: ${{ secrets.APP_KEY_SECRET }}
+        CPR_KEY_SECRET: ${{ secrets.CPR_KEY_SECRET }}
         VITE_FACTION_ID: '10739'
         SKIP_GIT_PUSH: 'true'
       run: python scripts/faction_attacks_update.py
@@ -285,7 +226,8 @@ jobs:
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
-        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
+        APP_KEY_SECRET: ${{ secrets.APP_KEY_SECRET }}
+        CPR_KEY_SECRET: ${{ secrets.CPR_KEY_SECRET }}
       run: python scripts/sync_to_supabase.py attacks
 
     - name: Upload logs as artifact
@@ -315,29 +257,15 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+    - name: Set up scraper environment
+      uses: ./.github/actions/scraper-setup
 
     - name: Scrape member stats and gym contributions
       env:
-        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        APP_KEY_SECRET: ${{ secrets.APP_KEY_SECRET }}
+        CPR_KEY_SECRET: ${{ secrets.CPR_KEY_SECRET }}
       run: python scripts/scrape_member_stats.py
 
     - name: Upload logs as artifact
@@ -360,30 +288,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+    - name: Set up scraper environment
+      uses: ./.github/actions/scraper-setup
 
     - name: Sync items catalog to Supabase
       env:
-        TORN_API_KEY: ${{ secrets.TORN_API_KEY }}
         VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
         VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
+        APP_KEY_SECRET: ${{ secrets.APP_KEY_SECRET }}
+        CPR_KEY_SECRET: ${{ secrets.CPR_KEY_SECRET }}
       run: python scripts/items_update.py
 
     - name: Upload logs as artifact

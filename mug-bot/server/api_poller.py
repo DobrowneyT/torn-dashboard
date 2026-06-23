@@ -303,20 +303,19 @@ async def reconcile_gear(bot, item_id, current: dict, item_label=None) -> None:
         if misses < config.GEAR_VANISH_CONFIRM_POLLS:
             continue
         await db.delete_tracked_gear(uid)
+        # Lifecycle ends when the item leaves the market: drop the seller↔uid pairing (a relist must
+        # be re-marked). The sale stays in `sales` for the mug-value window.
+        await db.unlink_gear_uid(uid)
         if row.get("seller_id"):
-            # Listed-for duration: a uid that vanishes seconds after appearing is more likely a
-            # delist/reprice than a real buy (helps explain $0 mugs in the logs).
             first_seen, last_seen = row.get("first_seen"), row.get("last_seen")
             listed_for = (int(last_seen) - int(first_seen)) if (first_seen and last_seen) else None
-            # Stale-match guard: if the uid was attributed but never re-confirmed present (seen in
-            # only one poll), it was matched from a stale capture — e.g. a just-marked backlog whose
-            # listing was already gone. Not a real sale — drop silently.
+            # Opt-in stale-match guard (off by default): only count if re-confirmed present >1 poll.
             if config.GEAR_REQUIRE_RESEEN and (row.get("seen") or 0) < 2:
                 log.info("gear uid=%s item=%s: attributed but only seen %s poll(s) -> stale match, "
                          "dropping (no sale)", uid, item_id, row.get("seen") or 0)
                 continue
             log.info("gear vanished -> SALE: uid=%s item=%s price=%s seller=%s listed_for=%ss "
-                     "(note: a delist looks identical to a buy)",
+                     "(note: a delist looks identical to a buy — you judge)",
                      uid, item_id, row.get("price"), row.get("seller_id"), listed_for)
             stats = None
             if row.get("stats_json"):

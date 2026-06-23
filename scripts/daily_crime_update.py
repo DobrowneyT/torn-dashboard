@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.utils.json_storage import JSONStorageManager
 from scripts.utils.torn_api import TornAPI, TornAPIError
+from scripts.utils.key_pool import claim_next_api_key
 
 SKIP_GOOGLE_SHEETS = os.environ.get('SKIP_GOOGLE_SHEETS', '').lower() in ('true', '1', 'yes')
 
@@ -44,10 +45,9 @@ class CrimeDataUpdater:
         else:
             logger.info("Google Sheets integration SKIPPED (SKIP_GOOGLE_SHEETS=true)")
 
-        # Get API key
-        self.api_key = os.environ.get('TORN_API_KEY')
-        if not self.api_key:
-            raise ValueError("TORN_API_KEY environment variable not set")
+        # 2.0: faction crimes are read with a key claimed from the consented
+        # rotation pool (user keys only). faction_only excludes Recruits.
+        self.api_key = claim_next_api_key(faction_only=True)
 
         self.api = TornAPI(self.api_key)
 
@@ -887,9 +887,9 @@ class CrimeDataUpdater:
 def main():
     """Main execution function"""
     try:
-        api_key = os.environ.get('TORN_API_KEY')
-
         if not SKIP_GOOGLE_SHEETS:
+            # Only the (legacy) Google Sheets member sync needs a standalone key.
+            api_key = claim_next_api_key(faction_only=True)
             from scripts.utils.google_sheets import GoogleSheetsManager
             sheets = GoogleSheetsManager()
             # Sync members first

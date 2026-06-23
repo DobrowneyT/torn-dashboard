@@ -14,6 +14,46 @@ and stamps the footer automatically.
 ## [Released]
 
 
+## [2.0.0] - 2026-06-22
+
+### Added
+
+- **Single consolidated API key with mandatory opt-in.** Members now log in with
+  one **Limited Access** key, accepting a Torn-ToS disclosure that explains
+  exactly how the key is stored and used. A one-click "Generate Limited Key"
+  link (titled `Forge-Dashboard`) creates a correctly-scoped key.
+- **Consented key rotation pool.** That single key (user keys only — no admin
+  fallback) powers CPR scraping, the War Room, and the faction-wide scrapers.
+  New `get_active_key_pool` / `claim_next_api_key` SECURITY DEFINER RPCs hand out
+  keys; the War Room loads the pool from the DB and rotates per second; each
+  parallel scraper runner claims a distinct key.
+- **Recruit handling.** Recruits (no faction API access for 72h) still log in and
+  use the site; their key is flagged (`has_faction_access = false`) and skipped
+  for faction-scoped calls. Current-crimes shows a friendly Recruit note.
+- **Parallel attacks backfill workflow** — a matrix where each shard backfills a
+  time window with its own pooled key and upserts idempotently to Supabase.
+- Reusable `scraper-setup` composite GitHub Action (Python + pip cache + deps).
+- One-time `scripts/backfill_key_metadata.py` to populate key level / faction
+  access / rank for pre-2.0 stored keys.
+
+### Changed
+
+- `member_secrets` generalised to hold each member's one consolidated key plus
+  `key_level`, `has_faction_access`, `member_rank`, `consent_at`,
+  `consent_version`, `key_fingerprint`, and `disabled` metadata.
+- Login now requires Limited Access (was Minimal); the hamburger "API Key Usage"
+  window and the login disclosure share one `ApiKeyDisclosure` component.
+- Daily/manual scrapers claim keys from the pool instead of `TORN_API_KEY`;
+  edge functions accept `APP_KEY_SECRET` (legacy `CPR_KEY_SECRET` still works).
+
+### Removed
+
+- The separate Dashboard "CPR Scraper Key" entry (the consolidated key is
+  captured at login). The Dashboard pill is now an API-key status/info view.
+- The `TORN_API_KEY`, `TORN_API_KEYS`, and `MEMBER_API_KEYS` secrets are no
+  longer used by the scrapers or the War Room.
+
+
 ## [1.1.0] - 2026-06-01
 
 ### Added

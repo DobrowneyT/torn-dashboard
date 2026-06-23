@@ -595,9 +595,14 @@ class SupabaseSync:
         if not faction_ids:
             return 0
 
-        api_key = os.environ.get('TORN_API_KEY')
-        if not api_key:
-            logger.warning("TORN_API_KEY not set — skipping faction name backfill")
+        # 2.0: use a key from the consented rotation pool (user keys only). If
+        # nobody has opted in yet, skip the (optional) faction-name backfill.
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from scripts.utils.key_pool import claim_next_api_key, EmptyKeyPoolError  # type: ignore
+        try:
+            api_key = claim_next_api_key(faction_only=True)
+        except (EmptyKeyPoolError, Exception) as e:
+            logger.warning(f"No pool key available — skipping faction name backfill ({e})")
             return 0
 
         # Find which IDs are already known

@@ -13,6 +13,16 @@ export const config = {
     id: import.meta.env.VITE_FACTION_ID || "10739",
   },
 
+  // 2.0: a single consolidated key per member, captured via mandatory opt-in at
+  // login. Limited Access (level 3) covers every selection the site needs
+  // (user: profile/personalstats/crimes, faction: crimes/members/chain/attacks/
+  // rankedwars). Bump consentVersion to force everyone to re-accept the ToS.
+  apiKey: {
+    title: 'Forge-Dashboard',     // shows up as the key name in Torn
+    requiredLevel: 3,             // Torn access.level for Limited Access
+    consentVersion: '2.0',        // bump to re-prompt the disclosure
+  },
+
   adminsUserIds: [
     '2250591', // MonChoon
   ],
@@ -166,6 +176,14 @@ export const config = {
   payoutTickets: {
     1: 40, 2: 30, 3: 15, 4: 7, 5: 3, 6: 2
   },
+}
+
+// One-click Torn link that generates a correctly-titled Limited Access key
+// (type=3). Shown in the login opt-in disclosure so members don't have to
+// hand-pick selections. See Torn's "addNewKey" preferences deep-link.
+export function tornKeyGenUrl() {
+  const title = encodeURIComponent(config.apiKey.title)
+  return `https://www.torn.com/preferences.php#tab=api?&step=addNewKey&title=${title}&type=3`
 }
 
 export function isAdmin(userId) {

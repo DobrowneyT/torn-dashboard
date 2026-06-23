@@ -287,10 +287,15 @@ def test_gear_delist_suppressed_when_seller_just_acted(tmp_path, monkeypatch):
 
 
 def test_gear_stale_match_dropped(tmp_path, monkeypatch):
-    """A uid attributed a seller but seen in only ONE poll, then gone, is a stale match (e.g. a
-    just-marked backlog whose listing was already removed) — no sale, nothing recorded."""
+    """A uid attributed a seller but seen in only ONE poll, then gone, is a stale match
+    (e.g. a just-marked backlog whose listing was already removed) — no sale, nothing
+    recorded.
+    """
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "stale.db"))
     monkeypatch.setattr(config, "GEAR_VANISH_CONFIRM_POLLS", 1)
+
+    # Force the behavior this test expects, independent of the default.
+    monkeypatch.setattr(config, "GEAR_REQUIRE_RESEEN", True)
 
     async def fake_enrich(user_id, client, force=False):
         return await db.get_seller(user_id)
@@ -301,14 +306,113 @@ def test_gear_stale_match_dropped(tmp_path, monkeypatch):
         await db.init_db()
         await db.set_config("min_mug_value", 1)
         await db.upsert_seller_seen(user_id=2250591, name="MonChoon")
-        await db.store_gear_listing(listing_id="L1", item_id=399, item_name="ArmaLite M-15A4",
-                                    seller_id=2250591, price=200_000_000, armoury_uid="222")
+        await db.store_gear_listing(
+            listing_id="L1",
+            item_id=399,
+            item_name="ArmaLite M-15A4",
+            seller_id=2250591,
+            price=200_000_000,
+            armoury_uid="222",
+        )
+
         bot = FakeBot()
-        await api_poller.reconcile_gear(bot, 399, {"222": {"price": 200_000_000, "stats": None}})  # seen=1
-        await api_poller.reconcile_gear(bot, 399, {})                                              # gone
+        await api_poller.reconcile_gear(
+            bot, 399, {"222": {"price": 200_000_000, "stats": None}}
+        )  # seen=1
+        await api_poller.reconcile_gear(bot, 399, {})  # gone
         await api_poller.drain_sale_tasks()
+
         assert bot.alerts == []
         assert (await db.seller_window(2250591, 9_000_000))["total"] == 0
+        await db.close_db()
+
+    asyncio.run(scenario())
+
+
+def test_gear_vanish_drops_seller_pairing(tmp_path, monkeypatch):
+    """Lifecycle: once a gear uid leaves the market we drop the seller↔uid pairing (so a relist must
+    be re-marked and can't auto re-fire). The exact-uid listing row is removed; the sale persists."""
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "drop.db"))
+    monkeypatch.setattr(config, "GEAR_VANISH_CONFIRM_POLLS", 1)
+    monkeypatch.setattr(config, "MUG_CLAIM_ON_ALERT", False)   # keep the sale in the window to prove it survives unlink
+
+    async def fake_enrich(user_id, client, force=False):
+        return await db.get_seller(user_id)
+
+    monkeypatch.setattr(detection, "enrich_seller", fake_enrich)
+
+    async def scenario():
+        await db.init_db()
+        await db.set_config("min_mug_value", 1)
+        await db.upsert_seller_seen(user_id=4106545, name="Vglost")
+        # Exact-uid capture (armouryID == API uid) so the pairing is droppable by uid.
+        await db.store_gear_listing(
+            listing_id="L1", item_id=399, item_name="ArmaLite M-15A4",
+            seller_id=4106545, price=21_200_000, armoury_uid="19527062233",
+        )
+        assert "19527062233" in await db.get_gear_uid_map(399)
+        bot = FakeBot()
+        await api_poller.reconcile_gear(bot, 399, {"19527062233": {"price": 21_200_000, "stats": None}})
+        await api_poller.reconcile_gear(bot, 399, {})   # uid gone -> sale + unlink
+        await api_poller.drain_sale_tasks()
+        assert len(bot.alerts) == 1                       # still alerts on the vanish
+        assert await db.get_gear_uid_map(399) == {}       # ...but the pairing is gone
+        # Sales history is retained for the mug-value window.
+        assert (await db.seller_window(4106545, 9_000_000))["total"] == 21_200_000
+        await db.close_db()
+
+    asyncio.run(scenario())
+
+
+def test_remark_updates_seller_for_uid(tmp_path, monkeypatch):
+    """Re-marking a uid with a different seller updates the pairing: get_gear_uid_map returns the
+    MOST RECENT capture, so re-marking fixes a stale/wrong seller without a DB wipe."""
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "remark.db"))
+
+    async def scenario():
+        await db.init_db()
+        await db.upsert_seller_seen(user_id=111, name="OldOwner")
+        await db.upsert_seller_seen(user_id=222, name="NewOwner")
+        # First (stale) capture, then a re-mark of the same uid under a new seller/listing.
+        await db.store_gear_listing(listing_id="L1", item_id=399, item_name="ArmaLite M-15A4",
+                                    seller_id=111, price=200_000_000, armoury_uid="222uid")
+        await db.store_gear_listing(listing_id="L2", item_id=399, item_name="ArmaLite M-15A4",
+                                    seller_id=222, price=200_000_000, armoury_uid="222uid")
+        umap = await db.get_gear_uid_map(399)
+        assert umap["222uid"]["seller_id"] == 222     # most-recent capture wins
+        await db.close_db()
+
+    asyncio.run(scenario())
+
+
+def test_mug_protection_reduces_value(tmp_path, monkeypatch):
+    """A freshly-mugged seller in hospital has a protected wallet that decays over MUG_PROTECTION_HOURS.
+    We keep only the still-muggable fraction (elapsed-since-last-action / window)."""
+    import time as _t
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "prot.db"))
+    monkeypatch.setattr(config, "MUG_PROTECTION_HOURS", 12)
+
+    async def scenario():
+        await db.init_db()
+        await db.set_config("min_mug_value", 1)
+        now = int(_t.time())
+        # Mugged 6h ago (half the 12h window) -> ~50% still muggable.
+        half = {"status_state": "Hospital", "status_details": "Mugged by someone",
+                "last_action_ts": now - 6 * 3600}
+        win, res, pct = await detection._mug_protect_adjust(half, {"total": 100_000_000})
+        assert 45 <= pct <= 55 and 45_000_000 <= win["total"] <= 55_000_000
+
+        # Freshly mugged (acted just now) -> almost fully protected, ~0 muggable.
+        fresh = {"status_state": "Hospital", "status_details": "Mugged by someone",
+                 "last_action_ts": now}
+        win2, res2, pct2 = await detection._mug_protect_adjust(fresh, {"total": 100_000_000})
+        assert pct2 >= 99 and win2["total"] <= 1_000_000
+
+        # Not mugged (just hospitalised) -> no reduction.
+        hosp = {"status_state": "Hospital", "status_details": "In a car accident",
+                "last_action_ts": now - 3600}
+        win3, res3, pct3 = await detection._mug_protect_adjust(hosp, {"total": 100_000_000})
+        assert pct3 == 0 and win3["total"] == 100_000_000
         await db.close_db()
 
     asyncio.run(scenario())

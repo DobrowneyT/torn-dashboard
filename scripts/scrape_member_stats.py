@@ -39,6 +39,7 @@ from typing import Dict, List, Set
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.torn_api import TornAPI, TornAPIError, create_torn_api  # noqa: F401
+from utils.key_pool import claim_next_api_key
 from supabase import create_client, Client
 
 logging.basicConfig(
@@ -64,7 +65,8 @@ GYM_COLUMN_MAP = {
 
 class MemberStatsScraper:
     def __init__(self):
-        self.api = create_torn_api()
+        # 2.0: claim a key from the consented rotation pool (user keys only).
+        self.api = TornAPI(claim_next_api_key(faction_only=True))
 
         supabase_url = os.environ.get('VITE_SUPABASE_URL')
         supabase_key = os.environ.get('VITE_SUPABASE_SERVICE_ROLE_KEY')

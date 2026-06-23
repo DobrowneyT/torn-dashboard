@@ -574,14 +574,14 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
       .then(data => {
         if (cancelled) return
         if (data.error) {
-          // The faction crimes endpoint requires Limited Access (or higher)
-          // on the API key. Torn's raw code-16 wording ("Access level of
-          // this key is not high enough") doesn't tell the user what to
-          // do — translate via getTornErrorMessage, and for code 16
-          // specifically point them at where to upgrade their key.
+          // 2.0: every member logs in with a Limited key, so a faction-access
+          // failure here almost always means the member is on Recruit status
+          // (Torn withholds faction API access for the first 72h). That's
+          // expected — show a friendly, Recruit-aware note rather than telling
+          // them to "upgrade" a key that's already Limited.
           const friendly = getTornErrorMessage(data.error)
           const guidance = data.error.code === 16
-            ? ' This page needs Limited Access. Regenerate your key in Torn Preferences with Limited Access ticked, then log in again.'
+            ? " If you just joined, you're likely on 3-day Recruit status — Torn restricts faction API access during that window, so current crimes will appear automatically once you're off Recruit."
             : ''
           setError(friendly + guidance)
           setCrimes([])

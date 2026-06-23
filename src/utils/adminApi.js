@@ -150,14 +150,25 @@ export async function saveWarPayout(payoutData, memberRecords, tornApiKey) {
 }
 
 /**
- * Submit a CPR scraper API key for the logged-in member.
- * Pass an empty string to remove the key.
+ * Store the member's single consolidated Limited-access API key + ToS consent.
+ * This one key powers identity, CPR scraping, the War Room rotation, and the
+ * faction-wide scrapers. Pass an empty string to remove the key.
  *
- * @param {string} cprApiKey - The member's Torn API key for CPR scraping
- * @param {string} tornApiKey - User's login Torn API key for auth
+ * @param {string} apiKey - The member's Torn Limited Access key
+ * @param {string} tornApiKey - User's login Torn API key for auth (same key)
+ * @param {object} [meta] - { rank, consentVersion }
  */
-export async function submitCprKey(cprApiKey, tornApiKey) {
-  return callAdminApi('submit_cpr_key', { data: { cpr_api_key: cprApiKey } }, tornApiKey)
+export async function submitApiKey(apiKey, tornApiKey, meta = {}) {
+  return callAdminApi(
+    'submit_api_key',
+    { data: { api_key: apiKey, rank: meta.rank ?? null, consent_version: meta.consentVersion ?? null } },
+    tornApiKey,
+  )
+}
+
+/** @deprecated 2.0 — use submitApiKey. Kept so older imports keep working. */
+export async function submitCprKey(apiKey, tornApiKey) {
+  return submitApiKey(apiKey, tornApiKey)
 }
 
 /**

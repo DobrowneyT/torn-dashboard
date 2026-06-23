@@ -27,27 +27,49 @@ const LEADERSHIP_IDS = ['2250591', '2749598', '2264192', '2407528', '2932241', '
 const ADMIN_IDS = ['2250591']
 const OUR_FACTION_ID = '10739'
 
-// ── Torn API key rotation ─────────────────────────────────────────────────────
-// Set TORN_API_KEYS as a Supabase secret: a comma-separated list of one or more keys.
-// With N keys, each successive call uses the next key in the list (round-robin),
-// bypassing Torn's per-key 30s response cache and allowing sub-second fresh data.
-// Single-key fallback: if only one key is provided it always uses that key — same
-// behaviour as the old TORN_API_KEY secret (kept below for easy rollback).
+// ── Torn API key pool (rotating) ──────────────────────────────────────────────
+// 2.0: keys come from the consented member pool in member_secrets — USER KEYS
+// ONLY, no admin fallback. They're loaded via the get_active_key_pool RPC and
+// cached in-memory, refreshed every POOL_TTL_MS. War Room calls are
+// faction-scoped (members, chain), so we request the faction-eligible pool
+// (Recruits — has_faction_access = false — are excluded).
 //
-// To revert to a single key, comment out the TORN_API_KEYS block and uncomment:
-//   function nextTornKey() { return Deno.env.get('TORN_API_KEY') ?? '' }
+// With N keys, each successive call uses the next key (round-robin), bypassing
+// Torn's per-key 30s response cache and allowing sub-second fresh data. Key
+// selection uses the current Unix second so it's deterministic across all Deno
+// Deploy worker instances (no shared mutable state) and advances every second.
+let _tornKeys: string[] = []
+let _poolLoadedAt = 0
+let _poolLoading: Promise<void> | null = null
+const POOL_TTL_MS = 60_000
 
-const _tornKeys: string[] = (Deno.env.get('TORN_API_KEYS') ?? '').split(',').map((k: string) => k.trim()).filter(Boolean)
+async function loadKeyPool(): Promise<void> {
+  const secret = Deno.env.get('APP_KEY_SECRET') ?? Deno.env.get('CPR_KEY_SECRET')
+  if (!secret) { console.error('APP_KEY_SECRET/CPR_KEY_SECRET not set — key pool will be empty'); return }
+  const { data, error } = await supabaseAuth.rpc('get_active_key_pool', {
+    p_secret: secret,
+    p_faction_only: true,
+  })
+  if (error) { console.error('get_active_key_pool failed:', error.message); return }
+  _tornKeys = (data ?? []).map((r: { api_key: string }) => r.api_key).filter(Boolean)
+  _poolLoadedAt = Date.now()
+}
 
-// Key selection uses the current Unix second so it's deterministic across all
-// Deno Deploy worker instances (no shared mutable state). The selected key
-// advances every second, cycling through all N keys every N seconds.
-// At 3s polling with 13 keys: each key is used roughly once per 13-second cycle.
-// At 0.5s polling with 13 keys: the key changes twice per second — you need
-// ≥2 keys to stay under the 100 req/min per-key rate limit.
-//
-// To revert to a single fixed key, comment out this block and uncomment:
-//   function nextTornKey() { return Deno.env.get('TORN_API_KEY') ?? '' }
+// Make the pool usable for this request. Blocks (awaits) only when the cache is
+// empty; when it's merely stale we refresh in the background so the high-frequency
+// polling paths never pay the DB round-trip. Call once per request before any
+// Torn fetch.
+async function ensureKeyPool(): Promise<void> {
+  const stale = Date.now() - _poolLoadedAt > POOL_TTL_MS
+  if (_tornKeys.length === 0) {
+    if (!_poolLoading) _poolLoading = loadKeyPool().finally(() => { _poolLoading = null })
+    await _poolLoading
+  } else if (stale && !_poolLoading) {
+    _poolLoading = loadKeyPool().finally(() => { _poolLoading = null })
+    // intentionally not awaited — serve this request from the warm cache
+  }
+}
+
 function nextTornKey(): string {
   if (_tornKeys.length === 0) return ''
   return _tornKeys[Math.floor(Date.now() / 1000) % _tornKeys.length]
@@ -360,7 +382,7 @@ async function handleFetchMembersV2(
   factionId: number,
 ) {
   const tornKey = nextTornKey()
-  if (!tornKey) return json({ error: 'TORN_API_KEYS secret not set' }, 500)
+  if (!tornKey) return json({ error: 'No eligible API keys in the rotation pool — no members have consented yet (or all are on Recruit status).' }, 503)
 
   const url = `https://api.torn.com/v2/faction/${factionId}/members?striptags=true&comment=WarRoom&timestamp=${Math.floor(Date.now() / 1000)}&key=${tornKey}`
   const resp = await fetch(url)
@@ -464,7 +486,7 @@ async function handleFetchMembersV2(
 
 async function handleFetchOurMembersV2(supabase: ReturnType<typeof createClient>) {
   const tornKey = nextTornKey()
-  if (!tornKey) return json({ error: 'TORN_API_KEYS secret not set' }, 500)
+  if (!tornKey) return json({ error: 'No eligible API keys in the rotation pool — no members have consented yet (or all are on Recruit status).' }, 503)
 
   // Same explicit faction-id URL fix as v1: never use /v2/faction/members
   // (which depends on the API key owner's faction).
@@ -1248,6 +1270,10 @@ serve(async (req: Request) => {
 
     const body = await req.json()
     const action: string = body.action
+
+    // Refresh the rotating key pool from member_secrets (cached, cheap). Blocks
+    // only on a cold/empty cache; otherwise serves from the warm in-memory copy.
+    await ensureKeyPool()
 
     // Cron-driven actions authenticate via x-cron-secret instead of a Torn
     // API key. Skip the x-torn-api-key requirement and the verifyTornUser

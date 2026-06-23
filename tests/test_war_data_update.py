@@ -133,7 +133,10 @@ SAMPLE_ATTACKS_PAGE = {
 # ---------------------------------------------------------------------------
 
 def make_updater():
-    with patch.dict(os.environ, {'TORN_API_KEY': 'test_key', 'TESTING_MODE': 'true'}):
+    # 2.0: the updater claims its key from the consented rotation pool, so patch
+    # claim_next_api_key instead of relying on a TORN_API_KEY env var.
+    with patch.dict(os.environ, {'TESTING_MODE': 'true'}), \
+         patch('scripts.war_data_update.claim_next_api_key', return_value='test_key'):
         from scripts.war_data_update import WarDataUpdater
         updater = WarDataUpdater()
     updater.storage = MagicMock()

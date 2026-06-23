@@ -213,6 +213,8 @@ def build_mug_alert_embed(event: Dict) -> discord.Embed:
     lines.append(
         f"Mug range: **{fmt_money(event.get('mug_min'))} – {fmt_money(event.get('mug_max'))}**"
     )
+    if event.get("protection_pct"):
+        lines.append(f"🛡️ Mug protection: value reduced ~{event['protection_pct']}% (recently mugged)")
 
     lines.append(f"Stats: **{fmt_compact(event['tbs'])}**" if event.get("tbs") is not None
                  else "Stats: *unknown*")

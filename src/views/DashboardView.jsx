@@ -5,7 +5,7 @@ import { loadMemberPayoutHistory, loadMemberCrimeHistory, loadMemberLoanedItems 
 import { calculateTierProgress, getTierInfo } from '../utils/tierProgressUtils'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
-import { submitCprKey } from '../utils/adminApi'
+import ApiKeyDisclosure from '../components/ApiKeyDisclosure'
 import { STAT_PATHS, DASHBOARD_STAT_KEYS, getByPath } from '../utils/statPaths'
 import { Check, X } from 'lucide-react'
 
@@ -188,20 +188,11 @@ export default function DashboardView() {
         <LoanedItemsCard items={loanedItems} />
       )}
 
-      {/* CPR Key Modal */}
+      {/* API Key status / usage info */}
       {showCprKeyModal && (
-        <CprKeyModal
-          user={user}
-          hasCprKey={!!memberData.has_cpr_key}
+        <ApiKeyInfoModal
+          hasKey={!!memberData.has_cpr_key}
           onClose={() => setShowCprKeyModal(false)}
-          onSuccess={() => {
-            setMemberData(prev => ({ ...prev, has_cpr_key: true }))
-            setShowCprKeyModal(false)
-          }}
-          onRemove={() => {
-            setMemberData(prev => ({ ...prev, has_cpr_key: false }))
-            setShowCprKeyModal(false)
-          }}
         />
       )}
     </div>
@@ -246,7 +237,7 @@ function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory,
           }`}
         >
           <span className={`w-1.5 h-1.5 rounded-full ${hasCprKey ? 'bg-green-500' : 'bg-red-500'}`} />
-          {hasCprKey ? 'CPR Key Registered' : 'No CPR Key'}
+          {hasCprKey ? 'API Key Active' : 'API Key Missing'}
         </button>
       </div>
 
@@ -702,59 +693,20 @@ function LoanedItemsCard({ items }) {
   )
 }
 
-// ─── CPR Key Modal ────────────────────────────────────────────────
+// ─── API Key status / usage info ──────────────────────────────────
+// 2.0: the consolidated key is captured at login (with consent), so there's no
+// separate key entry here anymore. This modal just shows current status + the
+// shared usage disclosure. To change the key, members re-enter it via the
+// hamburger menu → "Update Torn API Key".
 
-function CprKeyModal({ user, hasCprKey, onClose, onSuccess, onRemove }) {
-  const [cprKey, setCprKey] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [removing, setRemoving] = useState(false)
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(false)
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    if (!cprKey.trim()) return
-    setSaving(true)
-    setError(null)
-    try {
-      const result = await submitCprKey(cprKey.trim(), user.apiKey)
-      if (!result.success) {
-        setError(result.error || 'Failed to save key. Please try again.')
-      } else {
-        setSuccess(true)
-        setTimeout(() => onSuccess(cprKey.trim()), 1200)
-      }
-    } catch (err) {
-      setError(err.message || 'Unexpected error. Please try again.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleRemove() {
-    setRemoving(true)
-    setError(null)
-    try {
-      const result = await submitCprKey('', user.apiKey)
-      if (!result.success) {
-        setError(result.error || 'Failed to remove key.')
-      } else {
-        onRemove()
-      }
-    } catch (err) {
-      setError(err.message || 'Unexpected error. Please try again.')
-    } finally {
-      setRemoving(false)
-    }
-  }
-
+function ApiKeyInfoModal({ hasKey, onClose }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              CPR Scraper API Key
+              Your API Key
             </h3>
             <button
               onClick={onClose}
@@ -764,85 +716,31 @@ function CprKeyModal({ user, hasCprKey, onClose, onSuccess, onRemove }) {
             </button>
           </div>
 
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Provide a <strong>Minimal Access</strong> Torn API key so the nightly scraper can collect your CPR stats.
-            This key is stored securely and used only for automated data collection — it is never shared.
-          </p>
-
-          <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-blue-700 dark:text-blue-300 space-y-1">
-            <p className="font-semibold">Required key settings in Torn:</p>
-            <p>Access Level: <strong>Minimal Access</strong> or higher</p>
-            <p>Create at: <a href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">Torn Preferences &rarr; API</a></p>
+          <div className={`mb-4 p-3 rounded-lg text-sm flex items-center gap-2 ${
+            hasKey
+              ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300'
+              : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${hasKey ? 'bg-green-500' : 'bg-red-500'}`} />
+            {hasKey
+              ? 'Your key is active and stored securely. It powers your CPR stats, the War Room, and faction data scrapers.'
+              : 'No key is stored yet. Log out and log back in (or use the menu → Update Torn API Key) to register your Limited Access key.'}
           </div>
 
-          {user?.factionPosition === 'Recruit' && (
-            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-700 dark:text-amber-300">
-              <p className="font-semibold mb-1">⚠ Heads up — you are on Recruit status</p>
-              <p>
-                Torn restricts API faction access for the first 3 days after joining a faction.
-                Your key won't have the permissions our scraper needs until you are off Recruit.
-                You can submit a key and once your probationary period ends it can be used.
-              </p>
-            </div>
-          )}
+          <ApiKeyDisclosure />
 
-          {success ? (
-            <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-700 dark:text-green-300 text-center">
-              Key saved successfully!
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                  API Key (Minimal Access)
-                </label>
-                <input
-                  type="text"
-                  value={cprKey}
-                  onChange={e => setCprKey(e.target.value)}
-                  placeholder="16-character Torn API key"
-                  className="input w-full font-mono text-sm"
-                  disabled={saving}
-                />
-              </div>
+          <p className="text-xs text-gray-500 dark:text-gray-500 mt-3">
+            To change your key, use the menu (top-right) → <strong>Update Torn API Key</strong>.
+          </p>
 
-              {error && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
-                  {error}
-                </div>
-              )}
-
-              <div className="flex gap-2 justify-between pt-1">
-                {hasCprKey && (
-                  <button
-                    type="button"
-                    onClick={handleRemove}
-                    disabled={removing || saving}
-                    className="px-3 py-2 text-sm text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
-                  >
-                    {removing ? 'Removing...' : 'Remove Key'}
-                  </button>
-                )}
-                <div className="flex gap-2 ml-auto">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    disabled={saving || removing}
-                    className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={saving || removing || !cprKey.trim()}
-                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {saving ? 'Verifying...' : 'Save Key'}
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
+          <div className="mt-5 flex justify-end">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

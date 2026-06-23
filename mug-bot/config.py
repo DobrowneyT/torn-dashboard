@@ -77,11 +77,11 @@ GEAR_POLL_INTERVAL_SECONDS = int(os.environ.get("MUG_GEAR_POLL_INTERVAL", "30"))
 # the uid briefly absent; one missed poll won't fire a false "sale" (the uid reappears, its tracked
 # entry just migrates to the new price). Raise further if repricing still trips false sales.
 GEAR_VANISH_CONFIRM_POLLS = int(os.environ.get("MUG_GEAR_VANISH_CONFIRM_POLLS", "2"))
-# Only treat a vanished uid as a SALE if it was re-confirmed on the market AFTER its seller was
-# attributed (i.e. seen in >1 poll). A uid attributed then never seen again was matched from a
-# stale capture — e.g. you mark a backlog of old uncached items whose listings were already gone —
-# so its "disappearance" isn't a real sale. Drop those silently. Set false to revert.
-GEAR_REQUIRE_RESEEN = (os.environ.get("MUG_GEAR_REQUIRE_RESEEN", "true") or "").strip().lower() in ("1", "true", "yes")
+# Opt-in stale-match guard (default OFF): only treat a vanished uid as a SALE if it was re-confirmed
+# present in >1 poll. Off by default — we now drop the seller↔uid pairing the moment the item leaves
+# the market (see reconcile_gear), so stale matches can't accumulate; we alert on every vanish and
+# you judge delist-vs-sale yourself.
+GEAR_REQUIRE_RESEEN = (os.environ.get("MUG_GEAR_REQUIRE_RESEEN", "false") or "").strip().lower() in ("1", "true", "yes")
 # Poll items CONCURRENTLY (asyncio) so a big watch list still finishes within the interval instead
 # of falling behind (late detection = mugs that already got banked). This many item-polls run at
 # once; 0 = auto (= number of active API keys, so each in-flight call lands on a different key).
@@ -111,11 +111,17 @@ WATCH_ITEM_IDS = [int(x) for x in (os.environ.get("MUG_WATCH_ITEM_IDS", "") or "
 ITEM_VANISH_CONFIRM_POLLS = int(os.environ.get("MUG_ITEM_VANISH_CONFIRM_POLLS", "1"))
 ITEM_ALERT_ON_REMOVE = (os.environ.get("MUG_ITEM_ALERT_ON_REMOVE", "false") or "").strip().lower() in ("1", "true", "yes")
 
-# Delist guard (GEAR): a vanished uid is ambiguous (buy vs the seller pulling it). On a real buy the
-# BUYER acts, so the seller's last action can be old; on a delist the SELLER acts right then. So if
-# the seller acted within this many seconds of the vanish, treat it as a delist (they removed/
-# relisted/traded it) — drop it instead of firing a $0 mug. 0 disables the guard.
-DELIST_GUARD_SECONDS = int(os.environ.get("MUG_DELIST_GUARD_SECONDS", "180"))
+# Delist guard (GEAR), DISABLED by default (0): formerly, if the seller acted within this many
+# seconds of a vanish we'd assume a delist and drop it. We now alert on every vanish (you judge
+# delist-vs-sale yourself) and drop the seller↔uid pairing on vanish so a relist must be re-marked.
+# Set >0 to re-enable the old auto-suppression.
+DELIST_GUARD_SECONDS = int(os.environ.get("MUG_DELIST_GUARD_SECONDS", "0"))
+
+# Mug protection: when a seller was just mugged (in hospital, "Mugged by …"), their wallet was
+# largely taken and the leftover is "protected", decaying linearly to 0 over this many hours. We
+# estimate the mug time as their last action (they can't act while hospitalised) and reduce the mug
+# value by the still-protected fraction. 0 disables.
+MUG_PROTECTION_HOURS = float(os.environ.get("MUG_PROTECTION_HOURS", "12"))
 
 # ---- Mug calculation (runtime-tunable) ----
 # Matches the reference "Mr. Blobby" bot: 5%-15% of accumulated sales (the 5% min is also what

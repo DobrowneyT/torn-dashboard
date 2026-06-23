@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.utils.json_storage import JSONStorageManager
 from scripts.utils.torn_api import TornAPI, TornAPIError
+from scripts.utils.key_pool import claim_next_api_key
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,9 +49,10 @@ class FactionAttacksUpdater:
         testing_mode = os.environ.get('TESTING_MODE') == 'true'
         self.storage = JSONStorageManager(data_dir='data', auto_commit=not testing_mode)
 
-        self.api_key = os.environ.get('TORN_API_KEY')
-        if not self.api_key:
-            raise ValueError("TORN_API_KEY environment variable not set")
+        # 2.0: claim a key from the consented rotation pool (user keys only).
+        # In the matrix-parallel attacks workflow each shard runs its own
+        # process and therefore claims a distinct key.
+        self.api_key = claim_next_api_key(faction_only=True)
 
         self.api = TornAPI(self.api_key)
         self._current_chunk_file: Optional[str] = None
@@ -149,11 +151,12 @@ class FactionAttacksUpdater:
     # API fetcher
     # ------------------------------------------------------------------
 
-    def _fetch_attacks_page(self, from_timestamp: int) -> List[Dict]:
+    def _fetch_attacks_page(self, from_timestamp: int, to_timestamp: Optional[int] = None) -> List[Dict]:
         """Fetch one page of faction attacks starting at from_timestamp (ASC sort).
         Raises TornAPIError on failure so the caller can retry."""
         response = self.api.get_faction_attacks(
             from_timestamp=from_timestamp,
+            to_timestamp=to_timestamp,
             limit=100,
             sort='ASC'
         )
@@ -270,11 +273,75 @@ class FactionAttacksUpdater:
         )
         return stats
 
+    def update_attacks_window(self, from_ts: int, to_ts: int) -> Dict:
+        """
+        Parallel-backfill mode: fetch a bounded [from_ts, to_ts) window and
+        upsert each attack DIRECTLY to Supabase. Upsert is idempotent on the
+        attack_id PK, so disjoint matrix shards (each with its own pooled key)
+        can run concurrently without a merge step or a shared cursor.
+        """
+        from supabase import create_client
+
+        supabase_url = os.environ.get('VITE_SUPABASE_URL')
+        supabase_key = os.environ.get('VITE_SUPABASE_SERVICE_ROLE_KEY')
+        if not supabase_url or not supabase_key:
+            raise RuntimeError("VITE_SUPABASE_URL / VITE_SUPABASE_SERVICE_ROLE_KEY not set")
+        client = create_client(supabase_url, supabase_key)
+
+        stats = {'new_attacks': 0, 'pages_fetched': 0, 'errors': 0}
+        current_from = int(from_ts)
+        page = 1
+        logger.info(f"[shard] backfilling window [{from_ts}, {to_ts})")
+
+        while True:
+            raw_attacks = self._fetch_attacks_page(current_from, to_timestamp=to_ts)
+            stats['pages_fetched'] += 1
+            if not raw_attacks:
+                break
+
+            rows = [self._normalize_attack(r) for r in raw_attacks]
+            client.table('faction_attacks').upsert(rows, on_conflict='attack_id').execute()
+            stats['new_attacks'] += len(rows)
+
+            last_started = raw_attacks[-1].get('started', current_from)
+            logger.info(f"  [shard] page {page}: upserted {len(rows)} (last started={last_started})")
+
+            if len(raw_attacks) < 100:
+                break
+            current_from = last_started
+            page += 1
+
+        logger.info(f"[shard] window complete: {stats}")
+        return stats
+
+
+def _shard_window(shard_index: int, shard_count: int, backfill_from: int):
+    """Split [backfill_from, now] into shard_count contiguous windows and return
+    the [from, to) bounds for this shard."""
+    import time as _time
+    now = int(_time.time())
+    span = max(1, (now - backfill_from) // shard_count)
+    start = backfill_from + shard_index * span
+    end = now if shard_index == shard_count - 1 else backfill_from + (shard_index + 1) * span
+    return start, end
+
 
 def main():
     try:
         updater = FactionAttacksUpdater()
-        stats = updater.update_attacks()
+
+        # Matrix/parallel backfill mode: ATTACKS_SHARD_COUNT triggers windowed
+        # mode where this runner handles one slice of history with its own
+        # pooled key and upserts straight to Supabase.
+        shard_count = int(os.environ.get('ATTACKS_SHARD_COUNT', '0') or '0')
+        if shard_count > 0:
+            shard_index = int(os.environ.get('ATTACKS_SHARD_INDEX', '0'))
+            backfill_from = int(os.environ.get('ATTACKS_BACKFILL_FROM_TS', '0'))
+            from_ts, to_ts = _shard_window(shard_index, shard_count, backfill_from)
+            stats = updater.update_attacks_window(from_ts, to_ts)
+        else:
+            stats = updater.update_attacks()
+
         logger.info(f"Final stats: {stats}")
     except Exception as e:
         logger.error(f"Faction attacks update failed: {e}", exc_info=True)

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.utils.json_storage import JSONStorageManager
 from scripts.utils.torn_api import TornAPI, TornAPIError
+from scripts.utils.key_pool import claim_next_api_key
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,9 +38,8 @@ class WarDataUpdater:
         testing_mode = os.environ.get('TESTING_MODE') == 'true'
         self.storage = JSONStorageManager(data_dir='data', auto_commit=not testing_mode)
 
-        self.api_key = os.environ.get('TORN_API_KEY')
-        if not self.api_key:
-            raise ValueError("TORN_API_KEY environment variable not set")
+        # 2.0: claim a key from the consented rotation pool (user keys only).
+        self.api_key = claim_next_api_key(faction_only=True)
 
         self.api = TornAPI(self.api_key)
         logger.info("War Data Updater initialized")

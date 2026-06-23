@@ -207,10 +207,11 @@ async def _evaluate_alert(seller_id, seller: Optional[Dict], bot, last_item=None
             return
     raw_total = win["total"]
     win, res = await _bank_adjust(seller, win)
+    win, res, protection_pct = await _mug_protect_adjust(seller, win)
     la = (seller or {}).get("last_action_ts")
     state = (seller or {}).get("status_state")
-    log.info("mug-eval seller=%s: raw=%s decayed=%s mug=%s-%s qualifies=%s | status=%s last_action=%ss-ago online=%s",
-             seller_id, raw_total, win["total"], res.mug_min, res.mug_max, res.qualifies,
+    log.info("mug-eval seller=%s: raw=%s adj=%s mug=%s-%s qualifies=%s protection=%s%% | status=%s last_action=%ss-ago online=%s",
+             seller_id, raw_total, win["total"], res.mug_min, res.mug_max, res.qualifies, protection_pct,
              state, (int(time.time()) - int(la)) if la else "?", (seller or {}).get("online_status"))
     if not res.qualifies:
         return  # decayed below threshold — they've likely banked it
@@ -226,9 +227,29 @@ async def _evaluate_alert(seller_id, seller: Optional[Dict], bot, last_item=None
     if bot is not None:
         await bot.post_mug_alert(
             _build_event(seller_id, seller, win, res, variant=variant, last_item=last_item,
-                         hospitalize=hospitalize)
+                         hospitalize=hospitalize, protection_pct=protection_pct)
         )
     await _mark_alerted(seller_id, win)
+
+
+def _was_mugged(seller: Optional[Dict]) -> bool:
+    return "mug" in ((seller or {}).get("status_details") or "").lower()
+
+
+async def _mug_protect_adjust(seller: Optional[Dict], win: Dict):
+    """Mug protection: if the seller is in hospital AND was mugged, their wallet was largely taken
+    and the leftover is protected, decaying linearly to 0 over MUG_PROTECTION_HOURS. We estimate the
+    mug time as their last action (they can't act while hospitalised) and keep only the still-
+    muggable fraction. Returns (win, res, protection_pct)."""
+    hours = config.MUG_PROTECTION_HOURS
+    la = (seller or {}).get("last_action_ts")
+    if hours <= 0 or not la or (seller or {}).get("status_state") != "Hospital" or not _was_mugged(seller):
+        return win, await _mug_for(seller, win["total"]), 0
+    elapsed = int(time.time()) - int(la)
+    muggable = max(0.0, min(1.0, elapsed / (hours * 3600)))   # protection decays over `hours`
+    adj = int(win["total"] * muggable)
+    win = {**win, "total": adj}
+    return win, await _mug_for(seller, adj), round((1.0 - muggable) * 100)
 
 
 async def _is_hospitalize_faction(seller: Optional[Dict]) -> bool:
@@ -276,18 +297,19 @@ async def post_hospital_due(bot) -> None:
         # Fresh status right before posting (they may have left hospital early).
         seller = await enrich_seller(seller_id, _http(), force=True)
         win, res = await _bank_adjust(seller, win)
+        win, res, protection_pct = await _mug_protect_adjust(seller, win)
         if not res.qualifies:
             continue
         variant = "hospital" if (seller or {}).get("status_state") == "Hospital" else "mug"
         if bot is not None:
             await bot.post_mug_alert(_build_event(
                 seller_id, seller, win, res, variant=variant,
-                hospitalize=await _is_hospitalize_faction(seller)))
+                hospitalize=await _is_hospitalize_faction(seller), protection_pct=protection_pct))
         await _mark_alerted(seller_id, win)
 
 
 def _build_event(seller_id, seller: Optional[Dict], win: Dict, res, *, variant="mug",
-                 last_item=None, hospitalize=False) -> Dict:
+                 last_item=None, hospitalize=False, protection_pct=0) -> Dict:
     seller = seller or {}
     # Headline item for the embed: the sale that triggered this, else the most recent in the window.
     headline = last_item or {}
@@ -315,6 +337,7 @@ def _build_event(seller_id, seller: Optional[Dict], win: Dict, res, *, variant="
         "faction": seller.get("faction"),
         "faction_id": seller.get("faction_id"),
         "hospitalize": bool(hospitalize),
+        "protection_pct": protection_pct,   # mug-protection reduction applied (%)
         "in_clothing_store": bool(seller.get("in_clothing_store")),
         # Only claim "Was Mugged" if the hospital REASON actually says so — being in hospital for
         # any other reason (self-hosp, attacked, medical) is NOT a mug.
