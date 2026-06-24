@@ -14,6 +14,25 @@ and stamps the footer automatically.
 ## [Released]
 
 
+## [2.1.0] - 2026-06-24
+
+### Added
+
+- **War roll call.** Native pre-war availability form (replaces the Google Form),
+  stored in `war_room_roll_call_v2`. A blocking overlay gates the War Room until a
+  member responds, auto-releasing within 1 hour of war start. A post-login banner
+  nudges anyone who hasn't responded; a "Roll Call" button lets members review/edit
+  their answer (edits are flagged to leadership).
+- **War summary card** — opponent, start time (TCT) + countdown, war type/agreed
+  score, and leadership notes, shown to everyone.
+- **War Notes panel** (War Leaders only) beside the settings gear: war type
+  (real/termed/race), agreed/target score, strategy notes, plus the embedded
+  roll-call results table and "not yet responded" list.
+- **Tuesday automation** (`cron_war_lifecycle`): auto-sets-up the matched war
+  (save faction → clear → fetch members → spies, wiping the prior week's roll
+  call/notes), auto-enables at T-1h, and auto-disables on war end — only for
+  automation-owned sessions, so manual/testing runs are never touched.
+
 ## [2.0.0] - 2026-06-22
 
 ### Added

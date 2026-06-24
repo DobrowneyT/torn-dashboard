@@ -14,6 +14,7 @@ items are intentionally out of scope here (added later via price/quantity matchi
 import asyncio
 import json
 import logging
+import time
 
 import httpx
 
@@ -22,6 +23,12 @@ from server import db, deal_finder, detection, torn
 from server import keys as keypool
 
 log = logging.getLogger("mug.poller")
+
+# Adaptive per-item scheduling state (see CACHE_REPOLL_OFFSET in config). _next_due[item_id] is the
+# wall-clock epoch at which the item is next due to be polled; _last_cts[item_id] is the last
+# cache_timestamp we saw (to detect "snapshot hasn't refreshed yet" and avoid busy-looping).
+_next_due: dict = {}
+_last_cts: dict = {}
 
 # Sale handling (enrich + mug calc + Discord post) runs as independent tasks so it NEVER blocks the
 # poll loop — a sale is processed in real time, concurrently with ongoing polling, instead of
@@ -43,72 +50,99 @@ async def drain_sale_tasks() -> None:
 
 
 async def run_gear_poller(bot=None) -> None:
-    """Long-lived loop; started from main when DETECTION_MODE is api/both."""
+    """Long-lived loop; started from main when DETECTION_MODE is api/both. Adaptive cache-timed: each
+    item is polled just after its next cache snapshot is due (cache_timestamp + CACHE_REPOLL_OFFSET),
+    not on a blind fixed interval — freshest data, ~1 poll per item per 30s cache cycle."""
     client = httpx.AsyncClient()
-    log.info("gear API poller started (interval=%ss, confirm=%s polls)",
-             config.GEAR_POLL_INTERVAL_SECONDS, config.GEAR_VANISH_CONFIRM_POLLS)
+    log.info("gear API poller started (adaptive: repoll at cache_ts+%ss, retry %ss, confirm=%s polls)",
+             config.CACHE_REPOLL_OFFSET, config.CACHE_RETRY_SECONDS, config.GEAR_VANISH_CONFIRM_POLLS)
     try:
         while True:
             try:
                 # Self-throttling: only actually re-fetches every VALUES_REFRESH_SECONDS (~4h).
                 await deal_finder.maybe_refresh_values(client)
-                await _poll_cycle(bot, client)
+                await _poll_due(bot, client)
             except Exception:
-                log.exception("gear poll cycle error")
-                await asyncio.sleep(config.GEAR_POLL_INTERVAL_SECONDS)
+                log.exception("gear poll tick error")
+            await asyncio.sleep(config.POLL_TICK_SECONDS)
     finally:
         await client.aclose()
 
 
-async def _poll_cycle(bot, client: httpx.AsyncClient) -> None:
-    """One full pass over the watched items, polling them CONCURRENTLY (bounded) so a large watch
-    list still completes within the interval — sequential polling falls behind and detects sales
-    late (by which point the cash is often banked). Then sleep the remainder of the interval so we
-    don't poll faster than the API's 30s cache."""
+def _schedule_next(item_id, cts) -> None:
+    """Set when this item is next due, from the cache_timestamp we just observed. A cache stamped
+    `cts` only becomes visible ~30s later and is replaced ~30s after that, so the NEXT distinct
+    snapshot appears at ~cts+60 → poll at cts+CACHE_REPOLL_OFFSET to land just after it. If the
+    snapshot hasn't actually refreshed (same cts as last time, or fetch failed), re-check soon
+    instead of recomputing from the stale stamp (which would busy-loop)."""
+    now = time.time()
+    if cts is None or cts == _last_cts.get(item_id):
+        _next_due[item_id] = now + config.CACHE_RETRY_SECONDS
+        return
+    _last_cts[item_id] = cts
+    _next_due[item_id] = max(cts + config.CACHE_REPOLL_OFFSET, now + config.CACHE_RETRY_SECONDS)
+
+
+async def _poll_due(bot, client: httpx.AsyncClient) -> None:
+    """Poll every watched item whose scheduled time has arrived, CONCURRENTLY (bounded). New items
+    (no schedule yet) are due immediately; items no longer watched are dropped from the schedule."""
     targets = await db.poll_targets()
-    interval = config.GEAR_POLL_INTERVAL_SECONDS
     if not targets:
-        await asyncio.sleep(interval)
+        return
+    now = time.time()
+    watched = {t[0] for t in targets}
+    for gone in [i for i in _next_due if i not in watched]:
+        _next_due.pop(gone, None)
+        _last_cts.pop(gone, None)
+
+    due = [(i, g, c) for (i, g, c) in targets if _next_due.get(i, 0.0) <= now]
+    if not due:
         return
 
     concurrency = config.MAX_CONCURRENT_POLLS or keypool.active_count() or 1
-    concurrency = max(1, min(concurrency, len(targets)))
+    concurrency = max(1, min(concurrency, len(due)))
     sem = asyncio.Semaphore(concurrency)
     all_bonus = await db.get_gear_all_bonus()   # gear to fetch with NO bonus filter (capture all)
 
     async def _one(item_id, is_gear, category):
         async with sem:   # each in-flight call grabs the next key in the rotation
             try:
-                await poll_item(bot, client, item_id, is_gear, category, all_bonus)
+                cts = await poll_item(bot, client, item_id, is_gear, category, all_bonus)
+                _schedule_next(item_id, cts)
             except Exception:
                 log.exception("poll error item=%s", item_id)
+                _next_due[item_id] = time.time() + config.CACHE_RETRY_SECONDS
 
     loop = asyncio.get_event_loop()
     t0 = loop.time()
-    await asyncio.gather(*(_one(i, g, c) for i, g, c in targets))
-    elapsed = loop.time() - t0
-    behind = " (BEHIND — raise keys/concurrency)" if elapsed > interval else ""
-    log.info("poll cycle: %d items in %.1fs, concurrency=%d%s", len(targets), elapsed, concurrency, behind)
-    await asyncio.sleep(max(0.0, interval - elapsed))
+    await asyncio.gather(*(_one(i, g, c) for i, g, c in due))
+    log.debug("poll tick: %d/%d items due, polled in %.1fs, concurrency=%d",
+              len(due), len(targets), loop.time() - t0, concurrency)
 
 
 async def _fetch_pages(client, item_id, bonus, max_pages):
     """Paginate up to max_pages (stops early when a page returns < 100). Returns
-    (item_meta, listings); listings is None on a first-page API error, else the accumulated
-    listings (possibly empty)."""
+    (item_meta, listings, complete, cache_ts); listings is None on a first-page API error.
+    `complete` is False if a LATER page errored — the snapshot is then truncated (missing the
+    listings on the failed page), so it must NOT drive sale detection or every missing uid looks
+    sold (the TCT-midnight 504 storm). The caller still tracks the listings it did get, just no
+    vanish pass. `cache_ts` (from page 0) drives adaptive re-poll scheduling."""
     item_meta = None
+    cache_ts = None
     out = []
     for page in range(max_pages):
         res = await torn.get_itemmarket(client, item_id, bonus=bonus, offset=page * 100)
         if res is None:
-            return (item_meta, out if page > 0 else None)
+            # page 0 failed -> nothing usable; later page failed -> partial (incomplete) snapshot.
+            return (item_meta, (out if page > 0 else None), False, cache_ts)
         if item_meta is None:
             item_meta = res.get("item") or {}
+            cache_ts = res.get("cache_timestamp")
         listings = res.get("listings") or []
         out.extend(listings)
         if len(listings) < 100:
             break
-    return (item_meta, out)
+    return (item_meta, out, True, cache_ts)
 
 
 def _detect_is_gear(item_meta, listings) -> bool:
@@ -133,7 +167,9 @@ def _wants_all_bonus(item_id, category, tokens) -> bool:
     return str(item_id) in low or (category and str(category).lower() in low)
 
 
-async def poll_item(bot, client: httpx.AsyncClient, item_id, is_gear, category=None, all_bonus=None) -> None:
+async def poll_item(bot, client: httpx.AsyncClient, item_id, is_gear, category=None, all_bonus=None):
+    """Poll one item, reconcile its snapshot, and RETURN the snapshot's cache_timestamp (or None on
+    a first-page failure) so the adaptive scheduler can time the next poll."""
     # GEAR: filter to bonus listings (the valuable mug targets) UNLESS this item/category is on the
     # "all bonuses" list (then capture every listing). Non-gear / undetected: no filter, 1 page.
     if is_gear is True and not _wants_all_bonus(item_id, category, all_bonus):
@@ -141,9 +177,9 @@ async def poll_item(bot, client: httpx.AsyncClient, item_id, is_gear, category=N
     else:
         bonus = None
     max_pages = config.MAX_PAGES_GEAR if is_gear else config.MAX_PAGES_ITEM
-    item_meta, listings = await _fetch_pages(client, item_id, bonus, max_pages)
+    item_meta, listings, complete, cache_ts = await _fetch_pages(client, item_id, bonus, max_pages)
     if listings is None:
-        return
+        return cache_ts
     if is_gear is None:
         is_gear = _detect_is_gear(item_meta, listings)
     await db.watchlist_mark_polled(
@@ -161,20 +197,22 @@ async def poll_item(bot, client: httpx.AsyncClient, item_id, is_gear, category=N
             if uid is None:
                 continue
             current[str(uid)] = {"price": entry.get("price"), "stats": det.get("stats")}
-        await reconcile_gear(bot, item_id, current, label)
+        await reconcile_gear(bot, item_id, current, label, complete=complete)
     else:
         current = [{"price": e.get("price"), "amount": e.get("amount")} for e in listings]
-        await reconcile_items(bot, item_id, current)
+        await reconcile_items(bot, item_id, current, complete=complete, item_label=label)
         await deal_finder.check_item_deals(
             bot, item_id, current, item_name=label, category=(item_meta or {}).get("type")
         )
+    return cache_ts
 
 
-async def reconcile_items(bot, item_id, current: list) -> None:
+async def reconcile_items(bot, item_id, current: list, complete: bool = True, item_label=None) -> None:
     """Items: track each UNIQUE price and watch its quantity. A quantity drop = a confident sale
     by the captured seller (matched on price+quantity). Collisions are dropped; a unique price
     fully vanishing only alerts when ITEM_ALERT_ON_REMOVE is set (sale vs delist/reprice is
-    ambiguous without a uid)."""
+    ambiguous without a uid). `complete=False` (a paginated page errored) suppresses the
+    full-removal pass so a truncated snapshot can't mass-fire."""
     tracked = await db.get_tracked_items(item_id)
     price_counts: dict = {}
     amount_at: dict = {}
@@ -195,7 +233,8 @@ async def reconcile_items(bot, item_id, current: list) -> None:
             if prev is not None and amt < prev and seller_id:
                 log.info("item sale: item=%s price=%s qty=%s seller=%s", item_id, p, prev - amt, seller_id)
                 _spawn_sale(detection.on_sale(
-                    seller_id=seller_id, item_id=item_id, item_name=tracked[p].get("item_name"),
+                    seller_id=seller_id, item_id=item_id,
+                    item_name=tracked[p].get("item_name") or item_label,
                     qty=prev - amt, unit_price=p, listing_id=f"item:{item_id}:{p}", bot=bot,
                 ))
             await db.upsert_tracked_item(
@@ -210,6 +249,8 @@ async def reconcile_items(bot, item_id, current: list) -> None:
                     item_name=match.get("item_name"), last_amount=amt,
                 )
 
+    if not complete:
+        return   # truncated snapshot: a missing price may just be on the failed page, not removed
     for p, row in tracked.items():
         if p in price_counts:
             continue
@@ -225,11 +266,15 @@ async def reconcile_items(bot, item_id, current: list) -> None:
             ))
 
 
-async def reconcile_gear(bot, item_id, current: dict, item_label=None) -> None:
+async def reconcile_gear(bot, item_id, current: dict, item_label=None, complete: bool = True) -> None:
     """Diff this item's current uids. A uid we can attribute to a seller (exact uid match, or a
     unique price) is tracked for sale detection; an anonymous uid is ignored; everything else is
     recorded as UNMATCHED so the item-matcher knows to capture its seller. Vanished tracked uids
     with a seller = a sale.
+
+    `complete=False` means a paginated page errored and `current` is a TRUNCATED snapshot — we
+    still track the uids we did see, but SKIP the vanish->sale pass, since uids on the failed page
+    would otherwise all look sold (the TCT-midnight 504 storm that fired ~90 false mugs at once).
     """
     tracked = await db.get_tracked_uids_for_item(item_id)
     uid_map = await db.get_gear_uid_map(item_id)
@@ -295,6 +340,13 @@ async def reconcile_gear(bot, item_id, current: dict, item_label=None) -> None:
                  "(uid_map=%d, anon=%d)", item_id, len(current), stats_n["tracked"], stats_n["uid"],
                  stats_n["price"], stats_n["anon"], stats_n["unmatched"], len(uid_map), len(anon))
 
+    # A truncated snapshot (a paginated page errored) is missing real listings, not sold ones — do
+    # NOT run the vanish pass against it, or every uid on the failed page fires as a phantom sale.
+    if not complete:
+        if config.DEBUG_GEAR:
+            log.info("reconcile item=%s: incomplete fetch -> skipping vanish pass (no sale detection)", item_id)
+        return
+
     # Tracked uids that are gone this poll: debounce, then treat as a sale.
     for uid, row in tracked.items():
         if uid in current:
@@ -325,7 +377,7 @@ async def reconcile_gear(bot, item_id, current: dict, item_label=None) -> None:
                     stats = None
             _spawn_sale(detection.on_sale(
                 seller_id=row["seller_id"], item_id=item_id,
-                item_name=row.get("item_name"), qty=1, unit_price=row.get("price"),
+                item_name=row.get("item_name") or item_label, qty=1, unit_price=row.get("price"),
                 listing_id=f"uid:{uid}", bot=bot, stats=stats,
             ))
 

@@ -502,6 +502,76 @@ class MugBot(discord.Client):
 
         self.tree.add_command(gearbonus)
 
+        # ----------------------------- /delist ----------------------------
+        # De-list handling for GEAR vanishes (a seller pulling their own listing looks identical to
+        # a sale). One command, all params optional — set the detection buffer and/or the mode.
+        @self.tree.command(
+            name="delist",
+            description="Configure likely-de-list handling (buffer + ping/silent/off)")
+        @app_commands.describe(
+            seconds="Flag a gear vanish as a likely de-list if the seller was online and acted within this many seconds (0 disables the flag)",
+            mode="What to do with likely de-lists")
+        @app_commands.choices(mode=[
+            app_commands.Choice(name="ping — post + ping the mug role (default)", value="ping"),
+            app_commands.Choice(name="silent — post but DON'T ping the role", value="silent"),
+            app_commands.Choice(name="off — drop it (no alert, removed from the value window)", value="off"),
+        ])
+        async def delist(interaction: discord.Interaction,
+                         seconds: Optional[int] = None,
+                         mode: Optional[app_commands.Choice[str]] = None):
+            changed = []
+            if seconds is not None:
+                if seconds < 0:
+                    await interaction.response.send_message("Seconds must be ≥ 0.", ephemeral=True)
+                    return
+                await db.set_config("delist_tag_seconds", seconds)
+                changed.append(f"buffer → **{seconds}s**")
+            if mode is not None:
+                await db.set_config("delist_mode", mode.value)
+                changed.append(f"mode → **{mode.value}**")
+            cur_secs = await db.get_config("delist_tag_seconds", config.DELIST_TAG_SECONDS)
+            cur_mode = await db.get_config("delist_mode", config.DELIST_MODE)
+            head = ("✅ " + ", ".join(changed) + "\n") if changed else ""
+            await interaction.response.send_message(
+                f"{head}🏷️ De-list buffer: **{int(cur_secs)}s** · mode: **{cur_mode}** "
+                f"(`ping` = post+ping, `silent` = post no-ping, `off` = drop).",
+                ephemeral=True)
+
+        # ----------------------------- /hosplock --------------------------
+        # How a sale by an in-hospital seller is alerted. All params optional.
+        @self.tree.command(
+            name="hosplock",
+            description="Configure in-hospital sale alerts (live/remind/hold + lead time)")
+        @app_commands.describe(
+            mode="When to post a sale by an in-hospital seller",
+            lead_minutes="For hold/remind: minutes before release to (re)post")
+        @app_commands.choices(mode=[
+            app_commands.Choice(name="live — post now with a release countdown (default)", value="live"),
+            app_commands.Choice(name="remind — post now AND re-post near release", value="remind"),
+            app_commands.Choice(name="hold — wait, post once just before release", value="hold"),
+        ])
+        async def hosplock(interaction: discord.Interaction,
+                           mode: Optional[app_commands.Choice[str]] = None,
+                           lead_minutes: Optional[int] = None):
+            changed = []
+            if mode is not None:
+                await db.set_config("hosp_mode", mode.value)
+                changed.append(f"mode → **{mode.value}**")
+            if lead_minutes is not None:
+                if lead_minutes < 0:
+                    await interaction.response.send_message("Lead minutes must be ≥ 0.", ephemeral=True)
+                    return
+                await db.set_config("hosp_lead_seconds", lead_minutes * 60)
+                changed.append(f"lead → **{lead_minutes} min**")
+            cur_mode = await db.get_config("hosp_mode", config.HOSP_MODE)
+            cur_lead = int(await db.get_config("hosp_lead_seconds", config.HOSPITAL_RELEASE_LEAD_SECONDS))
+            head = ("✅ " + ", ".join(changed) + "\n") if changed else ""
+            await interaction.response.send_message(
+                f"{head}🏥 Hospital mode: **{cur_mode}** · lead: **{cur_lead // 60} min** "
+                f"(`live` = post now, `remind` = post now + re-post near release, `hold` = post only "
+                "near release).",
+                ephemeral=True)
+
         # ----------------------------- /help ------------------------------
         @self.tree.command(name="help", description="List Mug Bot's commands")
         async def help_cmd(interaction: discord.Interaction):
@@ -523,6 +593,13 @@ class MugBot(discord.Client):
                 "\n*Tip:* item lists accept names, ids, or a category keyword — "
                 "`all`, `gear`, `items`, `primary`, `secondary`, `melee`, `armour` "
                 "(comma-separate to combine).")
+            lines.append(
+                "*De-lists:* `/delist mode:ping|silent|off` — `silent` posts without pinging, `off` "
+                "drops likely self-pulls entirely; `/delist seconds:<n>` sets the detection buffer.")
+            lines.append(
+                "*Hospital:* `/hosplock mode:live|remind|hold` — `live` posts immediately with a "
+                "countdown, `remind` also re-posts near release, `hold` waits; `lead_minutes` sets "
+                "how early.")
             embed = discord.Embed(
                 title="🤖 Mug Bot — Commands",
                 description="\n".join(lines)[:4096],
@@ -610,10 +687,12 @@ class MugBot(discord.Client):
             log.warning("post_mug_alert skipped — MUG_LOGS_CHANNEL_ID not set")
             return
         channel = await self._channel(config.LOGS_CHANNEL_ID)
+        # silent events (likely de-lists under /delist mode=silent) post the embed but skip the ping.
+        silent = bool(event.get("silent"))
         await channel.send(
-            content=_role_ping(config.LOGS_ROLE_ID),
+            content=None if silent else _role_ping(config.LOGS_ROLE_ID),
             embeds=[formatter.build_mug_alert_embed(event)],
-            allowed_mentions=discord.AllowedMentions(roles=True),
+            allowed_mentions=discord.AllowedMentions(roles=not silent),
         )
 
     async def post_deal(self, deal: Dict) -> None:

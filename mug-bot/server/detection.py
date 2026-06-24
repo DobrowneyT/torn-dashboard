@@ -215,21 +215,46 @@ async def _evaluate_alert(seller_id, seller: Optional[Dict], bot, last_item=None
              state, (int(time.time()) - int(la)) if la else "?", (seller or {}).get("online_status"))
     if not res.qualifies:
         return  # decayed below threshold — they've likely banked it
-    if state == "Hospital" and (seller or {}).get("status_until"):
-        log.info("mug-eval seller=%s: HELD (in hospital until %s) -> bot loop posts before release",
+
+    # Likely de-list handling (soft, configurable via /delist): a GEAR uid that vanished while the
+    # seller was actively online is almost always them pulling their own listing, not a buy.
+    tag_secs = await _cfg("delist_tag_seconds", config.DELIST_TAG_SECONDS)
+    delist_mode = (await _cfg("delist_mode", config.DELIST_MODE) or "ping")
+    delist_secs = _delist_active_secs(seller, listing_id, tag_secs)
+    if delist_secs is not None and delist_mode == "off":
+        log.info("mug-eval seller=%s: likely de-list (acted %ss ago) + mode=off -> drop, no alert",
+                 seller_id, delist_secs)
+        if sale_id is not None:
+            await db.delete_sale(sale_id)   # also remove the phantom from the value window
+        return
+
+    # Hospital handling (configurable via /hosplock). hold = defer + post once near release (the
+    # bot loop does it); live/remind = post now (remind also re-posts near release, so keep the
+    # window — don't claim — until that reminder fires).
+    hosp_mode = (await _cfg("hosp_mode", config.HOSP_MODE) or "live")
+    in_hospital = state == "Hospital" and bool((seller or {}).get("status_until"))
+    if in_hospital and hosp_mode == "hold":
+        log.info("mug-eval seller=%s: HELD (in hospital until %s, mode=hold) -> loop posts before release",
                  seller_id, (seller or {}).get("status_until"))
-        return  # hold — the bot's loop posts the accumulated total ~60s before release
-    # Flag a target who's abroad/travelling so it's clear you must fly to them to mug.
-    variant = "overseas" if state in ("Traveling", "Abroad") else "mug"
+        return
+
+    if state == "Hospital":
+        variant = "hospital"
+    elif state in ("Traveling", "Abroad"):
+        variant = "overseas"   # flag a target abroad so it's clear you must fly to them to mug
+    else:
+        variant = "mug"
     hospitalize = await _is_hospitalize_faction(seller)
-    log.info("mug-eval seller=%s: POST alert variant=%s value=%s hospitalize=%s",
-             seller_id, variant, win["total"], hospitalize)
+    log.info("mug-eval seller=%s: POST alert variant=%s value=%s hospitalize=%s delist=%s mode=%s",
+             seller_id, variant, win["total"], hospitalize,
+             delist_secs if delist_secs is not None else "-", delist_mode)
     if bot is not None:
-        await bot.post_mug_alert(
-            _build_event(seller_id, seller, win, res, variant=variant, last_item=last_item,
-                         hospitalize=hospitalize, protection_pct=protection_pct)
-        )
-    await _mark_alerted(seller_id, win)
+        event = _build_event(seller_id, seller, win, res, variant=variant, last_item=last_item,
+                             hospitalize=hospitalize, protection_pct=protection_pct,
+                             delist_active_secs=delist_secs)
+        event["silent"] = bool(delist_secs is not None and delist_mode == "silent")
+        await bot.post_mug_alert(event)
+    await _mark_alerted(seller_id, win, claim=not (in_hospital and hosp_mode == "remind"))
 
 
 def _was_mugged(seller: Optional[Dict]) -> bool:
@@ -266,12 +291,13 @@ async def _bank_adjust(seller: Optional[Dict], win: Dict):
     return win, await _mug_for(seller, adj_total)
 
 
-async def _mark_alerted(seller_id, win: Dict) -> None:
+async def _mark_alerted(seller_id, win: Dict, claim: bool = True) -> None:
     """Record the cooldown and (assuming the alert => a mug) claim the alerted sales so they're
-    never re-counted in a later window."""
+    never re-counted in a later window. claim=False keeps the window intact (used for the live
+    'remind' hospital post, where the near-release reminder still needs the accumulated total)."""
     await db.set_last_alerted(seller_id)
     sales = win.get("sales") or []
-    if config.MUG_CLAIM_ON_ALERT and sales:
+    if claim and config.MUG_CLAIM_ON_ALERT and sales:
         await db.set_mug_claimed(seller_id, max(s["sold_at"] for s in sales))
 
 
@@ -284,32 +310,72 @@ async def _cooldown_ok(seller: Optional[Dict]) -> bool:
 
 
 async def post_hospital_due(bot) -> None:
-    """Called periodically by the bot: post held alerts for sellers about to leave hospital."""
-    for row in await db.sellers_in_hospital_due(config.HOSPITAL_RELEASE_LEAD_SECONDS):
+    """Called periodically by the bot: post the near-release alert for in-hospital sellers.
+      hold   -> the ONLY post for that seller (deferred from detection); gated by the cooldown.
+      remind -> a re-post (detection already posted live); gated so it fires exactly ONCE in the
+                lead window (we skip if the seller was last alerted inside it).
+      live   -> nothing to do here (the single post happened at detection).
+    Either way we re-verify live status: only post if they're genuinely leaving within the lead
+    window (or already out); a re-hospitalised seller is re-held for the real near-release."""
+    hosp_mode = (await _cfg("hosp_mode", config.HOSP_MODE) or "live")
+    if hosp_mode == "live":
+        return
+    lead = int(await _cfg("hosp_lead_seconds", config.HOSPITAL_RELEASE_LEAD_SECONDS))
+    for row in await db.sellers_in_hospital_due(lead):
         seller_id = row["user_id"]
         window = await _cfg("sale_window_seconds", config.SALE_WINDOW_SECONDS)
         win = await db.seller_window(seller_id, window)
-        if win["total"] <= 0 or not await _cooldown_ok(row):
+        if win["total"] <= 0:
+            continue
+        # hold: the cooldown is the de-dup. remind: the cooldown was just set by the live detection
+        # post, so it would (wrongly) block the reminder — instead gate on "already alerted inside
+        # this lead window" further below, after we know the live release time.
+        if hosp_mode == "hold" and not await _cooldown_ok(row):
             continue
         res = await _mug_for(row, win["total"])
         if not res.qualifies:
             continue
-        # Fresh status right before posting (they may have left hospital early).
         seller = await enrich_seller(seller_id, _http(), force=True)
+        state = (seller or {}).get("status_state")
+        until = (seller or {}).get("status_until")
+        now = int(time.time())
+        if state == "Hospital" and until and int(until) > now + lead:
+            log.info("hospital-due seller=%s: re-hospitalised (until %s, >%ss out) -> re-hold",
+                     seller_id, until, lead)
+            continue
+        if hosp_mode == "remind":
+            last = row.get("last_alerted_at")
+            if until and last and int(last) >= int(until) - lead:
+                continue   # already reminded inside this lead window -> fire only once
         win, res = await _bank_adjust(seller, win)
         win, res, protection_pct = await _mug_protect_adjust(seller, win)
         if not res.qualifies:
             continue
-        variant = "hospital" if (seller or {}).get("status_state") == "Hospital" else "mug"
+        variant = "hospital" if state == "Hospital" else "mug"
         if bot is not None:
             await bot.post_mug_alert(_build_event(
                 seller_id, seller, win, res, variant=variant,
                 hospitalize=await _is_hospitalize_faction(seller), protection_pct=protection_pct))
-        await _mark_alerted(seller_id, win)
+        await _mark_alerted(seller_id, win)   # claim the window now (final post for this stay)
+
+
+def _delist_active_secs(seller: Optional[Dict], listing_id, tag_secs) -> Optional[int]:
+    """Likely-de-list signal (no extra API call): a GEAR uid vanished while the seller was
+    online/idle and had acted within `tag_secs` -> they almost certainly pulled/relisted it
+    themselves. A real buy means the BUYER acted, so the seller's last action is usually
+    old/offline. Returns the seconds-since-last-action if it looks like a de-list, else None."""
+    if not tag_secs or not str(listing_id or "").startswith("uid:"):
+        return None
+    la = (seller or {}).get("last_action_ts")
+    if la and (seller or {}).get("online_status") in ("Online", "Idle"):
+        age = int(time.time()) - int(la)
+        if 0 <= age <= int(tag_secs):
+            return age
+    return None
 
 
 def _build_event(seller_id, seller: Optional[Dict], win: Dict, res, *, variant="mug",
-                 last_item=None, hospitalize=False, protection_pct=0) -> Dict:
+                 last_item=None, hospitalize=False, protection_pct=0, delist_active_secs=None) -> Dict:
     seller = seller or {}
     # Headline item for the embed: the sale that triggered this, else the most recent in the window.
     headline = last_item or {}
@@ -338,6 +404,7 @@ def _build_event(seller_id, seller: Optional[Dict], win: Dict, res, *, variant="
         "faction_id": seller.get("faction_id"),
         "hospitalize": bool(hospitalize),
         "protection_pct": protection_pct,   # mug-protection reduction applied (%)
+        "delist_active_secs": delist_active_secs,  # set => "⚠️ Likely de-list" (seller active Ns ago)
         "in_clothing_store": bool(seller.get("in_clothing_store")),
         # Only claim "Was Mugged" if the hospital REASON actually says so — being in hospital for
         # any other reason (self-hosp, attacked, medical) is NOT a mug.

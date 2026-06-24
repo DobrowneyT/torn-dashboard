@@ -71,7 +71,23 @@ def detection_ws_enabled() -> bool:
 
 # ---- API poller (gear + items) ----
 # Poll every ~30s to match the API's 30s global cache (polling faster just returns stale data).
+# (Used for the calls/min estimate; actual scheduling is adaptive — see CACHE_REPOLL_OFFSET below.)
 GEAR_POLL_INTERVAL_SECONDS = int(os.environ.get("MUG_GEAR_POLL_INTERVAL", "30"))
+
+# Adaptive cache-timed scheduling. Each itemmarket response carries `cache_timestamp` (when Torn
+# generated that snapshot). Measured behaviour (202 items): the cache regenerates on an EXACT 30s
+# cycle, but a snapshot only becomes VISIBLE ~29s (28-31) after its stamp — so the API always serves
+# data ~30s stale, and the NEXT distinct snapshot doesn't appear until ~cache_timestamp+60. We
+# therefore poll each item at `cache_timestamp + CACHE_REPOLL_OFFSET` (just after the next snapshot
+# lands) instead of a blind sweep: freshest possible data, ~1 poll per item per cache cycle, and no
+# 504-storm-inducing over-polling. A naive cache_timestamp+31 would re-hit the SAME snapshot.
+CACHE_REPOLL_OFFSET = int(os.environ.get("MUG_CACHE_REPOLL_OFFSET", "62"))
+# If a poll returns the same cache_timestamp as last time (we polled a touch early, or the snapshot
+# was slow to appear), re-check after this many seconds rather than recomputing from the stale stamp
+# (which would busy-loop). Also the backoff after a failed/None fetch.
+CACHE_RETRY_SECONDS = int(os.environ.get("MUG_CACHE_RETRY_SECONDS", "3"))
+# Scheduler granularity: how often the loop wakes to poll whatever items are now due.
+POLL_TICK_SECONDS = float(os.environ.get("MUG_POLL_TICK_SECONDS", "1"))
 # Emit a gear sale once a tracked uid has been absent for this many consecutive polls. 2 (= ~60s)
 # absorbs a delist→relist reprice: a seller who removes an item and re-lists it at a new price has
 # the uid briefly absent; one missed poll won't fire a false "sale" (the uid reappears, its tracked
@@ -117,6 +133,17 @@ ITEM_ALERT_ON_REMOVE = (os.environ.get("MUG_ITEM_ALERT_ON_REMOVE", "false") or "
 # Set >0 to re-enable the old auto-suppression.
 DELIST_GUARD_SECONDS = int(os.environ.get("MUG_DELIST_GUARD_SECONDS", "0"))
 
+# Delist TAG (GEAR): if a gear uid vanished while the seller was online/idle and had acted within
+# this many seconds, the sale is flagged a likely de-list — the seller was sitting there fiddling
+# with their own listing (a real buy means the BUYER acted, so the seller's last action is usually
+# old/offline). 0 disables the tag. Tunable live with /delist. The DEFAULT here seeds the DB config.
+DELIST_TAG_SECONDS = int(os.environ.get("MUG_DELIST_TAG_SECONDS", "120"))
+# How likely-de-list sales are handled (tunable live with /delist):
+#   ping   -> post the alert and ping the mug role (same as a normal sale)
+#   silent -> post the alert but DON'T ping the role (visible, no notification)
+#   off    -> drop it: no alert, and the phantom sale is removed from the seller's value window
+DELIST_MODE = (os.environ.get("MUG_DELIST_MODE", "ping") or "ping").strip().lower()
+
 # Mug protection: when a seller was just mugged (in hospital, "Mugged by …"), their wallet was
 # largely taken and the leftover is "protected", decaying linearly to 0 over this many hours. We
 # estimate the mug time as their last action (they can't act while hospitalised) and reduce the mug
@@ -152,8 +179,16 @@ ALERT_COOLDOWN_SECONDS = 60 * 10     # 10m
 SELLER_ENRICH_TTL_SECONDS = 60 * 60 * 24  # 24h
 # Hospital status changes often and is only ever refreshed when a sale is made, capped by this TTL.
 SELLER_STATUS_TTL_SECONDS = 120
-# Hospital-accumulation: post the held alert this many seconds before they're released.
-HOSPITAL_RELEASE_LEAD_SECONDS = 60
+# How a sale by an IN-HOSPITAL seller is alerted (tunable live with /hosplock):
+#   live   -> post immediately with a release countdown (you see all data as it lands)
+#   remind -> post immediately AND re-post once near release (the countdown + a final nudge)
+#   hold   -> don't post until ~lead before release, then post once (the original behaviour)
+HOSP_MODE = (os.environ.get("MUG_HOSP_MODE", "live") or "live").strip().lower()
+# Lead window (seconds): for hold/remind, how long before release we post / re-post. We re-fetch the
+# seller's live status right before posting and only fire if they're genuinely leaving within this
+# window (or already out) — so a re-hospitalised seller is re-held, not posted early. Tunable via
+# /hosplock (in minutes). The DEFAULT here seeds the DB config.
+HOSPITAL_RELEASE_LEAD_SECONDS = 120
 
 # ---- Items deal-finder (items channel) ----
 ITEM_DEAL_PCT = 50                   # alert when listed <= (100 - this)% of market value

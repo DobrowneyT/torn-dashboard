@@ -22,6 +22,9 @@ const corsHeaders = {
 }
 
 const LEADERSHIP_IDS = ['2250591', '2749598', '2264192', '2407528', '2932241', '2015160']
+// War Leaders — mirrors config.warleadUserIds in src/config.js. Gates the
+// War Notes panel + save_war_notes_v2. Keep in sync.
+const WARLEAD_IDS = ['2250591', '2749598', '2264192', '2407528', '2932241', '873341', '2478585', '2642228', '1712182', '3058543']
 // Subset of leadership with the power to release someone else's dibs.
 // Mirrors `adminsUserIds` in src/config.js — keep them in sync.
 const ADMIN_IDS = ['2250591']
@@ -700,6 +703,10 @@ async function handleSetConfigV2(
   if ('tornstats_max_age_days' in body) update.tornstats_max_age_days = body.tornstats_max_age_days
   if ('chain_poll_interval_ours_sec'  in body) update.chain_poll_interval_ours_sec  = body.chain_poll_interval_ours_sec
   if ('chain_poll_interval_enemy_sec' in body) update.chain_poll_interval_enemy_sec = body.chain_poll_interval_enemy_sec
+  // Automation ownership. A manual Save passes auto_managed:false so the
+  // lifecycle cron yields to the manual session; the cron passes true.
+  if ('auto_managed'   in body) update.auto_managed   = body.auto_managed
+  if ('managed_war_id' in body) update.managed_war_id = body.managed_war_id
 
   if (body.enabled === true) {
     update.started_by = Number(userId)
@@ -721,7 +728,16 @@ async function handleClearStateV2(
   if (!LEADERSHIP_IDS.includes(userId)) {
     return json({ error: 'Leadership only' }, 403)
   }
+  const err = await clearWarRoomStateCore(supabase)
+  if (err) return json({ error: err }, 500)
+  return json({ ok: true })
+}
 
+// Core clear used by both the leadership action and the cron lifecycle (which
+// has no user to authorise). Returns an error string or null.
+async function clearWarRoomStateCore(
+  supabase: ReturnType<typeof createClient>,
+): Promise<string | null> {
   const tombstoneTime = new Date().toISOString()
 
   // Soft-delete every live row in state + dibs. The trigger bumps updated_at,
@@ -731,13 +747,13 @@ async function handleClearStateV2(
     .from('war_room_state_v2')
     .update({ deleted_at: tombstoneTime })
     .is('deleted_at', null)
-  if (stateErr) return json({ error: `state clear error: ${stateErr.message}` }, 500)
+  if (stateErr) return `state clear error: ${stateErr.message}`
 
   const { error: dibsErr } = await supabase
     .from('war_room_dibs_v2')
     .update({ deleted_at: tombstoneTime })
     .is('deleted_at', null)
-  if (dibsErr) return json({ error: `dibs clear error: ${dibsErr.message}` }, 500)
+  if (dibsErr) return `dibs clear error: ${dibsErr.message}`
 
   // Reset the chain singleton to a blank slate so a brand-new war doesn't
   // inherit the prior chain's value, save-claim, cooldown, or enemy readout.
@@ -761,9 +777,176 @@ async function handleClearStateV2(
       enemy_last_fetched_at: null,
     })
     .eq('id', 1)
-  if (chainErr) return json({ error: `chain clear error: ${chainErr.message}` }, 500)
+  if (chainErr) return `chain clear error: ${chainErr.message}`
 
+  return null
+}
+
+// ── Roll call ─────────────────────────────────────────────────────────────────
+// Member submits/edits their availability for a war. member_id is derived from
+// their verified key (not the body). On an edit that changes any answer we keep
+// submitted_at, bump updated_at, and set revised=true so leadership sees changes.
+async function handleSubmitRollCallV2(
+  supabase: ReturnType<typeof createClient>,
+  body: any,
+  userId: string,
+  userName: string,
+) {
+  if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
+  const d = body.data ?? {}
+  if (d.war_id == null) return json({ error: 'war_id required' }, 400)
+  if (typeof d.on_at_start !== 'boolean') return json({ error: 'on_at_start required' }, 400)
+
+  // Q2/Q3 only apply when not on at the start.
+  const answers = {
+    on_at_start:       d.on_at_start,
+    can_self_hospital: d.on_at_start ? null : (d.can_self_hospital ?? null),
+    needs_merc:        d.on_at_start ? null : (d.needs_merc ?? null),
+    availability:      d.on_at_start ? 'on_time' : (d.availability ?? null),
+  }
+
+  const { data: existing } = await supabase
+    .from('war_room_roll_call_v2')
+    .select('id, on_at_start, can_self_hospital, needs_merc, availability')
+    .eq('war_id', d.war_id).eq('member_id', Number(userId)).maybeSingle()
+
+  const nowIso = new Date().toISOString()
+  if (!existing) {
+    const { error } = await supabase.from('war_room_roll_call_v2').insert({
+      war_id: d.war_id, member_id: Number(userId), member_name: userName,
+      ...answers, revised: false, submitted_at: nowIso, updated_at: nowIso,
+    })
+    if (error) return json({ error: error.message }, 500)
+    return json({ ok: true, created: true })
+  }
+
+  const changed =
+    existing.on_at_start       !== answers.on_at_start ||
+    existing.can_self_hospital !== answers.can_self_hospital ||
+    existing.needs_merc        !== answers.needs_merc ||
+    existing.availability      !== answers.availability
+
+  const update: Record<string, unknown> = { member_name: userName, ...answers, updated_at: nowIso }
+  if (changed) update.revised = true
+  const { error } = await supabase.from('war_room_roll_call_v2').update(update).eq('id', existing.id)
+  if (error) return json({ error: error.message }, 500)
+  return json({ ok: true, updated: true, changed })
+}
+
+// War Leaders set war type / agreed scores / strategy notes for a war.
+async function handleSaveWarNotesV2(
+  supabase: ReturnType<typeof createClient>,
+  body: any,
+  userId: string,
+  userName: string,
+) {
+  if (!WARLEAD_IDS.includes(String(userId))) return json({ error: 'War Leaders only' }, 403)
+  const d = body.data ?? {}
+  if (d.war_id == null) return json({ error: 'war_id required' }, 400)
+
+  const { error } = await supabase.from('war_room_notes_v2').upsert({
+    war_id:              d.war_id,
+    opponent_faction_id: d.opponent_faction_id ?? null,
+    war_type:            d.war_type ?? null,
+    termed_score:        d.termed_score ?? null,
+    race_target_score:   d.race_target_score ?? null,
+    notes:               d.notes ?? null,
+    updated_by_id:       Number(userId),
+    updated_by_name:     userName ?? null,
+  }, { onConflict: 'war_id' })
+  if (error) return json({ error: error.message }, 500)
   return json({ ok: true })
+}
+
+// ── Lifecycle automation (cron) ───────────────────────────────────────────────
+// Runs every few minutes. Detects the matched ranked war, auto-sets-up the War
+// Room (wipe prior week → set config → clear → fetch members + spies), enables
+// at T-1h, and disables when the managed war ends. Only acts on automation-owned
+// sessions (auto_managed) so manual/testing sessions are never clobbered.
+async function handleCronWarLifecycle(
+  supabase: ReturnType<typeof createClient>,
+  req: Request,
+) {
+  const cronSecret = Deno.env.get('CRON_SECRET')
+  if (!cronSecret) return json({ error: 'CRON_SECRET not configured' }, 500)
+  if (req.headers.get('x-cron-secret') !== cronSecret) {
+    return json({ error: 'Invalid cron secret' }, 401)
+  }
+
+  const { data: cfg } = await supabase
+    .from('war_room_config_v2')
+    .select('enabled, faction_id, auto_managed, managed_war_id')
+    .eq('id', 1).maybeSingle()
+
+  const tornKey = nextTornKey()
+  if (!tornKey) return json({ ok: false, reason: 'no pooled key available' })
+
+  const resp = await fetch(
+    `https://api.torn.com/v2/faction/${OUR_FACTION_ID}/rankedwars?key=${tornKey}&comment=WarRoomLifecycle`,
+  )
+  const data = await resp.json()
+  if (data.error) return json({ ok: false, reason: `torn error ${data.error.code}` })
+
+  const wars: any[] = data.rankedwars ?? []
+  const now = Math.floor(Date.now() / 1000)
+  const actions: string[] = []
+
+  // Upcoming/active war = has a start, no end yet. Pick the soonest.
+  const upcoming = wars
+    .filter(w => (w.start ?? 0) > 0 && !(w.end ?? 0))
+    .sort((a, b) => (a.start ?? 0) - (b.start ?? 0))[0] ?? null
+
+  if (upcoming) {
+    const opp = (upcoming.factions ?? []).find((f: any) => String(f.id) !== OUR_FACTION_ID)
+    const oppId = opp?.id ?? null
+    const startAt = upcoming.start ?? 0
+    const alreadyOwn = cfg?.managed_war_id != null && Number(cfg.managed_war_id) === Number(upcoming.id)
+    const manualActive = !!cfg?.enabled && !cfg?.auto_managed
+
+    // AUTO-SETUP: a new matched war we don't already own, and no manual session.
+    if (oppId && !alreadyOwn && !manualActive) {
+      // Weekly wipe — roll call + notes are per-war and not kept for posterity.
+      await supabase.from('war_room_roll_call_v2').delete().gte('id', 0)
+      await supabase.from('war_room_notes_v2').delete().gte('war_id', 0)
+      // Seed a notes row so the leader panel has a row to edit.
+      await supabase.from('war_room_notes_v2')
+        .upsert({ war_id: upcoming.id, opponent_faction_id: oppId }, { onConflict: 'war_id' })
+      // Fresh slate, then point config at the new opponent (disabled until T-1h).
+      await clearWarRoomStateCore(supabase)
+      await supabase.from('war_room_config_v2').update({
+        faction_id: oppId, faction_name: opp?.name ?? null,
+        auto_managed: true, managed_war_id: upcoming.id, enabled: false,
+      }).eq('id', 1)
+      // Baseline enemy + our members, then spies for the enemy.
+      await handleFetchMembersV2(supabase, Number(oppId))
+      await handleFetchOurMembersV2(supabase)
+      const { data: enemyRows } = await supabase
+        .from('war_room_state_v2').select('member_id')
+        .eq('faction_id', Number(oppId)).is('deleted_at', null)
+      const ids = (enemyRows ?? []).map((r: any) => r.member_id)
+      if (ids.length) await handleFetchBspV2(supabase, ids)
+      actions.push('auto_setup')
+      return json({ ok: true, actions, war_id: upcoming.id, opponent: oppId })
+    }
+
+    // AUTO-ENABLE at T-1h (only for the war we own).
+    if (alreadyOwn && cfg?.auto_managed && !cfg?.enabled && now >= startAt - 3600) {
+      await supabase.from('war_room_config_v2').update({ enabled: true }).eq('id', 1)
+      actions.push('auto_enable')
+    }
+  }
+
+  // AUTO-DISABLE when the war we own has ended. Never touches manual sessions.
+  if (cfg?.auto_managed && cfg?.managed_war_id) {
+    const managed = wars.find(w => Number(w.id) === Number(cfg.managed_war_id))
+    if (managed && (managed.end ?? 0) > 0 && cfg.enabled) {
+      await supabase.from('war_room_config_v2')
+        .update({ enabled: false, auto_managed: false }).eq('id', 1)
+      actions.push('auto_disable')
+    }
+  }
+
+  return json({ ok: true, actions })
 }
 
 async function handleClaimDibsV2(
@@ -1278,7 +1461,7 @@ serve(async (req: Request) => {
     // Cron-driven actions authenticate via x-cron-secret instead of a Torn
     // API key. Skip the x-torn-api-key requirement and the verifyTornUser
     // call entirely; the action handler does its own auth check.
-    const CRON_ACTIONS = new Set(['cron_poll_war_room'])
+    const CRON_ACTIONS = new Set(['cron_poll_war_room', 'cron_war_lifecycle'])
 
     // Polling actions are high-frequency and use server-side TORN_API_KEYS — the
     // user's key is irrelevant to what data gets fetched, so skip the Torn auth
@@ -1346,9 +1529,17 @@ serve(async (req: Request) => {
       case 'fetch_chains_v2':
         return await handleFetchChainsV2(supabase, body)
 
-      // ── Centralised cron-driven polling ──────────────────────────────
+      // ── Roll call + war notes ────────────────────────────────────────
+      case 'submit_roll_call_v2':
+        return await handleSubmitRollCallV2(supabase, body, userId, userName)
+      case 'save_war_notes_v2':
+        return await handleSaveWarNotesV2(supabase, body, userId, userName)
+
+      // ── Centralised cron-driven polling + lifecycle ──────────────────
       case 'cron_poll_war_room':
         return await handleCronPoll(supabase, req)
+      case 'cron_war_lifecycle':
+        return await handleCronWarLifecycle(supabase, req)
 
       default:
         return json({ error: `Unknown action: ${action}` }, 400)

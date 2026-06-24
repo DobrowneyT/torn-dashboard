@@ -19,13 +19,19 @@ import {
   fetchChainsV2,
   requestRevive,
   resolveCountryFromDescription,
+  submitRollCall,
+  saveWarNotes,
 } from '../utils/warRoomApiV2'
 import { useWarRoomPoll } from '../hooks/useWarRoomPoll'
 import { config as appConfig } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
 import MobileWarRoomView from './MobileWarRoomView'
-import { Smartphone, Settings, Crosshair, Loader2 } from 'lucide-react'
+import RollCallOverlay from '../components/warroom/RollCallOverlay'
+import WarSummaryCard from '../components/warroom/WarSummaryCard'
+import WarNotesPanel from '../components/warroom/WarNotesPanel'
+import { rollCallGateActive } from '../utils/rollCall'
+import { Smartphone, Settings, Crosshair, Loader2, ClipboardList } from 'lucide-react'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -1039,7 +1045,7 @@ function ConfigPanel({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function WarRoomViewV2({ isLeadership, isAdmin }) {
-  const { user } = useAuth()
+  const { user, isWarLead } = useAuth()
 
   // Reload-persisted prefs: filter chips, stats range, sort, poll rate.
   // Sets are stored as arrays so JSON.stringify can round-trip them.
@@ -1095,6 +1101,19 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Persisted so users who keep it open don't have to reopen on every load.
   const [leadershipPanelOpen, setLeadershipPanelOpen] = useState(() => persistedState.leadershipPanelOpen ?? false)
   const [factionName, setFactionName] = useState(null)
+
+  // ── Roll call + war notes ───────────────────────────────────────────────────
+  const [notesPanelOpen, setNotesPanelOpen] = useState(() => persistedState.notesPanelOpen ?? false)
+  const [currentWar, setCurrentWar]   = useState(null)   // { id, opponentId, opponentName, startAt }
+  const [warNotes, setWarNotes]       = useState(null)
+  const [rollCallRows, setRollCallRows] = useState([])
+  const [rollCallOpen, setRollCallOpen] = useState(false)  // manual (edit) open
+  const [leaderBypass, setLeaderBypass] = useState(false)  // leader dismissed the gate
+  const [submittingRC, setSubmittingRC] = useState(false)
+  const [rcError, setRcError]           = useState(null)
+  const [savingNotes, setSavingNotes]   = useState(false)
+  const [notesError, setNotesError]     = useState(null)
+  const canBypass = isLeadership || isAdmin || isWarLead
 
   // Stats filter
   const [statsFilterEnabled, setStatsFilterEnabled] = useState(() => persistedState.statsFilterEnabled ?? false)
@@ -1176,8 +1195,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       sortDir,
       pollIntervalSec,
       leadershipPanelOpen,
+      notesPanelOpen,
     })
-  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir, pollIntervalSec, leadershipPanelOpen, setPersistedState])
+  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir, pollIntervalSec, leadershipPanelOpen, notesPanelOpen, setPersistedState])
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -1293,7 +1313,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     await clearWarRoomStateV2(user.apiKey)
     bspFiredRef.current = false
     // 3. Persist the new faction_id (and reset cached name).
-    await setWarRoomConfigV2({ faction_id: newFactionId, faction_name: null }, user.apiKey)
+    // auto_managed:false — a manual Save yields the session to the leader, so
+    // the lifecycle cron won't auto-disable it (e.g. when testing other factions).
+    await setWarRoomConfigV2({ faction_id: newFactionId, faction_name: null, auto_managed: false }, user.apiKey)
     setFactionName(null)
     // 4. Initial enemy + our fetch in parallel. Chain seed runs alongside
     //    so the ChainTimerCard shows the current state of both factions
@@ -1308,6 +1330,90 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (enemyResp?.faction_name) setFactionName(enemyResp.faction_name)
     // 5. Trigger an immediate poll so the new state appears within ~50ms.
     await pollNow()
+  }
+
+  // ── Roll call + war notes data ──────────────────────────────────────────────
+  // Resolve the current/upcoming ranked war for the configured opponent. This
+  // is what roll call + summary key off of; null = no active war (no gate).
+  useEffect(() => {
+    const oppId = config?.faction_id
+    if (!oppId) { setCurrentWar(null); return }
+    let cancelled = false
+    supabase.from('ranked_wars')
+      .select('id, opponent_id, opponent_name, start_at, end_at')
+      .eq('opponent_id', oppId)
+      .order('start_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return
+        // Only treat as "current" when the war hasn't ended yet.
+        if (data && !data.end_at) {
+          setCurrentWar({ id: data.id, opponentId: data.opponent_id, opponentName: data.opponent_name, startAt: data.start_at })
+        } else {
+          setCurrentWar(null)
+        }
+      })
+    return () => { cancelled = true }
+  }, [config?.faction_id])
+
+  // Load roll-call rows + notes for the current war; refresh periodically so the
+  // summary counts + leader results stay reasonably live (data changes slowly).
+  const refreshRollCall = useCallback(async () => {
+    if (!currentWar?.id) { setRollCallRows([]); setWarNotes(null); return }
+    const [{ data: rc }, { data: nt }] = await Promise.all([
+      supabase.from('war_room_roll_call_v2').select('*').eq('war_id', currentWar.id),
+      supabase.from('war_room_notes_v2').select('*').eq('war_id', currentWar.id).maybeSingle(),
+    ])
+    setRollCallRows(rc ?? [])
+    setWarNotes(nt ?? null)
+  }, [currentWar?.id])
+
+  useEffect(() => {
+    refreshRollCall()
+    if (!currentWar?.id) return
+    const t = setInterval(refreshRollCall, 30_000)
+    return () => clearInterval(t)
+  }, [refreshRollCall, currentWar?.id])
+
+  const myRollCall = useMemo(
+    () => rollCallRows.find(r => String(r.member_id) === String(user?.id)) ?? null,
+    [rollCallRows, user?.id],
+  )
+
+  // A new war re-gates everyone: clear any prior leadership bypass / manual open.
+  useEffect(() => { setLeaderBypass(false); setRollCallOpen(false) }, [currentWar?.id])
+
+  // Blocking gate: a current war, member hasn't responded, >1h before start, and
+  // a leader hasn't chosen to bypass. Manual "Roll Call" button opens edit mode.
+  const gateActive = rollCallGateActive({ currentWar, mySubmitted: !!myRollCall }) && !leaderBypass
+  const showRollCall = gateActive || rollCallOpen
+
+  async function handleSubmitRollCall(answers) {
+    if (!currentWar?.id) return
+    setSubmittingRC(true); setRcError(null)
+    try {
+      await submitRollCall(currentWar.id, answers, user.name, user.apiKey)
+      await refreshRollCall()
+      setRollCallOpen(false)
+    } catch (e) {
+      setRcError(e.message || 'Failed to submit roll call.')
+    } finally {
+      setSubmittingRC(false)
+    }
+  }
+
+  async function handleSaveWarNotes(fields) {
+    if (!currentWar?.id) return
+    setSavingNotes(true); setNotesError(null)
+    try {
+      await saveWarNotes(currentWar.id, fields, user.name, user.apiKey)
+      await refreshRollCall()
+    } catch (e) {
+      setNotesError(e.message || 'Failed to save notes.')
+    } finally {
+      setSavingNotes(false)
+    }
   }
 
   // Update Spies works even when the war room is paused: if no members are loaded
@@ -1712,6 +1818,23 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   <Settings className="w-4 h-4" />
                 </button>
               )}
+              {/* War Notes panel toggle — War Leaders only. Sits beside the
+                  settings gear. */}
+              {isWarLead && (
+                <button
+                  onClick={() => setNotesPanelOpen(v => !v)}
+                  title={notesPanelOpen ? 'Hide war notes' : 'Show war notes & roll-call results'}
+                  aria-expanded={notesPanelOpen}
+                  aria-label="Toggle war notes"
+                  className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors ${
+                    notesPanelOpen
+                      ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                      : 'border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  <ClipboardList className="w-4 h-4" />
+                </button>
+              )}
               {/* Mobile launcher — always visible, regardless of viewport.
                   Opens the dedicated mobile-optimised War Room overlay. */}
               <button
@@ -1721,6 +1844,22 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 <Smartphone className="w-4 h-4" />
                 Mobile App
               </button>
+              {/* Roll Call — shown once a war exists so members can review/edit
+                  their response even after the gate has auto-released. */}
+              {currentWar && (
+                <button
+                  onClick={() => { setRollCallOpen(true) }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    myRollCall
+                      ? 'border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:border-blue-400'
+                      : 'bg-amber-500 hover:bg-amber-600 text-white'
+                  }`}
+                  title={myRollCall ? 'Review or edit your roll-call response' : 'Fill out your war roll call'}
+                >
+                  <ClipboardList className="w-4 h-4" />
+                  Roll Call{myRollCall ? '' : ' !'}
+                </button>
+              )}
             </div>
             {/* Subtitle / enemy summary */}
             {!isActive && (
@@ -1766,6 +1905,19 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             onSaveReviveService={handleSaveReviveService}
             onSaveReviveList={handleSaveReviveList}
             onClearState={handleClearState}
+          />
+        )}
+
+        {/* War Notes & Roll Call results — War Leaders only. */}
+        {isWarLead && notesPanelOpen && (
+          <WarNotesPanel
+            currentWar={currentWar}
+            notes={warNotes}
+            onSave={handleSaveWarNotes}
+            saving={savingNotes}
+            saveError={notesError}
+            rollCallRows={rollCallRows}
+            ourMembers={ourMembers}
           />
         )}
 
@@ -1895,6 +2047,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           <span>⚠</span>
           <span>Paused — last-known snapshot. Timers shown are not live. Enable the war room to start polling.</span>
         </div>
+      )}
+
+      {/* This week's war summary — visible to everyone when a war is matched. */}
+      {currentWar && (
+        <WarSummaryCard
+          currentWar={currentWar}
+          notes={warNotes}
+          responded={rollCallRows.length}
+          total={ourMembers.length}
+          mine={myRollCall}
+        />
       )}
 
       {/* Faction status bar — shown whenever enemy members are loaded (active or paused) */}
@@ -2183,6 +2346,25 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             />
           </div>
         </div>
+      )}
+
+      {/* Roll-call overlay — hard gate when the member hasn't responded and
+          we're >1h from kickoff; also opened manually (edit) via the button. */}
+      {showRollCall && currentWar && (
+        <RollCallOverlay
+          currentWar={currentWar}
+          notes={warNotes}
+          existing={myRollCall}
+          editing={!!myRollCall}
+          canBypass={canBypass}
+          submitting={submittingRC}
+          error={rcError}
+          onSubmit={handleSubmitRollCall}
+          onClose={() => {
+            if (rollCallOpen) setRollCallOpen(false)  // manual edit → just close
+            else setLeaderBypass(true)                // hard gate → leadership bypass
+          }}
+        />
       )}
     </div>
   )

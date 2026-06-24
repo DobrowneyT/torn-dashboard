@@ -5,6 +5,7 @@ enrich stubbed.
 """
 
 import asyncio
+import time
 
 import config
 from server import api_poller, db, detection
@@ -16,6 +17,69 @@ class FakeBot:
 
     async def post_mug_alert(self, event):
         self.alerts.append(event)
+
+
+def test_adaptive_schedule_next(monkeypatch):
+    """_schedule_next: a fresh cache_timestamp schedules the next poll just after the NEXT snapshot
+    is due (cts + offset); a repeated/None cache_timestamp re-checks soon (no busy-loop on stale)."""
+    monkeypatch.setattr(config, "CACHE_REPOLL_OFFSET", 62)
+    monkeypatch.setattr(config, "CACHE_RETRY_SECONDS", 3)
+    api_poller._next_due.clear()
+    api_poller._last_cts.clear()
+    now = int(time.time())
+    cts = now - 30   # we just polled and saw a snapshot stamped ~30s ago (typical serving lag)
+
+    api_poller._schedule_next(7, cts)
+    assert api_poller._last_cts[7] == cts
+    assert api_poller._next_due[7] == cts + 62          # land just after the next snapshot appears
+
+    # Same cache_timestamp again (snapshot not refreshed yet) -> short retry, don't recompute.
+    before = time.time()
+    api_poller._schedule_next(7, cts)
+    assert before + 2 <= api_poller._next_due[7] <= time.time() + 3.5
+
+    # Failed fetch (cts None) -> short retry too.
+    before = time.time()
+    api_poller._schedule_next(9, None)
+    assert before + 2 <= api_poller._next_due[9] <= time.time() + 3.5
+    api_poller._next_due.clear()
+    api_poller._last_cts.clear()
+
+
+def test_incomplete_fetch_does_not_fire_phantom_sales(tmp_path, monkeypatch):
+    """The TCT-midnight storm: a multi-page gear item whose 2nd page 504s yields a TRUNCATED
+    snapshot. The uids on the failed page must NOT be treated as sold. With complete=False the
+    vanish pass is skipped entirely; a later complete poll resumes normal detection."""
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "partial.db"))
+    monkeypatch.setattr(config, "GEAR_VANISH_CONFIRM_POLLS", 1)
+
+    async def fake_enrich(user_id, client, force=False):
+        return await db.get_seller(user_id)
+
+    monkeypatch.setattr(detection, "enrich_seller", fake_enrich)
+
+    async def scenario():
+        await db.init_db()
+        await db.set_config("min_mug_value", 1)
+        await db.upsert_seller_seen(user_id=4106545, name="Vglost")
+        await db.store_gear_listing(listing_id="L1", item_id=399, item_name="ArmaLite M-15A4",
+                                    seller_id=4106545, price=21_200_000, armoury_uid="19527062233")
+        bot = FakeBot()
+        # Track it from a complete poll.
+        await api_poller.reconcile_gear(bot, 399, {"19527062233": {"price": 21_200_000, "stats": None}})
+        assert "19527062233" in await db.get_tracked_uids_for_item(399)
+        # Next poll's 2nd page errored -> empty/truncated snapshot, complete=False. NOT a sale.
+        await api_poller.reconcile_gear(bot, 399, {}, complete=False)
+        await api_poller.drain_sale_tasks()
+        assert bot.alerts == []                                     # no phantom sale
+        assert "19527062233" in await db.get_tracked_uids_for_item(399)   # still tracked, misses untouched
+        # A later COMPLETE poll that's genuinely empty still detects the sale.
+        await api_poller.reconcile_gear(bot, 399, {}, complete=True)
+        await api_poller.drain_sale_tasks()
+        assert len(bot.alerts) == 1
+        await db.close_db()
+
+    asyncio.run(scenario())
 
 
 def test_gear_uid_vanish_is_a_sale(tmp_path, monkeypatch):

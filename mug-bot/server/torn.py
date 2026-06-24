@@ -76,7 +76,11 @@ async def get_itemmarket(
     if not data:
         return None
     im = data.get("itemmarket") or {}
-    return {"item": im.get("item") or {}, "listings": im.get("listings") or []}
+    # cache_timestamp = when Torn generated this cached snapshot (unix). It increments in exact 30s
+    # steps and the snapshot only becomes visible ~30s after that stamp, so it drives adaptive
+    # poll scheduling in api_poller (poll just after the NEXT snapshot is due).
+    return {"item": im.get("item") or {}, "listings": im.get("listings") or [],
+            "cache_timestamp": im.get("cache_timestamp")}
 
 
 async def get_all_item_values(client: httpx.AsyncClient) -> Optional[Dict]:

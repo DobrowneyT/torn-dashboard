@@ -158,10 +158,6 @@ def build_mug_alert_embed(event: Dict) -> discord.Embed:
 
     lines: List[str] = []
 
-    if hospitalize:
-        fac = event.get("faction") or f"faction {event.get('faction_id')}"
-        lines.append(f"⚠️ **In flagged faction — {fac}. Hospitalize them, don't mug.**")
-
     if event.get("detected_ts"):
         ts = int(event["detected_ts"])
         # <t:..:R> is Discord's live relative time (auto counts up); <t:..:T> is the exact clock
@@ -222,6 +218,15 @@ def build_mug_alert_embed(event: Dict) -> discord.Embed:
     la = event.get("last_action_ts")
     if la:
         lines.append(f"Last action: {_relative(la)} {_status_dot(event)}")
+
+    if hospitalize:
+        fac = event.get("faction") or f"faction {event.get('faction_id')}"
+        lines.append(f"⚠️ **In flagged faction — {fac}. Hospitalize them, don't mug.**")
+
+    dl = event.get("delist_active_secs")
+    if dl is not None:
+        active = f"{dl}s ago" if dl < 60 else _relative(int(datetime.now(timezone.utc).timestamp()) - dl)
+        lines.append(f"⚠️ Likely de-list (seller active {active})")
 
     if event.get("faction"):
         lines.append(f"Faction: {event['faction']}")

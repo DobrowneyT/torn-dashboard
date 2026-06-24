@@ -66,6 +66,17 @@ export async function clearWarRoomStateV2(tornApiKey) {
   return callWarRoom('clear_state_v2', {}, tornApiKey)
 }
 
+// Roll call — member submits/edits their availability for a war. member_id is
+// derived server-side from the key; user_name is passed for display.
+export async function submitRollCall(warId, answers, userName, tornApiKey) {
+  return callWarRoom('submit_roll_call_v2', { data: { war_id: warId, ...answers }, user_name: userName }, tornApiKey)
+}
+
+// War notes / type / agreed scores — War Leaders only (enforced server-side).
+export async function saveWarNotes(warId, notes, userName, tornApiKey) {
+  return callWarRoom('save_war_notes_v2', { data: { war_id: warId, ...notes }, user_name: userName }, tornApiKey)
+}
+
 export async function claimDibsV2(targetId, userName, warId, tornApiKey, opts = {}) {
   return callWarRoom(
     'claim_dibs_v2',

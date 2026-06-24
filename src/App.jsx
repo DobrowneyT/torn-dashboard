@@ -14,6 +14,7 @@ import RWPage from './views/RWPage'
 import LeadershipPage from './views/LeadershipPage'
 import { isAdmin } from './config'
 import Footer from './components/Footer'
+import RollCallReminderBanner from './components/warroom/RollCallReminderBanner'
 
 
 function DashboardLayout() {
@@ -68,6 +69,8 @@ function DashboardLayout() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors duration-200 flex flex-col overflow-x-hidden">
       <Header viewAsRole={viewAsRole} setViewAsRole={setViewAsRole} canViewAs={userIsAdmin} />
+
+      <RollCallReminderBanner />
 
       {viewAsRole && (
         <div className="bg-yellow-100 dark:bg-yellow-900/30 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2">

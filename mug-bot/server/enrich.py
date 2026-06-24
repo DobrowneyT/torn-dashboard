@@ -48,9 +48,9 @@ async def enrich_seller(user_id: int, client: httpx.AsyncClient, *, force: bool 
             la = prof.get("last_action") or {}
             fields["last_action_ts"] = la.get("timestamp")
             fields["online_status"] = la.get("status")   # Online / Idle / Offline
-            fac = prof.get("faction") or {}
-            fields["faction_id"] = fac.get("faction_id") or fac.get("id") or 0
-            fields["faction"] = fac.get("faction_name") or fac.get("name") or fields.get("faction")
+            # v2 profile exposes faction_id as a FLAT scalar on the profile (no nested "faction"
+            # object, and no faction name in this endpoint). 0 = not in a faction.
+            fields["faction_id"] = prof.get("faction_id") or 0
 
     # Clothing store (job) + TBS (BSP) — the slower-changing bits.
     if need_full:
