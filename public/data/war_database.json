@@ -5729,6 +5729,23 @@
       "rank_before": "Diamond II",
       "rank_after": "Diamond I",
       "report_fetched": true
+    },
+    "44568": {
+      "id": 44568,
+      "start_at": 1782504000,
+      "end_at": null,
+      "opponent_id": 15446,
+      "opponent_name": "Druggies in Snuggies",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17900,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -211685,6 +211702,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-23T04:59:20.978303"
+    "last_updated": "2026-06-24T05:02:03.767785"
   }
 }
