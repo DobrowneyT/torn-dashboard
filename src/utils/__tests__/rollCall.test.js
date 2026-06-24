@@ -86,7 +86,8 @@ describe('labels', () => {
   it('builds war-type badges', () => {
     expect(warTypeBadge(null)).toBe(null)
     expect(warTypeBadge({ war_type: 'real' })).toBe('Real')
-    expect(warTypeBadge({ war_type: 'termed', termed_score: 5000 })).toBe('Termed 5k')
+    expect(warTypeBadge({ war_type: 'termed', termed_score_us: 15500, termed_score_them: 7200 })).toBe('Termed 15.5k–7.2k')
+    expect(warTypeBadge({ war_type: 'termed', termed_score_us: 5000 })).toBe('Termed 5k–?')
     expect(warTypeBadge({ war_type: 'race', race_target_score: 25000 })).toBe('Race → 25k')
   })
 })

@@ -73,8 +73,15 @@ export async function submitRollCall(warId, answers, userName, tornApiKey) {
 }
 
 // War notes / type / agreed scores — War Leaders only (enforced server-side).
+// `notes` carries war_type, termed_score_us/them, race_target_score,
+// notes_public, notes_private, and expected_updated_at (optimistic lock).
 export async function saveWarNotes(warId, notes, userName, tornApiKey) {
   return callWarRoom('save_war_notes_v2', { data: { war_id: warId, ...notes }, user_name: userName }, tornApiKey)
+}
+
+// Leads-only private note — fetched through the edge function (never client-readable).
+export async function getWarNotesPrivate(warId, tornApiKey) {
+  return callWarRoom('get_war_notes_private_v2', { data: { war_id: warId } }, tornApiKey)
 }
 
 export async function claimDibsV2(targetId, userName, warId, tornApiKey, opts = {}) {

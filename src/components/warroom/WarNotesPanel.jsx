@@ -1,28 +1,36 @@
-import { useState } from 'react'
-import { LoaderCircle } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { LoaderCircle, Lock } from 'lucide-react'
 import { availabilityLabel } from '../../utils/rollCall'
 
 // War Leaders only. War type / agreed scores / strategy notes + the embedded
 // roll-call results table and a "not yet responded" list. Edited responses
 // (revised=true) are highlighted so leaders notice changes.
-export default function WarNotesPanel({ currentWar, notes, onSave, saving, saveError, rollCallRows = [], ourMembers = [] }) {
+export default function WarNotesPanel({ currentWar, notes, privateNotes = '', onSave, saving, saveError, rollCallRows = [], ourMembers = [] }) {
   const [warType, setWarType] = useState(notes?.war_type ?? 'real')
-  const [termedScore, setTermedScore] = useState(notes?.termed_score ?? '')
+  const [termedUs, setTermedUs] = useState(notes?.termed_score_us ?? '')
+  const [termedThem, setTermedThem] = useState(notes?.termed_score_them ?? '')
   const [raceTarget, setRaceTarget] = useState(notes?.race_target_score ?? '')
-  const [text, setText] = useState(notes?.notes ?? '')
+  const [text, setText] = useState(notes?.notes_public ?? '')
+  const [privText, setPrivText] = useState(privateNotes ?? '')
   const [msg, setMsg] = useState(null)
 
   async function handleSave() {
     setMsg(null)
-    await onSave({
+    const ok = await onSave({
       opponent_faction_id: currentWar?.opponentId ?? null,
       war_type: warType,
-      termed_score: warType === 'termed' ? (Number(termedScore) || null) : null,
+      termed_score_us:   warType === 'termed' ? (Number(termedUs) || null) : null,
+      termed_score_them: warType === 'termed' ? (Number(termedThem) || null) : null,
       race_target_score: warType === 'race' ? (Number(raceTarget) || null) : null,
-      notes: text || null,
+      notes_public: text || null,
+      notes_private: privText || null,
+      expected_updated_at: notes?.updated_at ?? null,
     })
-    setMsg('Saved.')
+    if (ok !== false) setMsg('Saved.')
   }
+
+  // Private note loads async (via the edge function) — sync it in when it arrives.
+  useEffect(() => { setPrivText(privateNotes ?? '') }, [privateNotes])
 
   const respondedIds = new Set(rollCallRows.map(r => Number(r.member_id)))
   const nonResponders = ourMembers.filter(m => !respondedIds.has(Number(m.member_id)))
@@ -49,11 +57,18 @@ export default function WarNotesPanel({ currentWar, notes, onSave, saving, saveE
           </button>
         ))}
         {warType === 'termed' && (
-          <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
-            Agreed score
-            <input type="number" value={termedScore} onChange={e => setTermedScore(e.target.value)}
-              className="input w-24 py-1 text-sm" placeholder="5000" />
-          </label>
+          <>
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+              Us
+              <input type="number" value={termedUs} onChange={e => setTermedUs(e.target.value)}
+                className="input w-24 py-1 text-sm" placeholder="15500" />
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+              Them
+              <input type="number" value={termedThem} onChange={e => setTermedThem(e.target.value)}
+                className="input w-24 py-1 text-sm" placeholder="7200" />
+            </label>
+          </>
         )}
         {warType === 'race' && (
           <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
@@ -64,13 +79,32 @@ export default function WarNotesPanel({ currentWar, notes, onSave, saving, saveE
         )}
       </div>
 
-      <textarea
-        value={text}
-        onChange={e => setText(e.target.value)}
-        rows={3}
-        placeholder="Strategy / agreed terms / hit-list priorities…"
-        className="input w-full text-sm"
-      />
+      {/* Public + private notes, side by side. Public shows in the war summary
+          to all members; private is leads-only (e.g. negotiation details). */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Public note (visible to all members)</label>
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            rows={3}
+            placeholder="Strategy / agreed terms / hit-list priorities…"
+            className="input w-full text-sm"
+          />
+        </div>
+        <div>
+          <label className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">
+            <Lock className="w-3 h-3" /> Leads-only note (not shown to members)
+          </label>
+          <textarea
+            value={privText}
+            onChange={e => setPrivText(e.target.value)}
+            rows={3}
+            placeholder="Negotiation details, terms not yet public…"
+            className="input w-full text-sm"
+          />
+        </div>
+      </div>
       <div className="flex items-center gap-3 mt-2">
         <button onClick={handleSave} disabled={saving || !currentWar}
           className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2">

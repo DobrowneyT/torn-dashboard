@@ -50,13 +50,18 @@ GRANT SELECT ON public.war_room_roll_call_v2 TO authenticated;
 -- War Leaders only (enforced in the edge function); readable in-faction so the
 -- war summary card can show it to everyone.
 
+-- Public note + war metadata. `notes_public` and the war type/scores are shown
+-- to everyone in the war summary, so this table is faction-readable. Termed wars
+-- carry two agreed scores (ours / theirs). `updated_at` is the optimistic-lock
+-- token for concurrent War-Leader edits (see save_war_notes_v2).
 CREATE TABLE IF NOT EXISTS public.war_room_notes_v2 (
   war_id              bigint PRIMARY KEY,
   opponent_faction_id bigint,
   war_type            text,            -- real | termed | race
-  termed_score        integer,
+  termed_score_us     integer,
+  termed_score_them   integer,
   race_target_score   integer,
-  notes               text,
+  notes_public        text,
   updated_by_id       bigint,
   updated_by_name     text,
   updated_at          timestamptz NOT NULL DEFAULT now()
@@ -77,6 +82,27 @@ GRANT SELECT ON public.war_room_notes_v2 TO authenticated;
 DROP TRIGGER IF EXISTS touch_updated_at_notes_v2 ON public.war_room_notes_v2;
 CREATE TRIGGER touch_updated_at_notes_v2
   BEFORE INSERT OR UPDATE ON public.war_room_notes_v2
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at_v2();
+
+-- Private (War-Leader-only) notes — e.g. negotiation details members must NOT
+-- see. RLS can't hide a single column, so private notes live in their own
+-- service-role-only table: RLS on, NO select policy, REVOKE from client roles
+-- (same lock-down as member_secrets). War Leaders read it via the edge function
+-- (get_war_notes_private_v2); never directly from the client.
+CREATE TABLE IF NOT EXISTS public.war_room_notes_private_v2 (
+  war_id          bigint PRIMARY KEY,
+  notes           text,
+  updated_by_id   bigint,
+  updated_by_name text,
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.war_room_notes_private_v2 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.war_room_notes_private_v2 FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS touch_updated_at_notes_private_v2 ON public.war_room_notes_private_v2;
+CREATE TRIGGER touch_updated_at_notes_private_v2
+  BEFORE INSERT OR UPDATE ON public.war_room_notes_private_v2
   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at_v2();
 
 -- ── Config: automation ownership ──────────────────────────────────────────────

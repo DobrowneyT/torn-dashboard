@@ -78,7 +78,7 @@ export default function RollCallOverlay({
               Starts {formatTct(currentWar?.startAt)} · {formatCountdown(currentWar?.startAt)}
               {badge ? <span className="ml-2 text-amber-600 dark:text-amber-400 font-medium">● {badge}</span> : null}
             </div>
-            {notes?.notes && <p className="text-xs text-gray-600 dark:text-gray-400 mt-1.5 whitespace-pre-wrap">{notes.notes}</p>}
+            {notes?.notes_public && <p className="text-xs text-gray-600 dark:text-gray-400 mt-1.5 whitespace-pre-wrap">{notes.notes_public}</p>}
           </div>
 
           <div className="space-y-4">

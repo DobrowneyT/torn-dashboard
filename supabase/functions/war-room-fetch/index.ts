@@ -833,7 +833,9 @@ async function handleSubmitRollCallV2(
   return json({ ok: true, updated: true, changed })
 }
 
-// War Leaders set war type / agreed scores / strategy notes for a war.
+// War Leaders set war type / agreed scores (ours + theirs) / public + private
+// notes for a war. Optimistic concurrency on the public row's updated_at guards
+// against two leaders clobbering each other.
 async function handleSaveWarNotesV2(
   supabase: ReturnType<typeof createClient>,
   body: any,
@@ -844,18 +846,66 @@ async function handleSaveWarNotesV2(
   const d = body.data ?? {}
   if (d.war_id == null) return json({ error: 'war_id required' }, 400)
 
-  const { error } = await supabase.from('war_room_notes_v2').upsert({
-    war_id:              d.war_id,
+  const publicFields = {
     opponent_faction_id: d.opponent_faction_id ?? null,
     war_type:            d.war_type ?? null,
-    termed_score:        d.termed_score ?? null,
+    termed_score_us:     d.termed_score_us ?? null,
+    termed_score_them:   d.termed_score_them ?? null,
     race_target_score:   d.race_target_score ?? null,
-    notes:               d.notes ?? null,
+    notes_public:        d.notes_public ?? null,
     updated_by_id:       Number(userId),
     updated_by_name:     userName ?? null,
+  }
+
+  // Optimistic lock: when the client sends the updated_at it loaded, only apply
+  // if it still matches. A stale token => someone else saved first => 409.
+  const expected = d.expected_updated_at ?? null
+  if (expected) {
+    const { data: updated, error } = await supabase
+      .from('war_room_notes_v2').update(publicFields)
+      .eq('war_id', d.war_id).eq('updated_at', expected).select('updated_at')
+    if (error) return json({ error: error.message }, 500)
+    if (!updated || updated.length === 0) {
+      const { data: exists } = await supabase
+        .from('war_room_notes_v2').select('updated_at').eq('war_id', d.war_id).maybeSingle()
+      if (exists) {
+        return json({ error: 'These notes were changed by someone else. Reload and try again.', conflict: true }, 409)
+      }
+      const { error: insErr } = await supabase.from('war_room_notes_v2').insert({ war_id: d.war_id, ...publicFields })
+      if (insErr) return json({ error: insErr.message }, 500)
+    }
+  } else {
+    const { error } = await supabase
+      .from('war_room_notes_v2').upsert({ war_id: d.war_id, ...publicFields }, { onConflict: 'war_id' })
+    if (error) return json({ error: error.message }, 500)
+  }
+
+  // Private (leads-only) notes live in their own service-role-only table.
+  const { error: privErr } = await supabase.from('war_room_notes_private_v2').upsert({
+    war_id: d.war_id, notes: d.notes_private ?? null,
+    updated_by_id: Number(userId), updated_by_name: userName ?? null,
   }, { onConflict: 'war_id' })
-  if (error) return json({ error: error.message }, 500)
-  return json({ ok: true })
+  if (privErr) return json({ error: privErr.message }, 500)
+
+  // Hand back the fresh public updated_at so the client refreshes its lock token.
+  const { data: fresh } = await supabase
+    .from('war_room_notes_v2').select('updated_at').eq('war_id', d.war_id).maybeSingle()
+  return json({ ok: true, updated_at: fresh?.updated_at ?? null })
+}
+
+// War Leaders read the private (leads-only) note via the service role — it's
+// never exposed on the client-readable surface.
+async function handleGetWarNotesPrivateV2(
+  supabase: ReturnType<typeof createClient>,
+  body: any,
+  userId: string,
+) {
+  if (!WARLEAD_IDS.includes(String(userId))) return json({ error: 'War Leaders only' }, 403)
+  const warId = body.data?.war_id
+  if (warId == null) return json({ error: 'war_id required' }, 400)
+  const { data } = await supabase
+    .from('war_room_notes_private_v2').select('notes, updated_at').eq('war_id', warId).maybeSingle()
+  return json({ ok: true, notes: data?.notes ?? '', updated_at: data?.updated_at ?? null })
 }
 
 // ── Lifecycle automation (cron) ───────────────────────────────────────────────
@@ -908,6 +958,7 @@ async function handleCronWarLifecycle(
       // Weekly wipe — roll call + notes are per-war and not kept for posterity.
       await supabase.from('war_room_roll_call_v2').delete().gte('id', 0)
       await supabase.from('war_room_notes_v2').delete().gte('war_id', 0)
+      await supabase.from('war_room_notes_private_v2').delete().gte('war_id', 0)
       // Seed a notes row so the leader panel has a row to edit.
       await supabase.from('war_room_notes_v2')
         .upsert({ war_id: upcoming.id, opponent_faction_id: oppId }, { onConflict: 'war_id' })
@@ -1534,6 +1585,8 @@ serve(async (req: Request) => {
         return await handleSubmitRollCallV2(supabase, body, userId, userName)
       case 'save_war_notes_v2':
         return await handleSaveWarNotesV2(supabase, body, userId, userName)
+      case 'get_war_notes_private_v2':
+        return await handleGetWarNotesPrivateV2(supabase, body, userId)
 
       // ── Centralised cron-driven polling + lifecycle ──────────────────
       case 'cron_poll_war_room':

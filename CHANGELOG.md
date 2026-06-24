@@ -26,8 +26,14 @@ and stamps the footer automatically.
 - **War summary card** — opponent, start time (TCT) + countdown, war type/agreed
   score, and leadership notes, shown to everyone.
 - **War Notes panel** (War Leaders only) beside the settings gear: war type
-  (real/termed/race), agreed/target score, strategy notes, plus the embedded
-  roll-call results table and "not yet responded" list.
+  (real/termed/race), termed wars carry **two agreed scores (ours / theirs)**,
+  race target, and **separate public + leads-only notes** (private notes live in
+  a service-role-only table members can't read). Concurrent edits are guarded by
+  optimistic locking. Includes the embedded roll-call results table + "not yet
+  responded" list.
+- **Live enemy chain countdown** in the chain card (mirrors our chain timer,
+  from the enemy data we already poll every ~30s), and the Paused banner now sits
+  directly above the chain/status card with the timers it refers to.
 - **Tuesday automation** (`cron_war_lifecycle`): auto-sets-up the matched war
   (save faction → clear → fetch members → spies, wiping the prior week's roll
   call/notes), auto-enables at T-1h, and auto-disables on war end — only for

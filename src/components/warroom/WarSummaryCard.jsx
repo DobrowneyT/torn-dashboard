@@ -37,9 +37,9 @@ export default function WarSummaryCard({ currentWar, notes, responded = 0, total
         )}
       </div>
 
-      {notes?.notes && (
+      {notes?.notes_public && (
         <p className="mt-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap line-clamp-3">
-          {notes.notes}
+          {notes.notes_public}
         </p>
       )}
 

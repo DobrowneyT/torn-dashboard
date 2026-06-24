@@ -21,6 +21,7 @@ import {
   resolveCountryFromDescription,
   submitRollCall,
   saveWarNotes,
+  getWarNotesPrivate,
 } from '../utils/warRoomApiV2'
 import { useWarRoomPoll } from '../hooks/useWarRoomPoll'
 import { config as appConfig } from '../config'
@@ -362,16 +363,23 @@ function ChainTimerCard({ chain, userId, isAdmin, onClaim, onRelease, claimError
   const claimedBySomeone = !!chain?.save_claimed_by
   const canRelease = claimedByMe || (claimedBySomeone && isAdmin)
 
-  // Enemy chain readout — value + cooldown only per plan.
+  // Enemy chain readout. The enemy payload includes an absolute `timeout`
+  // (refreshed every ~30s), so we can show a live countdown like our own chain
+  // and tell at a glance whether their chain is about to drop.
   const enemy = chain?.enemy
   const enemyCooldownLeft = enemy?.cooldown && enemy.cooldown > now ? enemy.cooldown - now : 0
+  const enemySecsLeft = enemy?.timeout && enemy.timeout > now ? enemy.timeout - now : 0
   const enemyState = enemy
     ? (enemyCooldownLeft > 0 ? 'cooldown' : ((enemy.current ?? 0) > 0 ? 'active' : 'idle'))
     : 'unknown'
+  // Same urgency ramp as our chain so "close to dropping" reads red.
+  let enemyTimerClass = 'text-purple-600 dark:text-purple-400 font-semibold'
+  if (enemySecsLeft > 0 && enemySecsLeft < 60)        enemyTimerClass = 'text-red-600 dark:text-red-400 font-bold'
+  else if (enemySecsLeft > 0 && enemySecsLeft <= 180) enemyTimerClass = 'text-amber-600 dark:text-amber-400 font-semibold'
   const enemyLabel =
-    enemyState === 'active'   ? `${(enemy.current ?? 0).toLocaleString()}× chained` :
     enemyState === 'cooldown' ? `${(enemy.current ?? 0).toLocaleString()}× — cooldown ${formatCooldownTime(enemyCooldownLeft)}` :
     enemyState === 'idle'     ? 'no chain' :
+    enemyState === 'active'   ? `${(enemy.current ?? 0).toLocaleString()}× chained` :
                                 '—'
 
   return (
@@ -426,12 +434,19 @@ function ChainTimerCard({ chain, userId, isAdmin, onClaim, onRelease, claimError
         </div>
       )}
 
-      {/* Enemy chain readout — pushed to the right when no save controls */}
+      {/* Enemy chain readout — timer + value, mirrors our chain countdown */}
       <div className={`flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 ${state === 'active' ? '' : 'ml-auto'}`}>
         <span className="uppercase tracking-wide font-semibold">Enemy:</span>
-        <span className={enemyState === 'active' ? 'text-purple-600 dark:text-purple-400 font-medium' : ''}>
-          {enemyLabel}
-        </span>
+        {enemyState === 'active' && enemySecsLeft > 0 ? (
+          <span className="flex items-center gap-1.5">
+            <span className={`font-mono text-sm leading-none ${enemyTimerClass}`}>{formatActiveTime(enemySecsLeft)}</span>
+            <span className="text-purple-600 dark:text-purple-400 font-medium">{(enemy.current ?? 0).toLocaleString()}×</span>
+          </span>
+        ) : (
+          <span className={enemyState === 'active' ? 'text-purple-600 dark:text-purple-400 font-medium' : ''}>
+            {enemyLabel}
+          </span>
+        )}
       </div>
 
       {claimError && (
@@ -1107,6 +1122,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const [currentWar, setCurrentWar]   = useState(null)   // { id, opponentId, opponentName, startAt }
   const [warNotes, setWarNotes]       = useState(null)
   const [rollCallRows, setRollCallRows] = useState([])
+  const [privateNotes, setPrivateNotes] = useState('')      // leads-only note
   const [rollCallOpen, setRollCallOpen] = useState(false)  // manual (edit) open
   const [leaderBypass, setLeaderBypass] = useState(false)  // leader dismissed the gate
   const [submittingRC, setSubmittingRC] = useState(false)
@@ -1403,14 +1419,29 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     }
   }
 
+  // Load the leads-only private note via the edge function when a War Leader
+  // opens the notes panel (it's never client-readable).
+  useEffect(() => {
+    if (!notesPanelOpen || !isWarLead || !currentWar?.id || !user?.apiKey) return
+    let cancelled = false
+    getWarNotesPrivate(currentWar.id, user.apiKey)
+      .then(r => { if (!cancelled) setPrivateNotes(r?.notes ?? '') })
+      .catch(() => { if (!cancelled) setPrivateNotes('') })
+    return () => { cancelled = true }
+  }, [notesPanelOpen, isWarLead, currentWar?.id, user?.apiKey])
+
   async function handleSaveWarNotes(fields) {
-    if (!currentWar?.id) return
+    if (!currentWar?.id) return false
     setSavingNotes(true); setNotesError(null)
     try {
       await saveWarNotes(currentWar.id, fields, user.name, user.apiKey)
-      await refreshRollCall()
+      await refreshRollCall()  // refresh public notes + the optimistic-lock token
+      const r = await getWarNotesPrivate(currentWar.id, user.apiKey).catch(() => null)
+      if (r) setPrivateNotes(r.notes ?? '')
+      return true
     } catch (e) {
       setNotesError(e.message || 'Failed to save notes.')
+      return false
     } finally {
       setSavingNotes(false)
     }
@@ -1913,6 +1944,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           <WarNotesPanel
             currentWar={currentWar}
             notes={warNotes}
+            privateNotes={privateNotes}
             onSave={handleSaveWarNotes}
             saving={savingNotes}
             saveError={notesError}
@@ -2041,14 +2073,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         )}
       </div>
 
-      {/* Paused notice — above the status bar so it's visible even without scrolling */}
-      {!isActive && hasMembers && (
-        <div className="rounded-lg px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
-          <span>⚠</span>
-          <span>Paused — last-known snapshot. Timers shown are not live. Enable the war room to start polling.</span>
-        </div>
-      )}
-
       {/* This week's war summary — visible to everyone when a war is matched. */}
       {currentWar && (
         <WarSummaryCard
@@ -2058,6 +2082,15 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           total={ourMembers.length}
           mine={myRollCall}
         />
+      )}
+
+      {/* Paused notice — sits just above the chain/status bar so it reads with
+          the (stale) timers it's warning about. */}
+      {!isActive && hasMembers && (
+        <div className="rounded-lg px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+          <span>⚠</span>
+          <span>Paused — last-known snapshot. Timers shown are not live. Enable the war room to start polling.</span>
+        </div>
       )}
 
       {/* Faction status bar — shown whenever enemy members are loaded (active or paused) */}

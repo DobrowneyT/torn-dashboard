@@ -63,16 +63,20 @@ export function validateRollCall(a) {
 }
 
 const WAR_TYPE_LABELS = { real: 'Real', termed: 'Termed', race: 'Race' }
-// Short badge text for the war type, e.g. "Termed 5k" / "Race → 25k" / "Real".
+// Short badge text for the war type. Termed shows both agreed scores
+// (ours–theirs), e.g. "Termed 15.5k–7.2k" / "Race → 25k" / "Real".
 export function warTypeBadge(notes) {
   if (!notes?.war_type) return null
   const base = WAR_TYPE_LABELS[notes.war_type] ?? notes.war_type
-  if (notes.war_type === 'termed' && notes.termed_score) return `${base} ${formatScore(notes.termed_score)}`
-  if (notes.war_type === 'race' && notes.race_target_score) return `${base} → ${formatScore(notes.race_target_score)}`
+  if (notes.war_type === 'termed' && (notes.termed_score_us != null || notes.termed_score_them != null)) {
+    return `${base} ${formatScore(notes.termed_score_us)}–${formatScore(notes.termed_score_them)}`
+  }
+  if (notes.war_type === 'race' && notes.race_target_score != null) return `${base} → ${formatScore(notes.race_target_score)}`
   return base
 }
 
 function formatScore(n) {
+  if (n == null) return '?'
   const num = Number(n)
   if (!Number.isFinite(num)) return String(n)
   if (num >= 1000) return `${(num / 1000).toFixed(num % 1000 === 0 ? 0 : 1)}k`
