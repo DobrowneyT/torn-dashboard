@@ -192,14 +192,15 @@ def test_delist_off_drops_and_silent_skips_ping(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
-def test_hospital_live_posts_immediately(tmp_path, monkeypatch):
-    """Default hosp_mode=live posts an in-hospital sale right away (variant=hospital) instead of
-    holding it until release."""
+def test_hospital_live_posts_immediately_and_silent_when_far(tmp_path, monkeypatch):
+    """Default hosp_mode=live posts an in-hospital sale right away (variant=hospital). It posts
+    SILENTLY (no role ping) when release is further than the lead, but pings when within the lead."""
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "hl.db"))
     now = int(time.time())
+    until = {"v": now + 600}   # 10 min out -> far (lead defaults to 120s)
 
     async def fake_enrich(uid, client, force=False):
-        await db.update_seller_enrichment(uid, {"status_state": "Hospital", "status_until": now + 600,
+        await db.update_seller_enrichment(uid, {"status_state": "Hospital", "status_until": until["v"],
                                                  "online_status": "Offline", "last_action_ts": now - 600})
         return await db.get_seller(uid)
 
@@ -207,15 +208,28 @@ def test_hospital_live_posts_immediately(tmp_path, monkeypatch):
 
     async def scenario():
         await db.init_db()
-        await db.set_config("min_mug_value", 1)   # hosp_mode defaults to "live"
+        await db.set_config("min_mug_value", 1)   # hosp_mode defaults to "live", lead 120s
         await db.upsert_seller_seen(user_id=60, name="Hosp")
         bot = FakeBot()
+
+        # Far out (release in 10 min) -> post, but silent (no ping).
         sid = await db.record_sale(listing_id="uid:9", item_id=399, item_name="AK", seller_id=60,
                                    qty_sold=1, unit_price=500_000_000)
         await detection._evaluate_alert(60, await db.get_seller(60), bot,
                                         last_item={"item_id": 399, "item_name": "AK"},
                                         sale_id=sid, listing_id="uid:9")
-        assert len(bot.alerts) == 1 and bot.alerts[0]["variant"] == "hospital"
+        assert len(bot.alerts) == 1
+        assert bot.alerts[0]["variant"] == "hospital" and bot.alerts[0]["silent"] is True
+
+        # Within the lead (release in 60s) -> ping (not silent). New seller to dodge the cooldown.
+        until["v"] = now + 60
+        await db.upsert_seller_seen(user_id=61, name="Hosp2")
+        sid2 = await db.record_sale(listing_id="uid:10", item_id=399, item_name="AK", seller_id=61,
+                                    qty_sold=1, unit_price=500_000_000)
+        await detection._evaluate_alert(61, await db.get_seller(61), bot,
+                                        last_item={"item_id": 399, "item_name": "AK"},
+                                        sale_id=sid2, listing_id="uid:10")
+        assert len(bot.alerts) == 2 and bot.alerts[1]["silent"] is False
         await db.close_db()
 
     asyncio.run(scenario())

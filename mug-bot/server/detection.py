@@ -238,6 +238,14 @@ async def _evaluate_alert(seller_id, seller: Optional[Dict], bot, last_item=None
                  seller_id, (seller or {}).get("status_until"))
         return
 
+    # A hospital post only PINGS the role when the seller is within the reminder lead of release
+    # (i.e. about to be muggable). A first alert for someone still locked up longer than the lead
+    # posts SILENTLY — the near-release reminder (remind mode) pings when it's actually actionable.
+    hosp_far = False
+    if in_hospital:
+        lead = int(await _cfg("hosp_lead_seconds", config.HOSPITAL_RELEASE_LEAD_SECONDS))
+        hosp_far = int((seller or {}).get("status_until")) - int(time.time()) > lead
+
     if state == "Hospital":
         variant = "hospital"
     elif state in ("Traveling", "Abroad"):
@@ -245,14 +253,15 @@ async def _evaluate_alert(seller_id, seller: Optional[Dict], bot, last_item=None
     else:
         variant = "mug"
     hospitalize = await _is_hospitalize_faction(seller)
-    log.info("mug-eval seller=%s: POST alert variant=%s value=%s hospitalize=%s delist=%s mode=%s",
+    silent = bool((delist_secs is not None and delist_mode == "silent") or hosp_far)
+    log.info("mug-eval seller=%s: POST alert variant=%s value=%s hospitalize=%s delist=%s mode=%s silent=%s",
              seller_id, variant, win["total"], hospitalize,
-             delist_secs if delist_secs is not None else "-", delist_mode)
+             delist_secs if delist_secs is not None else "-", delist_mode, silent)
     if bot is not None:
         event = _build_event(seller_id, seller, win, res, variant=variant, last_item=last_item,
                              hospitalize=hospitalize, protection_pct=protection_pct,
                              delist_active_secs=delist_secs)
-        event["silent"] = bool(delist_secs is not None and delist_mode == "silent")
+        event["silent"] = silent
         await bot.post_mug_alert(event)
     await _mark_alerted(seller_id, win, claim=not (in_hospital and hosp_mode == "remind"))
 
