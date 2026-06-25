@@ -1060,7 +1060,7 @@ function ConfigPanel({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function WarRoomViewV2({ isLeadership, isAdmin }) {
-  const { user, isWarLead } = useAuth()
+  const { user, isWarLead, tokenReady } = useAuth()
 
   // Reload-persisted prefs: filter chips, stats range, sort, poll rate.
   // Sets are stored as arrays so JSON.stringify can round-trip them.
@@ -1122,6 +1122,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const [currentWar, setCurrentWar]   = useState(null)   // { id, opponentId, opponentName, startAt }
   const [warNotes, setWarNotes]       = useState(null)
   const [rollCallRows, setRollCallRows] = useState([])
+  const [rollCallLoaded, setRollCallLoaded] = useState(false)  // gate waits for this
   const [privateNotes, setPrivateNotes] = useState('')      // leads-only note
   const [rollCallOpen, setRollCallOpen] = useState(false)  // manual (edit) open
   const [leaderBypass, setLeaderBypass] = useState(false)  // leader dismissed the gate
@@ -1354,6 +1355,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   useEffect(() => {
     const oppId = config?.faction_id
     if (!oppId) { setCurrentWar(null); return }
+    if (!tokenReady) return  // wait for the session token (RLS) before resolving
     let cancelled = false
     supabase.from('ranked_wars')
       .select('id, opponent_id, opponent_name, start_at, end_at')
@@ -1371,38 +1373,45 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         }
       })
     return () => { cancelled = true }
-  }, [config?.faction_id])
+  }, [config?.faction_id, tokenReady])
 
   // Load roll-call rows + notes for the current war; refresh periodically so the
   // summary counts + leader results stay reasonably live (data changes slowly).
   const refreshRollCall = useCallback(async () => {
-    if (!currentWar?.id) { setRollCallRows([]); setWarNotes(null); return }
+    if (!currentWar?.id) { setRollCallRows([]); setWarNotes(null); setRollCallLoaded(true); return }
     const [{ data: rc }, { data: nt }] = await Promise.all([
       supabase.from('war_room_roll_call_v2').select('*').eq('war_id', currentWar.id),
       supabase.from('war_room_notes_v2').select('*').eq('war_id', currentWar.id).maybeSingle(),
     ])
     setRollCallRows(rc ?? [])
     setWarNotes(nt ?? null)
+    setRollCallLoaded(true)   // only after this can the gate decide to block
   }, [currentWar?.id])
 
   useEffect(() => {
+    // Wait for the session token — an RLS-denied read before it's ready returns
+    // empty, which would wrongly trip the gate for someone who already responded.
+    if (!tokenReady) return
     refreshRollCall()
     if (!currentWar?.id) return
     const t = setInterval(refreshRollCall, 30_000)
     return () => clearInterval(t)
-  }, [refreshRollCall, currentWar?.id])
+  }, [refreshRollCall, currentWar?.id, tokenReady])
 
   const myRollCall = useMemo(
     () => rollCallRows.find(r => String(r.member_id) === String(user?.id)) ?? null,
     [rollCallRows, user?.id],
   )
 
-  // A new war re-gates everyone: clear any prior leadership bypass / manual open.
-  useEffect(() => { setLeaderBypass(false); setRollCallOpen(false) }, [currentWar?.id])
+  // A new war re-gates everyone: clear any prior bypass / manual open, and
+  // mark roll call "not loaded" so the gate waits for the silent check.
+  useEffect(() => { setLeaderBypass(false); setRollCallOpen(false); setRollCallLoaded(false) }, [currentWar?.id])
 
   // Blocking gate: a current war, member hasn't responded, >1h before start, and
-  // a leader hasn't chosen to bypass. Manual "Roll Call" button opens edit mode.
-  const gateActive = rollCallGateActive({ currentWar, mySubmitted: !!myRollCall }) && !leaderBypass
+  // a leader hasn't chosen to bypass. We only let it block AFTER the roll-call
+  // check has completed (rollCallLoaded) so the overlay never flashes for people
+  // who already filled it out. Manual "Roll Call" button opens edit mode anytime.
+  const gateActive = rollCallLoaded && rollCallGateActive({ currentWar, mySubmitted: !!myRollCall }) && !leaderBypass
   const showRollCall = gateActive || rollCallOpen
 
   async function handleSubmitRollCall(answers) {
