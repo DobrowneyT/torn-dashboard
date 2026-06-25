@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { LoaderCircle, Lock } from 'lucide-react'
-import { availabilityLabel } from '../../utils/rollCall'
+import RollCallResultsTable from './RollCallResultsTable'
 
 // War Leaders only. War type / agreed scores / strategy notes + the embedded
 // roll-call results table and a "not yet responded" list. Edited responses
@@ -33,7 +33,9 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
   useEffect(() => { setPrivText(privateNotes ?? '') }, [privateNotes])
 
   const respondedIds = new Set(rollCallRows.map(r => Number(r.member_id)))
-  const nonResponders = ourMembers.filter(m => !respondedIds.has(Number(m.member_id)))
+  const nonResponders = ourMembers
+    .filter(m => !respondedIds.has(Number(m.member_id)))
+    .sort((a, b) => (a.member_name || '').localeCompare(b.member_name || '', undefined, { sensitivity: 'base' }))
 
   return (
     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700">
@@ -122,33 +124,7 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
             {rollCallRows.length} responded · {nonResponders.length} missing
           </span>
         </div>
-        <div className="rounded-lg border border-gray-200 dark:border-slate-600 overflow-hidden overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 dark:bg-slate-700/40 text-left text-gray-500 dark:text-gray-400">
-                <th className="px-3 py-1.5 font-medium">Member</th>
-                <th className="px-3 py-1.5 font-medium">Start</th>
-                <th className="px-3 py-1.5 font-medium">Self-hosp</th>
-                <th className="px-3 py-1.5 font-medium">Availability</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rollCallRows.length === 0 ? (
-                <tr><td colSpan={4} className="px-3 py-2 text-gray-500 dark:text-gray-400">No responses yet.</td></tr>
-              ) : rollCallRows.map(r => (
-                <tr key={r.member_id} className={`border-t border-gray-100 dark:border-slate-700 ${r.revised ? 'bg-amber-50 dark:bg-amber-900/20' : ''}`}>
-                  <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
-                    {r.member_name || r.member_id}
-                    {r.revised && <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200">edited</span>}
-                  </td>
-                  <td className="px-3 py-1.5">{r.on_at_start ? <span className="text-green-600 dark:text-green-400">Yes</span> : <span className="text-red-600 dark:text-red-400">No</span>}</td>
-                  <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{r.on_at_start ? '—' : (r.can_self_hospital ? 'Yes' : (r.needs_merc ? 'No (merc)' : '—'))}</td>
-                  <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{availabilityLabel(r.availability)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RollCallResultsTable rows={rollCallRows} />
         {nonResponders.length > 0 && (
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
             <span className="font-medium text-gray-600 dark:text-gray-300">Not yet responded:</span>{' '}

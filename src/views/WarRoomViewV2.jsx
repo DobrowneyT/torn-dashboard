@@ -1970,8 +1970,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           <WarSummaryCard
             currentWar={currentWar}
             notes={warNotes}
-            responded={rollCallRows.length}
-            total={ourMembers.length}
+            rollCallRows={rollCallRows}
+            ourMembers={ourMembers}
             mine={myRollCall}
             embedded
           />
