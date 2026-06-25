@@ -1,13 +1,19 @@
+import { useState } from 'react'
 import { Swords, Clock } from 'lucide-react'
 import { config as appConfig } from '../../config'
 import { formatTct, formatCountdown, warTypeBadge, availabilityLabel } from '../../utils/rollCall'
+import RollCallResultsModal from './RollCallResultsModal'
 
 // Compact "this week's war" summary shown to everyone in the War Room (and
 // reused inside the roll-call overlay header). `mine` is the viewer's roll-call
-// row (or null). `responded`/`total` drive the roll-call counts.
-export default function WarSummaryCard({ currentWar, notes, responded = 0, total = 0, mine, embedded = false }) {
+// row (or null). The "in / missing" counts are clickable → a modal listing who
+// responded (with answers) or who hasn't.
+export default function WarSummaryCard({ currentWar, notes, rollCallRows = [], ourMembers = [], mine, embedded = false }) {
+  const [modalMode, setModalMode] = useState(null)  // 'responded' | 'missing' | null
   if (!currentWar) return null
   const badge = warTypeBadge(notes)
+  const responded = rollCallRows.length
+  const total = ourMembers.length
   const missing = Math.max(0, total - responded)
   const oppUrl = `https://www.torn.com/factions.php?step=profile&ID=${currentWar.opponentId}`
 
@@ -47,9 +53,20 @@ export default function WarSummaryCard({ currentWar, notes, responded = 0, total
 
       <div className="mt-2 flex items-center justify-between text-xs">
         <span className="text-gray-500 dark:text-gray-400">
-          Roll call: <span className="font-semibold text-gray-700 dark:text-gray-300">{responded} in</span>
+          Roll call:{' '}
+          <button
+            onClick={() => setModalMode('responded')}
+            className="font-semibold text-gray-700 dark:text-gray-300 hover:underline"
+          >
+            {responded} in
+          </button>
           {' · '}
-          <span className={missing > 0 ? 'text-red-600 dark:text-red-400 font-semibold' : ''}>{missing} missing</span>
+          <button
+            onClick={() => setModalMode('missing')}
+            className={`hover:underline ${missing > 0 ? 'text-red-600 dark:text-red-400 font-semibold' : ''}`}
+          >
+            {missing} missing
+          </button>
         </span>
         <span className="text-gray-500 dark:text-gray-400">
           {mine
@@ -57,6 +74,15 @@ export default function WarSummaryCard({ currentWar, notes, responded = 0, total
             : <span className="text-red-600 dark:text-red-400 font-medium">you haven’t responded</span>}
         </span>
       </div>
+
+      {modalMode && (
+        <RollCallResultsModal
+          mode={modalMode}
+          rollCallRows={rollCallRows}
+          ourMembers={ourMembers}
+          onClose={() => setModalMode(null)}
+        />
+      )}
     </div>
   )
 }

@@ -45,7 +45,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up scraper environment
       uses: ./.github/actions/scraper-setup
@@ -64,7 +64,7 @@ jobs:
 
     - name: Upload logs as artifact
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: faction-attacks-backfill-logs-${{ github.run_number }}-shard-${{ matrix.shard }}
         path: logs/

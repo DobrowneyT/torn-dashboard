@@ -35,10 +35,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Upload current data as baseline artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: initial-data
         path: data/
@@ -54,10 +54,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Download baseline data
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: initial-data
         path: data/
@@ -84,14 +84,14 @@ jobs:
 
     - name: Upload logs as artifact
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: crime-scrape-logs-${{ github.run_number }}
         path: logs/
         retention-days: 30
 
     - name: Upload crimes output
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: data-crimes
         path: data/crimes_database.json
@@ -107,10 +107,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Download baseline data
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: initial-data
         path: data/
@@ -130,7 +130,7 @@ jobs:
 
     - name: Upload logs as artifact
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: cpr-scrape-logs-${{ github.run_number }}
         path: logs/
@@ -146,10 +146,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Download baseline data
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: initial-data
         path: data/
@@ -176,14 +176,14 @@ jobs:
 
     - name: Upload logs as artifact
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: war-scrape-logs-${{ github.run_number }}
         path: logs/
         retention-days: 30
 
     - name: Upload war output
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: data-wars
         path: data/war_database.json
@@ -200,10 +200,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Download baseline data
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: initial-data
         path: data/
@@ -232,14 +232,14 @@ jobs:
 
     - name: Upload logs as artifact
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: faction-attacks-logs-${{ github.run_number }}
         path: logs/
         retention-days: 30
 
     - name: Upload faction attacks output
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: data-attacks
         path: data/faction_attacks_database_*.json
@@ -255,7 +255,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up scraper environment
       uses: ./.github/actions/scraper-setup
@@ -270,7 +270,7 @@ jobs:
 
     - name: Upload logs as artifact
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: member-stats-logs-${{ github.run_number }}
         path: logs/
@@ -286,7 +286,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up scraper environment
       uses: ./.github/actions/scraper-setup
@@ -302,7 +302,7 @@ jobs:
 
     - name: Upload logs as artifact
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: items-sync-logs-${{ github.run_number }}
         path: logs/
@@ -322,7 +322,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -333,7 +333,7 @@ jobs:
 
     - name: Download crimes output
       if: needs.scrape-crimes.result == 'success'
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: data-crimes
         path: data/
@@ -341,7 +341,7 @@ jobs:
 
     - name: Download war output
       if: needs.scrape-wars.result == 'success'
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: data-wars
         path: data/
@@ -349,7 +349,7 @@ jobs:
 
     - name: Download faction attacks output
       if: needs.scrape-faction-attacks.result == 'success'
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: data-attacks
         path: data/
