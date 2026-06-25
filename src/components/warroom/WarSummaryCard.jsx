@@ -5,14 +5,16 @@ import { formatTct, formatCountdown, warTypeBadge, availabilityLabel } from '../
 // Compact "this week's war" summary shown to everyone in the War Room (and
 // reused inside the roll-call overlay header). `mine` is the viewer's roll-call
 // row (or null). `responded`/`total` drive the roll-call counts.
-export default function WarSummaryCard({ currentWar, notes, responded = 0, total = 0, mine }) {
+export default function WarSummaryCard({ currentWar, notes, responded = 0, total = 0, mine, embedded = false }) {
   if (!currentWar) return null
   const badge = warTypeBadge(notes)
   const missing = Math.max(0, total - responded)
   const oppUrl = `https://www.torn.com/factions.php?step=profile&ID=${currentWar.opponentId}`
 
+  // `embedded` renders it as a section inside the top card (with a divider);
+  // otherwise it's a standalone card.
   return (
-    <div className="card mt-3">
+    <div className={embedded ? 'mt-4 pt-4 border-t border-gray-200 dark:border-slate-700' : 'card mt-3'}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">

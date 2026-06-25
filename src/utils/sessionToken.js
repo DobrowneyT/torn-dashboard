@@ -27,7 +27,13 @@
  * still work, writes that require the JWT will fail clearly.
  */
 
-import { mintSessionToken as mintSessionTokenApi } from './warRoomApiV2'
+// NOTE: warRoomApiV2 is imported LAZILY (dynamic import in mint() below) on
+// purpose. A static import here creates an init-time cycle —
+// supabase.js → sessionToken.js → warRoomApiV2.js → supabase.js — and because
+// supabase.js calls this module's get() inside createClient()'s accessToken
+// hook *during construction*, that cycle surfaced as a TDZ crash
+// ("Cannot access 'X' before initialization"). The dynamic import defers the
+// edge to call time, after all modules have finished initializing.
 
 const STORAGE_PREFIX = 'tornSessionToken:'
 const REFRESH_MARGIN_SECONDS = 30 * 60      // refresh 30 min before exp
@@ -136,6 +142,8 @@ async function doMint() {
   }
 
   try {
+    // Lazy import breaks the supabase ↔ sessionToken ↔ warRoomApiV2 init cycle.
+    const { mintSessionToken: mintSessionTokenApi } = await import('./warRoomApiV2')
     const { token, expires_at } = await mintSessionTokenApi(user.apiKey)
     cached = { token, expiresAt: expires_at }
     persistToStorage(user.id, cached)

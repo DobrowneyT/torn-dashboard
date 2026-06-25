@@ -24,7 +24,7 @@ import {
   getWarNotesPrivate,
 } from '../utils/warRoomApiV2'
 import { useWarRoomPoll } from '../hooks/useWarRoomPoll'
-import { config as appConfig } from '../config'
+import { config as appConfig, isWarLead as checkWarLead } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
 import MobileWarRoomView from './MobileWarRoomView'
@@ -1060,7 +1060,10 @@ function ConfigPanel({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function WarRoomViewV2({ isLeadership, isAdmin }) {
-  const { user, isWarLead, tokenReady } = useAuth()
+  const { user, tokenReady } = useAuth()
+  // Derive war-lead status from config + ID rather than the session flag, so a
+  // stale/older cached session object can't hide the War Notes controls.
+  const isWarLead = checkWarLead(user?.id)
 
   // Reload-persisted prefs: filter chips, stats range, sort, poll rate.
   // Sets are stored as arrays so JSON.stringify can round-trip them.
@@ -1962,9 +1965,22 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           />
         )}
 
-        {/* Filters — shown whenever there are members to filter */}
-        {hasMembers && (
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 flex flex-col gap-2">
+        {/* This week's war summary — lives in the top card with the controls. */}
+        {currentWar && (
+          <WarSummaryCard
+            currentWar={currentWar}
+            notes={warNotes}
+            responded={rollCallRows.length}
+            total={ourMembers.length}
+            mine={myRollCall}
+            embedded
+          />
+        )}
+      </div>
+
+      {/* Filters — their own card below the controls. */}
+      {hasMembers && (
+        <div className="card flex flex-col gap-2">
             <div className="flex flex-wrap gap-y-2 gap-x-4 items-center">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Status:</span>
@@ -2080,18 +2096,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             </div>
           </div>
         )}
-      </div>
-
-      {/* This week's war summary — visible to everyone when a war is matched. */}
-      {currentWar && (
-        <WarSummaryCard
-          currentWar={currentWar}
-          notes={warNotes}
-          responded={rollCallRows.length}
-          total={ourMembers.length}
-          mine={myRollCall}
-        />
-      )}
 
       {/* Paused notice — sits just above the chain/status bar so it reads with
           the (stale) timers it's warning about. */}
