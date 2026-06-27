@@ -76,9 +76,22 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
         : result.moreAvailable
           ? ' — more available, click again to continue.'
           : '.'
+      // The attacks scrape doesn't touch ranked_wars scores, so a live war's
+      // Our/Their Score would stay stale. Refresh the official faction scores
+      // (a cheap 1-page ranked-wars fetch — Torn DOES publish them live) and
+      // reload the table so the war list + contributions modal show the current
+      // true total. Best-effort: a failure here doesn't undo the attacks fetch.
+      let scoreNote = ''
+      try {
+        await fetchWarsApi(user.apiKey)
+        await fetchWars(0, true)
+        scoreNote = ' War scores refreshed.'
+      } catch (scoreErr) {
+        console.warn('war-score refresh after attacks failed:', scoreErr)
+      }
       setFetchMessage({
         type: result.partial ? 'warning' : 'success',
-        text: `Attacks: ${parts.join(', ')}${suffix}`,
+        text: `Attacks: ${parts.join(', ')}${suffix}${scoreNote}`,
       })
     } catch (err) {
       console.error('fetchAttacks failed:', err)

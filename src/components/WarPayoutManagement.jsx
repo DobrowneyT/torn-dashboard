@@ -479,7 +479,11 @@ export default function WarPayoutManagement() {
       setRacePreCutoffPercent(0)
       setPostDistMode('flat')
     } else {
-      setRaceCutoffTimestamp(war?.end_at || 99999999999)
+      // Completed war → cutoff at war end. Ongoing war (no end_at) → default to
+      // "now" rather than a far-future sentinel, so the Manual Cutoff picker
+      // opens on today. Either way the real-war preset is 100% pre-cutoff (all
+      // attacks so far are before the cutoff), so the payout math is unchanged.
+      setRaceCutoffTimestamp(war?.end_at || Math.floor(Date.now() / 1000))
       setRacePreCutoffPercent(100)
       setPostDistMode('formula')
     }
@@ -1501,7 +1505,14 @@ export default function WarPayoutManagement() {
                       Auto-detect
                     </button>
                     <button
-                      onClick={() => setRaceCutoffMode('manual')}
+                      onClick={() => {
+                        setRaceCutoffMode('manual')
+                        // Snap an unset/far-future sentinel (e.g. year-5138 from an
+                        // old saved payout) to today; keep any real detected/typed value.
+                        setRaceCutoffTimestamp(ts =>
+                          (!ts || ts > 4102444800) ? Math.floor(Date.now() / 1000) : ts
+                        )
+                      }}
                       className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
                         raceCutoffMode === 'manual'
                           ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
