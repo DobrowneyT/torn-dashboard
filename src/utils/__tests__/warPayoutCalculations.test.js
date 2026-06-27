@@ -8,6 +8,8 @@ import {
   detectRaceCutoff,
   calculateRaceWarPayouts,
   generateWarBatchPayoutURL,
+  deriveWarScoresByMember,
+  compareContributionSources,
 } from '../warPayoutCalculations.js'
 
 // Note: attacks come from faction_attacks table (daily scrape, no war_id).
@@ -1119,5 +1121,127 @@ describe('generateWarBatchPayoutURL', () => {
     const url = generateWarBatchPayoutURL(members)
     expect(url).toContain('batbal_amounts=999')
     expect(url).not.toContain('999.99')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// deriveWarScoresByMember — raw outgoing ranked-war respect per member
+// (mirrors Torn's official per-member war contribution score; NOT bonus-capped)
+// ---------------------------------------------------------------------------
+
+const DERIVE_ATTACKS = [
+  // Alice (100): two ranked-war wins → 30 + 50 = 80 (uncapped, incl. chain bonus)
+  { id: 1, attacker_id: 100, attacker_name: 'Alice', attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true,  is_incoming: false, respect_gain: 30, chain: 5 },
+  { id: 2, attacker_id: 100, attacker_name: 'Alice', attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, respect_gain: 50, chain: 100 },
+  // Bob (200): one ranked-war win → 40
+  { id: 3, attacker_id: 200, attacker_name: 'Bob', attacker_faction_id: 10739, result: 'Mugged', is_ranked_war: true, is_incoming: false, respect_gain: 40, chain: 7 },
+  // Non-war win — ignored
+  { id: 4, attacker_id: 200, attacker_name: 'Bob', attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: false, is_incoming: false, respect_gain: 99, chain: 8 },
+  // Loss — ignored
+  { id: 5, attacker_id: 100, attacker_name: 'Alice', attacker_faction_id: 10739, result: 'Lost', is_ranked_war: true, is_incoming: false, respect_gain: 0, chain: 0 },
+  // Assist — ignored
+  { id: 6, attacker_id: 300, attacker_name: 'Carol', attacker_faction_id: 10739, result: 'Assist', is_ranked_war: true, is_incoming: false, respect_gain: 5, chain: 0 },
+  // Incoming — ignored
+  { id: 7, attacker_id: 999, defender_id: 100, defender_faction_id: 10739, attacker_faction_id: 555, result: 'Attacked', is_ranked_war: true, is_incoming: true, respect_gain: 70, chain: 1 },
+  // Other faction outgoing — ignored
+  { id: 8, attacker_id: 888, attacker_faction_id: 555, result: 'Attacked', is_ranked_war: true, is_incoming: false, respect_gain: 25, chain: 1 },
+]
+
+describe('deriveWarScoresByMember', () => {
+  it('sums raw respect for outgoing ranked-war wins, uncapped', () => {
+    const m = deriveWarScoresByMember(DERIVE_ATTACKS)
+    expect(m.get(100)).toBe(80)   // 30 + 50 (bonus NOT capped)
+    expect(m.get(200)).toBe(40)
+  })
+
+  it('ignores non-war wins, losses, assists, incoming, and other factions', () => {
+    const m = deriveWarScoresByMember(DERIVE_ATTACKS)
+    expect(m.has(300)).toBe(false) // assist only
+    expect(m.has(999)).toBe(false) // incoming
+    expect(m.has(888)).toBe(false) // other faction
+    expect(m.get(200)).toBe(40)    // non-war win not added
+  })
+
+  it('returns an empty map for no attacks', () => {
+    expect(deriveWarScoresByMember([]).size).toBe(0)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// compareContributionSources — derived vs official report cross-check
+// ---------------------------------------------------------------------------
+
+describe('compareContributionSources', () => {
+  it('flags no discrepancies when derived matches the official report', () => {
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      { member_id: 200, member_name: 'Bob',   score: 40 },
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    expect(res.hasDiscrepancies).toBe(false)
+    expect(res.flaggedRows).toHaveLength(0)
+    expect(res.apiTotal).toBe(120)
+    expect(res.derivedTotal).toBe(120)
+    expect(res.totalDiff).toBe(0)
+  })
+
+  it('flags a member whose attacks are missing (derived far below official)', () => {
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      { member_id: 200, member_name: 'Bob',   score: 400 }, // derived only 40 → big gap
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    expect(res.hasDiscrepancies).toBe(true)
+    const bob = res.flaggedRows.find(r => r.memberId === 200)
+    expect(bob).toBeTruthy()
+    expect(bob.diff).toBe(-360) // 40 - 400
+  })
+
+  it('does not flag a gap within tolerance', () => {
+    // Bob official 41 vs derived 40 → 1 absolute / ~2.4% — under the 10 abs floor
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      { member_id: 200, member_name: 'Bob',   score: 41 },
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    expect(res.hasDiscrepancies).toBe(false)
+  })
+
+  it('flags a member present in the official report but with no derived attacks', () => {
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      { member_id: 200, member_name: 'Bob',   score: 40 },
+      { member_id: 700, member_name: 'Ghost', score: 500 }, // no attacks at all
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    const ghost = res.flaggedRows.find(r => r.memberId === 700)
+    expect(ghost).toBeTruthy()
+    expect(ghost.derivedScore).toBe(0)
+    expect(ghost.diff).toBe(-500)
+  })
+
+  it('flags a member present in attacks but missing from the official report', () => {
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      // Bob omitted entirely from the report
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    const bob = res.flaggedRows.find(r => r.memberId === 200)
+    expect(bob).toBeTruthy()
+    expect(bob.apiScore).toBe(0)
+    expect(bob.derivedScore).toBe(40)
+    expect(bob.memberName).toBe('Bob') // name resolved from attack data
+  })
+
+  it('respects custom tolerances', () => {
+    // Isolate a single member (Bob, derived 40) vs official 50 → diff -10, -20%.
+    const bobOnly = DERIVE_ATTACKS.filter(a => a.attacker_id === 200 && a.is_ranked_war && !a.is_incoming)
+    const api = [{ member_id: 200, member_name: 'Bob', score: 50 }]
+    const lenient = compareContributionSources(api, bobOnly, { toleranceAbs: 25 })
+    expect(lenient.hasDiscrepancies).toBe(false) // 10 < 25 abs floor
+    const strict = compareContributionSources(api, bobOnly, { toleranceAbs: 5, tolerancePct: 0.01 })
+    expect(strict.hasDiscrepancies).toBe(true)
   })
 })

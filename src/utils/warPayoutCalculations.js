@@ -704,10 +704,22 @@ export function detectRaceCutoff(attacks, targetScore) {
 
 /**
  * Sum raw outgoing ranked-war WIN respect per member within an attack window.
- * This is the windowed "contribution" score fed to the real-war formula for each
- * race sub-period (pre / post cutoff), so contribution reflects only that window.
+ *
+ * This is the same metric Torn reports as each member's war contribution `score`
+ * in the post-war `rankedwarreport` (raw respect, INCLUDING chain-bonus
+ * inflation — no normalization), so it doubles as:
+ *   • the windowed "contribution" score fed to the real-war formula for each
+ *     race sub-period (pre / post cutoff), and
+ *   • the attack-derived figure we cross-check against the official
+ *     `war_member_contributions.score` once the report lands.
+ *
+ * NOTE: deliberately NOT bonus-capped (unlike loadLiveContributionsFromAttacks'
+ * leaderboard score) — the official score it mirrors is uncapped.
+ *
+ * @param {Array} attacks - faction_attacks rows
+ * @returns {Map<number, number>} memberId → Σ raw respect_gain
  */
-function windowedRespectByMember(attacks) {
+export function deriveWarScoresByMember(attacks) {
   const m = new Map()
   for (const a of attacks) {
     const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
@@ -719,6 +731,87 @@ function windowedRespectByMember(attacks) {
     m.set(id, (m.get(id) || 0) + (parseFloat(a.respect_gain) || 0))
   }
   return m
+}
+
+// Back-compat alias for the race engine's per-window contribution.
+const windowedRespectByMember = deriveWarScoresByMember
+
+
+/**
+ * Cross-check our attack-derived war scores against Torn's official
+ * `war_member_contributions` report.
+ *
+ * Both figures are RAW respect (Σ respect_gain for outgoing ranked-war wins ==
+ * the official per-member score), so a meaningful gap means our scraped
+ * `faction_attacks` are incomplete for the window (missed attacks, attribution
+ * gaps, or report timing) — exactly the kind of error leaders want flagged
+ * before trusting a payout.
+ *
+ * A row is flagged only when BOTH thresholds are exceeded, so rounding and
+ * tiny-score noise don't spam the warning:
+ *   |derived − api| >= toleranceAbs  AND  |pct| >= tolerancePct
+ *
+ * @param {Array} apiContributions - war_member_contributions rows (our faction)
+ * @param {Array} attacks          - faction_attacks rows (war window)
+ * @param {object} [opts]
+ * @param {number} [opts.tolerancePct=0.02] - fractional tolerance (0.02 = 2%)
+ * @param {number} [opts.toleranceAbs=10]   - absolute respect tolerance
+ * @returns {{ rows: Array, flaggedRows: Array, hasDiscrepancies: boolean,
+ *             apiTotal: number, derivedTotal: number, totalDiff: number }}
+ */
+export function compareContributionSources(apiContributions, attacks, opts = {}) {
+  const { tolerancePct = 0.02, toleranceAbs = 10 } = opts
+  const derived = deriveWarScoresByMember(attacks)
+
+  // Names: prefer the API row, fall back to whatever the attack data carried.
+  const names = new Map()
+  for (const c of apiContributions || []) {
+    if (c.member_id != null) names.set(Number(c.member_id), c.member_name)
+  }
+  for (const a of attacks || []) {
+    const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
+    if (isIncoming || a.attacker_faction_id !== OUR_FACTION_ID) continue
+    const id = Number(a.attacker_id)
+    if (id && !names.has(id)) names.set(id, a.attacker_name)
+  }
+
+  const apiById = new Map()
+  for (const c of apiContributions || []) {
+    if (c.member_id != null) apiById.set(Number(c.member_id), Number(c.score) || 0)
+  }
+
+  const ids = new Set([...apiById.keys(), ...derived.keys()])
+  const rows = []
+  for (const id of ids) {
+    const apiScore = apiById.get(id) || 0
+    const derivedScore = Math.round((derived.get(id) || 0) * 100) / 100
+    const diff = Math.round((derivedScore - apiScore) * 100) / 100
+    const pct = apiScore !== 0 ? diff / apiScore : (derivedScore !== 0 ? 1 : 0)
+    const flagged = Math.abs(diff) >= toleranceAbs && Math.abs(pct) >= tolerancePct
+    rows.push({
+      memberId: id,
+      memberName: names.get(id) || `#${id}`,
+      apiScore,
+      derivedScore,
+      diff,
+      pct,
+      flagged,
+    })
+  }
+
+  rows.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+  const flaggedRows = rows.filter(r => r.flagged)
+  const apiTotal = [...apiById.values()].reduce((s, v) => s + v, 0)
+  const derivedTotal = [...derived.values()].reduce((s, v) => s + v, 0)
+
+  return {
+    rows,
+    flaggedRows,
+    hasDiscrepancies: flaggedRows.length > 0,
+    apiTotal: Math.round(apiTotal * 100) / 100,
+    derivedTotal: Math.round(derivedTotal * 100) / 100,
+    totalDiff: Math.round((derivedTotal - apiTotal) * 100) / 100,
+  }
 }
 
 /**

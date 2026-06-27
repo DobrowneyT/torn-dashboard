@@ -27,7 +27,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import Plot from 'react-plotly.js'
 import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds } from '../utils/warDataLoader'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
-import { fetchAttacks as fetchAttacksApi, fetchRevives as fetchRevivesApi } from '../utils/adminApi'
+import { fetchAttacks as fetchAttacksApi, fetchRevives as fetchRevivesApi, fetchWars as fetchWarsApi } from '../utils/adminApi'
 import { useAuth } from '../contexts/AuthContext'
 
 const OUR_FACTION_ID = 10739
@@ -465,7 +465,17 @@ export default function WarOverviewView() {
       const result = await fetchAttacksApi(user.apiKey)
       const parts = [`${result.attacksFetched ?? 0} fetched`, `${result.attacksNew ?? 0} new`]
       const suffix = result.partial ? ` — stopped early (${result.partialReason}). Click again to resume.` : '.'
-      setFetchMessage({ type: result.partial ? 'warning' : 'success', text: `Attacks: ${parts.join(', ')}${suffix}` })
+      // The attacks scrape leaves ranked_wars scores untouched; refresh the
+      // official live faction scores (cheap 1-page ranked-wars fetch) so the
+      // war's Our/Their Score reflects the current true total. Best-effort.
+      let scoreNote = ''
+      try {
+        await fetchWarsApi(user.apiKey)
+        scoreNote = ' War scores refreshed.'
+      } catch (scoreErr) {
+        console.warn('war-score refresh after attacks failed:', scoreErr)
+      }
+      setFetchMessage({ type: result.partial ? 'warning' : 'success', text: `Attacks: ${parts.join(', ')}${suffix}${scoreNote}` })
       await reloadWarData(selectedWarId, { resetWindow: false })
     } catch (err) {
       console.error('fetchAttacks failed:', err)

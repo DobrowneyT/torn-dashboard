@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { loadWars, loadWarsCount, loadWarContributions, loadFactionAttacksByWindow, loadWarPayouts, loadRecentWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
+import { loadWars, loadWarsCount, loadWarContributions, loadLiveContributionsFromAttacks, loadFactionAttacksByWindow, loadWarPayouts, loadRecentWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
 import { saveWarPayout, updateWarIsTermed } from '../utils/adminApi'
 import {
   calculateTermedWarPayouts,
@@ -11,6 +11,8 @@ import {
   formatWarDateRange,
   buildHitReport,
   collectOpposingFactionIds,
+  compareContributionSources,
+  deriveWarScoresByMember,
 } from '../utils/warPayoutCalculations'
 
 const OUR_FACTION_ID = 10739
@@ -343,6 +345,14 @@ export default function WarPayoutManagement() {
   const [contributions, setContributions] = useState([])
   const [attacks, setAttacks] = useState([])
   const [loadingWarData, setLoadingWarData] = useState(false)
+  // Where the contribution roster came from:
+  //   'official' — war_member_contributions (Torn report published, war over)
+  //   'live'     — derived from faction_attacks (war still in progress / report
+  //                not yet out). Live payouts are preview-only (no DB save).
+  const [contributionSource, setContributionSource] = useState('official')
+  // Cross-check of attack-derived scores vs the official report (null in live mode).
+  const [discrepancy, setDiscrepancy] = useState(null)
+  const [showDiscrepancyDetail, setShowDiscrepancyDetail] = useState(false)
 
   // Payout settings.
   // The payout engine is unified on the Race calculation. `warType` stays 'race'
@@ -517,6 +527,9 @@ export default function WarPayoutManagement() {
     setFactionFilterPre(null)
     setFactionFilterPost(null)
     setFactionLookup(new Map())
+    setContributionSource('official')
+    setDiscrepancy(null)
+    setShowDiscrepancyDetail(false)
 
     setLoadingWarData(true)
     try {
@@ -525,8 +538,24 @@ export default function WarPayoutManagement() {
         loadFactionAttacksByWindow(war.start_at, war.end_at),
       ])
       const ourContribs = contribs.filter(c => c.faction_id === OUR_FACTION_ID)
-      setContributions(ourContribs)
       setAttacks(warAttacks)
+
+      if (ourContribs.length === 0) {
+        // No official report yet (war still in progress, or Torn hasn't published
+        // it). Build the roster from scraped attacks so the payout engine — which
+        // already derives all scoring from attacks — can run a live preview. Save
+        // stays disabled until the official report lands.
+        const liveContribs = await loadLiveContributionsFromAttacks(war)
+        setContributions(liveContribs.filter(c => c.faction_id === OUR_FACTION_ID))
+        setContributionSource('live')
+        setDiscrepancy(null)
+      } else {
+        // Official report present → reconciled mode. Cross-check our attack-derived
+        // scores against it so leaders are warned about scraper gaps.
+        setContributions(ourContribs)
+        setContributionSource('official')
+        setDiscrepancy(compareContributionSources(ourContribs, warAttacks))
+      }
 
       // Resolve opposing faction names for the Hit Report filter
       const opposingIds = collectOpposingFactionIds(warAttacks)
@@ -716,6 +745,10 @@ export default function WarPayoutManagement() {
       setSaveError(!user?.apiKey ? 'Missing API key — please log in again.' : 'Nothing to save.')
       return
     }
+    if (contributionSource === 'live') {
+      setSaveError('Saving is disabled for live estimates — wait for Torn to publish the official war report, then recalculate and save.')
+      return
+    }
 
     setIsSaving(true)
     setSaveError(null)
@@ -840,7 +873,9 @@ export default function WarPayoutManagement() {
       console.warn('Auto-copy failed; user can use the Copy URL button:', e)
     }
 
-    if (!savedPayoutId) {
+    // Live estimates are preview-only — the URL is provisional and we don't
+    // offer to persist a DB row until the official report lands.
+    if (!savedPayoutId && contributionSource !== 'live') {
       if (window.confirm('Batch URL copied! Would you like to save this payout to the database?')) {
         await handleSave()
       }
@@ -861,6 +896,14 @@ export default function WarPayoutManagement() {
   const effectiveMembers = getEffectiveMembers()
   const totalPayout = effectiveMembers.reduce((s, m) => s + (m.isEligible ? m.payoutAmount : 0), 0)
   const eligibleCount = effectiveMembers.filter(m => m.isEligible).length
+
+  // Total of our attack-derived war scores (raw respect, matches the official
+  // war-report total). Used for the live sanity line vs ranked_wars.our_score.
+  const derivedScoreTotal = useMemo(() => {
+    let t = 0
+    for (const v of deriveWarScoresByMember(attacks).values()) t += v
+    return Math.round(t)
+  }, [attacks])
 
   // Race wars: pay-per-hit and hit counts split across the cutoff, so leaders can
   // see the pre- vs post-cutoff rate. Uses each member's pre/post hit buckets and
@@ -1803,6 +1846,73 @@ export default function WarPayoutManagement() {
           )}
 
           {activeTab === 'payout' && hasCalculated && payoutResults && (<>
+          {/* Contribution-source status banner */}
+          {contributionSource === 'live' && (
+            <div className="px-3 sm:px-4 py-2.5 border-b border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 text-xs sm:text-sm text-amber-800 dark:text-amber-300">
+              <p className="font-semibold">⚠ Live estimate — war in progress</p>
+              <p className="mt-0.5 text-amber-700 dark:text-amber-400">
+                Scores are derived from scraped attacks and will be reconciled after Torn publishes the official war report. Saving is disabled until then; the batch URL is provisional.
+              </p>
+              <p className="mt-1 text-amber-700 dark:text-amber-400">
+                Derived war score: <span className="font-semibold">{derivedScoreTotal.toLocaleString()}</span>
+                {selectedWar?.our_score > 0 && (
+                  <> · Official live score: <span className="font-semibold">{Number(selectedWar.our_score).toLocaleString()}</span></>
+                )}
+              </p>
+            </div>
+          )}
+          {contributionSource === 'official' && discrepancy && !discrepancy.hasDiscrepancies && (
+            <div className="px-3 sm:px-4 py-2 border-b border-green-200 dark:border-green-700/50 bg-green-50 dark:bg-green-900/20 text-xs sm:text-sm text-green-800 dark:text-green-300">
+              ✓ Derived scores match the official war report
+              {Math.abs(discrepancy.totalDiff) > 0 && <> (Δ totals {discrepancy.totalDiff > 0 ? '+' : ''}{discrepancy.totalDiff.toLocaleString()})</>}.
+            </div>
+          )}
+          {contributionSource === 'official' && discrepancy && discrepancy.hasDiscrepancies && (
+            <div className="px-3 sm:px-4 py-2.5 border-b border-red-200 dark:border-red-700/50 bg-red-50 dark:bg-red-900/20 text-xs sm:text-sm text-red-800 dark:text-red-300">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold">
+                  ⚠ {discrepancy.flaggedRows.length} member{discrepancy.flaggedRows.length === 1 ? '' : 's'} differ from the official war report
+                </p>
+                <button
+                  onClick={() => setShowDiscrepancyDetail(s => !s)}
+                  className="flex-shrink-0 text-xs px-2 py-0.5 rounded border border-red-300 dark:border-red-600 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40"
+                >
+                  {showDiscrepancyDetail ? 'Hide' : 'Show'} details
+                </button>
+              </div>
+              <p className="mt-0.5 text-red-700 dark:text-red-400">
+                Derived scores come from scraped attacks; a gap usually means missing attack data for this window. Payout math is unaffected (this is a data-quality warning only).
+              </p>
+              {showDiscrepancyDetail && (
+                <div className="mt-2 overflow-auto max-h-60 rounded border border-red-200 dark:border-red-700/50">
+                  <table className="w-full text-xs">
+                    <thead className="bg-red-100/60 dark:bg-red-900/30 text-red-800 dark:text-red-300 sticky top-0">
+                      <tr className="text-right">
+                        <th className="px-2 py-1 text-left font-medium">Member</th>
+                        <th className="px-2 py-1 font-medium">Derived</th>
+                        <th className="px-2 py-1 font-medium">Official</th>
+                        <th className="px-2 py-1 font-medium">Δ</th>
+                        <th className="px-2 py-1 font-medium">Δ%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {discrepancy.flaggedRows.map(r => (
+                        <tr key={r.memberId} className="text-right border-t border-red-100 dark:border-red-800/40">
+                          <td className="px-2 py-1 text-left text-gray-800 dark:text-gray-200">{r.memberName}</td>
+                          <td className="px-2 py-1 text-gray-700 dark:text-gray-300">{r.derivedScore.toLocaleString()}</td>
+                          <td className="px-2 py-1 text-gray-700 dark:text-gray-300">{r.apiScore.toLocaleString()}</td>
+                          <td className={`px-2 py-1 font-medium ${r.diff < 0 ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                            {r.diff > 0 ? '+' : ''}{r.diff.toLocaleString()}
+                          </td>
+                          <td className="px-2 py-1 text-gray-500 dark:text-gray-400">{(r.pct * 100).toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
           {/* Summary bar */}
           <div className="px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-700 flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm">
             <div>
@@ -2201,10 +2311,11 @@ export default function WarPayoutManagement() {
             ) : (
               <button
                 onClick={handleSave}
-                disabled={isSaving}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+                disabled={isSaving || contributionSource === 'live'}
+                title={contributionSource === 'live' ? 'Saving is disabled for live estimates — wait for the official war report.' : undefined}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {isSaving ? 'Saving...' : 'Save to Database'}
+                {isSaving ? 'Saving...' : (contributionSource === 'live' ? 'Save disabled (live)' : 'Save to Database')}
               </button>
             )}
 
