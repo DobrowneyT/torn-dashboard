@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import PayoutsView from './PayoutsView'
 import CrimesView from './CrimesView'
+import OCPlannerView from './OCPlannerView'
 import TierRequirementsView from './TierRequirementsView'
 import PayoutManagement from '../components/PayoutManagement'
 import TierManagement from '../components/TierManagement'
@@ -8,6 +9,7 @@ import TierManagement from '../components/TierManagement'
 const TABS = [
   { to: '/oc/payouts',           label: 'Payouts',           leadership: false },
   { to: '/oc/oc-history',        label: 'OC History',        leadership: false },
+  { to: '/oc/oc-planner',        label: 'OC Planner',        ocPlanner: true   },
   { to: '/oc/tier-requirements', label: 'Tier Requirements', leadership: false },
   { to: '/oc/payout-management', label: 'Payout Management', leadership: true  },
   { to: '/oc/tier-management',   label: 'Tier Management',   leadership: true  },
@@ -20,8 +22,10 @@ const tabClass = ({ isActive }) =>
       : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-slate-600'
   }`
 
-export default function OCPage({ isLeadership }) {
-  const visibleTabs = TABS.filter(t => !t.leadership || isLeadership)
+export default function OCPage({ isLeadership, canAccessOCPlanner }) {
+  const visibleTabs = TABS.filter(t =>
+    (!t.leadership || isLeadership) && (!t.ocPlanner || canAccessOCPlanner)
+  )
 
   return (
     <div className="space-y-6">
@@ -35,6 +39,7 @@ export default function OCPage({ isLeadership }) {
         <Route index element={<Navigate to="/oc/oc-history" replace />} />
         <Route path="payouts"           element={<PayoutsView isLeadership={isLeadership} />} />
         <Route path="oc-history"        element={<CrimesView isLeadership={isLeadership} />} />
+        {canAccessOCPlanner && <Route path="oc-planner" element={<OCPlannerView />} />}
         <Route path="tier-requirements" element={<TierRequirementsView />} />
         {isLeadership && <Route path="payout-management" element={<PayoutManagement />} />}
         {isLeadership && <Route path="tier-management"   element={<TierManagement />} />}

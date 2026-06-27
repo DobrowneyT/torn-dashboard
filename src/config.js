@@ -55,6 +55,7 @@ export const config = {
     '2749598', // Uncensored
     '2932241', // Marnix0126
     `2214797`, // Onyx
+    `3074032`, // Josiah
   ],
 
   crimeItemIds: [
@@ -175,6 +176,19 @@ export const config = {
 
   payoutTickets: {
     1: 40, 2: 30, 3: 15, 4: 7, 5: 3, 6: 2
+  },
+
+  // OC Planner: which faction tier we run each OC for. The planner uses this to
+  // bucket "open slots" by tier and to project what to spawn. Anything NOT
+  // listed here is inferred from tierRequirements (each crime → the lowest tier
+  // that references it); crimes matched by neither show as "Unmapped" so they're
+  // surfaced rather than silently miscounted. Add a crime here to override/pin it.
+  // Inferred today: Break the Bank→1, Clinical Precision→1, Blast from the Past→2,
+  // Bidding War→3, Honey Trap→4. (Stacking the Deck / Ace in the Hole are not in
+  // tierRequirements — pin them here if you run them.)
+  ocTierByCrime: {
+    // "Stacking the Deck": 1,
+    // "Ace in the Hole": 1,
   },
 }
 

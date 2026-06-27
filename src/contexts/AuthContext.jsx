@@ -359,6 +359,9 @@ export function AuthProvider({ children }) {
   const isLeadership = user?.isLeadership || false
   const isAdminFlag  = user?.isAdmin || false
   const isWarLead    = user?.isWarLead || false
+  // OC Manager is a config-list role (like warlead) derived live from the id,
+  // so we don't need to thread a flag through every login() branch.
+  const isOCManagerFlag = config.ocmanagerUserIds.includes(String(user?.id))
 
   const value = {
     user,
@@ -366,9 +369,12 @@ export function AuthProvider({ children }) {
     isLeadership,
     isAdmin: isAdminFlag,
     isWarLead,
+    isOCManager: isOCManagerFlag,
     // War Overview is available to leadership, admins, and warleads —
     // anyone whose role meaningfully owns or co-owns ranked-war planning.
     canAccessWarOverview: isLeadership || isAdminFlag || isWarLead,
+    // OC Planner is for OC Managers, plus leadership/admins as a superset.
+    canAccessOCPlanner: isOCManagerFlag || isLeadership || isAdminFlag,
     loading,
     tokenReady,
     authError,

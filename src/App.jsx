@@ -12,7 +12,7 @@ import DashboardView from './views/DashboardView'
 import OCPage from './views/OCPage'
 import RWPage from './views/RWPage'
 import LeadershipPage from './views/LeadershipPage'
-import { isAdmin } from './config'
+import { isAdmin, isOCManager } from './config'
 import Footer from './components/Footer'
 import RollCallReminderBanner from './components/warroom/RollCallReminderBanner'
 
@@ -25,6 +25,7 @@ function DashboardLayout() {
   const [viewAsRole, setViewAsRole] = useState(null)
 
   const userIsAdmin = isAdmin(user?.id)
+  const userIsOCManager = isOCManager(user?.id)
 
   const effectiveIsAdmin = viewAsRole === null ? userIsAdmin : viewAsRole === 'admin'
   const effectiveIsLeadership = viewAsRole === null
@@ -35,6 +36,10 @@ function DashboardLayout() {
   const effectiveCanAccessWarOverview = viewAsRole === null
     ? (isLeadership || userIsAdmin || isWarLead)
     : (viewAsRole === 'leadership' || viewAsRole === 'admin' || viewAsRole === 'warlead')
+  // OC Planner is for OC Managers, plus leadership/admins as a superset.
+  const effectiveCanAccessOCPlanner = viewAsRole === null
+    ? (isLeadership || userIsAdmin || userIsOCManager)
+    : (viewAsRole === 'leadership' || viewAsRole === 'admin' || viewAsRole === 'ocmanager')
 
   // Reset viewAsRole when user changes
   useEffect(() => { setViewAsRole(null) }, [user?.id])
@@ -51,7 +56,10 @@ function DashboardLayout() {
     if (!effectiveCanAccessWarOverview && location.pathname.startsWith('/rw/war-overview')) {
       navigate('/', { replace: true })
     }
-  }, [effectiveIsLeadership, effectiveCanAccessWarOverview, location.pathname, navigate])
+    if (!effectiveCanAccessOCPlanner && location.pathname.startsWith('/oc/oc-planner')) {
+      navigate('/', { replace: true })
+    }
+  }, [effectiveIsLeadership, effectiveCanAccessWarOverview, effectiveCanAccessOCPlanner, location.pathname, navigate])
 
   if (authLoading) {
     return (
@@ -92,7 +100,7 @@ function DashboardLayout() {
             <Routes>
               <Route index element={<DashboardView />} />
               <Route path="members" element={<MembersView isLeadership={effectiveIsLeadership} />} />
-              <Route path="oc/*" element={<OCPage isLeadership={effectiveIsLeadership} />} />
+              <Route path="oc/*" element={<OCPage isLeadership={effectiveIsLeadership} canAccessOCPlanner={effectiveCanAccessOCPlanner} />} />
               <Route path="rw/*" element={<RWPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} canAccessWarOverview={effectiveCanAccessWarOverview} />} />
               <Route path="leadership/*" element={
                 <ProtectedRoute requireLeadership>
