@@ -178,17 +178,62 @@ export const config = {
     1: 40, 2: 30, 3: 15, 4: 7, 5: 3, 6: 2
   },
 
-  // OC Planner: which faction tier we run each OC for. The planner uses this to
-  // bucket "open slots" by tier and to project what to spawn. Anything NOT
-  // listed here is inferred from tierRequirements (each crime → the lowest tier
-  // that references it); crimes matched by neither show as "Unmapped" so they're
-  // surfaced rather than silently miscounted. Add a crime here to override/pin it.
-  // Inferred today: Break the Bank→1, Clinical Precision→1, Blast from the Past→2,
-  // Bidding War→3, Honey Trap→4. (Stacking the Deck / Ace in the Hole are not in
-  // tierRequirements — pin them here if you run them.)
-  ocTierByCrime: {
-    // "Stacking the Deck": 1,
-    // "Ace in the Hole": 1,
+  // @deprecated — superseded by ocScenarios/ocCategories (the OC Planner now
+  // plans whole scenarios per difficulty category, not per-tier slots).
+  ocTierByCrime: {},
+
+  // OC 2.0 difficulty categories (the "scenario types" a faction can spawn).
+  // The faction spawns a RANDOM scenario within a chosen category, each costing
+  // Scope (regens +1/day, caps at 100). `plannable` flags the categories we
+  // actually run — the OC Planner only recommends spawns for these.
+  ocCategories: {
+    introductory: { label: 'Introductory', short: 'Intro',  difficulty: [1, 2],  scopeCost: 1, plannable: false },
+    simple:       { label: 'Simple',       short: 'Simple', difficulty: [3, 4],  scopeCost: 2, plannable: true  },
+    intermediate: { label: 'Intermediate', short: 'Inter',  difficulty: [5, 6],  scopeCost: 3, plannable: true  },
+    advanced:     { label: 'Advanced',     short: 'Adv',    difficulty: [7, 8],  scopeCost: 4, plannable: true  },
+    elaborate:    { label: 'Elaborate',    short: 'Elab',   difficulty: [8, 10], scopeCost: 5, plannable: false },
+  },
+
+  // Known OC 2.0 scenarios → { category, difficulty, participants }. Category is
+  // resolved by NAME first (difficulty 8 spans both Advanced and Elaborate, so
+  // name is authoritative); difficulty is only a fallback for unknown names.
+  // participants = full crew size (shown for reference; does not size spawns).
+  // Source: Torn user wiki (OCs 2.0 scenario list).
+  ocScenarios: {
+    // Introductory (Lv1-2)
+    'First Aid and Abet':      { category: 'introductory', difficulty: 1, participants: 3 },
+    'Mob Mentality':           { category: 'introductory', difficulty: 1, participants: 4 },
+    'Pet Project':             { category: 'introductory', difficulty: 1, participants: 3 },
+    'Thou Shalt Not Steal':    { category: 'introductory', difficulty: 2, participants: 3 },
+    'Cash Me If You Can':      { category: 'introductory', difficulty: 2, participants: 3 },
+    'Best of the Lot':         { category: 'introductory', difficulty: 2, participants: 4 },
+    // Simple (Lv3-4)
+    'Smoke and Wing Mirrors':  { category: 'simple', difficulty: 3, participants: 4 },
+    'Market Forces':           { category: 'simple', difficulty: 3, participants: 5 },
+    'Gaslight the Way':        { category: 'simple', difficulty: 3, participants: 6 },
+    'Snow Blind':              { category: 'simple', difficulty: 4, participants: 4 },
+    'Plucking the Lotus Petal':{ category: 'simple', difficulty: 4, participants: 4 },
+    'Stage Fright':            { category: 'simple', difficulty: 4, participants: 6 },
+    // Intermediate (Lv5-6)
+    'Guardian Angels':         { category: 'intermediate', difficulty: 5, participants: 3 },
+    'Counter Offer':           { category: 'intermediate', difficulty: 5, participants: 5 },
+    'No Reserve':              { category: 'intermediate', difficulty: 5, participants: 3 },
+    'Honey Trap':              { category: 'intermediate', difficulty: 5, participants: 3 },
+    'Bidding War':             { category: 'intermediate', difficulty: 6, participants: 6 },
+    'Leave No Trace':          { category: 'intermediate', difficulty: 6, participants: 3 },
+    'Dish It Out':             { category: 'intermediate', difficulty: 6, participants: 5 },
+    'Sneaky Git Grab':         { category: 'intermediate', difficulty: 6, participants: 4 },
+    // Advanced (Lv7-8)
+    'Blast from the Past':     { category: 'advanced', difficulty: 7, participants: 6 },
+    'Window of Opportunity':   { category: 'advanced', difficulty: 7, participants: 5 },
+    'Break the Bank':          { category: 'advanced', difficulty: 8, participants: 6 },
+    'Clinical Precision':      { category: 'advanced', difficulty: 8, participants: 4 },
+    // Elaborate (Lv8-10)
+    'Stacking the Deck':       { category: 'elaborate', difficulty: 8,  participants: 4 },
+    'Manifest Cruelty':        { category: 'elaborate', difficulty: 8,  participants: 4 },
+    'Ace in the Hole':         { category: 'elaborate', difficulty: 9,  participants: 5 },
+    'Gone Fission':            { category: 'elaborate', difficulty: 9,  participants: 5 },
+    'Crane Reaction':          { category: 'elaborate', difficulty: 10, participants: 6 },
   },
 }
 

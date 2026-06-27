@@ -5,24 +5,42 @@ import { getTornErrorMessage } from '../utils/apiUtils'
 import { config } from '../config'
 import { RefreshCw, ChevronRight } from 'lucide-react'
 import {
-  PLANNER_TIERS,
   HORIZONS,
-  makeCrimeTierResolver,
-  buildPositionTierMap,
-  buildPlannerSummary,
-  selectOpenSlots,
-  planForHorizon,
+  makeCategoryResolver,
+  advancedCrimeNames,
+  qualifiesForAdvanced,
+  maxCategoryForMember,
+  buildBase,
+  selectAvailable,
+  selectPausingSlots,
+  buildSpawnPlan,
 } from '../utils/ocPlanner'
 
-// ── Small shared bits ────────────────────────────────────────────────────────
-const TIER_BG = { 0: 'bg-tier-review', 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3', 4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6' }
+// ── Presentation maps ────────────────────────────────────────────────────────
+const CAT_META = {
+  advanced:     { label: 'Advanced',     sub: 'Lv7-8',  bg: 'bg-violet-600', soft: 'bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800' },
+  intermediate: { label: 'Intermediate', sub: 'Lv5-6',  bg: 'bg-sky-600',    soft: 'bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800' },
+  simple:       { label: 'Simple',       sub: 'Lv3-4',  bg: 'bg-slate-500',  soft: 'bg-slate-100 dark:bg-slate-700/40 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600' },
+  elaborate:    { label: 'Elaborate',    sub: 'Lv8-10', bg: 'bg-rose-600',   soft: 'bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800' },
+  introductory: { label: 'Introductory', sub: 'Lv1-2',  bg: 'bg-gray-400',   soft: 'bg-gray-100 dark:bg-gray-700/40 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600' },
+}
+const catLabel = (c) => CAT_META[c]?.label ?? (c === 'unmapped' || c == null ? 'Unmapped' : c)
 
+const TIER_BG = { 0: 'bg-tier-review', 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3', 4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6' }
 function TierPill({ tier }) {
   const isReview = tier == null || tier === 0
-  const cls = isReview ? TIER_BG[0] : (TIER_BG[tier] ?? TIER_BG[0])
   return (
-    <span className={`inline-flex items-center rounded text-white font-semibold leading-none px-1.5 py-0.5 text-[11px] ${cls}`}>
-      {isReview ? 'Review' : `Tier ${tier}`}
+    <span className={`inline-flex items-center rounded text-white font-semibold leading-none px-1.5 py-0.5 text-[10px] ${isReview ? TIER_BG[0] : (TIER_BG[tier] ?? TIER_BG[0])}`}>
+      {isReview ? 'Rev' : `T${tier}`}
+    </span>
+  )
+}
+
+function CatPill({ category, sub }) {
+  const m = CAT_META[category]
+  return (
+    <span className={`inline-flex items-center gap-1 rounded text-white font-semibold leading-none px-1.5 py-0.5 text-[11px] ${m?.bg ?? 'bg-gray-400'}`}>
+      {catLabel(category)}{sub && m && <span className="opacity-75 font-normal">{m.sub}</span>}
     </span>
   )
 }
@@ -33,15 +51,8 @@ function HorizonToggle({ label, value, onChange }) {
       <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">{label}</span>
       <div className="inline-flex rounded-lg border border-gray-200 dark:border-slate-600 overflow-hidden">
         {Object.keys(HORIZONS).map((h) => (
-          <button
-            key={h}
-            onClick={() => onChange(h)}
-            className={`px-2.5 py-1 text-sm font-medium transition-colors ${
-              value === h
-                ? 'bg-blue-600 text-white'
-                : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700'
-            }`}
-          >
+          <button key={h} onClick={() => onChange(h)}
+            className={`px-2.5 py-1 text-sm font-medium transition-colors ${value === h ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700'}`}>
             {h}
           </button>
         ))}
@@ -67,33 +78,33 @@ export default function OCPlannerView() {
   const apiKey = user?.apiKey
 
   const [crimes, setCrimes] = useState(null)
-  const [memberTiers, setMemberTiers] = useState({})
-  const [memberNames, setMemberNames] = useState({})
-  const [currentMembers, setCurrentMembers] = useState([])
+  const [roster, setRoster] = useState({ currentMembers: [], memberCategory: {}, memberNames: {}, memberTiers: {} })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [memberHorizon, setMemberHorizon] = useState('24h')
-  const [pauseHorizon, setPauseHorizon] = useState('24h')
+  const [crimesHorizon, setCrimesHorizon] = useState('24h')
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000))
-  const [comingOpen, setComingOpen] = useState(false)
-  const [freeOpen, setFreeOpen] = useState(false)
+  const [feedOpen, setFeedOpen] = useState(true)
+  const [membersOpen, setMembersOpen] = useState(false)
 
-  // Keep countdowns / horizon boundaries live.
   useEffect(() => {
     const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000)
     return () => clearInterval(id)
   }, [])
 
-  // crime → tier resolver (crime-level fallback) + per-position tier map.
-  const resolveTier = useMemo(
-    () => makeCrimeTierResolver({ overrideMap: config.ocTierByCrime || {}, tierRequirements: config.tierRequirements || {} }),
+  const categoryOf = useMemo(
+    () => makeCategoryResolver({ scenarios: config.ocScenarios || {}, categories: config.ocCategories || {} }),
     [],
   )
-  const positionTierMap = useMemo(() => buildPositionTierMap(config.tierRequirements || {}), [])
+  const advNames = useMemo(
+    () => advancedCrimeNames({ scenarios: config.ocScenarios || {}, cprRequirements: config.cprRequirements || {} }),
+    [],
+  )
 
-  // Re-pull live crime data the same way OC History does (cat=available via the
-  // member's pooled Torn key) and refresh the roster, on every load/refresh.
+  // Re-pull live crime data (same cat=available path as OC History) and the
+  // roster on every refresh. T3 members additionally get a bounded CPR lookup
+  // to decide Advanced vs Intermediate.
   const load = useCallback(async () => {
     if (!apiKey) { setError('Log in with an API key to use the planner.'); setLoading(false); return }
     setLoading(true)
@@ -112,21 +123,46 @@ export default function OCPlannerView() {
         throw new Error(friendly + guidance)
       }
 
-      const names = {}
-      const tiers = {}
-      const current = []
-      for (const m of (membersRes.data || [])) {
+      const rows = membersRes.data || []
+      const memberNames = {}
+      const memberTiers = {}
+      const current = [] // { id, name, tier }
+      for (const m of rows) {
         const id = String(m.member_id)
-        names[id] = m.member_name
-        // ?? (not ||) so tier 0 ("needs review") survives, not coalesced to 6.
-        const tier = m.tier_override ?? m.tier ?? 6
-        tiers[id] = tier
+        memberNames[id] = m.member_name
+        const tier = m.tier_override ?? m.tier ?? 6 // ?? keeps tier 0 (review)
+        memberTiers[id] = tier
         if (m.is_current) current.push({ id, name: m.member_name, tier })
       }
 
-      setMemberNames(names)
-      setMemberTiers(tiers)
-      setCurrentMembers(current)
+      // T3-only CPR check (bounded — usually a handful of members).
+      const t3Ids = current.filter((m) => m.tier === 3).map((m) => m.id)
+      const advancedT3 = new Set()
+      if (t3Ids.length) {
+        const { data: cprRows } = await supabase
+          .from('member_cpr_v2')
+          .select('member_id, crime_name, position_label, cpr_value')
+          .in('member_id', t3Ids)
+        const cprByMember = {}
+        for (const r of (cprRows || [])) {
+          const id = String(r.member_id)
+          ;(cprByMember[id] ||= {})[`${r.crime_name}||${r.position_label}`] = Number(r.cpr_value)
+        }
+        for (const id of t3Ids) {
+          if (qualifiesForAdvanced(cprByMember[id] || {}, { cprRequirements: config.cprRequirements || {}, advancedNames: advNames })) {
+            advancedT3.add(id)
+          }
+        }
+      }
+
+      const memberCategory = {}
+      const currentMembers = current.map((m) => {
+        const category = maxCategoryForMember(m.tier, advancedT3.has(m.id))
+        memberCategory[m.id] = category
+        return { ...m, category }
+      })
+
+      setRoster({ currentMembers, memberCategory, memberNames, memberTiers })
       setCrimes(crimesRes.crimes || [])
       setLastUpdated(Date.now())
     } catch (e) {
@@ -134,29 +170,35 @@ export default function OCPlannerView() {
     } finally {
       setLoading(false)
     }
-  }, [apiKey])
+  }, [apiKey, advNames])
 
   useEffect(() => { load() }, [load])
 
-  const summary = useMemo(
-    () => buildPlannerSummary({
-      crimes: crimes || [], currentMembers, memberTiers, memberNames, resolveTier, positionTierMap, preferWeakestSlot: true,
-    }),
-    [crimes, currentMembers, memberTiers, memberNames, resolveTier, positionTierMap],
+  const base = useMemo(
+    () => buildBase({ crimes: crimes || [], ...roster, categoryOf }),
+    [crimes, roster, categoryOf],
   )
-
-  const openSlots = useMemo(
-    () => selectOpenSlots(summary.pausingCrimes, { now, pauseHorizonSecs: HORIZONS[pauseHorizon] }),
-    [summary, now, pauseHorizon],
+  const avail = useMemo(
+    () => selectAvailable(base, { now, memberHorizonSecs: HORIZONS[memberHorizon] }),
+    [base, now, memberHorizon],
   )
-
+  const pausing = useMemo(
+    () => selectPausingSlots(base, { now, crimesHorizonSecs: HORIZONS[crimesHorizon] }),
+    [base, now, crimesHorizon],
+  )
   const plan = useMemo(
-    () => planForHorizon(summary, openSlots, { now, memberHorizonSecs: HORIZONS[memberHorizon] }),
-    [summary, openSlots, now, memberHorizon],
+    () => buildSpawnPlan({ membersByCategory: avail.membersByCategory, pausingByCategory: pausing.pausingByCategory, categories: config.ocCategories || {} }),
+    [avail, pausing],
   )
 
-  const unmappedOpen = openSlots.openSlotsByTier.unmapped || 0
-  const tiersToSpawn = PLANNER_TIERS.filter((t) => plan.spawnNeedByTier[t] > 0)
+  const toSpawn = plan.plannable.filter((c) => plan.rows[c].scenariosToSpawn > 0)
+  const crewsShort = plan.plannable.filter((c) => plan.rows[c].crewsShort > 0)
+
+  // Member free/out split per category (for the table).
+  const splitFor = (cat) => ({
+    free: avail.members.filter((m) => m.category === cat && m.source === 'free').length,
+    out: avail.members.filter((m) => m.category === cat && m.source === 'coming').length,
+  })
 
   return (
     <div className="space-y-6">
@@ -166,20 +208,15 @@ export default function OCPlannerView() {
           <div>
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">OC Planner</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Live from Torn — match who's free or coming out against slots that are pausing, and project what to spawn.
+              Live from Torn — keep the pipeline full: feed pausing crimes, and spawn new scenarios for the surplus.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <HorizonToggle label="Members out" value={memberHorizon} onChange={setMemberHorizon} />
-            <HorizonToggle label="Crimes pausing" value={pauseHorizon} onChange={setPauseHorizon} />
-            <button
-              onClick={load}
-              disabled={loading}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
-            >
-              {loading
-                ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> Refreshing…</>
-                : <><RefreshCw className="w-4 h-4" /> Refresh</>}
+            <HorizonToggle label="Crimes window" value={crimesHorizon} onChange={setCrimesHorizon} />
+            <button onClick={load} disabled={loading}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap">
+              {loading ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> Refreshing…</> : <><RefreshCw className="w-4 h-4" /> Refresh</>}
             </button>
           </div>
         </div>
@@ -198,205 +235,174 @@ export default function OCPlannerView() {
         </div>
       ) : (
         <>
-          {/* Headline: spawn projection */}
+          {/* Headline: scenarios to spawn */}
           <div className="card">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">
               Recommended to spawn
             </h3>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-              To seat everyone free or coming out within <strong>{memberHorizon}</strong>, after filling slots pausing within <strong>{pauseHorizon}</strong>.
+              For members free or coming out within <strong>{memberHorizon}</strong>, after feeding crimes pausing within <strong>{crimesHorizon}</strong>. One new crime seeds each surplus member.
             </p>
-            {tiersToSpawn.length === 0 ? (
+            {toSpawn.length === 0 ? (
               <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-5 text-center">
                 <p className="text-emerald-700 dark:text-emerald-300 font-medium">
-                  You're covered — enough pausing slots to absorb everyone in these windows.
+                  Pipeline balanced — every available member has a pausing crime to feed.
                 </p>
               </div>
             ) : (
               <div className="flex flex-wrap items-stretch gap-2">
-                {tiersToSpawn.map((t) => (
-                  <div key={t} className={`flex items-center gap-2 rounded-lg px-4 py-3 text-white ${TIER_BG[t]}`}>
-                    <span className="text-2xl font-bold leading-none">{plan.spawnNeedByTier[t]}×</span>
-                    <span className="text-sm font-semibold leading-tight">Tier {t}<br />slots</span>
+                {toSpawn.map((c) => (
+                  <div key={c} className={`flex items-center gap-2 rounded-lg px-4 py-3 text-white ${CAT_META[c].bg}`}>
+                    <span className="text-2xl font-bold leading-none">{plan.rows[c].scenariosToSpawn}×</span>
+                    <span className="text-sm font-semibold leading-tight">{CAT_META[c].label}<br /><span className="opacity-80 font-normal text-xs">{CAT_META[c].sub}</span></span>
                   </div>
                 ))}
-                <div className="flex items-center px-3 text-sm text-gray-500 dark:text-gray-400">
-                  = {plan.spawnTotal} slot{plan.spawnTotal === 1 ? '' : 's'} total
+                <div className="flex flex-col justify-center px-3 text-sm text-gray-500 dark:text-gray-400">
+                  <span>{plan.scenariosTotal} scenario{plan.scenariosTotal === 1 ? '' : 's'}</span>
+                  <span className="text-xs">≈ {plan.scopeTotal} Scope</span>
                 </div>
               </div>
             )}
-            {plan.reviewCount > 0 && (
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3">
-                {plan.reviewCount} available member{plan.reviewCount === 1 ? '' : 's'} still need a tier review — not included above.
+            {crewsShort.length > 0 && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-3">
+                ⚠ Crews short: {crewsShort.map((c) => `${plan.rows[c].crewsShort}× ${CAT_META[c].label}`).join(', ')} — more pausing crimes than members to feed them, so these may stall.
               </p>
             )}
-            {unmappedOpen > 0 && (
+            {avail.reviewCount > 0 && (
               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                {unmappedOpen} pausing slot{unmappedOpen === 1 ? '' : 's'} in unmapped crimes — pin them in <code className="font-mono">config.ocTierByCrime</code> to factor them in.
+                {avail.reviewCount} available member{avail.reviewCount === 1 ? '' : 's'} still need a tier review — not categorized above.
               </p>
             )}
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+              Scope shown is the recommendation's cost (Advanced 4 / Intermediate 3 / Simple 2). Current balance isn't in our data feed.
+            </p>
           </div>
 
-          {/* Tier matrix */}
+          {/* Category table */}
           <div className="card">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">
-              By tier — supply vs. pausing slots
+              By category — supply vs. pipeline demand
             </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                    <th className="py-2 pr-3 font-semibold">Tier</th>
-                    <th className="py-2 px-3 font-semibold text-right">Free now</th>
-                    <th className="py-2 px-3 font-semibold text-right">Out ≤{memberHorizon}</th>
+                    <th className="py-2 pr-3 font-semibold">Category</th>
+                    <th className="py-2 px-3 font-semibold text-right">Free / Out ≤{memberHorizon}</th>
                     <th className="py-2 px-3 font-semibold text-right">Available</th>
-                    <th className="py-2 px-3 font-semibold text-right">Pausing slots ≤{pauseHorizon}</th>
-                    <th className="py-2 pl-3 font-semibold text-right">Spawn</th>
+                    <th className="py-2 px-3 font-semibold text-right">Pausing ≤{crimesHorizon}</th>
+                    <th className="py-2 px-3 font-semibold text-right">Spawn</th>
+                    <th className="py-2 px-3 font-semibold text-right">Crews short</th>
+                    <th className="py-2 pl-3 font-semibold text-right">Scope</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {PLANNER_TIERS.map((t) => {
-                    const avail = plan.availableByTier[t] || 0
-                    const open = openSlots.openSlotsByTier[t] || 0
-                    const freeNow = plan.members.filter((m) => m.tier === t && m.source === 'free').length
-                    const coming = plan.members.filter((m) => m.tier === t && m.source === 'coming').length
-                    const need = plan.spawnNeedByTier[t]
+                  {plan.plannable.map((c) => {
+                    const r = plan.rows[c]
+                    const { free, out } = splitFor(c)
                     return (
-                      <tr key={t} className="border-b border-gray-100 dark:border-slate-700/50">
-                        <td className="py-2 pr-3"><TierPill tier={t} /></td>
-                        <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">{freeNow || '—'}</td>
-                        <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">{coming || '—'}</td>
-                        <td className="py-2 px-3 text-right font-semibold">{avail || '—'}</td>
-                        <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">{open || '—'}</td>
-                        <td className={`py-2 pl-3 text-right font-bold ${need > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400'}`}>
-                          {need > 0 ? `+${need}` : '0'}
-                        </td>
+                      <tr key={c} className="border-b border-gray-100 dark:border-slate-700/50">
+                        <td className="py-2 pr-3"><CatPill category={c} sub /></td>
+                        <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">{free} / {out}</td>
+                        <td className="py-2 px-3 text-right font-semibold">{r.members || '—'}</td>
+                        <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">{r.pausing || '—'}</td>
+                        <td className={`py-2 px-3 text-right font-bold ${r.scenariosToSpawn > 0 ? 'text-violet-600 dark:text-violet-400' : 'text-gray-400'}`}>{r.scenariosToSpawn > 0 ? `+${r.scenariosToSpawn}` : '0'}</td>
+                        <td className={`py-2 px-3 text-right ${r.crewsShort > 0 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-gray-400'}`}>{r.crewsShort || '—'}</td>
+                        <td className="py-2 pl-3 text-right text-gray-600 dark:text-gray-300">{r.scopeCost || '—'}</td>
                       </tr>
                     )
                   })}
-                  {plan.reviewCount > 0 && (
-                    <tr className="border-b border-gray-100 dark:border-slate-700/50">
-                      <td className="py-2 pr-3"><TierPill tier={0} /></td>
-                      <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">
-                        {plan.members.filter((m) => (m.tier == null || m.tier === 0) && m.source === 'free').length || '—'}
-                      </td>
-                      <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">
-                        {plan.members.filter((m) => (m.tier == null || m.tier === 0) && m.source === 'coming').length || '—'}
-                      </td>
-                      <td className="py-2 px-3 text-right font-semibold">{plan.reviewCount}</td>
-                      <td className="py-2 px-3 text-right text-gray-400">—</td>
-                      <td className="py-2 pl-3 text-right text-gray-400">—</td>
-                    </tr>
-                  )}
                 </tbody>
                 <tfoot>
                   <tr className="text-xs text-gray-500 dark:text-gray-400">
                     <td className="pt-2 pr-3 font-semibold">Total</td>
-                    <td className="pt-2 px-3 text-right">{plan.freeNowCount}</td>
-                    <td className="pt-2 px-3 text-right">{plan.comingOutCount}</td>
-                    <td className="pt-2 px-3 text-right font-semibold">{plan.members.length}</td>
-                    <td className="pt-2 px-3 text-right">{openSlots.openSlotsTotal}</td>
-                    <td className="pt-2 pl-3 text-right font-bold text-amber-600 dark:text-amber-400">+{plan.spawnTotal}</td>
+                    <td className="pt-2 px-3 text-right">{avail.freeNowCount} / {avail.comingOutCount}</td>
+                    <td className="pt-2 px-3 text-right font-semibold">{avail.members.length - avail.reviewCount}</td>
+                    <td className="pt-2 px-3 text-right">{plan.plannable.reduce((n, c) => n + plan.rows[c].pausing, 0)}</td>
+                    <td className="pt-2 px-3 text-right font-bold text-violet-600 dark:text-violet-400">+{plan.scenariosTotal}</td>
+                    <td className="pt-2 px-3 text-right">{plan.crewsShortTotal || '—'}</td>
+                    <td className="pt-2 pl-3 text-right font-semibold">{plan.scopeTotal}</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
             <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3">
-              <strong>Available</strong> = free now + coming out within {memberHorizon}. <strong>Pausing slots</strong> = crimes that are paused/empty or pause within {pauseHorizon} — each worth one slot at its weakest open tier. <strong>Spawn</strong> = members with no pausing slot to seat them.
+              <strong>Available</strong> = free now + coming out within {memberHorizon}. <strong>Pausing</strong> = crimes paused/empty or pausing within {crimesHorizon}, each needing one feed. <strong>Spawn</strong> = members with no pausing crime to join.
             </p>
           </div>
 
-          {/* Detail: who's coming out / who's free */}
-          <div className="card space-y-4">
-            <CollapsibleList
-              open={comingOpen}
-              onToggle={() => setComingOpen((o) => !o)}
-              label={`Coming out within ${memberHorizon} (${plan.comingOutCount})`}
-              empty="Nobody's OC executes in this window."
-              items={plan.comingOut}
-              render={(f) => {
-                const secs = f.readyAt - now
-                const ready = secs <= 0
-                return (
-                  <span key={`${f.id}-${f.crimeId}`} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800" title={f.crimeName}>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">{f.name}</span>
-                    <TierPill tier={f.tier} />
-                    <span className={`font-mono ${ready ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}>
-                      {ready ? 'ready' : formatCountdown(secs)}
-                    </span>
-                  </span>
-                )
-              }}
-            />
-            <CollapsibleList
-              open={freeOpen}
-              onToggle={() => setFreeOpen((o) => !o)}
-              label={`Free now — not in an OC (${summary.notInOc.length})`}
-              empty="Everyone's currently slotted."
-              items={summary.notInOc}
-              render={(m) => (
-                <span key={m.id} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800">
-                  <span className="font-medium text-gray-700 dark:text-gray-300">{m.name}</span>
-                  <TierPill tier={m.tier} />
-                </span>
-              )}
-            />
-          </div>
-
-          {/* Pausing slots — the crimes that count, one slot each */}
+          {/* Feed queue */}
           <div className="card">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">
-              Pausing slots within {pauseHorizon} ({openSlots.openSlotsTotal})
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-              Each crime counts as one slot — filling a single position un-pauses it. Tier shown is the weakest open position.
-            </p>
-            {openSlots.openCrimes.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No paused, empty, or soon-to-pause crimes in this window.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {openSlots.openCrimes.map((c) => {
-                  const secs = c.pausesAt != null ? c.pausesAt - now : null
-                  const status = c.isEmpty ? 'empty' : c.paused ? 'paused' : `pauses ${formatCountdown(secs)}`
+            <button onClick={() => setFeedOpen((o) => !o)}
+              className="flex items-center gap-1 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+              <ChevronRight className={`w-4 h-4 transition-transform ${feedOpen ? 'rotate-90' : ''}`} />
+              Feed queue — crimes to plug first ({pausing.feedQueue.length})
+            </button>
+            {feedOpen && (
+              <div className="mt-3">
+                {pausing.feedQueue.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No paused, empty, or soon-to-pause crimes in this window.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {pausing.feedQueue.map((c) => {
+                      const secs = c.pausesAt != null ? c.pausesAt - now : null
+                      const status = c.isEmpty ? 'empty' : c.paused ? 'paused' : `pauses ${formatCountdown(secs)}`
+                      return (
+                        <span key={c.id} className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800" title={`${c.openCount} open seats — needs 1 to un-pause`}>
+                          <CatPill category={c.category} />
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{c.name}</span>
+                          <span className={`font-mono ${c.isEmpty || c.paused ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}>{status}</span>
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+                  Ordered most-urgent first. Each crime needs just <strong>one</strong> member to reset its 24h clock — feed one, then move to the next.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Available members by category */}
+          <div className="card">
+            <button onClick={() => setMembersOpen((o) => !o)}
+              className="flex items-center gap-1 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+              <ChevronRight className={`w-4 h-4 transition-transform ${membersOpen ? 'rotate-90' : ''}`} />
+              Available members ({avail.members.length})
+            </button>
+            {membersOpen && (
+              <div className="mt-3 space-y-3">
+                {[...plan.plannable, null].map((cat) => {
+                  const list = avail.members.filter((m) => m.category === cat)
+                  if (list.length === 0) return null
                   return (
-                    <span key={c.id} className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800" title={`${c.openCount} open positions — counts as 1`}>
-                      {c.slotTier == null
-                        ? <span className="text-rose-600 dark:text-rose-400 font-semibold text-[11px]">Unmapped</span>
-                        : <TierPill tier={c.slotTier} />}
-                      <span className="font-medium text-gray-700 dark:text-gray-300">{c.name}</span>
-                      <span className="text-gray-400">{c.openCount} open</span>
-                      <span className={`font-mono ${c.isEmpty || c.paused ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}>
-                        {status}
-                      </span>
-                    </span>
+                    <div key={cat ?? 'review'}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        {cat ? <CatPill category={cat} sub /> : <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Needs tier review</span>}
+                        <span className="text-xs text-gray-400">{list.length}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {list.map((m) => {
+                          const secs = m.source === 'coming' ? m.readyAt - now : null
+                          return (
+                            <span key={m.id} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800" title={m.source === 'coming' ? `out of ${m.crimeName}` : 'free now'}>
+                              <span className="font-medium text-gray-700 dark:text-gray-300">{m.name}</span>
+                              <TierPill tier={m.tier} />
+                              {m.source === 'coming'
+                                ? <span className="font-mono text-gray-500 dark:text-gray-400">{secs <= 0 ? 'ready' : formatCountdown(secs)}</span>
+                                : <span className="text-emerald-600 dark:text-emerald-400">free</span>}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </div>
                   )
                 })}
               </div>
             )}
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3">
-              Slot tiers come from <code className="font-mono">config.tierRequirements</code> (per position), falling back to <code className="font-mono">config.ocTierByCrime</code> / inference for the crime overall.
-            </p>
           </div>
         </>
-      )}
-    </div>
-  )
-}
-
-function CollapsibleList({ open, onToggle, label, items, render, empty }) {
-  return (
-    <div>
-      <button
-        onClick={onToggle}
-        className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 mb-1.5"
-      >
-        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`} />
-        {label}
-      </button>
-      {open && (
-        items.length === 0
-          ? <p className="text-xs text-gray-400 dark:text-gray-500">{empty}</p>
-          : <div className="flex flex-wrap gap-1.5">{items.map(render)}</div>
       )}
     </div>
   )

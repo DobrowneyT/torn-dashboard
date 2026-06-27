@@ -1,184 +1,168 @@
 import { describe, it, expect } from 'vitest'
 import {
-  inferCrimeTierMap,
-  buildPositionTierMap,
-  makeCrimeTierResolver,
-  slotTierForOpenSlots,
-  buildPlannerSummary,
-  selectOpenSlots,
-  planForHorizon,
+  makeCategoryResolver,
+  advancedCrimeNames,
+  qualifiesForAdvanced,
+  maxCategoryForMember,
+  buildBase,
+  selectAvailable,
+  selectPausingSlots,
+  buildSpawnPlan,
 } from '../ocPlanner'
 
-const TIER_REQS = {
-  1: [{ crime: 'Break the Bank', role: 'Muscle #3', minCpr: 65 }],
-  2: [
-    { crime: 'Break the Bank', role: 'Robber', minCpr: 60 },
-    { crime: 'Blast from the Past', role: 'Bomber', minCpr: 75 },
-  ],
-  3: [{ crime: 'Break the Bank', role: 'Thief #2', minCpr: 65 }, { crime: 'Bidding War', role: 'Driver', minCpr: 75 }],
-  4: [{ crime: 'Bidding War', role: 'Robber #1', minCpr: 70 }],
-  5: [{ level: 5, role: 'Average', minCpr: 75, isAverage: true }],
+const CATEGORIES = {
+  introductory: { difficulty: [1, 2], scopeCost: 1, plannable: false },
+  simple: { difficulty: [3, 4], scopeCost: 2, plannable: true },
+  intermediate: { difficulty: [5, 6], scopeCost: 3, plannable: true },
+  advanced: { difficulty: [7, 8], scopeCost: 4, plannable: true },
+  elaborate: { difficulty: [8, 10], scopeCost: 5, plannable: false },
+}
+
+const SCENARIOS = {
+  'Break the Bank': { category: 'advanced', difficulty: 8, participants: 6 },
+  'Clinical Precision': { category: 'advanced', difficulty: 8, participants: 4 },
+  'Blast from the Past': { category: 'advanced', difficulty: 7, participants: 6 },
+  'Bidding War': { category: 'intermediate', difficulty: 6, participants: 6 },
+  'Stacking the Deck': { category: 'elaborate', difficulty: 8, participants: 4 },
+  'Market Forces': { category: 'simple', difficulty: 3, participants: 5 },
+}
+
+const CPR_REQS = {
+  'Break the Bank': { difficulty: 8, positions: { Robber: 60, 'Thief #2': 65 } },
+  'Clinical Precision': { difficulty: 8, positions: { Imitator: 70 } },
+  'Blast from the Past': { difficulty: 7, positions: { Bomber: 75 } },
+  'Bidding War': { difficulty: 6, positions: { Driver: 75 } },
 }
 
 const HOUR = 3600
-const resolveTier = makeCrimeTierResolver({ tierRequirements: TIER_REQS })
-const positionTierMap = buildPositionTierMap(TIER_REQS)
+const categoryOf = makeCategoryResolver({ scenarios: SCENARIOS, categories: CATEGORIES })
 
-describe('inferCrimeTierMap', () => {
-  it('maps each crime to the lowest (strongest) tier that references it', () => {
-    const map = inferCrimeTierMap(TIER_REQS)
-    expect(map['Break the Bank']).toBe(1)
-    expect(map['Blast from the Past']).toBe(2)
-    expect(map['Bidding War']).toBe(3)
+describe('makeCategoryResolver', () => {
+  it('resolves by name first (Lv8 splits Advanced vs Elaborate)', () => {
+    expect(categoryOf('Break the Bank', 8)).toBe('advanced')
+    expect(categoryOf('Stacking the Deck', 8)).toBe('elaborate')
+  })
+  it('falls back to difficulty for unknown names, preferring Advanced at Lv8', () => {
+    expect(categoryOf('Some New Lv8 Crime', 8)).toBe('advanced')
+    expect(categoryOf('Some New Lv5 Crime', 5)).toBe('intermediate')
+    expect(categoryOf('Some New Lv10 Crime', 10)).toBe('elaborate')
   })
 })
 
-describe('buildPositionTierMap', () => {
-  it('keys per crime+role', () => {
-    expect(positionTierMap['Break the Bank||Muscle #3']).toBe(1)
-    expect(positionTierMap['Break the Bank||Robber']).toBe(2)
-    expect(positionTierMap['Break the Bank||Thief #2']).toBe(3)
+describe('advancedCrimeNames + qualifiesForAdvanced', () => {
+  const advancedNames = advancedCrimeNames({ scenarios: SCENARIOS, cprRequirements: CPR_REQS })
+
+  it('lists only Advanced-category crimes present in cprRequirements', () => {
+    expect(advancedNames.sort()).toEqual(['Blast from the Past', 'Break the Bank', 'Clinical Precision'])
+  })
+  it('passes when a member clears ≥1 Advanced position', () => {
+    const cpr = { 'Break the Bank||Robber': 62 }
+    expect(qualifiesForAdvanced(cpr, { cprRequirements: CPR_REQS, advancedNames })).toBe(true)
+  })
+  it('fails when no Advanced position is met (Intermediate CPR does not count)', () => {
+    const cpr = { 'Break the Bank||Robber': 55, 'Bidding War||Driver': 99 }
+    expect(qualifiesForAdvanced(cpr, { cprRequirements: CPR_REQS, advancedNames })).toBe(false)
   })
 })
 
-describe('slotTierForOpenSlots (weakest = highest number)', () => {
-  const crime = {
-    name: 'Break the Bank',
-    difficulty: 8,
-    slots: [
-      { position: 'Muscle #3', user: { id: 1 } }, // filled (T1) — ignored
-      { position: 'Robber', user: null }, // open, T2
-      { position: 'Thief #2', user: null }, // open, T3
-    ],
-  }
-  it('picks the highest-numbered tier among OPEN positions', () => {
-    expect(slotTierForOpenSlots(crime, { positionTierMap, resolveTier })).toBe(3)
-  })
-  it('can pick strongest when preferWeakest=false', () => {
-    expect(slotTierForOpenSlots(crime, { positionTierMap, resolveTier, preferWeakest: false })).toBe(2)
-  })
-  it('falls back to the crime-level tier when no open position maps', () => {
-    const unmapped = { name: 'Break the Bank', difficulty: 8, slots: [{ position: 'Muscle #2', user: null }] }
-    expect(slotTierForOpenSlots(unmapped, { positionTierMap, resolveTier })).toBe(1) // crime-level
+describe('maxCategoryForMember', () => {
+  it('maps tiers to categories with the T3 CPR split', () => {
+    expect(maxCategoryForMember(1, false)).toBe('advanced')
+    expect(maxCategoryForMember(2, false)).toBe('advanced')
+    expect(maxCategoryForMember(3, true)).toBe('advanced')
+    expect(maxCategoryForMember(3, false)).toBe('intermediate')
+    expect(maxCategoryForMember(4, false)).toBe('intermediate')
+    expect(maxCategoryForMember(5, false)).toBe('simple')
+    expect(maxCategoryForMember(6, false)).toBe('simple')
+    expect(maxCategoryForMember(0, true)).toBeNull()
   })
 })
 
-describe('buildPlannerSummary + selectOpenSlots + planForHorizon', () => {
+describe('buildBase + selects + buildSpawnPlan', () => {
   const now = 1_000_000
 
   const crimes = [
-    // Recruiting Break the Bank, pauses in 6h. Open: Robber(T2), Thief #2(T3)
-    // → counts as 1 slot at T3 (weakest).
+    // Recruiting Advanced (Break the Bank), pauses in 6h, 2 open seats → counts as 1 feed.
     {
-      id: 1,
-      name: 'Break the Bank',
-      difficulty: 8,
-      status: 'Recruiting',
-      planning_at: now - HOUR,
-      ready_at: now + 6 * HOUR,
+      id: 1, name: 'Break the Bank', difficulty: 8, status: 'Recruiting',
+      planning_at: now - HOUR, ready_at: now + 6 * HOUR,
       slots: [
-        { position: 'Muscle #3', user: { id: 100 } },
-        { position: 'Robber', user: null },
+        { position: 'Robber', user: { id: 100 } },
+        { position: 'Thief #1', user: null },
         { position: 'Thief #2', user: null },
       ],
     },
-    // Empty Bidding War (no planning_at) → always counts. Open: Driver(T3),
-    // Robber #1(T4) → 1 slot at T4 (weakest).
+    // Empty Intermediate (Bidding War) → always a feed, regardless of window.
     {
-      id: 2,
-      name: 'Bidding War',
-      difficulty: 6,
-      status: 'Recruiting',
-      planning_at: null,
-      expired_at: now + 40 * HOUR,
-      slots: [
-        { position: 'Driver', user: null },
-        { position: 'Robber #1', user: null },
-      ],
+      id: 2, name: 'Bidding War', difficulty: 6, status: 'Recruiting',
+      planning_at: null, expired_at: now + 40 * HOUR,
+      slots: [{ position: 'Driver', user: null }, { position: 'Robber #1', user: null }],
     },
-    // Recruiting crime that pauses far in the future (30h) → excluded at 12h/24h.
+    // Recruiting Advanced that pauses far away (30h) → excluded at 12h/24h.
     {
-      id: 3,
-      name: 'Blast from the Past',
-      difficulty: 7,
-      status: 'Recruiting',
-      planning_at: now - HOUR,
-      ready_at: now + 30 * HOUR,
-      slots: [
-        { position: 'Bomber', user: { id: 101 } },
-        { position: 'Hacker', user: null },
-      ],
+      id: 3, name: 'Clinical Precision', difficulty: 8, status: 'Recruiting',
+      planning_at: now - HOUR, ready_at: now + 30 * HOUR,
+      slots: [{ position: 'Imitator', user: { id: 101 } }, { position: 'Hacker', user: null }],
     },
-    // Planning crime executing in 6h → frees a T3 and a T4 member.
+    // Planning Advanced executing in 6h → frees an Advanced + a Simple member.
     {
-      id: 4,
-      name: 'Bidding War',
-      difficulty: 6,
-      status: 'Planning',
+      id: 4, name: 'Blast from the Past', difficulty: 7, status: 'Planning',
       ready_at: now + 6 * HOUR,
-      slots: [
-        { position: 'Driver', user: { id: 200 } },
-        { position: 'Robber #1', user: { id: 300 } },
-      ],
+      slots: [{ position: 'Bomber', user: { id: 200 } }, { position: 'Hacker', user: { id: 300 } }],
     },
   ]
 
+  // Category pre-assigned per member (the view does the T3 CPR check).
   const currentMembers = [
-    { id: 100, name: 'Alice', tier: 1 },
-    { id: 101, name: 'Bo', tier: 2 },
-    { id: 200, name: 'Cara', tier: 3 }, // coming out in 6h
-    { id: 300, name: 'Dan', tier: 4 }, // coming out in 6h
-    { id: 400, name: 'Eve', tier: 3 }, // free now
-    { id: 500, name: 'Finn', tier: 0 }, // free now, review
+    { id: 100, name: 'Alice', tier: 1, category: 'advanced' },
+    { id: 101, name: 'Bo', tier: 2, category: 'advanced' },
+    { id: 200, name: 'Cara', tier: 1, category: 'advanced' }, // coming out 6h
+    { id: 300, name: 'Dan', tier: 5, category: 'simple' },    // coming out 6h
+    { id: 400, name: 'Eve', tier: 2, category: 'advanced' },  // free now
+    { id: 500, name: 'Finn', tier: 0, category: null },       // free now, review
   ]
-  const memberTiers = { 100: 1, 101: 2, 200: 3, 300: 4, 400: 3, 500: 0 }
+  const memberCategory = { 100: 'advanced', 101: 'advanced', 200: 'advanced', 300: 'simple', 400: 'advanced', 500: null }
   const memberNames = { 100: 'Alice', 101: 'Bo', 200: 'Cara', 300: 'Dan', 400: 'Eve', 500: 'Finn' }
+  const memberTiers = { 100: 1, 101: 2, 200: 1, 300: 5, 400: 2, 500: 0 }
 
-  const summary = buildPlannerSummary({
-    crimes, currentMembers, memberTiers, memberNames, resolveTier, positionTierMap,
+  const base = buildBase({ crimes, currentMembers, memberCategory, memberNames, memberTiers, categoryOf })
+
+  it('classifies pausing crimes by category and frees planning occupants', () => {
+    expect(base.pausingCrimes.map((c) => c.category).sort()).toEqual(['advanced', 'advanced', 'intermediate'])
+    expect(base.freeing.map((f) => f.id).sort()).toEqual(['200', '300'])
+    expect(base.notInOc.map((m) => m.name)).toEqual(['Eve', 'Finn']) // 400, 500 not in any OC
   })
 
-  it('records each recruiting/empty crime once with its weakest open tier', () => {
-    const byId = Object.fromEntries(summary.pausingCrimes.map((c) => [c.id, c]))
-    expect(byId[1].slotTier).toBe(3) // BtB weakest open = Thief #2
-    expect(byId[2].slotTier).toBe(4) // Bidding War weakest open = Robber #1
-    expect(byId[2].isEmpty).toBe(true)
-    expect(byId[3].slotTier).toBe(2) // Blast: only Hacker open, unmapped → crime-level T2
+  it('counts each pausing crime as ONE feed, gated by the crimes window', () => {
+    const p12 = selectPausingSlots(base, { now, crimesHorizonSecs: 12 * HOUR })
+    // crime 1 (advanced, 6h) + crime 2 (intermediate, empty); crime 3 (30h) excluded.
+    expect(p12.pausingByCategory).toEqual({ advanced: 1, intermediate: 1 })
+    expect(p12.feedQueue[0].isEmpty).toBe(true) // empty crime is most urgent
   })
 
-  it('gates open slots by the pause horizon (empty always; far-future excluded)', () => {
-    const open12 = selectOpenSlots(summary.pausingCrimes, { now, pauseHorizonSecs: 12 * HOUR })
-    // crime 1 (pauses 6h, T3) + crime 2 (empty, T4); crime 3 (30h) excluded.
-    expect(open12.openSlotsByTier).toEqual({ 3: 1, 4: 1 })
-    expect(open12.openSlotsTotal).toBe(2)
+  it('projects spawn = member surplus and crewsShort = crime surplus', () => {
+    const avail = selectAvailable(base, { now, memberHorizonSecs: 24 * HOUR })
+    // Available advanced: Eve(free) + Cara(coming) = 2; simple: Dan(coming) = 1; review: Finn.
+    expect(avail.membersByCategory).toEqual({ advanced: 2, simple: 1 })
+    expect(avail.reviewCount).toBe(1)
 
-    const open24 = selectOpenSlots(summary.pausingCrimes, { now, pauseHorizonSecs: 24 * HOUR })
-    expect(open24.openSlotsTotal).toBe(2) // crime 3 still beyond 24h
+    const pausing = selectPausingSlots(base, { now, crimesHorizonSecs: 24 * HOUR })
+    const plan = buildSpawnPlan({ membersByCategory: avail.membersByCategory, pausingByCategory: pausing.pausingByCategory, categories: CATEGORIES })
+
+    expect(plan.plannable).toEqual(['advanced', 'intermediate', 'simple']) // hardest first
+    // advanced: 2 members − 1 pausing = spawn 1 (scope 4). intermediate: 0 − 1 = crews short 1.
+    expect(plan.rows.advanced).toMatchObject({ members: 2, pausing: 1, scenariosToSpawn: 1, crewsShort: 0, scopeCost: 4 })
+    expect(plan.rows.intermediate).toMatchObject({ members: 0, pausing: 1, scenariosToSpawn: 0, crewsShort: 1 })
+    expect(plan.rows.simple).toMatchObject({ members: 1, pausing: 0, scenariosToSpawn: 1, scopeCost: 2 })
+    expect(plan.scenariosTotal).toBe(2)
+    expect(plan.scopeTotal).toBe(6)
+    expect(plan.crewsShortTotal).toBe(1)
   })
 
-  it('counts a multi-slot crime as exactly one slot', () => {
-    const open = selectOpenSlots(summary.pausingCrimes, { now, pauseHorizonSecs: 24 * HOUR })
-    const totalOpenPositions = summary.pausingCrimes.reduce((n, c) => n + c.openCount, 0)
-    expect(totalOpenPositions).toBeGreaterThan(open.openSlotsTotal) // collapsed to 1 each
-  })
-
-  it('projects spawn need from independent member + pause horizons', () => {
-    const open = selectOpenSlots(summary.pausingCrimes, { now, pauseHorizonSecs: 12 * HOUR })
-    const plan = planForHorizon(summary, open, { now, memberHorizonSecs: 24 * HOUR })
-
-    // Available: free now Eve(T3), Finn(review); coming ≤24h Cara(T3), Dan(T4).
-    expect(plan.availableByTier).toEqual({ 3: 2, 4: 1, review: 1 })
-    // Open slots: T3:1, T4:1 → T3 need = 2−1 = 1, T4 need = 1−1 = 0.
-    expect(plan.spawnNeedByTier).toEqual({ 1: 0, 2: 0, 3: 1, 4: 0, 5: 0, 6: 0 })
-    expect(plan.spawnTotal).toBe(1)
-    expect(plan.reviewCount).toBe(1)
-  })
-
-  it('member horizon shrinks availability without touching open slots', () => {
-    const open = selectOpenSlots(summary.pausingCrimes, { now, pauseHorizonSecs: 24 * HOUR })
-    const plan = planForHorizon(summary, open, { now, memberHorizonSecs: 3 * HOUR })
-    // Cara/Dan come out in 6h → excluded at 3h. Only free-now members remain.
-    expect(plan.comingOutCount).toBe(0)
-    expect(plan.availableByTier).toEqual({ 3: 1, review: 1 })
+  it('shrinks availability under a short member window without touching crimes', () => {
+    const avail = selectAvailable(base, { now, memberHorizonSecs: 3 * HOUR })
+    // Cara/Dan come out in 6h → excluded at 3h; only Eve (free) remains.
+    expect(avail.comingOutCount).toBe(0)
+    expect(avail.membersByCategory).toEqual({ advanced: 1 })
   })
 })

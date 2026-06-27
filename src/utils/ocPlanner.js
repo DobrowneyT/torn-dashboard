@@ -1,162 +1,129 @@
 /**
- * OC Planner logic
+ * OC Planner logic (v2 — scenarios, not tier-slots)
  *
- * Pure helpers that turn the faction's live "available" crimes (cat=available
- * from the Torn API) plus the current roster into a tier-by-tier planning
- * summary: who's free or coming out soon, how many open slots are pausing soon,
- * and — the headline — how many new slots we need to spawn at each tier so
- * nobody sits idle.
+ * Turns the faction's live "available" crimes (cat=available) plus the current
+ * roster into a *pipeline* plan: who's free or coming out, which crimes are
+ * pausing and need a feed, and how many new scenarios to spawn per difficulty
+ * category so nobody idles.
  *
- * Two horizons are tracked independently:
- *   - member horizon — how far ahead to count members coming out of executing
- *     OCs ("coming out in the next 12h/24h").
- *   - pause horizon — how far ahead to count open slots from crimes that are
- *     pausing ("slots pausing in the next 12h/24h, or already paused").
+ * Model (see plan): OC 2.0 spawns a random scenario within a difficulty
+ * CATEGORY (Introductory / Simple / Intermediate / Advanced / Elaborate). The
+ * faction maximizes Advanced and cascades members who can't run it down to
+ * Intermediate, then Simple. Filling ONE slot of a crime resets its 24h clock,
+ * so every crime — paused, empty, or freshly spawned — is a single-member sink;
+ * we feed crimes one at a time, soonest-to-pause first. Balancing free members
+ * against pausing crimes 1:1 gives the spawn count (member surplus) and the
+ * "crews short" warning (crime surplus).
  *
- * Two "tier" axes meet on the same 1–6 scale: member faction tier (drives
- * "who's available") and slot tier (which member tier runs a given position,
- * drives "open slots"). They're matched 1:1 in the spawn projection.
- *
- * Pausing model: a recruiting crime only *pauses* when its timer (ready_at)
- * elapses, and filling a single slot un-pauses it for another cycle. So for
- * planning, each paused/about-to-pause crime is worth exactly ONE slot, not its
- * full open count — and that slot is attributed to the WEAKEST (highest-number)
- * open tier on the crime, since that's the easiest position to plug.
- *
- * Kept framework-free so it can be unit-tested without React/Supabase.
+ * Two independent horizons: a MEMBER window (who's coming out) and a CRIMES
+ * window (which crimes' pauses count). Kept framework-free for unit testing.
  */
 
-export const PLANNER_TIERS = [1, 2, 3, 4, 5, 6]
-
-// Horizon presets (seconds) for both the member and pause switches.
+// Horizon presets (seconds) for both the member and crimes switches.
 export const HORIZONS = {
   '12h': 12 * 3600,
   '24h': 24 * 3600,
 }
 
-/**
- * Infer a crime → faction-tier map from config.tierRequirements. Each tier's
- * requirement list references specific crimes; we map every referenced crime
- * to the *lowest* (strongest) tier that lists it. Used only as a fallback when
- * a crime's open positions have no per-position tier.
- */
-export function inferCrimeTierMap(tierRequirements = {}) {
-  const map = {}
-  for (const [tierStr, reqs] of Object.entries(tierRequirements)) {
-    const tier = Number(tierStr)
-    for (const req of (reqs || [])) {
-      if (!req?.crime) continue
-      if (map[req.crime] == null || tier < map[req.crime]) map[req.crime] = tier
-    }
-  }
-  return map
-}
+// Fallback search order when a live crime's name isn't in ocScenarios — first
+// category whose difficulty range contains the level wins. Ordered so Lv8
+// resolves to Advanced (not Elaborate), matching what the faction runs.
+const CATEGORY_FALLBACK_ORDER = ['introductory', 'simple', 'intermediate', 'advanced', 'elaborate']
 
 /**
- * Per-position tier map from config.tierRequirements: "Crime||Role" → tier.
- * A position referenced by multiple tiers keeps the lowest (strongest) one.
+ * Build a crime → category resolver. Name is authoritative (Lv8 spans both
+ * Advanced and Elaborate); difficulty is a fallback for unknown names.
+ * @returns {(name: string, difficulty?: number) => string|null}
  */
-export function buildPositionTierMap(tierRequirements = {}) {
-  const map = {}
-  for (const [tierStr, reqs] of Object.entries(tierRequirements)) {
-    const tier = Number(tierStr)
-    for (const req of (reqs || [])) {
-      if (!req?.crime || !req?.role) continue
-      const key = `${req.crime}||${req.role}`
-      if (map[key] == null || tier < map[key]) map[key] = tier
+export function makeCategoryResolver({ scenarios = {}, categories = {} } = {}) {
+  return (name, difficulty) => {
+    if (name && scenarios[name]) return scenarios[name].category
+    if (difficulty == null) return null
+    for (const key of CATEGORY_FALLBACK_ORDER) {
+      const c = categories[key]
+      if (c && difficulty >= c.difficulty[0] && difficulty <= c.difficulty[1]) return key
     }
-  }
-  return map
-}
-
-/**
- * Build a crime-tier resolver (crime-level fallback). An explicit `overrideMap`
- * (config.ocTierByCrime) wins; otherwise the inferred map; otherwise null.
- */
-export function makeCrimeTierResolver({ overrideMap = {}, tierRequirements = {} } = {}) {
-  const inferred = inferCrimeTierMap(tierRequirements)
-  return (crimeName) => {
-    if (crimeName in overrideMap) return overrideMap[crimeName]
-    if (crimeName in inferred) return inferred[crimeName]
     return null
   }
 }
 
-// Bucket key for a member/slot tier. Tier 0 (and null/undefined) means "needs
-// review" and sits out of the 1–6 spawn math.
-export function tierKey(tier) {
-  return tier == null || tier === 0 ? 'review' : tier
+/** Names in cprRequirements that belong to the Advanced category (for the T3 CPR gate). */
+export function advancedCrimeNames({ scenarios = {}, cprRequirements = {} } = {}) {
+  return Object.keys(cprRequirements).filter((name) => scenarios[name]?.category === 'advanced')
 }
 
-const slotLabel = (s) => s.position_info?.label || s.position
-
 /**
- * The tier to plan a crime's single fillable slot at. We look at the crime's
- * OPEN positions, map each to a tier, and pick the weakest (highest number) —
- * the easiest open slot to plug to keep the crime alive. Falls back to the
- * crime-level resolver when no open position carries a per-position tier.
- *
- * @param {Object} crime
- * @param {Object} opts
- * @param {Record<string, number>} opts.positionTierMap - "Crime||Role" → tier
- * @param {(name: string, difficulty?: number) => number|null} opts.resolveTier
- * @param {boolean} [opts.preferWeakest=true] - pick max (weakest) vs min (strongest)
- * @returns {number|null}
+ * Does a member's CPR clear ≥1 position in any Advanced crime we have data for?
+ * @param {Record<string, number>} cprMap - "Crime||Position" → cpr value
  */
-export function slotTierForOpenSlots(crime, { positionTierMap = {}, resolveTier = () => null, preferWeakest = true } = {}) {
-  const tiers = []
-  for (const s of (crime.slots || [])) {
-    if (s.user) continue
-    const t = positionTierMap[`${crime.name}||${slotLabel(s)}`]
-    if (t != null) tiers.push(t)
+export function qualifiesForAdvanced(cprMap = {}, { cprRequirements = {}, advancedNames = [] } = {}) {
+  for (const name of advancedNames) {
+    const positions = cprRequirements[name]?.positions || {}
+    for (const [pos, req] of Object.entries(positions)) {
+      const v = cprMap[`${name}||${pos}`]
+      if (v != null && v >= req) return true
+    }
   }
-  if (tiers.length) return preferWeakest ? Math.max(...tiers) : Math.min(...tiers)
-  return resolveTier(crime.name, crime.difficulty)
+  return false
 }
 
 /**
- * Reduce live crimes + roster into the base planner summary (horizon-independent).
- * The expensive crime classification happens here; the two horizons are applied
- * later in {@link selectOpenSlots} and {@link planForHorizon}.
+ * The hardest category a member is planned into, from faction tier.
+ * T1/T2 → advanced; T3 → advanced iff CPR qualifies, else intermediate;
+ * T4 → intermediate; T5/T6 → simple; T0/null (review) → null (excluded).
  */
-export function buildPlannerSummary({
+export function maxCategoryForMember(tier, advancedQualifies) {
+  if (tier == null || tier === 0) return null
+  if (tier <= 2) return 'advanced'
+  if (tier === 3) return advancedQualifies ? 'advanced' : 'intermediate'
+  if (tier === 4) return 'intermediate'
+  return 'simple'
+}
+
+/**
+ * Horizon-independent reduction of live crimes + roster.
+ *
+ * @param {Object} args
+ * @param {Array} args.crimes          - Torn cat=available crimes
+ * @param {Array} args.currentMembers  - [{ id, name, tier, category }] is_current roster (category pre-assigned)
+ * @param {Record<string,string>} args.memberCategory - id → category (for occupants of executing crimes)
+ * @param {Record<string,string>} args.memberNames    - id → name
+ * @param {Record<string,number>} args.memberTiers    - id → faction tier
+ * @param {(name: string, difficulty?: number) => string|null} args.categoryOf
+ */
+export function buildBase({
   crimes = [],
   currentMembers = [],
-  memberTiers = {},
+  memberCategory = {},
   memberNames = {},
-  resolveTier = () => null,
-  positionTierMap = {},
-  preferWeakestSlot = true,
+  memberTiers = {},
+  categoryOf = () => null,
 }) {
   const inOc = new Set()
   const pausingCrimes = [] // recruiting/empty crimes with ≥1 open slot
-  const freeing = []       // members in Planning crimes (free at ready_at)
+  const freeing = []       // occupants of Planning crimes (free at ready_at)
 
   for (const c of crimes) {
     const slots = c.slots || []
     for (const s of slots) if (s.user) inOc.add(String(s.user.id))
 
+    const category = categoryOf(c.name, c.difficulty)
     const isRecruiting = c.status === 'Recruiting'
     const isEmpty = isRecruiting && c.planning_at == null
     const openCount = slots.filter((s) => !s.user).length
 
-    // A crime that can stall: recruiting (or empty) with open slots. We record
-    // its pause time + the tier of the slot we'd plug; the horizon filter is
-    // applied later. Each such crime is worth ONE planning slot.
     if (isRecruiting && openCount > 0) {
       pausingCrimes.push({
         id: c.id,
         name: c.name,
         difficulty: c.difficulty,
+        category,
         isEmpty,
         pausesAt: isEmpty ? null : (c.ready_at ?? null),
-        expiresAt: c.expired_at ?? null,
         openCount,
-        slotTier: slotTierForOpenSlots(c, { positionTierMap, resolveTier, preferWeakest: preferWeakestSlot }),
       })
     }
 
-    // Planning crimes execute at ready_at → their occupants free up then.
     if (c.status === 'Planning' && c.ready_at) {
       for (const s of slots) {
         if (!s.user) continue
@@ -165,6 +132,7 @@ export function buildPlannerSummary({
           id,
           name: memberNames[id] || `#${id}`,
           tier: memberTiers[id] ?? null,
+          category: memberCategory[id] ?? null,
           readyAt: c.ready_at,
           crimeId: c.id,
           crimeName: c.name,
@@ -177,88 +145,93 @@ export function buildPlannerSummary({
   const notInOc = currentMembers
     .filter((m) => !inOc.has(String(m.id)))
     .sort((a, b) => rank(a.tier) - rank(b.tier) || String(a.name).localeCompare(String(b.name)))
-
   freeing.sort((a, b) => (a.readyAt || 0) - (b.readyAt || 0))
 
-  return { inOc, pausingCrimes, freeing, notInOc, totalCrimes: crimes.length }
+  return { inOc, notInOc, freeing, pausingCrimes, totalCrimes: crimes.length }
 }
 
-/**
- * Apply the pause horizon: pick the crimes whose single slot counts right now.
- * A crime is included if it's empty (already needs a starter) or it's already
- * paused / will pause within the horizon. Each contributes exactly one slot,
- * bucketed by its weakest open tier.
- */
-export function selectOpenSlots(pausingCrimes = [], { now, pauseHorizonSecs }) {
-  const cutoff = now + pauseHorizonSecs
-  const openSlotsByTier = {}
-  const openCrimes = []
-  for (const c of pausingCrimes) {
+/** Apply the MEMBER window: who's available (free now + coming out within window), by category. */
+export function selectAvailable(base, { now, memberHorizonSecs }) {
+  const cutoff = now + memberHorizonSecs
+  const comingOut = base.freeing.filter((f) => f.readyAt <= cutoff)
+
+  const seen = new Set()
+  const members = []
+  for (const m of base.notInOc) {
+    const k = String(m.id)
+    if (seen.has(k)) continue
+    seen.add(k)
+    members.push({ id: k, name: m.name, tier: m.tier, category: m.category, source: 'free' })
+  }
+  for (const f of comingOut) {
+    if (seen.has(f.id)) continue
+    seen.add(f.id)
+    members.push({ id: f.id, name: f.name, tier: f.tier, category: f.category, source: 'coming', readyAt: f.readyAt, crimeName: f.crimeName })
+  }
+
+  const membersByCategory = {}
+  let reviewCount = 0
+  for (const m of members) {
+    if (m.category == null) { reviewCount++; continue }
+    membersByCategory[m.category] = (membersByCategory[m.category] || 0) + 1
+  }
+
+  return {
+    members,
+    comingOut,
+    membersByCategory,
+    freeNowCount: members.filter((m) => m.source === 'free').length,
+    comingOutCount: comingOut.length,
+    reviewCount,
+  }
+}
+
+/** Apply the CRIMES window: pausing crimes (1 feed each) by category + an ordered feed queue. */
+export function selectPausingSlots(base, { now, crimesHorizonSecs }) {
+  const cutoff = now + crimesHorizonSecs
+  const pausingByCategory = {}
+  const feedQueue = []
+  for (const c of base.pausingCrimes) {
     const included = c.isEmpty || (c.pausesAt != null && c.pausesAt <= cutoff)
     if (!included) continue
-    openSlotsByTier[tierKey(c.slotTier)] = (openSlotsByTier[tierKey(c.slotTier)] || 0) + 1
-    openCrimes.push({ ...c, paused: c.pausesAt != null && c.pausesAt <= now })
+    const paused = c.pausesAt != null && c.pausesAt <= now
+    pausingByCategory[c.category ?? 'unmapped'] = (pausingByCategory[c.category ?? 'unmapped'] || 0) + 1
+    feedQueue.push({ ...c, paused })
   }
-  openCrimes.sort(
+  // Most urgent first: empty, then already-paused, then soonest to pause.
+  feedQueue.sort(
     (a, b) =>
       Number(b.isEmpty) - Number(a.isEmpty) ||
       Number(b.paused) - Number(a.paused) ||
       (a.pausesAt ?? Infinity) - (b.pausesAt ?? Infinity),
   )
-  return { openSlotsByTier, openSlotsTotal: openCrimes.length, openCrimes }
+  return { pausingByCategory, feedQueue }
 }
 
 /**
- * Project, for the member horizon, who's available and what we need to spawn.
- * Available = free now (not in any OC) + coming out within the member horizon.
- * Need[tier] = max(0, availableMembers[tier] − openSlots[tier]).
- *
- * @param {ReturnType<typeof buildPlannerSummary>} summary
- * @param {ReturnType<typeof selectOpenSlots>} openSlots
- * @param {{ now: number, memberHorizonSecs: number }} opts
+ * Balance members against pausing crimes 1:1 per plannable category.
+ * scenariosToSpawn = member surplus; crewsShort = crime surplus.
  */
-export function planForHorizon(summary, openSlots, { now, memberHorizonSecs }) {
-  const cutoff = now + memberHorizonSecs
-  const comingOut = summary.freeing.filter((f) => f.readyAt <= cutoff)
+export function buildSpawnPlan({ membersByCategory = {}, pausingByCategory = {}, categories = {} }) {
+  const plannable = Object.entries(categories)
+    .filter(([, c]) => c.plannable)
+    .sort((a, b) => b[1].difficulty[1] - a[1].difficulty[1]) // Advanced first
+    .map(([k]) => k)
 
-  const seen = new Set()
-  const members = []
-  for (const m of summary.notInOc) {
-    const k = String(m.id)
-    if (seen.has(k)) continue
-    seen.add(k)
-    members.push({ id: k, name: m.name, tier: m.tier, source: 'free' })
+  const rows = {}
+  let scenariosTotal = 0
+  let scopeTotal = 0
+  let crewsShortTotal = 0
+  for (const cat of plannable) {
+    const members = membersByCategory[cat] || 0
+    const pausing = pausingByCategory[cat] || 0
+    const scenariosToSpawn = Math.max(0, members - pausing)
+    const crewsShort = Math.max(0, pausing - members)
+    const scopeCost = scenariosToSpawn * (categories[cat].scopeCost || 0)
+    rows[cat] = { members, pausing, scenariosToSpawn, crewsShort, scopeCost }
+    scenariosTotal += scenariosToSpawn
+    scopeTotal += scopeCost
+    crewsShortTotal += crewsShort
   }
-  for (const f of comingOut) {
-    if (seen.has(f.id)) continue
-    seen.add(f.id)
-    members.push({ id: f.id, name: f.name, tier: f.tier, source: 'coming', readyAt: f.readyAt, crimeName: f.crimeName })
-  }
-
-  const availableByTier = {}
-  for (const m of members) {
-    const key = tierKey(m.tier)
-    availableByTier[key] = (availableByTier[key] || 0) + 1
-  }
-
-  const spawnNeedByTier = {}
-  for (const t of PLANNER_TIERS) {
-    const avail = availableByTier[t] || 0
-    const open = openSlots.openSlotsByTier[t] || 0
-    spawnNeedByTier[t] = Math.max(0, avail - open)
-  }
-
-  const spawnTotal = PLANNER_TIERS.reduce((sum, t) => sum + spawnNeedByTier[t], 0)
-  const freeNowCount = members.filter((m) => m.source === 'free').length
-
-  return {
-    comingOut,
-    members,
-    availableByTier,
-    spawnNeedByTier,
-    spawnTotal,
-    freeNowCount,
-    comingOutCount: comingOut.length,
-    reviewCount: availableByTier.review || 0,
-  }
+  return { plannable, rows, scenariosTotal, scopeTotal, crewsShortTotal }
 }
