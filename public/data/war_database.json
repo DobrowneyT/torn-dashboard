@@ -5736,8 +5736,8 @@
       "end_at": null,
       "opponent_id": 15446,
       "opponent_name": "Druggies in Snuggies",
-      "our_score": 7246,
-      "opponent_score": 13672,
+      "our_score": 7713,
+      "opponent_score": 15696,
       "target": 17900,
       "winner_faction_id": null,
       "forfeit": false,
@@ -211702,6 +211702,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-27T04:52:53.474584"
+    "last_updated": "2026-06-28T05:16:14.681561"
   }
 }
