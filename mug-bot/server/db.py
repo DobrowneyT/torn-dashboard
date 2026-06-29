@@ -327,23 +327,28 @@ async def unmatched_count() -> int:
 
 
 async def unmatched_items() -> List[Dict]:
-    """Watched stackable items that still have listings without a captured seller. `missing` is the
-    best-effort count of un-attributed listings (last poll's listing count minus how many sellers
-    we've captured), so the user can see it shrink as they view the item. None = not polled yet.
-    Items capture per-page (no per-tile highlight) — the matcher just links to the item."""
+    """Watched stackable items that still have live listings we can't mug. `missing` = the last poll's
+    listing count minus what's COVERED, where covered = listings the poller has CONFIDENTLY attributed
+    to a seller (tracked_items, the strict price+qty matches) PLUS captured anonymous listings (can't
+    be mugged, but they fill a slot so they shouldn't read as 'missing' forever). Every item with
+    missing>0 is surfaced to the matcher to view + (re)capture. None last_count = not polled yet."""
     cur = await _db.execute(
         "SELECT w.item_id, w.label, w.category, w.last_count, "
+        "  (SELECT COUNT(*) FROM tracked_items t "
+        "     WHERE t.item_id=w.item_id AND t.seller_id IS NOT NULL) AS attributed, "
         "  (SELECT COUNT(*) FROM listings l "
-        "     WHERE l.item_id=w.item_id AND l.is_gear=0 "
-        "       AND (l.seller_id IS NOT NULL OR l.anonymous=1)) AS accounted "
+        "     WHERE l.item_id=w.item_id AND l.is_gear=0 AND l.anonymous=1) AS anon "
         "FROM watchlist w WHERE w.enabled=1 AND w.is_gear=0 ORDER BY w.label"
     )
     out = []
     for r in await cur.fetchall():
-        last_count, accounted = r["last_count"], r["accounted"]
-        missing = None if last_count is None else max(int(last_count) - int(accounted or 0), 0)
+        last_count = r["last_count"]
+        if last_count is None:
+            continue   # not polled yet — nothing to ask for
+        covered = int(r["attributed"] or 0) + int(r["anon"] or 0)
+        missing = max(int(last_count) - covered, 0)
         if missing == 0:
-            continue   # best-effort fully captured -> drop from the to-view list
+            continue   # every live listing is confidently attributed (or anon) -> nothing to capture
         out.append({
             "item_id": r["item_id"], "item_name": r["label"] or f"Item {r['item_id']}",
             "category": r["category"], "missing": missing,
@@ -576,19 +581,6 @@ async def store_gear_listing(*, listing_id, item_id, item_name, seller_id, price
     )
     if item_id is not None and seller_id is not None:
         await watchlist_ensure(item_id, item_name, is_gear=True)
-
-
-async def resolve_gear_seller(item_id, price) -> Optional[Dict]:
-    """Find the captured seller for a gear listing by (item_id, exact price). Returns the most
-    recently-seen match, or None when unknown / ambiguous-but-unmapped."""
-    cur = await _db.execute(
-        """SELECT seller_id, item_name FROM listings
-           WHERE is_gear=1 AND seller_id IS NOT NULL AND item_id=? AND price=?
-           ORDER BY updated_at DESC LIMIT 1""",
-        (item_id, price),
-    )
-    row = await cur.fetchone()
-    return dict(row) if row else None
 
 
 async def gear_poll_item_ids() -> List[int]:
@@ -871,11 +863,29 @@ async def api_key_add(*, key, user_id=None, name=None, level=None) -> None:
 
 
 async def api_key_set_owner(key, user_id, name, level) -> None:
+    # Re-enable too: this is only called after a SUCCESSFUL validation, so a key that was wrongly
+    # disabled earlier (e.g. a transient Torn wobble) recovers on the next validation pass.
     await _db.execute(
-        "UPDATE api_keys SET user_id=?, name=?, level=?, last_ok_at=?, last_error=NULL WHERE key=?",
+        "UPDATE api_keys SET user_id=?, name=?, level=?, enabled=1, last_ok_at=?, last_error=NULL "
+        "WHERE key=?",
         (user_id, name, level, _now(), key),
     )
     await _db.commit()
+
+
+async def api_key_enable(identifier=None) -> int:
+    """Re-enable a disabled key by full key / owner id / name, or ALL disabled keys when identifier
+    is None. Clears the stored last_error. Returns the number of rows re-enabled."""
+    if identifier is None:
+        cur = await _db.execute("UPDATE api_keys SET enabled=1, last_error=NULL WHERE enabled=0")
+    else:
+        cur = await _db.execute(
+            "UPDATE api_keys SET enabled=1, last_error=NULL "
+            "WHERE (key=? OR user_id=? OR name=? COLLATE NOCASE) AND enabled=0",
+            (identifier, identifier if str(identifier).isdigit() else -1, str(identifier)),
+        )
+    await _db.commit()
+    return cur.rowcount
 
 
 async def api_key_mark_error(key, message) -> None:
@@ -905,21 +915,39 @@ async def api_key_remove(identifier) -> int:
 # --------------------------- item seller map + tracked_items --------------------------
 
 async def store_item_listing(*, listing_id, item_id, item_name, seller_id, price, available) -> None:
+    # No watchlist auto-add for stackables: viewing any item page would otherwise grow the list with
+    # things you never asked to monitor. The ingest gate (is_item_watched) discards unwatched items,
+    # so this is only ever reached for items you've added explicitly via /watch add.
     await upsert_listing(
         listing_id=listing_id, item_id=item_id, item_name=item_name, seller_id=seller_id,
         price=price, available=available, anonymous=(seller_id is None), is_gear=False,
     )
-    if item_id is not None and seller_id is not None:
-        await watchlist_ensure(item_id, item_name, is_gear=False)
+
+
+async def is_item_watched(item_id) -> bool:
+    """True only if this item is on the watch list AND enabled — the gate for accepting stackable
+    item-matcher captures. Data for items not on the list (or disabled) is thrown away; add an item
+    with /watch add to start monitoring it. (Gear is unaffected — it still auto-adds on capture.)"""
+    if item_id is None:
+        return False
+    try:
+        iid = int(item_id)
+    except (TypeError, ValueError):
+        return False
+    cur = await _db.execute("SELECT 1 FROM watchlist WHERE item_id=? AND enabled=1", (iid,))
+    return (await cur.fetchone()) is not None
 
 
 async def resolve_item_seller(item_id, price, amount) -> Optional[Dict]:
-    """Captured stackable seller for (item_id, price), preferring the capture whose quantity is
-    closest to the live amount (the user's price+quantity match)."""
+    """Captured stackable seller for (item_id, price) — STRICT price+quantity fingerprint. Fungible
+    items aren't identified by price alone, so we attribute a seller ONLY when their captured quantity
+    still EXACTLY matches the live amount. If the quantity drifted since capture (or we never captured
+    this price+qty), return None and stay unattributed rather than guess wrong — the item then surfaces
+    to the matcher for (re)capture. Most-recent capture wins on an exact tie."""
     cur = await _db.execute(
-        "SELECT seller_id, item_name, available FROM listings "
-        "WHERE is_gear=0 AND seller_id IS NOT NULL AND item_id=? AND price=? "
-        "ORDER BY ABS(COALESCE(available,0)-?) ASC, updated_at DESC LIMIT 1",
+        "SELECT seller_id, item_name FROM listings "
+        "WHERE is_gear=0 AND seller_id IS NOT NULL AND item_id=? AND price=? AND available=? "
+        "ORDER BY updated_at DESC LIMIT 1",
         (item_id, price, amount),
     )
     row = await cur.fetchone()

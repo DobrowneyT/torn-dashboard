@@ -41,6 +41,42 @@ def test_api_keys_crud_and_failure(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_validate_all_does_not_disable_on_transient(tmp_path, monkeypatch):
+    """Regression for the mass key-nuke: a transient failure (rate-limit/Torn-side/network) must NOT
+    disable a key, a key that now validates is RE-ENABLED, but a genuine key error still disables."""
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "kv.db"))
+
+    async def scenario():
+        await db.init_db()
+        await db.seed_api_keys_from_env(["GOOD1111", "RLIM2222", "DEAD3333"])
+        await db.api_key_mark_error("DEAD3333", "wrongly disabled earlier")  # was nuked before
+        await keypool.refresh()
+
+        async def fake_validate(client, key):
+            if key == "RLIM2222":
+                return {"ok": False, "code": 5, "reason": "Too many requests (code 5)"}  # transient
+            return {"ok": True, "reason": "ok", "user_id": 1, "name": "Owner", "level": 1}
+        monkeypatch.setattr(keypool, "validate_key", fake_validate)
+
+        await keypool.validate_all(client=None)
+        enabled = set(await db.get_enabled_api_keys())
+        assert enabled == {"GOOD1111", "RLIM2222", "DEAD3333"}   # transient kept, dead one recovered
+
+        # A real key-level error (code 2) DOES still disable.
+        async def fake_bad(client, key):
+            return {"ok": False, "code": 2, "reason": "Incorrect key (code 2)"}
+        monkeypatch.setattr(keypool, "validate_key", fake_bad)
+        await keypool.validate_all(client=None)
+        assert await db.get_enabled_api_keys() == []
+
+        # /keys enable brings them all back.
+        assert await keypool.enable_keys() == 3
+        assert len(await db.get_enabled_api_keys()) == 3
+        await db.close_db()
+
+    asyncio.run(scenario())
+
+
 def _reset_pool():
     keypool._active = []
     keypool._cooldowns.clear()

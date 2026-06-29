@@ -384,6 +384,14 @@ class MugBot(discord.Client):
                 (f"Removed {n} key(s). " if n else "No matching key. ") + f"{keypool.active_count()} active.",
                 ephemeral=True)
 
+        @keys_group.command(name="enable", description="Re-enable disabled key(s) — one by name/id, or all if blank")
+        @app_commands.autocomplete(key=_ac_keys)
+        async def keys_enable(interaction: discord.Interaction, key: Optional[str] = None):
+            n = await keypool.enable_keys(key.strip() if key else None)
+            await interaction.response.send_message(
+                (f"♻️ Re-enabled {n} key(s). " if n else "No disabled keys matched. ")
+                + f"{keypool.active_count()} active.", ephemeral=True)
+
         @keys_group.command(name="list", description="Show API keys + health")
         async def keys_list(interaction: discord.Interaction):
             rows = await db.all_api_keys()

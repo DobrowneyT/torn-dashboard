@@ -40,6 +40,9 @@ BSP_API_KEY = os.environ.get("BSP_API_KEY")
 TORNSTATS_API_KEY = os.environ.get("TORNSTATS_API_KEY")
 # The `comment` attached to every Torn API call (visible to key owners in their API log).
 API_COMMENT = os.environ.get("MUG_API_COMMENT", "MonChoon Market Tracker")
+# Explicit User-Agent on every Torn request. Torn 403s requests with a default library UA (e.g.
+# python-urllib); send a browser-like one so we're never silently blocked.
+HTTP_USER_AGENT = os.environ.get("MUG_HTTP_USER_AGENT", "Mozilla/5.0 (compatible; MugBot/1.0)")
 
 # ---- Rate limiting ----
 # On a Torn "too many requests" (error 5), cool that key down for this long (the rotation skips
@@ -47,6 +50,10 @@ API_COMMENT = os.environ.get("MUG_API_COMMENT", "MonChoon Market Tracker")
 RATE_LIMIT_BACKOFF_SECONDS = int(os.environ.get("MUG_RATE_LIMIT_BACKOFF", "60"))
 # If true, a single rate-limit pauses ALL keys for the backoff (vs only the offending key).
 RATE_LIMIT_GLOBAL_PAUSE = (os.environ.get("MUG_RATE_LIMIT_GLOBAL_PAUSE", "false") or "").strip().lower() in ("1", "true", "yes")
+# On a KEY-specific Torn error (rate-limit / bad key), immediately retry the call on the next key in
+# the rotation, up to this many keys, before giving up. Torn-SIDE errors (backend/IP) don't retry
+# (another key from the same IP won't help). 1 = no retry (old behaviour).
+API_MAX_KEY_RETRIES = int(os.environ.get("MUG_API_MAX_KEY_RETRIES", "3"))
 
 # ---- Debugging ----
 # Verbose gear reconciliation: log, per poll, how every uid was classified (tracked / matched by
@@ -88,11 +95,12 @@ CACHE_REPOLL_OFFSET = int(os.environ.get("MUG_CACHE_REPOLL_OFFSET", "62"))
 CACHE_RETRY_SECONDS = int(os.environ.get("MUG_CACHE_RETRY_SECONDS", "3"))
 # Scheduler granularity: how often the loop wakes to poll whatever items are now due.
 POLL_TICK_SECONDS = float(os.environ.get("MUG_POLL_TICK_SECONDS", "1"))
-# Emit a gear sale once a tracked uid has been absent for this many consecutive polls. 2 (= ~60s)
-# absorbs a delist→relist reprice: a seller who removes an item and re-lists it at a new price has
-# the uid briefly absent; one missed poll won't fire a false "sale" (the uid reappears, its tracked
-# entry just migrates to the new price). Raise further if repricing still trips false sales.
-GEAR_VANISH_CONFIRM_POLLS = int(os.environ.get("MUG_GEAR_VANISH_CONFIRM_POLLS", "2"))
+# Consecutive absent polls before a tracked uid is called sold. 0/1 = fire on the FIRST absence
+# (fastest; ~30s less latency). >1 absorbs a delist→relist reprice (uid briefly absent) at the cost
+# of latency. With confirm at 0 a reprice will fire a (likely-de-list) alert — mute those via
+# /delist mode. NOTE: the comparison is `misses < N`, and misses starts at 1, so 0 and 1 both mean
+# "fire on the first absence".
+GEAR_VANISH_CONFIRM_POLLS = int(os.environ.get("MUG_GEAR_VANISH_CONFIRM_POLLS", "0"))
 # Opt-in stale-match guard (default OFF): only treat a vanished uid as a SALE if it was re-confirmed
 # present in >1 poll. Off by default — we now drop the seller↔uid pairing the moment the item leaves
 # the market (see reconcile_gear), so stale matches can't accumulate; we alert on every vanish and
@@ -170,8 +178,12 @@ MUG_CLAIM_ON_ALERT = (os.environ.get("MUG_CLAIM_ON_ALERT", "true") or "").strip(
 # Banking assumption: a sale's muggable value decays as the seller stays ACTIVE after it (they've
 # had time to bank). Full value if they went quiet within GRACE of the sale; zero once they've been
 # active ASSUME seconds past it; linear in between. (Uses the seller's last_action time.)
-MUG_BANK_GRACE_SECONDS = int(os.environ.get("MUG_BANK_GRACE_SECONDS", str(15 * 60)))     # 15m
-MUG_BANK_ASSUME_SECONDS = int(os.environ.get("MUG_BANK_ASSUME_SECONDS", str(6 * 60 * 60)))  # 6h
+# Tightened 2026-06-28: the old 15m/6h horizon barely decayed anything — a seller active 17min after
+# a sale still kept ~99% weight, so stale already-banked sales (e.g. COLDCHAIN's 18-min-old TMP+P90)
+# inflated the window over threshold and fired $0 "mugs". 3m full-credit, fully banked by 18m-active
+# encodes "if they've been online a while since selling, the cash is in their wallet, not muggable".
+MUG_BANK_GRACE_SECONDS = int(os.environ.get("MUG_BANK_GRACE_SECONDS", str(3 * 60)))      # 3m
+MUG_BANK_ASSUME_SECONDS = int(os.environ.get("MUG_BANK_ASSUME_SECONDS", str(18 * 60)))   # 18m
 # Don't re-alert the same seller more often than this (they keep accumulating meanwhile).
 ALERT_COOLDOWN_SECONDS = 60 * 10     # 10m
 # Clothing-store (job) + BSP are slow-changing — refresh once a day. (Company job perks only

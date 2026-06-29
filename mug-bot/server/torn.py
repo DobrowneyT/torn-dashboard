@@ -34,32 +34,68 @@ def _next_key() -> Optional[str]:
 
 
 async def _get(client: httpx.AsyncClient, path: str, params: Optional[Dict] = None) -> Optional[Dict]:
-    key = _next_key()
-    if not key:
-        log.warning("no active Torn API keys — add one with /keys add")
-        return None
-    # `timestamp` is a cache-buster (unique URL) so seller status/last_action is never served stale
-    # from an edge cache — same trick the war-room fetch uses.
-    q = {"key": key, "comment": config.API_COMMENT, "timestamp": int(time.time() * 1000)}
-    if params:
-        q.update(params)
-    try:
-        resp = await client.get(f"{BASE}/{path}", params=q, timeout=15)
-        data = resp.json()
-    except (httpx.HTTPError, ValueError) as e:
-        log.warning("torn GET %s failed: %s", path, e)
-        return None
-    if isinstance(data, dict) and data.get("error"):
-        err = data["error"]
-        code = err.get("code")
-        if code == 5:
-            keypool.mark_rate_limited(key)                              # too many requests: back off
-        elif code in keypool.KEY_ERROR_CODES:
-            await keypool.mark_key_error(key, code, err.get("error"))   # disable + notify
-        else:
-            log.warning("torn API error on %s: %s", path, err)
-        return None
-    return data
+    """GET a Torn v2 path with the active key rotation. On a KEY-specific failure (rate-limit, bad
+    key, or a network blip) we immediately retry on a DIFFERENT key, up to API_MAX_KEY_RETRIES.
+    Torn-SIDE errors (backend/IP/maintenance, and HTTP 5xx) are NOT retried — another key from the
+    same IP won't help — so we return None and let the caller back off. Returns the JSON or None."""
+    tried: set = set()
+    attempts = max(1, min(config.API_MAX_KEY_RETRIES, keypool.active_count() or 1))
+    for _ in range(attempts):
+        key = _next_key_excluding(tried)
+        if not key:
+            if not tried:
+                log.warning("no active Torn API keys — add one with /keys add")
+            break
+        tried.add(key)
+        # Sending ANY `timestamp` (ms OR sec) makes Torn serve a ~30s-fresher cache than OMITTING it
+        # (confirmed by experiment — ms_comment == sec_comment == sec_only, only "none" was stale).
+        # The value/unit is irrelevant; we send seconds as the correct unit. Don't drop it.
+        q = {"key": key, "comment": config.API_COMMENT, "timestamp": int(time.time())}
+        if params:
+            q.update(params)
+        try:
+            resp = await client.get(f"{BASE}/{path}", params=q, timeout=15,
+                                     headers={"User-Agent": config.HTTP_USER_AGENT})
+        except httpx.HTTPError as e:
+            log.warning("torn GET %s network error (key %s): %s -> retrying next key", path, _mask(key), e)
+            continue   # transient network/connection issue — a different key/connection may work
+        if resp.status_code >= 500:
+            log.warning("torn GET %s HTTP %s (Torn-side) -> not retrying", path, resp.status_code)
+            return None   # Torn backend (e.g. the midnight 504s) — hammering other keys won't help
+        try:
+            data = resp.json()
+        except ValueError:
+            log.warning("torn GET %s returned non-JSON (HTTP %s) -> not retrying", path, resp.status_code)
+            return None
+        if isinstance(data, dict) and data.get("error"):
+            err = data["error"]
+            code = err.get("code")
+            if code == 5:                                              # too many requests for THIS key
+                keypool.mark_rate_limited(key)
+                log.info("torn %s rate-limited (code 5) key %s -> retrying next key", path, _mask(key))
+                continue
+            if code in keypool.KEY_ERROR_CODES:                        # this key is bad: disable + notify
+                await keypool.mark_key_error(key, code, err.get("error"))
+                log.warning("torn %s key error (code %s: %s) key %s -> retrying next key",
+                            path, code, err.get("error"), _mask(key))
+                continue
+            if code in keypool.TORN_SIDE_CODES:                        # Torn-side/IP: don't retry-spam
+                log.warning("torn %s Torn-side error (code %s: %s) -> not retrying",
+                            path, code, err.get("error"))
+                return None
+            log.warning("torn %s API error (code %s: %s)", path, code, err.get("error"))
+            return None
+        return data
+    log.warning("torn GET %s: exhausted %d key(s) without success", path, len(tried))
+    return None
+
+
+def _next_key_excluding(exclude: set) -> Optional[str]:
+    return keypool.next_key(exclude=exclude)
+
+
+def _mask(key: Optional[str]) -> str:
+    return f"…{key[-4:]}" if key else "?"
 
 
 async def get_itemmarket(

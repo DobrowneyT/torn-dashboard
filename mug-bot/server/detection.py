@@ -197,10 +197,10 @@ async def _evaluate_alert(seller_id, seller: Optional[Dict], bot, last_item=None
     # Delist guard for GEAR: if the seller acted right around when their item vanished, it's almost
     # certainly them pulling/relisting/trading it, not a buy. Drop the phantom sale so it neither
     # fires a $0 mug nor inflates the window.
-    if config.DELIST_GUARD_SECONDS and str(listing_id or "").startswith("uid:"):
+    if config.DELIST_GUARD_SECONDS and str(listing_id or "").startswith(("uid:", "item:")):
         la = (seller or {}).get("last_action_ts")
         if la and (int(time.time()) - int(la)) < config.DELIST_GUARD_SECONDS:
-            log.info("mug-eval seller=%s: GEAR vanish but seller acted %ss ago -> likely DELIST, "
+            log.info("mug-eval seller=%s: gear/item vanish but seller acted %ss ago -> likely DELIST, "
                      "dropping (not a sale)", seller_id, int(time.time()) - int(la))
             if sale_id is not None:
                 await db.delete_sale(sale_id)
@@ -271,13 +271,15 @@ def _was_mugged(seller: Optional[Dict]) -> bool:
 
 
 async def _mug_protect_adjust(seller: Optional[Dict], win: Dict):
-    """Mug protection: if the seller is in hospital AND was mugged, their wallet was largely taken
-    and the leftover is protected, decaying linearly to 0 over MUG_PROTECTION_HOURS. We estimate the
-    mug time as their last action (they can't act while hospitalised) and keep only the still-
-    muggable fraction. Returns (win, res, protection_pct)."""
+    """Mug protection: a seller who was recently MUGGED has their remaining money protected, decaying
+    linearly back to fully-muggable over MUG_PROTECTION_HOURS. Applies whether they're still in
+    hospital OR already out (Okay) — protection outlasts the hospital stay. A "Was Mugged" seller who
+    recovered but stayed inactive (the $300M Swiss Army Knife: mugged ~2.5h ago, still Offline) was
+    posting FULL value and mugging for $0; the old `status==Hospital` gate skipped it. Mug time ~=
+    their last action (can't act while hospitalised / offline since). Returns (win, res, pct)."""
     hours = config.MUG_PROTECTION_HOURS
     la = (seller or {}).get("last_action_ts")
-    if hours <= 0 or not la or (seller or {}).get("status_state") != "Hospital" or not _was_mugged(seller):
+    if hours <= 0 or not la or not _was_mugged(seller):
         return win, await _mug_for(seller, win["total"]), 0
     elapsed = int(time.time()) - int(la)
     muggable = max(0.0, min(1.0, elapsed / (hours * 3600)))   # protection decays over `hours`
@@ -318,6 +320,23 @@ async def _cooldown_ok(seller: Optional[Dict]) -> bool:
     return (int(time.time()) - int(last)) >= cooldown
 
 
+# How long after a sale the seller can act before we assume the cash is banked (used to suppress a
+# stale hospital-release alert for someone who's been online since the sale). Small on purpose.
+_BANKED_AFTER_SALE_GRACE = 120
+
+
+def _banked_since_sales(seller: Optional[Dict], win: Dict) -> Optional[int]:
+    """If the seller's most recent action is well AFTER their most recent sale in the window, they've
+    been online since selling and have almost certainly stashed the cash in their wallet (can't be
+    mugged). Returns the seconds-active-since-the-sale if so, else None. Offline/old sellers (last
+    action before the sale) return None — they haven't had the chance, so they stay muggable."""
+    la = (seller or {}).get("last_action_ts")
+    latest_sale = max((int(s.get("sold_at") or 0) for s in (win.get("sales") or [])), default=0)
+    if la and latest_sale and int(la) > latest_sale + _BANKED_AFTER_SALE_GRACE:
+        return int(la) - latest_sale
+    return None
+
+
 async def post_hospital_due(bot) -> None:
     """Called periodically by the bot: post the near-release alert for in-hospital sellers.
       hold   -> the ONLY post for that seller (deferred from detection); gated by the cooldown.
@@ -352,6 +371,13 @@ async def post_hospital_due(bot) -> None:
             log.info("hospital-due seller=%s: re-hospitalised (until %s, >%ss out) -> re-hold",
                      seller_id, until, lead)
             continue
+        # Out of hospital and active since the sale? They've banked it — don't post a stale alert.
+        banked_secs = _banked_since_sales(seller, win)
+        if banked_secs is not None:
+            log.info("hospital-due seller=%s: online %ss after the sale -> assume banked, skip",
+                     seller_id, banked_secs)
+            await db.set_mug_claimed(seller_id, max(s["sold_at"] for s in win["sales"]))
+            continue
         if hosp_mode == "remind":
             last = row.get("last_alerted_at")
             if until and last and int(last) >= int(until) - lead:
@@ -369,14 +395,18 @@ async def post_hospital_due(bot) -> None:
 
 
 def _delist_active_secs(seller: Optional[Dict], listing_id, tag_secs) -> Optional[int]:
-    """Likely-de-list signal (no extra API call): a GEAR uid vanished while the seller was
-    online/idle and had acted within `tag_secs` -> they almost certainly pulled/relisted it
-    themselves. A real buy means the BUYER acted, so the seller's last action is usually
-    old/offline. Returns the seconds-since-last-action if it looks like a de-list, else None."""
-    if not tag_secs or not str(listing_id or "").startswith("uid:"):
+    """Likely-de-list signal (no extra API call): a GEAR uid vanished, OR a stackable-item listing's
+    quantity dropped, and the SELLER had acted within `tag_secs` of it -> they almost certainly
+    pulled/relisted/repriced/edited it themselves (a real buy is the BUYER's action, which leaves the
+    seller's last_action old). Applies to BOTH gear (`uid:` listing) and items (`item:` listing) —
+    the item path used to be skipped, so item de-lists (e.g. the Armor Cache, seller active 36s ago)
+    wrongly pinged. We key purely on last_action recency, NOT the online badge: Torn's coarse status
+    can read 'Offline' within a minute or two of a real action (the $450M Guandao acted 88s before
+    the vanish yet showed Offline). Returns seconds-since-last-action if within the buffer, else None."""
+    if not tag_secs or not str(listing_id or "").startswith(("uid:", "item:")):
         return None
     la = (seller or {}).get("last_action_ts")
-    if la and (seller or {}).get("online_status") in ("Online", "Idle"):
+    if la is not None:
         age = int(time.time()) - int(la)
         if 0 <= age <= int(tag_secs):
             return age

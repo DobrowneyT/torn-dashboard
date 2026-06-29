@@ -49,6 +49,29 @@ def test_watchlist_crud_and_poll_targets(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_stackable_capture_does_not_autoadd(tmp_path, monkeypatch):
+    """Stackable items no longer auto-add to the watch list, and the ingest gate (is_item_watched)
+    only accepts items that are explicitly added AND enabled."""
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "noauto.db"))
+
+    async def scenario():
+        await db.init_db()
+        assert await db.is_item_watched(206) is False                 # unknown item -> gate rejects
+        # storing a stackable listing must NOT create a watchlist entry
+        await db.upsert_seller_seen(user_id=1, name="x")
+        await db.store_item_listing(listing_id="L", item_id=206, item_name="Xanax",
+                                    seller_id=1, price=100, available=5)
+        assert 206 not in {w["item_id"] for w in await db.watchlist_status()}
+        # explicitly added + enabled -> gate accepts; disabled -> rejects again
+        await db.watchlist_add(206, "Xanax", enabled=True, is_gear=False)
+        assert await db.is_item_watched(206) is True
+        await db.watchlist_set_enabled(206, False)
+        assert await db.is_item_watched(206) is False
+        await db.close_db()
+
+    asyncio.run(scenario())
+
+
 def test_api_call_estimate(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "est.db"))
     monkeypatch.setattr(config, "GEAR_POLL_INTERVAL_SECONDS", 30)

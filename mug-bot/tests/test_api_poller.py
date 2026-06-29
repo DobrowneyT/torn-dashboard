@@ -98,11 +98,11 @@ def test_gear_uid_vanish_is_a_sale(tmp_path, monkeypatch):
         await db.upsert_seller_seen(user_id=4106545, name="Vglost")
         await db.store_gear_listing(
             listing_id="L1", item_id=399, item_name="ArmaLite M-15A4",
-            seller_id=4106545, price=21_200_000, armoury_uid="armX",
+            seller_id=4106545, price=21_200_000, armoury_uid="19527062233",  # captured WITH its uid
         )
         bot = FakeBot()
 
-        # poll 1: the API shows this listing (uid at the captured price) -> we track it.
+        # poll 1: the API shows this uid (exact match to the capture) -> we track it.
         await api_poller.reconcile_gear(bot, 399, {"19527062233": {"price": 21_200_000, "stats": {"damage": 68.66}}})
         tracked = await db.get_tracked_uids_for_item(399)
         assert "19527062233" in tracked and tracked["19527062233"]["seller_id"] == 4106545
@@ -477,6 +477,13 @@ def test_mug_protection_reduces_value(tmp_path, monkeypatch):
                 "last_action_ts": now - 3600}
         win3, res3, pct3 = await detection._mug_protect_adjust(hosp, {"total": 100_000_000})
         assert pct3 == 0 and win3["total"] == 100_000_000
+
+        # Mugged ~2.5h ago but now OUT of hospital (Okay) and still offline -> protection STILL
+        # applies; it outlasts the hospital stay. Regression for the $300M Swiss Army Knife $0 mug.
+        okay = {"status_state": "Okay", "online_status": "Offline",
+                "status_details": "Mugged by someone", "last_action_ts": now - int(2.5 * 3600)}
+        win4, res4, pct4 = await detection._mug_protect_adjust(okay, {"total": 300_000_000})
+        assert pct4 > 0 and win4["total"] < 300_000_000
         await db.close_db()
 
     asyncio.run(scenario())

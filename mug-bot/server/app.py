@@ -94,6 +94,8 @@ async def _store_item(r: Any) -> None:
     if listing_id is None:
         return
     item_id = r.get("item_id") or r.get("relatedItemID")
+    if not await db.is_item_watched(item_id):
+        return   # not on the (enabled) watch list -> discard; we don't auto-add stackables anymore
     raw = r.get("seller_id") or r.get("lister") or (r.get("user") or {}).get("ID")
     seller_id = int(raw) if raw is not None and str(raw).isdigit() else None
     if seller_id == 0:

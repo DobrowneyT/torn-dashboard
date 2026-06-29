@@ -208,10 +208,13 @@ async def poll_item(bot, client: httpx.AsyncClient, item_id, is_gear, category=N
 
 
 async def reconcile_items(bot, item_id, current: list, complete: bool = True, item_label=None) -> None:
-    """Items: track each UNIQUE price and watch its quantity. A quantity drop = a confident sale
-    by the captured seller (matched on price+quantity). Collisions are dropped; a unique price
-    fully vanishing only alerts when ITEM_ALERT_ON_REMOVE is set (sale vs delist/reprice is
-    ambiguous without a uid). `complete=False` (a paginated page errored) suppresses the
+    """Items (fungible — no uid): track each UNIQUE price and watch its quantity. A seller is
+    attributed only by the STRICT price+exact-quantity fingerprint (db.resolve_item_seller): the
+    captured quantity must still match the live one, else the listing stays unattributed and is
+    surfaced to the matcher to (re)capture — we never guess a seller from price alone. A quantity
+    drop at a confidently-attributed unique price = a sale by that seller. Same-price collisions are
+    dropped (can't tell which sold); a full vanish only alerts when ITEM_ALERT_ON_REMOVE is set (sale
+    vs delist/reprice is ambiguous). `complete=False` (a paginated page errored) suppresses the
     full-removal pass so a truncated snapshot can't mass-fire."""
     tracked = await db.get_tracked_items(item_id)
     price_counts: dict = {}
@@ -300,16 +303,14 @@ async def reconcile_gear(bot, item_id, current: dict, item_label=None, complete:
         seller_id = None
         item_name = None
         how = None
-        if uid in uid_map:                                   # exact uid match (best)
+        # GEAR is attributed to a seller ONLY by exact uid (armouryID == API item_details.uid). There
+        # is deliberately NO price fallback: matching by price alone pins one player's weapon onto
+        # another who listed at the same round price (the $300M Swiss Army Knife mis-match). An
+        # uncaptured uid stays unmatched until the item-matcher captures its seller — that's fine.
+        if uid in uid_map:
             seller_id = uid_map[uid]["seller_id"]
             item_name = uid_map[uid].get("item_name")
             how = "uid"
-        elif price_counts.get(info["price"], 0) == 1:        # unambiguous price
-            match = await db.resolve_gear_seller(item_id, info["price"])
-            if match:
-                seller_id = match["seller_id"]
-                item_name = match.get("item_name")
-                how = "price"
 
         if seller_id:
             await db.upsert_tracked_gear(

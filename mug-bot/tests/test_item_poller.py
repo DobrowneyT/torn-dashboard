@@ -55,6 +55,33 @@ def test_item_quantity_drop_is_a_sale(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_item_quantity_drifted_not_attributed(tmp_path, monkeypatch):
+    """STRICT fingerprint: if the captured quantity no longer matches the live quantity, we do NOT
+    attribute a seller (we'd be guessing) — the listing stays untracked until it's re-captured."""
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "idrift.db"))
+    _stub_enrich(monkeypatch)
+
+    async def scenario():
+        await db.init_db()
+        await db.set_config("min_mug_value", 1)
+        await db.upsert_seller_seen(user_id=2250591, name="MonChoon")
+        # captured at qty 50, but the market now shows 47 (3 sold since capture) -> quantity drifted.
+        await db.store_item_listing(
+            listing_id="L1", item_id=206, item_name="Xanax",
+            seller_id=2250591, price=881_801, available=50,
+        )
+        bot = FakeBot()
+        await api_poller.reconcile_items(bot, 206, [{"price": 881_801, "amount": 47}])
+        assert await db.get_tracked_items(206) == {}        # not attributed — qty didn't match capture
+        # the item still surfaces to the matcher (one live listing, nothing covered).
+        await db.watchlist_add(206, "Xanax", is_gear=False)
+        await db.watchlist_mark_polled(206, 1, is_gear=False)
+        assert any(i["item_id"] == 206 for i in await db.unmatched_items())
+        await db.close_db()
+
+    asyncio.run(scenario())
+
+
 def test_item_price_collision_skipped(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "i2.db"))
     _stub_enrich(monkeypatch)
