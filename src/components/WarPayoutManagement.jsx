@@ -3,8 +3,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions, loadLiveContributionsFromAttacks, loadFactionAttacksByWindow, loadWarPayouts, loadRecentWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
 import { saveWarPayout, updateWarIsTermed } from '../utils/adminApi'
 import {
-  calculateTermedWarPayouts,
-  calculateRealWarPayouts,
   calculateRaceWarPayouts,
   detectRaceCutoff,
   generateWarBatchPayoutURL,
@@ -355,17 +353,13 @@ export default function WarPayoutManagement() {
   const [showDiscrepancyDetail, setShowDiscrepancyDetail] = useState(false)
 
   // Payout settings.
-  // The payout engine is unified on the Race calculation. `warType` stays 'race'
-  // internally so all the race rendering/calc paths apply; `warClass` is the
-  // historical Real/Termed tag the user picks (saved as war_type + is_termed).
-  const [warType] = useState('race')
+  // The payout engine is unified on the Race calculation (pre/post-cutoff
+  // windows). `warClass` is the historical Real/Termed tag the user picks,
+  // saved as war_type + is_termed, and drives only the default preset.
   const [warClass, setWarClass] = useState('real')   // 'real' | 'termed'
   const [factionCutPercent, setFactionCutPercent] = useState(20)
   const [totalReward, setTotalReward] = useState(0)
-  // Termed settings
   const [minScoreThreshold, setMinScoreThreshold] = useState(50)
-  const [termedMode, setTermedMode] = useState('flat')       // 'flat' | 'scaling'
-  const [memberShares, setMemberShares] = useState({})        // { memberId: shareCount }
   // Manual per-member overrides for the race POST-cutoff flat-shares window.
   // Same idea as OC ticket tweaks: reducing a member's shares returns their cut
   // to the pool, which the flat-shares split then spreads across everyone else.
@@ -511,8 +505,6 @@ export default function WarPayoutManagement() {
     setMercCost('')
     setReviverCost('')
     setFactionTopUp('')
-    setTermedMode('flat')
-    setMemberShares({})
     setPostMemberShares({})
     setCutoffHours(24)
     setMemberMultiplierOverrides({})
@@ -638,9 +630,6 @@ export default function WarPayoutManagement() {
       mercCost:      Number(mercCost) || 0,
       reviverCost:   Number(reviverCost) || 0,
       factionTopUp:  Number(factionTopUp) || 0,
-      // Termed mode settings
-      termedMode,
-      memberShares,
       attacks,
       warStartAt:      selectedWar.start_at || 0,
       cutoffHours:     cutoffHours === '' ? 24 : Number(cutoffHours),
@@ -648,13 +637,7 @@ export default function WarPayoutManagement() {
       forceEligibleMembers,
     }
 
-    if (warType === 'termed') {
-      return calculateTermedWarPayouts(contributions, settings)
-    }
-
-    const filteredAttacks = applyFactionFilterToAttacks(attacks, filter)
-
-    if (warType === 'race') {
+    {
       const ppw = Math.min(100, Math.max(0, Number(postPartWeight))) / 100
       const cutoffTs = Number(raceCutoffTimestamp) || 0
       // Filter each window independently, then recombine. The calc re-splits at
@@ -684,8 +667,6 @@ export default function WarPayoutManagement() {
         warStartAt: selectedWar.start_at || 0,
       })
     }
-
-    return calculateRealWarPayouts(contributions, filteredAttacks, settings)
   }
 
   function handleCalculate() {
@@ -701,48 +682,27 @@ export default function WarPayoutManagement() {
     setSaveError(null)
   }
 
-  // Keep the payout sheet in sync with the Hit Report's faction filter once
-  // the user has calculated at least once (real wars only — race uses the
-  // independent pre/post filters below; termed ignores attacks).
+  // Recalc when either window's faction filter changes (each drives its own pool).
   useEffect(() => {
     if (!hasCalculated) return
-    if (warType !== 'real') return
-    const results = computeResults(factionFilter)
-    if (results) setPayoutResults(results)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [factionFilter])
-
-  // Race: recalc when either window's faction filter changes (each drives its own pool).
-  useEffect(() => {
-    if (!hasCalculated || warType !== 'race') return
     const results = computeResults(factionFilter, eligibilityOverrides, factionFilterPre, factionFilterPost)
     if (results) setPayoutResults(results)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factionFilterPre, factionFilterPost])
 
-  // Auto-recalculate when shares change in flat mode
-  useEffect(() => {
-    if (!hasCalculated) return
-    if (warType !== 'termed' || termedMode !== 'flat') return
-    const results = computeResults(factionFilter)
-    if (results) setPayoutResults(results)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memberShares])
-
-  // Auto-recalculate when a post-cutoff flat share is manually edited (race).
+  // Auto-recalculate when a post-cutoff flat share is manually edited.
   // Reducing one member's shares re-splits the post pool across the rest.
   useEffect(() => {
-    if (!hasCalculated || warType !== 'race') return
+    if (!hasCalculated) return
     const results = computeResults(factionFilter, eligibilityOverrides, factionFilterPre, factionFilterPost)
     if (results) setPayoutResults(results)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postMemberShares])
 
-  // Auto-recalculate when per-member multiplier overrides change (real/race mode);
-  // race has a separate post-cutoff override map.
+  // Auto-recalculate when per-member multiplier overrides change
+  // (pre-cutoff + post-cutoff override maps).
   useEffect(() => {
     if (!hasCalculated) return
-    if (warType === 'termed') return
     const results = computeResults(factionFilter)
     if (results) setPayoutResults(results)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -813,10 +773,9 @@ export default function WarPayoutManagement() {
       post_scale_hours:    Number(postScaleHours) || 0,
       notes: notes || null,
     }
-    // For race wars, persist the per-window breakdown so the member view can
-    // reconstruct the "80 (16)" split and the two hit-report tabs.
+    // Persist the per-window breakdown so the member view can reconstruct the
+    // "80 (16)" split and the two hit-report tabs.
     const raceBreakdown = (m) => {
-      if (warType !== 'race') return null
       const win = (w, payout) => w ? {
         leaves: w.leaves, mugs: w.mugs, hosp: w.hosp, warHits: w.warHits,
         regularHits: w.regularHits, won: w.won, assists: w.assists, losses: w.losses,
@@ -930,7 +889,7 @@ export default function WarPayoutManagement() {
   // see the pre- vs post-cutoff rate. Uses each member's pre/post hit buckets and
   // the respective pre/post pool from the calc.
   const raceHitSplit = (() => {
-    if (warType !== 'race' || !payoutResults) return null
+    if (!payoutResults) return null
     const preHits  = effectiveMembers.reduce((s, m) => s + (m.pre?.totalHits || 0), 0)
     const postHits = effectiveMembers.reduce((s, m) => s + (m.post?.totalHits || 0), 0)
     return {
@@ -1132,10 +1091,11 @@ export default function WarPayoutManagement() {
             <td className="px-1 py-0.5 text-right border-r border-gray-200 dark:border-slate-700">
               {viewMode === 'leader' ? (
                 <input
-                  type="number" min="0" step="0.5"
+                  type="number" min="0" step="0.1"
                   value={postMemberShares[m.memberId] ?? Number((w.shares ?? 0).toFixed(2))}
                   onChange={e => {
-                    const val = Math.max(0, Number(e.target.value) || 0)
+                    // Arrows step by 0.1; typed values keep 2-decimal precision (0.01, 0.25, …).
+                    const val = Math.max(0, Math.round((Number(e.target.value) || 0) * 100) / 100)
                     setPostMemberShares(prev => ({ ...prev, [m.memberId]: val }))
                   }}
                   className={`w-14 px-1 py-0.5 text-xs text-right rounded bg-white dark:bg-slate-700 font-medium text-purple-700 dark:text-purple-400 ${w.sharesOverridden ? 'border border-amber-400 dark:border-amber-500' : 'border border-gray-300 dark:border-slate-600'}`}
@@ -1312,96 +1272,10 @@ export default function WarPayoutManagement() {
 
           {/* Col 2: war-type-specific settings */}
           <div className="space-y-3">
-            {warType === 'termed' ? (
-                <>
-                  <h4 className="text-xs font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wider">
-                    Termed War Settings
-                  </h4>
-
-                  {/* Mode toggle */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Payout Mode
-                    </label>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setTermedMode('flat')}
-                        className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
-                          termedMode === 'flat'
-                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
-                            : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
-                        }`}
-                      >
-                        Flat Shares
-                      </button>
-                      <button
-                        onClick={() => setTermedMode('scaling')}
-                        className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
-                          termedMode === 'scaling'
-                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
-                            : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400'
-                        }`}
-                      >
-                        Scaling
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Min score threshold — shared by both modes */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Minimum Score Threshold
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={minScoreThreshold}
-                      onChange={e => setMinScoreThreshold(e.target.value)}
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                    />
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      Members must score at least this much to be paid.
-                    </p>
-                  </div>
-
-                  {/* Flat mode hint */}
-                  {termedMode === 'flat' && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/40 px-3 py-2 rounded">
-                      Pool is split by shares. Eligible members default to 1 share — set to 2 for double pay, 0 to exclude. Adjust shares in the results table after calculating.
-                    </p>
-                  )}
-
-                  {/* Scaling mode settings */}
-                  {termedMode === 'scaling' && (
-                    <>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Cutoff Hours (from war start)
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={cutoffHours}
-                          onChange={e => setCutoffHours(Number(e.target.value) || 0)}
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                        />
-                      </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700/40 px-3 py-2 rounded">
-                        Members earn 1 base share if they reach the score threshold before the cutoff.
-                        After the cutoff, every additional threshold-worth of respect earns 1 more share
-                        (fractional shares allowed). Pool is split by total shares.
-                      </p>
-                    </>
-                  )}
-                </>
-              ) : null}
-
-            {(warType === 'real' || warType === 'race') && (
+            {(
                 <>
                   <h4 className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
-                    {warType === 'race' ? 'Race War Formula (Pre-Cutoff)' : 'Real War Formula'}
+                    Race War Formula (Pre-Cutoff)
                   </h4>
 
                   {/* Weight slider */}
@@ -1501,7 +1375,7 @@ export default function WarPayoutManagement() {
             )}
 
             {/* Race-specific settings */}
-            {warType === 'race' && (
+            {(
               <>
                 <h4 className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mt-4">
                   Race Settings
@@ -1810,19 +1684,7 @@ export default function WarPayoutManagement() {
             >
               Payout Sheet
             </button>
-            {warType !== 'race' && (
-              <button
-                onClick={() => setActiveTab('hits')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  activeTab === 'hits'
-                    ? 'text-blue-700 dark:text-blue-400 border-b-2 border-blue-500'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                }`}
-              >
-                Hit Report
-              </button>
-            )}
-            {warType === 'race' && (
+            {(
               <>
                 <button
                   onClick={() => setActiveTab('hits-pre')}
@@ -1966,7 +1828,7 @@ export default function WarPayoutManagement() {
                 {formatCurrency(payoutResults.cacheValue)}
               </span>
             </div>
-            {(warType === 'real' || warType === 'race') && (payoutResults.mercCost > 0 || payoutResults.reviverCost > 0) && (
+            {(payoutResults.mercCost > 0 || payoutResults.reviverCost > 0) && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Costs: </span>
                 <span className="font-semibold text-red-600 dark:text-red-400">
@@ -1980,7 +1842,7 @@ export default function WarPayoutManagement() {
                 {formatCurrency(payoutResults.factionCutAmount ?? 0)}
               </span>
             </div>
-            {(warType === 'real' || warType === 'race') && payoutResults.factionTopUp > 0 && (
+            {payoutResults.factionTopUp > 0 && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Top-up: </span>
                 <span className="font-semibold text-green-600 dark:text-green-400">
@@ -1994,15 +1856,7 @@ export default function WarPayoutManagement() {
                 {formatCurrency(payoutResults.memberPayoutPool)}
               </span>
             </div>
-            {warType === 'termed' && (
-              <div>
-                <span className="text-gray-500 dark:text-gray-400">Total Shares: </span>
-                <span className="font-semibold text-gray-900 dark:text-white">
-                  {(payoutResults.totalShares ?? 0).toFixed(2)}
-                </span>
-              </div>
-            )}
-            {warType === 'race' && (
+            {(
               <>
                 <div>
                   <span className="text-gray-500 dark:text-gray-400">Pre-cutoff: </span>
@@ -2030,16 +1884,7 @@ export default function WarPayoutManagement() {
                 {eligibleCount}/{effectiveMembers.length}
               </span>
             </div>
-            {warType === 'real' && payoutResults.payPerHit > 0 && (
-              <div>
-                <span className="text-gray-500 dark:text-gray-400">Pay / War Hit: </span>
-                <span className="font-semibold text-blue-700 dark:text-blue-400">
-                  {formatCurrency(payoutResults.payPerHit)}
-                </span>
-                <span className="text-gray-400 ml-1">({payoutResults.totalWarHits} hits)</span>
-              </div>
-            )}
-            {warType === 'race' && raceHitSplit && (raceHitSplit.preHits > 0 || raceHitSplit.postHits > 0) && (
+            {raceHitSplit && (raceHitSplit.preHits > 0 || raceHitSplit.postHits > 0) && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Pay / Hit: </span>
                 <span className="font-semibold text-blue-700 dark:text-blue-400">
@@ -2055,7 +1900,7 @@ export default function WarPayoutManagement() {
                 </span>
               </div>
             )}
-            {(warType === 'real' || warType === 'race') && factionFilter && factionFilter.size > 0 && (
+            {factionFilter && factionFilter.size > 0 && (
               <div className="text-blue-600 dark:text-blue-400">
                 Filtered by {factionFilter.size} faction{factionFilter.size === 1 ? '' : 's'}
               </div>
@@ -2081,102 +1926,20 @@ export default function WarPayoutManagement() {
                     Member
                     <span className="ml-1 text-gray-400 text-xs">{sortCol === 'name' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                   </th>
-                  {warType === 'real' && (
-                    <>
-                      <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-blue-50 dark:bg-slate-800 text-blue-800 dark:text-blue-300 text-center" colSpan={8}>
-                        Hit Report
-                      </th>
-                      <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-emerald-50 dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 text-center" colSpan={viewMode === 'leader' ? 12 : 7}>
-                        Participation Score
-                      </th>
-                      <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-amber-50 dark:bg-slate-800 text-amber-800 dark:text-amber-300 text-center" colSpan={4}>
-                        Contribution Score
-                      </th>
-                      <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300 text-center" colSpan={3}>
-                        Pay Out
-                      </th>
-                    </>
-                  )}
-                  {warType === 'race' && (
-                    <>
-                      {raceGroupHeaders('Pre-Cutoff')}
-                      {raceGroupHeaders('Post-Cutoff', postDistMode === 'flat')}
-                      <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300 text-center" colSpan={5}>
-                        Pay Out
-                      </th>
-                    </>
-                  )}
-                  {warType === 'termed' && termedMode === 'flat' && (
-                    <th className="px-2 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300 text-center" colSpan={6}>
-                      Pay Out
-                    </th>
-                  )}
-                  {warType === 'termed' && termedMode === 'scaling' && (
-                    <th className="px-2 py-2 font-semibold border-b border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300 text-center" colSpan={6}>
-                      Pay Out
-                    </th>
-                  )}
+                  {raceGroupHeaders('Pre-Cutoff')}
+                  {raceGroupHeaders('Post-Cutoff', postDistMode === 'flat')}
+                  <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300 text-center" colSpan={5}>
+                    Pay Out
+                  </th>
                 </tr>
                 {/* Row 2: Column headers */}
                 <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">
-                  {warType === 'real' && (
-                    <>
-                      {/* Hit Report columns */}
-                      <SortHeader col="leaves"    label="Leaves"  className="text-right border-l border-gray-200 dark:border-slate-700" />
-                      <SortHeader col="mugs"      label="Mugs"    className="text-right" />
-                      <SortHeader col="hosp"      label="Hosp"    className="text-right" />
-                      <SortHeader col="warHits"   label="War"     className="text-right" />
-                      <SortHeader col="won"        label="Won"     className="text-right" />
-                      <SortHeader col="assists"   label="Assists" className="text-right" />
-                      <SortHeader col="losses"    label="Lost"    className="text-right" />
-                      <SortHeader col="totalHits" label="Total"   className="text-right border-r border-gray-200 dark:border-slate-700" />
-                      {/* Participation Score columns */}
-                      <SortHeader col="warHitScore"     label="War hit"  title="War wins excluding war mugs" className="text-right border-l border-gray-200 dark:border-slate-700" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
-                      <SortHeader col="assistScore"     label="Assist"   title="War assists only" className="text-right" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
-                      <SortHeader col="lossScore"       label="Loss"     title="War losses only" className="text-right" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
-                      <SortHeader col="mugScore"        label="War Mug"  title="Mugs that happened during war hits" className="text-right" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
-                      <SortHeader col="regularHitScore" label="Outside"  title="All non-war wins (leaves + mugs + hosp combined)" className="text-right" />
-                      {viewMode === 'leader' && <th className="px-1 py-1.5 text-right text-[10px] font-normal sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700 text-gray-400">×</th>}
-                      <SortHeader col="partScore"       label="Total"    className="text-right" />
-                      <SortHeader col="partShare"       label="Part%"    className="text-right border-r border-gray-200 dark:border-slate-700" />
-                      {/* Contribution Score columns */}
-                      <SortHeader col="respect"         label="Respect"  className="text-right border-l border-gray-200 dark:border-slate-700" />
-                      <SortHeader col="bonusRespect"    label="Bonus"    className="text-right" />
-                      <SortHeader col="adjustedRespect" label="Adj."     className="text-right" />
-                      <SortHeader col="contribShare"    label="Contrib%" className="text-right border-r border-gray-200 dark:border-slate-700" />
-                      {/* Pay Out columns */}
-                      <SortHeader col="effort" label="Effort%" className="text-right border-l border-gray-200 dark:border-slate-700" />
-                    </>
-                  )}
-                  {warType === 'race' && (
-                    <>
-                      {raceColHeaders('pre')}
-                      {raceColHeaders('post', postDistMode === 'flat')}
-                      {/* Pay Out columns: Effort, Pre-Cutoff, Post-Cutoff, Payout */}
-                      <SortHeader col="effort"           label="Effort%"     className="text-right border-l border-gray-200 dark:border-slate-700" />
-                      <SortHeader col="preCutoffPayout"  label="Pre-Cutoff"  className="text-right" />
-                      <SortHeader col="postCutoffPayout" label="Post-Cutoff" className="text-right" />
-                    </>
-                  )}
-                  {warType === 'termed' && termedMode === 'flat' && (
-                    <>
-                      <SortHeader col="score"          label="Score"  className="text-right" />
-                      <SortHeader col="bonusReduction" label="Bonus"  className="text-right" />
-                      <SortHeader col="shares"         label="Shares" className="text-center" />
-                    </>
-                  )}
-                  {warType === 'termed' && termedMode === 'scaling' && (
-                    <>
-                      <SortHeader col="preCutoffScore"  label="Pre-Cutoff"  className="text-right" />
-                      <SortHeader col="postCutoffScore" label="Post-Cutoff" className="text-right" />
-                      <SortHeader col="bonusReduction"  label="Bonus"       className="text-right" />
-                      <SortHeader col="shares"          label="Shares"      className="text-right" />
-                    </>
-                  )}
+                  {raceColHeaders('pre')}
+                  {raceColHeaders('post', postDistMode === 'flat')}
+                  {/* Pay Out columns: Effort, Pre-Cutoff, Post-Cutoff, Payout */}
+                  <SortHeader col="effort"           label="Effort%"     className="text-right border-l border-gray-200 dark:border-slate-700" />
+                  <SortHeader col="preCutoffPayout"  label="Pre-Cutoff"  className="text-right" />
+                  <SortHeader col="postCutoffPayout" label="Post-Cutoff" className="text-right" />
                   <SortHeader col="payout"   label="Payout"   className="text-right" />
                   <SortHeader col="eligible" label="Eligible" className="text-center" />
                 </tr>
@@ -2211,110 +1974,16 @@ export default function WarPayoutManagement() {
                     <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">
                       {m.memberName}
                     </td>
-                    {warType === 'real' && (
-                      <>
-                        {/* ── Hit Report ── */}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{m.leaves ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.mugs ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.hosp ?? 0}</td>
-                        <td className="px-2 py-1 text-right font-medium text-blue-700 dark:text-blue-400">{m.warHits ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.won ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.assists ?? 0}</td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">{m.losses ?? 0}</td>
-                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{m.totalHits ?? 0}</td>
-                        {/* ── Participation Score — non-overlapping categories ── */}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700"
-                            title={`${m.warNonMugHits ?? Math.max(0, (m.warHits ?? 0) - (m.warMugs ?? 0))} war hits × ${m.effWarHitMult ?? warHitMult}`}>{(m.warHitScore ?? 0).toFixed(2)}</td>
-                        {viewMode === 'leader' && multInput('effWarHitMult', 'warHitMultiplier', warHitMult)}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
-                            title={`${m.warAssists ?? 0} war assists × ${m.effAssistMult ?? assistMult}`}>{(m.assistScore ?? 0).toFixed(2)}</td>
-                        {viewMode === 'leader' && multInput('effAssistMult', 'assistMultiplier', assistMult)}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
-                            title={`${m.warLosses ?? 0} war losses × ${m.effLossMult ?? lossMult}`}>{(m.lossScore ?? 0).toFixed(2)}</td>
-                        {viewMode === 'leader' && multInput('effLossMult', 'lossMultiplier', lossMult)}
-                        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400"
-                            title={`${m.warMugs ?? 0} war mugs × ${m.effMugMult ?? mugMult}`}>{(m.mugScore ?? 0).toFixed(2)}</td>
-                        {viewMode === 'leader' && multInput('effMugMult', 'mugMultiplier', mugMult)}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
-                            title={`${m.regularHits ?? 0} outside hits × ${m.effRegularMult ?? regularHitMult}`}>{(m.regularHitScore ?? 0).toFixed(2)}</td>
-                        {viewMode === 'leader' && multInput('effRegularMult', 'regularHitMultiplier', regularHitMult)}
-                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300">{(m.participationScore ?? 0).toFixed(2)}</td>
-                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
-                          {((m.participationShare ?? 0) * 100).toFixed(2)}%
-                        </td>
-                        {/* ── Contribution Score ── */}
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">
-                          {Number(m.respectGained ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-2 py-1 text-right text-amber-600 dark:text-amber-400">
-                          {(m.bonusRespect ?? 0) > 0 ? `−${m.bonusRespect.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : ''}
-                        </td>
-                        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">
-                          {Number(m.adjustedRespect ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">
-                          {((m.contributionShare ?? 0) * 100).toFixed(2)}%
-                        </td>
-                        {/* ── Pay Out ── */}
-                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
-                          {((m.effortShare ?? 0) * 100).toFixed(2)}%
-                        </td>
-                      </>
-                    )}
-                    {warType === 'race' && (
-                      <>
-                        {raceWindowCells(m, 'pre',  preMults,  memberMultiplierOverrides,     setMemberMultiplierOverrides)}
-                        {raceWindowCells(m, 'post', postMults, postMemberMultiplierOverrides, setPostMemberMultiplierOverrides, postDistMode === 'flat')}
-                        {/* ── Pay Out: Effort, Pre-Cutoff, Post-Cutoff ── */}
-                        <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
-                          {payoutResults && payoutResults.memberPayoutPool > 0
-                            ? ((m.payoutAmount / payoutResults.memberPayoutPool) * 100).toFixed(2)
-                            : '0.00'}%
-                        </td>
-                        <td className="px-2 py-1 text-right text-blue-600 dark:text-blue-400">{formatCurrency(m.preCutoffPayout ?? 0)}</td>
-                        <td className="px-2 py-1 text-right text-purple-600 dark:text-purple-400">{formatCurrency(m.postCutoffPayout ?? 0)}</td>
-                      </>
-                    )}
-                    {warType === 'termed' && termedMode === 'flat' && (
-                      <>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">
-                          {Number(m.score ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-3 py-1.5 text-right text-amber-600 dark:text-amber-400">
-                          {(m.bonusReduction ?? 0) > 0 ? `−${(m.bonusReduction).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : ''}
-                        </td>
-                        <td className="px-3 py-1.5 text-center">
-                          <input
-                            type="number"
-                            min="0"
-                            max="10"
-                            step="1"
-                            value={memberShares[m.memberId] ?? (m.shares ?? 1)}
-                            onChange={e => {
-                              const val = Math.max(0, Number(e.target.value) || 0)
-                              setMemberShares(prev => ({ ...prev, [m.memberId]: val }))
-                            }}
-                            className="w-14 px-1 py-0.5 text-xs text-center border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
-                          />
-                        </td>
-                      </>
-                    )}
-                    {warType === 'termed' && termedMode === 'scaling' && (
-                      <>
-                        <td className="px-3 py-1.5 text-right text-gray-600 dark:text-gray-400">
-                          {(m.preCutoffScore ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-3 py-1.5 text-right text-amber-700 dark:text-amber-400">
-                          {(m.postCutoffScore ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-3 py-1.5 text-right text-amber-600 dark:text-amber-400">
-                          {(m.bonusReduction ?? 0) > 0 ? `−${(m.bonusReduction).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : ''}
-                        </td>
-                        <td className="px-3 py-1.5 text-right font-medium text-gray-700 dark:text-gray-300">
-                          {(m.shares ?? 0).toFixed(2)}
-                        </td>
-                      </>
-                    )}
+                    {raceWindowCells(m, 'pre',  preMults,  memberMultiplierOverrides,     setMemberMultiplierOverrides)}
+                    {raceWindowCells(m, 'post', postMults, postMemberMultiplierOverrides, setPostMemberMultiplierOverrides, postDistMode === 'flat')}
+                    {/* ── Pay Out: Effort, Pre-Cutoff, Post-Cutoff ── */}
+                    <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
+                      {payoutResults && payoutResults.memberPayoutPool > 0
+                        ? ((m.payoutAmount / payoutResults.memberPayoutPool) * 100).toFixed(2)
+                        : '0.00'}%
+                    </td>
+                    <td className="px-2 py-1 text-right text-blue-600 dark:text-blue-400">{formatCurrency(m.preCutoffPayout ?? 0)}</td>
+                    <td className="px-2 py-1 text-right text-purple-600 dark:text-purple-400">{formatCurrency(m.postCutoffPayout ?? 0)}</td>
                     <td className="px-3 py-1.5 text-right font-mono font-semibold text-gray-900 dark:text-white whitespace-nowrap">
                       {m.isEligible ? formatCurrency(m.payoutAmount) : '—'}
                     </td>

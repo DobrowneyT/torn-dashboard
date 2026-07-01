@@ -1029,6 +1029,27 @@ describe('calculateRaceWarPayouts', () => {
     expect(alice.post.shares).toBe(1)
   })
 
+  it('post-cutoff flat mode honors manual share overrides, reallocating the pool', () => {
+    // Base: Alice & Bob each 1 share of the 5M post pool. Zero out Alice → her
+    // cut returns to the pool and Bob (now the only share) takes all 5M.
+    const zeroed = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, {
+      ...baseSettings, postDistMode: 'flat', postFlatThreshold: 10,
+      postMemberShares: { 100: 0 },
+    })
+    expect(zeroed.members.find(m => m.memberId === 100).postCutoffPayout).toBe(0)
+    expect(zeroed.members.find(m => m.memberId === 100).post.sharesOverridden).toBe(true)
+    expect(zeroed.members.find(m => m.memberId === 200).postCutoffPayout).toBe(5_000_000)
+
+    // Opt below-threshold Carol back in with 1 share → equal 3-way split, pool fully paid.
+    const optedIn = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, {
+      ...baseSettings, postDistMode: 'flat', postFlatThreshold: 10,
+      postMemberShares: { 300: 1 },
+    })
+    expect(optedIn.members.find(m => m.memberId === 300).post.shares).toBe(1)
+    expect(optedIn.members.find(m => m.memberId === 300).postCutoffPayout).toBeGreaterThan(0)
+    expect(optedIn.members.reduce((s, m) => s + m.postCutoffPayout, 0)).toBe(5_000_000)
+  })
+
   it('post-cutoff flat-then-scale grants a base share plus scaled shares after N hours', () => {
     // Scale split at war start + 0h → ALL post-window score counts as "after".
     // baseShares = 0 (nothing within 0h window), additional = score/threshold.
