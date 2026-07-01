@@ -5767,6 +5767,23 @@
       "rank_before": "Diamond I",
       "rank_after": "Diamond",
       "report_fetched": true
+    },
+    "44754": {
+      "id": 44754,
+      "start_at": 1783119600,
+      "end_at": null,
+      "opponent_id": 14581,
+      "opponent_name": "Happy Vegemites",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 16600,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -213453,6 +213470,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-06-30T05:01:51.245581"
+    "last_updated": "2026-07-01T05:20:57.320402"
   }
 }
