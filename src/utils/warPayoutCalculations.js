@@ -833,6 +833,7 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
   const {
     threshold = 0, scaleEnabled = false, scaleHours = 24,
     warStartAt = 0, ineligibleMembers = new Set(),
+    memberShares = {},   // manual per-member share overrides (leader tweaks)
   } = opts
   const stats = buildMemberAttackStats(windowAttacks)
   // When scaling, split the window at warStart + scaleHours; otherwise everything
@@ -859,7 +860,15 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
       baseShares = (!manuallyIneligible && meets) ? 1 : 0
       additionalShares = 0
     }
-    const shares = Math.round((baseShares + additionalShares) * 100) / 100
+    const autoShares = Math.round((baseShares + additionalShares) * 100) / 100
+
+    // Manual override wins when set — lets leaders penalize/reward beyond the
+    // formula. A member forced ineligible always stays at 0 shares. Setting an
+    // override to 0 excludes a member and returns their cut to the pool; setting
+    // one > 0 opts a below-threshold member back in.
+    const override = memberShares[id]
+    const hasOverride = !manuallyIneligible && override !== undefined && override !== null && override !== ''
+    const shares = hasOverride ? Math.max(0, Number(override) || 0) : autoShares
 
     return {
       memberId: id,
@@ -871,7 +880,7 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
       score: Math.round(totalScore * 100) / 100,
       scoreWithin: Math.round(within * 100) / 100,
       scoreAfter: Math.round(after * 100) / 100,
-      baseShares, additionalShares, shares,
+      baseShares, additionalShares, shares, sharesOverridden: hasOverride,
       respectGained: Math.round(totalScore * 100) / 100,
       isEligible: !manuallyIneligible && shares > 0,
     }
@@ -934,6 +943,7 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     postFlatThreshold = 0,
     postScaleEnabled  = false,
     postScaleHours    = 24,
+    postMemberShares  = {},   // manual per-member share overrides (flat window)
     warStartAt        = 0,
     // Manual eligibility overrides
     ineligibleMembers = new Set(),
@@ -971,7 +981,7 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
   const postResult = postDistMode === 'flat'
     ? flatWindowResult(contributions, postAttacks, postCutoffPool, {
         threshold: postFlatThreshold, scaleEnabled: postScaleEnabled, scaleHours: postScaleHours,
-        warStartAt, ineligibleMembers,
+        warStartAt, ineligibleMembers, memberShares: postMemberShares,
       })
     : calculateRealWarPayouts(postContribs, postAttacks, {
         totalReward: postCutoffPool, factionCutPercent: 0, mercCost: 0, reviverCost: 0, factionTopUp: 0,

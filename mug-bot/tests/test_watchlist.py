@@ -72,6 +72,30 @@ def test_stackable_capture_does_not_autoadd(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_matcher_request_is_gear_only(tmp_path, monkeypatch):
+    """Items are no longer published to the item-matcher's capture list (they flooded it and didn't
+    clear cleanly). Only unmatched GEAR is requested; items are matched passively server-side."""
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "matcher.db"))
+
+    async def scenario():
+        await db.init_db()
+        # a watched item with uncaptured listings still shows up INTERNALLY (Discord status)...
+        await db.watchlist_add(206, "Xanax", enabled=True, is_gear=False)
+        await db.watchlist_mark_polled(206, 5, is_gear=False)
+        assert any(i["item_id"] == 206 for i in await db.unmatched_items())
+        # ...but the matcher fetch excludes it (gear-only).
+        out = await db.get_uncached_for_matcher()
+        assert all(row.get("item_id") != 206 for row in out)
+        # unmatched GEAR is still requested.
+        await db.upsert_unmatched_gear(uid="u1", item_id=399, item_name="ArmaLite M-15A4",
+                                       price=1000, stat=74.5, accuracy=60.0)
+        out = await db.get_uncached_for_matcher()
+        assert any(g.get("item_name") == "ArmaLite M-15A4" for g in out)
+        await db.close_db()
+
+    asyncio.run(scenario())
+
+
 def test_api_call_estimate(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "est.db"))
     monkeypatch.setattr(config, "GEAR_POLL_INTERVAL_SECONDS", 30)

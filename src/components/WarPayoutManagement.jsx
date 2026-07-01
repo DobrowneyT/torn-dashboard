@@ -366,6 +366,10 @@ export default function WarPayoutManagement() {
   const [minScoreThreshold, setMinScoreThreshold] = useState(50)
   const [termedMode, setTermedMode] = useState('flat')       // 'flat' | 'scaling'
   const [memberShares, setMemberShares] = useState({})        // { memberId: shareCount }
+  // Manual per-member overrides for the race POST-cutoff flat-shares window.
+  // Same idea as OC ticket tweaks: reducing a member's shares returns their cut
+  // to the pool, which the flat-shares split then spreads across everyone else.
+  const [postMemberShares, setPostMemberShares] = useState({})
   const [cutoffHours, setCutoffHours] = useState(24)
   const [notes, setNotes] = useState('')
   // Real war formula settings
@@ -479,11 +483,12 @@ export default function WarPayoutManagement() {
       setRacePreCutoffPercent(0)
       setPostDistMode('flat')
     } else {
-      // Completed war → cutoff at war end. Ongoing war (no end_at) → default to
-      // "now" rather than a far-future sentinel, so the Manual Cutoff picker
-      // opens on today. Either way the real-war preset is 100% pre-cutoff (all
-      // attacks so far are before the cutoff), so the payout math is unchanged.
-      setRaceCutoffTimestamp(war?.end_at || Math.floor(Date.now() / 1000))
+      // Completed war → cutoff at war end (keeps the real-war preset 100%
+      // pre-cutoff: every attack is before the cutoff). Ongoing war (no end_at)
+      // → default the Manual Cutoff to the war's START, so leaders setting up a
+      // race have a sensible in-window anchor to drag forward (rather than
+      // "now"). They then set the pre/post split for the actual race.
+      setRaceCutoffTimestamp(war?.end_at || war?.start_at || Math.floor(Date.now() / 1000))
       setRacePreCutoffPercent(100)
       setPostDistMode('formula')
     }
@@ -508,6 +513,7 @@ export default function WarPayoutManagement() {
     setFactionTopUp('')
     setTermedMode('flat')
     setMemberShares({})
+    setPostMemberShares({})
     setCutoffHours(24)
     setMemberMultiplierOverrides({})
     setPostWarHitMult(1.00)
@@ -673,6 +679,8 @@ export default function WarPayoutManagement() {
         postFlatThreshold: Number(postFlatThreshold) || 0,
         postScaleEnabled,
         postScaleHours: Number(postScaleHours) || 0,
+        // Manual per-member share overrides for the flat post-cutoff window.
+        postMemberShares,
         warStartAt: selectedWar.start_at || 0,
       })
     }
@@ -720,6 +728,15 @@ export default function WarPayoutManagement() {
     if (results) setPayoutResults(results)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberShares])
+
+  // Auto-recalculate when a post-cutoff flat share is manually edited (race).
+  // Reducing one member's shares re-splits the post pool across the rest.
+  useEffect(() => {
+    if (!hasCalculated || warType !== 'race') return
+    const results = computeResults(factionFilter, eligibilityOverrides, factionFilterPre, factionFilterPost)
+    if (results) setPayoutResults(results)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postMemberShares])
 
   // Auto-recalculate when per-member multiplier overrides change (real/race mode);
   // race has a separate post-cutoff override map.
@@ -1108,9 +1125,25 @@ export default function WarPayoutManagement() {
         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{w.totalHits ?? 0}</td>
         {flat ? (
           <>
-            {/* Flat shares: windowed score + shares */}
+            {/* Flat shares: windowed score + editable shares. Leaders can tweak
+                a member's shares (penalty / bonus); the split re-spreads the
+                post pool across everyone else. Amber border = manual override. */}
             <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{num(w.score)}</td>
-            <td className="px-2 py-1 text-right font-medium text-purple-700 dark:text-purple-400 border-r border-gray-200 dark:border-slate-700">{(w.shares ?? 0).toFixed(2)}</td>
+            <td className="px-1 py-0.5 text-right border-r border-gray-200 dark:border-slate-700">
+              {viewMode === 'leader' ? (
+                <input
+                  type="number" min="0" step="0.5"
+                  value={postMemberShares[m.memberId] ?? Number((w.shares ?? 0).toFixed(2))}
+                  onChange={e => {
+                    const val = Math.max(0, Number(e.target.value) || 0)
+                    setPostMemberShares(prev => ({ ...prev, [m.memberId]: val }))
+                  }}
+                  className={`w-14 px-1 py-0.5 text-xs text-right rounded bg-white dark:bg-slate-700 font-medium text-purple-700 dark:text-purple-400 ${w.sharesOverridden ? 'border border-amber-400 dark:border-amber-500' : 'border border-gray-300 dark:border-slate-600'}`}
+                />
+              ) : (
+                <span className="font-medium text-purple-700 dark:text-purple-400">{(w.shares ?? 0).toFixed(2)}</span>
+              )}
+            </td>
           </>
         ) : (
         <>
@@ -1508,9 +1541,10 @@ export default function WarPayoutManagement() {
                       onClick={() => {
                         setRaceCutoffMode('manual')
                         // Snap an unset/far-future sentinel (e.g. year-5138 from an
-                        // old saved payout) to today; keep any real detected/typed value.
+                        // old saved payout) to the war's start; keep any real
+                        // detected/typed value.
                         setRaceCutoffTimestamp(ts =>
-                          (!ts || ts > 4102444800) ? Math.floor(Date.now() / 1000) : ts
+                          (!ts || ts > 4102444800) ? (selectedWar?.start_at || Math.floor(Date.now() / 1000)) : ts
                         )
                       }}
                       className={`flex-1 py-1.5 text-sm rounded border transition-colors ${

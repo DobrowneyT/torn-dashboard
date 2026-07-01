@@ -357,15 +357,12 @@ async def unmatched_items() -> List[Dict]:
 
 
 async def get_uncached_for_matcher() -> List[Dict]:
-    """What the item-matcher fetches: unmatched gear (with stats, to highlight + filter-link) +
-    unmatched items (item_id + category, so it builds a category link to view & capture)."""
-    gear = await get_uncached_gear()
-    items = [
-        {"item_name": i["item_name"], "item_id": i["item_id"],
-         "category": i.get("category"), "missing": i.get("missing")}
-        for i in await unmatched_items()
-    ]
-    return gear + items
+    """What the item-matcher fetches to highlight + request captures: unmatched GEAR only (matched by
+    name + stats). Stackable items are deliberately NOT published here — they flooded the list and
+    didn't clear cleanly (the user's local page lags the API snapshot, so a "click" rarely removed
+    one). Items are still accepted and matched silently server-side; the user views/captures them at
+    their own discretion. (unmatched_items still feeds the Discord status panel, just not the matcher.)"""
+    return await get_uncached_gear()
 
 
 async def unmatched_list(limit=25) -> List[Dict]:
