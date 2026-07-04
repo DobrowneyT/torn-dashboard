@@ -5774,8 +5774,8 @@
       "end_at": null,
       "opponent_id": 14581,
       "opponent_name": "Happy Vegemites",
-      "our_score": 0,
-      "opponent_score": 0,
+      "our_score": 7618,
+      "opponent_score": 947,
       "target": 16600,
       "winner_faction_id": null,
       "forfeit": false,
@@ -213470,6 +213470,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-07-03T04:41:10.566924"
+    "last_updated": "2026-07-04T04:34:38.308478"
   }
 }
