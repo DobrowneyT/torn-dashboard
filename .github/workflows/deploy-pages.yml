@@ -46,15 +46,19 @@ jobs:
 
       - name: Build
         run: npm run build
+        # SECURITY: only public, client-safe values are exposed to the browser
+        # build here. The service_role key and any shared/personal Torn key MUST
+        # NOT be passed to `vite build` — every VITE_ var in the build env can be
+        # inlined into the public bundle. Server-side secrets belong only to the
+        # scraper workflows (Python) and Edge Function secrets, never here.
+        # The anon key and Supabase URL are public by design (protected by RLS).
         env:
           VITE_APP_VERSION: ${{ env.VITE_APP_VERSION }}
           VITE_CPR_DATA_URL: https://dobrowneyt.github.io/torn-forge-oc-system/data/cpr_database.json
           VITE_CRIMES_DATA_URL: https://dobrowneyt.github.io/torn-forge-oc-system/data/crimes_database.json
-          VITE_TORN_API_KEY: ${{ secrets.VITE_TORN_API_KEY }}
           VITE_FACTION_ID: ${{ secrets.VITE_FACTION_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

@@ -130,7 +130,10 @@ export default function CrimesView({ crimesData, isLeadership }) {
       setSyncMessage(null)
       setSyncError(null)
       
-      const apiKey = user.apiKey || import.meta.env.VITE_TORN_API_KEY
+      // SECURITY: use only the logged-in user's own key. The old
+      // `|| import.meta.env.VITE_TORN_API_KEY` fallback shipped a shared Torn
+      // key in the browser bundle — removed. Login guarantees user.apiKey.
+      const apiKey = user.apiKey
       const factionId = config.faction.id
       
       if (!apiKey) {

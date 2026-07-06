@@ -2,11 +2,17 @@ export const config = {
   supabase: {
     url: import.meta.env.VITE_SUPABASE_URL,
     anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-    serviceKey: import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
+    // SECURITY: never reference the service_role key here. Everything under
+    // `config` is imported by the browser bundle, so any VITE_ var read in this
+    // file is inlined by `vite build` and shipped to every visitor. The
+    // service_role key bypasses RLS entirely — it lives ONLY in server-side env
+    // (Edge Function secrets + the sync-items maintenance script), never on the
+    // client. See scripts/sync-items.mjs.
   },
-  torn: {
-    apiKey: import.meta.env.VITE_TORN_API_KEY,
-  },
+  // SECURITY: no shared/personal Torn API key on the client. The only Torn key
+  // the browser should ever hold is the logged-in user's own Limited key,
+  // captured at login as `user.apiKey`. Server-side jobs read TORN_API_KEY from
+  // env (a non-VITE name so it can't be inlined into the bundle).
   faction: {
     name: "The Next Level - Forge",
     tag: "TNL-F",

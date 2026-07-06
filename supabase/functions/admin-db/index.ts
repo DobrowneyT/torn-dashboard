@@ -169,6 +169,28 @@ serve(async (req: Request) => {
     // Parse request body
     const body: RequestBody = await req.json()
 
+    // SECURITY: the generic arbitrary-table CRUD actions run under the
+    // service-role client and so bypass RLS entirely — they can read, mutate,
+    // or wipe ANY table. verifyTornUser() only proves the caller is a faction
+    // member, which is NOT enough authority for that. Gate these to leadership
+    // server-side so a tampered client (e.g. someone who edited their
+    // localStorage `isLeadership` flag or the client-side role array) can't
+    // reach them. Every legitimate caller of these actions is already a
+    // leadership-only tool (Data Management / Tier / Inventory), so this closes
+    // the hole without affecting real flows. Feature-specific actions
+    // (submit_api_key, sync_*, fetch_*, import_*, save_war_payout, manage_*)
+    // keep their own per-handler checks and are intentionally not listed here.
+    const LEADERSHIP_ONLY_ACTIONS = new Set([
+      'upsert', 'insert', 'update', 'delete', 'clear_table',
+    ])
+    if (LEADERSHIP_ONLY_ACTIONS.has(body.action) &&
+        !LEADERSHIP_IDS.includes(authResult.userId!)) {
+      return new Response(
+        JSON.stringify({ error: 'This action requires leadership access.' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     // Route to appropriate handler
     let result
     switch (body.action) {
