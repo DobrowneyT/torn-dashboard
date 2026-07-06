@@ -80,6 +80,23 @@ const TRANSIENT_TORN_ERROR_CODES = new Set([5, 8, 9, 17])
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
+// Full-access DB key for this server-side function (bypasses RLS; never runs in
+// a browser). Prefer the new-format secret key, which Supabase auto-populates as
+// the SUPABASE_SECRET_KEYS JSON dict — { "default": "sb_secret_…" } — once secret
+// keys exist on the API Keys page. Fall back to the legacy service_role key so
+// nothing breaks while migrating. Once the new key is live everywhere, the
+// leaked legacy service_role key can be disabled in the dashboard.
+function resolveSecretKey(): string {
+  const dict = Deno.env.get('SUPABASE_SECRET_KEYS')
+  if (dict) {
+    try {
+      const key = JSON.parse(dict)?.default
+      if (key) return key
+    } catch { /* malformed dict — fall back to legacy */ }
+  }
+  return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+}
+
 // Fetch from Torn and classify the result so callers can decide whether to
 // bail (fatal) or return a partial-success summary (transient). HTTP 5xx and
 // the transient Torn error codes above are treated as transient — typically
@@ -155,9 +172,13 @@ serve(async (req: Request) => {
       )
     }
 
-    // Create Supabase client with service role key (bypasses RLS)
+    // Create Supabase client with a full-access key (bypasses RLS; server-side
+    // only). Prefer the new-format secret key from the auto-populated
+    // SUPABASE_SECRET_KEYS JSON dict — { "default": "sb_secret_…" } — and fall
+    // back to the legacy service_role key so nothing breaks while migrating.
+    // Once the new key is live, disable the leaked legacy key in the dashboard.
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const supabaseServiceKey = resolveSecretKey()
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: {

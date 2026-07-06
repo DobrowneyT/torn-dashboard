@@ -9,7 +9,7 @@ import sys
 import json
 import logging
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from datetime import datetime
 from pathlib import Path
 
@@ -27,7 +27,12 @@ from scripts.assign_tiers import TierAssignment
 
 SKIP_GOOGLE_SHEETS = os.environ.get('SKIP_GOOGLE_SHEETS', '').lower() in ('true', '1', 'yes')
 from scripts.utils.torn_api import TornAPI, TornAPIError
-from scripts.utils.key_pool import claim_next_api_key, EmptyKeyPoolError
+from scripts.utils.key_pool import (
+    claim_next_api_key,
+    EmptyKeyPoolError,
+    load_key_pool,
+    probe_key_metadata,
+)
 
 # Set up logging
 logging.basicConfig(
@@ -204,8 +209,97 @@ class CPRScraper:
                 ).execute()
 
             logger.info(f"Synced {len(records)} faction members to Supabase")
+
+            # Reconcile the rotating key pool against this fresh roster so dead
+            # ex-member keys leave the pool and graduated recruits rejoin it.
+            self._reconcile_key_pool(set(current_members.keys()))
         except Exception as e:
             logger.warning(f"Member sync failed (non-fatal): {e}")
+
+    def _reconcile_key_pool(self, current_member_ids: Set[str]):
+        """Keep the rotating key pool in sync with faction membership.
+
+        Runs off the roster we just synced (no extra roster call):
+          • members who LEFT the faction         → disabled=true  (out of the pool)
+          • members who REJOINED (were disabled)  → disabled=false (claim-time
+            validation still guards a stale/dead key)
+          • recruits still flagged no-faction-access → re-probe their key and set
+            has_faction_access=true once Torn actually grants faction access, so
+            they graduate into the faction-scoped pool automatically.
+
+        `disabled` / `has_faction_access` are exactly the columns claim_next_api_key
+        and get_active_key_pool filter on, so writing them here is what actually
+        adds/removes a key from rotation. Membership flips use direct service-role
+        writes (RLS-bypassing); graduation goes through set_member_api_key so the
+        key stays encrypted. Fully non-fatal — never blocks the CPR scrape.
+        """
+        if not self.supabase:
+            return
+        try:
+            secret = os.environ.get('APP_KEY_SECRET') or os.environ.get('CPR_KEY_SECRET')
+            rows = (self.supabase.table('member_secrets')
+                    .select('member_id, has_faction_access, disabled')
+                    .execute().data) or []
+            now = datetime.utcnow().isoformat()
+
+            # Raw keys for currently-pooled (non-disabled) members, so we can
+            # re-probe the handful still flagged as recruits.
+            key_map = {}
+            if secret:
+                try:
+                    key_map = {
+                        mid: key
+                        for mid, key in load_key_pool(faction_only=False, client=self.supabase)
+                    }
+                except Exception as e:
+                    logger.warning(f"Reconcile: could not load pool for recruit re-check: {e}")
+
+            left = rejoined = graduated = 0
+            for row in rows:
+                mid = str(row['member_id'])
+                in_faction = mid in current_member_ids
+                is_disabled = bool(row.get('disabled'))
+                has_access = bool(row.get('has_faction_access'))
+
+                # Left the faction → drop from the pool.
+                if not in_faction:
+                    if not is_disabled:
+                        self.supabase.table('member_secrets').update({
+                            'disabled': True,
+                            'last_error': f'not in faction as of {now}',
+                            'updated_at': now,
+                        }).eq('member_id', mid).execute()
+                        left += 1
+                    continue
+
+                # Rejoined → let the key back in (claim-time validation guards it).
+                if is_disabled:
+                    self.supabase.table('member_secrets').update({
+                        'disabled': False, 'last_error': None, 'updated_at': now,
+                    }).eq('member_id', mid).execute()
+                    rejoined += 1
+
+                # Recruit still flagged no-faction-access → re-probe and graduate.
+                if not has_access and secret:
+                    api_key = key_map.get(mid)
+                    if not api_key:
+                        continue  # not pooled this run (e.g. just re-enabled) — next run
+                    probed = probe_key_metadata(api_key)
+                    if probed and probed[1]:  # has_faction now true
+                        key_level, _hf, rank = probed
+                        self.supabase.rpc('set_member_api_key', {
+                            'p_member_id': mid, 'p_raw_key': api_key, 'p_secret': secret,
+                            'p_key_level': key_level, 'p_has_faction_access': True,
+                            'p_member_rank': rank, 'p_consent_version': None,
+                        }).execute()
+                        graduated += 1
+
+            logger.info(
+                "Key-pool reconcile: %d left→disabled, %d rejoined→enabled, "
+                "%d recruits graduated", left, rejoined, graduated,
+            )
+        except Exception as e:
+            logger.warning(f"Key-pool reconcile failed (non-fatal): {e}")
 
     def _fetch_available_crimes(self, api_key: str, member_id: str) -> Optional[Dict]:
         """

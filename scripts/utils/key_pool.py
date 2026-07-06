@@ -14,7 +14,20 @@ The CPR scraper is the exception — it targets each member's OWN key directly
 import os
 import logging
 
+import requests
+
 logger = logging.getLogger(__name__)
+
+# Torn /v2/key/info error codes that mean THIS SPECIFIC KEY is unusable, so the
+# pool should skip it and rotate to the next one. Mirrors FATAL_REVAL_CODES in
+# src/contexts/AuthContext.jsx.
+#   1  = key is empty
+#   2  = incorrect / deleted key (e.g. the member left the faction)
+#   10 = key owner is in federal jail
+#   13 = key disabled due to owner inactivity
+#   16 = insufficient permissions on the key
+#   18 = key has been paused by its owner
+DEAD_KEY_CODES = frozenset({1, 2, 10, 13, 16, 18})
 
 try:
     from supabase import create_client
@@ -65,13 +78,9 @@ def load_key_pool(faction_only=True, client=None):
     ]
 
 
-def claim_next_api_key(faction_only=True, client=None):
-    """Atomically claim the next key in the rotation. Returns the key string.
-
-    Use this in parallel/matrix runners so each runner gets a distinct key.
-    Raises EmptyKeyPoolError when nobody has consented yet.
-    """
-    sb = client or _supabase()
+def _claim_next_raw(faction_only, sb):
+    """Claim the next key from the round-robin pool without validating it.
+    Returns (member_id, api_key). Raises EmptyKeyPoolError if the pool is empty."""
     resp = sb.rpc(
         "claim_next_api_key",
         {"p_secret": _secret(), "p_faction_only": faction_only},
@@ -82,5 +91,80 @@ def claim_next_api_key(faction_only=True, client=None):
             "No eligible API keys in the rotation pool — no members have consented "
             "yet (or all eligible members are on Recruit status)."
         )
-    logger.info("Claimed rotation key for member %s", rows[0].get("member_id"))
-    return rows[0]["api_key"]
+    return str(rows[0].get("member_id")), rows[0]["api_key"]
+
+
+def _key_is_live(api_key, timeout=15):
+    """True if the key still works; False only when the key ITSELF is dead
+    (see DEAD_KEY_CODES). Transient Torn errors (rate limit, IP block, backend)
+    and network/parse failures return True on purpose — we can't prove the key is
+    bad over a blip, and discarding good keys would drain the pool needlessly."""
+    try:
+        resp = requests.get(
+            f"https://api.torn.com/v2/key/info?key={api_key}&comment=Forge_KeyCheck",
+            timeout=timeout,
+        )
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        return True
+    err = data.get("error") if isinstance(data, dict) else None
+    if err:
+        return err.get("code") not in DEAD_KEY_CODES
+    return True
+
+
+def probe_key_metadata(api_key, timeout=15):
+    """Probe a key's current metadata via Torn. Returns
+    (key_level, has_faction_access, rank) or None if the key errored / was
+    unreachable. Centralised here so the daily key-pool reconcile and the one-off
+    metadata backfill share one implementation of the /key/info + profile logic.
+    """
+    try:
+        info = requests.get(
+            f"https://api.torn.com/v2/key/info?key={api_key}", timeout=timeout
+        ).json()
+        if not isinstance(info, dict) or info.get("error"):
+            return None
+        access = (info.get("info") or {}).get("access") or {}
+        key_level = access.get("level")
+        has_faction = bool(access.get("faction"))
+
+        rank = None
+        prof = requests.get(
+            f"https://api.torn.com/user/?selections=profile&key={api_key}", timeout=timeout
+        ).json()
+        if isinstance(prof, dict) and not prof.get("error"):
+            rank = (prof.get("faction") or {}).get("position")
+        return key_level, has_faction, rank
+    except (requests.RequestException, ValueError):
+        return None
+
+
+def claim_next_api_key(faction_only=True, client=None, validate=True, max_attempts=8):
+    """Atomically claim the next WORKING key in the rotation. Returns the key string.
+
+    Claims from the round-robin pool and, when validate=True (default), verifies
+    the key with a cheap /key/info call, rotating PAST dead keys — a member who
+    left the faction (code 2), a revoked/disabled/paused key, etc. — up to
+    max_attempts times. Since the RPC advances the pointer each call, retries land
+    on different members. Use in parallel/matrix runners so each gets a distinct key.
+
+    Raises EmptyKeyPoolError when nobody has consented yet, or RuntimeError when
+    every attempt hit a dead key (pool likely full of stale ex-member keys).
+    Pass validate=False for the old raw behaviour.
+    """
+    sb = client or _supabase()
+    for attempt in range(1, max_attempts + 1):
+        member_id, api_key = _claim_next_raw(faction_only, sb)
+        if not validate or _key_is_live(api_key):
+            logger.info("Claimed rotation key for member %s", member_id)
+            return api_key
+        logger.warning(
+            "Rotation key for member %s is dead — skipping (attempt %d/%d)",
+            member_id, attempt, max_attempts,
+        )
+    raise RuntimeError(
+        f"No working API key after {max_attempts} attempts — the rotation pool "
+        f"may be full of stale keys (e.g. members who left the faction). "
+        f"Consider pruning member_secrets."
+    )

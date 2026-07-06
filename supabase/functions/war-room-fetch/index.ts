@@ -21,6 +21,24 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+// Full-access DB key for this server-side function (bypasses RLS; never runs in
+// a browser). Prefer the new-format secret key, which Supabase auto-populates as
+// the SUPABASE_SECRET_KEYS JSON dict — { "default": "sb_secret_…" } — once secret
+// keys exist on the API Keys page. Fall back to the legacy service_role key so
+// nothing breaks before/while migrating. Once the new key is live everywhere,
+// the leaked legacy service_role key can be disabled in the dashboard.
+function resolveSecretKey(): string {
+  const dict = Deno.env.get('SUPABASE_SECRET_KEYS')
+  if (dict) {
+    try {
+      const key = JSON.parse(dict)?.default
+      if (key) return key
+    } catch { /* malformed dict — fall back to legacy */ }
+  }
+  return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+}
+const SUPABASE_SECRET_KEY = resolveSecretKey()
+
 const LEADERSHIP_IDS = ['2250591', '2749598', '2264192', '2407528', '2932241', '2015160']
 // War Leaders — mirrors config.warleadUserIds in src/config.js. Gates the
 // War Notes panel + save_war_notes_v2. Keep in sync.
@@ -90,7 +108,7 @@ const authMemCache = new Map<string, { userId: string; expiresAt: number }>()
 // Module-level admin client used only for auth cache reads/writes
 const supabaseAuth = createClient(
   Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  SUPABASE_SECRET_KEY,
   { auth: { autoRefreshToken: false, persistSession: false } }
 )
 
@@ -1498,7 +1516,7 @@ serve(async (req: Request) => {
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      SUPABASE_SECRET_KEY,
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
