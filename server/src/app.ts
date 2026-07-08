@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
+import Fastify, { type FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import {
   factionIdentity,
@@ -6,8 +6,8 @@ import {
   rolesFromClaims,
   verifySessionToken,
   type AuthDeps,
-  type SessionClaims,
 } from './auth.js'
+import './authz.js'
 
 export interface ServerOptions {
   factionSlug: string
@@ -21,8 +21,18 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
 
   app.get('/api/health', async () => ({ status: 'ok', faction: opts.factionSlug }))
 
+  app.decorateRequest('session', null)
+
   if (opts.db && opts.tornBaseUrl && opts.jwtSecret) {
     const deps: AuthDeps = { db: opts.db, tornBaseUrl: opts.tornBaseUrl, jwtSecret: opts.jwtSecret }
+
+    // Attach the verified session (or null) to every request; role guards
+    // (src/authz.ts) and handlers read req.session.
+    app.addHook('onRequest', async (req) => {
+      const header = req.headers.authorization
+      if (!header?.startsWith('Bearer ')) return
+      req.session = await verifySessionToken(deps.jwtSecret, header.slice('Bearer '.length))
+    })
 
     app.post('/api/auth/login', async (req, reply) => {
       const apiKey = (req.body as { apiKey?: unknown } | null)?.apiKey
@@ -44,20 +54,13 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
         },
         features: config.features,
       }
-      const claims = await sessionFromRequest(deps.jwtSecret, req)
-      if (!claims) return publicView
+      if (!req.session) return publicView
       return {
         ...publicView,
-        user: { torn_user_id: claims.torn_user_id, roles: rolesFromClaims(claims) },
+        user: { torn_user_id: req.session.torn_user_id, roles: rolesFromClaims(req.session) },
       }
     })
   }
 
   return app
-}
-
-async function sessionFromRequest(jwtSecret: string, req: FastifyRequest): Promise<SessionClaims | null> {
-  const header = req.headers.authorization
-  if (!header?.startsWith('Bearer ')) return null
-  return verifySessionToken(jwtSecret, header.slice('Bearer '.length))
 }

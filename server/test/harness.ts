@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { FastifyInstance } from 'fastify'
 import EmbeddedPostgres from 'embedded-postgres'
 import pg from 'pg'
 import { buildServer } from '../src/app.js'
@@ -42,7 +43,10 @@ export interface TestStack {
 }
 
 /** Boot embedded Postgres + templated faction DB + Torn fixture + API. */
-export async function startTestStack(pgPort: number): Promise<TestStack> {
+export async function startTestStack(
+  pgPort: number,
+  extendApp?: (app: FastifyInstance) => void
+): Promise<TestStack> {
   // Real templated Postgres
   const dataDir = mkdtempSync(join(tmpdir(), 'tnl-server-test-'))
   const embedded = new EmbeddedPostgres({
@@ -112,6 +116,7 @@ export async function startTestStack(pgPort: number): Promise<TestStack> {
     tornBaseUrl,
     jwtSecret: TEST_JWT_SECRET,
   })
+  extendApp?.(app)
   await app.listen({ port: 0, host: '127.0.0.1' })
   const addr = app.server.address()
   if (addr === null || typeof addr === 'string') throw new Error('api port')
