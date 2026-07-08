@@ -41,7 +41,12 @@ export const config = {
   // member_secrets or the rotation pool. IDs here must also be mirrored in
   // VISITOR_IDS inside supabase/functions/war-room-fetch (JWT mint + RLS).
   visitorUserIds: [
-    // '1234567', // Example — Faction2 leader
+    '2605556', // Dooby
+    `2049998`, // Ember
+    `14297`, // -Atlas-
+    `2663375`, // Rawk
+    `2670532`, // Neuroticgrim
+    `2637909`, // bethink
   ],
 
   leadershipUserIds: [
