@@ -38,7 +38,7 @@ const LIVE_TABLES = [
   'war_room_config_v2', 'war_room_dibs_v2', 'war_room_notes_private_v2',
   'war_room_notes_v2', 'war_room_roll_call_v2', 'war_room_state_v2',
 ]
-const NEW_TABLES = ['faction_config', 'role_assignments']
+const NEW_TABLES = ['faction_config', 'faction_settings', 'role_assignments']
 
 let server
 let dataDir

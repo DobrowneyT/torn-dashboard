@@ -33,6 +33,9 @@ export interface TornFixtureUser {
   accessLevel?: number
 }
 
+/** The Torn key the harness configures the server itself with. */
+export const TEST_SERVER_TORN_KEY = 'SERVERKEY1234567'
+
 export interface TestStack {
   baseUrl: string
   db: pg.Pool
@@ -41,6 +44,10 @@ export interface TestStack {
     addKey(key: string, user: TornFixtureUser): void
     /** Register a key the fixture answers with a Torn error payload. */
     addBadKey(key: string, code: number, message: string): void
+    /** Payload the fixture serves for /v2/faction/crimes. */
+    setFactionCrimes(payload: unknown): void
+    /** The key used on the most recent /v2/faction/crimes call. */
+    lastFactionCrimesKey(): string | null
     hits(): number
   }
   close(): Promise<void>
@@ -83,6 +90,10 @@ export async function startTestStack(
     password: 'postgres',
     database: 'faction_test',
   })
+  // Teardown race: embedded Postgres can terminate idle pooled connections
+  // (57P01) while the pool is still draining, and an unhandled pool 'error'
+  // fails the whole vitest run despite every test passing.
+  db.on('error', () => {})
   await db.query(TEMPLATE)
   await db.query(
     `INSERT INTO faction_config (slug, display_name, torn_faction_id) VALUES ($1, $2, $3)`,
@@ -92,11 +103,22 @@ export async function startTestStack(
   // Torn fixture server
   const goodKeys = new Map<string, TornFixtureUser>()
   const badKeys = new Map<string, { code: number; message: string }>()
+  let factionCrimesPayload: unknown = null
+  let factionCrimesKey: string | null = null
   let hitCount = 0
   const torn: Server = createServer((req, res) => {
     hitCount += 1
     const url = new URL(req.url ?? '/', 'http://fixture')
     res.setHeader('content-type', 'application/json')
+    if (url.pathname === '/v2/faction/crimes') {
+      factionCrimesKey = url.searchParams.get('key')
+      if (factionCrimesPayload === null) {
+        res.end(JSON.stringify({ error: { code: 2, error: 'Incorrect key' } }))
+        return
+      }
+      res.end(JSON.stringify(factionCrimesPayload))
+      return
+    }
     if (url.pathname === '/v2/key/info') {
       const key = url.searchParams.get('key') ?? ''
       const bad = badKeys.get(key)
@@ -131,6 +153,7 @@ export async function startTestStack(
     db,
     tornBaseUrl,
     jwtSecret: TEST_JWT_SECRET,
+    tornApiKey: TEST_SERVER_TORN_KEY,
   })
   extendApp?.(app)
   await app.listen({ port: 0, host: '127.0.0.1' })
@@ -143,6 +166,8 @@ export async function startTestStack(
     torn: {
       addKey: (key, user) => goodKeys.set(key, user),
       addBadKey: (key, code, message) => badKeys.set(key, { code, message }),
+      setFactionCrimes: (payload) => { factionCrimesPayload = payload },
+      lastFactionCrimesKey: () => factionCrimesKey,
       hits: () => hitCount,
     },
     close: async () => {

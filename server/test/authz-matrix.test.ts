@@ -33,6 +33,8 @@ beforeAll(async () => {
 
   // /api/members/:id 404s without a row — give the member actor one.
   await stack.db.query(`INSERT INTO members (member_id, member_name) VALUES ('9102', 'MatrixMember')`)
+  // Live-crimes endpoints proxy the Torn fixture; give it a board to serve.
+  stack.torn.setFactionCrimes({ crimes: [] })
 
   for (const [actor, setup] of Object.entries(ACTOR_SETUP)) {
     const key = `${actor.toUpperCase().padEnd(12, 'X')}${setup.id}`
@@ -106,6 +108,22 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path,
     expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 } as Record<Actor, number>,
   })),
+  // Slice #62 — OC reads: member-visible...
+  ...[
+    '/api/crimes',
+    '/api/crimes/current',
+    '/api/crimes/c1/slots',
+    '/api/members/roster',
+    '/api/oc-config',
+  ].map((path) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 } as Record<Actor, number>,
+  })),
+  // ...except the planner, which is role-gated server-side (visitors read).
+  {
+    path: '/api/oc-planner/data',
+    expected: { unauthenticated: 401, visitor: 200, member: 403, warlead: 403, ocmanager: 200, leadership: 200, admin: 200 },
+  },
 ]
 
 describe('authorization matrix', () => {

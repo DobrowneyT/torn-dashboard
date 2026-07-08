@@ -8,10 +8,12 @@ import { config } from '../config'
  *
  * @param {Array} cprV2Data - Array of { crime_name, difficulty, position_label, cpr_value } rows
  * @param {number} currentTier - The member's current tier (1-6)
+ * @param {Object} [requirements] - Tier requirements keyed by tier (from the
+ *   faction's DB-backed OC config); defaults to the legacy hardcoded config.
  * @returns {Object} { currentTier, qualifiedTiers, nextTier, nextTierProgress, allTierProgress }
  */
-export function calculateTierProgress(cprV2Data, currentTier) {
-  const tierRequirements = config.tierRequirements
+export function calculateTierProgress(cprV2Data, currentTier, requirements) {
+  const tierRequirements = requirements ?? config.tierRequirements
 
   // Build lookup: { crime_name: { position_label: cpr_value } }
   const byCrime = {}
@@ -109,7 +111,7 @@ export function calculateTierProgress(cprV2Data, currentTier) {
 /**
  * Get tier display info
  */
-export function getTierInfo(tier) {
+export function getTierInfo(tier, payoutTickets) {
   const names = {
     1: 'Elite',
     2: 'Advanced',
@@ -118,6 +120,6 @@ export function getTierInfo(tier) {
     5: 'Beginner',
     6: 'Default',
   }
-  const tickets = config.payoutTickets[tier] || 2
+  const tickets = (payoutTickets ?? config.payoutTickets)[tier] || 2
   return { name: names[tier] || 'Unknown', tickets, tier }
 }

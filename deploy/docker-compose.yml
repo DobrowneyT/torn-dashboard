@@ -35,6 +35,9 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/faction_forge
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
       TORN_API_BASE: ${TORN_API_BASE:-https://api.torn.com}
+      # Faction-held Limited key for server-side live reads (OC board).
+      # Optional; those endpoints 503 without it. Replaced by the key pool in #67.
+      TORN_API_KEY: ${TORN_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
