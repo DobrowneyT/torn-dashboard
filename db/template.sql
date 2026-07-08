@@ -611,6 +611,15 @@ CREATE TABLE public.faction_config (
   updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+-- Per-faction policy settings as whole JSON documents (tier requirements,
+-- CPR requirements, payout tickets, ...) — replaces hardcoded frontend config.
+-- The leader admin UI (slice #74) edits these; db/seed/03 provides defaults.
+CREATE TABLE public.faction_settings (
+  key text NOT NULL,
+  value jsonb NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
 -- Role grants (replaces the hardcoded LEADERSHIP_IDS/WARLEAD_IDS/ADMIN_IDS/
 -- VISITOR_IDS lists). A user may hold several roles.
 CREATE TABLE public.role_assignments (
@@ -628,6 +637,7 @@ ALTER TABLE crime_slots ADD CONSTRAINT crime_slots_pkey PRIMARY KEY (id);
 ALTER TABLE crimes ADD CONSTRAINT crimes_pkey PRIMARY KEY (crime_id);
 ALTER TABLE faction_attacks ADD CONSTRAINT faction_attacks_pkey PRIMARY KEY (attack_id);
 ALTER TABLE faction_config ADD CONSTRAINT faction_config_pkey PRIMARY KEY (id);
+ALTER TABLE faction_settings ADD CONSTRAINT faction_settings_pkey PRIMARY KEY (key);
 ALTER TABLE faction_revives ADD CONSTRAINT faction_revives_pkey PRIMARY KEY (revive_id);
 ALTER TABLE factions ADD CONSTRAINT factions_pkey PRIMARY KEY (id);
 ALTER TABLE inventory_items ADD CONSTRAINT inventory_items_pkey PRIMARY KEY (id);
@@ -1064,6 +1074,7 @@ CREATE TRIGGER touch_updated_at_notes_private_v2 BEFORE INSERT OR UPDATE ON publ
 CREATE TRIGGER touch_updated_at_notes_v2 BEFORE INSERT OR UPDATE ON public.war_room_notes_v2 FOR EACH ROW EXECUTE FUNCTION touch_updated_at_v2();
 CREATE TRIGGER touch_updated_at_state_v2 BEFORE INSERT OR UPDATE ON public.war_room_state_v2 FOR EACH ROW EXECUTE FUNCTION touch_updated_at_v2();
 CREATE TRIGGER touch_updated_at_faction_config BEFORE INSERT OR UPDATE ON public.faction_config FOR EACH ROW EXECUTE FUNCTION touch_updated_at_v2();
+CREATE TRIGGER touch_updated_at_faction_settings BEFORE INSERT OR UPDATE ON public.faction_settings FOR EACH ROW EXECUTE FUNCTION touch_updated_at_v2();
 
 -- ── Views ─────────────────────────────────────────────────────────────────────
 

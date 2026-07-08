@@ -10,12 +10,15 @@ import {
 import './authz.js'
 import './db.js'
 import { registerMemberRoutes } from './members.js'
+import { registerOcRoutes } from './oc.js'
 
 export interface ServerOptions {
   factionSlug: string
   db?: pg.Pool
   tornBaseUrl?: string
   jwtSecret?: string
+  /** Faction-held Torn key for server-side live reads (until slice #67's pool). */
+  tornApiKey?: string
 }
 
 export async function buildServer(opts: ServerOptions): Promise<FastifyInstance> {
@@ -64,6 +67,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     })
 
     registerMemberRoutes(app, opts.db)
+    registerOcRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, tornApiKey: opts.tornApiKey })
   }
 
   return app
