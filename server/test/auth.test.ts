@@ -30,7 +30,7 @@ async function verifyToken(token: string) {
 
 describe('POST /api/auth/login', () => {
   it('faction member with DB-assigned roles gets a 4h JWT with matching claims', async () => {
-    stack.torn.addKey('LEADERKEY1234567', { id: '111', name: 'Boss', factionId: TEST_FACTION.tornFactionId })
+    stack.torn.addKey('LEADERKEY1234567', { id: '111', factionId: TEST_FACTION.tornFactionId })
     await stack.db.query(
       `INSERT INTO role_assignments (torn_user_id, role) VALUES (111, 'leadership'), (111, 'admin')`
     )
@@ -67,7 +67,7 @@ describe('POST /api/auth/login', () => {
   })
 
   it('visitor logs in without faction membership and no key material is stored', async () => {
-    stack.torn.addKey('VISITORKEY123456', { id: '555', name: 'Dooby', factionId: '42' })
+    stack.torn.addKey('VISITORKEY123456', { id: '555', factionId: '42' })
     await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (555, 'visitor')`)
 
     const { status, body } = await login('VISITORKEY123456')

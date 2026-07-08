@@ -23,9 +23,10 @@ export const TEST_FACTION = {
 }
 export const TEST_JWT_SECRET = 'test-jwt-secret'
 
+// Mirrors the real /v2/key/info payload: user carries id/faction_id/company_id
+// only — no name.
 export interface TornFixtureUser {
   id: string
-  name?: string
   factionId: string | null
 }
 
@@ -95,8 +96,8 @@ export async function startTestStack(
       }
       res.end(JSON.stringify({
         info: {
-          user: { id: Number(user.id), name: user.name ?? `User${user.id}`, faction_id: user.factionId === null ? null : Number(user.factionId) },
-          access: { level: 3, type: 'Limited Access' },
+          user: { id: Number(user.id), faction_id: user.factionId === null ? null : Number(user.factionId), company_id: 0 },
+          access: { level: 3, type: 'Limited Access', faction: true },
         },
       }))
       return

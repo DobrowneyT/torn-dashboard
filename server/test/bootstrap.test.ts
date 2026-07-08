@@ -40,7 +40,7 @@ describe('GET /api/bootstrap', () => {
   })
 
   it('authenticated callers additionally get their identity and roles', async () => {
-    stack.torn.addKey('WARLEADKEY123456', { id: '222', name: 'Lead', factionId: TEST_FACTION.tornFactionId })
+    stack.torn.addKey('WARLEADKEY123456', { id: '222', factionId: TEST_FACTION.tornFactionId })
     await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (222, 'warlead')`)
     const loginRes = await fetch(`${stack.baseUrl}/api/auth/login`, {
       method: 'POST',
