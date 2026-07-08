@@ -7,10 +7,10 @@ on:
     branches: [dev, main]
 
 jobs:
-  frontend-tests:
-    name: Frontend Tests (Vitest)
+  node-tests:
+    name: Node Tests (Vitest — frontend, server, db)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
     - name: Checkout repository
@@ -25,14 +25,55 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    - name: Run Vitest
+    - name: Run Vitest across workspaces
       # Fake Supabase env vars are required so supabase.js doesn't throw at import time.
-      # These are never used for real calls during unit tests.
+      # These are never used for real calls during unit tests. The db workspace
+      # runs against an embedded Postgres — no service container needed.
       env:
         VITE_SUPABASE_URL: https://placeholder.supabase.co
         VITE_SUPABASE_ANON_KEY: placeholder-anon-key
         VITE_SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key
       run: npm run test:run
+
+  compose-check:
+    name: Compose build + boot check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Configure compose environment
+      run: |
+        cp deploy/.env.example deploy/.env
+        # Avoid colliding with anything on the runner's default ports.
+        echo "POSTGRES_HOST_PORT=55432" >> deploy/.env
+        echo "HTTP_PORT=8088" >> deploy/.env
+
+    - name: Build images
+      run: docker compose -f deploy/docker-compose.yml --project-directory deploy build
+
+    - name: Boot the stack
+      run: docker compose -f deploy/docker-compose.yml --project-directory deploy up -d --wait
+
+    - name: Probe API health through nginx
+      run: |
+        curl -fsS --retry 10 --retry-delay 2 --retry-all-errors http://localhost:8088/api/health | tee /tmp/health.json
+        grep -q '"status":"ok"' /tmp/health.json
+        grep -q '"faction":"forge"' /tmp/health.json
+
+    - name: Probe SPA through nginx
+      run: |
+        curl -fsS http://localhost:8088/ | grep -qi '<div id="root"'
+
+    - name: Show logs on failure
+      if: failure()
+      run: docker compose -f deploy/docker-compose.yml --project-directory deploy logs
+
+    - name: Tear down
+      if: always()
+      run: docker compose -f deploy/docker-compose.yml --project-directory deploy down -v
 
   python-tests:
     name: Python Tests (pytest)
