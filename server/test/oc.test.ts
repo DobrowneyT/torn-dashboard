@@ -124,6 +124,10 @@ describe('GET /api/oc-planner/data', () => {
   })
 
   it('gives ocmanagers the live board, roster and tier-3 CPR in one call', async () => {
+    // Seed the fixture board here too — this test must not depend on ordering.
+    stack.torn.setFactionCrimes({
+      crimes: [{ id: 9001, name: 'Break the Bank', difficulty: 8, status: 'Recruiting', slots: [] }],
+    })
     stack.torn.addKey('OCMANAGERKEY1234', { id: '310', factionId: TEST_FACTION.tornFactionId })
     await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (310, 'ocmanager')`)
     await stack.db.query(`

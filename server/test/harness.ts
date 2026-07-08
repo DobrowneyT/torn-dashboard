@@ -90,6 +90,10 @@ export async function startTestStack(
     password: 'postgres',
     database: 'faction_test',
   })
+  // Teardown race: embedded Postgres can terminate idle pooled connections
+  // (57P01) while the pool is still draining, and an unhandled pool 'error'
+  // fails the whole vitest run despite every test passing.
+  db.on('error', () => {})
   await db.query(TEMPLATE)
   await db.query(
     `INSERT INTO faction_config (slug, display_name, torn_faction_id) VALUES ($1, $2, $3)`,

@@ -150,7 +150,7 @@ export default function DashboardView() {
 
       {/* Tier Progress Card */}
       {tierProgress && tierProgress.nextTierProgress && (
-        <TierProgressCard tierProgress={tierProgress} />
+        <TierProgressCard tierProgress={tierProgress} payoutTickets={ocConfig?.payout_tickets} />
       )}
 
       {/* Loaned Items */}
@@ -402,11 +402,11 @@ function RWSummaryCard({ wars, payouts }) {
 
 // ─── Tier Progress Card ───────────────────────────────────────────
 
-function TierProgressCard({ tierProgress }) {
+function TierProgressCard({ tierProgress, payoutTickets }) {
   const next = tierProgress.nextTierProgress
   if (!next) return null
 
-  const nextTierInfo = getTierInfo(next.tier, ocConfig?.payout_tickets)
+  const nextTierInfo = getTierInfo(next.tier, payoutTickets)
   const progressPercent = Math.min(next.progressPercent, 100)
 
   return (
