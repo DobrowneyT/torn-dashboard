@@ -53,7 +53,14 @@ const ADMIN_IDS = ['2250591']
 // faction-scoped SELECT policies but never any write-granting claim.
 // They may read the private leads note and claim dibs; roll call, notes
 // saves, and config changes reject them explicitly.
-const VISITOR_IDS: string[] = []
+const VISITOR_IDS = [
+  '2605556', // Dooby
+  '2049998', // Ember
+  '14297',   // -Atlas-
+  '2663375', // Rawk
+  '2670532', // Neuroticgrim
+  '2637909', // bethink
+]
 const OUR_FACTION_ID = '10739'
 
 // ── Torn API key pool (rotating) ──────────────────────────────────────────────
