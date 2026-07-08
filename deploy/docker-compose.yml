@@ -33,6 +33,8 @@ services:
       FACTION_SLUG: forge
       PORT: 8080
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/faction_forge
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      TORN_API_BASE: ${TORN_API_BASE:-https://api.torn.com}
     depends_on:
       postgres:
         condition: service_healthy

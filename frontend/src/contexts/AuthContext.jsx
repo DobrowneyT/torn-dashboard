@@ -3,6 +3,50 @@ import { config } from '../config'
 import { getTornErrorMessage } from '../utils/apiUtils'
 import { submitApiKey, setVisitorReadOnly } from '../utils/adminApi'
 import * as sessionToken from '../utils/sessionToken'
+import {
+  API_MODE,
+  apiLogin,
+  apiBootstrap,
+  apiSessionValid,
+  storeApiSession,
+  clearApiSession,
+} from '../utils/apiClient'
+
+// API-mode login (self-hosted stack): the server does Torn verification, role
+// resolution, and JWT minting — the browser never talks to Torn or Supabase.
+async function loginViaApi(apiKey) {
+  const result = await apiLogin(apiKey)
+  if (!result.ok) return { success: false, error: result.error }
+  storeApiSession({ token: result.token, expires_at: result.expires_at })
+
+  const boot = await apiBootstrap(result.token)
+  if (!boot.ok || !boot.user) {
+    clearApiSession()
+    return { success: false, error: 'Login succeeded but bootstrap failed. Please try again.' }
+  }
+
+  const roles = boot.user.roles
+  const userObj = {
+    id: Number(boot.user.torn_user_id),
+    // Member names arrive with the members data slice; until then show the id.
+    name: `Player ${boot.user.torn_user_id}`,
+    factionId: null,
+    factionPosition: roles.includes('leadership') ? 'Leadership'
+      : roles.includes('admin') ? 'Admin'
+      : roles.includes('visitor') ? 'Visitor'
+      : 'Member',
+    apiKey,
+    accessLevel: 3,
+    isLeadership: roles.includes('leadership'),
+    isAdmin: roles.includes('admin'),
+    isWarLead: roles.includes('warlead'),
+    isOCManager: roles.includes('ocmanager'),
+    isVisitor: roles.includes('visitor'),
+    apiMode: true,
+    lastLogin: new Date().toISOString(),
+  }
+  return { success: true, user: userObj }
+}
 
 // Persist the member's consented key + ToS acceptance into member_secrets so it
 // joins the rotating pool (War Room + scrapers) and the CPR scraper. Best-effort:
@@ -39,6 +83,13 @@ const FATAL_REVAL_CODES = new Set([
 // so transient outages don't log everyone out — a fatal verdict only
 // comes from an unambiguous "this key is invalid" response.
 async function revalidateSession(savedUser) {
+  if (API_MODE) {
+    // The API session token is the authority; when it lapses, re-login re-runs
+    // the server-side Torn + role checks.
+    return apiSessionValid()
+      ? { ok: true }
+      : { ok: false, reason: 'Your session expired. Please log in again.' }
+  }
   if (!savedUser?.apiKey) {
     return { ok: false, reason: 'Saved session is missing its API key. Please log in again.' }
   }
@@ -157,6 +208,16 @@ export function AuthProvider({ children }) {
           success: false,
           error: 'Invalid API key format. API keys must be exactly 16 characters.'
         }
+      }
+
+      // Self-hosted stack: the API owns the whole login flow.
+      if (API_MODE) {
+        const result = await loginViaApi(apiKey)
+        if (result.success) {
+          setUser(result.user)
+          localStorage.setItem('tornUser', JSON.stringify(result.user))
+        }
+        return result
       }
 
       // Fetch key info from Torn API v2
@@ -392,6 +453,7 @@ export function AuthProvider({ children }) {
 
   function logout() {
     sessionToken.clear()
+    clearApiSession()
     setUser(null)
     localStorage.removeItem('tornUser')
   }
@@ -408,8 +470,9 @@ export function AuthProvider({ children }) {
   const isAdminFlag  = user?.isAdmin || false
   const isWarLead    = user?.isWarLead || false
   // OC Manager is a config-list role (like warlead) derived live from the id,
-  // so we don't need to thread a flag through every login() branch.
-  const isOCManagerFlag = config.ocmanagerUserIds.includes(String(user?.id))
+  // so we don't need to thread a flag through every login() branch. In API
+  // mode the flag comes from DB-assigned roles instead.
+  const isOCManagerFlag = user?.isOCManager || config.ocmanagerUserIds.includes(String(user?.id))
   // Visitor is also derived live from the config list (belt-and-braces on top
   // of the persisted flag) so removing an ID from the list revokes access on
   // the next app load even before revalidation runs.

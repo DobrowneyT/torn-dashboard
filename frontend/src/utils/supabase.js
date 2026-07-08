@@ -1,9 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
 import * as sessionToken from './sessionToken'
+import { API_MODE } from './apiClient'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-if (!supabaseUrl || !supabaseAnonKey) {
+// API-mode builds (self-hosted stack) ship without Supabase config on purpose:
+// pages migrate to the new API slice by slice, and the ones still on Supabase
+// fail at call time, not at import time.
+if ((!supabaseUrl || !supabaseAnonKey) && !API_MODE) {
   throw new Error('Missing Supabase environment variables')
 }
 
@@ -16,6 +20,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // This is the single client. sessionToken.configure() must be called on
 // login (and on app boot from cached session) so the hook can actually
 // produce a token; until then, every call goes out as anon.
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  accessToken: async () => (await sessionToken.get()) ?? null,
-})
+export const supabase = (supabaseUrl && supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      accessToken: async () => (await sessionToken.get()) ?? null,
+    })
+  : null

@@ -9,6 +9,8 @@ COPY db/package.json db/
 RUN npm ci --workspace @tnl/frontend
 
 COPY frontend/ frontend/
+# The self-hosted bundle talks to /api/* on its own origin instead of Supabase.
+ENV VITE_API_MODE=true
 RUN npm run build -w frontend
 
 FROM nginx:1.27-alpine
