@@ -1,15 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../utils/supabase'
-import { loadMemberPayoutHistory, loadMemberCrimeHistory, loadMemberLoanedItems } from '../utils/payoutDataLoader'
+import { apiGet } from '../utils/apiClient'
+import { filterItemsForMember } from '../utils/payoutDataLoader'
 import { calculateTierProgress, getTierInfo } from '../utils/tierProgressUtils'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import ApiKeyDisclosure from '../components/ApiKeyDisclosure'
 import { STAT_PATHS, DASHBOARD_STAT_KEYS, getByPath } from '../utils/statPaths'
 import { Check, X } from 'lucide-react'
-
-const OUR_FACTION_ID = 10739
 
 export default function DashboardView() {
   const { user } = useAuth()
@@ -35,27 +33,21 @@ export default function DashboardView() {
     try {
       const memberId = user.id.toString()
 
-      const [memberResult, cprResult, statsResult, payouts, crimes, loaned] = await Promise.all([
-        supabase.from('members')
-          .select('member_id, member_name, tier, tier_override, last_scraped, updated_at, is_current, last_seen, first_seen, has_cpr_key')
-          .eq('member_id', memberId).single(),
-        supabase.from('member_cpr_v2')
-          .select('crime_name, difficulty, position_label, cpr_value')
-          .eq('member_id', memberId),
-        supabase.from('member_daily_stats')
-          .select('snapshot_date, personalstats, api_version, gym_strength, gym_speed, gym_dexterity, gym_defense, gym_energy')
-          .eq('member_id', memberId)
-          .order('snapshot_date', { ascending: false })
-          .limit(31),
-        loadMemberPayoutHistory(memberId).catch(() => []),
-        loadMemberCrimeHistory(memberId, 500).catch(() => []),
-        loadMemberLoanedItems(memberId).catch(() => []),
+      const [profileResult, statsResult, payoutsResult, crimesResult, loanedResult] = await Promise.all([
+        apiGet(`/api/members/${memberId}`).catch(() => null),
+        apiGet(`/api/members/${memberId}/daily-stats?limit=31`).catch(() => ({ daily_stats: [] })),
+        apiGet(`/api/members/${memberId}/payouts`).catch(() => ({ payouts: [] })),
+        apiGet(`/api/members/${memberId}/crimes?limit=500`).catch(() => ({ crimes: [] })),
+        apiGet('/api/inventory/loaned').catch(() => ({ items: [] })),
       ])
+      const payouts = payoutsResult.payouts
+      const crimes = crimesResult.crimes
+      const loaned = filterItemsForMember(loanedResult.items, memberId)
 
       // Build member data
-      const member = memberResult.data
+      const member = profileResult?.member
       if (member) {
-        const cprV2Data = cprResult.data || []
+        const cprV2Data = profileResult.cpr || []
         // Use ?? so tier 0 ("needs manual review") is preserved instead of
         // falling through to tier 6 like a falsy value would with ||.
         const effectiveTier = member.tier_override ?? member.tier ?? 6
@@ -66,7 +58,7 @@ export default function DashboardView() {
       }
 
       // Personal stats
-      const statsData = statsResult.data || []
+      const statsData = statsResult.daily_stats || []
       if (statsData.length > 0) {
         setPersonalStats({
           latest: statsData[0],
@@ -82,39 +74,13 @@ export default function DashboardView() {
 
       // Load RW data: recent wars where this member contributed, and war payouts
       try {
-        // Get recent wars with member's contributions
-        const { data: contribs } = await supabase
-          .from('war_member_contributions')
-          .select('war_id, score, attacks, faction_id')
-          .eq('member_id', memberId)
-          .eq('faction_id', OUR_FACTION_ID)
-          .order('war_id', { ascending: false })
-          .limit(100)
-
-        if (contribs && contribs.length > 0) {
-          const warIds = contribs.map(c => c.war_id)
-          const { data: wars } = await supabase
-            .from('ranked_wars')
-            .select('*')
-            .in('id', warIds)
-            .order('start_at', { ascending: false })
-
-          const warsWithContrib = (wars || []).map(war => {
-            const contrib = contribs.find(c => c.war_id === war.id)
-            return { ...war, myScore: contrib?.score, myAttacks: contrib?.attacks }
-          })
-          setRecentWars(warsWithContrib)
+        const { wars } = await apiGet(`/api/members/${memberId}/wars`)
+        if (wars.length > 0) {
+          setRecentWars(wars.map(war => ({ ...war, myScore: war.my_score, myAttacks: war.my_attacks })))
         }
 
-        // War payouts for this member
-        const { data: wpMembers } = await supabase
-          .from('war_payout_members')
-          .select('payout_id, payout_amount, war_payouts(war_id, created_at, ranked_wars(start_at, end_at, opponent_name))')
-          .eq('member_id', memberId)
-          .order('payout_id', { ascending: false })
-          .limit(5)
-
-        setWarPayouts(wpMembers || [])
+        const { war_payouts: wpMembers } = await apiGet(`/api/members/${memberId}/war-payouts?limit=5`)
+        setWarPayouts(wpMembers)
       } catch (err) {
         console.error('Error loading RW data:', err)
       }
@@ -368,7 +334,7 @@ function RWSummaryCard({ wars, payouts }) {
                 <tbody>
                   {wars.map((war) => {
                     const result = !war.end_at || war.end_at === 0 ? 'ongoing' :
-                      war.winner_faction_id === OUR_FACTION_ID ? 'win' : 'loss'
+                      war.we_won ? 'win' : 'loss'
                     const resultColor = result === 'win' ? 'text-green-600' :
                       result === 'loss' ? 'text-red-500' : 'text-yellow-600'
 

@@ -22,7 +22,7 @@ let stack: TestStack
 const tokens = new Map<Actor, string>()
 
 beforeAll(async () => {
-  stack = await startTestStack(55445, (app) => {
+  stack = await startTestStack((app) => {
     // Probe routes exercising each guard at the HTTP seam.
     app.get('/probe/leadership', { preHandler: requireRole('leadership', 'admin') }, async () => ({ ok: true }))
     app.get('/probe/warlead', { preHandler: requireRole('warlead', 'leadership', 'admin') }, async () => ({ ok: true }))
@@ -30,6 +30,9 @@ beforeAll(async () => {
     app.get('/probe/admin', { preHandler: requireRole('admin') }, async () => ({ ok: true }))
     app.get('/probe/writes', { preHandler: requireNotVisitor() }, async () => ({ ok: true }))
   })
+
+  // /api/members/:id 404s without a row — give the member actor one.
+  await stack.db.query(`INSERT INTO members (member_id, member_name) VALUES ('9102', 'MatrixMember')`)
 
   for (const [actor, setup] of Object.entries(ACTOR_SETUP)) {
     const key = `${actor.toUpperCase().padEnd(12, 'X')}${setup.id}`
@@ -46,7 +49,7 @@ beforeAll(async () => {
       body: JSON.stringify({ apiKey: key }),
     })
     expect(res.status, `${actor} must be able to log in`).toBe(200)
-    tokens.set(actor as Actor, (await res.json()).token)
+    tokens.set(actor as Actor, ((await res.json()) as any).token)
   }
 })
 
@@ -88,6 +91,21 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path: '/probe/writes',
     expected: { unauthenticated: 401, visitor: 403, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
   },
+  // Slice #61 — member/dashboard reads: any session may read, visitors included.
+  ...[
+    '/api/members',
+    '/api/members/9102',
+    '/api/members/9102/cpr',
+    '/api/members/9102/daily-stats',
+    '/api/members/9102/crimes',
+    '/api/members/9102/payouts',
+    '/api/members/9102/wars',
+    '/api/members/9102/war-payouts',
+    '/api/inventory/loaned',
+  ].map((path) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 } as Record<Actor, number>,
+  })),
 ]
 
 describe('authorization matrix', () => {
@@ -104,7 +122,7 @@ describe('authorization matrix', () => {
       const res = await fetch(`${stack.baseUrl}/api/bootstrap`, {
         headers: { authorization: `Bearer ${tokens.get(actor as Actor)}` },
       })
-      const body = await res.json()
+      const body = await res.json() as any
       expect(body.user.roles.sort(), actor).toEqual([...setup.roles].sort())
     }
   })

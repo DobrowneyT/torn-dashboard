@@ -7,7 +7,7 @@ import { startTestStack, TEST_FACTION, TEST_JWT_SECRET, type TestStack } from '.
 let stack: TestStack
 
 beforeAll(async () => {
-  stack = await startTestStack(55443)
+  stack = await startTestStack()
 })
 
 afterAll(async () => {
@@ -20,7 +20,7 @@ async function login(apiKey: string) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ apiKey }),
   })
-  return { status: res.status, body: await res.json() }
+  return { status: res.status, body: await res.json() as any }
 }
 
 async function verifyToken(token: string) {
@@ -59,6 +59,21 @@ describe('POST /api/auth/login', () => {
     expect(body.error).toContain('Incorrect key')
   })
 
+  it('surfaces a transient Torn outage as 503, not an auth failure', async () => {
+    // Code 9: "API disabled" — the established transient set (5/8/9/17).
+    stack.torn.addBadKey('DOWNDOWNDOWNDOW1', 9, 'API disabled')
+    const { status, body } = await login('DOWNDOWNDOWNDOW1')
+    expect(status).toBe(503)
+    expect(body.error).toContain('temporarily')
+  })
+
+  it('rejects a key below Limited Access with guidance', async () => {
+    stack.torn.addKey('PUBLICKEY1234567', { id: '112', factionId: TEST_FACTION.tornFactionId, accessLevel: 1 })
+    const { status, body } = await login('PUBLICKEY1234567')
+    expect(status).toBe(403)
+    expect(body.error).toContain('Limited Access')
+  })
+
   it('rejects a stranger — valid key, wrong faction, no assigned roles', async () => {
     stack.torn.addKey('STRANGERKEY12345', { id: '999', factionId: '42' })
     const { status, body } = await login('STRANGERKEY12345')
@@ -76,14 +91,14 @@ describe('POST /api/auth/login', () => {
     expect(claims.is_visitor).toBe(true)
     expect(claims.is_leadership).toBe(false)
 
-    // Visitor keys must never join the pool, and no table may hold the raw key.
+    // Visitor logins persist NO key material — not the raw key, and not even
+    // a key-derived cache row.
     const secrets = await stack.db.query('SELECT count(*)::int AS n FROM member_secrets')
     expect(secrets.rows[0].n).toBe(0)
-    const rawInCache = await stack.db.query(
-      'SELECT count(*)::int AS n FROM war_room_auth_cache WHERE key_hash = $1 OR user_id = $1',
-      ['VISITORKEY123456']
+    const cacheRows = await stack.db.query(
+      `SELECT count(*)::int AS n FROM war_room_auth_cache WHERE user_id = '555' OR key_hash = 'VISITORKEY123456'`
     )
-    expect(rawInCache.rows[0].n).toBe(0)
+    expect(cacheRows.rows[0].n).toBe(0)
   })
 
   it('second login with the same key is served from the 24h cache, not Torn', async () => {
@@ -93,6 +108,18 @@ describe('POST /api/auth/login', () => {
     const { status } = await login('CACHEDKEY1234567')
     expect(status).toBe(200)
     expect(stack.torn.hits()).toBe(hitsAfterFirst)
+  })
+
+  it('rejects a foreign JWT signed with the same secret but a different audience', async () => {
+    const { SignJWT } = await import('jose')
+    const foreign = await new SignJWT({ aud: 'something-else', torn_user_id: '111' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('1h')
+      .sign(new TextEncoder().encode(TEST_JWT_SECRET))
+    const res = await fetch(`${stack.baseUrl}/api/members`, {
+      headers: { authorization: `Bearer ${foreign}` },
+    })
+    expect(res.status).toBe(401)
   })
 
   it('rejects a missing apiKey with 400', async () => {

@@ -66,9 +66,15 @@ export function rolesFromClaims(claims: SessionClaims): Role[] {
   return ROLES.filter((r) => map[r])
 }
 
-/** Resolve a Torn API key to a user id: cache first, then the Torn API. */
+// Torn error codes that mean "try again later", not "bad key" — the same set
+// the edge functions treat as transient.
+const TRANSIENT_TORN_CODES = new Set([5, 8, 9, 17])
+const REQUIRED_KEY_LEVEL = 3 // Limited Access
+
+/** Resolve a Torn API key to a user id: cache first, then the Torn API.
+ *  Does NOT write the cache — the caller decides (visitors must leave no trace). */
 async function verifyTornKey(deps: AuthDeps, apiKey: string): Promise<
-  | { ok: true; userId: string; tornFactionId: string | null; fromCache: boolean }
+  | { ok: true; userId: string; tornFactionId: string | null; accessLevel: number; keyHash: string; fromCache: boolean }
   | { ok: false; status: number; error: string }
 > {
   const keyHash = sha256hex(apiKey)
@@ -77,32 +83,34 @@ async function verifyTornKey(deps: AuthDeps, apiKey: string): Promise<
     [keyHash]
   )
   if (cached.rows.length > 0) {
-    // Cached hits skip the membership re-check until the 24h TTL lapses,
+    // Cached hits skip the membership/level re-check until the 24h TTL lapses,
     // mirroring the existing edge-function semantics.
-    return { ok: true, userId: cached.rows[0].user_id, tornFactionId: null, fromCache: true }
+    return { ok: true, userId: cached.rows[0].user_id, tornFactionId: null, accessLevel: REQUIRED_KEY_LEVEL, keyHash, fromCache: true }
   }
 
   let data: any
   try {
-    const resp = await fetch(`${deps.tornBaseUrl}/v2/key/info?key=${apiKey}`)
+    const url = new URL('/v2/key/info', deps.tornBaseUrl)
+    url.searchParams.set('key', apiKey)
+    const resp = await fetch(url)
     if (!resp.ok) return { ok: false, status: 502, error: 'Failed to verify API key' }
     data = await resp.json()
   } catch {
     return { ok: false, status: 502, error: 'Failed to verify API key' }
   }
-  if (data.error) return { ok: false, status: 401, error: `Torn API error: ${data.error.error}` }
+  if (data.error) {
+    if (TRANSIENT_TORN_CODES.has(Number(data.error.code))) {
+      return { ok: false, status: 503, error: 'Torn API is temporarily unavailable — please try again shortly' }
+    }
+    return { ok: false, status: 401, error: `Torn API error: ${data.error.error}` }
+  }
 
   const userId = String(data.info.user.id)
   // faction_id is a flat property on user in /v2/key/info (not nested).
   const tornFactionId = data.info.user.faction_id == null ? null : String(data.info.user.faction_id)
+  const accessLevel = Number(data.info.access?.level ?? 0)
 
-  const expiresAt = new Date(Date.now() + AUTH_CACHE_TTL_MS).toISOString()
-  await deps.db.query(
-    `INSERT INTO war_room_auth_cache (key_hash, user_id, expires_at) VALUES ($1, $2, $3)
-     ON CONFLICT (key_hash) DO UPDATE SET user_id = excluded.user_id, expires_at = excluded.expires_at`,
-    [keyHash, userId, expiresAt]
-  )
-  return { ok: true, userId, tornFactionId, fromCache: false }
+  return { ok: true, userId, tornFactionId, accessLevel, keyHash, fromCache: false }
 }
 
 export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<LoginResult> {
@@ -114,11 +122,30 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
     fetchRoles(deps.db, verified.userId),
   ])
 
+  if (verified.accessLevel < REQUIRED_KEY_LEVEL) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'This dashboard needs a Limited Access key. Generate one in Torn and log in with it.',
+    }
+  }
+
   // Membership: in the faction, or holding any DB-assigned role (visitors and
   // out-of-faction leaders enter through role_assignments, not hardcoded lists).
   const isMember = verified.tornFactionId === config.torn_faction_id
   if (!verified.fromCache && !isMember && roles.length === 0) {
     return { ok: false, status: 403, error: 'Not a faction member' }
+  }
+
+  // Cache the verification — except for visitors, whose logins must persist
+  // no key material at all (not even a key-derived hash).
+  if (!verified.fromCache && !roles.includes('visitor')) {
+    const expiresAt = new Date(Date.now() + AUTH_CACHE_TTL_MS).toISOString()
+    await deps.db.query(
+      `INSERT INTO war_room_auth_cache (key_hash, user_id, expires_at) VALUES ($1, $2, $3)
+       ON CONFLICT (key_hash) DO UPDATE SET user_id = excluded.user_id, expires_at = excluded.expires_at`,
+      [verified.keyHash, verified.userId, expiresAt]
+    )
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -145,7 +172,9 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
 
 export async function verifySessionToken(jwtSecret: string, token: string): Promise<SessionClaims | null> {
   try {
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret))
+    const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret), {
+      audience: 'authenticated',
+    })
     return payload as SessionClaims
   } catch {
     return null

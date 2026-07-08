@@ -5,9 +5,21 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createServer } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import EmbeddedPostgres from 'embedded-postgres'
 import pg from 'pg'
+
+// Fixed ports flake when runners share a host; ask the OS for a free one.
+function freePort() {
+  return new Promise((resolve) => {
+    const srv = createServer()
+    srv.listen(0, '127.0.0.1', () => {
+      const port = srv.address().port
+      srv.close(() => resolve(port))
+    })
+  })
+}
 
 const here = dirname(fileURLToPath(import.meta.url))
 const TEMPLATE = readFileSync(join(here, '..', 'template.sql'), 'utf8')
@@ -33,12 +45,13 @@ let dataDir
 let client
 
 beforeAll(async () => {
+  const port = await freePort()
   dataDir = mkdtempSync(join(tmpdir(), 'tnl-template-test-'))
   server = new EmbeddedPostgres({
     databaseDir: dataDir,
     user: 'postgres',
     password: 'postgres',
-    port: 55441,
+    port,
     persistent: false,
   })
   await server.initialise()
@@ -47,7 +60,7 @@ beforeAll(async () => {
 
   client = new pg.Client({
     host: '127.0.0.1',
-    port: 55441,
+    port,
     user: 'postgres',
     password: 'postgres',
     database: 'faction_template_test',

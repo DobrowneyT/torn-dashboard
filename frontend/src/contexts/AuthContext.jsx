@@ -35,7 +35,8 @@ async function loginViaApi(apiKey) {
       : roles.includes('admin') ? 'Admin'
       : roles.includes('visitor') ? 'Visitor'
       : 'Member',
-    apiKey,
+    // Deliberately NO apiKey: in API mode the browser holds only the session
+    // token — raw key material never reaches localStorage (visitors included).
     accessLevel: 3,
     isLeadership: roles.includes('leadership'),
     isAdmin: roles.includes('admin'),
@@ -190,12 +191,19 @@ export function AuthProvider({ children }) {
   // mint succeeds. Until tokenReady flips true, supabase calls fall back to
   // the anon key (graceful degradation, see src/utils/supabase.js).
   useEffect(() => {
-    sessionToken.configure(user)
     // Flip the adminApi read-only latch for visitors so every write path
     // fails fast with a friendly message instead of a server 403.
     setVisitorReadOnly(
       !!user && (user.isVisitor || config.visitorUserIds.includes(String(user.id)))
     )
+    if (API_MODE) {
+      // No Supabase session token to mint — the API session token is the
+      // only credential. (Minting here caused POSTs to
+      // {undefined}/functions/v1/war-room-fetch on every page.)
+      setTokenReady(!!user)
+      return
+    }
+    sessionToken.configure(user)
     const unsubscribe = sessionToken.subscribeToReady(setTokenReady)
     return unsubscribe
   }, [user])

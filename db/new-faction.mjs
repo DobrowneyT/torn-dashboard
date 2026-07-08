@@ -120,8 +120,8 @@ Add the faction's API process to deploy/docker-compose.yml:
         condition: service_healthy
     restart: unless-stopped
 
-And route the subdomain in deploy/nginx/default.conf:
-
-  # inside the map $host $faction_api block:
-  ${slug}.YOUR_DOMAIN  api-${slug}:8080;
+nginx note: deploy/nginx/default.conf currently routes all /api/ traffic to
+api-forge (single-faction skeleton). Host-header routing per faction subdomain
+lands with migration slice #75 — until then a second faction needs its own
+server block pointing at api-${slug}:8080.
 `)
