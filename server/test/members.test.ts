@@ -9,7 +9,21 @@ let stack: TestStack
 let token: string
 
 beforeAll(async () => {
-  stack = await startTestStack(55446)
+  stack = await startTestStack()
+
+  // Shared fixtures for every endpoint test in this file.
+  await stack.db.query(`
+    INSERT INTO members (member_id, member_name, tier, tier_override, is_current, last_scraped) VALUES
+      ('300', 'Trout',  3, NULL, true,  '2026-07-01T00:00:00'),
+      ('301', 'Salmon', 5, 2,    true,  '2026-07-02T00:00:00'),
+      ('302', 'Gone',   6, NULL, false, NULL)
+  `)
+  await stack.db.query(`
+    INSERT INTO member_cpr_v2 (member_id, crime_name, position_label, cpr_value) VALUES
+      ('300', 'Break the Bank', 'Robber', 80),
+      ('300', 'Break the Bank', 'Thief #1', 60),
+      ('301', 'Snow Blind', 'Hustler', 55)
+  `)
 
   // A logged-in plain member (no roles) — reads must work for them.
   stack.torn.addKey('MEMBERKEY1234567', { id: '300', factionId: TEST_FACTION.tornFactionId })
@@ -18,7 +32,9 @@ beforeAll(async () => {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ apiKey: 'MEMBERKEY1234567' }),
   })
-  token = (await res.json()).token
+  expect(res.status).toBe(200)
+  token = ((await res.json()) as any).token
+  expect(token).toBeTruthy()
 })
 
 afterAll(async () => {
@@ -29,24 +45,11 @@ async function get(path: string) {
   const res = await fetch(`${stack.baseUrl}${path}`, {
     headers: { authorization: `Bearer ${token}` },
   })
-  return { status: res.status, body: await res.json() }
+  return { status: res.status, body: await res.json() as any }
 }
 
 describe('GET /api/members', () => {
   it('lists current members with tier, override flag and CPR aggregates', async () => {
-    await stack.db.query(`
-      INSERT INTO members (member_id, member_name, tier, tier_override, is_current, last_scraped) VALUES
-        ('300', 'Trout',  3, NULL, true,  '2026-07-01T00:00:00'),
-        ('301', 'Salmon', 5, 2,    true,  '2026-07-02T00:00:00'),
-        ('302', 'Gone',   6, NULL, false, NULL)
-    `)
-    await stack.db.query(`
-      INSERT INTO member_cpr_v2 (member_id, crime_name, position_label, cpr_value) VALUES
-        ('300', 'Break the Bank', 'Robber', 80),
-        ('300', 'Break the Bank', 'Thief #1', 60),
-        ('301', 'Snow Blind', 'Hustler', 55)
-    `)
-
     const { status, body } = await get('/api/members')
     expect(status).toBe(200)
     // Former members are excluded; averages come from member_cpr_v2.

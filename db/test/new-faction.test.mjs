@@ -2,6 +2,7 @@
 // produce a complete, independent faction database on the target Postgres.
 import { execFile } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,14 +15,19 @@ const run = promisify(execFile)
 const here = dirname(fileURLToPath(import.meta.url))
 const SCRIPT = join(here, '..', 'new-faction.mjs')
 
-const PORT = 55442
-const PG_ENV = {
-  ...process.env,
-  PGHOST: '127.0.0.1',
-  PGPORT: String(PORT),
-  PGUSER: 'postgres',
-  PGPASSWORD: 'postgres',
+// Fixed ports flake when runners share a host; ask the OS for a free one.
+function freePort() {
+  return new Promise((resolve) => {
+    const srv = createServer()
+    srv.listen(0, '127.0.0.1', () => {
+      const port = srv.address().port
+      srv.close(() => resolve(port))
+    })
+  })
 }
+
+let PORT
+let PG_ENV
 
 let server
 let dataDir
@@ -47,6 +53,14 @@ async function query(database, sql) {
 }
 
 beforeAll(async () => {
+  PORT = await freePort()
+  PG_ENV = {
+    ...process.env,
+    PGHOST: '127.0.0.1',
+    PGPORT: String(PORT),
+    PGUSER: 'postgres',
+    PGPASSWORD: 'postgres',
+  }
   dataDir = mkdtempSync(join(tmpdir(), 'tnl-new-faction-test-'))
   server = new EmbeddedPostgres({
     databaseDir: dataDir,

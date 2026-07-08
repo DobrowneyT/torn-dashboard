@@ -14,7 +14,11 @@ if (!key) {
   process.exit(1)
 }
 
-const res = await fetch(`https://api.torn.com/v2/torn/items?key=${key}`)
+const res = await fetch(`https://api.torn.com/v2/torn/items?key=${encodeURIComponent(key)}`)
+if (!res.ok) {
+  console.error(`Torn API HTTP ${res.status}: ${await res.text()}`)
+  process.exit(1)
+}
 const data = await res.json()
 if (data.error) {
   console.error('Torn API error:', data.error)

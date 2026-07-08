@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ViewStateProvider } from './contexts/ViewStateContext'
 import LoginModal from './components/LoginModal'
 import ProtectedRoute from './components/ProtectedRoute'
+import ViewErrorBoundary from './components/ViewErrorBoundary'
 import Header from './components/Header'
 import Navigation from './components/Navigation'
 import MembersView from './views/MembersView'
@@ -110,18 +111,20 @@ function DashboardLayout() {
         <Navigation isLeadership={effectiveIsLeadership} />
         <div className="mt-6">
           <ProtectedRoute>
-            <Routes>
-              <Route index element={<DashboardView />} />
-              <Route path="members" element={<MembersView isLeadership={effectiveIsLeadership} />} />
-              <Route path="oc/*" element={<OCPage isLeadership={effectiveIsLeadership} canAccessOCPlanner={effectiveCanAccessOCPlanner} />} />
-              <Route path="rw/*" element={<RWPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} canAccessWarOverview={effectiveCanAccessWarOverview} />} />
-              <Route path="leadership/*" element={
-                <ProtectedRoute requireLeadership>
-                  <LeadershipPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />
-                </ProtectedRoute>
-              } />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            <ViewErrorBoundary pathname={location.pathname}>
+              <Routes>
+                <Route index element={<DashboardView />} />
+                <Route path="members" element={<MembersView isLeadership={effectiveIsLeadership} />} />
+                <Route path="oc/*" element={<OCPage isLeadership={effectiveIsLeadership} canAccessOCPlanner={effectiveCanAccessOCPlanner} />} />
+                <Route path="rw/*" element={<RWPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} canAccessWarOverview={effectiveCanAccessWarOverview} />} />
+                <Route path="leadership/*" element={
+                  <ProtectedRoute requireLeadership>
+                    <LeadershipPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} />
+                  </ProtectedRoute>
+                } />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </ViewErrorBoundary>
           </ProtectedRoute>
         </div>
       </div>

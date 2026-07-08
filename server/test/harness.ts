@@ -4,6 +4,7 @@
 //   2. A fake Torn fixture server injected via the Torn client's base URL —
 //      the only fake in the suite.
 import { createServer, type Server } from 'node:http'
+import { createServer as createNetServer } from 'node:net'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -28,6 +29,8 @@ export const TEST_JWT_SECRET = 'test-jwt-secret'
 export interface TornFixtureUser {
   id: string
   factionId: string | null
+  /** Torn key access level; defaults to 3 (Limited Access). */
+  accessLevel?: number
 }
 
 export interface TestStack {
@@ -43,12 +46,24 @@ export interface TestStack {
   close(): Promise<void>
 }
 
+/** Ask the OS for a currently free port (embedded-postgres needs an explicit one). */
+export function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createNetServer()
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address()
+      if (addr === null || typeof addr === 'string') return reject(new Error('no port'))
+      srv.close(() => resolve(addr.port))
+    })
+  })
+}
+
 /** Boot embedded Postgres + templated faction DB + Torn fixture + API. */
 export async function startTestStack(
-  pgPort: number,
   extendApp?: (app: FastifyInstance) => void
 ): Promise<TestStack> {
   // Real templated Postgres
+  const pgPort = await freePort()
   const dataDir = mkdtempSync(join(tmpdir(), 'tnl-server-test-'))
   const embedded = new EmbeddedPostgres({
     databaseDir: dataDir,
@@ -97,7 +112,7 @@ export async function startTestStack(
       res.end(JSON.stringify({
         info: {
           user: { id: Number(user.id), faction_id: user.factionId === null ? null : Number(user.factionId), company_id: 0 },
-          access: { level: 3, type: 'Limited Access', faction: true },
+          access: { level: user.accessLevel ?? 3, type: 'Limited Access', faction: true },
         },
       }))
       return

@@ -5,7 +5,7 @@ import { buildServer } from '../src/app.js'
 
 describe('per-faction API service', () => {
   let baseUrl: string
-  let close: () => Promise<void>
+  let close: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
     const app = await buildServer({ factionSlug: 'forge' })
@@ -17,7 +17,8 @@ describe('per-faction API service', () => {
   })
 
   afterAll(async () => {
-    await close()
+    // Guarded so a failed beforeAll doesn't mask its error with a teardown one.
+    await close?.()
   })
 
   it('reports healthy and names the faction it serves', async () => {

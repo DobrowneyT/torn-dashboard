@@ -10,6 +10,10 @@ if (!factionSlug) {
 }
 
 const port = Number(process.env.PORT ?? 8080)
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  console.error(`PORT must be a valid port number, got "${process.env.PORT}"`)
+  process.exit(1)
+}
 const databaseUrl = process.env.DATABASE_URL
 const jwtSecret = process.env.JWT_SECRET
 const tornBaseUrl = process.env.TORN_API_BASE ?? 'https://api.torn.com'

@@ -6,7 +6,7 @@ import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
 let stack: TestStack
 
 beforeAll(async () => {
-  stack = await startTestStack(55444)
+  stack = await startTestStack()
   await stack.db.query(
     `UPDATE faction_config
      SET branding = '{"primaryColor": "#f97316", "logo": "/branding/logo.png"}'::jsonb,
@@ -22,7 +22,7 @@ async function bootstrap(token?: string) {
   const res = await fetch(`${stack.baseUrl}/api/bootstrap`, {
     headers: token ? { authorization: `Bearer ${token}` } : {},
   })
-  return { status: res.status, body: await res.json() }
+  return { status: res.status, body: await res.json() as any }
 }
 
 describe('GET /api/bootstrap', () => {
@@ -47,7 +47,7 @@ describe('GET /api/bootstrap', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ apiKey: 'WARLEADKEY123456' }),
     })
-    const { token } = await loginRes.json()
+    const { token } = await loginRes.json() as any
 
     const { status, body } = await bootstrap(token)
     expect(status).toBe(200)
