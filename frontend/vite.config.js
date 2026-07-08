@@ -3,7 +3,9 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/torn-forge-oc-system/',
+  // Self-hosted stack serves the SPA at the domain root behind nginx.
+  // (GitHub Pages needed base '/torn-forge-oc-system/'; that stays on main.)
+  base: '/',
   build: {
     outDir: 'dist',
   },
@@ -14,5 +16,6 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    setupFiles: ['./test.setup.js'],
   },
 })
