@@ -1,0 +1,18 @@
+{
+  "name": "@tnl/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "new-faction": "node new-faction.mjs",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^17.5.0-beta.15",
+    "vitest": "^1.6.1"
+  }
+}
