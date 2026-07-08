@@ -5805,6 +5805,23 @@
       "rank_before": "Diamond",
       "rank_after": "Diamond I",
       "report_fetched": true
+    },
+    "45165": {
+      "id": 45165,
+      "start_at": 1783778400,
+      "end_at": null,
+      "opponent_id": 30820,
+      "opponent_name": "Wolverines Gone Wild",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 16700,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -215086,6 +215103,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-07-07T04:51:31.867937"
+    "last_updated": "2026-07-08T04:13:26.529628"
   }
 }
