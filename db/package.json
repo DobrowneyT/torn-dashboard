@@ -9,6 +9,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
+    "dotenv": "^17.2.3",
     "pg": "^8.13.0"
   },
   "devDependencies": {

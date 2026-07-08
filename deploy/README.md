@@ -9,10 +9,13 @@ faction. `dashboard-migration.md` is the roadmap of record.
 cp deploy/.env.example deploy/.env        # set POSTGRES_PASSWORD
 docker compose -f deploy/docker-compose.yml up --build -d
 
-# create the first faction database (host-side, against the published port)
-PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=<same as .env> \
-  node db/new-faction.mjs --slug forge --name "TNL Forge Dashboard" --faction-id <torn id>
+# create the first faction database (reads deploy/.env for credentials)
+node db/new-faction.mjs --slug forge --name "TNL Forge Dashboard" --faction-id <torn id>
 ```
+
+To target a different Postgres, set the standard `PG*` env vars — remember to
+`export` them (or prefix them on the same line as the command); they override
+`deploy/.env`.
 
 - SPA: http://localhost:8088
 - API health: http://localhost:8088/api/health

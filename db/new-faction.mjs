@@ -2,15 +2,26 @@
 // faction_config identity row, and prints the docker-compose/nginx additions
 // the operator needs to wire the faction's API process.
 //
-// Usage (connection via standard PG* env vars or a running local compose):
+// Usage:
 //   node db/new-faction.mjs --slug mayhem --name "TNL Mayhem Dashboard" --faction-id 12345
+//
+// Connection: defaults to the local compose stack, reading deploy/.env for the
+// Postgres credentials. Standard PG* env vars override everything.
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import dotenv from 'dotenv'
 import pg from 'pg'
 
 const here = dirname(fileURLToPath(import.meta.url))
+
+const composeEnv = {}
+dotenv.config({ path: join(here, '..', 'deploy', '.env'), processEnv: composeEnv })
+process.env.PGHOST ??= '127.0.0.1'
+process.env.PGPORT ??= composeEnv.POSTGRES_HOST_PORT ?? '5432'
+process.env.PGUSER ??= composeEnv.POSTGRES_USER ?? 'postgres'
+process.env.PGPASSWORD ??= composeEnv.POSTGRES_PASSWORD ?? ''
 
 const { values: args } = parseArgs({
   options: {
