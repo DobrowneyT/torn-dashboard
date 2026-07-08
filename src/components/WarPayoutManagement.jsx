@@ -330,7 +330,7 @@ function SplitCount({ pre = 0, post = 0, fmt = (n) => n }) {
 }
 
 export default function WarPayoutManagement() {
-  const { user } = useAuth()
+  const { user, isVisitor } = useAuth()
 
   // War list state
   const [wars, setWars] = useState([])
@@ -2025,11 +2025,17 @@ export default function WarPayoutManagement() {
             ) : (
               <button
                 onClick={handleSave}
-                disabled={isSaving || contributionSource === 'live'}
-                title={contributionSource === 'live' ? 'Saving is disabled for live estimates — wait for the official war report.' : undefined}
+                disabled={isSaving || contributionSource === 'live' || isVisitor}
+                title={
+                  isVisitor ? 'Visitor mode is read-only — saving is disabled.'
+                  : contributionSource === 'live' ? 'Saving is disabled for live estimates — wait for the official war report.'
+                  : undefined
+                }
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {isSaving ? 'Saving...' : (contributionSource === 'live' ? 'Save disabled (live)' : 'Save to Database')}
+                {isSaving ? 'Saving...'
+                  : isVisitor ? 'Save disabled (visitor)'
+                  : (contributionSource === 'live' ? 'Save disabled (live)' : 'Save to Database')}
               </button>
             )}
 

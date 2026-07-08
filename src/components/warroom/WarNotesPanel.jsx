@@ -5,7 +5,8 @@ import RollCallResultsTable from './RollCallResultsTable'
 // War Leaders only. War type / agreed scores / strategy notes + the embedded
 // roll-call results table and a "not yet responded" list. Edited responses
 // (revised=true) are highlighted so leaders notice changes.
-export default function WarNotesPanel({ currentWar, notes, privateNotes = '', onSave, saving, saveError, rollCallRows = [], ourMembers = [] }) {
+// readOnly: rendered for visitors — all fields disabled, Save hidden.
+export default function WarNotesPanel({ currentWar, notes, privateNotes = '', onSave, saving, saveError, rollCallRows = [], ourMembers = [], readOnly = false }) {
   const [warType, setWarType] = useState(notes?.war_type ?? 'real')
   const [termedUs, setTermedUs] = useState(notes?.termed_score_us ?? '')
   const [termedThem, setTermedThem] = useState(notes?.termed_score_them ?? '')
@@ -51,7 +52,7 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <span className="text-xs font-medium text-gray-500 dark:text-gray-400 mr-1">Type:</span>
         {['real', 'termed', 'race'].map(t => (
-          <button key={t} type="button" onClick={() => setWarType(t)}
+          <button key={t} type="button" disabled={readOnly} onClick={() => setWarType(t)}
             className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize transition-colors ${
               warType === t ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
             }`}>
@@ -62,12 +63,12 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
           <>
             <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
               Us
-              <input type="number" value={termedUs} onChange={e => setTermedUs(e.target.value)}
+              <input type="number" value={termedUs} disabled={readOnly} onChange={e => setTermedUs(e.target.value)}
                 className="input w-24 py-1 text-sm" placeholder="15500" />
             </label>
             <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
               Them
-              <input type="number" value={termedThem} onChange={e => setTermedThem(e.target.value)}
+              <input type="number" value={termedThem} disabled={readOnly} onChange={e => setTermedThem(e.target.value)}
                 className="input w-24 py-1 text-sm" placeholder="7200" />
             </label>
           </>
@@ -75,7 +76,7 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
         {warType === 'race' && (
           <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
             Target score
-            <input type="number" value={raceTarget} onChange={e => setRaceTarget(e.target.value)}
+            <input type="number" value={raceTarget} disabled={readOnly} onChange={e => setRaceTarget(e.target.value)}
               className="input w-24 py-1 text-sm" placeholder="25000" />
           </label>
         )}
@@ -88,6 +89,7 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Public note (visible to all members)</label>
           <textarea
             value={text}
+            disabled={readOnly}
             onChange={e => setText(e.target.value)}
             rows={3}
             placeholder="Strategy / agreed terms / hit-list priorities…"
@@ -100,6 +102,7 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
           </label>
           <textarea
             value={privText}
+            disabled={readOnly}
             onChange={e => setPrivText(e.target.value)}
             rows={3}
             placeholder="Negotiation details, terms not yet public…"
@@ -108,10 +111,13 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
         </div>
       </div>
       <div className="flex items-center gap-3 mt-2">
-        <button onClick={handleSave} disabled={saving || !currentWar}
+        {readOnly && (
+          <span className="text-xs text-gray-500 dark:text-gray-400 italic">Visitor mode — notes are read-only.</span>
+        )}
+        {!readOnly && <button onClick={handleSave} disabled={saving || !currentWar}
           className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2">
           {saving && <LoaderCircle className="animate-spin w-4 h-4" />} Save Notes
-        </button>
+        </button>}
         {msg && <span className="text-xs text-green-600 dark:text-green-400">{msg}</span>}
         {saveError && <span className="text-xs text-red-500 dark:text-red-400">{saveError}</span>}
       </div>

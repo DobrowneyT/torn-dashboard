@@ -7,6 +7,17 @@
 const EDGE_FUNCTION_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/admin-db'
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
+// Visitor (read-only demo) mode: when set, EVERY admin-db call is refused
+// client-side with a friendly error before any network request. This is UX
+// only — the real enforcement is server-side (admin-db rejects non-faction
+// callers, and the visitor JWT carries no write-granting claims).
+let visitorReadOnly = false
+export function setVisitorReadOnly(flag) {
+  visitorReadOnly = !!flag
+}
+export const VISITOR_READ_ONLY_MESSAGE =
+  'Visitor mode is read-only — saving to the database is disabled.'
+
 /**
  * Call the admin-db Edge Function
  * @param {string} action - The action to perform
@@ -15,6 +26,9 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
  * @returns {Promise<object>} Response from the Edge Function
  */
 async function callAdminApi(action, payload, tornApiKey) {
+  if (visitorReadOnly) {
+    throw new Error(VISITOR_READ_ONLY_MESSAGE)
+  }
   if (!tornApiKey) {
     console.error('callAdminApi called without API key')
     throw new Error('Torn API key required for database writes')

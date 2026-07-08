@@ -106,7 +106,7 @@ function recalculateWithItemPrices(results, factionCutPercent) {
 }
 
 export default function PayoutManagement() {
-  const { user } = useAuth()
+  const { user, isVisitor } = useAuth()
 
   // Date range state
   const [fromDate, setFromDate] = useState('')
@@ -1359,10 +1359,11 @@ export default function PayoutManagement() {
               </button>
               <button
                 onClick={handleSaveWeek}
-                disabled={isSaving || payoutResults.members.length === 0}
+                disabled={isSaving || payoutResults.members.length === 0 || isVisitor}
+                title={isVisitor ? 'Visitor mode is read-only — saving is disabled.' : undefined}
                 className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSaving ? 'Saving...' : 'Save to Database'}
+                {isSaving ? 'Saving...' : (isVisitor ? 'Save disabled (visitor)' : 'Save to Database')}
               </button>
             </div>
 

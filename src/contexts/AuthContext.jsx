@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { config } from '../config'
 import { getTornErrorMessage } from '../utils/apiUtils'
-import { submitApiKey } from '../utils/adminApi'
+import { submitApiKey, setVisitorReadOnly } from '../utils/adminApi'
 import * as sessionToken from '../utils/sessionToken'
 
 // Persist the member's consented key + ToS acceptance into member_secrets so it
@@ -70,13 +70,14 @@ async function revalidateSession(savedUser) {
     }
   }
 
-  // Leadership + admin users bypass faction/access checks at login (see
-  // login() below); mirror that here so the revalidator doesn't kick out
-  // a leader whose key still works.
+  // Leadership + admin + visitor users bypass faction/access checks at login
+  // (see login() below); mirror that here so the revalidator doesn't kick out
+  // a leader (or read-only visitor from another faction) whose key still works.
   const idStr = String(savedUser.id)
   const isLeader = config.leadershipUserIds.includes(idStr)
   const isAdminUser = config.adminsUserIds.includes(idStr)
-  if (isLeader || isAdminUser) return { ok: true }
+  const isVisitorUser = config.visitorUserIds.includes(idStr)
+  if (isLeader || isAdminUser || isVisitorUser) return { ok: true }
 
   const requiredFactionId = parseInt(config.faction.id)
   const liveFactionId = data.info?.user?.faction_id
@@ -139,6 +140,11 @@ export function AuthProvider({ children }) {
   // the anon key (graceful degradation, see src/utils/supabase.js).
   useEffect(() => {
     sessionToken.configure(user)
+    // Flip the adminApi read-only latch for visitors so every write path
+    // fails fast with a friendly message instead of a server 403.
+    setVisitorReadOnly(
+      !!user && (user.isVisitor || config.visitorUserIds.includes(String(user.id)))
+    )
     const unsubscribe = sessionToken.subscribeToReady(setTokenReady)
     return unsubscribe
   }, [user])
@@ -178,6 +184,7 @@ export function AuthProvider({ children }) {
       const isLeader = config.leadershipUserIds.includes(String(userId))
       const isAdminUser = config.adminsUserIds.includes(String(userId))
       const isWarLeadUser = config.warleadUserIds.includes(String(userId))
+      const isVisitorUser = config.visitorUserIds.includes(String(userId))
 
       // Get faction info
       const userFactionId = data.info?.user?.faction_id
@@ -228,6 +235,47 @@ export function AuthProvider({ children }) {
 
         // Store the consented key (leaders' keys feed the pool too) then save.
         await persistConsentedKey(apiKey, userObj.factionPosition)
+        setUser(userObj)
+        localStorage.setItem('tornUser', JSON.stringify(userObj))
+
+        return {
+          success: true,
+          user: userObj
+        }
+      }
+
+      // VISITOR USERS: read-only demo access for allied faction leaders.
+      // Skips faction validation like admins, but the key is used for
+      // identity + session-token minting ONLY — it is never persisted to
+      // member_secrets, so it can't join the CPR/War-Room rotation pool.
+      if (isVisitorUser && !isLeader && !isAdminUser) {
+        const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
+        const userData = await userResponse.json()
+
+        if (userData.error) {
+          return {
+            success: false,
+            error: getTornErrorMessage(userData.error)
+          }
+        }
+
+        const userObj = {
+          id: userId,
+          name: userData.name,
+          factionId: userFactionId || null,
+          factionPosition: userData.faction?.position || 'Visitor',
+          apiKey: apiKey,
+          accessLevel: data.info?.access?.level || 1,
+          isLeadership: false,
+          isAdmin: false,
+          isWarLead: false,
+          isVisitor: true,
+          consentVersion: config.apiKey.consentVersion,
+          lastLogin: new Date().toISOString()
+        }
+
+        // NOTE: deliberately NO persistConsentedKey() here — visitor keys
+        // must never enter the rotation pool.
         setUser(userObj)
         localStorage.setItem('tornUser', JSON.stringify(userObj))
 
@@ -362,6 +410,10 @@ export function AuthProvider({ children }) {
   // OC Manager is a config-list role (like warlead) derived live from the id,
   // so we don't need to thread a flag through every login() branch.
   const isOCManagerFlag = config.ocmanagerUserIds.includes(String(user?.id))
+  // Visitor is also derived live from the config list (belt-and-braces on top
+  // of the persisted flag) so removing an ID from the list revokes access on
+  // the next app load even before revalidation runs.
+  const isVisitorFlag = user?.isVisitor || config.visitorUserIds.includes(String(user?.id))
 
   const value = {
     user,
@@ -370,11 +422,14 @@ export function AuthProvider({ children }) {
     isAdmin: isAdminFlag,
     isWarLead,
     isOCManager: isOCManagerFlag,
+    // Read-only demo profile: sees everything leadership sees, saves nothing.
+    isVisitor: isVisitorFlag,
     // War Overview is available to leadership, admins, and warleads —
     // anyone whose role meaningfully owns or co-owns ranked-war planning.
-    canAccessWarOverview: isLeadership || isAdminFlag || isWarLead,
+    // Visitors get view access to everything role-gated.
+    canAccessWarOverview: isLeadership || isAdminFlag || isWarLead || isVisitorFlag,
     // OC Planner is for OC Managers, plus leadership/admins as a superset.
-    canAccessOCPlanner: isOCManagerFlag || isLeadership || isAdminFlag,
+    canAccessOCPlanner: isOCManagerFlag || isLeadership || isAdminFlag || isVisitorFlag,
     loading,
     tokenReady,
     authError,

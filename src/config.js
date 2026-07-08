@@ -33,6 +33,17 @@ export const config = {
     '2250591', // MonChoon
   ],
 
+  // Read-only demo access for leaders of the other TNL family factions.
+  // Visitors bypass the faction-membership check at login, see everything
+  // leadership sees (Data Management excluded), and can run the full OC/RW
+  // payout flows — but every save/write is disabled. Their API key is used
+  // for identity + session-token minting ONLY and is never stored in
+  // member_secrets or the rotation pool. IDs here must also be mirrored in
+  // VISITOR_IDS inside supabase/functions/war-room-fetch (JWT mint + RLS).
+  visitorUserIds: [
+    // '1234567', // Example — Faction2 leader
+  ],
+
   leadershipUserIds: [
     '2250591', // MonChoon
     '2749598', // Uncensored
@@ -265,4 +276,8 @@ export function isWarLead(userId) {
 
 export function isOCManager(userId) {
   return config.ocmanagerUserIds.includes(String(userId))
+}
+
+export function isVisitor(userId) {
+  return config.visitorUserIds.includes(String(userId))
 }

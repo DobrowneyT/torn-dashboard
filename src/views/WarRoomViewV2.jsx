@@ -1060,7 +1060,7 @@ function ConfigPanel({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function WarRoomViewV2({ isLeadership, isAdmin }) {
-  const { user, tokenReady } = useAuth()
+  const { user, tokenReady, isVisitor } = useAuth()
   // Derive war-lead status from config + ID rather than the session flag, so a
   // stale/older cached session object can't hide the War Notes controls.
   const isWarLead = checkWarLead(user?.id)
@@ -1434,13 +1434,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Load the leads-only private note via the edge function when a War Leader
   // opens the notes panel (it's never client-readable).
   useEffect(() => {
-    if (!notesPanelOpen || !isWarLead || !currentWar?.id || !user?.apiKey) return
+    if (!notesPanelOpen || (!isWarLead && !isVisitor) || !currentWar?.id || !user?.apiKey) return
     let cancelled = false
     getWarNotesPrivate(currentWar.id, user.apiKey)
       .then(r => { if (!cancelled) setPrivateNotes(r?.notes ?? '') })
       .catch(() => { if (!cancelled) setPrivateNotes('') })
     return () => { cancelled = true }
-  }, [notesPanelOpen, isWarLead, currentWar?.id, user?.apiKey])
+  }, [notesPanelOpen, isWarLead, isVisitor, currentWar?.id, user?.apiKey])
 
   async function handleSaveWarNotes(fields) {
     if (!currentWar?.id) return false
@@ -1845,8 +1845,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               )}
               {/* Leadership controls collapse toggle — sits on the title row
                   so admins can hide all admin chrome by default and only show
-                  it when needed. Only rendered to leadership. */}
-              {isLeadership && (
+                  it when needed. Only rendered to leadership. Visitors see
+                  the leadership layout but the config panel is pure writes,
+                  so it stays hidden for them. */}
+              {isLeadership && !isVisitor && (
                 <button
                   onClick={() => setLeadershipPanelOpen(v => !v)}
                   title={leadershipPanelOpen ? 'Hide leadership controls' : 'Show leadership controls'}
@@ -1861,9 +1863,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   <Settings className="w-4 h-4" />
                 </button>
               )}
-              {/* War Notes panel toggle — War Leaders only. Sits beside the
-                  settings gear. */}
-              {isWarLead && (
+              {/* War Notes panel toggle — War Leaders, plus read-only
+                  visitors (they can view notes incl. the private leads note
+                  but not save). Sits beside the settings gear. */}
+              {(isWarLead || isVisitor) && (
                 <button
                   onClick={() => setNotesPanelOpen(v => !v)}
                   title={notesPanelOpen ? 'Hide war notes' : 'Show war notes & roll-call results'}
@@ -1888,8 +1891,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 Mobile App
               </button>
               {/* Roll Call — shown once a war exists so members can review/edit
-                  their response even after the gate has auto-released. */}
-              {currentWar && (
+                  their response even after the gate has auto-released.
+                  Hidden from visitors: submitting would write a roll-call row
+                  for a non-member. */}
+              {currentWar && !isVisitor && (
                 <button
                   onClick={() => { setRollCallOpen(true) }}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
@@ -1934,7 +1939,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           </div>
         </div>
 
-        {isLeadership && leadershipPanelOpen && (
+        {isLeadership && !isVisitor && leadershipPanelOpen && (
           <ConfigPanel
             config={config}
             isActive={isActive}
@@ -1951,8 +1956,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           />
         )}
 
-        {/* War Notes & Roll Call results — War Leaders only. */}
-        {isWarLead && notesPanelOpen && (
+        {/* War Notes & Roll Call results — War Leaders, plus visitors in
+            read-only mode (view everything, save nothing). */}
+        {(isWarLead || isVisitor) && notesPanelOpen && (
           <WarNotesPanel
             currentWar={currentWar}
             notes={warNotes}
@@ -1962,6 +1968,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             saveError={notesError}
             rollCallRows={rollCallRows}
             ourMembers={ourMembers}
+            readOnly={isVisitor}
           />
         )}
 
@@ -2345,7 +2352,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               factionId={String(config?.faction_id ?? '')}
               factionName={factionName ?? config?.faction_name}
               ourCounts={mobileOurCounts}
-              isLeadership={isLeadership}
+              isLeadership={isLeadership && !isVisitor}
               isActive={isActive}
               paused={!isActive}
               pollIntervalS={pollIntervalSec}
@@ -2395,8 +2402,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       )}
 
       {/* Roll-call overlay — hard gate when the member hasn't responded and
-          we're >1h from kickoff; also opened manually (edit) via the button. */}
-      {showRollCall && currentWar && (
+          we're >1h from kickoff; also opened manually (edit) via the button.
+          Never shown to visitors — they aren't part of the roll call. */}
+      {showRollCall && currentWar && !isVisitor && (
         <RollCallOverlay
           currentWar={currentWar}
           notes={warNotes}

@@ -18,7 +18,7 @@ import RollCallReminderBanner from './components/warroom/RollCallReminderBanner'
 
 
 function DashboardLayout() {
-  const { isAuthenticated, isLeadership, isWarLead, user, loading: authLoading } = useAuth()
+  const { isAuthenticated, isLeadership, isWarLead, isVisitor, user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -28,17 +28,20 @@ function DashboardLayout() {
   const userIsOCManager = isOCManager(user?.id)
 
   const effectiveIsAdmin = viewAsRole === null ? userIsAdmin : viewAsRole === 'admin'
+  // Visitors (read-only demo) see the full leadership layout — every write
+  // path is disabled separately (adminApi latch + per-control gating), and
+  // the admin-only Data Management page stays gated on real admin.
   const effectiveIsLeadership = viewAsRole === null
-    ? isLeadership
+    ? (isLeadership || isVisitor)
     : (viewAsRole === 'leadership' || viewAsRole === 'admin')
   // War Overview is broader than leadership — warleads + admins also get it,
   // and any "view as" role of leadership/admin re-grants it.
   const effectiveCanAccessWarOverview = viewAsRole === null
-    ? (isLeadership || userIsAdmin || isWarLead)
+    ? (isLeadership || userIsAdmin || isWarLead || isVisitor)
     : (viewAsRole === 'leadership' || viewAsRole === 'admin' || viewAsRole === 'warlead')
   // OC Planner is for OC Managers, plus leadership/admins as a superset.
   const effectiveCanAccessOCPlanner = viewAsRole === null
-    ? (isLeadership || userIsAdmin || userIsOCManager)
+    ? (isLeadership || userIsAdmin || userIsOCManager || isVisitor)
     : (viewAsRole === 'leadership' || viewAsRole === 'admin' || viewAsRole === 'ocmanager')
 
   // Reset viewAsRole when user changes
@@ -79,6 +82,16 @@ function DashboardLayout() {
       <Header viewAsRole={viewAsRole} setViewAsRole={setViewAsRole} canViewAs={userIsAdmin} />
 
       <RollCallReminderBanner />
+
+      {isVisitor && (
+        <div className="bg-indigo-100 dark:bg-indigo-900/30 border-b border-indigo-300 dark:border-indigo-700 px-4 py-2">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <span className="text-sm text-indigo-800 dark:text-indigo-200">
+              <strong>Visitor mode</strong> — you have full view access, but saving to the database is disabled.
+            </span>
+          </div>
+        </div>
+      )}
 
       {viewAsRole && (
         <div className="bg-yellow-100 dark:bg-yellow-900/30 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2">

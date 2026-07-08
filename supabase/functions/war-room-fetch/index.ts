@@ -46,6 +46,14 @@ const WARLEAD_IDS = ['2250591', '2749598', '2264192', '2407528', '2932241', '873
 // Subset of leadership with the power to release someone else's dibs.
 // Mirrors `adminsUserIds` in src/config.js — keep them in sync.
 const ADMIN_IDS = ['2250591']
+// Read-only demo visitors (allied faction leaders). Mirrors
+// `visitorUserIds` in src/config.js — keep them in sync. Visitors pass
+// verifyTornUser despite not being faction members, and their session JWT
+// carries is_visitor=true (+ is_leadership=false), which grants the
+// faction-scoped SELECT policies but never any write-granting claim.
+// They may read the private leads note and claim dibs; roll call, notes
+// saves, and config changes reject them explicitly.
+const VISITOR_IDS: string[] = []
 const OUR_FACTION_ID = '10739'
 
 // ── Torn API key pool (rotating) ──────────────────────────────────────────────
@@ -155,7 +163,7 @@ async function verifyTornUser(apiKey: string): Promise<AuthResult> {
     // the LEADERSHIP_IDS bypass below).
     const factionId = String(data.info.user.faction_id ?? '')
 
-    if (factionId !== OUR_FACTION_ID && !LEADERSHIP_IDS.includes(userId)) {
+    if (factionId !== OUR_FACTION_ID && !LEADERSHIP_IDS.includes(userId) && !VISITOR_IDS.includes(userId)) {
       return { success: false, error: 'Not a faction member' }
     }
 
@@ -811,6 +819,11 @@ async function handleSubmitRollCallV2(
   userName: string,
 ) {
   if (!userId || userId === 'anon') return json({ error: 'user_id required' }, 400)
+  // Visitors pass verifyTornUser but aren't part of the war — a roll-call
+  // row for a non-member would pollute leadership's results table.
+  if (VISITOR_IDS.includes(String(userId))) {
+    return json({ error: 'Visitor mode is read-only — roll call is disabled.' }, 403)
+  }
   const d = body.data ?? {}
   if (d.war_id == null) return json({ error: 'war_id required' }, 400)
   if (typeof d.on_at_start !== 'boolean') return json({ error: 'on_at_start required' }, 400)
@@ -912,13 +925,17 @@ async function handleSaveWarNotesV2(
 }
 
 // War Leaders read the private (leads-only) note via the service role — it's
-// never exposed on the client-readable surface.
+// never exposed on the client-readable surface. Read-only visitors are
+// deliberately allowed here: they demo the full leads view, and this action
+// only ever reads.
 async function handleGetWarNotesPrivateV2(
   supabase: ReturnType<typeof createClient>,
   body: any,
   userId: string,
 ) {
-  if (!WARLEAD_IDS.includes(String(userId))) return json({ error: 'War Leaders only' }, 403)
+  if (!WARLEAD_IDS.includes(String(userId)) && !VISITOR_IDS.includes(String(userId))) {
+    return json({ error: 'War Leaders only' }, 403)
+  }
   const warId = body.data?.war_id
   if (warId == null) return json({ error: 'war_id required' }, 400)
   const { data } = await supabase
@@ -1491,6 +1508,9 @@ async function mintAuthToken(userId: string, ttlSeconds: number) {
       faction_id:    OUR_FACTION_ID,
       is_leadership: LEADERSHIP_IDS.includes(userId),
       is_admin:      ADMIN_IDS.includes(userId),
+      // Read-only demo visitors. RLS uses this ONLY to grant extra SELECTs
+      // (e.g. member_overview_views) — never to authorize writes.
+      is_visitor:    VISITOR_IDS.includes(userId),
       iat: getNumericDate(0),
       exp: expiresAt,
     },
