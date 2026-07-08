@@ -45,6 +45,19 @@ export async function apiLogin(apiKey) {
   return { ok: true, ...body }
 }
 
+/** Authorized GET against the faction API. Throws with the server's error message. */
+export async function apiGet(path) {
+  const session = getApiSession()
+  const res = await fetch(path, {
+    headers: session ? { authorization: `Bearer ${session.token}` } : {},
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `API error ${res.status}`)
+  }
+  return res.json()
+}
+
 /** GET /api/bootstrap — faction identity + (when authed) the caller's roles. */
 export async function apiBootstrap(token = getApiSession()?.token) {
   const res = await fetch('/api/bootstrap', {

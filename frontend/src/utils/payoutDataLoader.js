@@ -514,7 +514,7 @@ export async function loadMemberLoanedItems(memberId) {
  * @param {string} memberId - Member ID to filter for
  * @returns {Array} Items loaned to this member with normalized fields
  */
-function filterItemsForMember(items, memberId) {
+export function filterItemsForMember(items, memberId) {
   const memberItems = []
 
   for (const item of (items || [])) {

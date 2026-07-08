@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../utils/supabase'
+import { API_MODE, apiGet } from '../utils/apiClient'
+import { filterItemsForMember } from '../utils/payoutDataLoader'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { X } from 'lucide-react'
 import { syncMembersFromAPI } from '../utils/syncMembersFromAPI'
-import { loadMemberLoanedItems } from '../utils/payoutDataLoader'
 import { config } from '../config'
 export default function MembersView({ isLeadership }) {
   const [persistedState, setPersistedState] = useViewState('members')
@@ -48,41 +48,16 @@ export default function MembersView({ isLeadership }) {
     try {
       setLoading(true)
 
-      // Get current members with their basic info
-      const { data, error } = await supabase
-        .from('members')
-        .select('member_id, member_name, tier, tier_override, last_scraped')
-        .eq('is_current', true)
-
-      if (error) {
-        console.error('Supabase error:', error)
-        throw error
-      }
-
-      // Get CPR averages (v2 — crime/position keyed)
-      const { data: cprData } = await supabase
-        .from('member_cpr_v2')
-        .select('member_id, cpr_value')
-
-      // Calculate average CPR per member
-      const cprByMember = {}
-      cprData?.forEach(record => {
-        if (!cprByMember[record.member_id]) {
-          cprByMember[record.member_id] = []
-        }
-        cprByMember[record.member_id].push(record.cpr_value)
-      })
-
-      const formattedMembers = (data || []).map(m => ({
+      // The API pre-joins CPR averages server-side.
+      const { members: rows } = await apiGet('/api/members')
+      const formattedMembers = rows.map(m => ({
         id: m.member_id,
         name: m.member_name,
         tier: m.tier,
         hasOverride: m.tier_override !== null,
         lastScraped: m.last_scraped,
-        avgCpr: cprByMember[m.member_id]
-          ? cprByMember[m.member_id].reduce((a, b) => a + b, 0) / cprByMember[m.member_id].length
-          : 0,
-        roleCount: cprByMember[m.member_id]?.length || 0
+        avgCpr: m.avg_cpr,
+        roleCount: m.role_count
       }))
 
       setMembers(formattedMembers)
@@ -95,6 +70,11 @@ export default function MembersView({ isLeadership }) {
   }
 
   async function handleSyncMembers() {
+    if (API_MODE) {
+      // Member syncing moves into the API's scraper core (migration slice #69).
+      setSyncMessage({ type: 'error', text: 'Member sync is not available yet on the new stack — it arrives with the server-side scrapers.' })
+      return
+    }
     if (!user?.apiKey) {
       setSyncMessage({ type: 'error', text: 'No API key available. Please log in again.' })
       return
@@ -177,41 +157,14 @@ export default function MembersView({ isLeadership }) {
     setLoadingDetails(true)
 
     try {
-      // Get all crimes this member participated in
-      const { data: slots, error } = await supabase
-        .from('crime_slots')
-        .select('crime_id, position, checkpoint_pass_rate, joined_at')
-        .eq('user_id', memberId)
-        .order('joined_at', { ascending: false })
-
-      if (error) throw error
-
-      // Get crime details
-      const crimeIds = [...new Set(slots?.map(s => s.crime_id) || [])]
-
-      if (crimeIds.length > 0) {
-        const { data: crimes, error: crimesError } = await supabase
-          .from('crimes')
-          .select('crime_id, name, difficulty, status, executed_at, rewards_money')
-          .in('crime_id', crimeIds)
-
-        if (crimesError) throw crimesError
-
-        // Combine slot and crime data
-        const crimesWithSlots = crimes?.map(crime => {
-          const slot = slots.find(s => s.crime_id === crime.crime_id)
-          return {
-            ...crime,
-            position: slot?.position,
-            cpr: slot?.checkpoint_pass_rate,
-            joined_at: slot?.joined_at
-          }
-        }) || []
-
-        setMemberCrimes(crimesWithSlots)
-      } else {
-        setMemberCrimes([])
-      }
+      // Server merges the member's slot into each crime row.
+      const { crimes } = await apiGet(`/api/members/${memberId}/crimes`)
+      setMemberCrimes(crimes.map(crime => ({
+        ...crime,
+        position: crime.member_position,
+        cpr: crime.member_cpr,
+        joined_at: crime.member_joined_at
+      })))
     } catch (error) {
       console.error('Error loading crimes:', error)
       setMemberCrimes([])
@@ -229,14 +182,8 @@ export default function MembersView({ isLeadership }) {
     setLoadingDetails(true)
 
     try {
-      const { data, error } = await supabase
-        .from('oc_payout_members')
-        .select('week_id, week_start, week_end, tier, payout, theoretical_payout, time_spent, crimes_count')
-        .eq('member_id', memberId)
-        .order('week_end', { ascending: false })
-
-      if (error) throw error
-      setMemberPayouts(data || [])
+      const { payouts } = await apiGet(`/api/members/${memberId}/payouts`)
+      setMemberPayouts(payouts)
     } catch (error) {
       console.error('Error loading payouts:', error)
       setMemberPayouts([])
@@ -254,8 +201,8 @@ export default function MembersView({ isLeadership }) {
     setLoadingDetails(true)
 
     try {
-      const items = await loadMemberLoanedItems(memberId)
-      setMemberLoanedItems(items)
+      const { items } = await apiGet('/api/inventory/loaned')
+      setMemberLoanedItems(filterItemsForMember(items, memberId))
     } catch (error) {
       console.error('Error loading loaned items:', error)
       setMemberLoanedItems([])
@@ -273,15 +220,8 @@ export default function MembersView({ isLeadership }) {
     setLoadingDetails(true)
 
     try {
-      const { data, error } = await supabase
-        .from('member_cpr_v2')
-        .select('crime_name, difficulty, position_label, cpr_value, observation_count')
-        .eq('member_id', memberId)
-        .order('crime_name', { ascending: true })
-        .order('position_label', { ascending: true })
-
-      if (error) throw error
-      setMemberCprData(data || [])
+      const { cpr } = await apiGet(`/api/members/${memberId}/cpr`)
+      setMemberCprData(cpr)
     } catch (error) {
       console.error('Error loading CPR data:', error)
       setMemberCprData([])

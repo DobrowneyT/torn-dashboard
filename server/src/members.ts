@@ -97,7 +97,9 @@ export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
   app.get('/api/members/:id/wars', { preHandler: requireAuth() }, async (req) => {
     const { id } = req.params as { id: string }
     const res = await db.query(
-      `SELECT w.*, wc.score AS my_score, wc.attacks AS my_attacks
+      `SELECT w.*, wc.score AS my_score, wc.attacks AS my_attacks,
+              (w.winner_faction_id IS NOT NULL AND
+               w.winner_faction_id = (SELECT torn_faction_id FROM faction_config)) AS we_won
        FROM war_member_contributions wc
        JOIN ranked_wars w ON w.id = wc.war_id
        WHERE wc.member_id = $1

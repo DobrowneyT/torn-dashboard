@@ -177,9 +177,9 @@ describe('GET /api/members/:id/payouts', () => {
 describe('GET /api/members/:id/wars', () => {
   it('returns wars the member contributed to, newest first, with their score merged', async () => {
     await stack.db.query(`
-      INSERT INTO ranked_wars (id, start_at, end_at, opponent_id, opponent_name, our_score, opponent_score) VALUES
-        (900, 1750000000, 1750200000, 42, 'Rivals', 3000, 2500),
-        (901, 1751000000, NULL, 43, 'Enemies', 100, 90)
+      INSERT INTO ranked_wars (id, start_at, end_at, opponent_id, opponent_name, our_score, opponent_score, winner_faction_id) VALUES
+        (900, 1750000000, 1750200000, 42, 'Rivals', 3000, 2500, ${TEST_FACTION.tornFactionId}),
+        (901, 1751000000, NULL, 43, 'Enemies', 100, 90, NULL)
     `)
     await stack.db.query(`
       INSERT INTO war_member_contributions (war_id, member_id, member_name, score, attacks, faction_id) VALUES
@@ -194,8 +194,11 @@ describe('GET /api/members/:id/wars', () => {
     expect(body.wars[0].opponent_name).toBe('Enemies')
     expect(body.wars[0].my_score).toBe(12)
     expect(body.wars[0].my_attacks).toBe(2)
+    expect(body.wars[0].we_won).toBe(false)
     expect(body.wars[1].id).toBe(900)
     expect(body.wars[1].my_score).toBe(250.5)
+    // The server owns the "did our faction win" comparison.
+    expect(body.wars[1].we_won).toBe(true)
   })
 })
 
