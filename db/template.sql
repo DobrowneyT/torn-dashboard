@@ -606,6 +606,7 @@ CREATE TABLE public.faction_config (
   display_name text NOT NULL,
   torn_faction_id bigint NOT NULL,
   branding jsonb DEFAULT '{}'::jsonb NOT NULL,
+  features jsonb DEFAULT '{}'::jsonb NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -673,7 +674,7 @@ ALTER TABLE war_room_roll_call_v2 ADD CONSTRAINT war_room_roll_call_v2_uniq UNIQ
 
 ALTER TABLE crimes ADD CONSTRAINT crimes_difficulty_check CHECK (((difficulty >= 1) AND (difficulty <= 10)));
 ALTER TABLE faction_config ADD CONSTRAINT faction_config_singleton CHECK ((id = 1));
-ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'leadership'::text, 'warlead'::text, 'visitor'::text])));
+ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'leadership'::text, 'warlead'::text, 'ocmanager'::text, 'visitor'::text])));
 ALTER TABLE tier_requirements ADD CONSTRAINT tier_requirements_difficulty_level_check CHECK (((difficulty_level >= 1) AND (difficulty_level <= 10)));
 ALTER TABLE tier_requirements ADD CONSTRAINT tier_requirements_tier_check CHECK (((tier >= 1) AND (tier <= 6)));
 ALTER TABLE war_payouts ADD CONSTRAINT war_payouts_post_dist_mode_chk CHECK ((post_dist_mode = ANY (ARRAY['formula'::text, 'flat'::text])));
