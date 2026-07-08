@@ -37,9 +37,30 @@ class _FakeClient:
         return _FakeResp(self._data)
 
 
+class _FakeRotatingClient(_FakeClient):
+    """Like _FakeClient, but each execute() pops the next queued response —
+    mimicking the claim RPC advancing the round-robin pointer between calls."""
+
+    def __init__(self, responses):
+        super().__init__(None)
+        self._responses = list(responses)
+
+    def execute(self):
+        return _FakeResp(self._responses.pop(0))
+
+
 @pytest.fixture(autouse=True)
 def _set_secret(monkeypatch):
     monkeypatch.setenv("APP_KEY_SECRET", "test-secret")
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """Unit tests must never hit Torn. claim_next_api_key validates keys via
+    _key_is_live by default, so stub it live-by-default; individual tests
+    override it to exercise the dead-key rotation paths."""
+    monkeypatch.setattr(key_pool, "_key_is_live", lambda api_key, timeout=15: True)
     yield
 
 
@@ -86,6 +107,36 @@ def test_claim_raises_when_row_has_no_key():
     client = _FakeClient([{"member_id": "123", "api_key": None}])
     with pytest.raises(EmptyKeyPoolError):
         claim_next_api_key(client=client)
+
+
+# ── claim_next_api_key: dead-key rotation (validate=True) ─────────────────────
+
+def test_claim_skips_dead_key_and_returns_next_live_one(monkeypatch):
+    monkeypatch.setattr(
+        key_pool, "_key_is_live",
+        lambda api_key, timeout=15: api_key != "DEADDEADDEADDEAD",
+    )
+    client = _FakeRotatingClient([
+        [{"member_id": "1", "api_key": "DEADDEADDEADDEAD"}],
+        [{"member_id": "2", "api_key": "LIVELIVELIVELIVE"}],
+    ])
+    assert claim_next_api_key(client=client) == "LIVELIVELIVELIVE"
+
+
+def test_claim_raises_after_exhausting_dead_keys(monkeypatch):
+    monkeypatch.setattr(key_pool, "_key_is_live", lambda api_key, timeout=15: False)
+    client = _FakeClient([{"member_id": "1", "api_key": "DEADDEADDEADDEAD"}])
+    with pytest.raises(RuntimeError, match="No working API key after 3 attempts"):
+        claim_next_api_key(client=client, max_attempts=3)
+
+
+def test_claim_validate_false_never_checks_liveness(monkeypatch):
+    def _boom(api_key, timeout=15):
+        raise AssertionError("_key_is_live must not be called when validate=False")
+
+    monkeypatch.setattr(key_pool, "_key_is_live", _boom)
+    client = _FakeClient([{"member_id": "123", "api_key": "AAAA1111BBBB2222"}])
+    assert claim_next_api_key(client=client, validate=False) == "AAAA1111BBBB2222"
 
 
 # ── load_key_pool ──────────────────────────────────────────────────────────────
