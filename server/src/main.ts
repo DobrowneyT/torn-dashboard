@@ -31,6 +31,7 @@ const app = await buildServer({
   db: databaseUrl ? new pg.Pool({ connectionString: databaseUrl }) : undefined,
   tornBaseUrl,
   jwtSecret,
+  tornApiKey: process.env.TORN_API_KEY || undefined,
 })
 await app.listen({ port, host: '0.0.0.0' })
 console.log(`[${factionSlug}] API listening on :${port}`)

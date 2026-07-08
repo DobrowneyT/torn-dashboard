@@ -18,6 +18,7 @@ export default function DashboardView() {
   const [loanedItems, setLoanedItems] = useState([])
   const [tierProgress, setTierProgress] = useState(null)
   const [personalStats, setPersonalStats] = useState(null)
+  const [ocConfig, setOcConfig] = useState(null)
   const [showCprKeyModal, setShowCprKeyModal] = useState(false)
 
   // RW data
@@ -33,13 +34,15 @@ export default function DashboardView() {
     try {
       const memberId = user.id.toString()
 
-      const [profileResult, statsResult, payoutsResult, crimesResult, loanedResult] = await Promise.all([
+      const [profileResult, statsResult, payoutsResult, crimesResult, loanedResult, ocConfigResult] = await Promise.all([
         apiGet(`/api/members/${memberId}`).catch(() => null),
         apiGet(`/api/members/${memberId}/daily-stats?limit=31`).catch(() => ({ daily_stats: [] })),
         apiGet(`/api/members/${memberId}/payouts`).catch(() => ({ payouts: [] })),
         apiGet(`/api/members/${memberId}/crimes?limit=500`).catch(() => ({ crimes: [] })),
         apiGet('/api/inventory/loaned').catch(() => ({ items: [] })),
+        apiGet('/api/oc-config').catch(() => null),
       ])
+      setOcConfig(ocConfigResult)
       const payouts = payoutsResult.payouts
       const crimes = crimesResult.crimes
       const loaned = filterItemsForMember(loanedResult.items, memberId)
@@ -53,7 +56,8 @@ export default function DashboardView() {
         const effectiveTier = member.tier_override ?? member.tier ?? 6
         setMemberData({ ...member, cprV2Data, effectiveTier })
 
-        const progress = calculateTierProgress(cprV2Data, effectiveTier)
+        // Tier policy comes from the faction's DB-backed OC config.
+        const progress = calculateTierProgress(cprV2Data, effectiveTier, ocConfigResult?.tier_requirements)
         setTierProgress(progress)
       }
 
@@ -112,7 +116,7 @@ export default function DashboardView() {
     )
   }
 
-  const tierInfo = getTierInfo(memberData.effectiveTier)
+  const tierInfo = getTierInfo(memberData.effectiveTier, ocConfig?.payout_tickets)
 
   return (
     <div className="space-y-6">
@@ -402,7 +406,7 @@ function TierProgressCard({ tierProgress }) {
   const next = tierProgress.nextTierProgress
   if (!next) return null
 
-  const nextTierInfo = getTierInfo(next.tier)
+  const nextTierInfo = getTierInfo(next.tier, ocConfig?.payout_tickets)
   const progressPercent = Math.min(next.progressPercent, 100)
 
   return (

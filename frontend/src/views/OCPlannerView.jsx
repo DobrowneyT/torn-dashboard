@@ -1,7 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../utils/supabase'
-import { getTornErrorMessage } from '../utils/apiUtils'
+import { apiGet } from '../utils/apiClient'
 import { config } from '../config'
 import { RefreshCw, ChevronRight } from 'lucide-react'
 import {
@@ -74,9 +72,6 @@ function formatCountdown(secs) {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function OCPlannerView() {
-  const { user } = useAuth()
-  const apiKey = user?.apiKey
-
   const [crimes, setCrimes] = useState(null)
   const [roster, setRoster] = useState({ currentMembers: [], memberCategory: {}, memberNames: {}, memberTiers: {} })
   const [loading, setLoading] = useState(true)
@@ -97,37 +92,23 @@ export default function OCPlannerView() {
     () => makeCategoryResolver({ scenarios: config.ocScenarios || {}, categories: config.ocCategories || {} }),
     [],
   )
-  const advNames = useMemo(
-    () => advancedCrimeNames({ scenarios: config.ocScenarios || {}, cprRequirements: config.cprRequirements || {} }),
-    [],
-  )
-
-  // Re-pull live crime data (same cat=available path as OC History) and the
-  // roster on every refresh. T3 members additionally get a bounded CPR lookup
-  // to decide Advanced vs Intermediate.
+  // One role-gated call gives the live board, roster, and T3 CPR; the faction's
+  // CPR requirements come from its DB-backed OC config rather than code.
   const load = useCallback(async () => {
-    if (!apiKey) { setError('Log in with an API key to use the planner.'); setLoading(false); return }
     setLoading(true)
     setError(null)
     try {
-      const [crimesRes, membersRes] = await Promise.all([
-        fetch(`https://api.torn.com/v2/faction/crimes?cat=available&sort=ASC&key=${apiKey}&comment=Forge_OC_Planner`).then((r) => r.json()),
-        supabase.from('members').select('member_id, member_name, tier, tier_override, is_current'),
+      const [data, ocConfig] = await Promise.all([
+        apiGet('/api/oc-planner/data'),
+        apiGet('/api/oc-config'),
       ])
+      const cprReqs = ocConfig.cpr_requirements || {}
+      const advNames = advancedCrimeNames({ scenarios: config.ocScenarios || {}, cprRequirements: cprReqs })
 
-      if (crimesRes.error) {
-        const friendly = getTornErrorMessage(crimesRes.error)
-        const guidance = crimesRes.error.code === 16
-          ? ' This key lacks faction crimes access (e.g. Recruit status). Use an OC Manager / leadership key.'
-          : ''
-        throw new Error(friendly + guidance)
-      }
-
-      const rows = membersRes.data || []
       const memberNames = {}
       const memberTiers = {}
       const current = [] // { id, name, tier }
-      for (const m of rows) {
+      for (const m of data.roster) {
         const id = String(m.member_id)
         memberNames[id] = m.member_name
         const tier = m.tier_override ?? m.tier ?? 6 // ?? keeps tier 0 (review)
@@ -135,25 +116,14 @@ export default function OCPlannerView() {
         if (m.is_current) current.push({ id, name: m.member_name, tier })
       }
 
-      // T3-only CPR check (bounded — usually a handful of members).
-      const t3Ids = current.filter((m) => m.tier === 3).map((m) => m.id)
+      // T3-only Advanced check, using the CPR the server bundled in.
       const advancedT3 = new Set()
-      if (t3Ids.length) {
-        const { data: cprRows } = await supabase
-          .from('member_cpr_v2')
-          .select('member_id, crime_name, position_label, cpr_value')
-          .in('member_id', t3Ids)
-        const cprByMember = {}
-        for (const r of (cprRows || [])) {
-          const id = String(r.member_id)
-          ;(cprByMember[id] ||= {})[`${r.crime_name}||${r.position_label}`] = Number(r.cpr_value)
-        }
-        for (const id of t3Ids) {
-          if (qualifiesForAdvanced(cprByMember[id] || {}, { cprRequirements: config.cprRequirements || {}, advancedNames: advNames })) {
-            advancedT3.add(id)
-          }
+      for (const [id, cprMap] of Object.entries(data.t3_cpr || {})) {
+        if (qualifiesForAdvanced(cprMap, { cprRequirements: cprReqs, advancedNames: advNames })) {
+          advancedT3.add(id)
         }
       }
+      const crimesRes = data.live_crimes
 
       const memberCategory = {}
       const currentMembers = current.map((m) => {
@@ -170,7 +140,7 @@ export default function OCPlannerView() {
     } finally {
       setLoading(false)
     }
-  }, [apiKey, advNames])
+  }, [])
 
   useEffect(() => { load() }, [load])
 

@@ -1,58 +1,56 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../utils/supabase'
-import { config } from '../config'
+import { apiGet } from '../utils/apiClient'
 import { Check, X } from 'lucide-react'
 
 export default function TierRequirementsView() {
   const { user } = useAuth()
   const [userCpr, setUserCpr] = useState(null)
+  // Tier/CPR policy comes from the faction's DB-backed OC config, not code.
+  const [ocConfig, setOcConfig] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    async function fetchUserCpr() {
-      if (!user?.id) {
-        setLoading(false)
-        return
-      }
-
+    async function fetchData() {
       try {
-        const { data, error } = await supabase
-          .from('member_cpr_v2')
-          .select('crime_name, difficulty, position_label, cpr_value')
-          .eq('member_id', user.id.toString())
+        const [configRes, cprRes] = await Promise.all([
+          apiGet('/api/oc-config'),
+          user?.id ? apiGet(`/api/members/${user.id}/cpr`) : Promise.resolve(null),
+        ])
+        setOcConfig(configRes)
 
-        if (error) throw error
+        if (cprRes) {
+          // Build lookup: { "crime:position_label" -> cpr_value }
+          // Also build { difficulty: [values] } for average tier checks
+          const cprMap = {}
+          const cprByLevel = {}
 
-        // Build lookup: { "crime:position_label" -> cpr_value }
-        // Also build { difficulty: [values] } for average tier checks
-        const cprMap = {}
-        const cprByLevel = {}
+          for (const row of (cprRes.cpr || [])) {
+            const key = `${row.crime_name}:${row.position_label}`
+            cprMap[key] = parseFloat(row.cpr_value)
 
-        for (const row of (data || [])) {
-          const key = `${row.crime_name}:${row.position_label}`
-          cprMap[key] = parseFloat(row.cpr_value)
+            const lvl = row.difficulty
+            if (!cprByLevel[lvl]) cprByLevel[lvl] = []
+            cprByLevel[lvl].push(parseFloat(row.cpr_value))
+          }
 
-          const lvl = row.difficulty
-          if (!cprByLevel[lvl]) cprByLevel[lvl] = []
-          cprByLevel[lvl].push(parseFloat(row.cpr_value))
+          // Compute averages per level for average-type requirements
+          for (const [level, values] of Object.entries(cprByLevel)) {
+            cprMap[`avg:${level}`] = values.reduce((a, b) => a + b, 0) / values.length
+          }
+
+          setUserCpr(cprMap)
         }
-
-        // Compute averages per level for average-type requirements
-        for (const [level, values] of Object.entries(cprByLevel)) {
-          cprMap[`avg:${level}`] = values.reduce((a, b) => a + b, 0) / values.length
-        }
-
-        setUserCpr(cprMap)
       } catch (error) {
-        console.error('Error fetching user CPR:', error)
+        console.error('Error fetching tier requirements data:', error)
         setUserCpr({})
+        setOcConfig((c) => c ?? { tier_requirements: {}, cpr_requirements: {}, payout_tickets: {} })
       } finally {
         setLoading(false)
       }
     }
 
-    fetchUserCpr()
+    fetchData()
   }, [user?.id])
 
   return (
@@ -66,8 +64,9 @@ export default function TierRequirementsView() {
           <p className="text-sm text-gray-500 dark:text-gray-400">Loading your CPR data...</p>
         )}
       </div>
-      {Object.entries(config.tierRequirements).sort(([a], [b]) => parseInt(a) - parseInt(b)).map(([tier, requirements]) => (
-        <TierCard key={tier} tier={parseInt(tier)} requirements={requirements} userCpr={userCpr} />
+      {Object.entries(ocConfig?.tier_requirements ?? {}).sort(([a], [b]) => parseInt(a) - parseInt(b)).map(([tier, requirements]) => (
+        <TierCard key={tier} tier={parseInt(tier)} requirements={requirements} userCpr={userCpr}
+          payoutTickets={ocConfig.payout_tickets} cprRequirements={ocConfig.cpr_requirements} />
       ))}
     </div>
   )
@@ -97,8 +96,8 @@ function getRequirementCpr(req, userCpr) {
   return userCpr[`${req.crime}:${req.role}`] ?? null
 }
 
-function TierCard({ tier, requirements, userCpr }) {
-  const tickets = config.payoutTickets[tier]
+function TierCard({ tier, requirements, userCpr, payoutTickets, cprRequirements }) {
+  const tickets = payoutTickets[tier]
   const requiredCount = Math.ceil(requirements.length * (2/3))
   const borderColors = {0:'border-tier-review',1:'border-tier-1',2:'border-tier-2',3:'border-tier-3',4:'border-tier-4',5:'border-tier-5',6:'border-tier-6'}
 
@@ -126,7 +125,7 @@ function TierCard({ tier, requirements, userCpr }) {
           const status = statuses[idx]
           const actualValue = getRequirementCpr(req, userCpr)
           return (
-            <RequirementRow key={idx} req={req} status={status} actualValue={actualValue} />
+            <RequirementRow key={idx} req={req} status={status} actualValue={actualValue} cprRequirements={cprRequirements} />
           )
         })}
       </div>
@@ -138,9 +137,9 @@ function TierCard({ tier, requirements, userCpr }) {
   )
 }
 
-function RequirementRow({ req, status, actualValue }) {
+function RequirementRow({ req, status, actualValue, cprRequirements }) {
   // Derive difficulty level from cprRequirements for display
-  const difficulty = req.isAverage ? req.level : config.cprRequirements[req.crime]?.difficulty
+  const difficulty = req.isAverage ? req.level : cprRequirements[req.crime]?.difficulty
 
   const label = req.isAverage
     ? `Level ${req.level} Average ≥ ${req.minCpr} CPR`

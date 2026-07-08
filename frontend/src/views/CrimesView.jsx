@@ -1,9 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../utils/supabase'
+import { API_MODE, apiGet } from '../utils/apiClient'
 import { syncCrimesFromAPI, getSyncStatusMessage } from '../utils/syncCrimesFromAPI'
-import { getTornErrorMessage } from '../utils/apiUtils'
 import { RefreshCw, ChevronRight } from 'lucide-react'
 import { 
   getCrimeStatusLabel, 
@@ -49,26 +48,20 @@ export default function CrimesView({ crimesData, isLeadership }) {
     try {
       setLoadingDb(true)
 
-      // Paginate to load all crimes (Supabase default limit is 1000)
+      // Paginate to load all crimes (the API caps pages at 1000)
       const crimesMap = {}
       const pageSize = 1000
       let offset = 0
       let hasMore = true
 
       while (hasMore) {
-        const { data, error } = await supabase
-          .from('crimes')
-          .select('*')
-          .order('created_at', { ascending: false, nullsFirst: false })
-          .range(offset, offset + pageSize - 1)
+        const { crimes } = await apiGet(`/api/crimes?limit=${pageSize}&offset=${offset}`)
 
-        if (error) throw error
-
-        for (const crime of data) {
+        for (const crime of crimes) {
           crimesMap[crime.crime_id] = crime
         }
 
-        hasMore = data.length === pageSize
+        hasMore = crimes.length === pageSize
         offset += pageSize
       }
 
@@ -92,29 +85,8 @@ export default function CrimesView({ crimesData, isLeadership }) {
     setLoadingSlots(true)
 
     try {
-      const { data, error } = await supabase
-        .from('crime_slots')
-        .select('user_id, user_name, position, position_number, checkpoint_pass_rate')
-        .eq('crime_id', crimeId)
-        .not('user_id', 'is', null)
-
-      if (error) throw error
-
-      // Look up missing names from members table
-      const slots = data || []
-      const missingNameIds = slots.filter(s => !s.user_name).map(s => s.user_id)
-      if (missingNameIds.length > 0) {
-        const { data: members } = await supabase
-          .from('members')
-          .select('member_id, member_name')
-          .in('member_id', missingNameIds)
-        const nameMap = Object.fromEntries((members || []).map(m => [m.member_id, m.member_name]))
-        slots.forEach(s => {
-          if (!s.user_name && nameMap[s.user_id]) {
-            s.user_name = nameMap[s.user_id]
-          }
-        })
-      }
+      // Server coalesces missing names from the members table.
+      const { slots } = await apiGet(`/api/crimes/${crimeId}/slots`)
       setCrimeSlots(slots)
     } catch (err) {
       console.error('Error loading crime slots:', err)
@@ -129,13 +101,18 @@ export default function CrimesView({ crimesData, isLeadership }) {
       setSyncing(true)
       setSyncMessage(null)
       setSyncError(null)
-      
+
+      if (API_MODE) {
+        // Crime syncing moves into the API's scraper core (migration slice #68).
+        throw new Error('Crime sync is not available yet on the new stack — it arrives with the server-side scrapers.')
+      }
+
       // SECURITY: use only the logged-in user's own key. The old
       // `|| import.meta.env.VITE_TORN_API_KEY` fallback shipped a shared Torn
       // key in the browser bundle — removed. Login guarantees user.apiKey.
       const apiKey = user.apiKey
       const factionId = config.faction.id
-      
+
       if (!apiKey) {
         throw new Error('No API key available')
       }
@@ -254,7 +231,7 @@ export default function CrimesView({ crimesData, isLeadership }) {
 
   return (
     <div className="space-y-6">
-      <CurrentCrimesPanel apiKey={user?.apiKey} memberId={user?.id} />
+      <CurrentCrimesPanel memberId={user?.id} />
 
       <div className="card">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -513,7 +490,7 @@ function TierTag({ tier }) {
   )
 }
 
-function CurrentCrimesPanel({ apiKey, memberId }) {
+function CurrentCrimesPanel({ memberId }) {
   const [crimes, setCrimes] = useState(null)
   const [myCpr, setMyCpr] = useState({})
   const [memberNames, setMemberNames] = useState({})   // member_id → name (slots give id only)
@@ -535,13 +512,13 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
   // plus the current roster so we can list who's free to take a new OC.
   useEffect(() => {
     let cancelled = false
-    supabase.from('members').select('member_id, member_name, tier, tier_override, is_current')
-      .then(({ data }) => {
+    apiGet('/api/members/roster')
+      .then(({ roster }) => {
         if (cancelled) return
         const names = {}
         const tiers = {}
         const current = []
-        for (const m of (data || [])) {
+        for (const m of roster) {
           const id = String(m.member_id)
           names[id] = m.member_name
           // ?? (not ||) so tier 0 ("needs review") is preserved, not coalesced to 6.
@@ -553,6 +530,7 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
         setMemberTiers(tiers)
         setCurrentMembers(current)
       })
+      .catch((e) => console.error('Error loading roster:', e))
     return () => { cancelled = true }
   }, [])
 
@@ -560,43 +538,27 @@ function CurrentCrimesPanel({ apiKey, memberId }) {
   useEffect(() => {
     if (!memberId) return
     let cancelled = false
-    supabase.from('member_cpr_v2').select('crime_name, position_label, cpr_value').eq('member_id', String(memberId))
-      .then(({ data }) => {
+    apiGet(`/api/members/${memberId}/cpr`)
+      .then(({ cpr }) => {
         if (cancelled) return
         const map = {}
-        for (const r of (data || [])) map[`${r.crime_name}||${r.position_label}`] = r.cpr_value
+        for (const r of cpr) map[`${r.crime_name}||${r.position_label}`] = r.cpr_value
         setMyCpr(map)
       })
+      .catch((e) => console.error('Error loading CPR:', e))
     return () => { cancelled = true }
   }, [memberId])
 
+  // Live board via the API's Torn proxy (the browser holds no Torn key).
   useEffect(() => {
-    if (!apiKey) { setError('Log in with an API key to see current crimes.'); setLoading(false); return }
     let cancelled = false
     setLoading(true); setError(null)
-    fetch(`https://api.torn.com/v2/faction/crimes?cat=available&sort=ASC&key=${apiKey}&comment=Forge_OC_Current`)
-      .then(r => r.json())
-      .then(data => {
-        if (cancelled) return
-        if (data.error) {
-          // 2.0: every member logs in with a Limited key, so a faction-access
-          // failure here almost always means the member is on Recruit status
-          // (Torn withholds faction API access for the first 72h). That's
-          // expected — show a friendly, Recruit-aware note rather than telling
-          // them to "upgrade" a key that's already Limited.
-          const friendly = getTornErrorMessage(data.error)
-          const guidance = data.error.code === 16
-            ? " If you just joined, you're likely on 3-day Recruit status — Torn restricts faction API access during that window, so current crimes will appear automatically once you're off Recruit."
-            : ''
-          setError(friendly + guidance)
-          setCrimes([])
-        }
-        else setCrimes(data.crimes || [])
-      })
+    apiGet('/api/crimes/current')
+      .then(data => { if (!cancelled) setCrimes(data.crimes || []) })
       .catch(e => { if (!cancelled) { setError(e.message); setCrimes([]) } })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [apiKey])
+  }, [])
 
   const now = Math.floor(Date.now() / 1000)
 
