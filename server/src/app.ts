@@ -8,6 +8,8 @@ import {
   type AuthDeps,
 } from './auth.js'
 import './authz.js'
+import './db.js'
+import { registerMemberRoutes } from './members.js'
 
 export interface ServerOptions {
   factionSlug: string
@@ -60,6 +62,8 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
         user: { torn_user_id: req.session.torn_user_id, roles: rolesFromClaims(req.session) },
       }
     })
+
+    registerMemberRoutes(app, opts.db)
   }
 
   return app

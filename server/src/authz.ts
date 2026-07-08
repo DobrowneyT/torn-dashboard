@@ -9,6 +9,13 @@ declare module 'fastify' {
   }
 }
 
+/** Any valid session — plain members included. Visitors may read. */
+export function requireAuth(): preHandlerHookHandler {
+  return async (req, reply) => {
+    if (!req.session) return reply.status(401).send({ error: 'Authentication required' })
+  }
+}
+
 export function requireRole(...allowed: Role[]): preHandlerHookHandler {
   return async (req, reply) => {
     if (!req.session) return reply.status(401).send({ error: 'Authentication required' })

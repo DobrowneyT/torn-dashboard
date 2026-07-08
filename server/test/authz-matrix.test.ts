@@ -88,6 +88,19 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path: '/probe/writes',
     expected: { unauthenticated: 401, visitor: 403, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
   },
+  // Slice #61 — member/dashboard reads: any session may read, visitors included.
+  {
+    path: '/api/members',
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
+  },
+  {
+    path: '/api/members/9102/crimes',
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
+  },
+  {
+    path: '/api/inventory/loaned',
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
+  },
 ]
 
 describe('authorization matrix', () => {
