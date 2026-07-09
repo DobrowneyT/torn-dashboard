@@ -83,6 +83,19 @@ export function createKeyPool({ db, encryptionKey }: KeyPoolOptions) {
       return { member_id: res.rows[0].member_id, key: decrypt(res.rows[0].cpr_api_key) }
     },
 
+    /**
+     * Every enabled + consented key with its owner, decrypted for in-process
+     * use (the CPR scan hits Torn once per member with that member's key).
+     */
+    async listKeys(): Promise<ClaimedKey[]> {
+      const res = await db.query(
+        `SELECT member_id, cpr_api_key FROM member_secrets
+         WHERE disabled = false AND consent_at IS NOT NULL AND cpr_api_key IS NOT NULL
+         ORDER BY member_id`
+      )
+      return res.rows.map((r) => ({ member_id: r.member_id, key: decrypt(r.cpr_api_key) }))
+    },
+
     /** Take a key out of rotation (bad key, revoked consent, Torn error). */
     async disable(memberId: string, reason: string): Promise<void> {
       await db.query(

@@ -38,6 +38,11 @@ services:
       # Faction-held Limited key for server-side live reads (OC board).
       # Optional; those endpoints 503 without it. Replaced by the key pool in #67.
       TORN_API_KEY: ${TORN_API_KEY:-}
+      # In-process scrapers (#67+). KEY_ENCRYPTION_KEY: 32-byte hex secret
+      # for the consented key pool's at-rest encryption — required when
+      # SCRAPERS_ENABLED=true.
+      SCRAPERS_ENABLED: ${SCRAPERS_ENABLED:-false}
+      KEY_ENCRYPTION_KEY: ${KEY_ENCRYPTION_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

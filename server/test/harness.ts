@@ -52,6 +52,8 @@ export interface TestStack {
     lastFactionCrimesKey(): string | null
     /** Serve an arbitrary payload for an exact pathname (checked before 404). */
     setPath(pathname: string, payload: unknown): void
+    /** Serve a computed payload for an exact pathname (gets the request URL). */
+    setHandler(pathname: string, handler: (url: URL) => unknown): void
     hits(): number
   }
   close(): Promise<void>
@@ -110,11 +112,19 @@ export async function startTestStack(
   let factionCrimesPayload: unknown = null
   let factionCrimesKey: string | null = null
   const pathPayloads = new Map<string, unknown>()
+  const pathHandlers = new Map<string, (url: URL) => unknown>()
   let hitCount = 0
   const torn: Server = createServer((req, res) => {
     hitCount += 1
     const url = new URL(req.url ?? '/', 'http://fixture')
     res.setHeader('content-type', 'application/json')
+    // Custom handlers win over the built-in routes so tests can override
+    // the crimes endpoint with parameterized (pagination) behavior.
+    const handler = pathHandlers.get(url.pathname)
+    if (handler) {
+      res.end(JSON.stringify(handler(url)))
+      return
+    }
     if (url.pathname === '/v2/faction/crimes') {
       factionCrimesKey = url.searchParams.get('key')
       if (factionCrimesPayload === null) {
@@ -179,6 +189,7 @@ export async function startTestStack(
       setFactionCrimes: (payload) => { factionCrimesPayload = payload },
       lastFactionCrimesKey: () => factionCrimesKey,
       setPath: (pathname, payload) => pathPayloads.set(pathname, payload),
+      setHandler: (pathname, handler) => pathHandlers.set(pathname, handler),
       hits: () => hitCount,
     },
     close: async () => {

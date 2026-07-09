@@ -35,3 +35,20 @@ const app = await buildServer({
 })
 await app.listen({ port, host: '0.0.0.0' })
 console.log(`[${factionSlug}] API listening on :${port}`)
+
+// In-process scrapers (slice #67+): opt-in via SCRAPERS_ENABLED, and the
+// key-at-rest secret must be present for the pool.
+if (process.env.SCRAPERS_ENABLED === 'true' && databaseUrl) {
+  const encryptionKey = process.env.KEY_ENCRYPTION_KEY
+  if (!encryptionKey) {
+    console.error(`[${factionSlug}] SCRAPERS_ENABLED needs KEY_ENCRYPTION_KEY (32-byte hex)`)
+    process.exit(1)
+  }
+  const { startScrapers } = await import('./scraper/registerJobs.js')
+  await startScrapers({
+    db: new pg.Pool({ connectionString: databaseUrl }),
+    tornBaseUrl,
+    encryptionKey,
+  })
+  console.log(`[${factionSlug}] scrapers scheduled`)
+}
