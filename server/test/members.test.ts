@@ -221,11 +221,13 @@ describe('GET /api/members/:id/war-payouts', () => {
     const row = body.war_payouts[0]
     expect(row.payout_amount).toBe(25000000)
     expect(row.war_payouts.war_id).toBe(900)
-    expect(row.war_payouts.ranked_wars).toEqual({
+    // Slice #64 widened the war summary; the original fields must survive.
+    expect(row.war_payouts.ranked_wars).toMatchObject({
       start_at: 1750000000,
       end_at: 1750200000,
       opponent_name: 'Rivals',
     })
+    expect(row.war_payouts.war_type).toBe('real')
   })
 })
 

@@ -1,10 +1,10 @@
 /**
  * War Data Loader
- * Read operations for war-related tables via Supabase anon client.
+ * Read operations for war-related tables via the faction API.
  * Write operations go through adminApi.js (Edge Function).
  */
 
-import { supabase } from './supabase'
+import { apiGet } from './apiClient'
 import { BONUS_HITS, WIN_RESULTS } from './warPayoutCalculations'
 
 const OUR_FACTION_ID = 10739
@@ -20,14 +20,9 @@ export async function loadFactionsByIds(factionIds) {
   const ids = [...new Set([...factionIds].filter(Boolean).map(Number))]
   if (ids.length === 0) return new Map()
 
-  const { data, error } = await supabase
-    .from('factions')
-    .select('id, name, tag')
-    .in('id', ids)
-
-  if (error) throw error
+  const { factions } = await apiGet(`/api/factions?ids=${ids.join(',')}`)
   const map = new Map()
-  for (const row of data || []) map.set(Number(row.id), row)
+  for (const row of factions || []) map.set(Number(row.id), row)
   return map
 }
 
@@ -39,14 +34,8 @@ export async function loadFactionsByIds(factionIds) {
  * @returns {Promise<Array>}
  */
 export async function loadWars(limit = 5, offset = 0) {
-  const { data, error } = await supabase
-    .from('ranked_wars')
-    .select('*')
-    .order('start_at', { ascending: false })
-    .range(offset, offset + limit - 1)
-
-  if (error) throw error
-  return data || []
+  const { wars } = await apiGet(`/api/wars?limit=${limit}&offset=${offset}`)
+  return wars || []
 }
 
 /**
@@ -55,12 +44,8 @@ export async function loadWars(limit = 5, offset = 0) {
  * @returns {Promise<number>}
  */
 export async function loadWarsCount() {
-  const { count, error } = await supabase
-    .from('ranked_wars')
-    .select('*', { count: 'exact', head: true })
-
-  if (error) throw error
-  return count || 0
+  const { total } = await apiGet('/api/wars?limit=5&offset=0')
+  return Number(total) || 0
 }
 
 /**
@@ -70,14 +55,8 @@ export async function loadWarsCount() {
  * @returns {Promise<object|null>}
  */
 export async function loadWar(warId) {
-  const { data, error } = await supabase
-    .from('ranked_wars')
-    .select('*')
-    .eq('id', warId)
-    .single()
-
-  if (error) throw error
-  return data
+  const { war } = await apiGet(`/api/wars/${warId}`)
+  return war
 }
 
 /**
@@ -88,14 +67,8 @@ export async function loadWar(warId) {
  * @returns {Promise<Array>}
  */
 export async function loadWarContributions(warId) {
-  const { data, error } = await supabase
-    .from('war_member_contributions')
-    .select('*')
-    .eq('war_id', warId)
-    .order('score', { ascending: false })
-
-  if (error) throw error
-  return data || []
+  const { contributions } = await apiGet(`/api/wars/${warId}/contributions`)
+  return contributions || []
 }
 
 /**
@@ -105,7 +78,7 @@ export async function loadWarContributions(warId) {
  * war is fully reported by Torn (often hours after a win/forfeit), so this
  * is the only way to show a current scoreboard while a war is still live.
  *
- * The leaderboard is seeded from `members` (is_current = true) so every
+ * The leaderboard is seeded from the roster (is_current = true) so every
  * faction member appears with 0 score / 0 attacks even if they haven't
  * landed a war hit yet. This lets a member look themselves up and see
  * exactly how far they are from the base-share threshold — the original
@@ -127,56 +100,38 @@ export async function loadLiveContributionsFromAttacks(war) {
   if (!war?.start_at) return []
 
   // Seed: every current faction member starts at 0. Fall back gracefully
-  // if the members table read fails so the leaderboard still works in
+  // if the roster read fails so the leaderboard still works in
   // attack-only mode.
   const agg = new Map()
   try {
-    const { data: members, error } = await supabase
-      .from('members')
-      .select('member_id, member_name')
-      .eq('is_current', true)
-    if (!error && members) {
-      for (const m of members) {
-        const id = Number(m.member_id)
-        if (!id) continue
-        agg.set(id, {
-          member_id:   id,
-          member_name: m.member_name,
-          level:       null,
-          attacks:     0,
-          score:       0,
-          faction_id:  OUR_FACTION_ID,
-        })
-      }
+    const { roster } = await apiGet('/api/members/roster')
+    for (const m of roster || []) {
+      if (!m.is_current) continue
+      const id = Number(m.member_id)
+      if (!id) continue
+      agg.set(id, {
+        member_id:   id,
+        member_name: m.member_name,
+        level:       null,
+        attacks:     0,
+        score:       0,
+        faction_id:  OUR_FACTION_ID,
+      })
     }
   } catch (e) {
-    console.warn('[live leaderboard] members seed failed; continuing attack-only:', e)
+    console.warn('[live leaderboard] roster seed failed; continuing attack-only:', e)
   }
 
-  // Page through faction_attacks in the war window.
-  const PAGE_SIZE = 1000
-  const all = []
-  let offset = 0
-  while (true) {
-    let q = supabase
-      .from('faction_attacks')
-      .select('attacker_id, attacker_name, respect_gain, chain')
-      .eq('attacker_faction_id', OUR_FACTION_ID)
-      .eq('is_ranked_war', true)
-      .eq('is_incoming', false)
-      .in('result', [...WIN_RESULTS])
-      .gte('started', war.start_at)
-      .range(offset, offset + PAGE_SIZE - 1)
-
-    if (war.end_at && war.end_at > 0) q = q.lte('started', war.end_at)
-
-    const { data, error } = await q
-    if (error) throw error
-    if (!data || data.length === 0) break
-    all.push(...data)
-    if (data.length < PAGE_SIZE) break
-    offset += PAGE_SIZE
-  }
+  // The window endpoint returns all attacks in [start_at, end_at]; the
+  // war-win filters below (ours, outgoing, ranked, win results) stay
+  // client-side to keep the scoring rules next to the payout math.
+  const windowAttacks = await loadFactionAttacksByWindow(war.start_at, war.end_at)
+  const all = windowAttacks.filter((a) =>
+    Number(a.attacker_faction_id) === OUR_FACTION_ID &&
+    a.is_ranked_war === true &&
+    a.is_incoming === false &&
+    WIN_RESULTS.has(a.result)
+  )
 
   // Aggregate per attacker with bonus-hit cap. If an attacker isn't in the
   // members seed (mid-war joiner, recently left, or members table was stale),
@@ -216,8 +171,8 @@ export async function loadLiveContributionsFromAttacks(war) {
 
 /**
  * Load all faction attacks within a war's timestamp window.
- * Queries faction_attacks (daily-scraped, no war_id FK) filtered by
- * started >= startAt AND started <= endAt.
+ * Pages through the server-side window endpoint (faction_attacks is the
+ * largest table — the API enforces pagination; a war window is bounded).
  *
  * Includes regular attacks, assists, and incoming attacks so the
  * payout formula can weight them independently.
@@ -232,22 +187,13 @@ export async function loadFactionAttacksByWindow(startAt, endAt) {
   let offset = 0
 
   while (true) {
-    let query = supabase
-      .from('faction_attacks')
-      .select('*')
-      .gte('started', startAt)
-      .order('started', { ascending: false })
-      .range(offset, offset + PAGE_SIZE - 1)
-
-    if (endAt && endAt > 0) {
-      query = query.lte('started', endAt)
-    }
-
-    const { data, error } = await query
-    if (error) throw error
-    if (!data || data.length === 0) break
-    all.push(...data)
-    if (data.length < PAGE_SIZE) break
+    const to = endAt && endAt > 0 ? endAt : 0
+    const { attacks } = await apiGet(
+      `/api/attacks?from=${startAt}&to=${to}&limit=${PAGE_SIZE}&offset=${offset}`
+    )
+    if (!attacks || attacks.length === 0) break
+    all.push(...attacks)
+    if (attacks.length < PAGE_SIZE) break
     offset += PAGE_SIZE
   }
 
@@ -255,31 +201,14 @@ export async function loadFactionAttacksByWindow(startAt, endAt) {
 }
 
 /**
- * Load all incoming revives stored against a ranked war (faster than a
- * window query thanks to the (rw_id, timestamp) index on faction_revives).
- * Pages through PostgREST's default 1000-row response cap.
+ * Load all incoming revives stored against a ranked war.
  *
  * @param {number} warId
  * @returns {Promise<Array>}
  */
 export async function loadFactionRevivesByWar(warId) {
-  const PAGE_SIZE = 1000
-  const all = []
-  let offset = 0
-  while (true) {
-    const { data, error } = await supabase
-      .from('faction_revives')
-      .select('*')
-      .eq('rw_id', warId)
-      .order('timestamp', { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1)
-    if (error) throw error
-    if (!data || data.length === 0) break
-    all.push(...data)
-    if (data.length < PAGE_SIZE) break
-    offset += PAGE_SIZE
-  }
-  return all
+  const { revives } = await apiGet(`/api/wars/${warId}/revives`)
+  return revives || []
 }
 
 /**
@@ -290,14 +219,8 @@ export async function loadFactionRevivesByWar(warId) {
  * @returns {Promise<Array>}
  */
 export async function loadWarPayouts(warId) {
-  const { data, error } = await supabase
-    .from('war_payouts')
-    .select('*, war_payout_members(*)')
-    .eq('war_id', warId)
-    .order('created_at', { ascending: false })
-
-  if (error) throw error
-  return data || []
+  const { payouts } = await apiGet(`/api/wars/${warId}/payouts`)
+  return payouts || []
 }
 
 /**
@@ -307,16 +230,8 @@ export async function loadWarPayouts(warId) {
  * @returns {Promise<object|null>}
  */
 export async function loadLatestWarPayout(warId) {
-  const { data, error } = await supabase
-    .from('war_payouts')
-    .select('*, war_payout_members(*)')
-    .eq('war_id', warId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
-
-  if (error && error.code !== 'PGRST116') throw error  // PGRST116 = no rows found
-  return data || null
+  const payouts = await loadWarPayouts(warId)
+  return payouts[0] || null
 }
 
 
@@ -327,12 +242,6 @@ export async function loadLatestWarPayout(warId) {
  * @returns {Promise<Array>}
  */
 export async function loadRecentWarPayouts(limit = 20) {
-  const { data, error } = await supabase
-    .from('war_payouts')
-    .select('*, war_payout_members(*)')
-    .order('created_at', { ascending: false })
-    .limit(limit)
-
-  if (error) throw error
-  return data || []
+  const { payouts } = await apiGet(`/api/war-payouts?limit=${limit}`)
+  return payouts || []
 }

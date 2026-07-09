@@ -155,6 +155,26 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path: 'POST /api/payouts/weeks',
     expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 400, admin: 400 },
   },
+  // Slice #64 — ranked-war reads are member-visible.
+  ...[
+    '/api/wars',
+    '/api/wars/1/contributions',
+    '/api/wars/1/revives',
+    '/api/wars/1/payouts',
+    '/api/attacks?from=1',
+    '/api/war-payouts',
+    '/api/war-payouts/1/members',
+    '/api/factions?ids=9002',
+  ].map((path) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 } as Record<Actor, number>,
+  })),
+  // Single-war fetch: authenticated actors pass the guard (404 — no war
+  // with id 1 in this stack's empty DB).
+  {
+    path: '/api/wars/1',
+    expected: { unauthenticated: 401, visitor: 404, member: 404, warlead: 404, ocmanager: 404, leadership: 404, admin: 404 },
+  },
 ]
 
 describe('authorization matrix', () => {

@@ -113,16 +113,19 @@ export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
 
   app.get('/api/members/:id/war-payouts', { preHandler: requireAuth() }, async (req) => {
     const { id } = req.params as { id: string }
-    const limit = clampLimit((req.query as { limit?: string }).limit, 5, 50)
+    // Max covers a member's full war history (the RW payouts page sums it).
+    const limit = clampLimit((req.query as { limit?: string }).limit, 5, 500)
     const res = await db.query(
       `SELECT wpm.payout_id, wpm.payout_amount,
-              jsonb_build_object(
-                'war_id', wp.war_id,
-                'created_at', wp.created_at,
+              to_jsonb(wp) || jsonb_build_object(
                 'ranked_wars', CASE WHEN rw.id IS NULL THEN NULL ELSE jsonb_build_object(
                   'start_at', rw.start_at,
                   'end_at', rw.end_at,
-                  'opponent_name', rw.opponent_name
+                  'opponent_name', rw.opponent_name,
+                  'opponent_id', rw.opponent_id,
+                  'winner_faction_id', rw.winner_faction_id,
+                  'our_score', rw.our_score,
+                  'opponent_score', rw.opponent_score
                 ) END
               ) AS war_payouts
        FROM war_payout_members wpm

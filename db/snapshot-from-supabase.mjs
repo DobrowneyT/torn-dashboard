@@ -5,8 +5,9 @@
 //
 //   node db/snapshot-from-supabase.mjs [--db faction_forge]
 //
-// Deliberately skipped: faction_attacks (400k+ rows, no migrated page needs it
-// yet) and member_secrets (never copy key material out of production).
+// Deliberately skipped: member_secrets (never copy key material out of
+// production). faction_attacks is bounded to recent rows (the full table is
+// 400k+; the war pages only need windows for recent wars).
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -43,6 +44,10 @@ const TABLES = [
   { name: 'crime_reward_items' },
   { name: 'crime_required_items' },
   { name: 'ranked_wars' },
+  {
+    name: 'faction_attacks',
+    filter: `started=gte.${Math.floor(Date.now() / 1000) - 35 * 24 * 3600}`,
+  },
   { name: 'war_member_contributions' },
   { name: 'war_payouts' },
   { name: 'war_payout_members' },
