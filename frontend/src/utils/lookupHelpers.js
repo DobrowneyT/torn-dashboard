@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { apiGet } from './apiClient'
 
 /**
  * Enrich item breakdown with actual prices from database and Torn API
@@ -19,35 +19,26 @@ export async function enrichItemBreakdown(itemBreakdown, apiKey) {
     
     if (allIds.length === 0) return itemBreakdown
     
-    // Fetch all data sources in parallel
-    const [itemsResult, marketPrices, costPricesResult] = await Promise.all([
-      // Item names from items table
-      supabase.from('items').select('id, name, sell_price').in('id', allIds),
-      // Market prices from Torn API for reward items
+    // Fetch names/prices from the API; Torn market prices only when the
+    // browser still holds a key (legacy mode — API mode skips them).
+    const [lookup, marketPrices] = await Promise.all([
+      apiGet(`/api/items/lookup?ids=${allIds.join(',')}`),
       (rewardIds.length > 0 && apiKey)
         ? fetchItemMarketPrices(rewardIds, apiKey)
         : Promise.resolve({}),
-      // Weighted averages from database view for cost items
-      (costIds.length > 0)
-        ? supabase.from('inventory_items_with_prices').select('item_id, weighted_avg_price').in('item_id', costIds)
-        : Promise.resolve({ data: null })
     ])
 
     // Build item names + sell-price maps
     const itemNames = {}
     const itemSellPrices = {}
-    if (itemsResult.data) {
-      itemsResult.data.forEach(item => {
-        itemNames[item.id.toString()] = item.name
-        itemSellPrices[item.id.toString()] = parseInt(item.sell_price) || 0
-      })
+    for (const item of (lookup.items || [])) {
+      itemNames[item.id.toString()] = item.name
+      itemSellPrices[item.id.toString()] = parseInt(item.sell_price) || 0
     }
     // Build cost prices map
     const costPrices = {}
-    if (costPricesResult.data) {
-      costPricesResult.data.forEach(item => {
-        costPrices[item.item_id] = parseFloat(item.weighted_avg_price) || 0
-      })
+    for (const item of (lookup.inventory_prices || [])) {
+      costPrices[item.item_id] = parseFloat(item.weighted_avg_price) || 0
     }
 
     // Update reward items: use the larger of market price and sell price.

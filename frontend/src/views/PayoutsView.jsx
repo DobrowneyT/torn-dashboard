@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useViewState } from '../contexts/ViewStateContext'
-import { supabase } from '../utils/supabase'
+import { apiGet } from '../utils/apiClient'
 import { formatCurrency, formatCurrencyShort, formatTimeHours } from '../utils/payoutCalculations'
 import { X, Info } from 'lucide-react'
 import StatCards from '../components/StatCards'
@@ -48,21 +48,12 @@ export default function PayoutsView({ isLeadership }) {
     try {
       setLoading(true)
 
-      const { data: weeks, error: weeksError } = await supabase
-        .from('oc_payout_weeks')
-        .select('*')
-        .order('week_end', { ascending: false })
-
-      if (weeksError) throw weeksError
-      setPayoutWeeks(weeks || [])
-
-      const { data: members, error: membersError } = await supabase
-        .from('oc_payout_members')
-        .select('*')
-        .order('week_end', { ascending: false })
-
-      if (membersError) throw membersError
-      setMemberPayouts(members || [])
+      const [{ weeks }, { members }] = await Promise.all([
+        apiGet('/api/payouts/weeks?limit=100'),
+        apiGet('/api/payouts/members'),
+      ])
+      setPayoutWeeks(weeks)
+      setMemberPayouts(members)
 
     } catch (error) {
       console.error('Error loading payout data:', error)
@@ -76,14 +67,8 @@ export default function PayoutsView({ isLeadership }) {
       setLoadingWeekDetails(true)
       setSelectedWeek(weekId)
 
-      const { data, error } = await supabase
-        .from('oc_payout_members')
-        .select('*')
-        .eq('week_id', weekId)
-        .order('payout', { ascending: false })
-
-      if (error) throw error
-      setWeekMembers(data || [])
+      const { members } = await apiGet(`/api/payouts/weeks/${weekId}/members`)
+      setWeekMembers(members)
 
     } catch (error) {
       console.error('Error loading week details:', error)
@@ -100,41 +85,12 @@ export default function PayoutsView({ isLeadership }) {
       const startTs = Math.floor(new Date(weekStart).getTime() / 1000)
       const endTs = Math.floor(new Date(weekEnd).getTime() / 1000) + 86400
 
-      const { data: slots, error: slotsError } = await supabase
-        .from('crime_slots')
-        .select('crime_id, joined_at, position, checkpoint_pass_rate')
-        .eq('user_id', memberId)
-        .gte('joined_at', startTs)
-        .lt('joined_at', endTs)
-
-      if (slotsError) throw slotsError
-
-      if (!slots || slots.length === 0) {
-        setMemberCrimes([])
-        return
-      }
-
-      const crimeIds = [...new Set(slots.map(s => s.crime_id))]
-
-      const { data: crimes, error: crimesError } = await supabase
-        .from('crimes')
-        .select('*')
-        .in('crime_id', crimeIds)
-        .order('executed_at', { ascending: false })
-
-      if (crimesError) throw crimesError
-
-      const crimesWithSlots = (crimes || []).map(crime => {
-        const memberSlot = slots.find(s => s.crime_id === crime.crime_id)
-        return {
-          ...crime,
-          member_joined_at: memberSlot?.joined_at,
-          member_position: memberSlot?.position,
-          member_cpr: memberSlot?.checkpoint_pass_rate
-        }
-      })
-
-      setMemberCrimes(crimesWithSlots)
+      // Server merges the member's slot into each crime; filter to the week
+      // window by when they joined.
+      const { crimes } = await apiGet(`/api/members/${memberId}/crimes?limit=1000`)
+      setMemberCrimes(crimes.filter(c =>
+        c.member_joined_at != null && c.member_joined_at >= startTs && c.member_joined_at < endTs
+      ))
 
     } catch (error) {
       console.error('Error loading member crimes:', error)

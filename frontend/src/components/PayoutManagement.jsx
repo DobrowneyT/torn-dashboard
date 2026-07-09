@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../utils/supabase'
+import { apiGet } from '../utils/apiClient'
 import {
   loadCrimesForPayout,
   loadMembers,
@@ -748,30 +748,27 @@ export default function PayoutManagement() {
         }
       }
 
-      // Find crimes executed in this date range to link
-      const { data: weekCrimes } = await supabase
-        .from('crimes')
-        .select('crime_id')
-        .gte('executed_at', weekStartTs)
-        .lt('executed_at', weekEndTs)
-        .eq('status', 'Successful')
-
-      const crimeIds = (weekCrimes || []).map(c => c.crime_id)
+      // Find crimes executed in this date range to link. The window endpoint
+      // returns a superset (lookback/in-progress) plus related item rows.
+      const windowData = await apiGet(`/api/payouts/crime-data?from=${weekStartTs}&to=${weekEndTs}`)
+      const successfulInWindow = (windowData.crimes || []).filter(c =>
+        c.status === 'Successful' && c.executed_at >= weekStartTs && c.executed_at < weekEndTs
+      )
+      const crimeIds = successfulInWindow.map(c => c.crime_id)
+      const idSet = new Set(crimeIds)
 
       let totalMoneyReward = 0
       let totalItemReward = 0
       let totalItemCost = 0
 
       if (crimeIds.length > 0) {
-        const [crimesResult, rewardResult, requiredResult] = await Promise.all([
-          supabase.from('crimes').select('rewards_money').in('crime_id', crimeIds),
-          supabase.from('crime_reward_items').select('unit_value, quantity').in('crime_id', crimeIds),
-          supabase.from('crime_required_items').select('unit_value, was_consumed').in('crime_id', crimeIds).eq('was_consumed', true)
-        ])
-
-        totalMoneyReward = (crimesResult.data || []).reduce((sum, c) => sum + (c.rewards_money || 0), 0)
-        totalItemReward = (rewardResult.data || []).reduce((sum, i) => sum + (i.unit_value * i.quantity), 0)
-        totalItemCost = (requiredResult.data || []).reduce((sum, i) => sum + (i.unit_value || 0), 0)
+        totalMoneyReward = successfulInWindow.reduce((sum, c) => sum + (c.rewards_money || 0), 0)
+        totalItemReward = (windowData.reward_items || [])
+          .filter(i => idSet.has(i.crime_id))
+          .reduce((sum, i) => sum + (i.unit_value * i.quantity), 0)
+        totalItemCost = (windowData.required_items || [])
+          .filter(i => idSet.has(i.crime_id) && i.was_consumed)
+          .reduce((sum, i) => sum + (i.unit_value || 0), 0)
       }
 
       if (itemOutcomes && totalItemReward === 0 && totalItemCost === 0) {
@@ -818,45 +815,27 @@ export default function PayoutManagement() {
 
   async function handleLoadHistoricalWeek(weekId) {
     try {
-      // Load the week data
-      const { data: weekData, error: weekError } = await supabase
-        .from('oc_payout_weeks')
-        .select('*')
-        .eq('id', weekId)
-        .single()
-
-      if (weekError) throw weekError
+      // Load the week directly by id (not limited to the newest page)
+      const { week: weekData } = await apiGet(`/api/payouts/weeks/${weekId}`)
 
       // Load member payouts for this week
-      const { data: members, error: membersError } = await supabase
-        .from('oc_payout_members')
-        .select('*')
-        .eq('week_id', weekId)
-        .order('payout', { ascending: false })
-
-      if (membersError) throw membersError
+      const { members } = await apiGet(`/api/payouts/weeks/${weekId}/members`)
 
       // Build item breakdown from linked crimes
       let itemBreakdown = { rewards: {}, costs: {} }
       const crimeIds = weekData.crime_ids || []
 
       if (crimeIds.length > 0) {
-        // Fetch reward and cost items for all linked crimes in parallel
-        const [rewardResult, costResult] = await Promise.all([
-          supabase
-            .from('crime_reward_items')
-            .select('item_id, quantity')
-            .in('crime_id', crimeIds),
-          supabase
-            .from('crime_required_items')
-            .select('item_id, was_consumed')
-            .in('crime_id', crimeIds)
-            .eq('was_consumed', true)
-        ])
+        // The window endpoint returns item rows for a superset of the linked
+        // crimes; filter down to exactly the linked ids.
+        const fromTs = weekData.week_start_timestamp ?? Math.floor(new Date(weekData.week_start).getTime() / 1000)
+        const toTs = weekData.week_end_timestamp ?? (Math.floor(new Date(weekData.week_end).getTime() / 1000) + 86400)
+        const windowData = await apiGet(`/api/payouts/crime-data?from=${fromTs}&to=${toTs}`)
+        const idSet = new Set(crimeIds)
 
         // Aggregate reward items by item_id
         const rewards = {}
-        for (const r of (rewardResult.data || [])) {
+        for (const r of (windowData.reward_items || []).filter(i => idSet.has(i.crime_id))) {
           const id = r.item_id.toString()
           if (!rewards[id]) rewards[id] = { quantity: 0 }
           rewards[id].quantity += (r.quantity || 1)
@@ -864,7 +843,7 @@ export default function PayoutManagement() {
 
         // Aggregate cost items by item_id
         const costs = {}
-        for (const c of (costResult.data || [])) {
+        for (const c of (windowData.required_items || []).filter(i => idSet.has(i.crime_id) && i.was_consumed)) {
           const id = c.item_id.toString()
           if (!costs[id]) costs[id] = { quantity: 0 }
           costs[id].quantity += 1
@@ -934,22 +913,14 @@ export default function PayoutManagement() {
       setHasCalculated(true)
       setShowHistory(false)
 
-      // Fetch the linked crimes from Supabase so Crime Statistics can render.
+      // Fetch the linked crimes so Crime Statistics can render.
       // We only need the fields getCrimeStats uses — no slots needed here.
       setMembersData(null)
       if (crimeIds.length > 0) {
-        supabase
-          .from('crimes')
-          .select('crime_id, name, difficulty, status, executed_at, rewards_money')
-          .in('crime_id', crimeIds)
-          .then(({ data: crimesRows, error: crimesErr }) => {
-            if (crimesErr) {
-              console.error('Error loading crimes for stats:', crimesErr)
-              setCrimesData(null)
-              return
-            }
+        apiGet(`/api/payouts/weeks/${weekId}/crimes`)
+          .then(({ crimes: crimesRows }) => {
             const crimesMap = {}
-            for (const c of (crimesRows || [])) {
+            for (const c of crimesRows) {
               crimesMap[c.crime_id] = {
                 crime_id: c.crime_id,
                 name: c.name,
@@ -961,6 +932,10 @@ export default function PayoutManagement() {
               }
             }
             setCrimesData({ crimes: crimesMap })
+          })
+          .catch((crimesErr) => {
+            console.error('Error loading crimes for stats:', crimesErr)
+            setCrimesData(null)
           })
       } else {
         setCrimesData(null)

@@ -11,6 +11,7 @@ import './authz.js'
 import './db.js'
 import { registerMemberRoutes } from './members.js'
 import { registerOcRoutes } from './oc.js'
+import { registerPayoutRoutes } from './payouts.js'
 
 export interface ServerOptions {
   factionSlug: string
@@ -68,6 +69,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
 
     registerMemberRoutes(app, opts.db)
     registerOcRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, tornApiKey: opts.tornApiKey })
+    registerPayoutRoutes(app, opts.db)
   }
 
   return app

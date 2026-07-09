@@ -1,6 +1,5 @@
-import { supabase } from './supabase'
+import { apiGet, apiPost } from './apiClient'
 import { parsePayoutCSV } from './payoutCalculations'
-import * as adminApi from './adminApi'
 
 /**
  * Import a payout CSV file
@@ -56,27 +55,19 @@ export async function importPayoutCSV(file, apiKey, userName) {
             throw new Error('No valid member data found in CSV')
         }
 
-        // Load crimes executed in this date range
-        const { data: weekCrimes, error: crimesError } = await supabase
-            .from('crimes')
-            .select('crime_id, rewards_money, item_reward_value, item_cost_value')
-            .gte('executed_at', weekStartTs)
-            .lt('executed_at', weekEndTs)
-            .eq('status', 'Successful')
+        // Load crimes executed in this date range (the window endpoint
+        // returns a superset — filter to successful-in-window) plus slots.
+        const windowData = await apiGet(`/api/payouts/crime-data?from=${weekStartTs}&to=${weekEndTs}`)
+        const weekCrimes = (windowData.crimes || []).filter(c =>
+            c.status === 'Successful' && c.executed_at >= weekStartTs && c.executed_at < weekEndTs
+        )
 
-        if (crimesError) throw crimesError
-
-        const crimeIds = (weekCrimes || []).map(c => c.crime_id)
+        const crimeIds = weekCrimes.map(c => c.crime_id)
+        const idSet = new Set(crimeIds)
 
         console.log(`Found ${crimeIds.length} successful crimes in date range`)
 
-        // Load crime slots for these crimes to determine member participation
-        const { data: crimeSlots, error: slotsError } = await supabase
-            .from('crime_slots')
-            .select('crime_id, user_id')
-            .in('crime_id', crimeIds)
-
-        if (slotsError) throw slotsError
+        const crimeSlots = (windowData.slots || []).filter(s => idSet.has(s.crime_id))
 
         // Build map of member participation
         const memberCrimeMap = {}
@@ -153,19 +144,19 @@ export async function importPayoutCSV(file, apiKey, userName) {
             total_adjusted_tickets: parsed.totalTickets
         }
 
-        // Import using adminApi
-        const response = await adminApi.importPayoutData(weekData, enhancedMembers, apiKey)
-
-        if (!response.success) {
-            throw new Error(response.error || 'Failed to import payout data')
-        }
+        // Import through the leadership-gated save endpoint
+        const response = await apiPost('/api/payouts/weeks', {
+            week: weekData,
+            members: enhancedMembers,
+            crime_ids: crimeIds,
+        })
 
         return {
             success: true,
             weekStart: weekStart.toISOString().split('T')[0],
             memberCount: parsed.memberCount,
             crimesLinked: crimeIds.length,
-            weekId: response.weekId
+            weekId: response.week_id
         }
 
     } catch (error) {

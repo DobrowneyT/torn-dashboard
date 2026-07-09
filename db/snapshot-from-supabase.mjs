@@ -116,17 +116,23 @@ try {
     console.log(`${name}: ${rows.length} rows`)
   }
 
-  // Re-align sequences past the snapshot's explicit ids.
+  // Re-align sequences past the snapshot's explicit ids. Enumerate via
+  // pg_depend ('a' = serial, 'i' = identity) — calling pg_get_serial_sequence
+  // in a WHERE clause errors on tables without the column.
   const seqs = await db.query(`
-    SELECT c.relname AS table_name
-    FROM pg_class c
-    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'id'
-    WHERE c.relkind = 'r' AND pg_get_serial_sequence(c.relname, 'id') IS NOT NULL
+    SELECT sn.nspname AS seq_schema, s.relname AS seq,
+           tn.nspname AS tab_schema, t.relname AS tab, a.attname AS col
+    FROM pg_class s
+    JOIN pg_namespace sn ON sn.oid = s.relnamespace
+    JOIN pg_depend d ON d.objid = s.oid AND d.deptype IN ('a', 'i')
+    JOIN pg_class t ON t.oid = d.refobjid
+    JOIN pg_namespace tn ON tn.oid = t.relnamespace
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+    WHERE s.relkind = 'S'
   `)
-  for (const { table_name } of seqs.rows) {
+  for (const { seq_schema, seq, tab_schema, tab, col } of seqs.rows) {
     await db.query(
-      `SELECT setval(pg_get_serial_sequence($1, 'id'), COALESCE((SELECT max(id) FROM "${table_name}"), 1))`,
-      [table_name]
+      `SELECT setval('"${seq_schema}"."${seq}"', GREATEST(COALESCE((SELECT max("${col}") FROM "${tab_schema}"."${tab}"), 1), 1))`
     )
   }
   console.log(`Snapshot restored into ${dbName}.`)
