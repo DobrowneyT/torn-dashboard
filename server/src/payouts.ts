@@ -1,0 +1,210 @@
+// Weekly OC payout flow: window reads for the calculator, saved-week reads,
+// and the leadership-gated save (upsert week by window, replace member rows,
+// link crimes) — same semantics the admin-db edge function had.
+import type { FastifyInstance } from 'fastify'
+import type pg from 'pg'
+import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
+
+const THREE_WEEKS_SECONDS = 604800 * 3
+
+// Columns the client may set on oc_payout_weeks — everything else is server-stamped.
+const WEEK_COLUMNS = new Set([
+  'week_start', 'week_end', 'week_start_timestamp', 'week_end_timestamp',
+  'total_money_reward', 'total_item_reward', 'total_item_cost', 'net_item_value',
+  'faction_cut_percent', 'faction_cut_amount', 'member_payout_total',
+  'total_member_payout', 'member_count', 'crimes_processed', 'total_time_spent',
+  'average_time_spent', 'total_adjusted_tickets', 'total_time_spent_percent',
+  'min_time_for_full_tickets', 'min_time_for_any_payout', 'crime_ids',
+])
+const MEMBER_COLUMNS = new Set([
+  'member_id', 'member_name', 'tier', 'base_tickets', 'sit_out_penalty',
+  'adjusted_tickets', 'time_spent', 'time_spent_percent', 'share_percent',
+  'payout', 'theoretical_payout', 'crimes_count', 'crimes_participated',
+])
+
+function pick(obj: Record<string, unknown>, allowed: Set<string>) {
+  return Object.fromEntries(Object.entries(obj).filter(([k]) => allowed.has(k)))
+}
+
+export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
+  app.get('/api/payouts/weeks', { preHandler: requireAuth() }, async (req) => {
+    const limit = clamp((req.query as { limit?: string }).limit, 20, 100)
+    const res = await db.query(
+      'SELECT * FROM oc_payout_weeks ORDER BY week_end DESC LIMIT $1',
+      [limit]
+    )
+    return { weeks: res.rows }
+  })
+
+  app.get('/api/payouts/members', { preHandler: requireAuth() }, async () => {
+    const res = await db.query(
+      'SELECT * FROM oc_payout_members ORDER BY week_end DESC, payout DESC'
+    )
+    return { members: res.rows }
+  })
+
+  app.get('/api/payouts/weeks/:id/members', { preHandler: requireAuth() }, async (req) => {
+    const { id } = req.params as { id: string }
+    const res = await db.query(
+      'SELECT * FROM oc_payout_members WHERE week_id = $1 ORDER BY payout DESC',
+      [id]
+    )
+    return { members: res.rows }
+  })
+
+  app.get('/api/payouts/weeks/:id/crimes', { preHandler: requireAuth() }, async (req) => {
+    const { id } = req.params as { id: string }
+    const res = await db.query(
+      'SELECT * FROM crimes WHERE payout_week_id = $1 ORDER BY executed_at DESC',
+      [id]
+    )
+    return { crimes: res.rows }
+  })
+
+  // The calculator's input: crimes relevant to a payout window (the four
+  // categories the Sheets-era algorithm used) plus their slots and items.
+  app.get('/api/payouts/crime-data', { preHandler: requireAuth() }, async (req, reply) => {
+    const q = req.query as { from?: string; to?: string }
+    const from = Number(q.from)
+    const to = Number(q.to)
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+      return reply.status(400).send({ error: 'from and to (unix seconds, to > from) are required' })
+    }
+    const lookbackFrom = from - THREE_WEEKS_SECONDS
+
+    const crimes = await db.query(
+      `SELECT DISTINCT ON (crime_id) * FROM (
+         -- 1. executed within the window
+         SELECT * FROM crimes WHERE executed_at >= $1 AND executed_at < $2
+         UNION ALL
+         -- 2. created in the 3-week lookback before the window
+         SELECT * FROM crimes WHERE created_at >= $3 AND created_at < $1
+         UNION ALL
+         -- 3. still in progress
+         SELECT * FROM crimes WHERE status IN ('Planning', 'Recruiting')
+         UNION ALL
+         -- 4. created inside the window but executed after it
+         SELECT * FROM crimes WHERE created_at >= $1 AND created_at < $2 AND executed_at >= $2
+       ) u ORDER BY crime_id`,
+      [from, to, lookbackFrom]
+    )
+    const crimeIds = crimes.rows.map((c) => c.crime_id)
+    if (crimeIds.length === 0) {
+      return { crimes: [], slots: [], reward_items: [], required_items: [] }
+    }
+
+    const [slots, rewards, required] = await Promise.all([
+      db.query('SELECT * FROM crime_slots WHERE crime_id = ANY($1)', [crimeIds]),
+      db.query('SELECT * FROM crime_reward_items WHERE crime_id = ANY($1)', [crimeIds]),
+      db.query('SELECT * FROM crime_required_items WHERE crime_id = ANY($1)', [crimeIds]),
+    ])
+    return {
+      crimes: crimes.rows,
+      slots: slots.rows,
+      reward_items: rewards.rows,
+      required_items: required.rows,
+    }
+  })
+
+  // Item name/price lookup for the payout item breakdown.
+  app.get('/api/items/lookup', { preHandler: requireAuth() }, async (req, reply) => {
+    const raw = (req.query as { ids?: string }).ids ?? ''
+    const ids = raw.split(',').map((s) => s.trim()).filter((s) => /^\d+$/.test(s))
+    if (ids.length === 0) return reply.status(400).send({ error: 'ids (comma-separated item ids) is required' })
+    const [items, inventoryPrices] = await Promise.all([
+      db.query('SELECT id, name, sell_price FROM items WHERE id = ANY($1::int[]) ORDER BY id', [ids]),
+      db.query(
+        'SELECT item_id, weighted_avg_price FROM inventory_items_with_prices WHERE item_id = ANY($1) ORDER BY item_id',
+        [ids]
+      ),
+    ])
+    return { items: items.rows, inventory_prices: inventoryPrices.rows }
+  })
+
+  // Full member rows + all CPR rows: the calculator's roster input.
+  app.get('/api/members/with-cpr', { preHandler: requireAuth() }, async () => {
+    const [members, cpr] = await Promise.all([
+      db.query('SELECT * FROM members ORDER BY member_id'),
+      db.query('SELECT member_id, crime_name, position_label, difficulty, cpr_value FROM member_cpr_v2'),
+    ])
+    return { members: members.rows, cpr: cpr.rows }
+  })
+
+  // Save a computed payout week. Visitors get the explicit read-only message
+  // (they can run the whole flow, only the save is blocked); everyone else
+  // needs leadership/admin.
+  app.post('/api/payouts/weeks', { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }, async (req, reply) => {
+    const body = req.body as { week?: Record<string, unknown>; members?: Record<string, unknown>[]; crime_ids?: string[] } | null
+    if (!body?.week || !Array.isArray(body.members) || body.members.length === 0) {
+      return reply.status(400).send({ error: 'week and members are required' })
+    }
+    const week = pick(body.week, WEEK_COLUMNS)
+    if (!week.week_start || !week.week_end) {
+      return reply.status(400).send({ error: 'week.week_start and week.week_end are required' })
+    }
+    const savedBy = req.session!.torn_user_id
+    const crimeIds = Array.isArray(body.crime_ids) ? body.crime_ids : []
+
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+
+      const existing = await client.query(
+        'SELECT id FROM oc_payout_weeks WHERE week_start = $1 AND week_end = $2',
+        [week.week_start, week.week_end]
+      )
+
+      const weekCols = Object.keys(week)
+      let weekId: number
+      if (existing.rows.length > 0) {
+        weekId = existing.rows[0].id
+        const sets = weekCols.map((c, i) => `"${c}" = $${i + 1}`).join(', ')
+        await client.query(
+          `UPDATE oc_payout_weeks SET ${sets}, saved_by = $${weekCols.length + 1},
+                  saved_at = now(), updated_at = now()
+           WHERE id = $${weekCols.length + 2}`,
+          [...weekCols.map((c) => week[c]), savedBy, weekId]
+        )
+        await client.query('DELETE FROM oc_payout_members WHERE week_id = $1', [weekId])
+      } else {
+        const placeholders = weekCols.map((_, i) => `$${i + 1}`).join(', ')
+        const inserted = await client.query(
+          `INSERT INTO oc_payout_weeks (${weekCols.map((c) => `"${c}"`).join(', ')}, saved_by, saved_at, updated_at)
+           VALUES (${placeholders}, $${weekCols.length + 1}, now(), now())
+           RETURNING id`,
+          [...weekCols.map((c) => week[c]), savedBy]
+        )
+        weekId = inserted.rows[0].id
+      }
+
+      for (const raw of body.members) {
+        const m = pick(raw, MEMBER_COLUMNS)
+        const cols = ['week_id', 'week_start', 'week_end', ...Object.keys(m)]
+        const vals = [weekId, week.week_start, week.week_end, ...Object.keys(m).map((c) => m[c])]
+        await client.query(
+          `INSERT INTO oc_payout_members (${cols.map((c) => `"${c}"`).join(', ')})
+           VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})`,
+          vals
+        )
+      }
+
+      if (crimeIds.length > 0) {
+        await client.query('UPDATE crimes SET payout_week_id = $1 WHERE crime_id = ANY($2)', [weekId, crimeIds])
+      }
+
+      await client.query('COMMIT')
+      return { week_id: weekId, member_count: body.members.length }
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  })
+}
+
+function clamp(raw: string | undefined, fallback: number, max: number): number {
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 1) return fallback
+  return Math.min(n, max)
+}

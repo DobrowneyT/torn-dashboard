@@ -1,29 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock supabase before importing the module
-vi.mock('../supabase', () => ({
-  supabase: {
-    from: vi.fn(() => ({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      gte: vi.fn().mockReturnThis(),
-      lt: vi.fn().mockReturnThis(),
-      in: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockReturnThis(),
-      single: vi.fn().mockReturnThis(),
-      gt: vi.fn().mockReturnThis(),
-      then: vi.fn(),
-    })),
-  },
+// Mock the faction API client before importing the module
+vi.mock('../apiClient', () => ({
+  API_MODE: true,
+  apiGet: vi.fn(),
+  apiPost: vi.fn(),
 }))
 
-// Mock adminApi
-vi.mock('../adminApi', () => ({
-  importPayoutData: vi.fn().mockResolvedValue({ success: true, weekId: 1 }),
-}))
-
-import { supabase } from '../supabase'
+import { apiGet } from '../apiClient'
 import { checkExistingWeek } from '../payoutDataLoader'
 
 describe('checkExistingWeek', () => {
@@ -31,21 +15,11 @@ describe('checkExistingWeek', () => {
     vi.clearAllMocks()
   })
 
-  it('returns null when no existing week is found (PGRST116)', async () => {
-    const mockChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: null,
-        error: { code: 'PGRST116', message: 'no rows' },
-      }),
-    }
-    supabase.from.mockReturnValue(mockChain)
+  it('returns null when no week matches the window', async () => {
+    apiGet.mockResolvedValue({ weeks: [{ id: 7, week_start: '2026-01-01', week_end: '2026-01-07' }] })
 
     const result = await checkExistingWeek('2026-03-16', '2026-03-22')
     expect(result).toBeNull()
-    expect(supabase.from).toHaveBeenCalledWith('oc_payout_weeks')
   })
 
   it('returns existing week data when found', async () => {
@@ -58,14 +32,7 @@ describe('checkExistingWeek', () => {
       member_count: 15,
       member_payout_total: 5000000,
     }
-
-    const mockChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: existingWeek, error: null }),
-    }
-    supabase.from.mockReturnValue(mockChain)
+    apiGet.mockResolvedValue({ weeks: [existingWeek] })
 
     const result = await checkExistingWeek('2026-03-16', '2026-03-22')
     expect(result).toEqual(existingWeek)
@@ -74,16 +41,7 @@ describe('checkExistingWeek', () => {
   })
 
   it('returns null on unexpected errors', async () => {
-    const mockChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: null,
-        error: { code: 'UNKNOWN', message: 'something went wrong' },
-      }),
-    }
-    supabase.from.mockReturnValue(mockChain)
+    apiGet.mockRejectedValue(new Error('something went wrong'))
 
     // Should not throw, just return null
     const result = await checkExistingWeek('2026-03-16', '2026-03-22')

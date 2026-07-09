@@ -59,10 +59,19 @@ afterAll(async () => {
   await stack?.close()
 })
 
+// Matrix paths default to GET; prefix with a method ("POST /api/...") for
+// writes. Writes send an empty JSON body — authorized actors then see 400,
+// which proves they passed the guard without mutating anything.
 async function hit(path: string, actor: Actor): Promise<number> {
+  const [method, p] = path.includes(' ') ? (path.split(' ') as [string, string]) : ['GET', path]
   const token = tokens.get(actor)
-  const res = await fetch(`${stack.baseUrl}${path}`, {
-    headers: token ? { authorization: `Bearer ${token}` } : {},
+  const res = await fetch(`${stack.baseUrl}${p}`, {
+    method,
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(method !== 'GET' ? { 'content-type': 'application/json' } : {}),
+    },
+    body: method !== 'GET' ? '{}' : undefined,
   })
   return res.status
 }
@@ -123,6 +132,22 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
   {
     path: '/api/oc-planner/data',
     expected: { unauthenticated: 401, visitor: 200, member: 403, warlead: 403, ocmanager: 200, leadership: 200, admin: 200 },
+  },
+  // Slice #63 — payout reads are member-visible...
+  ...[
+    '/api/payouts/weeks',
+    '/api/payouts/weeks/1/members',
+    '/api/payouts/weeks/1/crimes',
+    '/api/payouts/crime-data?from=1750000000&to=1750604800',
+    '/api/members/with-cpr',
+  ].map((path) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 } as Record<Actor, number>,
+  })),
+  // ...and the save is leadership/admin-only, with visitors read-only.
+  {
+    path: 'POST /api/payouts/weeks',
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 400, admin: 400 },
   },
 ]
 

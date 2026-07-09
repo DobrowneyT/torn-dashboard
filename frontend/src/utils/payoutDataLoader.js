@@ -1,15 +1,16 @@
 /**
- * Payout Data Loader - Loads all payout-related data from Supabase
- * 
+ * Payout Data Loader - Loads all payout-related data from the faction API
+ *
  * This utility fetches crimes, slots, reward items, and required items
- * from Supabase and transforms them into a format suitable for payout calculations.
- * 
+ * and transforms them into a format suitable for payout calculations.
+ *
  * IMPORTANT: Time filtering uses >= fromTimestamp AND < toTimestamp to avoid
- * double-counting at week boundaries.
+ * double-counting at week boundaries. The window logic (incl. the 3-week
+ * lookback and the four crime categories) lives server-side in
+ * /api/payouts/crime-data.
  */
 
-import { supabase } from './supabase'
-import * as adminApi from './adminApi'
+import { apiGet, apiPost } from './apiClient'
 
 /**
  * Load all crimes and related data for a given time range
@@ -28,113 +29,27 @@ import * as adminApi from './adminApi'
  */
 export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
   try {
-    // Calculate lookback window (3 weeks = 1,814,400 seconds)
-    const THREE_WEEKS = 604800 * 3
-    const dataFromTimestamp = fromTimestamp - THREE_WEEKS
-
-    // Phase 1: Load all crime queries in parallel
-    // We need 4 categories to match the Google Sheets algorithm:
-    // 1. Crimes executed within the payout window (for rewards + time)
-    // 2. Crimes created before the window (lookback — members joined early, crime executed in window)
-    // 3. Crimes still in Planning/Recruiting (in-progress — time tracking only)
-    // 4. Crimes created during the window but executed AFTER it (time tracking only)
-    //    These are no longer Planning/Recruiting, so query 3 misses them.
-    //    They weren't executed in the window, so query 1 misses them.
-    //    They weren't created before the window, so query 2 misses them.
-    const [executedResult, lookbackResult, inProgressResult, postWindowResult] = await Promise.all([
-      supabase
-        .from('crimes')
-        .select('*')
-        .gte('executed_at', fromTimestamp)
-        .lt('executed_at', toTimestamp)
-        .order('executed_at', { ascending: false }),
-      supabase
-        .from('crimes')
-        .select('*')
-        .gte('created_at', dataFromTimestamp)
-        .lt('created_at', fromTimestamp)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('crimes')
-        .select('*')
-        .in('status', ['Planning', 'Recruiting'])
-        .order('created_at', { ascending: false }),
-      // Crimes created during the window that executed after it
-      // (members were sitting in these crimes, accumulating time within the window)
-      supabase
-        .from('crimes')
-        .select('*')
-        .gte('created_at', fromTimestamp)
-        .lt('created_at', toTimestamp)
-        .gte('executed_at', toTimestamp)
-        .order('executed_at', { ascending: false })
+    // Server returns the four-category union (window, 3-week lookback,
+    // in-progress, created-inside-executed-after) plus related rows.
+    const [windowData, rosterData] = await Promise.all([
+      apiGet(`/api/payouts/crime-data?from=${fromTimestamp}&to=${toTimestamp}`),
+      apiGet('/api/members/roster'),
     ])
 
-    if (executedResult.error) throw executedResult.error
-    if (lookbackResult.error) throw lookbackResult.error
-    if (inProgressResult.error) throw inProgressResult.error
-    if (postWindowResult.error) throw postWindowResult.error
-
-    const executedCrimes = executedResult.data || []
-    const lookbackCrimes = lookbackResult.data || []
-    const inProgressCrimes = inProgressResult.data || []
-    const postWindowCrimes = postWindowResult.data || []
-
-    // Combine and deduplicate
-    const crimeMap = new Map()
-
-    for (const crime of executedCrimes) {
-      crimeMap.set(crime.crime_id, crime)
-    }
-
-    for (const crime of lookbackCrimes) {
-      if (!crimeMap.has(crime.crime_id)) {
-        crimeMap.set(crime.crime_id, crime)
-      }
-    }
-
-    for (const crime of inProgressCrimes) {
-      if (!crimeMap.has(crime.crime_id)) {
-        crimeMap.set(crime.crime_id, crime)
-      }
-    }
-
-    for (const crime of postWindowCrimes) {
-      if (!crimeMap.has(crime.crime_id)) {
-        crimeMap.set(crime.crime_id, crime)
-      }
-    }
-
-    const crimes = Array.from(crimeMap.values())
+    const crimes = windowData.crimes || []
 
     if (crimes.length === 0) {
       return { crimes: {}, slots: [], rewardItems: [], requiredItems: [] }
     }
 
-    const crimeIds = crimes.map(c => c.crime_id)
-
-    // Phase 2: Load all related data + members in parallel
-    const [slotsResult, rewardResult, requiredResult, membersResult] = await Promise.all([
-      supabase.from('crime_slots').select('*').in('crime_id', crimeIds),
-      supabase.from('crime_reward_items').select('*').in('crime_id', crimeIds),
-      supabase.from('crime_required_items').select('*').in('crime_id', crimeIds),
-      supabase.from('members').select('member_id, member_name')
-    ])
-
-    if (slotsResult.error) throw slotsResult.error
-    if (rewardResult.error) throw rewardResult.error
-    if (requiredResult.error) throw requiredResult.error
-
-    const slots = slotsResult.data || []
-    const rewardItems = rewardResult.data || []
-    const requiredItems = requiredResult.data || []
+    const slots = windowData.slots || []
+    const rewardItems = windowData.reward_items || []
+    const requiredItems = windowData.required_items || []
 
     // Build member name lookup map (loaded once, used for all crimes)
     const membersMap = {}
-    if (!membersResult.error && membersResult.data) {
-      membersResult.data.forEach(m => {
-        membersMap[m.member_id] = m.member_name
-      })
+    for (const m of (rosterData.roster || [])) {
+      membersMap[m.member_id] = m.member_name
     }
 
     // Pre-index related data by crime_id for O(1) lookup instead of O(n) filtering
@@ -268,17 +183,10 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
  */
 export async function loadMembers() {
   try {
-    // Load members and CPR data in parallel (v2 — crime/position keyed)
-    const [membersResult, cprResult] = await Promise.all([
-      supabase.from('members').select('member_id, member_name, tier, tier_override, last_scraped, updated_at, is_current, last_seen, first_seen, has_cpr_key'),
-      supabase.from('member_cpr_v2').select('member_id, difficulty, position_label, cpr_value')
-    ])
-
-    if (membersResult.error) throw membersResult.error
-    if (cprResult.error) throw cprResult.error
-
-    const members = membersResult.data || []
-    const cprData = cprResult.data || []
+    // Full member rows + all CPR rows in one call (v2 — crime/position keyed)
+    const data = await apiGet('/api/members/with-cpr')
+    const members = data.members || []
+    const cprData = data.cpr || []
 
     // Pre-index CPR data by member_id for O(1) lookup
     const cprByMember = new Map()
@@ -327,14 +235,8 @@ export async function loadMembers() {
  */
 export async function loadPayoutWeeks(limit = 20) {
   try {
-    const { data, error } = await supabase
-      .from('oc_payout_weeks')
-      .select('*')
-      .order('week_end', { ascending: false })
-      .limit(limit)
-
-    if (error) throw error
-    return data || []
+    const { weeks } = await apiGet(`/api/payouts/weeks?limit=${limit}`)
+    return weeks
 
   } catch (error) {
     console.error('Error loading payout weeks:', error)
@@ -349,14 +251,8 @@ export async function loadPayoutWeeks(limit = 20) {
  */
 export async function loadWeekMembers(weekId) {
   try {
-    const { data, error } = await supabase
-      .from('oc_payout_members')
-      .select('*')
-      .eq('week_id', weekId)
-      .order('payout', { ascending: false })
-
-    if (error) throw error
-    return data || []
+    const { members } = await apiGet(`/api/payouts/weeks/${weekId}/members`)
+    return members
 
   } catch (error) {
     console.error('Error loading week members:', error)
@@ -371,14 +267,8 @@ export async function loadWeekMembers(weekId) {
  */
 export async function loadWeekCrimes(weekId) {
   try {
-    const { data, error } = await supabase
-      .from('crimes')
-      .select('*')
-      .eq('payout_week_id', weekId)
-      .order('executed_at', { ascending: false })
-
-    if (error) throw error
-    return data || []
+    const { crimes } = await apiGet(`/api/payouts/weeks/${weekId}/crimes`)
+    return crimes
 
   } catch (error) {
     console.error('Error loading week crimes:', error)
@@ -393,22 +283,8 @@ export async function loadWeekCrimes(weekId) {
  */
 export async function loadMemberPayoutHistory(memberId) {
   try {
-    const { data, error } = await supabase
-      .from('oc_payout_members')
-      .select(`
-        *,
-        oc_payout_weeks (
-          week_start,
-          week_end,
-          member_payout_total,
-          crimes_processed
-        )
-      `)
-      .eq('member_id', memberId)
-      .order('week_end', { ascending: false })
-
-    if (error) throw error
-    return data || []
+    const { payouts } = await apiGet(`/api/members/${memberId}/payouts`)
+    return payouts
 
   } catch (error) {
     console.error('Error loading member payout history:', error)
@@ -424,50 +300,9 @@ export async function loadMemberPayoutHistory(memberId) {
  */
 export async function loadMemberCrimeHistory(memberId, limit = 100) {
   try {
-    // First get all crime_slots where this member participated
-    const { data: slots, error: slotsError } = await supabase
-      .from('crime_slots')
-      .select('crime_id, position, joined_at, checkpoint_pass_rate, user_outcome')
-      .eq('user_id', memberId)
-      .order('joined_at', { ascending: false })
-      .limit(limit)
-
-    if (slotsError) throw slotsError
-
-    if (!slots || slots.length === 0) {
-      return []
-    }
-
-    // Get the crime details
-    const crimeIds = [...new Set(slots.map(s => s.crime_id))]
-
-    const { data: crimes, error: crimesError } = await supabase
-      .from('crimes')
-      .select('*')
-      .in('crime_id', crimeIds)
-      .order('executed_at', { ascending: false })
-
-    if (crimesError) throw crimesError
-
-    // Pre-index slots by crime_id for efficient merging
-    const slotsByCrime = new Map()
-    for (const slot of slots) {
-      if (!slotsByCrime.has(slot.crime_id)) slotsByCrime.set(slot.crime_id, slot)
-    }
-
-    // Merge crime details with slot info
-    const crimesWithSlotInfo = (crimes || []).map(crime => {
-      const memberSlot = slotsByCrime.get(crime.crime_id)
-      return {
-        ...crime,
-        member_position: memberSlot?.position,
-        member_joined_at: memberSlot?.joined_at,
-        member_cpr: memberSlot?.checkpoint_pass_rate,
-        member_outcome: memberSlot?.user_outcome
-      }
-    })
-
-    return crimesWithSlotInfo
+    // Server merges the member's slot into each crime row.
+    const { crimes } = await apiGet(`/api/members/${memberId}/crimes?limit=${limit}`)
+    return crimes
 
   } catch (error) {
     console.error('Error loading member crime history:', error)
@@ -482,24 +317,7 @@ export async function loadMemberCrimeHistory(memberId, limit = 100) {
  */
 export async function loadMemberLoanedItems(memberId) {
   try {
-    // Query the view with prices so we get market_value/weighted_avg_price
-    const { data: items, error } = await supabase
-      .from('inventory_items_with_prices')
-      .select('*')
-      .gt('loaned', 0)
-
-    if (error) {
-      // Fallback to raw table if view doesn't exist
-      console.warn('Falling back to inventory_items table:', error.message)
-      const { data: rawItems, error: rawError } = await supabase
-        .from('inventory_items')
-        .select('*')
-        .gt('loaned', 0)
-
-      if (rawError) throw rawError
-      return filterItemsForMember(rawItems, memberId)
-    }
-
+    const { items } = await apiGet('/api/inventory/loaned')
     return filterItemsForMember(items, memberId)
 
   } catch (error) {
@@ -582,20 +400,8 @@ export function filterItemsForMember(items, memberId) {
  */
 export async function checkExistingWeek(weekStart, weekEnd) {
   try {
-    const { data, error } = await supabase
-      .from('oc_payout_weeks')
-      .select('id, week_start, week_end, saved_at, saved_by, member_count, member_payout_total')
-      .eq('week_start', weekStart)
-      .eq('week_end', weekEnd)
-      .limit(1)
-      .single()
-
-    if (error) {
-      // PGRST116 = no rows found, which is expected when no week exists
-      if (error.code === 'PGRST116') return null
-      throw error
-    }
-    return data
+    const { weeks } = await apiGet('/api/payouts/weeks?limit=100')
+    return weeks.find(w => w.week_start === weekStart && w.week_end === weekEnd) ?? null
   } catch (error) {
     console.error('Error checking existing week:', error)
     return null
@@ -610,8 +416,8 @@ export async function checkExistingWeek(weekStart, weekEnd) {
  * @param {Object} weekData - Week summary data
  * @param {Array} memberData - Array of member payout data
  * @param {Array} crimeIds - Array of crime IDs included in this payout
- * @param {string} savedBy - Username who saved this
- * @param {string} apiKey - Torn API key for authentication
+ * @param {string} [savedBy] - Unused; the server stamps saved_by from the session
+ * @param {string} [apiKey] - Unused; the API session token authenticates the save
  * @returns {Promise<Object>} Saved week data
  */
 export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, apiKey) {
@@ -659,19 +465,15 @@ export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, ap
       crimes_participated: m.crimes_participated || m.crimeIds || []
     }))
 
-    // Single Edge Function call: saves week, members, AND links crimes
-    const response = await adminApi.importPayoutData(
-      weekRecord,
-      memberRecords,
-      apiKey,
-      crimeIds && crimeIds.length > 0 ? crimeIds : null
-    )
+    // Single API call: saves week, members, AND links crimes. Leadership-gated
+    // server-side; visitors get the read-only rejection.
+    const response = await apiPost('/api/payouts/weeks', {
+      week: weekRecord,
+      members: memberRecords,
+      crime_ids: crimeIds || [],
+    })
 
-    if (!response.success) {
-      throw new Error(response.error || 'Failed to save payout week')
-    }
-
-    const weekId = response.weekId
+    const weekId = response.week_id
 
     console.log(`Saved payout week ${weekId} with ${memberRecords.length} members and ${(crimeIds || []).length} crimes`)
 
