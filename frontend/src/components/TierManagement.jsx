@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
-import { supabase } from '../utils/supabase'
+import { apiGet, apiPut } from '../utils/apiClient'
 import { useAuth } from '../contexts/AuthContext'
-import * as adminApi from '../utils/adminApi'
 import { config } from '../config'
 import { CheckCircle2, AlertTriangle } from 'lucide-react'
 
@@ -27,30 +26,11 @@ export default function TierManagement() {
       setLoading(true)
       setError(null)
 
-      const { data: membersData, error: membersError } = await supabase
-        .from('members')
-        .select('member_id, member_name, tier, tier_override, last_scraped, updated_at, is_current, last_seen, first_seen, has_cpr_key')
-        .eq('is_current', true)
-        .order('member_name')
-
-      if (membersError) throw membersError
-
-      const memberIds = membersData.map(m => String(m.member_id))
-
-      const PAGE_SIZE = 1000
-      let allCprData = []
-      let from = 0
-      while (true) {
-        const { data: page, error: cprError } = await supabase
-          .from('member_cpr_v2')
-          .select('member_id, crime_name, difficulty, position_label, cpr_value')
-          .in('member_id', memberIds)
-          .range(from, from + PAGE_SIZE - 1)
-        if (cprError) throw cprError
-        allCprData = allCprData.concat(page)
-        if (page.length < PAGE_SIZE) break
-        from += PAGE_SIZE
-      }
+      // One call: full member rows + every CPR row (no row-cap paging).
+      const data = await apiGet('/api/members/with-cpr')
+      const membersData = (data.members || []).filter(m => m.is_current)
+      const memberIdSet = new Set(membersData.map(m => String(m.member_id)))
+      const allCprData = (data.cpr || []).filter(r => memberIdSet.has(String(r.member_id)))
 
       // Index CPR records by member_id string for O(1) lookup
       const cprByMember = {}
@@ -147,19 +127,8 @@ export default function TierManagement() {
 
   async function handleSaveTier() {
     try {
-      const response = await adminApi.adminUpdate(
-        'members',
-        {
-          tier_override: newTier,
-          updated_at: new Date().toISOString()
-        },
-        { member_id: editingMember.id },
-        user.apiKey
-      )
-
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to update tier')
-      }
+      // Purpose-built, leadership-gated; throws with the server's message.
+      await apiPut(`/api/members/${editingMember.id}/tier-override`, { tier_override: newTier })
 
       setMembers(prev => prev.map(m =>
         m.id === editingMember.id

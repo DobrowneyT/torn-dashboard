@@ -181,6 +181,44 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path,
     expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 400, admin: 400 } as Record<Actor, number>,
   })),
+  // Slice #66 — leadership-tool reads: leadership/admin plus read-only visitors.
+  ...[
+    '/api/overview/views',
+    '/api/overview/thresholds',
+    '/api/overview/daily-stats?since=2026-01-01',
+    '/api/inventory',
+  ].map((path) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 200, member: 403, warlead: 403, ocmanager: 403, leadership: 200, admin: 200 } as Record<Actor, number>,
+  })),
+  // ...and every write is purpose-built + leadership/admin-gated (400 = past
+  // the guard with an empty body).
+  ...[
+    'POST /api/overview/views',
+    'PUT /api/overview/views/00000000-0000-0000-0000-000000000000',
+    'POST /api/overview/thresholds',
+    'PUT /api/overview/thresholds/00000000-0000-0000-0000-000000000000',
+    'PUT /api/members/1/tier-override',
+    'POST /api/inventory/pricing-batches',
+    'PUT /api/inventory/items/1/price',
+  ].map((path) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 400, admin: 400 } as Record<Actor, number>,
+  })),
+  // Deletes pass the guard and 404 on the empty DB.
+  ...[
+    'DELETE /api/overview/views/00000000-0000-0000-0000-000000000000',
+    'DELETE /api/overview/thresholds/00000000-0000-0000-0000-000000000000',
+  ].map((path) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 404, admin: 404 } as Record<Actor, number>,
+  })),
+  // The Torn-backed inventory sync passes the guard and 502s (the matrix
+  // stack's fixture serves no faction inventory).
+  {
+    path: 'POST /api/inventory/sync',
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 502, admin: 502 },
+  },
 ]
 
 describe('authorization matrix', () => {

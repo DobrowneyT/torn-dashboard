@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../utils/supabase'
+import { apiGet } from '../utils/apiClient'
 import {
   STAT_PATHS, STAT_PATHS_BY_KEY, getByPath,
 } from '../utils/statPaths'
@@ -172,44 +172,17 @@ export default function MemberOverview() {
         const since = new Date(Date.now() - (SNAPSHOT_DAYS + 1) * 24 * 60 * 60 * 1000)
           .toISOString().slice(0, 10)
 
-        // Supabase caps each query at `api.max_rows` (1000 by default). With
-        // ~84 members × ~30 daily snapshots = ~2.5k rows we need to page; a
-        // single non-paged query would silently truncate to the first N
-        // members in member_id text order and the rest would render blank.
-        async function loadAllSnapshots() {
-          const PAGE_SIZE = 1000
-          let all = []
-          let from = 0
-          while (true) {
-            const { data, error } = await supabase
-              .from('member_daily_stats')
-              .select('member_id, snapshot_date, personalstats, profile, is_donator, property_name, last_action_timestamp, gym_strength, gym_speed, gym_dexterity, gym_defense, gym_energy')
-              .gte('snapshot_date', since)
-              .order('member_id', { ascending: true })
-              .order('snapshot_date', { ascending: false })
-              .range(from, from + PAGE_SIZE - 1)
-            if (error) throw error
-            if (!data || data.length === 0) break
-            all = all.concat(data)
-            if (data.length < PAGE_SIZE) break
-            from += PAGE_SIZE
-          }
-          return all
-        }
-
-        const [snapshotsData, membersResp, viewsResp, threshResp] = await Promise.all([
-          loadAllSnapshots(),
-          supabase
-            .from('members')
-            .select('member_id, member_name, tier')
-            .eq('is_current', true),
+        // The overview endpoint returns every member's snapshots since the
+        // window start in one response (no PostgREST row cap to page around).
+        const [snapshotsResp, membersResp, viewsResp, threshResp] = await Promise.all([
+          apiGet(`/api/overview/daily-stats?since=${since}`),
+          apiGet('/api/members'),
           fetchSavedViews().catch(e => { console.warn('saved views fetch failed', e); return [] }),
           fetchThresholdSets().catch(e => { console.warn('threshold sets fetch failed', e); return [] }),
         ])
         if (cancelled) return
-        if (membersResp.error) throw membersResp.error
-        setSnapshots(snapshotsData)
-        setMembers(membersResp.data ?? [])
+        setSnapshots(snapshotsResp.snapshots ?? [])
+        setMembers(membersResp.members ?? [])
         setSavedViews(viewsResp ?? [])
         setThresholdSets(threshResp ?? [])
         setLoading(false)
