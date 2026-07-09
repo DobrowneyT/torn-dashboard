@@ -120,16 +120,19 @@ try {
   // pg_depend ('a' = serial, 'i' = identity) — calling pg_get_serial_sequence
   // in a WHERE clause errors on tables without the column.
   const seqs = await db.query(`
-    SELECT s.relname AS seq, t.relname AS tab, a.attname AS col
+    SELECT sn.nspname AS seq_schema, s.relname AS seq,
+           tn.nspname AS tab_schema, t.relname AS tab, a.attname AS col
     FROM pg_class s
+    JOIN pg_namespace sn ON sn.oid = s.relnamespace
     JOIN pg_depend d ON d.objid = s.oid AND d.deptype IN ('a', 'i')
     JOIN pg_class t ON t.oid = d.refobjid
+    JOIN pg_namespace tn ON tn.oid = t.relnamespace
     JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
     WHERE s.relkind = 'S'
   `)
-  for (const { seq, tab, col } of seqs.rows) {
+  for (const { seq_schema, seq, tab_schema, tab, col } of seqs.rows) {
     await db.query(
-      `SELECT setval('${seq}', GREATEST(COALESCE((SELECT max("${col}") FROM "${tab}"), 1), 1))`
+      `SELECT setval('"${seq_schema}"."${seq}"', GREATEST(COALESCE((SELECT max("${col}") FROM "${tab_schema}"."${tab}"), 1), 1))`
     )
   }
   console.log(`Snapshot restored into ${dbName}.`)

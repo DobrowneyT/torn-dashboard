@@ -112,7 +112,10 @@ describe('POST /api/payouts/weeks (save)', () => {
 
   it('leadership saves a week; it round-trips through the read endpoints', async () => {
     const { status, body } = await post('/api/payouts/weeks', {
-      week, members, crime_ids: ['in-window', 'post-window'],
+      // week.crime_ids is client-tampered — the server must stamp the week
+      // row from the top-level crime_ids it actually links.
+      week: { ...week, crime_ids: ['client-tampered'] },
+      members, crime_ids: ['in-window', 'post-window'],
     })
     expect(status).toBe(200)
     expect(body.week_id).toBeGreaterThan(0)
@@ -123,6 +126,7 @@ describe('POST /api/payouts/weeks (save)', () => {
     expect(weeks.body.weeks[0].member_payout_total).toBe(72000000)
     expect(weeks.body.weeks[0].saved_by).toBe('400')
     expect(weeks.body.weeks[0].saved_at).toBeTruthy()
+    expect(weeks.body.weeks[0].crime_ids).toEqual(['in-window', 'post-window'])
 
     const wm = await get(`/api/payouts/weeks/${body.week_id}/members`)
     // Ordered by payout desc.
@@ -163,6 +167,44 @@ describe('POST /api/payouts/weeks (save)', () => {
   it('rejects a payload without week or members', async () => {
     const { status } = await post('/api/payouts/weeks', { week }, 'leader')
     expect(status).toBe(400)
+  })
+
+  it('rejects a member row missing required fields with a 400 before saving anything', async () => {
+    const { status, body } = await post('/api/payouts/weeks', {
+      week: { ...week, week_start: '2026-06-22', week_end: '2026-06-28' },
+      members: [{ member_id: '400', payout: 1 }],
+      crime_ids: [],
+    })
+    expect(status).toBe(400)
+    expect(body.error).toMatch(/member_name/)
+    // Nothing persisted: still just the one week from the earlier saves.
+    const weeks = await get('/api/payouts/weeks')
+    expect(weeks.body.weeks).toHaveLength(1)
+  })
+})
+
+describe('week lookups', () => {
+  it('GET /api/payouts/weeks filters to the exact week by week_start/week_end', async () => {
+    const { status, body } = await get('/api/payouts/weeks?week_start=2026-06-15&week_end=2026-06-21')
+    expect(status).toBe(200)
+    expect(body.weeks).toHaveLength(1)
+    expect(body.weeks[0].week_start).toBe('2026-06-15')
+
+    const none = await get('/api/payouts/weeks?week_start=2020-01-01&week_end=2020-01-07')
+    expect(none.status).toBe(200)
+    expect(none.body.weeks).toEqual([])
+  })
+
+  it('GET /api/payouts/weeks/:id returns the single week, 404 when unknown', async () => {
+    const list = await get('/api/payouts/weeks')
+    const id = list.body.weeks[0].id
+    const { status, body } = await get(`/api/payouts/weeks/${id}`)
+    expect(status).toBe(200)
+    expect(body.week.id).toBe(id)
+    expect(body.week.week_end).toBe('2026-06-21')
+
+    const missing = await get('/api/payouts/weeks/999999')
+    expect(missing.status).toBe(404)
   })
 })
 

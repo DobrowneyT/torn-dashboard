@@ -20,6 +20,8 @@ describe('checkExistingWeek', () => {
 
     const result = await checkExistingWeek('2026-03-16', '2026-03-22')
     expect(result).toBeNull()
+    // Exact-window server lookup, not a newest-page scan.
+    expect(apiGet).toHaveBeenCalledWith('/api/payouts/weeks?week_start=2026-03-16&week_end=2026-03-22')
   })
 
   it('returns existing week data when found', async () => {

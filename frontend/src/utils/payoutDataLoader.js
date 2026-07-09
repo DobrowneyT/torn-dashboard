@@ -157,12 +157,7 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
     }
 
     console.log(`Loaded ${Object.keys(crimesMap).length} crimes for payout calculation`)
-    console.log(`  - Executed in window: ${executedCrimes.length}`)
-    console.log(`  - Lookback crimes (created before window): ${lookbackCrimes.length}`)
-    console.log(`  - In-progress: ${inProgressCrimes.length}`)
-    console.log(`  - Post-window (created during, executed after): ${postWindowCrimes.length}`)
     console.log(`  - Analysis window: ${new Date(fromTimestamp * 1000).toISOString()} to ${new Date(toTimestamp * 1000).toISOString()}`)
-    console.log(`  - Data collection starts: ${new Date(dataFromTimestamp * 1000).toISOString()}`)
 
     return {
       crimes: crimesMap,
@@ -400,7 +395,9 @@ export function filterItemsForMember(items, memberId) {
  */
 export async function checkExistingWeek(weekStart, weekEnd) {
   try {
-    const { weeks } = await apiGet('/api/payouts/weeks?limit=100')
+    // Exact-window lookup server-side — not limited to the newest page,
+    // so re-imports of old weeks are still detected.
+    const { weeks } = await apiGet(`/api/payouts/weeks?week_start=${weekStart}&week_end=${weekEnd}`)
     return weeks.find(w => w.week_start === weekStart && w.week_end === weekEnd) ?? null
   } catch (error) {
     console.error('Error checking existing week:', error)

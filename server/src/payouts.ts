@@ -14,7 +14,7 @@ const WEEK_COLUMNS = new Set([
   'faction_cut_percent', 'faction_cut_amount', 'member_payout_total',
   'total_member_payout', 'member_count', 'crimes_processed', 'total_time_spent',
   'average_time_spent', 'total_adjusted_tickets', 'total_time_spent_percent',
-  'min_time_for_full_tickets', 'min_time_for_any_payout', 'crime_ids',
+  'min_time_for_full_tickets', 'min_time_for_any_payout',
 ])
 const MEMBER_COLUMNS = new Set([
   'member_id', 'member_name', 'tier', 'base_tickets', 'sit_out_penalty',
@@ -28,12 +28,30 @@ function pick(obj: Record<string, unknown>, allowed: Set<string>) {
 
 export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
   app.get('/api/payouts/weeks', { preHandler: requireAuth() }, async (req) => {
-    const limit = clamp((req.query as { limit?: string }).limit, 20, 100)
+    const q = req.query as { limit?: string; week_start?: string; week_end?: string }
+    // Exact-window lookup (used to detect an already-saved week) — must not
+    // be limited to the newest page.
+    if (q.week_start && q.week_end) {
+      const res = await db.query(
+        'SELECT * FROM oc_payout_weeks WHERE week_start = $1 AND week_end = $2',
+        [q.week_start, q.week_end]
+      )
+      return { weeks: res.rows }
+    }
+    const limit = clamp(q.limit, 20, 100)
     const res = await db.query(
       'SELECT * FROM oc_payout_weeks ORDER BY week_end DESC LIMIT $1',
       [limit]
     )
     return { weeks: res.rows }
+  })
+
+  app.get('/api/payouts/weeks/:id', { preHandler: requireAuth() }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'Payout week not found' })
+    const res = await db.query('SELECT * FROM oc_payout_weeks WHERE id = $1', [id])
+    if (res.rows.length === 0) return reply.status(404).send({ error: 'Payout week not found' })
+    return { week: res.rows[0] }
   })
 
   app.get('/api/payouts/members', { preHandler: requireAuth() }, async () => {
@@ -138,12 +156,20 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
     if (!body?.week || !Array.isArray(body.members) || body.members.length === 0) {
       return reply.status(400).send({ error: 'week and members are required' })
     }
-    const week = pick(body.week, WEEK_COLUMNS)
+    const savedBy = req.session!.torn_user_id
+    const crimeIds = Array.isArray(body.crime_ids) ? body.crime_ids.map(String) : []
+    // crime_ids on the week row is server-stamped from the ids actually
+    // linked below, so the two can never disagree.
+    const week = { ...pick(body.week, WEEK_COLUMNS), crime_ids: crimeIds }
     if (!week.week_start || !week.week_end) {
       return reply.status(400).send({ error: 'week.week_start and week.week_end are required' })
     }
-    const savedBy = req.session!.torn_user_id
-    const crimeIds = Array.isArray(body.crime_ids) ? body.crime_ids : []
+    for (const raw of body.members) {
+      const m = pick(raw, MEMBER_COLUMNS)
+      if (!m.member_id || !m.member_name || m.tier == null) {
+        return reply.status(400).send({ error: 'each member requires member_id, member_name, and tier' })
+      }
+    }
 
     const client = await db.connect()
     try {

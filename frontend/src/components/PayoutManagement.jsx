@@ -815,10 +815,8 @@ export default function PayoutManagement() {
 
   async function handleLoadHistoricalWeek(weekId) {
     try {
-      // Load the week data (weeks list carries full rows)
-      const { weeks } = await apiGet('/api/payouts/weeks?limit=100')
-      const weekData = weeks.find(w => w.id === weekId)
-      if (!weekData) throw new Error(`Payout week ${weekId} not found`)
+      // Load the week directly by id (not limited to the newest page)
+      const { week: weekData } = await apiGet(`/api/payouts/weeks/${weekId}`)
 
       // Load member payouts for this week
       const { members } = await apiGet(`/api/payouts/weeks/${weekId}/members`)

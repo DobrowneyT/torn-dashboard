@@ -144,6 +144,12 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path,
     expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 } as Record<Actor, number>,
   })),
+  // Single-week fetch: every authenticated actor passes the guard (404 —
+  // no week with id 1 exists in this stack's empty DB).
+  {
+    path: '/api/payouts/weeks/1',
+    expected: { unauthenticated: 401, visitor: 404, member: 404, warlead: 404, ocmanager: 404, leadership: 404, admin: 404 },
+  },
   // ...and the save is leadership/admin-only, with visitors read-only.
   {
     path: 'POST /api/payouts/weeks',
