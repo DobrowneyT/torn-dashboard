@@ -175,6 +175,12 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path: '/api/wars/1',
     expected: { unauthenticated: 401, visitor: 404, member: 404, warlead: 404, ocmanager: 404, leadership: 404, admin: 404 },
   },
+  // Slice #65 — RW payout save + war reclassification are leadership/admin
+  // -only, with visitors read-only (400 = past the guard, empty body).
+  ...['POST /api/war-payouts', 'POST /api/wars/1/is-termed'].map((path) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 400, admin: 400 } as Record<Actor, number>,
+  })),
 ]
 
 describe('authorization matrix', () => {

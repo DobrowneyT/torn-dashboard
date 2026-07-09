@@ -7,11 +7,11 @@ import {
   loadLiveContributionsFromAttacks,
 } from '../utils/warDataLoader'
 import {
-  updateWarIsTermed,
   fetchAttacks as fetchAttacksApi,
   fetchWars as fetchWarsApi,
   fetchRevives as fetchRevivesApi,
 } from '../utils/adminApi'
+import { apiPost } from '../utils/apiClient'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, RefreshCw, Heart } from 'lucide-react'
 
@@ -238,10 +238,9 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
 
   async function handleToggleTermed(e, war) {
     e.stopPropagation()
-    if (!user?.apiKey) return
     setUpdatingWarId(war.id)
     try {
-      await updateWarIsTermed(war.id, !war.is_termed, user.apiKey)
+      await apiPost(`/api/wars/${war.id}/is-termed`, { is_termed: !war.is_termed })
       setWars(prev => prev.map(w => w.id === war.id ? { ...w, is_termed: !w.is_termed } : w))
     } catch (err) {
       console.error('Error updating war type:', err)
