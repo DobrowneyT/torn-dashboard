@@ -12,6 +12,7 @@
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
 import { TornApiError } from '../tornClient.js'
+import { assignTiers, type CrimeTypes, type MemberCpr, type TierRequirements } from '../tierAssignment.js'
 
 interface CprEntry {
   member_id: string
@@ -113,5 +114,49 @@ export async function cprScanJob({ db, pool, client }: JobDeps): Promise<RunResu
     dbc.release()
   }
 
-  return { rows, details: { members_scraped: membersScraped, keys_invalidated: keysInvalidated } }
+  // Tier assignment (always-apply; port of the cpr_scraper.py main flow):
+  // recompute every CURRENT member's tier from the full v2 baseline. Members
+  // with no CPR data get Tier 0 (manual review). Only `tier`/`last_scraped`
+  // are written — the manual tier_override column is never touched.
+  const settings = await db.query(
+    `SELECT value FROM faction_settings WHERE key = 'tier_requirements'`
+  )
+  let tiersApplied = 0
+  if (settings.rows.length > 0) {
+    const requirements = settings.rows[0].value as TierRequirements
+    const typeRows = await db.query('SELECT name, difficulty FROM oc_crime_types')
+    const crimeTypes: CrimeTypes = {}
+    for (const t of typeRows.rows) crimeTypes[t.name] = { difficulty: t.difficulty }
+
+    const cprRows = await db.query(
+      'SELECT member_id, crime_name, position_label, cpr_value FROM member_cpr_v2'
+    )
+    const memberCpr: Record<string, MemberCpr> = {}
+    for (const r of cprRows.rows) {
+      const mc = (memberCpr[r.member_id] ??= {})
+      const cc = (mc[r.crime_name] ??= {})
+      cc[r.position_label] = { cpr_value: Number(r.cpr_value) }
+    }
+
+    const assignments = assignTiers(memberCpr, crimeTypes, requirements)
+    const current = await db.query('SELECT member_id FROM members WHERE is_current = true')
+    for (const m of current.rows) {
+      const tier = assignments[m.member_id]?.tier ?? 0
+      await db.query(
+        `UPDATE members SET tier = $1, last_scraped = now(), updated_at = now()
+         WHERE member_id = $2`,
+        [tier, m.member_id]
+      )
+      tiersApplied += 1
+    }
+  }
+
+  return {
+    rows,
+    details: {
+      members_scraped: membersScraped,
+      keys_invalidated: keysInvalidated,
+      tiers_applied: tiersApplied,
+    },
+  }
 }
