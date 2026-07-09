@@ -389,7 +389,11 @@ CREATE TABLE public.ranked_wars (
   rank_before text,
   rank_after text,
   created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now()
+  updated_at timestamp with time zone DEFAULT now(),
+  -- Wars-sync progress flags (slice #70): a completed war's report is
+  -- fetched once; permanently-unavailable reports are skipped forever.
+  report_fetched boolean DEFAULT false NOT NULL,
+  report_unavailable boolean DEFAULT false NOT NULL
 );
 
 -- Scraper infrastructure (slice #67): structured run log + per-job flags.

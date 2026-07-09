@@ -27,7 +27,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import Plot from 'react-plotly.js'
 import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds } from '../utils/warDataLoader'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
-import { fetchAttacks as fetchAttacksApi, fetchRevives as fetchRevivesApi, fetchWars as fetchWarsApi } from '../utils/adminApi'
+import { apiPost } from '../utils/apiClient'
 import { useAuth } from '../contexts/AuthContext'
 
 const OUR_FACTION_ID = 10739
@@ -458,24 +458,24 @@ export default function WarOverviewView() {
 
   // ── Fetch handlers — mirror the WarHistoryView flow, then reload ─────────
   async function handleFetchAttacks() {
-    if (fetching || !user?.apiKey) return
+    if (fetching) return
     setFetching('attacks')
     setFetchMessage(null)
     try {
-      const result = await fetchAttacksApi(user.apiKey)
-      const parts = [`${result.attacksFetched ?? 0} fetched`, `${result.attacksNew ?? 0} new`]
-      const suffix = result.partial ? ` — stopped early (${result.partialReason}). Click again to resume.` : '.'
+      const { run } = await apiPost('/api/sync/attacks', {})
       // The attacks scrape leaves ranked_wars scores untouched; refresh the
-      // official live faction scores (cheap 1-page ranked-wars fetch) so the
-      // war's Our/Their Score reflects the current true total. Best-effort.
+      // official live faction scores so the war's Our/Their Score reflects
+      // the current true total. Best-effort.
       let scoreNote = ''
       try {
-        await fetchWarsApi(user.apiKey)
+        await apiPost('/api/sync/wars', {})
         scoreNote = ' War scores refreshed.'
       } catch (scoreErr) {
         console.warn('war-score refresh after attacks failed:', scoreErr)
       }
-      setFetchMessage({ type: result.partial ? 'warning' : 'success', text: `Attacks: ${parts.join(', ')}${suffix}${scoreNote}` })
+      setFetchMessage(run.status === 'success'
+        ? { type: 'success', text: `Attacks: ${run.rows_written} rows synced.${scoreNote}` }
+        : { type: 'error', text: `Attacks sync failed: ${run.error ?? 'unknown error'}` })
       await reloadWarData(selectedWarId, { resetWindow: false })
     } catch (err) {
       console.error('fetchAttacks failed:', err)
@@ -487,14 +487,14 @@ export default function WarOverviewView() {
   }
 
   async function handleFetchRevives() {
-    if (fetching || !user?.apiKey || selectedWarId == null) return
+    if (fetching || selectedWarId == null) return
     setFetching('revives')
     setFetchMessage(null)
     try {
-      const result = await fetchRevivesApi(selectedWarId, user.apiKey)
-      const parts = [`${result.revivesFetched ?? 0} fetched`, `${result.revivesNew ?? 0} new`]
-      const suffix = result.partial ? ` — stopped early (${result.partialReason}). Click again to resume.` : '.'
-      setFetchMessage({ type: result.partial ? 'warning' : 'success', text: `Revives: ${parts.join(', ')}${suffix}` })
+      const { run } = await apiPost(`/api/sync/wars/${selectedWarId}/revives`, {})
+      setFetchMessage(run.status === 'success'
+        ? { type: 'success', text: `Revives: ${run.rows_written} rows synced.` }
+        : { type: 'error', text: `Revives sync failed: ${run.error ?? 'unknown error'}` })
       await reloadWarData(selectedWarId, { resetWindow: false })
     } catch (err) {
       console.error('fetchRevives failed:', err)
