@@ -38,6 +38,8 @@ export const TEST_SERVER_TORN_KEY = 'SERVERKEY1234567'
 
 export interface TestStack {
   baseUrl: string
+  /** Base URL of the Torn fixture server (for components that take it directly). */
+  tornBaseUrl: string
   db: pg.Pool
   torn: {
     /** Register a Torn API key the fixture will answer for. */
@@ -169,6 +171,7 @@ export async function startTestStack(
 
   return {
     baseUrl: `http://127.0.0.1:${addr.port}`,
+    tornBaseUrl,
     db,
     torn: {
       addKey: (key, user) => goodKeys.set(key, user),

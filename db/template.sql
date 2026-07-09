@@ -281,7 +281,9 @@ CREATE TABLE public.member_secrets (
   consent_version text,
   key_fingerprint text,
   disabled boolean DEFAULT false NOT NULL,
-  last_error text
+  last_error text,
+  -- Scraper key-pool rotation marker (claim = least-recently-claimed first).
+  last_claimed_at timestamp with time zone
 );
 
 CREATE TABLE public.members (
@@ -388,6 +390,25 @@ CREATE TABLE public.ranked_wars (
   rank_after text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
+);
+
+-- Scraper infrastructure (slice #67): structured run log + per-job flags.
+CREATE TABLE public.scraper_runs (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  job_name text NOT NULL,
+  started_at timestamp with time zone DEFAULT now() NOT NULL,
+  finished_at timestamp with time zone,
+  status text DEFAULT 'running' NOT NULL,
+  rows_written integer DEFAULT 0 NOT NULL,
+  error text,
+  details jsonb
+);
+
+CREATE TABLE public.scraper_jobs (
+  job_name text NOT NULL,
+  cron_schedule text NOT NULL,
+  enabled boolean DEFAULT true NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 CREATE TABLE public.sync_metadata (
@@ -657,6 +678,10 @@ ALTER TABLE pricing_batches ADD CONSTRAINT pricing_batches_pkey PRIMARY KEY (id)
 ALTER TABLE ranked_wars ADD CONSTRAINT ranked_wars_pkey PRIMARY KEY (id);
 ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_pkey PRIMARY KEY (torn_user_id, role);
 ALTER TABLE sync_metadata ADD CONSTRAINT sync_metadata_pkey PRIMARY KEY (id);
+ALTER TABLE scraper_runs ADD CONSTRAINT scraper_runs_pkey PRIMARY KEY (id);
+ALTER TABLE scraper_runs ADD CONSTRAINT scraper_runs_status_check CHECK (status IN ('running', 'success', 'failure'));
+ALTER TABLE scraper_jobs ADD CONSTRAINT scraper_jobs_pkey PRIMARY KEY (job_name);
+CREATE INDEX idx_scraper_runs_job_started ON public.scraper_runs USING btree (job_name, started_at DESC);
 ALTER TABLE tier_requirements ADD CONSTRAINT tier_requirements_pkey PRIMARY KEY (tier, requirement_index);
 ALTER TABLE war_member_contributions ADD CONSTRAINT war_member_contributions_pkey PRIMARY KEY (id);
 ALTER TABLE war_payout_members ADD CONSTRAINT war_payout_members_pkey PRIMARY KEY (id);
