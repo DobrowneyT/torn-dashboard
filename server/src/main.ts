@@ -45,10 +45,23 @@ if (process.env.SCRAPERS_ENABLED === 'true' && databaseUrl) {
     process.exit(1)
   }
   const { startScrapers } = await import('./scraper/registerJobs.js')
-  await startScrapers({
-    db: new pg.Pool({ connectionString: databaseUrl }),
-    tornBaseUrl,
-    encryptionKey,
-  })
+  const scraperDb = new pg.Pool({ connectionString: databaseUrl })
+  await startScrapers({ db: scraperDb, tornBaseUrl, encryptionKey })
   console.log(`[${factionSlug}] scrapers scheduled`)
+
+  // War-room ticker (slice #71): runs at 1 Hz but self-gates each tick on
+  // war_room_config_v2.enabled + the managed war's active window, so an
+  // idle faction costs one SELECT per second and zero Torn calls.
+  if (app.warRoomHub) {
+    const { createWarRoomTicker } = await import('./warRoomTicker.js')
+    const { createKeyPool } = await import('./scraper/keyPool.js')
+    const ticker = createWarRoomTicker({
+      db: scraperDb,
+      pool: createKeyPool({ db: scraperDb, encryptionKey }),
+      hub: app.warRoomHub,
+      tornBaseUrl,
+    })
+    ticker.start()
+    console.log(`[${factionSlug}] war-room ticker armed (config-gated)`)
+  }
 }
