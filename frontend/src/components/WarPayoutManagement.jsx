@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions, loadLiveContributionsFromAttacks, loadFactionAttacksByWindow, loadWarPayouts, loadRecentWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
-import { saveWarPayout, updateWarIsTermed } from '../utils/adminApi'
+import { apiPost } from '../utils/apiClient'
 import {
   calculateRaceWarPayouts,
   detectRaceCutoff,
@@ -809,13 +809,15 @@ export default function WarPayoutManagement() {
       // is_termed mirrors the Real/Termed classification the user picked.
       const newIsTermed = warClass === 'termed'
       if (Boolean(selectedWar.is_termed) !== newIsTermed) {
-        await updateWarIsTermed(selectedWar.id, newIsTermed, user.apiKey)
+        await apiPost(`/api/wars/${selectedWar.id}/is-termed`, { is_termed: newIsTermed })
         setSelectedWar(prev => prev ? { ...prev, is_termed: newIsTermed } : prev)
         setWars(prev => prev.map(w => w.id === selectedWar.id ? { ...w, is_termed: newIsTermed } : w))
       }
 
-      const result = await saveWarPayout(payoutData, memberRecords, user.apiKey)
-      setSavedPayoutId(result.payoutId)
+      // Leadership-gated save; the session token authenticates (created_by
+      // is stamped server-side).
+      const result = await apiPost('/api/war-payouts', { payout: payoutData, members: memberRecords })
+      setSavedPayoutId(result.payout_id)
     } catch (err) {
       console.error('Error saving war payout:', err)
       setSaveError(err.message || 'Failed to save payout')
