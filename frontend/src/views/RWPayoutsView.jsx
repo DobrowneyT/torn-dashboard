@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../utils/supabase'
+import { apiGet } from '../utils/apiClient'
 import { formatCurrency, formatCurrencyShort } from '../utils/payoutCalculations'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, Info } from 'lucide-react'
@@ -28,22 +28,11 @@ export default function RWPayoutsView() {
     try {
       setLoading(true)
 
-      const { data, error } = await supabase
-        .from('war_payout_members')
-        .select(`
-          payout_amount, payout_id,
-          war_payouts(
-            id, war_id, total_reward, total_payout, faction_cut_percent,
-            merc_cost, reviver_cost, faction_top_up,
-            member_count, war_type, termed_mode, notes, created_at,
-            ranked_wars(start_at, end_at, opponent_name, opponent_id, winner_faction_id, our_score, opponent_score)
-          )
-        `)
-        .eq('member_id', user.id.toString())
-        .order('payout_id', { ascending: false })
-
-      if (error) throw error
-      setWarPayouts(data || [])
+      // Rows carry payout_amount/payout_id plus the nested war_payouts
+      // (with ranked_wars) summary, newest first — same shape the old
+      // PostgREST embed produced.
+      const { war_payouts } = await apiGet(`/api/members/${user.id}/war-payouts?limit=500`)
+      setWarPayouts(war_payouts || [])
     } catch (err) {
       console.error('Error loading war payout data:', err)
     } finally {
@@ -56,14 +45,8 @@ export default function RWPayoutsView() {
     setModalTab('sheet')
     setLoadingModal(true)
     try {
-      const { data, error } = await supabase
-        .from('war_payout_members')
-        .select('member_id, member_name, payout_amount, is_eligible, war_hits, assist_attacks, losses, mugs, regular_hits, score, race_breakdown')
-        .eq('payout_id', wp.payout_id)
-        .order('payout_amount', { ascending: false })
-
-      if (error) throw error
-      setModalMembers(data || [])
+      const { members } = await apiGet(`/api/war-payouts/${wp.payout_id}/members`)
+      setModalMembers(members || [])
     } catch (err) {
       console.error('Error loading modal members:', err)
     } finally {
