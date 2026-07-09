@@ -1,21 +1,14 @@
-import { supabase } from './supabase'
-import * as adminApi from './adminApi'
+import { apiGet, apiPost, apiPut, apiDelete } from './apiClient'
 
-const VIEWS_TABLE = 'member_overview_views'
-const THRESHOLDS_TABLE = 'member_overview_thresholds'
-
-// Reads stay on the supabase client — RLS now enforces the leadership gate
-// at the DB level. Writes go through admin-db so the leadership check is
-// server-side and the write policies on these tables can be locked down to
-// service-role-only in a later phase.
+// Member-overview saved views and threshold sets, via the purpose-built
+// leadership endpoints. The server enforces the leadership gate on writes
+// (visitors read-only) and stamps created_by_* from the session — the
+// user/tornApiKey parameters from the edge-function era are accepted but
+// unused so call sites keep working.
 
 export async function fetchSavedViews() {
-  const { data, error } = await supabase
-    .from(VIEWS_TABLE)
-    .select('id, name, columns, created_by_id, created_by_name, updated_at')
-    .order('name', { ascending: true })
-  if (error) throw error
-  return (data ?? []).map(row => ({
+  const { views } = await apiGet('/api/overview/views')
+  return (views ?? []).map(row => ({
     id: row.id,
     name: row.name,
     columns: Array.isArray(row.columns) ? row.columns : [],
@@ -25,27 +18,23 @@ export async function fetchSavedViews() {
   }))
 }
 
-export async function createSavedView({ name, columns, user }, tornApiKey) {
-  const result = await adminApi.createOverviewView({ name, columns, user }, tornApiKey)
-  return result.data
+export async function createSavedView({ name, columns }) {
+  const { view } = await apiPost('/api/overview/views', { name, columns })
+  return view
 }
 
-export async function updateSavedView(id, { name, columns }, tornApiKey) {
-  const result = await adminApi.updateOverviewView(id, { name, columns }, tornApiKey)
-  return result.data
+export async function updateSavedView(id, { name, columns }) {
+  const { view } = await apiPut(`/api/overview/views/${id}`, { name, columns })
+  return view
 }
 
-export async function deleteSavedView(id, tornApiKey) {
-  await adminApi.deleteOverviewView(id, tornApiKey)
+export async function deleteSavedView(id) {
+  await apiDelete(`/api/overview/views/${id}`)
 }
 
 export async function fetchThresholdSets() {
-  const { data, error } = await supabase
-    .from(THRESHOLDS_TABLE)
-    .select('id, name, thresholds, created_by_id, created_by_name, updated_at')
-    .order('name', { ascending: true })
-  if (error) throw error
-  return (data ?? []).map(row => ({
+  const { thresholds } = await apiGet('/api/overview/thresholds')
+  return (thresholds ?? []).map(row => ({
     id: row.id,
     name: row.name,
     thresholds: row.thresholds && typeof row.thresholds === 'object' ? row.thresholds : {},
@@ -55,16 +44,16 @@ export async function fetchThresholdSets() {
   }))
 }
 
-export async function createThresholdSet({ name, thresholds, user }, tornApiKey) {
-  const result = await adminApi.createOverviewThreshold({ name, thresholds, user }, tornApiKey)
-  return result.data
+export async function createThresholdSet({ name, thresholds }) {
+  const { threshold } = await apiPost('/api/overview/thresholds', { name, thresholds })
+  return threshold
 }
 
-export async function updateThresholdSet(id, { name, thresholds }, tornApiKey) {
-  const result = await adminApi.updateOverviewThreshold(id, { name, thresholds }, tornApiKey)
-  return result.data
+export async function updateThresholdSet(id, { name, thresholds }) {
+  const { threshold } = await apiPut(`/api/overview/thresholds/${id}`, { name, thresholds })
+  return threshold
 }
 
-export async function deleteThresholdSet(id, tornApiKey) {
-  await adminApi.deleteOverviewThreshold(id, tornApiKey)
+export async function deleteThresholdSet(id) {
+  await apiDelete(`/api/overview/thresholds/${id}`)
 }

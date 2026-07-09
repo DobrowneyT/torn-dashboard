@@ -48,6 +48,8 @@ export interface TestStack {
     setFactionCrimes(payload: unknown): void
     /** The key used on the most recent /v2/faction/crimes call. */
     lastFactionCrimesKey(): string | null
+    /** Serve an arbitrary payload for an exact pathname (checked before 404). */
+    setPath(pathname: string, payload: unknown): void
     hits(): number
   }
   close(): Promise<void>
@@ -105,6 +107,7 @@ export async function startTestStack(
   const badKeys = new Map<string, { code: number; message: string }>()
   let factionCrimesPayload: unknown = null
   let factionCrimesKey: string | null = null
+  const pathPayloads = new Map<string, unknown>()
   let hitCount = 0
   const torn: Server = createServer((req, res) => {
     hitCount += 1
@@ -139,6 +142,10 @@ export async function startTestStack(
       }))
       return
     }
+    if (pathPayloads.has(url.pathname)) {
+      res.end(JSON.stringify(pathPayloads.get(url.pathname)))
+      return
+    }
     res.statusCode = 404
     res.end(JSON.stringify({ error: { code: 0, error: `fixture: unhandled path ${url.pathname}` } }))
   })
@@ -168,6 +175,7 @@ export async function startTestStack(
       addBadKey: (key, code, message) => badKeys.set(key, { code, message }),
       setFactionCrimes: (payload) => { factionCrimesPayload = payload },
       lastFactionCrimesKey: () => factionCrimesKey,
+      setPath: (pathname, payload) => pathPayloads.set(pathname, payload),
       hits: () => hitCount,
     },
     close: async () => {

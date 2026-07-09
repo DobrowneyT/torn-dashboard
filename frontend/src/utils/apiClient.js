@@ -74,6 +74,34 @@ export async function apiPost(path, payload) {
   return body
 }
 
+/** Authorized PUT against the faction API. Throws with the server's error message. */
+export async function apiPut(path, payload) {
+  const session = getApiSession()
+  const res = await fetch(path, {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json',
+      ...(session ? { authorization: `Bearer ${session.token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error ?? `API error ${res.status}`)
+  return body
+}
+
+/** Authorized DELETE against the faction API. Throws with the server's error message. */
+export async function apiDelete(path) {
+  const session = getApiSession()
+  const res = await fetch(path, {
+    method: 'DELETE',
+    headers: session ? { authorization: `Bearer ${session.token}` } : {},
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error ?? `API error ${res.status}`)
+  return body
+}
+
 /** GET /api/bootstrap — faction identity + (when authed) the caller's roles. */
 export async function apiBootstrap(token = getApiSession()?.token) {
   const res = await fetch('/api/bootstrap', {

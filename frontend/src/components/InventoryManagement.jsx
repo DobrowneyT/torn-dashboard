@@ -2,10 +2,8 @@ import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { config } from '../config'
 import { formatCurrency } from '../utils/payoutCalculations'
-import { getTornErrorMessage } from '../utils/apiUtils'
 import { X } from 'lucide-react'
-import { supabase } from '../utils/supabase'
-import * as adminApi from '../utils/adminApi'
+import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 
 export default function InventoryManagement() {
   const { user } = useAuth()
@@ -37,29 +35,23 @@ export default function InventoryManagement() {
       setLoading(true)
       setError(null)
 
-      // Load inventory items, sync metadata, and member names in parallel
-      const [itemsResult, metadataResult, membersResult] = await Promise.all([
-        supabase.from('inventory_items_with_prices').select('*'),
-        supabase.from('sync_metadata').select('*').eq('data_type', 'inventory').order('last_sync', { ascending: false }).limit(1),
-        supabase.from('members').select('member_id, member_name')
+      // Load priced inventory + sync marker, and member names in parallel
+      const [inventory, rosterData] = await Promise.all([
+        apiGet('/api/inventory'),
+        apiGet('/api/members/roster'),
       ])
 
-      if (itemsResult.error) throw itemsResult.error
-
-      setInventoryItems(itemsResult.data || [])
-
-      if (metadataResult.data && metadataResult.data.length > 0) {
-        setLastSync(new Date(metadataResult.data[0].last_sync))
+      setInventoryItems(inventory.items || [])
+      if (inventory.last_sync) {
+        setLastSync(new Date(inventory.last_sync))
       }
 
       // Populate factionMembers map from DB so loaned items show names, not "Unknown"
-      if (!membersResult.error && membersResult.data) {
-        const members = {}
-        membersResult.data.forEach(m => {
-          members[m.member_id] = m.member_name
-        })
-        setFactionMembers(members)
+      const members = {}
+      for (const m of (rosterData.roster || [])) {
+        members[m.member_id] = m.member_name
       }
+      setFactionMembers(members)
 
     } catch (err) {
       console.error('Error loading from Supabase:', err)
@@ -73,79 +65,12 @@ export default function InventoryManagement() {
     try {
       setSyncing(true)
       setError(null)
-      
-      const factionId = config.faction.id
-      const apiKey = user.apiKey
-      
-      if (!apiKey) {
-        throw new Error('API key not available')
-      }
-      
-      const [itemsResponse, membersResponse] = await Promise.all([
-        fetch(`https://api.torn.com/faction/${factionId}?selections=temporary,medical,utilities,drugs,armor,weapons,caches,cesium&key=${apiKey}&comment=Dashboard-Inventory-Sync`),
-        fetch(`https://api.torn.com/faction/${factionId}?selections=basic&key=${apiKey}`)
-      ])
-      
-      if (!itemsResponse.ok || !membersResponse.ok) {
-        throw new Error('Failed to fetch faction data')
-      }
-      
-      const itemsData = await itemsResponse.json()
-      const membersData = await membersResponse.json()
-      
-      if (itemsData.error) {
-        throw new Error(getTornErrorMessage(itemsData.error))
-      }
-      
-      if (membersData.error) {
-        throw new Error(getTornErrorMessage(membersData.error))
-      }
-      
-      const members = {}
-      Object.entries(membersData.members || {}).forEach(([id, memberData]) => {
-        members[id] = memberData.name
-      })
-      setFactionMembers(members)
-      
-      const itemsToUpsert = []
-      const categories = ['temporary', 'medical', 'utilities', 'drugs', 'armor', 'weapons', 'caches', 'cesium']
-      
-      categories.forEach(category => {
-        if (itemsData[category] && Array.isArray(itemsData[category])) {
-          itemsData[category].forEach(item => {
-            const loanedToString = item.loaned_to 
-              ? (typeof item.loaned_to === 'string' ? item.loaned_to : JSON.stringify(item.loaned_to))
-              : null
-            
-            itemsToUpsert.push({
-              id: item.ID.toString(),
-              name: item.name || `Item ${item.ID}`,
-              quantity: item.quantity || 0,
-              available: item.available || 0,
-              loaned: item.loaned || 0,
-              loaned_to: loanedToString,
-              api_type: item.type || category,
-              category: category,
-              last_synced: new Date().toISOString()
-            })
-          })
-        }
-      })
-      
-      const upsertResponse = await adminApi.adminUpsert('inventory_items', itemsToUpsert, 'id', user.apiKey)
-      
-      if (!upsertResponse.success) {
-        throw new Error(`Failed to save inventory: ${upsertResponse.error}`)
-      }
-      
-      await adminApi.adminInsert('sync_metadata', {
-        data_type: 'inventory',
-        last_sync: new Date().toISOString(),
-        synced_by: user.name
-      }, user.apiKey)
-      
+
+      // The server pulls the faction inventory from Torn with its own key
+      // and replaces the stored quantities; throws with the server message.
+      await apiPost('/api/inventory/sync', {})
       await loadInventoryFromSupabase()
-      
+
     } catch (err) {
       console.error('Error syncing inventory:', err)
       setError(err.message)
@@ -170,17 +95,12 @@ export default function InventoryManagement() {
     }
     
     try {
-      const response = await adminApi.adminInsert('pricing_batches', {
+      await apiPost('/api/inventory/pricing-batches', {
         item_id: itemId,
         price: Math.floor(price),
         quantity: quantity,
-        added_by: user.name
-      }, user.apiKey)
-      
-      if (!response.success) {
-        throw new Error(`Failed to save pricing: ${response.error}`)
-      }
-      
+      })
+
       await loadInventoryFromSupabase()
       
       setEditingItem(null)
@@ -223,20 +143,9 @@ export default function InventoryManagement() {
     }
 
     try {
-      // Delete all existing pricing batches for this item
-      await adminApi.adminDelete('pricing_batches', { item_id: itemId }, user.apiKey)
-
-      // Insert a single batch at the new price for the full quantity
-      const response = await adminApi.adminInsert('pricing_batches', {
-        item_id: itemId,
-        price: Math.floor(price),
-        quantity: item.quantity,
-        added_by: user.name
-      }, user.apiKey)
-
-      if (!response.success) {
-        throw new Error(`Failed to save pricing: ${response.error}`)
-      }
+      // Server-side: replaces every batch with one at the new price for the
+      // item's full quantity, in a single transaction.
+      await apiPut(`/api/inventory/items/${itemId}/price`, { price: Math.floor(price) })
 
       await loadInventoryFromSupabase()
     } catch (err) {

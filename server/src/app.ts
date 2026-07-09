@@ -13,6 +13,7 @@ import { registerMemberRoutes } from './members.js'
 import { registerOcRoutes } from './oc.js'
 import { registerPayoutRoutes } from './payouts.js'
 import { registerWarRoutes } from './wars.js'
+import { registerLeadershipRoutes } from './leadership.js'
 
 export interface ServerOptions {
   factionSlug: string
@@ -72,6 +73,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     registerOcRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, tornApiKey: opts.tornApiKey })
     registerPayoutRoutes(app, opts.db)
     registerWarRoutes(app, opts.db)
+    registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, tornApiKey: opts.tornApiKey })
   }
 
   return app
