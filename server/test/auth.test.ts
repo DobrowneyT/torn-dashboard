@@ -167,6 +167,31 @@ describe('key-pool enrollment on login', () => {
     expect(row.rows).toHaveLength(0)
   })
 
+  it('a cache-served login still enrolls (logins predating enrollment left a 24h cache row)', async () => {
+    // Production scenario: the member logged in before enrollment existed, so
+    // the server holds a valid auth-cache row but member_secrets is empty.
+    // The cached login path never reaches Torn (the key is not in the fixture)
+    // and must decide membership from the roster instead.
+    const { createHash } = await import('node:crypto')
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('556', 'Cached', 3, true)`
+    )
+    await stack.db.query(
+      `INSERT INTO war_room_auth_cache (key_hash, user_id, expires_at)
+       VALUES ($1, '556', now() + interval '1 hour')`,
+      [createHash('sha256').update('CACHEONLY5555555').digest('hex')]
+    )
+
+    const { status } = await login('CACHEONLY5555555')
+    expect(status).toBe(200)
+
+    const row = await stack.db.query(
+      `SELECT consent_version FROM member_secrets WHERE member_id = '556'`
+    )
+    expect(row.rows).toHaveLength(1)
+    expect(row.rows[0].consent_version).toBe('login-v1')
+  })
+
   it('a member missing from the roster still logs in (enrollment is best-effort)', async () => {
     stack.torn.addKey('GHOSTKEY44444444', { id: '444', factionId: TEST_FACTION.tornFactionId })
     const { status } = await login('GHOSTKEY44444444')

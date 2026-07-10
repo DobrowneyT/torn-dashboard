@@ -135,7 +135,13 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
 
   // Membership: in the faction, or holding any DB-assigned role (visitors and
   // out-of-faction leaders enter through role_assignments, not hardcoded lists).
-  const isMember = verified.tornFactionId === config.torn_faction_id
+  // Cache-served logins never reached Torn, so tornFactionId is unknown there —
+  // fall back to the roster (cache rows only exist for previously-passed logins).
+  const isMember = verified.fromCache
+    ? (await deps.db.query(
+        'SELECT 1 FROM members WHERE member_id = $1 AND is_current', [verified.userId]
+      )).rows.length > 0
+    : verified.tornFactionId === config.torn_faction_id
   if (!verified.fromCache && !isMember && roles.length === 0) {
     return { ok: false, status: 403, error: 'Not a faction member' }
   }
