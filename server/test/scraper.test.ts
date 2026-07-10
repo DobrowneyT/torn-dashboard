@@ -168,13 +168,17 @@ describe('scheduler (end-to-end demo)', () => {
     const faction = await stack.db.query(`SELECT * FROM factions WHERE id = 9004`)
     expect(faction.rows[0].name).toBe('Demo Opponents')
 
-    // …the run was logged with the pooled key's owner in the details…
+    // …the run was logged with the pooled key's owner in the details.
+    // stop() doesn't cancel an in-flight tick, so the newest row may still
+    // be 'running' on a slow runner — assert on the newest completed run.
     const recent = await runs.recentRuns(20)
     const demoRuns = recent.filter((r) => r.job_name === 'demo-faction-sync')
     expect(demoRuns.length).toBeGreaterThanOrEqual(1)
-    expect(demoRuns[0].status).toBe('success')
-    expect(demoRuns[0].rows_written).toBe(1)
-    expect(['100', '101', '102']).toContain(demoRuns[0].details!.used_member)
+    const finished = demoRuns.find((r) => r.status !== 'running')
+    expect(finished).toBeTruthy()
+    expect(finished!.status).toBe('success')
+    expect(finished!.rows_written).toBe(1)
+    expect(['100', '101', '102']).toContain(finished!.details!.used_member)
 
     // …and the disabled job never produced a run.
     expect(recent.some((r) => r.job_name === 'never-runs')).toBe(false)
