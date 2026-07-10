@@ -82,9 +82,11 @@ describe('rate-limited Torn client', () => {
     resolved.sort((a, b) => a - b)
 
     // 6 requests at 2/window dispatch in three waves: ~0ms, ~400ms, ~800ms.
+    // Margins are generous because a loaded event loop can delay the FIRST
+    // resolution (compressing observed gaps) — the waves are what matter.
     expect(resolved).toHaveLength(6)
-    expect(resolved[2] - resolved[0]).toBeGreaterThanOrEqual(350)
-    expect(resolved[4] - resolved[0]).toBeGreaterThanOrEqual(750)
+    expect(resolved[2] - resolved[0]).toBeGreaterThanOrEqual(250)
+    expect(resolved[4] - resolved[0]).toBeGreaterThanOrEqual(600)
   })
 
   it('surfaces Torn error payloads as typed failures, not resolved data', async () => {

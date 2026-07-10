@@ -9,6 +9,8 @@ import { createScheduler } from './scheduler.js'
 import { itemsSyncJob, type JobDeps } from './jobs/itemsSync.js'
 import { crimesSyncJob } from './jobs/crimesSync.js'
 import { cprScanJob } from './jobs/cprScan.js'
+import { membersSyncJob } from './jobs/membersSync.js'
+import { memberStatsJob } from './jobs/memberStats.js'
 
 export interface ScraperWiringOptions {
   db: pg.Pool
@@ -32,6 +34,10 @@ export async function startScrapers({ db, tornBaseUrl, encryptionKey }: ScraperW
   await scheduler.register('items-sync', '0 15 4 * * *', () => itemsSyncJob(deps))
   await scheduler.register('crimes-sync', '0 */30 * * * *', () => crimesSyncJob(deps))
   await scheduler.register('cpr-scan', '0 30 5,17 * * *', () => cprScanJob(deps))
+  // Members hourly (roster transitions feed everything else); stats daily
+  // at 01:05 UTC, just after the 01:00 snapshot offset the backfill targets.
+  await scheduler.register('members-sync', '0 5 * * * *', () => membersSyncJob(deps))
+  await scheduler.register('member-stats', '0 5 1 * * *', () => memberStatsJob(deps))
 
   await scheduler.start()
   return scheduler
