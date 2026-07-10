@@ -17,6 +17,7 @@ import { registerLeadershipRoutes } from './leadership.js'
 import { registerSyncRoutes } from './sync.js'
 import { registerWarRoomRoutes, type WarRoomHub } from './warRoom.js'
 import { registerWarRoomWriteRoutes } from './warRoomWrites.js'
+import { registerWarRoomSetupRoutes } from './warRoomSetup.js'
 
 export interface ServerOptions {
   factionSlug: string
@@ -84,6 +85,10 @@ export async function buildServer(
     registerSyncRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     app.warRoomHub = await registerWarRoomRoutes(app, { db: opts.db, jwtSecret: opts.jwtSecret })
     registerWarRoomWriteRoutes(app, { db: opts.db, hub: app.warRoomHub })
+    registerWarRoomSetupRoutes(app, {
+      db: opts.db, hub: app.warRoomHub,
+      tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey,
+    })
   }
 
   return app

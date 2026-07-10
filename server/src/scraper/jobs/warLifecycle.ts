@@ -8,6 +8,7 @@
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
 import { syncWarRoomMemberStates } from '../../warRoomTicker.js'
+import { clearWarRoomState } from '../../warRoomSetup.js'
 
 export async function warLifecycleJob({ db, pool, client }: JobDeps): Promise<RunResult> {
   const cfgRes = await db.query('SELECT * FROM war_room_config_v2 WHERE id = 1')
@@ -51,19 +52,11 @@ export async function warLifecycleJob({ db, pool, client }: JobDeps): Promise<Ru
           'INSERT INTO war_room_notes_v2 (war_id, opponent_faction_id) VALUES ($1, $2)',
           [upcoming.id, oppId]
         )
-        // Fresh slate: tombstone live state + dibs, reset the chain singleton
-        // (a new war must not inherit the prior chain value or save claim;
-        // zeroed watermarks make the ticker re-fetch immediately).
-        await dbc.query('UPDATE war_room_state_v2 SET deleted_at = now(), updated_at = now() WHERE deleted_at IS NULL')
-        await dbc.query('UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now() WHERE deleted_at IS NULL')
-        await dbc.query(
-          `UPDATE war_room_chain_v2 SET current = NULL, max = NULL, modifier = NULL,
-             timeout = NULL, start_ts = NULL, cooldown = NULL, end_ts = NULL,
-             save_claimed_by = NULL, save_claimed_name = NULL, save_claimed_at = NULL,
-             enemy = NULL, our_last_fetched_at = NULL, enemy_last_fetched_at = NULL,
-             updated_at = now()
-           WHERE id = 1`
-        )
+        await dbc.query('COMMIT')
+        // Fresh slate: same clear the manual endpoint uses (tombstone live
+        // state + dibs, reset the chain singleton).
+        await clearWarRoomState(db)
+        await dbc.query('BEGIN')
         // Point config at the new opponent — automation-owned, disabled
         // until T-1h.
         await dbc.query(

@@ -265,6 +265,19 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path: '/api/war-room/notes/1/private',
     expected: { unauthenticated: 401, visitor: 200, member: 403, warlead: 200, ocmanager: 403, leadership: 200, admin: 200 },
   },
+  // Slice #73 — manual war-room setup: leads only (400/503 = past the guard
+  // with an empty body / empty key pool).
+  ...(
+    [
+      ['PUT /api/war-room/config', 400],
+      ['POST /api/war-room/clear-state', 200],
+      ['POST /api/war-room/fetch-members', 400],
+      ['POST /api/war-room/fetch-chains', 400],
+    ] as Array<[string, number]>
+  ).map(([path, authorized]) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: authorized, ocmanager: 403, leadership: authorized, admin: authorized } as Record<Actor, number>,
+  })),
 ]
 
 describe('authorization matrix', () => {
