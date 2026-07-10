@@ -40,7 +40,15 @@ The script provisions everything:
   faction's API being down never stops nginx or the other tenants)
 
 Then grant the faction leader their first role (`role_assignments`) and they
-self-serve the rest through the Settings page.
+self-serve the rest through the Settings page. Their first login also breaks
+the fresh-faction bootstrap cycle: it stubs their roster row and enrolls
+their key into the pool, so `members-sync` (or its Global Admin "Run now")
+can fill the roster.
+
+Scrapers are **per-faction opt-in**: each generated service reads
+`SCRAPERS_ENABLED_<SLUG>` (default `false`), so a new tenant never starts
+scraping because the shared flag happens to be on. Individual jobs are
+toggled per faction in that faction's Global Admin page (`scraper_jobs`).
 
 ## Notes
 

@@ -38,12 +38,14 @@ const get = (path: string, as = 'leader') => call('GET', path, undefined, as)
 
 beforeAll(async () => {
   stack = await startTestStack()
-  await loginAs('leader', '700', ['leadership'])
-  await loginAs('visitor', '701', ['visitor'])
+  // Roster before logins: a roster-missing member's login now creates a
+  // stub row (fresh-faction bootstrap), which would collide with this insert.
   await stack.db.query(`
     INSERT INTO members (member_id, member_name, tier, is_current) VALUES
       ('700', 'Boss', 2, true)
   `)
+  await loginAs('leader', '700', ['leadership'])
+  await loginAs('visitor', '701', ['visitor'])
 }, 30000)
 
 afterAll(async () => {

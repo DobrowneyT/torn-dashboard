@@ -185,6 +185,9 @@ describe('new-faction script', () => {
       expect(override).toContain('api-artifax:')
       expect(override).toContain('FACTION_SLUG: artifax')
       expect(override).toContain('postgres://app_artifax:${DB_PASSWORD_ARTIFAX}@postgres:5432/faction_artifax')
+      // Scrapers are per-faction opt-in: a new tenant must not start
+      // scraping because the shared env flag happens to be on.
+      expect(override).toContain('SCRAPERS_ENABLED: ${SCRAPERS_ENABLED_ARTIFAX:-false}')
 
       // nginx vhost: host-header routing for <slug>.<any domain>.
       const vhost = readFileSync(join(deployDir, 'nginx', 'factions', 'artifax.conf'), 'utf8')

@@ -152,7 +152,7 @@ const serviceBlock = `
       DATABASE_URL: postgres://${roleName}:\${DB_PASSWORD_${slug.toUpperCase()}}@postgres:5432/${dbName}
       JWT_SECRET: \${JWT_SECRET:?set JWT_SECRET in deploy/.env}
       TORN_API_BASE: \${TORN_API_BASE:-https://api.torn.com}
-      SCRAPERS_ENABLED: \${SCRAPERS_ENABLED:-false}
+      SCRAPERS_ENABLED: \${SCRAPERS_ENABLED_${slug.toUpperCase()}:-false}
       KEY_ENCRYPTION_KEY: \${KEY_ENCRYPTION_KEY:-}
     depends_on:
       postgres:

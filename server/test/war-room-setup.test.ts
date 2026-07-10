@@ -38,10 +38,12 @@ async function call(method: string, path: string, payload?: unknown, as = 'warle
 
 beforeAll(async () => {
   stack = await startTestStack()
+  // Roster before logins: a roster-missing member's login creates a stub
+  // row (fresh-faction bootstrap), which would collide with this insert.
+  await stack.db.query(`INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('1600', 'Lead', 2, true)`)
   await loginAs('warlead', '1600', ['warlead'])
   await loginAs('member', '1601', [])
   await loginAs('visitor', '1602', ['visitor'])
-  await stack.db.query(`INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('1600', 'Lead', 2, true)`)
   const pool = createKeyPool({ db: stack.db, encryptionKey: TEST_KEY_ENCRYPTION_KEY })
   await pool.store('1600', 'SETUPKEY1600AAAA', { consentVersion: 'v2' })
 

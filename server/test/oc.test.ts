@@ -148,7 +148,9 @@ describe('GET /api/oc-planner/data', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
     expect(body.live_crimes.crimes[0].id).toBe(9001)
-    expect(body.roster.map((m: any) => m.member_id)).toEqual(['300', '301', '302'])
+    // '310' is the ocmanager's own stub roster row, created by their login
+    // (fresh-faction bootstrap: roster-missing member logins stub the roster).
+    expect(body.roster.map((m: any) => m.member_id)).toEqual(['300', '301', '302', '310'])
     // Only tier-3 members' CPR is included (planner's Advanced check).
     expect(body.t3_cpr).toEqual({ '300': { 'Break the Bank||Robber': 80 } })
   })

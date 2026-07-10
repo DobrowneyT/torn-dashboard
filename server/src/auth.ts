@@ -148,18 +148,33 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
 
   // Key-pool enrollment: the login disclosure covers pool consent, so a
   // faction member's key joins the rotation on login (visitors never — their
-  // logins persist no key material at all). Best-effort: a missing roster
-  // row (fresh DB) or any other failure must never block the login.
+  // logins persist no key material at all). Best-effort: a failure must
+  // never block the login.
   if (deps.keyEncryptionKey && isMember && !roles.includes('visitor')) {
     try {
       const pool = createKeyPool({ db: deps.db, encryptionKey: deps.keyEncryptionKey })
-      await pool.store(verified.userId, apiKey, {
+      const meta = {
         keyLevel: verified.accessLevel,
         hasFactionAccess: true,
         consentVersion: 'login-v1',
-      })
+      }
+      try {
+        await pool.store(verified.userId, apiKey, meta)
+      } catch (err) {
+        // FK onto members: the roster doesn't know them yet. On a brand-new
+        // faction that's every member — and members-sync needs a pooled key
+        // to fill the roster, so the first login must break that cycle:
+        // stub the roster row (members-sync overwrites it) and enroll.
+        if ((err as { code?: string }).code !== '23503') throw err
+        await deps.db.query(
+          `INSERT INTO members (member_id, member_name, is_current)
+           VALUES ($1, $2, true) ON CONFLICT (member_id) DO NOTHING`,
+          [verified.userId, `Member ${verified.userId}`]
+        )
+        await pool.store(verified.userId, apiKey, meta)
+      }
     } catch {
-      // FK onto members (roster not synced yet) or transient DB issue.
+      // Transient DB issue — the next login retries.
     }
   }
 
