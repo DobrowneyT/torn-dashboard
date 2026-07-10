@@ -23,7 +23,7 @@ import {
   saveWarNotes,
   getWarNotesPrivate,
 } from '../utils/warRoomApiV2'
-import { useWarRoomPoll } from '../hooks/useWarRoomPoll'
+import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
 import { config as appConfig, isWarLead as checkWarLead } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
@@ -1088,9 +1088,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     lastTick: lastFetched,
     pollError,
     pollNow,
-  } = useWarRoomPoll({
+  } = useWarRoomSocket({
+    // API mode rides the WebSocket (intervalMs applies only to the legacy
+    // polling transport and the REST fallback); legacy builds poll as before.
     intervalMs: Math.max(500, Math.round(pollIntervalSec * 1000)),
-    enabled: !!user?.apiKey,
+    enabled: !!user,
     ourFactionId: OUR_FACTION_ID,
   })
 

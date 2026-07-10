@@ -43,6 +43,8 @@ export interface TestStack {
   /** Base URL of the Torn fixture server (for components that take it directly). */
   tornBaseUrl: string
   db: pg.Pool
+  /** War-room WebSocket hub of the app under test (broadcast seam for the ticker). */
+  warRoomHub?: import('../src/warRoom.js').WarRoomHub
   torn: {
     /** Register a Torn API key the fixture will answer for. */
     addKey(key: string, user: TornFixtureUser): void
@@ -186,6 +188,7 @@ export async function startTestStack(
     baseUrl: `http://127.0.0.1:${addr.port}`,
     tornBaseUrl,
     db,
+    warRoomHub: app.warRoomHub,
     torn: {
       addKey: (key, user) => goodKeys.set(key, user),
       addBadKey: (key, code, message) => badKeys.set(key, { code, message }),

@@ -15,6 +15,7 @@ import { registerPayoutRoutes } from './payouts.js'
 import { registerWarRoutes } from './wars.js'
 import { registerLeadershipRoutes } from './leadership.js'
 import { registerSyncRoutes } from './sync.js'
+import { registerWarRoomRoutes, type WarRoomHub } from './warRoom.js'
 
 export interface ServerOptions {
   factionSlug: string
@@ -27,8 +28,10 @@ export interface ServerOptions {
   keyEncryptionKey?: string
 }
 
-export async function buildServer(opts: ServerOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false })
+export async function buildServer(
+  opts: ServerOptions
+): Promise<FastifyInstance & { warRoomHub?: WarRoomHub }> {
+  const app = Fastify({ logger: false }) as FastifyInstance & { warRoomHub?: WarRoomHub }
 
   app.get('/api/health', async () => ({ status: 'ok', faction: opts.factionSlug }))
 
@@ -78,6 +81,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     registerWarRoutes(app, opts.db)
     registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, tornApiKey: opts.tornApiKey })
     registerSyncRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
+    app.warRoomHub = await registerWarRoomRoutes(app, { db: opts.db, jwtSecret: opts.jwtSecret })
   }
 
   return app
