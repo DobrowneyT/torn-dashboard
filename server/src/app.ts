@@ -14,6 +14,7 @@ import { registerOcRoutes } from './oc.js'
 import { registerPayoutRoutes } from './payouts.js'
 import { registerWarRoutes } from './wars.js'
 import { registerLeadershipRoutes } from './leadership.js'
+import { registerSyncRoutes } from './sync.js'
 
 export interface ServerOptions {
   factionSlug: string
@@ -22,6 +23,8 @@ export interface ServerOptions {
   jwtSecret?: string
   /** Faction-held Torn key for server-side live reads (until slice #67's pool). */
   tornApiKey?: string
+  /** 32-byte hex secret for the key pool — enables the on-demand sync triggers. */
+  keyEncryptionKey?: string
 }
 
 export async function buildServer(opts: ServerOptions): Promise<FastifyInstance> {
@@ -74,6 +77,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     registerPayoutRoutes(app, opts.db)
     registerWarRoutes(app, opts.db)
     registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, tornApiKey: opts.tornApiKey })
+    registerSyncRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
   }
 
   return app

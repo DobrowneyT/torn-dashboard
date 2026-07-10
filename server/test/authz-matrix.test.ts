@@ -219,6 +219,12 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path: 'POST /api/inventory/sync',
     expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 502, admin: 502 },
   },
+  // Slice #70 — on-demand sync triggers are leadership/admin-only. Authorized
+  // callers get a 200 run record (a failed run in this empty-pool stack).
+  ...['POST /api/sync/wars', 'POST /api/sync/attacks', 'POST /api/sync/wars/1/revives'].map((path) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 200, admin: 200 } as Record<Actor, number>,
+  })),
 ]
 
 describe('authorization matrix', () => {

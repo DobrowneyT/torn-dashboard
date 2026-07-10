@@ -35,6 +35,8 @@ export interface TornFixtureUser {
 
 /** The Torn key the harness configures the server itself with. */
 export const TEST_SERVER_TORN_KEY = 'SERVERKEY1234567'
+/** Key-pool at-rest secret used by the app under test (sync triggers). */
+export const TEST_KEY_ENCRYPTION_KEY = 'e'.repeat(64)
 
 export interface TestStack {
   baseUrl: string
@@ -173,6 +175,7 @@ export async function startTestStack(
     tornBaseUrl,
     jwtSecret: TEST_JWT_SECRET,
     tornApiKey: TEST_SERVER_TORN_KEY,
+    keyEncryptionKey: TEST_KEY_ENCRYPTION_KEY,
   })
   extendApp?.(app)
   await app.listen({ port: 0, host: '127.0.0.1' })

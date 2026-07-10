@@ -6,12 +6,16 @@ import {
   loadWarContributions,
   loadLiveContributionsFromAttacks,
 } from '../utils/warDataLoader'
-import {
-  fetchAttacks as fetchAttacksApi,
-  fetchWars as fetchWarsApi,
-  fetchRevives as fetchRevivesApi,
-} from '../utils/adminApi'
 import { apiPost } from '../utils/apiClient'
+
+// Renders a sync run record ({ status, rows_written, error, details }) as
+// the one-line result message the fetch buttons show.
+function runSummary(run, label) {
+  if (run.status !== 'success') {
+    return { type: 'error', text: `${label} failed: ${run.error ?? 'unknown error'}` }
+  }
+  return { type: 'success', text: `${label}: ${run.rows_written} rows synced.` }
+}
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, RefreshCw, Heart } from 'lucide-react'
 
@@ -64,35 +68,22 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
     setFetching('attacks')
     setFetchMessage(null)
     try {
-      const result = await fetchAttacksApi(user.apiKey)
-      const parts = [
-        `${result.attacksFetched ?? 0} fetched`,
-        `${result.attacksNew ?? 0} new`,
-        `${result.pagesFetched ?? 0} pages`,
-      ]
-      if (result.factionsBackfilled > 0) parts.push(`${result.factionsBackfilled} new factions`)
-      const suffix = result.partial
-        ? ` — stopped early (${result.partialReason}). Click again to resume.`
-        : result.moreAvailable
-          ? ' — more available, click again to continue.'
-          : '.'
+      const { run } = await apiPost('/api/sync/attacks', {})
       // The attacks scrape doesn't touch ranked_wars scores, so a live war's
       // Our/Their Score would stay stale. Refresh the official faction scores
-      // (a cheap 1-page ranked-wars fetch — Torn DOES publish them live) and
-      // reload the table so the war list + contributions modal show the current
-      // true total. Best-effort: a failure here doesn't undo the attacks fetch.
+      // (Torn DOES publish them live) and reload the table so the war list +
+      // contributions modal show the current true total. Best-effort: a
+      // failure here doesn't undo the attacks fetch.
       let scoreNote = ''
       try {
-        await fetchWarsApi(user.apiKey)
+        await apiPost('/api/sync/wars', {})
         await fetchWars(0, true)
         scoreNote = ' War scores refreshed.'
       } catch (scoreErr) {
         console.warn('war-score refresh after attacks failed:', scoreErr)
       }
-      setFetchMessage({
-        type: result.partial ? 'warning' : 'success',
-        text: `Attacks: ${parts.join(', ')}${suffix}${scoreNote}`,
-      })
+      const msg = runSummary(run, 'Attacks')
+      setFetchMessage({ ...msg, text: `${msg.text}${scoreNote}` })
     } catch (err) {
       console.error('fetchAttacks failed:', err)
       setFetchMessage({ type: 'error', text: `Failed to fetch attacks: ${err.message}` })
@@ -108,23 +99,8 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
     setFetching('revives')
     setFetchMessage(null)
     try {
-      const result = await fetchRevivesApi(warId, user.apiKey)
-      const parts = [
-        `${result.revivesFetched ?? 0} fetched`,
-        `${result.revivesNew ?? 0} new`,
-        `${result.pagesFetched ?? 0} pages`,
-      ]
-      const live = result.window?.live ? ' (live war)' : ''
-      const opp = result.opponent ? ` vs ${result.opponent}` : ''
-      const suffix = result.partial
-        ? ` — stopped early (${result.partialReason}). Click again to resume.`
-        : result.moreAvailable
-          ? ' — more available, click again to continue.'
-          : '.'
-      setFetchMessage({
-        type: result.partial ? 'warning' : 'success',
-        text: `Revives for war ${warId}${opp}${live}: ${parts.join(', ')}${suffix}`,
-      })
+      const { run } = await apiPost(`/api/sync/wars/${warId}/revives`, {})
+      setFetchMessage(runSummary(run, `Revives for war ${warId}`))
     } catch (err) {
       console.error('fetchRevives failed:', err)
       setFetchMessage({ type: 'error', text: `Failed to fetch revives: ${err.message}` })
@@ -139,23 +115,10 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
     setFetching('wars')
     setFetchMessage(null)
     try {
-      const result = await fetchWarsApi(user.apiKey)
-      const parts = [
-        `${result.warsFetched ?? 0} fetched`,
-        `${result.warsNew ?? 0} new`,
-        `${result.warsUpdated ?? 0} updated`,
-      ]
-      if (result.reportsFetched > 0) parts.push(`${result.reportsFetched} reports`)
-      if (result.contributionsUpserted > 0) parts.push(`${result.contributionsUpserted} contributions`)
-      const suffix = result.partial
-        ? ` — stopped early (${result.partialReason}). Click again to resume.`
-        : result.moreReportsAvailable
-          ? ' — more reports available, click again to continue.'
-          : '.'
-      setFetchMessage({
-        type: result.partial ? 'warning' : 'success',
-        text: `Wars: ${parts.join(', ')}${suffix}`,
-      })
+      const { run } = await apiPost('/api/sync/wars', {})
+      const msg = runSummary(run, 'Wars')
+      const reports = run.details?.reports_fetched
+      setFetchMessage(reports > 0 ? { ...msg, text: `${msg.text.slice(0, -1)} (${reports} new reports).` } : msg)
       // Refresh the visible wars table so new rows appear without a manual reload.
       fetchWars(0, true)
     } catch (err) {

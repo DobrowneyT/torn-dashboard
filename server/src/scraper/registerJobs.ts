@@ -11,6 +11,8 @@ import { crimesSyncJob } from './jobs/crimesSync.js'
 import { cprScanJob } from './jobs/cprScan.js'
 import { membersSyncJob } from './jobs/membersSync.js'
 import { memberStatsJob } from './jobs/memberStats.js'
+import { warsSyncJob } from './jobs/warsSync.js'
+import { attacksSyncJob } from './jobs/attacksSync.js'
 
 export interface ScraperWiringOptions {
   db: pg.Pool
@@ -38,6 +40,10 @@ export async function startScrapers({ db, tornBaseUrl, encryptionKey }: ScraperW
   // at 01:05 UTC, just after the 01:00 snapshot offset the backfill targets.
   await scheduler.register('members-sync', '0 5 * * * *', () => membersSyncJob(deps))
   await scheduler.register('member-stats', '0 5 1 * * *', () => memberStatsJob(deps))
+  // Wars every 3 hours; attacks every 30 minutes (both also triggerable
+  // on demand from the war pages — same job code).
+  await scheduler.register('wars-sync', '0 10 */3 * * *', () => warsSyncJob(deps))
+  await scheduler.register('attacks-sync', '0 20,50 * * * *', () => attacksSyncJob(deps))
 
   await scheduler.start()
   return scheduler
