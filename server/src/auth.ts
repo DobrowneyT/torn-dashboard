@@ -4,6 +4,7 @@
 import { createHash } from 'node:crypto'
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose'
 import type pg from 'pg'
+import { createKeyPool } from './scraper/keyPool.js'
 
 export const ROLES = ['admin', 'leadership', 'warlead', 'ocmanager', 'visitor'] as const
 export type Role = (typeof ROLES)[number]
@@ -15,6 +16,8 @@ export interface AuthDeps {
   db: pg.Pool
   tornBaseUrl: string
   jwtSecret: string
+  /** When set, member logins enroll their key into the consented pool. */
+  keyEncryptionKey?: string
 }
 
 export interface SessionClaims extends JWTPayload {
@@ -132,9 +135,32 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
 
   // Membership: in the faction, or holding any DB-assigned role (visitors and
   // out-of-faction leaders enter through role_assignments, not hardcoded lists).
-  const isMember = verified.tornFactionId === config.torn_faction_id
+  // Cache-served logins never reached Torn, so tornFactionId is unknown there —
+  // fall back to the roster (cache rows only exist for previously-passed logins).
+  const isMember = verified.fromCache
+    ? (await deps.db.query(
+        'SELECT 1 FROM members WHERE member_id = $1 AND is_current', [verified.userId]
+      )).rows.length > 0
+    : verified.tornFactionId === config.torn_faction_id
   if (!verified.fromCache && !isMember && roles.length === 0) {
     return { ok: false, status: 403, error: 'Not a faction member' }
+  }
+
+  // Key-pool enrollment: the login disclosure covers pool consent, so a
+  // faction member's key joins the rotation on login (visitors never — their
+  // logins persist no key material at all). Best-effort: a missing roster
+  // row (fresh DB) or any other failure must never block the login.
+  if (deps.keyEncryptionKey && isMember && !roles.includes('visitor')) {
+    try {
+      const pool = createKeyPool({ db: deps.db, encryptionKey: deps.keyEncryptionKey })
+      await pool.store(verified.userId, apiKey, {
+        keyLevel: verified.accessLevel,
+        hasFactionAccess: true,
+        consentVersion: 'login-v1',
+      })
+    } catch {
+      // FK onto members (roster not synced yet) or transient DB issue.
+    }
   }
 
   // Cache the verification — except for visitors, whose logins must persist

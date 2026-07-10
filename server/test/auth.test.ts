@@ -131,3 +131,72 @@ describe('POST /api/auth/login', () => {
     expect(res.status).toBe(400)
   })
 })
+
+describe('key-pool enrollment on login', () => {
+  it('a faction member’s login key joins the consented pool, encrypted at rest', async () => {
+    // The login disclosure covers pool consent; enrollment needs the member
+    // row (roster) to exist for the FK.
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('222', 'Pooler', 3, true)`
+    )
+    stack.torn.addKey('POOLERKEY2222222', { id: '222', factionId: TEST_FACTION.tornFactionId })
+
+    const { status } = await login('POOLERKEY2222222')
+    expect(status).toBe(200)
+
+    const row = await stack.db.query(
+      `SELECT cpr_api_key, key_level, consent_at, consent_version, disabled
+       FROM member_secrets WHERE member_id = '222'`
+    )
+    expect(row.rows).toHaveLength(1)
+    expect(row.rows[0].disabled).toBe(false)
+    expect(row.rows[0].consent_at).toBeTruthy()
+    expect(row.rows[0].consent_version).toBe('login-v1')
+    // Never the plaintext key at rest.
+    expect((row.rows[0].cpr_api_key as Buffer).toString('utf8')).not.toContain('POOLERKEY2222222')
+  })
+
+  it('visitor logins never enroll a key (no key material persists at all)', async () => {
+    stack.torn.addKey('VISITKEY33333333', { id: '333', factionId: null })
+    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (333, 'visitor')`)
+
+    const { status } = await login('VISITKEY33333333')
+    expect(status).toBe(200)
+
+    const row = await stack.db.query(`SELECT 1 FROM member_secrets WHERE member_id = '333'`)
+    expect(row.rows).toHaveLength(0)
+  })
+
+  it('a cache-served login still enrolls (logins predating enrollment left a 24h cache row)', async () => {
+    // Production scenario: the member logged in before enrollment existed, so
+    // the server holds a valid auth-cache row but member_secrets is empty.
+    // The cached login path never reaches Torn (the key is not in the fixture)
+    // and must decide membership from the roster instead.
+    const { createHash } = await import('node:crypto')
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('556', 'Cached', 3, true)`
+    )
+    await stack.db.query(
+      `INSERT INTO war_room_auth_cache (key_hash, user_id, expires_at)
+       VALUES ($1, '556', now() + interval '1 hour')`,
+      [createHash('sha256').update('CACHEONLY5555555').digest('hex')]
+    )
+
+    const { status } = await login('CACHEONLY5555555')
+    expect(status).toBe(200)
+
+    const row = await stack.db.query(
+      `SELECT consent_version FROM member_secrets WHERE member_id = '556'`
+    )
+    expect(row.rows).toHaveLength(1)
+    expect(row.rows[0].consent_version).toBe('login-v1')
+  })
+
+  it('a member missing from the roster still logs in (enrollment is best-effort)', async () => {
+    stack.torn.addKey('GHOSTKEY44444444', { id: '444', factionId: TEST_FACTION.tornFactionId })
+    const { status } = await login('GHOSTKEY44444444')
+    expect(status).toBe(200)
+    const row = await stack.db.query(`SELECT 1 FROM member_secrets WHERE member_id = '444'`)
+    expect(row.rows).toHaveLength(0)
+  })
+})

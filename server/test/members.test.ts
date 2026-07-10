@@ -88,7 +88,9 @@ describe('GET /api/members/:id', () => {
     expect(body.member.member_id).toBe('300')
     expect(body.member.member_name).toBe('Trout')
     expect(body.member.tier).toBe(3)
-    expect(body.member.has_cpr_key).toBe(false)
+    // True since the login-key-pool enrollment: member 300 logged in above,
+    // and a member login enrolls its key into the consented pool.
+    expect(body.member.has_cpr_key).toBe(true)
     expect(body.member.is_current).toBe(true)
     expect(body.cpr).toEqual([
       { crime_name: 'Break the Bank', difficulty: null, position_label: 'Robber', cpr_value: 80, observation_count: 1 },
