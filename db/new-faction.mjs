@@ -7,7 +7,8 @@
 //
 // Connection: defaults to the local compose stack, reading deploy/.env for the
 // Postgres credentials. Standard PG* env vars override everything.
-import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -28,6 +29,9 @@ const { values: args } = parseArgs({
     slug: { type: 'string' },
     name: { type: 'string' },
     'faction-id': { type: 'string' },
+    // Where the deploy artifacts live (compose include, nginx vhost, .env
+    // credential line). Defaults to this repo's deploy/; tests redirect it.
+    'deploy-dir': { type: 'string' },
   },
 })
 
@@ -49,6 +53,8 @@ if (!/^\d+$/.test(tornFactionId)) {
 }
 
 const dbName = `faction_${slug}`
+const roleName = `app_${slug}`
+const deployDir = args['deploy-dir'] ?? join(here, '..', 'deploy')
 
 // 1. Create the database (against the maintenance DB).
 const admin = new pg.Client({ database: process.env.PGDATABASE ?? 'postgres' })
@@ -99,29 +105,106 @@ try {
     `INSERT INTO faction_config (slug, display_name, torn_faction_id) VALUES ($1, $2, $3)`,
     [slug, displayName, tornFactionId]
   )
+
+  // 3. Scoped credential: this faction's API connects as app_<slug>, which
+  // can only reach its own database. Revoking PUBLIC is what makes the
+  // isolation real — otherwise every role may CONNECT to every DB.
+  const password = randomBytes(24).toString('hex')
+  const roleExists = await db.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [roleName])
+  if (roleExists.rowCount > 0) {
+    console.error(`Role ${roleName} already exists — refusing to touch it`)
+    process.exit(2)
+  }
+  // Identifiers are validated by the slug regex; passwords via literal quoting.
+  await db.query(`CREATE ROLE ${roleName} LOGIN PASSWORD '${password}'`)
+  await db.query(`REVOKE CONNECT ON DATABASE ${dbName} FROM PUBLIC`)
+  await db.query(`GRANT CONNECT ON DATABASE ${dbName} TO ${roleName}`)
+  await db.query(`GRANT USAGE ON SCHEMA public TO ${roleName}`)
+  await db.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${roleName}`)
+  await db.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${roleName}`)
+  // Future tables from db/migrate.mjs (run as the admin user) stay reachable.
+  await db.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${roleName}`)
+  await db.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${roleName}`)
+
+  // The credential lives in the deploy env file; compose interpolates it
+  // into this faction's DATABASE_URL. Never printed.
+  const envKey = `DB_PASSWORD_${slug.toUpperCase()}`
+  appendFileSync(join(deployDir, '.env'), `${envKey}=${password}\n`)
 } finally {
   await db.end()
 }
 
-console.log(`
-Created ${dbName} for "${displayName}" (Torn faction ${tornFactionId}).
-
-Add the faction's API process to deploy/docker-compose.yml:
-
+// 4. Deploy artifacts. The compose override is auto-loaded by
+// `docker compose up`, so a new faction needs no compose-file edits; the
+// nginx vhost is baked into the nginx image on its next build.
+const OVERRIDE_HEADER = `# Per-faction API processes — managed by db/new-faction.mjs (slice #75).
+# Auto-loaded by \`docker compose up\` alongside docker-compose.yml.
+services:
+`
+const serviceBlock = `
   api-${slug}:
     build:
       context: ..
       dockerfile: deploy/server.Dockerfile
     environment:
       FACTION_SLUG: ${slug}
-      DATABASE_URL: postgres://\${POSTGRES_USER}:\${POSTGRES_PASSWORD}@postgres:5432/${dbName}
+      PORT: 8080
+      DATABASE_URL: postgres://${roleName}:\${DB_PASSWORD_${slug.toUpperCase()}}@postgres:5432/${dbName}
+      JWT_SECRET: \${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      TORN_API_BASE: \${TORN_API_BASE:-https://api.torn.com}
+      SCRAPERS_ENABLED: \${SCRAPERS_ENABLED:-false}
+      KEY_ENCRYPTION_KEY: \${KEY_ENCRYPTION_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+`
+const overridePath = join(deployDir, 'docker-compose.override.yml')
+if (!existsSync(overridePath)) writeFileSync(overridePath, OVERRIDE_HEADER)
+appendFileSync(overridePath, serviceBlock)
 
-nginx note: deploy/nginx/default.conf currently routes all /api/ traffic to
-api-forge (single-faction skeleton). Host-header routing per faction subdomain
-lands with migration slice #75 — until then a second faction needs its own
-server block pointing at api-${slug}:8080.
+// Host-header vhost: <slug>.localhost locally, <slug>.<domain> in prod.
+// The variable proxy_pass + docker resolver means nginx starts (and the
+// other tenants keep serving) even while this API container is down.
+const vhost = `# ${displayName} — managed by db/new-faction.mjs (slice #75).
+server {
+    listen 80;
+    server_name ${slug}.*;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location /api/ {
+        resolver 127.0.0.11 valid=10s;
+        set $upstream_${slug} api-${slug}:8080;
+        proxy_pass http://$upstream_${slug};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 300s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+`
+mkdirSync(join(deployDir, 'nginx', 'factions'), { recursive: true })
+writeFileSync(join(deployDir, 'nginx', 'factions', `${slug}.conf`), vhost)
+
+console.log(`
+Created ${dbName} for "${displayName}" (Torn faction ${tornFactionId}).
+
+Provisioned:
+  - scoped DB role ${roleName} (credential appended to ${join(deployDir, '.env')})
+  - ${overridePath} — api-${slug} service (compose picks it up automatically)
+  - ${join(deployDir, 'nginx', 'factions', `${slug}.conf`)} — vhost for ${slug}.<your-domain>
+
+Bring it up:
+  docker compose -f ${join(deployDir, 'docker-compose.yml')} up -d --build api-${slug} nginx
+
+Then browse http://${slug}.localhost:<HTTP_PORT>/ and grant the leader a role:
+  role_assignments via the Settings page, or SQL as a first bootstrap.
 `)
