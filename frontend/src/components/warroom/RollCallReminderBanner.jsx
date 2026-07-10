@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { ClipboardList, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../utils/supabase'
+import { API_MODE, apiGet } from '../../utils/apiClient'
+import { fetchRollCall } from '../../utils/warRoomApiV2'
 import { rollCallGateActive, formatCountdown } from '../../utils/rollCall'
 
 // Global post-login nudge: if there's a matched war the member hasn't filled
@@ -20,6 +22,19 @@ export default function RollCallReminderBanner() {
     // Visitors are never part of the roll call — no nudge for them.
     if (!user?.id || !tokenReady || isVisitor) { setPending(null); return }
     try {
+      if (API_MODE) {
+        const delta = await apiGet('/api/war-room/delta')
+        const cfg = delta.config?.rows?.[0]
+        if (!cfg?.faction_id) { setPending(null); return }
+        const { wars } = await apiGet('/api/wars?limit=20')
+        const war = (wars ?? []).find(w => Number(w.opponent_id) === Number(cfg.faction_id) && !w.end_at)
+        if (!war) { setPending(null); return }
+        const currentWar = { id: war.id, opponentName: war.opponent_name, startAt: war.start_at }
+        const responses = await fetchRollCall(war.id)
+        const mine = (responses ?? []).some(r => String(r.member_id) === String(user.id))
+        setPending(rollCallGateActive({ currentWar, mySubmitted: mine }) ? currentWar : null)
+        return
+      }
       const { data: cfg } = await supabase
         .from('war_room_config_v2').select('faction_id').eq('id', 1).maybeSingle()
       if (!cfg?.faction_id) { setPending(null); return }
