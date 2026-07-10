@@ -1,0 +1,112 @@
+// War lifecycle automation — port of war-room-fetch's handleCronWarLifecycle
+// (formerly a 3-minute pg_cron edge call). Detects the matched ranked war,
+// auto-sets-up an automation-owned session (wipe prior week → point config
+// at the new opponent, disabled → baseline both factions' members), enables
+// at T-1h, and disables when the managed war ends. Only automation-owned
+// sessions (auto_managed) are ever touched — a manually-configured session
+// makes automation stand down entirely.
+import type { JobDeps } from './itemsSync.js'
+import type { RunResult } from '../runLog.js'
+import { syncWarRoomMemberStates } from '../../warRoomTicker.js'
+
+export async function warLifecycleJob({ db, pool, client }: JobDeps): Promise<RunResult> {
+  const cfgRes = await db.query('SELECT * FROM war_room_config_v2 WHERE id = 1')
+  const cfg = cfgRes.rows[0] ?? null
+
+  const claimed = await pool.claim()
+  if (!claimed) return { rows: 0, details: { actions: [], note: 'no pooled key available' } }
+
+  const usRes = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
+  const us = Number(usRes.rows[0].torn_faction_id)
+
+  const data = await client.fetch(`/v2/faction/${us}/rankedwars?limit=100`, claimed.key)
+  const wars: any[] = data.rankedwars ?? []
+  const now = Math.floor(Date.now() / 1000)
+  const actions: string[] = []
+  let rows = 0
+
+  // Upcoming/active war = has a start, no end yet. Pick the soonest.
+  const upcoming = wars
+    .filter((w) => (w.start ?? 0) > 0 && !(w.end ?? 0))
+    .sort((a, b) => (a.start ?? 0) - (b.start ?? 0))[0] ?? null
+
+  if (upcoming) {
+    const opp = (upcoming.factions ?? []).find((f: any) => Number(f.id) !== us)
+    const oppId = opp?.id != null ? Number(opp.id) : null
+    const startAt = Number(upcoming.start ?? 0)
+    const alreadyOwn = cfg?.managed_war_id != null && Number(cfg.managed_war_id) === Number(upcoming.id)
+    const manualActive = !!cfg?.enabled && !cfg?.auto_managed
+
+    // AUTO-SETUP: a new matched war we don't already own, and no manual session.
+    if (oppId && !alreadyOwn && !manualActive) {
+      const dbc = await db.connect()
+      try {
+        await dbc.query('BEGIN')
+        // Weekly wipe — roll call + notes are per-war, not kept for posterity.
+        await dbc.query('DELETE FROM war_room_roll_call_v2')
+        await dbc.query('DELETE FROM war_room_notes_v2')
+        await dbc.query('DELETE FROM war_room_notes_private_v2')
+        // Seed a notes row so the leader panel has a row to edit.
+        await dbc.query(
+          'INSERT INTO war_room_notes_v2 (war_id, opponent_faction_id) VALUES ($1, $2)',
+          [upcoming.id, oppId]
+        )
+        // Fresh slate: tombstone live state + dibs, reset the chain singleton
+        // (a new war must not inherit the prior chain value or save claim;
+        // zeroed watermarks make the ticker re-fetch immediately).
+        await dbc.query('UPDATE war_room_state_v2 SET deleted_at = now(), updated_at = now() WHERE deleted_at IS NULL')
+        await dbc.query('UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now() WHERE deleted_at IS NULL')
+        await dbc.query(
+          `UPDATE war_room_chain_v2 SET current = NULL, max = NULL, modifier = NULL,
+             timeout = NULL, start_ts = NULL, cooldown = NULL, end_ts = NULL,
+             save_claimed_by = NULL, save_claimed_name = NULL, save_claimed_at = NULL,
+             enemy = NULL, our_last_fetched_at = NULL, enemy_last_fetched_at = NULL,
+             updated_at = now()
+           WHERE id = 1`
+        )
+        // Point config at the new opponent — automation-owned, disabled
+        // until T-1h.
+        await dbc.query(
+          `INSERT INTO war_room_config_v2 (id, faction_id, faction_name, auto_managed, managed_war_id, enabled, updated_at)
+           VALUES (1, $1, $2, true, $3, false, now())
+           ON CONFLICT (id) DO UPDATE SET
+             faction_id = EXCLUDED.faction_id, faction_name = EXCLUDED.faction_name,
+             auto_managed = true, managed_war_id = EXCLUDED.managed_war_id,
+             enabled = false, updated_at = now()`,
+          [oppId, opp?.name ?? null, upcoming.id]
+        )
+        await dbc.query('COMMIT')
+      } catch (err) {
+        await dbc.query('ROLLBACK')
+        throw err
+      } finally {
+        dbc.release()
+      }
+
+      // Baseline both factions so the board is warm before enable.
+      const changed = await syncWarRoomMemberStates(db, client, claimed.key, oppId, us)
+      rows += changed.length
+      actions.push('auto_setup')
+      return { rows, details: { actions, war_id: upcoming.id, opponent: oppId } }
+    }
+
+    // AUTO-ENABLE at T-1h (only for the war we own).
+    if (alreadyOwn && cfg?.auto_managed && !cfg?.enabled && now >= startAt - 3600) {
+      await db.query('UPDATE war_room_config_v2 SET enabled = true, updated_at = now() WHERE id = 1')
+      actions.push('auto_enable')
+    }
+  }
+
+  // AUTO-DISABLE when the war we own has ended. Never touches manual sessions.
+  if (cfg?.auto_managed && cfg?.managed_war_id) {
+    const managed = wars.find((w) => Number(w.id) === Number(cfg.managed_war_id))
+    if (managed && Number(managed.end ?? 0) > 0 && cfg.enabled) {
+      await db.query(
+        'UPDATE war_room_config_v2 SET enabled = false, auto_managed = false, updated_at = now() WHERE id = 1'
+      )
+      actions.push('auto_disable')
+    }
+  }
+
+  return { rows, details: { actions } }
+}
