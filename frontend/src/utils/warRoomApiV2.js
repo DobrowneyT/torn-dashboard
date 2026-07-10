@@ -12,9 +12,33 @@
  * entirely) and stream as cheap HTTP+gzip from PostgREST.
  */
 import { supabase } from './supabase'
+import { API_MODE, getApiSession } from './apiClient'
 
 const WAR_ROOM_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/war-room-fetch'
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+// API-mode transport for the ported war-room writes (slice #72): same
+// throw shape as callWarRoom (err.status / err.payload) so call sites'
+// 409-owner handling works unchanged.
+async function warRoomApi(method, path, payload) {
+  const session = getApiSession()
+  const res = await fetch(path, {
+    method,
+    headers: {
+      ...(payload !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(session ? { authorization: `Bearer ${session.token}` } : {}),
+    },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const err = new Error(data.error || `War Room API error: ${res.status}`)
+    err.status = res.status
+    err.payload = data
+    throw err
+  }
+  return data
+}
 
 async function callWarRoom(action, payload, tornApiKey, signal) {
   const response = await fetch(WAR_ROOM_URL, {
@@ -69,6 +93,7 @@ export async function clearWarRoomStateV2(tornApiKey) {
 // Roll call — member submits/edits their availability for a war. member_id is
 // derived server-side from the key; user_name is passed for display.
 export async function submitRollCall(warId, answers, userName, tornApiKey) {
+  if (API_MODE) return warRoomApi('POST', '/api/war-room/roll-call', { war_id: warId, ...answers })
   return callWarRoom('submit_roll_call_v2', { data: { war_id: warId, ...answers }, user_name: userName }, tornApiKey)
 }
 
@@ -76,15 +101,18 @@ export async function submitRollCall(warId, answers, userName, tornApiKey) {
 // `notes` carries war_type, termed_score_us/them, race_target_score,
 // notes_public, notes_private, and expected_updated_at (optimistic lock).
 export async function saveWarNotes(warId, notes, userName, tornApiKey) {
+  if (API_MODE) return warRoomApi('PUT', '/api/war-room/notes', { war_id: warId, ...notes })
   return callWarRoom('save_war_notes_v2', { data: { war_id: warId, ...notes }, user_name: userName }, tornApiKey)
 }
 
 // Leads-only private note — fetched through the edge function (never client-readable).
 export async function getWarNotesPrivate(warId, tornApiKey) {
+  if (API_MODE) return warRoomApi('GET', `/api/war-room/notes/${warId}/private`)
   return callWarRoom('get_war_notes_private_v2', { data: { war_id: warId } }, tornApiKey)
 }
 
 export async function claimDibsV2(targetId, userName, warId, tornApiKey, opts = {}) {
+  if (API_MODE) return warRoomApi('POST', '/api/war-room/dibs', { target_id: targetId, war_id: warId ?? null })
   return callWarRoom(
     'claim_dibs_v2',
     { target_id: targetId, user_name: userName, war_id: warId ?? null, user_id: opts.userId },
@@ -94,6 +122,7 @@ export async function claimDibsV2(targetId, userName, warId, tornApiKey, opts = 
 }
 
 export async function releaseDibsV2(targetId, tornApiKey, opts = {}) {
+  if (API_MODE) return warRoomApi('DELETE', `/api/war-room/dibs/${targetId}`)
   return callWarRoom(
     'release_dibs_v2',
     { target_id: targetId, user_id: opts.userId },
@@ -231,11 +260,25 @@ export async function pollChainDelta(since) {
 // ── Chain-save claim Edge Function actions ───────────────────────────────────
 
 export async function claimChainSaveV2(tornApiKey, opts = {}) {
+  if (API_MODE) return warRoomApi('POST', '/api/war-room/chain-save', {})
   return callWarRoom('claim_chain_save_v2', { user_id: opts.userId, user_name: opts.userName }, tornApiKey, opts.signal)
 }
 
 export async function releaseChainSaveV2(tornApiKey, opts = {}) {
+  if (API_MODE) return warRoomApi('DELETE', '/api/war-room/chain-save')
   return callWarRoom('release_chain_save_v2', { user_id: opts.userId }, tornApiKey, opts.signal)
+}
+
+// ── Slice #72 reads: roll-call rows + public notes (API mode) ────────────────
+
+export async function fetchRollCall(warId) {
+  const { responses } = await warRoomApi('GET', `/api/war-room/roll-call?war_id=${warId}`)
+  return responses
+}
+
+export async function fetchWarNotes(warId) {
+  const { notes } = await warRoomApi('GET', `/api/war-room/notes/${warId}`)
+  return notes
 }
 
 /**

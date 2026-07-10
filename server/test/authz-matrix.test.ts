@@ -225,6 +225,46 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path,
     expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 200, admin: 200 } as Record<Actor, number>,
   })),
+  // Slice #72 — war-room writes. Dibs are the one visitor-permitted mutation
+  // (400 = past the guard, empty body); releases are filtered no-ops.
+  {
+    path: 'POST /api/war-room/dibs',
+    expected: { unauthenticated: 401, visitor: 400, member: 400, warlead: 400, ocmanager: 400, leadership: 400, admin: 400 },
+  },
+  {
+    path: 'DELETE /api/war-room/dibs/1',
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
+  },
+  // Chain save + roll-call submit: any member, never visitors.
+  {
+    path: 'POST /api/war-room/chain-save',
+    expected: { unauthenticated: 401, visitor: 403, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
+  },
+  {
+    path: 'DELETE /api/war-room/chain-save',
+    expected: { unauthenticated: 401, visitor: 403, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
+  },
+  {
+    path: 'POST /api/war-room/roll-call',
+    expected: { unauthenticated: 401, visitor: 403, member: 400, warlead: 400, ocmanager: 400, leadership: 400, admin: 400 },
+  },
+  // Roll-call rows are member-visible (legacy RLS surface).
+  {
+    path: '/api/war-room/roll-call?war_id=1',
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
+  },
+  {
+    path: 'PUT /api/war-room/notes',
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 400, ocmanager: 403, leadership: 400, admin: 400 },
+  },
+  {
+    path: '/api/war-room/notes/1',
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 },
+  },
+  {
+    path: '/api/war-room/notes/1/private',
+    expected: { unauthenticated: 401, visitor: 200, member: 403, warlead: 200, ocmanager: 403, leadership: 200, admin: 200 },
+  },
 ]
 
 describe('authorization matrix', () => {

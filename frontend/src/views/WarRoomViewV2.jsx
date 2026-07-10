@@ -22,7 +22,10 @@ import {
   submitRollCall,
   saveWarNotes,
   getWarNotesPrivate,
+  fetchRollCall,
+  fetchWarNotes,
 } from '../utils/warRoomApiV2'
+import { API_MODE } from '../utils/apiClient'
 import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
 import { config as appConfig, isWarLead as checkWarLead } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
@@ -1384,6 +1387,16 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // summary counts + leader results stay reasonably live (data changes slowly).
   const refreshRollCall = useCallback(async () => {
     if (!currentWar?.id) { setRollCallRows([]); setWarNotes(null); setRollCallLoaded(true); return }
+    if (API_MODE) {
+      const [rc, nt] = await Promise.all([
+        fetchRollCall(currentWar.id).catch(() => []),
+        fetchWarNotes(currentWar.id).catch(() => null),
+      ])
+      setRollCallRows(rc ?? [])
+      setWarNotes(nt ?? null)
+      setRollCallLoaded(true)
+      return
+    }
     const [{ data: rc }, { data: nt }] = await Promise.all([
       supabase.from('war_room_roll_call_v2').select('*').eq('war_id', currentWar.id),
       supabase.from('war_room_notes_v2').select('*').eq('war_id', currentWar.id).maybeSingle(),
