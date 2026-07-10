@@ -16,6 +16,12 @@ import { buildServer } from '../src/app.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const TEMPLATE = readFileSync(join(here, '..', '..', 'db', 'template.sql'), 'utf8')
+// A real new-faction DB gets the policy-defaults seed (db/new-faction runbook);
+// the admin/OC policy endpoints serve those defaults until a leader edits them.
+const SETTINGS_SEED = readFileSync(
+  join(here, '..', '..', 'db', 'seed', '03_faction_settings_defaults.sql'),
+  'utf8'
+)
 
 export const TEST_FACTION = {
   slug: 'forge',
@@ -105,6 +111,7 @@ export async function startTestStack(
   // fails the whole vitest run despite every test passing.
   db.on('error', () => {})
   await db.query(TEMPLATE)
+  await db.query(SETTINGS_SEED)
   await db.query(
     `INSERT INTO faction_config (slug, display_name, torn_faction_id) VALUES ($1, $2, $3)`,
     [TEST_FACTION.slug, TEST_FACTION.displayName, TEST_FACTION.tornFactionId]
