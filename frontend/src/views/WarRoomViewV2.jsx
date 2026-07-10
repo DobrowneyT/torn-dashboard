@@ -25,7 +25,7 @@ import {
   fetchRollCall,
   fetchWarNotes,
 } from '../utils/warRoomApiV2'
-import { API_MODE } from '../utils/apiClient'
+import { API_MODE, apiGet } from '../utils/apiClient'
 import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
 import { config as appConfig, isWarLead as checkWarLead } from '../config'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
@@ -1195,9 +1195,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Look up faction name from the factions table whenever the faction_id changes
   useEffect(() => {
     if (!config?.faction_id) return
+    if (API_MODE) {
+      if (config?.faction_name) setFactionName(config.faction_name)
+      return
+    }
     supabase.from('factions').select('name').eq('id', config.faction_id).maybeSingle()
       .then(({ data }) => { if (data?.name) setFactionName(data.name) })
-  }, [config?.faction_id])
+  }, [config?.faction_id, config?.faction_name])
   useEffect(() => { membersRef.current = members }, [members])
   useEffect(() => { userRef.current = user }, [user])
 
@@ -1500,12 +1504,20 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         await new Promise(r => setTimeout(r, 200))
         workingMembers = membersRef.current
         if (!workingMembers.length) {
-          const { data } = await supabase
-            .from('war_room_state_v2')
-            .select('member_id')
-            .eq('faction_id', config.faction_id)
-            .is('deleted_at', null)
-          workingMembers = data ?? []
+          if (API_MODE) {
+            const delta = await apiGet('/api/war-room/delta')
+            const rows = delta?.state?.rows ?? []
+            workingMembers = rows
+              .filter(r => Number(r.faction_id) === Number(config.faction_id) && !r.deleted_at)
+              .map(r => ({ member_id: r.member_id }))
+          } else {
+            const { data } = await supabase
+              .from('war_room_state_v2')
+              .select('member_id')
+              .eq('faction_id', config.faction_id)
+              .is('deleted_at', null)
+            workingMembers = data ?? []
+          }
         }
       }
       if (!workingMembers.length) throw new Error('No members loaded — check the faction ID')

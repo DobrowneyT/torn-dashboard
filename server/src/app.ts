@@ -40,7 +40,10 @@ export async function buildServer(
   app.decorateRequest('session', null)
 
   if (opts.db && opts.tornBaseUrl && opts.jwtSecret) {
-    const deps: AuthDeps = { db: opts.db, tornBaseUrl: opts.tornBaseUrl, jwtSecret: opts.jwtSecret }
+    const deps: AuthDeps = {
+      db: opts.db, tornBaseUrl: opts.tornBaseUrl, jwtSecret: opts.jwtSecret,
+      keyEncryptionKey: opts.keyEncryptionKey,
+    }
 
     // Attach the verified session (or null) to every request; role guards
     // (src/authz.ts) and handlers read req.session.
