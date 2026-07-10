@@ -1066,7 +1066,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const { user, tokenReady, isVisitor } = useAuth()
   // Derive war-lead status from config + ID rather than the session flag, so a
   // stale/older cached session object can't hide the War Notes controls.
-  const isWarLead = checkWarLead(user?.id)
+  // API mode: the session's role_assignments are authoritative (bootstrap
+  // sets user.isWarLead); legacy builds fall back to the config.js ID list.
+  const isWarLead = user?.isWarLead ?? checkWarLead(user?.id)
 
   // Reload-persisted prefs: filter chips, stats range, sort, poll rate.
   // Sets are stored as arrays so JSON.stringify can round-trip them.
@@ -1365,21 +1367,28 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (!oppId) { setCurrentWar(null); return }
     if (!tokenReady) return  // wait for the session token (RLS) before resolving
     let cancelled = false
-    supabase.from('ranked_wars')
-      .select('id, opponent_id, opponent_name, start_at, end_at')
-      .eq('opponent_id', oppId)
-      .order('start_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return
-        // Only treat as "current" when the war hasn't ended yet.
-        if (data && !data.end_at) {
-          setCurrentWar({ id: data.id, opponentId: data.opponent_id, opponentName: data.opponent_name, startAt: data.start_at })
-        } else {
-          setCurrentWar(null)
-        }
-      })
+    const resolve = API_MODE
+      ? apiGet('/api/wars?limit=20').then(({ wars }) =>
+          (wars ?? [])
+            .filter(w => Number(w.opponent_id) === Number(oppId))
+            .sort((a, b) => (b.start_at ?? 0) - (a.start_at ?? 0))[0] ?? null
+        )
+      : supabase.from('ranked_wars')
+          .select('id, opponent_id, opponent_name, start_at, end_at')
+          .eq('opponent_id', oppId)
+          .order('start_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+          .then(({ data }) => data)
+    resolve.then((data) => {
+      if (cancelled) return
+      // Only treat as "current" when the war hasn't ended yet.
+      if (data && !data.end_at) {
+        setCurrentWar({ id: data.id, opponentId: data.opponent_id, opponentName: data.opponent_name, startAt: data.start_at })
+      } else {
+        setCurrentWar(null)
+      }
+    })
     return () => { cancelled = true }
   }, [config?.faction_id, tokenReady])
 
@@ -1449,7 +1458,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Load the leads-only private note via the edge function when a War Leader
   // opens the notes panel (it's never client-readable).
   useEffect(() => {
-    if (!notesPanelOpen || (!isWarLead && !isVisitor) || !currentWar?.id || !user?.apiKey) return
+    // API mode authenticates with the session token — no browser key needed.
+    if (!notesPanelOpen || (!isWarLead && !isVisitor) || !currentWar?.id || (!API_MODE && !user?.apiKey)) return
     let cancelled = false
     getWarNotesPrivate(currentWar.id, user.apiKey)
       .then(r => { if (!cancelled) setPrivateNotes(r?.notes ?? '') })

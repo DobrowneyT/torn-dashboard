@@ -30,6 +30,61 @@ function memberState(m: any) {
   }
 }
 
+/**
+ * Fetch both factions' member states and merge them into war_room_state_v2,
+ * diffing in SQL (jsonb equality is semantic — only genuine changes persist
+ * and return). Shared by the 1 Hz ticker and the lifecycle's baseline fetch.
+ * Returns the changed rows (including tombstones for roster leavers).
+ */
+export async function syncWarRoomMemberStates(
+  db: pg.Pool,
+  client: { fetch(path: string, key: string): Promise<any> },
+  key: string,
+  enemyId: number,
+  ourId: number
+): Promise<any[]> {
+  const [enemy, ours] = await Promise.all([
+    client.fetch(`/v2/faction/${enemyId}/members?striptags=true`, key),
+    client.fetch(`/v2/faction/${ourId}/members?striptags=true`, key),
+  ])
+
+  const fresh = new Map<number, { faction_id: number; m: any }>()
+  for (const m of enemy.members ?? []) fresh.set(Number(m.id), { faction_id: enemyId, m })
+  for (const m of ours.members ?? []) fresh.set(Number(m.id), { faction_id: ourId, m })
+
+  const changed: any[] = []
+  for (const [memberId, { faction_id, m }] of fresh) {
+    const state = memberState(m)
+    const res = await db.query(
+      `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, level, "position", state, deleted_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NULL, now())
+       ON CONFLICT (member_id) DO UPDATE SET
+         faction_id = EXCLUDED.faction_id, member_name = EXCLUDED.member_name,
+         level = EXCLUDED.level, "position" = EXCLUDED.position,
+         state = EXCLUDED.state, deleted_at = NULL, updated_at = now()
+       WHERE war_room_state_v2.state IS DISTINCT FROM EXCLUDED.state
+          OR war_room_state_v2.member_name IS DISTINCT FROM EXCLUDED.member_name
+          OR war_room_state_v2.level IS DISTINCT FROM EXCLUDED.level
+          OR war_room_state_v2.faction_id IS DISTINCT FROM EXCLUDED.faction_id
+          OR war_room_state_v2.deleted_at IS NOT NULL
+       RETURNING *`,
+      [memberId, faction_id, m.name, m.level ?? null, m.position ?? null, JSON.stringify(state)]
+    )
+    if (res.rows.length > 0) changed.push(res.rows[0])
+  }
+
+  // Members that vanished from their roster become tombstones (the same
+  // delete signal the polling RPCs carried).
+  const gone = await db.query(
+    `UPDATE war_room_state_v2 SET deleted_at = now(), updated_at = now()
+     WHERE faction_id = ANY($1) AND deleted_at IS NULL AND NOT (member_id = ANY($2))
+     RETURNING *`,
+    [[enemyId, ourId], [...fresh.keys()]]
+  )
+  changed.push(...gone.rows)
+  return changed
+}
+
 export function createWarRoomTicker(deps: WarRoomTickerDeps) {
   const { db, pool, hub, tornBaseUrl } = deps
   // The ticker's own client: budget sized for 1 Hz member fetches.
@@ -62,48 +117,7 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       const ourId = Number(us.rows[0].torn_faction_id)
       const enemyId = Number(cfg.faction_id)
 
-      const [enemy, ours] = await Promise.all([
-        client.fetch(`/v2/faction/${enemyId}/members?striptags=true`, claimed.key),
-        client.fetch(`/v2/faction/${ourId}/members?striptags=true`, claimed.key),
-      ])
-
-      const fresh = new Map<number, { faction_id: number; m: any }>()
-      for (const m of enemy.members ?? []) fresh.set(Number(m.id), { faction_id: enemyId, m })
-      for (const m of ours.members ?? []) fresh.set(Number(m.id), { faction_id: ourId, m })
-
-      // Diff in SQL: jsonb equality there is semantic (key order doesn't
-      // matter), so the conditional upsert only touches — and only RETURNs —
-      // rows that genuinely changed.
-      const changed: any[] = []
-      for (const [memberId, { faction_id, m }] of fresh) {
-        const state = memberState(m)
-        const res = await db.query(
-          `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, level, "position", state, deleted_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NULL, now())
-           ON CONFLICT (member_id) DO UPDATE SET
-             faction_id = EXCLUDED.faction_id, member_name = EXCLUDED.member_name,
-             level = EXCLUDED.level, "position" = EXCLUDED.position,
-             state = EXCLUDED.state, deleted_at = NULL, updated_at = now()
-           WHERE war_room_state_v2.state IS DISTINCT FROM EXCLUDED.state
-              OR war_room_state_v2.member_name IS DISTINCT FROM EXCLUDED.member_name
-              OR war_room_state_v2.level IS DISTINCT FROM EXCLUDED.level
-              OR war_room_state_v2.faction_id IS DISTINCT FROM EXCLUDED.faction_id
-              OR war_room_state_v2.deleted_at IS NOT NULL
-           RETURNING *`,
-          [memberId, faction_id, m.name, m.level ?? null, m.position ?? null, JSON.stringify(state)]
-        )
-        if (res.rows.length > 0) changed.push(res.rows[0])
-      }
-
-      // Members that vanished from their roster become tombstones (the same
-      // delete signal the polling RPCs carried).
-      const gone = await db.query(
-        `UPDATE war_room_state_v2 SET deleted_at = now(), updated_at = now()
-         WHERE faction_id = ANY($1) AND deleted_at IS NULL AND NOT (member_id = ANY($2))
-         RETURNING *`,
-        [[enemyId, ourId], [...fresh.keys()]]
-      )
-      changed.push(...gone.rows)
+      const changed = await syncWarRoomMemberStates(db, client, claimed.key, enemyId, ourId)
 
       if (changed.length > 0) {
         const now = await db.query('SELECT now() AS server_now')

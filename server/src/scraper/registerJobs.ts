@@ -13,6 +13,7 @@ import { membersSyncJob } from './jobs/membersSync.js'
 import { memberStatsJob } from './jobs/memberStats.js'
 import { warsSyncJob } from './jobs/warsSync.js'
 import { attacksSyncJob } from './jobs/attacksSync.js'
+import { warLifecycleJob } from './jobs/warLifecycle.js'
 
 export interface ScraperWiringOptions {
   db: pg.Pool
@@ -44,6 +45,9 @@ export async function startScrapers({ db, tornBaseUrl, encryptionKey }: ScraperW
   // on demand from the war pages — same job code).
   await scheduler.register('wars-sync', '0 10 */3 * * *', () => warsSyncJob(deps))
   await scheduler.register('attacks-sync', '0 20,50 * * * *', () => attacksSyncJob(deps))
+  // War lifecycle every 3 minutes (the old pg_cron cadence): auto-setup,
+  // T-1h enable, war-end disable — automation-owned sessions only.
+  await scheduler.register('war-lifecycle', '0 */3 * * * *', () => warLifecycleJob(deps))
 
   await scheduler.start()
   return scheduler

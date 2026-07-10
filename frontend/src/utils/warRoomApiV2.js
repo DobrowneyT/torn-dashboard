@@ -71,10 +71,14 @@ async function callWarRoom(action, payload, tornApiKey, signal) {
 // ── Edge Function actions (writes) ───────────────────────────────────────────
 
 export async function fetchWarRoomMembersV2(factionId, tornApiKey) {
+  // API mode baselines BOTH factions in one server call (pooled key).
+  if (API_MODE) return warRoomApi('POST', '/api/war-room/fetch-members', { faction_id: factionId })
   return callWarRoom('fetch_members_v2', { faction_id: factionId }, tornApiKey)
 }
 
 export async function fetchOurMembersV2(tornApiKey) {
+  // Covered by fetch-members in API mode — keep the call site's Promise.all shape.
+  if (API_MODE) return { ok: true }
   return callWarRoom('fetch_our_members_v2', {}, tornApiKey)
 }
 
@@ -83,10 +87,12 @@ export async function fetchBspStatsV2(memberIds, tornApiKey) {
 }
 
 export async function setWarRoomConfigV2(updates, tornApiKey) {
+  if (API_MODE) return warRoomApi('PUT', '/api/war-room/config', updates)
   return callWarRoom('set_config_v2', updates, tornApiKey)
 }
 
 export async function clearWarRoomStateV2(tornApiKey) {
+  if (API_MODE) return warRoomApi('POST', '/api/war-room/clear-state', {})
   return callWarRoom('clear_state_v2', {}, tornApiKey)
 }
 
@@ -287,5 +293,6 @@ export async function fetchWarNotes(warId) {
  * before war room is enabled. Bypasses the cron throttle/cooldown gating.
  */
 export async function fetchChainsV2(enemyFactionId, tornApiKey) {
+  if (API_MODE) return warRoomApi('POST', '/api/war-room/fetch-chains', { enemy_faction_id: enemyFactionId })
   return callWarRoom('fetch_chains_v2', { enemy_faction_id: enemyFactionId }, tornApiKey)
 }
