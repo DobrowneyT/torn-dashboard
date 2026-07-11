@@ -76,9 +76,19 @@ export async function buildServer(
         features: config.features,
       }
       if (!req.session) return publicView
+      // The header shows the roster name; visitors and not-yet-synced members
+      // simply have none.
+      const named = await deps.db.query(
+        'SELECT member_name FROM members WHERE member_id = $1',
+        [req.session.torn_user_id]
+      )
       return {
         ...publicView,
-        user: { torn_user_id: req.session.torn_user_id, roles: rolesFromClaims(req.session) },
+        user: {
+          torn_user_id: req.session.torn_user_id,
+          roles: rolesFromClaims(req.session),
+          member_name: named.rows[0]?.member_name ?? null,
+        },
       }
     })
 
@@ -94,15 +104,24 @@ export async function buildServer(
       db: opts.db, hub: app.warRoomHub,
       tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey,
     })
-    registerAdminRoutes(app, {
-      db: opts.db,
-      // Manual triggers run the same job code as the cron scheduler and
-      // share its run history; without the at-rest key there is no pool to
-      // claim from, so the trigger surface answers 503.
-      scrapers: opts.keyEncryptionKey
-        ? createJobRunner({ db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
-        : undefined,
-    })
+    // Manual triggers run the same job code as the cron scheduler and share
+    // its run history; without a (valid) at-rest key there is no pool to
+    // claim from, so the trigger surface answers 503. A malformed key must
+    // degrade exactly like an absent one — never crash the whole API at boot.
+    let scrapers
+    if (opts.keyEncryptionKey) {
+      try {
+        scrapers = createJobRunner({
+          db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey,
+        })
+      } catch (err) {
+        console.error(
+          `[${opts.factionSlug}] KEY_ENCRYPTION_KEY is invalid (need 32 bytes of hex) — ` +
+          'scraper triggers disabled:', (err as Error).message
+        )
+      }
+    }
+    registerAdminRoutes(app, { db: opts.db, scrapers })
   }
 
   return app

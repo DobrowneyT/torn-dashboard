@@ -54,14 +54,28 @@ jobs:
     - name: Build images
       run: docker compose -f deploy/docker-compose.yml --project-directory deploy build
 
-    - name: Boot the stack
-      run: docker compose -f deploy/docker-compose.yml --project-directory deploy up -d --wait
+    - name: Boot the shared services
+      run: docker compose -f deploy/docker-compose.yml --project-directory deploy up -d --wait postgres nginx
+
+    # Every faction (forge included) is a module: this IS the production
+    # runbook, exercised end-to-end on every PR.
+    - name: Provision the forge faction via the runbook
+      run: |
+        npm ci --workspaces --include-workspace-root
+        node db/new-faction.mjs --slug forge --name "CI Forge" --faction-id 53100
+
+    - name: Bring up the faction module
+      run: >
+        docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml
+        --project-directory deploy up -d --build --wait api-forge nginx
 
     - name: Probe API health through nginx
       run: |
         curl -fsS --retry 10 --retry-delay 2 --retry-all-errors http://localhost:8088/api/health | tee /tmp/health.json
         grep -q '"status":"ok"' /tmp/health.json
         grep -q '"faction":"forge"' /tmp/health.json
+        # Host-header routing answers for the faction's own hostname too.
+        curl -fsS -H 'Host: forge.localhost' http://localhost:8088/api/health | grep -q '"faction":"forge"'
 
     - name: Probe SPA through nginx
       run: |
@@ -69,11 +83,11 @@ jobs:
 
     - name: Show logs on failure
       if: failure()
-      run: docker compose -f deploy/docker-compose.yml --project-directory deploy logs
+      run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy logs
 
     - name: Tear down
       if: always()
-      run: docker compose -f deploy/docker-compose.yml --project-directory deploy down -v
+      run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy down -v
 
   python-tests:
     name: Python Tests (pytest)

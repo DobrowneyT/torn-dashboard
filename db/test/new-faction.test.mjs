@@ -1,7 +1,7 @@
 // Tests the new-faction init script at its real seam: the CLI. Each run must
 // produce a complete, independent faction database on the target Postgres.
 import { execFile } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -185,9 +185,9 @@ describe('new-faction script', () => {
       expect(override).toContain('api-artifax:')
       expect(override).toContain('FACTION_SLUG: artifax')
       expect(override).toContain('postgres://app_artifax:${DB_PASSWORD_ARTIFAX}@postgres:5432/faction_artifax')
-      // Scrapers are per-faction opt-in: a new tenant must not start
-      // scraping because the shared env flag happens to be on.
-      expect(override).toContain('SCRAPERS_ENABLED: ${SCRAPERS_ENABLED_ARTIFAX:-false}')
+      // No scraper env switch: jobs register disabled in the faction DB and
+      // are enabled per job in Global Admin (the bring-up step).
+      expect(override).not.toContain('SCRAPERS_ENABLED')
 
       // nginx vhost: host-header routing for <slug>.<any domain>.
       const vhost = readFileSync(join(deployDir, 'nginx', 'factions', 'artifax.conf'), 'utf8')
@@ -206,6 +206,80 @@ describe('new-faction script', () => {
     } finally {
       rmSync(deployDir, { recursive: true, force: true })
     }
+  })
+
+  it('appending the credential never corrupts an .env that lacks a trailing newline', async () => {
+    const deployDir = mkdtempSync(join(tmpdir(), 'tnl-deploy-noeol-'))
+    try {
+      // Real-world shape: a hand-edited .env whose last line has no EOL.
+      writeFileSync(join(deployDir, '.env'), 'KEY_ENCRYPTION_KEY=' + 'a'.repeat(64))
+      await run(
+        'node',
+        [SCRIPT, '--slug', 'noeol', '--name', 'NoEol', '--faction-id', '444', '--deploy-dir', deployDir],
+        { env: PG_ENV }
+      )
+      const env = readFileSync(join(deployDir, '.env'), 'utf8')
+      // The existing line survives intact…
+      expect(env).toMatch(/^KEY_ENCRYPTION_KEY=a{64}$/m)
+      // …and the credential is its own line, not glued onto it.
+      expect(env).toMatch(/^DB_PASSWORD_NOEOL=\S+$/m)
+    } finally {
+      rmSync(deployDir, { recursive: true, force: true })
+    }
+  })
+
+  it('--adopt provisions an existing database as a module: role + artifacts, data untouched', async () => {
+    // The forge/production path: the database predates multi-tenancy and
+    // already holds data; adoption adds the scoped credential and deploy
+    // artifacts without touching schema, seeds, or faction_config.
+    const deployDir = mkdtempSync(join(tmpdir(), 'tnl-deploy-adopt-'))
+    try {
+      await query('postgres', 'CREATE DATABASE faction_legacy')
+      const { readFileSync: rf } = await import('node:fs')
+      await query('faction_legacy', rf(join(here, '..', 'template.sql'), 'utf8'))
+      await query(
+        'faction_legacy',
+        `INSERT INTO faction_config (slug, display_name, torn_faction_id) VALUES ('legacy', 'Legacy', '777')`
+      )
+      await query('faction_legacy', `INSERT INTO members (member_id, member_name) VALUES ('9', 'Veteran')`)
+
+      await run(
+        'node',
+        [SCRIPT, '--slug', 'legacy', '--adopt', '--deploy-dir', deployDir],
+        { env: PG_ENV }
+      )
+
+      // Pre-existing data and identity are untouched.
+      const config = await query('faction_legacy', 'SELECT slug, display_name FROM faction_config')
+      expect(config.rows).toEqual([{ slug: 'legacy', display_name: 'Legacy' }])
+
+      // The scoped credential works on the existing data…
+      const envFile = readFileSync(join(deployDir, '.env'), 'utf8')
+      const pass = envFile.match(/^DB_PASSWORD_LEGACY=(\S+)$/m)?.[1]
+      expect(pass).toBeTruthy()
+      const asLegacy = new pg.Client({
+        host: '127.0.0.1', port: PORT, user: 'app_legacy', password: pass, database: 'faction_legacy',
+      })
+      await asLegacy.connect()
+      try {
+        const members = await asLegacy.query('SELECT member_name FROM members')
+        expect(members.rows[0].member_name).toBe('Veteran')
+      } finally {
+        await asLegacy.end()
+      }
+
+      // …and the deploy artifacts exist like any generated tenant's.
+      expect(readFileSync(join(deployDir, 'docker-compose.override.yml'), 'utf8')).toContain('api-legacy:')
+      expect(readFileSync(join(deployDir, 'nginx', 'factions', 'legacy.conf'), 'utf8')).toContain('server_name legacy.*')
+    } finally {
+      rmSync(deployDir, { recursive: true, force: true })
+    }
+  })
+
+  it('--adopt refuses when the database does not exist', async () => {
+    await expect(
+      run('node', [SCRIPT, '--slug', 'nosuchdb', '--adopt'], { env: PG_ENV })
+    ).rejects.toThrow(/does not exist/i)
   })
 
   it('refuses to clobber an existing faction database', async () => {

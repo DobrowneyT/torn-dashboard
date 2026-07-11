@@ -40,14 +40,9 @@ export const config = {
   // for identity + session-token minting ONLY and is never stored in
   // member_secrets or the rotation pool. IDs here must also be mirrored in
   // VISITOR_IDS inside supabase/functions/war-room-fetch (JWT mint + RLS).
-  visitorUserIds: [
-    '2605556', // Dooby
-    `2049998`, // Ember
-    `14297`, // -Atlas-
-    `2663375`, // Rawk
-    `2670532`, // Neuroticgrim
-    `2637909`, // bethink
-  ],
+  // Cleared for the multi-faction distribution: visitors are granted per
+  // faction via role_assignments (Settings page), not a shipped list.
+  visitorUserIds: [],
 
   leadershipUserIds: [
     '2250591', // MonChoon

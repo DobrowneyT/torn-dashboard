@@ -44,13 +44,15 @@ const app = await buildServer({
 await app.listen({ port, host: '0.0.0.0' })
 console.log(`[${factionSlug}] API listening on :${port}`)
 
-// In-process scrapers (slice #67+): opt-in via SCRAPERS_ENABLED, and the
-// key-at-rest secret must be present for the pool. A failure here (e.g. a
-// faction DB that hasn't had db/migrate.mjs run yet) degrades to
-// dashboards-only — it must never crash-loop the whole API.
-if (process.env.SCRAPERS_ENABLED === 'true' && db) {
+// In-process scrapers (slice #67+): armed whenever the key-at-rest secret
+// is present. Every job registers DISABLED — per-job enablement (and
+// cadence) is the faction admin's bring-up step in Global Admin, so an
+// armed-but-unconfigured faction costs gate-checks and zero Torn calls.
+// A failure here (e.g. a faction DB that hasn't had db/migrate.mjs run
+// yet) degrades to dashboards-only — it must never crash-loop the API.
+if (db) {
   if (!keyEncryptionKey) {
-    console.error(`[${factionSlug}] SCRAPERS_ENABLED needs KEY_ENCRYPTION_KEY (32-byte hex) — scrapers NOT started`)
+    console.warn(`[${factionSlug}] KEY_ENCRYPTION_KEY not set — scrapers and war-room ticker NOT armed`)
   } else {
     try {
       const { startScrapers } = await import('./scraper/registerJobs.js')

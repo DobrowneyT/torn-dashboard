@@ -1,6 +1,6 @@
 // Production wiring: build the scraper core and register every ported job
-// with its production cadence. Called from main.ts when SCRAPERS_ENABLED is
-// set; tests drive the jobs directly instead. The admin surface gets the
+// with its production cadence (registered disabled — per-job enablement is
+// the admin's bring-up step). Called from main.ts; tests drive jobs directly. The admin surface gets the
 // same table through createJobRunner (manual triggers share job code).
 import type pg from 'pg'
 import { createKeyPool } from './keyPool.js'

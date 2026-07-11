@@ -47,7 +47,7 @@ export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs 
     setIsOpen(false)
   }
 
-  const userIsAdmin = isAdmin(user?.id)
+  const userIsAdmin = user?.isAdmin ?? isAdmin(user?.id)
 
   return (
     <>

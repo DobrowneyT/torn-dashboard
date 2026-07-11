@@ -191,20 +191,21 @@ describe('global-admin scraper surface', () => {
     expect(bad.status).toBe(400)
   })
 
-  it('lists every known job and lets the admin disable one', async () => {
+  it('lists every known job — disabled by default — and lets the admin enable one', async () => {
     const list = await api('GET', '/api/admin/scraper/jobs', adminToken)
     expect(list.status).toBe(200)
     const names = list.body.jobs.map((j: any) => j.job_name)
     expect(names).toContain('items-sync')
     expect(names).toContain('war-lifecycle')
+    // Bring-up is explicit: nothing scrapes until the admin turns it on.
     const itemsJob = list.body.jobs.find((j: any) => j.job_name === 'items-sync')
-    expect(itemsJob.enabled).toBe(true)
+    expect(itemsJob.enabled).toBe(false)
     expect(itemsJob.cron_schedule).toBeTruthy()
 
-    const toggle = await api('PUT', '/api/admin/scraper/jobs/items-sync', adminToken, { enabled: false })
+    const toggle = await api('PUT', '/api/admin/scraper/jobs/items-sync', adminToken, { enabled: true })
     expect(toggle.status).toBe(200)
     const after = await api('GET', '/api/admin/scraper/jobs', adminToken)
-    expect(after.body.jobs.find((j: any) => j.job_name === 'items-sync').enabled).toBe(false)
+    expect(after.body.jobs.find((j: any) => j.job_name === 'items-sync').enabled).toBe(true)
   })
 })
 

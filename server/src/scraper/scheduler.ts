@@ -28,12 +28,13 @@ export function createScheduler({ db, runLogger }: SchedulerOptions) {
   return {
     /**
      * Register a job. Creates its scraper_jobs row with the default schedule
-     * on first sight; an existing row's schedule/enabled settings win.
+     * on first sight — DISABLED: enabling each job is the faction admin's
+     * explicit bring-up step. An existing row's settings win.
      */
     async register(jobName: string, defaultSchedule: string, fn: JobFn): Promise<void> {
       jobs.set(jobName, { fn })
       await db.query(
-        `INSERT INTO scraper_jobs (job_name, cron_schedule) VALUES ($1, $2)
+        `INSERT INTO scraper_jobs (job_name, cron_schedule, enabled) VALUES ($1, $2, false)
          ON CONFLICT (job_name) DO NOTHING`,
         [jobName, defaultSchedule]
       )

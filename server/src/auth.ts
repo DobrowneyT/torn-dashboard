@@ -164,12 +164,22 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
         // FK onto members: the roster doesn't know them yet. On a brand-new
         // faction that's every member — and members-sync needs a pooled key
         // to fill the roster, so the first login must break that cycle:
-        // stub the roster row (members-sync overwrites it) and enroll.
+        // stub the roster row (members-sync refreshes it) and enroll. Their
+        // own in-flight key fetches their real name; fallback is the id.
         if ((err as { code?: string }).code !== '23503') throw err
+        let name = `Member ${verified.userId}`
+        try {
+          const url = new URL('/v2/user/basic', deps.tornBaseUrl)
+          url.searchParams.set('key', apiKey)
+          const basic: any = await (await fetch(url)).json()
+          if (typeof basic?.basic?.name === 'string') name = basic.basic.name
+        } catch {
+          // Torn hiccup — keep the id-based fallback.
+        }
         await deps.db.query(
           `INSERT INTO members (member_id, member_name, is_current)
            VALUES ($1, $2, true) ON CONFLICT (member_id) DO NOTHING`,
-          [verified.userId, `Member ${verified.userId}`]
+          [verified.userId, name]
         )
         await pool.store(verified.userId, apiKey, meta)
       }

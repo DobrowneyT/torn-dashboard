@@ -1,6 +1,6 @@
-# TNL dashboard self-hosted stack (slice #59 skeleton).
-# One shared Postgres + nginx; one API process per faction (api-forge for now —
-# db/new-faction.mjs prints the block to add for each additional faction).
+# TNL dashboard self-hosted stack: shared Postgres + nginx only. Every
+# faction (forge included) is a module — its api-<slug> service lives in
+# docker-compose.override.yml, written by db/new-faction.mjs.
 #
 #   cp deploy/.env.example deploy/.env   # set POSTGRES_PASSWORD
 #   docker compose -f deploy/docker-compose.yml up --build
@@ -25,28 +25,6 @@ services:
       retries: 10
     restart: unless-stopped
 
-  api-forge:
-    build:
-      context: ..
-      dockerfile: deploy/server.Dockerfile
-    environment:
-      FACTION_SLUG: forge
-      PORT: 8080
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/faction_forge
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
-      TORN_API_BASE: ${TORN_API_BASE:-https://api.torn.com}
-      # Faction-held Limited key for server-side live reads (OC board).
-      # Optional; those endpoints 503 without it. Replaced by the key pool in #67.
-      TORN_API_KEY: ${TORN_API_KEY:-}
-      # In-process scrapers (#67+). KEY_ENCRYPTION_KEY: 32-byte hex secret
-      # for the consented key pool's at-rest encryption — required when
-      # SCRAPERS_ENABLED=true.
-      SCRAPERS_ENABLED: ${SCRAPERS_ENABLED:-false}
-      KEY_ENCRYPTION_KEY: ${KEY_ENCRYPTION_KEY:-}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
 
   nginx:
     build:
@@ -54,8 +32,6 @@ services:
       dockerfile: deploy/nginx.Dockerfile
     ports:
       - "${HTTP_PORT:-8088}:80"
-    depends_on:
-      - api-forge
     restart: unless-stopped
 
 volumes:

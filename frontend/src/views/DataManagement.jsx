@@ -14,7 +14,7 @@ export default function DataManagement() {
   const [activeTab, setActiveTab] = useState('import')
 
   // Check admin access
-  if (!isAdmin(user?.id)) {
+  if (!(user?.isAdmin ?? isAdmin(user?.id))) {
     return (
       <div className="card">
         <div className="text-center py-12">
