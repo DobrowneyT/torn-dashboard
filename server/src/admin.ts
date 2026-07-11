@@ -139,19 +139,42 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
     }
   })
 
+  // enabled flips take effect on the scheduler's next tick; cron_schedule
+  // edits arm on the API's next restart (tasks are created from scraper_jobs
+  // at scheduler start).
   app.put('/api/admin/scraper/jobs/:name', ADMIN_GUARD, async (req, reply) => {
     if (!scrapers) return reply.status(503).send({ error: 'Scrapers not configured (KEY_ENCRYPTION_KEY)' })
     const { name } = req.params as { name: string }
     const known = scrapers.jobs.find((j) => j.job_name === name)
     if (!known) return reply.status(404).send({ error: `Unknown scraper job: ${name}` })
-    const enabled = (req.body as { enabled?: unknown } | null)?.enabled
-    if (typeof enabled !== 'boolean') {
+
+    const body = (req.body ?? {}) as { enabled?: unknown; cron_schedule?: unknown }
+    if (body.enabled === undefined && body.cron_schedule === undefined) {
+      return reply.status(400).send({ error: 'Provide enabled and/or cron_schedule' })
+    }
+    if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
       return reply.status(400).send({ error: 'enabled must be a boolean' })
     }
+    if (body.cron_schedule !== undefined) {
+      const cron = await import('node-cron')
+      if (typeof body.cron_schedule !== 'string' || !cron.validate(body.cron_schedule)) {
+        return reply.status(400).send({ error: 'cron_schedule is not a valid cron expression' })
+      }
+    }
+
     await db.query(
       `INSERT INTO scraper_jobs (job_name, cron_schedule, enabled) VALUES ($1, $2, $3)
-       ON CONFLICT (job_name) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()`,
-      [name, known.default_schedule, enabled]
+       ON CONFLICT (job_name) DO UPDATE SET
+         enabled = COALESCE($4, scraper_jobs.enabled),
+         cron_schedule = COALESCE($5, scraper_jobs.cron_schedule),
+         updated_at = now()`,
+      [
+        name,
+        (body.cron_schedule as string | undefined) ?? known.default_schedule,
+        (body.enabled as boolean | undefined) ?? true,
+        body.enabled ?? null,
+        body.cron_schedule ?? null,
+      ]
     )
     return { ok: true }
   })

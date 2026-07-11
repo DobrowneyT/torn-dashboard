@@ -173,6 +173,24 @@ describe('global-admin scraper surface', () => {
     expect(res.status).toBe(404)
   })
 
+  it('admin edits a job’s cadence; invalid cron expressions are rejected', async () => {
+    // Frequency is per-faction admin config (applies on the API's next
+    // restart — the scheduler arms cron tasks from scraper_jobs at start).
+    const put = await api('PUT', '/api/admin/scraper/jobs/crimes-sync', adminToken, {
+      cron_schedule: '0 */15 * * * *',
+    })
+    expect(put.status).toBe(200)
+
+    const list = await api('GET', '/api/admin/scraper/jobs', adminToken)
+    expect(list.body.jobs.find((j: any) => j.job_name === 'crimes-sync').cron_schedule)
+      .toBe('0 */15 * * * *')
+
+    const bad = await api('PUT', '/api/admin/scraper/jobs/crimes-sync', adminToken, {
+      cron_schedule: 'every day at teatime',
+    })
+    expect(bad.status).toBe(400)
+  })
+
   it('lists every known job and lets the admin disable one', async () => {
     const list = await api('GET', '/api/admin/scraper/jobs', adminToken)
     expect(list.status).toBe(200)
