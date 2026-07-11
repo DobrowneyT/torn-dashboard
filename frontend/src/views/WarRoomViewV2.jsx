@@ -27,7 +27,8 @@ import {
 } from '../utils/warRoomApiV2'
 import { API_MODE, apiGet } from '../utils/apiClient'
 import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
-import { config as appConfig, isWarLead as checkWarLead } from '../config'
+import { isWarLead as checkWarLead } from '../config'
+import { getFactionId, getFactionIdentity } from '../utils/factionIdentity'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
 import MobileWarRoomView from './MobileWarRoomView'
@@ -39,7 +40,7 @@ import { Smartphone, Settings, Crosshair, Loader2, ClipboardList } from 'lucide-
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
-// shape and uses appConfig.faction.id (coerced to number inside the
+// shape and uses the bootstrap faction id (coerced to number inside the
 // component) for the `us` filter.
 
 const STATUS_FILTERS   = ['Okay', 'Hospital', 'Flying', 'Jail']
@@ -1080,9 +1081,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // useWarRoomPoll owns config/members/ourMembers/dibs and refreshes via
   // war_room_*_v2_delta RPCs. The consumer-facing shape (arrays/objects) is
   // identical to v1's local state so the rest of this file is unchanged.
-  // appConfig.faction.id is a string from env; coerce to number to match the
-  // bigint faction_id column the polling RPC returns.
-  const OUR_FACTION_ID = Number(appConfig.faction.id)
+  // Per-tenant identity from bootstrap (#96) — resolved before views render.
+  // Coerce to number to match the bigint faction_id column.
+  const OUR_FACTION_ID = getFactionId()
   const {
     members: rawMembers,
     ourMembers,
@@ -2176,7 +2177,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             reviveServicePreset={activePreset}
             userCountry={userCountry}
             user={user}
-            factionName={appConfig.faction.name}
+            factionName={getFactionIdentity().name}
             chain={chain}
             onClaimChainSave={handleClaimChainSave}
             onReleaseChainSave={handleReleaseChainSave}
@@ -2413,7 +2414,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     url: config?.revive_service_url,
                     userID: Number(user?.id),
                     userName: user?.name,
-                    factionName: appConfig.faction.name,
+                    factionName: getFactionIdentity().name,
                     source: active?.source ?? active?.name ?? 'War Room',
                     sourceKey: active?.sourceKey ?? 'source',
                     preset: active?.preset ?? 'json',

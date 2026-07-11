@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { config } from '../config'
+import { loadFactionIdentity } from '../utils/factionIdentity'
 import { getTornErrorMessage } from '../utils/apiUtils'
 import { submitApiKey, setVisitorReadOnly } from '../utils/adminApi'
 import * as sessionToken from '../utils/sessionToken'
@@ -162,6 +163,9 @@ export function AuthProvider({ children }) {
   // Check for existing session on mount, then re-verify with Torn so a
   // revoked / paused / faction-changed key doesn't keep granting access.
   useEffect(() => {
+    // Faction identity (id/name/branding) must be resolved before any view
+    // renders — us-vs-them logic and the header key off it synchronously.
+    const identityReady = loadFactionIdentity()
     const savedUser = localStorage.getItem('tornUser')
     if (savedUser) {
       try {
@@ -184,7 +188,7 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('tornUser')
       }
     }
-    setLoading(false)
+    identityReady.finally(() => setLoading(false))
   }, [])
 
   // Keep the session-token module in sync with whoever is logged in.

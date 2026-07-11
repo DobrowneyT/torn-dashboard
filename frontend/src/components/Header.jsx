@@ -1,22 +1,29 @@
+import { useEffect } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import SettingsDropdown from '../components/SettingsDropdown'
-import { config } from '../config'
+import { useFactionIdentity } from '../utils/factionIdentity'
 
 import { Moon, Sun } from 'lucide-react'
 
 export default function Header({ viewAsRole, setViewAsRole, canViewAs }) {
   const { theme, toggleTheme } = useTheme()
   const { user, logout, isLeadership } = useAuth()
+  const faction = useFactionIdentity()
+
+  // Browser tab follows the tenant's display name (#97).
+  useEffect(() => {
+    if (faction.displayName) document.title = `${faction.displayName} Dashboard`
+  }, [faction.displayName])
 
   return (
     <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white">TNL Forge Faction Dashboard</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white">{faction.displayName} Dashboard</h1>
             <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5 sm:mt-1">
-              {config.faction.name} - Performance Tracking
+              {faction.name} - Performance Tracking
             </p>
           </div>
 

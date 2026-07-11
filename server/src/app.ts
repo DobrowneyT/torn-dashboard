@@ -71,6 +71,8 @@ export async function buildServer(
         faction: {
           slug: config.slug,
           display_name: config.display_name,
+          // The SPA keys us-vs-them logic (war room, payout ordering) off this.
+          torn_faction_id: config.torn_faction_id,
           branding: config.branding,
         },
         features: config.features,

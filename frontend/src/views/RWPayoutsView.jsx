@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { getFactionId } from '../utils/factionIdentity'
 import { useAuth } from '../contexts/AuthContext'
 import { apiGet } from '../utils/apiClient'
 import { formatCurrency, formatCurrencyShort } from '../utils/payoutCalculations'
@@ -6,7 +7,8 @@ import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, Info } from 'lucide-react'
 import StatCards from '../components/StatCards'
 
-const OUR_FACTION_ID = 10739
+// Per-tenant identity from bootstrap (#96); resolved before views render.
+const OUR_FACTION_ID = getFactionId()
 
 export default function RWPayoutsView() {
   const { user } = useAuth()

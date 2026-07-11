@@ -1,6 +1,6 @@
 import { useState } from 'react'
+import { getFactionIdentity } from '../../utils/factionIdentity'
 import { Swords, Clock } from 'lucide-react'
-import { config as appConfig } from '../../config'
 import { formatTct, formatCountdown, warTypeBadge, availabilityLabel } from '../../utils/rollCall'
 import RollCallResultsModal from './RollCallResultsModal'
 
@@ -26,7 +26,7 @@ export default function WarSummaryCard({ currentWar, notes, rollCallRows = [], o
           <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
             <Swords className="w-4 h-4 text-red-500 shrink-0" />
             <span className="truncate">
-              {appConfig.faction.tag} vs{' '}
+              {getFactionIdentity().tag} vs{' '}
               <a href={oppUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
                 {currentWar.opponentName || `Faction ${currentWar.opponentId}`}
               </a>
