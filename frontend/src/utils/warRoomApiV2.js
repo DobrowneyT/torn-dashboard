@@ -83,6 +83,7 @@ export async function fetchOurMembersV2(tornApiKey) {
 }
 
 export async function fetchBspStatsV2(memberIds, tornApiKey) {
+  if (API_MODE) return warRoomApi('POST', '/api/war-room/fetch-spies', { member_ids: memberIds })
   return callWarRoom('fetch_bsp_v2', { member_ids: memberIds }, tornApiKey)
 }
 

@@ -106,7 +106,7 @@ describe('GET /api/oc-config', () => {
 })
 
 describe('GET /api/crimes/current', () => {
-  it('proxies the live Torn crimes board using the server-held key', async () => {
+  it('proxies the live Torn crimes board using a pooled key', async () => {
     stack.torn.setFactionCrimes({
       crimes: [{ id: 9001, name: 'Break the Bank', difficulty: 8, status: 'Recruiting', slots: [] }],
     })
@@ -115,8 +115,17 @@ describe('GET /api/crimes/current', () => {
     expect(body.crimes).toEqual([
       { id: 9001, name: 'Break the Bank', difficulty: 8, status: 'Recruiting', slots: [] },
     ])
-    // The server must use its own configured key — the fixture records it.
-    expect(stack.torn.lastFactionCrimesKey()).toBe('SERVERKEY1234567')
+    // The server claims from the consented key pool (#98) — member 300's
+    // login in beforeAll enrolled their key; TORN_API_KEY no longer exists.
+    expect(stack.torn.lastFactionCrimesKey()).toBe('MEMBERKEY1234567')
+  })
+
+  it('an empty pool tells the operator how to fix it', async () => {
+    await stack.db.query(`UPDATE member_secrets SET disabled = true`)
+    const { status, body } = await get('/api/crimes/current')
+    expect(status).toBe(503)
+    expect(body.error).toMatch(/log in|members-sync/i)
+    await stack.db.query(`UPDATE member_secrets SET disabled = false`)
   })
 })
 

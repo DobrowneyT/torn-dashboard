@@ -38,8 +38,10 @@ const app = await buildServer({
   db,
   tornBaseUrl,
   jwtSecret,
-  tornApiKey: process.env.TORN_API_KEY || undefined,
   keyEncryptionKey,
+  // Spy-stat providers for the war room (#100) — optional, operator-level.
+  tornStatsApiKey: process.env.TORNSTATS_API_KEY || undefined,
+  bspApiKey: process.env.BSP_API_KEY || undefined,
 })
 await app.listen({ port, host: '0.0.0.0' })
 console.log(`[${factionSlug}] API listening on :${port}`)

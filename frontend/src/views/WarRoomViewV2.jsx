@@ -1302,7 +1302,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // ── Leadership actions ────────────────────────────────────────────────────
 
   async function toggleEnabled() {
-    if (!user?.apiKey) return
+    // API mode holds no raw key by design — the session token authorizes.
+    if (!API_MODE && !user?.apiKey) return
     setToggling(true); setToggleError(null)
     try {
       const enabling = !config?.enabled
@@ -1347,7 +1348,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     // 3. Persist the new faction_id (and reset cached name).
     // auto_managed:false — a manual Save yields the session to the leader, so
     // the lifecycle cron won't auto-disable it (e.g. when testing other factions).
-    await setWarRoomConfigV2({ faction_id: newFactionId, faction_name: null, auto_managed: false }, user.apiKey)
+    await setWarRoomConfigV2({ faction_id: newFactionId, faction_name: null, auto_managed: false, managed_war_id: null }, user.apiKey)
     setFactionName(null)
     // 4. Initial enemy + our fetch in parallel. Chain seed runs alongside
     //    so the ChainTimerCard shows the current state of both factions
@@ -1492,7 +1493,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Update Spies works even when the war room is paused: if no members are loaded
   // yet (paused state), it does an enemy fetch first, then BSP enrichment.
   async function handleUpdateSpies() {
-    if (!user?.apiKey || !config?.faction_id) return
+    if ((!API_MODE && !user?.apiKey) || !config?.faction_id) return
     setUpdatingSpies(true); setSpiesMsg(null)
     try {
       let workingMembers = membersRef.current.length ? membersRef.current : members

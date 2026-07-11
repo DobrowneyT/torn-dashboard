@@ -171,6 +171,8 @@ const serviceBlock = `
       JWT_SECRET: \${JWT_SECRET:?set JWT_SECRET in deploy/.env}
       TORN_API_BASE: \${TORN_API_BASE:-https://api.torn.com}
       KEY_ENCRYPTION_KEY: \${KEY_ENCRYPTION_KEY:-}
+      TORNSTATS_API_KEY: \${TORNSTATS_API_KEY:-}
+      BSP_API_KEY: \${BSP_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
