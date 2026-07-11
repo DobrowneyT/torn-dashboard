@@ -33,6 +33,8 @@ describe('GET /api/bootstrap', () => {
       faction: {
         slug: TEST_FACTION.slug,
         display_name: TEST_FACTION.displayName,
+        // The SPA keys us-vs-them logic (war room, payout ordering) off this.
+        torn_faction_id: TEST_FACTION.tornFactionId,
         branding: { primaryColor: '#f97316', logo: '/branding/logo.png' },
       },
       features: { warRoom: true },

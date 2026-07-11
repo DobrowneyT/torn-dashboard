@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { getFactionId } from '../utils/factionIdentity'
 import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions, loadLiveContributionsFromAttacks, loadFactionAttacksByWindow, loadWarPayouts, loadRecentWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
 import { apiPost } from '../utils/apiClient'
@@ -13,7 +14,8 @@ import {
   deriveWarScoresByMember,
 } from '../utils/warPayoutCalculations'
 
-const OUR_FACTION_ID = 10739
+// Per-tenant identity from bootstrap (#96); resolved before views render.
+const OUR_FACTION_ID = getFactionId()
 const WAR_PAGE_SIZE = 5
 
 function formatCurrency(n) {

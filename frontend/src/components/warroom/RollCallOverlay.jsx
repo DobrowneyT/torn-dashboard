@@ -1,6 +1,6 @@
 import { useState } from 'react'
+import { getFactionIdentity } from '../../utils/factionIdentity'
 import { Swords, LoaderCircle, X } from 'lucide-react'
-import { config as appConfig } from '../../config'
 import { AVAILABILITY_OPTIONS, formatTct, formatCountdown, warTypeBadge, validateRollCall } from '../../utils/rollCall'
 
 // Blocking pre-war roll-call overlay. Members must submit to reach the War Room;
@@ -72,7 +72,7 @@ export default function RollCallOverlay({
           {/* War summary header */}
           <div className="mb-4 p-3 rounded-lg bg-gray-50 dark:bg-slate-700/40 text-sm">
             <div className="font-semibold text-gray-900 dark:text-gray-100">
-              {appConfig.faction.tag} vs {currentWar?.opponentName || `Faction ${currentWar?.opponentId}`}
+              {getFactionIdentity().tag} vs {currentWar?.opponentName || `Faction ${currentWar?.opponentId}`}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               Starts {formatTct(currentWar?.startAt)} · {formatCountdown(currentWar?.startAt)}

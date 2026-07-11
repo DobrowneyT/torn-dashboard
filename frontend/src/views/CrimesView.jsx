@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { getFactionIdentity } from '../utils/factionIdentity'
 import { useViewState } from '../contexts/ViewStateContext'
 import { useAuth } from '../contexts/AuthContext'
 import { API_MODE, apiGet } from '../utils/apiClient'
@@ -111,7 +112,7 @@ export default function CrimesView({ crimesData, isLeadership }) {
       // `|| import.meta.env.VITE_TORN_API_KEY` fallback shipped a shared Torn
       // key in the browser bundle — removed. Login guarantees user.apiKey.
       const apiKey = user.apiKey
-      const factionId = config.faction.id
+      const factionId = getFactionIdentity().id
 
       if (!apiKey) {
         throw new Error('No API key available')

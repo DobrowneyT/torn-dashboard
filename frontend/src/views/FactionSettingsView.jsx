@@ -187,6 +187,7 @@ function IdentitySection({ readOnly }) {
           className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
       </label>
       <div className="grid sm:grid-cols-2 gap-3">
+        {brandingField('tag', 'Faction tag (short)', 'TNL')}
         {brandingField('hero_image', 'Hero image URL', '/img/hero.png')}
         {brandingField('favicon', 'Favicon URL', '/img/favicon.ico')}
         {brandingField('accent', 'Accent color', '#3b82f6')}
