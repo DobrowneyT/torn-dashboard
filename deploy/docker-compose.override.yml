@@ -2,17 +2,34 @@
 # Auto-loaded by `docker compose up` alongside docker-compose.yml.
 services:
 
-  api-demo2:
+
+  api-tnl:
     build:
       context: ..
       dockerfile: deploy/server.Dockerfile
     environment:
-      FACTION_SLUG: demo2
+      FACTION_SLUG: tnl
       PORT: 8080
-      DATABASE_URL: postgres://app_demo2:${DB_PASSWORD_DEMO2}@postgres:5432/faction_demo2
+      DATABASE_URL: postgres://app_tnl:${DB_PASSWORD_TNL}@postgres:5432/faction_tnl
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
       TORN_API_BASE: ${TORN_API_BASE:-https://api.torn.com}
-      SCRAPERS_ENABLED: ${SCRAPERS_ENABLED_DEMO2:-false}
+      SCRAPERS_ENABLED: ${SCRAPERS_ENABLED_TNL:-false}
+      KEY_ENCRYPTION_KEY: ${KEY_ENCRYPTION_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api-forge:
+    build:
+      context: ..
+      dockerfile: deploy/server.Dockerfile
+    environment:
+      FACTION_SLUG: forge
+      PORT: 8080
+      DATABASE_URL: postgres://app_forge:${DB_PASSWORD_FORGE}@postgres:5432/faction_forge
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      TORN_API_BASE: ${TORN_API_BASE:-https://api.torn.com}
       KEY_ENCRYPTION_KEY: ${KEY_ENCRYPTION_KEY:-}
     depends_on:
       postgres:

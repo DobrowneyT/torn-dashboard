@@ -29,6 +29,10 @@ const { values: args } = parseArgs({
     slug: { type: 'string' },
     name: { type: 'string' },
     'faction-id': { type: 'string' },
+    // Adopt an EXISTING faction database as a module: provision the scoped
+    // credential and deploy artifacts, touch no data (forge's path to
+    // tenant-uniformity, and the production-cutover path).
+    adopt: { type: 'boolean' },
     // Where the deploy artifacts live (compose include, nginx vhost, .env
     // credential line). Defaults to this repo's deploy/; tests redirect it.
     'deploy-dir': { type: 'string' },
@@ -38,16 +42,20 @@ const { values: args } = parseArgs({
 const slug = args.slug
 const displayName = args.name
 const tornFactionId = args['faction-id']
+const adopt = args.adopt ?? false
 
-if (!slug || !displayName || !tornFactionId) {
-  console.error('Usage: node new-faction.mjs --slug <slug> --name <display name> --faction-id <torn faction id>')
+if (!slug || (!adopt && (!displayName || !tornFactionId))) {
+  console.error(
+    'Usage: node new-faction.mjs --slug <slug> --name <display name> --faction-id <torn faction id>\n' +
+    '       node new-faction.mjs --slug <slug> --adopt   # existing DB → module'
+  )
   process.exit(1)
 }
 if (!/^[a-z][a-z0-9_]*$/.test(slug)) {
   console.error(`Invalid slug "${slug}" — lowercase letters, digits and underscores only`)
   process.exit(1)
 }
-if (!/^\d+$/.test(tornFactionId)) {
+if (!adopt && !/^\d+$/.test(tornFactionId)) {
   console.error(`Invalid faction id "${tornFactionId}" — must be numeric`)
   process.exit(1)
 }
@@ -56,16 +64,21 @@ const dbName = `faction_${slug}`
 const roleName = `app_${slug}`
 const deployDir = args['deploy-dir'] ?? join(here, '..', 'deploy')
 
-// 1. Create the database (against the maintenance DB).
+// 1. Create the database (against the maintenance DB) — or, in adopt mode,
+// require it to exist already.
 const admin = new pg.Client({ database: process.env.PGDATABASE ?? 'postgres' })
 await admin.connect()
 try {
   const dup = await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName])
-  if (dup.rowCount > 0) {
-    console.error(`Database ${dbName} already exists — refusing to touch it`)
+  if (adopt && dup.rowCount === 0) {
+    console.error(`Database ${dbName} does not exist — nothing to adopt`)
     process.exit(2)
   }
-  await admin.query(`CREATE DATABASE ${dbName}`)
+  if (!adopt && dup.rowCount > 0) {
+    console.error(`Database ${dbName} already exists — refusing to touch it (use --adopt to modularize it)`)
+    process.exit(2)
+  }
+  if (!adopt) await admin.query(`CREATE DATABASE ${dbName}`)
 } finally {
   await admin.end()
 }
@@ -74,6 +87,7 @@ try {
 const db = new pg.Client({ database: dbName })
 await db.connect()
 try {
+  if (!adopt) {
   await db.query(readFileSync(join(here, 'template.sql'), 'utf8'))
 
   const seedDir = join(here, 'seed')
@@ -105,6 +119,7 @@ try {
     `INSERT INTO faction_config (slug, display_name, torn_faction_id) VALUES ($1, $2, $3)`,
     [slug, displayName, tornFactionId]
   )
+  } // !adopt — adoption touches no schema, seeds, or identity
 
   // 3. Scoped credential: this faction's API connects as app_<slug>, which
   // can only reach its own database. Revoking PUBLIC is what makes the
@@ -127,9 +142,12 @@ try {
   await db.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${roleName}`)
 
   // The credential lives in the deploy env file; compose interpolates it
-  // into this faction's DATABASE_URL. Never printed.
+  // into this faction's DATABASE_URL. Never printed. A hand-edited .env may
+  // lack a trailing newline — appending must never glue onto its last line.
   const envKey = `DB_PASSWORD_${slug.toUpperCase()}`
-  appendFileSync(join(deployDir, '.env'), `${envKey}=${password}\n`)
+  const envPath = join(deployDir, '.env')
+  const needsEol = existsSync(envPath) && !readFileSync(envPath, 'utf8').endsWith('\n')
+  appendFileSync(envPath, `${needsEol ? '\n' : ''}${envKey}=${password}\n`)
 } finally {
   await db.end()
 }
@@ -152,7 +170,6 @@ const serviceBlock = `
       DATABASE_URL: postgres://${roleName}:\${DB_PASSWORD_${slug.toUpperCase()}}@postgres:5432/${dbName}
       JWT_SECRET: \${JWT_SECRET:?set JWT_SECRET in deploy/.env}
       TORN_API_BASE: \${TORN_API_BASE:-https://api.torn.com}
-      SCRAPERS_ENABLED: \${SCRAPERS_ENABLED_${slug.toUpperCase()}:-false}
       KEY_ENCRYPTION_KEY: \${KEY_ENCRYPTION_KEY:-}
     depends_on:
       postgres:
@@ -195,7 +212,7 @@ mkdirSync(join(deployDir, 'nginx', 'factions'), { recursive: true })
 writeFileSync(join(deployDir, 'nginx', 'factions', `${slug}.conf`), vhost)
 
 console.log(`
-Created ${dbName} for "${displayName}" (Torn faction ${tornFactionId}).
+${adopt ? `Adopted ${dbName} as a module.` : `Created ${dbName} for "${displayName}" (Torn faction ${tornFactionId}).`}
 
 Provisioned:
   - scoped DB role ${roleName} (credential appended to ${join(deployDir, '.env')})

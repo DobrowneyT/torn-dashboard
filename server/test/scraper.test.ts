@@ -155,7 +155,15 @@ describe('scheduler (end-to-end demo)', () => {
     await scheduler.register('never-runs', '* * * * * *', async () => {
       return { rows: 0 }
     })
-    await stack.db.query(`UPDATE scraper_jobs SET enabled = false WHERE job_name = 'never-runs'`)
+
+    // Registration defaults every job to disabled — enabling is the admin's
+    // explicit bring-up step (Global Admin), mirrored here for the demo job;
+    // 'never-runs' stays at the default.
+    const fresh = await stack.db.query(
+      `SELECT enabled FROM scraper_jobs WHERE job_name IN ('demo-faction-sync', 'never-runs')`
+    )
+    expect(fresh.rows.map((r) => r.enabled)).toEqual([false, false])
+    await stack.db.query(`UPDATE scraper_jobs SET enabled = true WHERE job_name = 'demo-faction-sync'`)
 
     scheduler.start()
     try {

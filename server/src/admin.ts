@@ -132,7 +132,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
         return {
           job_name,
           cron_schedule: row?.cron_schedule ?? default_schedule,
-          enabled: row?.enabled ?? true,
+          // Jobs default to disabled everywhere — bring-up is explicit.
+          enabled: row?.enabled ?? false,
           updated_at: row?.updated_at ?? null,
         }
       }),
@@ -171,7 +172,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
       [
         name,
         (body.cron_schedule as string | undefined) ?? known.default_schedule,
-        (body.enabled as boolean | undefined) ?? true,
+        (body.enabled as boolean | undefined) ?? false,
         body.enabled ?? null,
         body.cron_schedule ?? null,
       ]
