@@ -266,12 +266,26 @@ describe('war-room ticker', () => {
     client.ws.close()
   })
 
-  it('does nothing when the managed war is out of its window', async () => {
+  it('does nothing when the AUTOMATION-owned war is out of its window', async () => {
     await stack.db.query(`UPDATE ranked_wars SET end_at = ${Math.floor(Date.now() / 1000) - 60} WHERE id = 700`)
+    await stack.db.query(`UPDATE war_room_config_v2 SET auto_managed = true, updated_at = now() WHERE id = 1`)
     const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
     const ticker = createWarRoomTicker(tickerDeps())
     const before = stack.torn.hits()
     await ticker.tick()
     expect(stack.torn.hits()).toBe(before)
+  })
+
+  it('a manual session keeps polling despite a stale managed_war_id (#100)', async () => {
+    // The leader's Save & Fetch (auto_managed=false) must not be gated by
+    // whatever war the lifecycle automation managed last — that stale id
+    // silently froze manual sessions.
+    await stack.db.query(`UPDATE war_room_config_v2 SET auto_managed = false, updated_at = now() WHERE id = 1`)
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => memberPayload('Okay'))
+    const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+    const ticker = createWarRoomTicker(tickerDeps())
+    const before = stack.torn.hits()
+    await ticker.tick()
+    expect(stack.torn.hits()).toBeGreaterThan(before)
   })
 })

@@ -108,7 +108,10 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       const config = await db.query('SELECT * FROM war_room_config_v2 WHERE id = 1')
       const cfg = config.rows[0]
       if (!cfg?.enabled || !cfg.faction_id) return
-      if (!(await warWindowActive(cfg.managed_war_id))) return
+      // The war window gates AUTOMATION-owned sessions only: a manual Save
+      // (auto_managed=false) may carry a stale managed_war_id from whatever
+      // the lifecycle ran last, and must keep polling regardless.
+      if (cfg.auto_managed && !(await warWindowActive(cfg.managed_war_id))) return
 
       const claimed = await pool.claim()
       if (!claimed) return

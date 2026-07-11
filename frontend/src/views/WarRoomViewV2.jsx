@@ -1348,7 +1348,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     // 3. Persist the new faction_id (and reset cached name).
     // auto_managed:false — a manual Save yields the session to the leader, so
     // the lifecycle cron won't auto-disable it (e.g. when testing other factions).
-    await setWarRoomConfigV2({ faction_id: newFactionId, faction_name: null, auto_managed: false }, user.apiKey)
+    await setWarRoomConfigV2({ faction_id: newFactionId, faction_name: null, auto_managed: false, managed_war_id: null }, user.apiKey)
     setFactionName(null)
     // 4. Initial enemy + our fetch in parallel. Chain seed runs alongside
     //    so the ChainTimerCard shows the current state of both factions
