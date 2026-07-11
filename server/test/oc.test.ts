@@ -88,11 +88,14 @@ describe('GET /api/members/roster', () => {
 
 describe('GET /api/oc-config', () => {
   it('serves tier/CPR/payout policy from faction_settings', async () => {
+    // The harness DB carries the seeded defaults (like a real new-faction
+    // DB); pin the documents this test asserts against.
     await stack.db.query(`
       INSERT INTO faction_settings (key, value) VALUES
         ('tier_requirements', '{"1": [{"crime": "Break the Bank", "role": "Robber", "minCpr": 60}]}'),
         ('cpr_requirements', '{"Break the Bank": {"difficulty": 8, "positions": {"Robber": 60}}}'),
         ('payout_tickets', '{"1": 40, "2": 30}')
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
     `)
     const { status, body } = await get('/api/oc-config')
     expect(status).toBe(200)

@@ -18,6 +18,8 @@ import { registerSyncRoutes } from './sync.js'
 import { registerWarRoomRoutes, type WarRoomHub } from './warRoom.js'
 import { registerWarRoomWriteRoutes } from './warRoomWrites.js'
 import { registerWarRoomSetupRoutes } from './warRoomSetup.js'
+import { registerAdminRoutes } from './admin.js'
+import { createJobRunner } from './scraper/registerJobs.js'
 
 export interface ServerOptions {
   factionSlug: string
@@ -91,6 +93,15 @@ export async function buildServer(
     registerWarRoomSetupRoutes(app, {
       db: opts.db, hub: app.warRoomHub,
       tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey,
+    })
+    registerAdminRoutes(app, {
+      db: opts.db,
+      // Manual triggers run the same job code as the cron scheduler and
+      // share its run history; without the at-rest key there is no pool to
+      // claim from, so the trigger surface answers 503.
+      scrapers: opts.keyEncryptionKey
+        ? createJobRunner({ db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
+        : undefined,
     })
   }
 

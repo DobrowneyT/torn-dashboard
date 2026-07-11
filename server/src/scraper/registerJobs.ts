@@ -1,6 +1,7 @@
 // Production wiring: build the scraper core and register every ported job
 // with its production cadence. Called from main.ts when SCRAPERS_ENABLED is
-// set; tests drive the jobs directly instead.
+// set; tests drive the jobs directly instead. The admin surface gets the
+// same table through createJobRunner (manual triggers share job code).
 import type pg from 'pg'
 import { createKeyPool } from './keyPool.js'
 import { createTornClient } from './tornClient.js'
@@ -22,33 +23,62 @@ export interface ScraperWiringOptions {
   encryptionKey: string
 }
 
-export async function startScrapers({ db, tornBaseUrl, encryptionKey }: ScraperWiringOptions) {
-  const deps: JobDeps = {
+// Every job with its production cadence. Cadences mirror the Python cron
+// setup: nightly items catalog, crimes every 30 minutes, CPR twice a day;
+// members hourly (roster transitions feed everything else); stats daily at
+// 01:05 UTC, just after the 01:00 snapshot offset the backfill targets;
+// wars every 3 hours; attacks every 30 minutes (both also triggerable on
+// demand from the war pages); war lifecycle every 3 minutes (the old
+// pg_cron cadence): auto-setup, T-1h enable, war-end disable.
+const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => Promise<{ rows: number; details?: Record<string, unknown> }>]> = [
+  ['items-sync', '0 15 4 * * *', itemsSyncJob],
+  ['crimes-sync', '0 */30 * * * *', crimesSyncJob],
+  ['cpr-scan', '0 30 5,17 * * *', cprScanJob],
+  ['members-sync', '0 5 * * * *', membersSyncJob],
+  ['member-stats', '0 5 1 * * *', memberStatsJob],
+  ['wars-sync', '0 10 */3 * * *', warsSyncJob],
+  ['attacks-sync', '0 20,50 * * * *', attacksSyncJob],
+  ['war-lifecycle', '0 */3 * * * *', warLifecycleJob],
+]
+
+function buildDeps({ db, tornBaseUrl, encryptionKey }: ScraperWiringOptions): JobDeps {
+  return {
     db,
     pool: createKeyPool({ db, encryptionKey }),
     // Torn allows 100 req/min per key; stay well inside it pool-wide.
     client: createTornClient({ baseUrl: tornBaseUrl, budget: { requests: 60, perMs: 60_000 } }),
   }
-  const runLogger = createRunLogger(db)
-  const scheduler = createScheduler({ db, runLogger })
+}
 
-  // Cadences mirror the Python cron setup: nightly items catalog, crimes
-  // every 30 minutes, CPR twice a day.
-  await scheduler.register('items-sync', '0 15 4 * * *', () => itemsSyncJob(deps))
-  await scheduler.register('crimes-sync', '0 */30 * * * *', () => crimesSyncJob(deps))
-  await scheduler.register('cpr-scan', '0 30 5,17 * * *', () => cprScanJob(deps))
-  // Members hourly (roster transitions feed everything else); stats daily
-  // at 01:05 UTC, just after the 01:00 snapshot offset the backfill targets.
-  await scheduler.register('members-sync', '0 5 * * * *', () => membersSyncJob(deps))
-  await scheduler.register('member-stats', '0 5 1 * * *', () => memberStatsJob(deps))
-  // Wars every 3 hours; attacks every 30 minutes (both also triggerable
-  // on demand from the war pages — same job code).
-  await scheduler.register('wars-sync', '0 10 */3 * * *', () => warsSyncJob(deps))
-  await scheduler.register('attacks-sync', '0 20,50 * * * *', () => attacksSyncJob(deps))
-  // War lifecycle every 3 minutes (the old pg_cron cadence): auto-setup,
-  // T-1h enable, war-end disable — automation-owned sessions only.
-  await scheduler.register('war-lifecycle', '0 */3 * * * *', () => warLifecycleJob(deps))
+export async function startScrapers(opts: ScraperWiringOptions) {
+  const deps = buildDeps(opts)
+  const runLogger = createRunLogger(opts.db)
+  const scheduler = createScheduler({ db: opts.db, runLogger })
+
+  for (const [name, schedule, job] of JOB_TABLE) {
+    await scheduler.register(name, schedule, () => job(deps))
+  }
 
   await scheduler.start()
   return scheduler
+}
+
+/**
+ * The admin surface's handle on the jobs: list them (with default cadence)
+ * and trigger one immediately, independent of the cron scheduler. Runs go
+ * through the same run logger, so manual and scheduled runs share history.
+ */
+export function createJobRunner(opts: ScraperWiringOptions) {
+  const deps = buildDeps(opts)
+  const runLogger = createRunLogger(opts.db)
+  const byName = new Map(JOB_TABLE.map(([name, schedule, job]) => [name, { schedule, job }]))
+
+  return {
+    jobs: JOB_TABLE.map(([name, schedule]) => ({ job_name: name, default_schedule: schedule })),
+    async runNow(jobName: string) {
+      const entry = byName.get(jobName)
+      if (!entry) return null
+      return runLogger.withRun(jobName, () => entry.job(deps))
+    },
+  }
 }

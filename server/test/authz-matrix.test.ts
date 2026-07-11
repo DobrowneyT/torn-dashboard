@@ -278,6 +278,34 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path,
     expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: authorized, ocmanager: 403, leadership: authorized, admin: authorized } as Record<Actor, number>,
   })),
+  // Slice #74 — leadership settings surface (400/404 = past the guard with
+  // an empty body / a nonexistent assignment).
+  ...(
+    [
+      ['GET /api/admin/roles', 200],
+      ['POST /api/admin/roles', 400],
+      ['DELETE /api/admin/roles/424242/warlead', 404],
+      ['GET /api/admin/settings', 200],
+      ['PUT /api/admin/settings/payout_tickets', 400],
+      ['PUT /api/admin/config', 400],
+    ] as Array<[string, number]>
+  ).map(([path, authorized]) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: authorized, admin: authorized } as Record<Actor, number>,
+  })),
+  // Slice #74 — global-admin oversight: faction leadership must NOT see it.
+  ...(
+    [
+      ['GET /api/admin/scraper/jobs', 200],
+      ['PUT /api/admin/scraper/jobs/items-sync', 400],
+      ['POST /api/admin/scraper/jobs/items-sync/run', 200],
+      ['GET /api/admin/scraper/runs', 200],
+      ['GET /api/admin/key-pool', 200],
+    ] as Array<[string, number]>
+  ).map(([path, authorized]) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 403, admin: authorized } as Record<Actor, number>,
+  })),
 ]
 
 describe('authorization matrix', () => {
