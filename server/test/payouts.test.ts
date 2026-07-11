@@ -257,7 +257,9 @@ describe('GET /api/members/with-cpr', () => {
     const { status, body } = await get('/api/members/with-cpr')
     expect(status).toBe(200)
     expect(body.members[0].member_id).toBe('400')
-    expect(body.members[0].has_cpr_key).toBe(false)
+    // True since the fresh-faction bootstrap: the leader's login stubbed
+    // their roster row and enrolled their key into the pool.
+    expect(body.members[0].has_cpr_key).toBe(true)
     expect(body.cpr).toEqual([
       { member_id: '400', crime_name: 'Break the Bank', position_label: 'Robber', difficulty: 8, cpr_value: 77 },
     ])

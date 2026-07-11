@@ -92,8 +92,11 @@ describe('POST /api/auth/login', () => {
     expect(claims.is_leadership).toBe(false)
 
     // Visitor logins persist NO key material — not the raw key, and not even
-    // a key-derived cache row.
-    const secrets = await stack.db.query('SELECT count(*)::int AS n FROM member_secrets')
+    // a key-derived cache row. (Scoped to the visitor: faction members'
+    // logins in this file legitimately enroll their keys.)
+    const secrets = await stack.db.query(
+      `SELECT count(*)::int AS n FROM member_secrets WHERE member_id = '555'`
+    )
     expect(secrets.rows[0].n).toBe(0)
     const cacheRows = await stack.db.query(
       `SELECT count(*)::int AS n FROM war_room_auth_cache WHERE user_id = '555' OR key_hash = 'VISITORKEY123456'`
@@ -192,11 +195,30 @@ describe('key-pool enrollment on login', () => {
     expect(row.rows[0].consent_version).toBe('login-v1')
   })
 
-  it('a member missing from the roster still logs in (enrollment is best-effort)', async () => {
+  it('a member missing from the roster gets a stub row and still enrolls — fresh-faction bootstrap', async () => {
+    // A brand-new faction has an empty roster and an empty key pool, and the
+    // members-sync scraper needs a pooled key to fill the roster. The leader's
+    // first login breaks that cycle: stub roster row, then enrollment.
     stack.torn.addKey('GHOSTKEY44444444', { id: '444', factionId: TEST_FACTION.tornFactionId })
     const { status } = await login('GHOSTKEY44444444')
     expect(status).toBe(200)
-    const row = await stack.db.query(`SELECT 1 FROM member_secrets WHERE member_id = '444'`)
-    expect(row.rows).toHaveLength(0)
+
+    const secret = await stack.db.query(
+      `SELECT consent_version FROM member_secrets WHERE member_id = '444'`
+    )
+    expect(secret.rows).toHaveLength(1)
+    expect(secret.rows[0].consent_version).toBe('login-v1')
+
+    // The stub is a real roster row; members-sync overwrites it on next run.
+    const stub = await stack.db.query(
+      `SELECT member_name, is_current FROM members WHERE member_id = '444'`
+    )
+    expect(stub.rows[0].is_current).toBe(true)
+
+    // Out-of-faction logins (visitor already covered above) never get stubs.
+    const strangers = await stack.db.query(
+      `SELECT count(*)::int AS n FROM members WHERE member_id IN ('333', '555')`
+    )
+    expect(strangers.rows[0].n).toBe(0)
   })
 })

@@ -57,11 +57,8 @@ function wsConnect(token: string) {
 
 beforeAll(async () => {
   stack = await startTestStack()
-  await loginAs('member', '1400', [])
-  await loginAs('rival', '1401', [])
-  await loginAs('visitor', '1402', ['visitor'])
-  await loginAs('warlead', '1403', ['warlead'])
-  await loginAs('admin', '1404', ['admin'])
+  // Roster before logins: a roster-missing member's login creates a stub
+  // row (fresh-faction bootstrap), which would collide with this insert.
   await stack.db.query(`
     INSERT INTO members (member_id, member_name, tier, is_current) VALUES
       ('1400', 'Fighter', 3, true),
@@ -69,6 +66,11 @@ beforeAll(async () => {
       ('1403', 'Lead', 2, true),
       ('1404', 'Boss', 1, true)
   `)
+  await loginAs('member', '1400', [])
+  await loginAs('rival', '1401', [])
+  await loginAs('visitor', '1402', ['visitor'])
+  await loginAs('warlead', '1403', ['warlead'])
+  await loginAs('admin', '1404', ['admin'])
   await stack.db.query(`INSERT INTO war_room_chain_v2 (id) VALUES (1)`)
 }, 30000)
 

@@ -14,5 +14,6 @@ ENV VITE_API_MODE=true
 RUN npm run build -w frontend
 
 FROM nginx:1.27-alpine
-COPY deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
+# default.conf + per-faction vhosts under factions/ (slice #75).
+COPY deploy/nginx/ /etc/nginx/conf.d/
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
