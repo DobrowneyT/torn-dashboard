@@ -219,7 +219,10 @@ describe('key-pool health', () => {
     expect(donor.member_name).toBe('KeyDonor')
     expect(donor.consent_version).toBe('login-v1')
     expect(donor.disabled).toBe(false)
-    expect(donor.last_claimed_at).toBeTruthy()
+    // The fresh-faction bootstrap enrolls every in-faction login in this
+    // file, and claims rotate least-recently-claimed — so the items-sync
+    // trigger above claimed one of them, not necessarily the donor.
+    expect(res.body.keys.some((k: any) => k.last_claimed_at)).toBe(true)
 
     // Metadata only: no row may carry the encrypted blob or any key-shaped field.
     for (const k of res.body.keys) {
