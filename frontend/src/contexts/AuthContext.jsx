@@ -28,8 +28,9 @@ async function loginViaApi(apiKey) {
   const roles = boot.user.roles
   const userObj = {
     id: Number(boot.user.torn_user_id),
-    // Member names arrive with the members data slice; until then show the id.
-    name: `Player ${boot.user.torn_user_id}`,
+    // Roster name from bootstrap (login stubs it from Torn on first login);
+    // the id-based fallback covers visitors, who are never on the roster.
+    name: boot.user.member_name || `Player ${boot.user.torn_user_id}`,
     factionId: null,
     factionPosition: roles.includes('leadership') ? 'Leadership'
       : roles.includes('admin') ? 'Admin'

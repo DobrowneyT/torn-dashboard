@@ -42,6 +42,10 @@ describe('GET /api/bootstrap', () => {
   it('authenticated callers additionally get their identity and roles', async () => {
     stack.torn.addKey('WARLEADKEY123456', { id: '222', factionId: TEST_FACTION.tornFactionId })
     await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (222, 'warlead')`)
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, is_current) VALUES ('222', 'Warleader', true)
+       ON CONFLICT (member_id) DO UPDATE SET member_name = EXCLUDED.member_name`
+    )
     const loginRes = await fetch(`${stack.baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -52,7 +56,8 @@ describe('GET /api/bootstrap', () => {
     const { status, body } = await bootstrap(token)
     expect(status).toBe(200)
     expect(body.faction.slug).toBe(TEST_FACTION.slug)
-    expect(body.user).toEqual({ torn_user_id: '222', roles: ['warlead'] })
+    // member_name comes from the roster — the SPA header shows it.
+    expect(body.user).toEqual({ torn_user_id: '222', roles: ['warlead'], member_name: 'Warleader' })
   })
 
   it('a garbage bearer token degrades to the public view, not an error', async () => {

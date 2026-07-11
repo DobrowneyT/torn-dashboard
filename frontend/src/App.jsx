@@ -25,8 +25,11 @@ function DashboardLayout() {
 
   const [viewAsRole, setViewAsRole] = useState(null)
 
-  const userIsAdmin = isAdmin(user?.id)
-  const userIsOCManager = isOCManager(user?.id)
+  // API mode: role flags come from the session claims (role_assignments,
+  // managed per faction in Settings). config.js lists are the legacy
+  // Supabase-mode fallback only.
+  const userIsAdmin = user?.isAdmin ?? isAdmin(user?.id)
+  const userIsOCManager = user?.isOCManager ?? isOCManager(user?.id)
 
   const effectiveIsAdmin = viewAsRole === null ? userIsAdmin : viewAsRole === 'admin'
   // Visitors (read-only demo) see the full leadership layout — every write

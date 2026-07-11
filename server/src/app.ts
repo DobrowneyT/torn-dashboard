@@ -76,9 +76,19 @@ export async function buildServer(
         features: config.features,
       }
       if (!req.session) return publicView
+      // The header shows the roster name; visitors and not-yet-synced members
+      // simply have none.
+      const named = await deps.db.query(
+        'SELECT member_name FROM members WHERE member_id = $1',
+        [req.session.torn_user_id]
+      )
       return {
         ...publicView,
-        user: { torn_user_id: req.session.torn_user_id, roles: rolesFromClaims(req.session) },
+        user: {
+          torn_user_id: req.session.torn_user_id,
+          roles: rolesFromClaims(req.session),
+          member_name: named.rows[0]?.member_name ?? null,
+        },
       }
     })
 

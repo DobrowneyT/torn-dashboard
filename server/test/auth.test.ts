@@ -200,6 +200,7 @@ describe('key-pool enrollment on login', () => {
     // members-sync scraper needs a pooled key to fill the roster. The leader's
     // first login breaks that cycle: stub roster row, then enrollment.
     stack.torn.addKey('GHOSTKEY44444444', { id: '444', factionId: TEST_FACTION.tornFactionId })
+    stack.torn.setPath('/v2/user/basic', { basic: { id: 444, name: 'Phoenix' } })
     const { status } = await login('GHOSTKEY44444444')
     expect(status).toBe(200)
 
@@ -209,11 +210,13 @@ describe('key-pool enrollment on login', () => {
     expect(secret.rows).toHaveLength(1)
     expect(secret.rows[0].consent_version).toBe('login-v1')
 
-    // The stub is a real roster row; members-sync overwrites it on next run.
+    // The stub is a real roster row with the member's real Torn name (fetched
+    // with their own in-flight login key); members-sync refreshes it later.
     const stub = await stack.db.query(
       `SELECT member_name, is_current FROM members WHERE member_id = '444'`
     )
     expect(stub.rows[0].is_current).toBe(true)
+    expect(stub.rows[0].member_name).toBe('Phoenix')
 
     // Out-of-faction logins (visitor already covered above) never get stubs.
     const strangers = await stack.db.query(
