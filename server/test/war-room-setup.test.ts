@@ -142,6 +142,31 @@ describe('war-room manual setup', () => {
     expect((await call('POST', '/api/war-room/fetch-spies', { member_ids: [90120] }, 'member')).status).toBe(403)
   })
 
+  it('fetch-spies prefers the faction’s stored provider key over the env fallback (#105)', async () => {
+    const { createSecretStore } = await import('../src/secrets.js')
+    const store = createSecretStore({ db: stack.db, encryptionKey: TEST_KEY_ENCRYPTION_KEY })
+    await store.set('tornstats_api_key', 'DBTSKEY777')
+
+    // The fixture only answers the DB key's URL — env TSKEY123 would 404
+    // and fall through to BSP, so a tornstats-sourced fill proves precedence.
+    stack.torn.setPath(`/api/v2/DBTSKEY777/spy/faction/${ENEMY}`, {
+      faction: {
+        members: {
+          '90120': { id: 90120, spy: { total: 3_000_000, strength: 1, speed: 1, defense: 1, dexterity: 1, timestamp: Math.floor(Date.now() / 1000) } },
+        },
+      },
+    })
+    const { status, body } = await call('POST', '/api/war-room/fetch-spies', { member_ids: [90120] })
+    expect(status).toBe(200)
+    expect(body.tornstats).toBe(1)
+    // The env key's fixture (earlier test) serves total 1.5M; only the DB
+    // key's fixture serves 3M — the fill value proves which key was used.
+    const row = await stack.db.query('SELECT bsp_total FROM war_room_state_v2 WHERE member_id = 90120')
+    expect(Number(row.rows[0].bsp_total)).toBe(3_000_000)
+
+    await stack.db.query(`DELETE FROM faction_secrets WHERE name = 'tornstats_api_key'`)
+  })
+
   it('fetch-chains seeds both sides of the chain singleton', async () => {
     const { status } = await call('POST', '/api/war-room/fetch-chains', { enemy_faction_id: ENEMY })
     expect(status).toBe(200)

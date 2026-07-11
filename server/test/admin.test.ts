@@ -209,6 +209,33 @@ describe('global-admin scraper surface', () => {
   })
 })
 
+describe('spy-provider secrets (#105)', () => {
+  it('admin sets a provider key; reads expose configured-state and last-4 hint only', async () => {
+    const put = await api('PUT', '/api/admin/secrets/tornstats_api_key', adminToken, {
+      value: 'TS-SECRET-KEY-9876',
+    })
+    expect(put.status).toBe(200)
+
+    const list = await api('GET', '/api/admin/secrets', adminToken)
+    expect(list.status).toBe(200)
+    const ts = list.body.secrets.find((s: any) => s.name === 'tornstats_api_key')
+    expect(ts).toMatchObject({ configured: true, hint: '9876' })
+    const bsp = list.body.secrets.find((s: any) => s.name === 'bsp_api_key')
+    expect(bsp).toMatchObject({ configured: false })
+    // The value itself never crosses the boundary.
+    expect(JSON.stringify(list.body)).not.toContain('TS-SECRET-KEY-9876')
+
+    // Encrypted at rest — never plaintext in the DB.
+    const raw = await stack.db.query(`SELECT value_enc FROM faction_secrets WHERE name = 'tornstats_api_key'`)
+    expect((raw.rows[0].value_enc as Buffer).toString('utf8')).not.toContain('TS-SECRET-KEY-9876')
+  })
+
+  it('rejects unknown secret names and empty values', async () => {
+    expect((await api('PUT', '/api/admin/secrets/other_thing', adminToken, { value: 'x' })).status).toBe(400)
+    expect((await api('PUT', '/api/admin/secrets/bsp_api_key', adminToken, {})).status).toBe(400)
+  })
+})
+
 describe('key-pool health', () => {
   it('admin sees pool membership and claim recency — but never key material', async () => {
     const res = await api('GET', '/api/admin/key-pool', adminToken)

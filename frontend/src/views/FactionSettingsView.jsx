@@ -38,6 +38,18 @@ function Feedback({ state }) {
 
 function RolesSection({ readOnly }) {
   const [rows, setRows] = useState([])
+  // One row per member (#101): group the per-(user,role) API rows.
+  const members = []
+  {
+    const byId = new Map()
+    for (const r of rows) {
+      if (!byId.has(r.torn_user_id)) {
+        byId.set(r.torn_user_id, { torn_user_id: r.torn_user_id, member_name: r.member_name, grants: [] })
+        members.push(byId.get(r.torn_user_id))
+      }
+      byId.get(r.torn_user_id).grants.push({ role: r.role, granted_by: r.granted_by })
+    }
+  }
   const [loading, setLoading] = useState(true)
   const [newId, setNewId] = useState('')
   const [newRole, setNewRole] = useState('warlead')
@@ -94,30 +106,34 @@ function RolesSection({ readOnly }) {
               <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
                 <th className="py-2 pr-4">Torn ID</th>
                 <th className="py-2 pr-4">Name</th>
-                <th className="py-2 pr-4">Role</th>
-                <th className="py-2 pr-4">Granted by</th>
-                <th className="py-2" />
+                <th className="py-2 pr-4">Roles</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={`${r.torn_user_id}-${r.role}`} className="border-b border-gray-100 dark:border-slate-700/50">
-                  <td className="py-2 pr-4 text-gray-900 dark:text-white">{r.torn_user_id}</td>
-                  <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{r.member_name || '—'}</td>
-                  <td className="py-2 pr-4"><span className="capitalize text-gray-900 dark:text-white">{r.role}</span></td>
-                  <td className="py-2 pr-4 text-gray-500 dark:text-gray-400">{r.granted_by || '—'}</td>
-                  <td className="py-2 text-right">
-                    {!readOnly && (
-                      <button onClick={() => revoke(r.torn_user_id, r.role)}
-                        className="text-red-500 hover:text-red-700 dark:hover:text-red-400" title="Revoke">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
+              {members.map((m) => (
+                <tr key={m.torn_user_id} className="border-b border-gray-100 dark:border-slate-700/50">
+                  <td className="py-2 pr-4 text-gray-900 dark:text-white">{m.torn_user_id}</td>
+                  <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{m.member_name || '—'}</td>
+                  <td className="py-2 pr-4">
+                    <span className="inline-flex flex-wrap gap-1.5">
+                      {m.grants.map((g) => (
+                        <span key={g.role} title={g.granted_by ? `granted by ${g.granted_by}` : undefined}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs capitalize bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
+                          {g.role}
+                          {!readOnly && (
+                            <button onClick={() => revoke(m.torn_user_id, g.role)} title={`Revoke ${g.role}`}
+                              className="text-blue-400 hover:text-red-500 dark:hover:text-red-400 leading-none">
+                              ×
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                    </span>
                   </td>
                 </tr>
               ))}
-              {rows.length === 0 && (
-                <tr><td colSpan="5" className="py-3 text-gray-500 dark:text-gray-400">No role assignments yet.</td></tr>
+              {members.length === 0 && (
+                <tr><td colSpan="3" className="py-3 text-gray-500 dark:text-gray-400">No role assignments yet.</td></tr>
               )}
             </tbody>
           </table>

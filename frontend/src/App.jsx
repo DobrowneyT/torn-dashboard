@@ -35,8 +35,11 @@ function DashboardLayout() {
   // Visitors (read-only demo) see the full leadership layout — every write
   // path is disabled separately (adminApi latch + per-control gating), and
   // the admin-only Data Management page stays gated on real admin.
+  // Admin implies the leadership surface (#99): the server already treats
+  // admin ⊇ leadership on every guard; the operator's admin-only session
+  // (e.g. on another tenant) must reach Settings/Global Admin here too.
   const effectiveIsLeadership = viewAsRole === null
-    ? (isLeadership || isVisitor)
+    ? (isLeadership || isVisitor || userIsAdmin)
     : (viewAsRole === 'leadership' || viewAsRole === 'admin')
   // War Overview is broader than leadership — warleads + admins also get it,
   // and any "view as" role of leadership/admin re-grants it.

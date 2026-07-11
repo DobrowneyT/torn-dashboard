@@ -302,6 +302,8 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
       ['POST /api/admin/scraper/jobs/items-sync/run', 200],
       ['GET /api/admin/scraper/runs', 200],
       ['GET /api/admin/key-pool', 200],
+      ['GET /api/admin/secrets', 200],
+      ['PUT /api/admin/secrets/bsp_api_key', 400],
     ] as Array<[string, number]>
   ).map(([path, authorized]) => ({
     path,

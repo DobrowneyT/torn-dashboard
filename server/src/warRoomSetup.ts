@@ -8,6 +8,7 @@ import type pg from 'pg'
 import { requireNotVisitor, requireRole } from './authz.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
+import { createSecretStore } from './secrets.js'
 import { syncWarRoomMemberStates } from './warRoomTicker.js'
 import type { WarRoomHub } from './warRoom.js'
 
@@ -191,15 +192,29 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
   // fetch_bsp_v2 edge action; bsp_* columns hold whichever source's values,
   // spy_source is the provenance.
   app.post('/api/war-room/fetch-spies', GUARD, async (req, reply) => {
-    if (!deps.tornStatsApiKey && !deps.bspApiKey) {
-      return reply.status(503).send({
-        error: 'No spy provider configured (TORNSTATS_API_KEY / BSP_API_KEY)',
-      })
-    }
     const memberIds = ((req.body as { member_ids?: unknown } | null)?.member_ids as unknown[]) ?? []
     const ids = memberIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
     if (ids.length === 0) {
       return reply.status(400).send({ error: 'member_ids required' })
+    }
+
+    // Provider keys: the faction's own stored secrets first (#105 — set in
+    // Global Admin), env vars as the deprecated operator-wide fallback.
+    let tsKey = deps.tornStatsApiKey ?? null
+    let bspKey = deps.bspApiKey ?? null
+    if (deps.encryptionKey) {
+      try {
+        const store = createSecretStore({ db, encryptionKey: deps.encryptionKey })
+        tsKey = (await store.get('tornstats_api_key')) ?? tsKey
+        bspKey = (await store.get('bsp_api_key')) ?? bspKey
+      } catch {
+        // Malformed at-rest key — fall back to env.
+      }
+    }
+    if (!tsKey && !bspKey) {
+      return reply.status(503).send({
+        error: 'No spy provider configured — set the TornStats/BSP keys in Global Admin',
+      })
     }
 
     const ourId = Number(
@@ -217,7 +232,7 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
     )
     const enemyFactionId = enemySample.rows[0]?.faction_id ?? null
 
-    if (deps.tornStatsApiKey && enemyFactionId) {
+    if (tsKey && enemyFactionId) {
       const cfg = await db.query(
         'SELECT tornstats_max_age_days FROM war_room_config_v2 WHERE id = 1'
       )
@@ -229,7 +244,7 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
       let spies: any = null
       try {
         const base = deps.tornStatsBaseUrl ?? 'https://www.tornstats.com'
-        const resp = await fetch(`${base}/api/v2/${deps.tornStatsApiKey}/spy/faction/${enemyFactionId}`)
+        const resp = await fetch(`${base}/api/v2/${tsKey}/spy/faction/${enemyFactionId}`)
         if (resp.ok) spies = await resp.json()
       } catch {
         // TornStats down — BSP covers everyone below.
@@ -263,12 +278,12 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
 
     // ── Pass 2: BSP for the rest ─────────────────────────────────────────
     let bspFilled = 0
-    if (deps.bspApiKey) {
+    if (bspKey) {
       const base = deps.bspBaseUrl ?? 'http://www.lol-manager.com'
       for (let i = 0; i < needBsp.length; i++) {
         const id = needBsp[i]
         try {
-          const resp = await fetch(`${base}/api/battlestats/${deps.bspApiKey}/${id}/TornForge`)
+          const resp = await fetch(`${base}/api/battlestats/${bspKey}/${id}/TornForge`)
           const data: any = await resp.json()
           if (data && (data.Result === 1 || data.Result === 6) && data.TBS) {
             await db.query(

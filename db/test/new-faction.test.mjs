@@ -282,6 +282,28 @@ describe('new-faction script', () => {
     ).rejects.toThrow(/does not exist/i)
   })
 
+  it('--leader-id and --admin-id seed the first role assignments (#99)', async () => {
+    const deployDir = mkdtempSync(join(tmpdir(), 'tnl-deploy-roles-'))
+    try {
+      await run(
+        'node',
+        [SCRIPT, '--slug', 'seeded', '--name', 'Seeded', '--faction-id', '555',
+         '--leader-id', '2605556', '--admin-id', '2250591', '--deploy-dir', deployDir],
+        { env: PG_ENV }
+      )
+      const roles = await query(
+        'faction_seeded',
+        'SELECT torn_user_id::text AS id, role FROM role_assignments ORDER BY role'
+      )
+      expect(roles.rows).toEqual([
+        { id: '2250591', role: 'admin' },
+        { id: '2605556', role: 'leadership' },
+      ])
+    } finally {
+      rmSync(deployDir, { recursive: true, force: true })
+    }
+  })
+
   it('refuses to clobber an existing faction database', async () => {
     await expect(
       run(

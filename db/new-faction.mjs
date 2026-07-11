@@ -33,6 +33,10 @@ const { values: args } = parseArgs({
     // credential and deploy artifacts, touch no data (forge's path to
     // tenant-uniformity, and the production-cutover path).
     adopt: { type: 'boolean' },
+    // First role assignments (#99): the faction leader (leadership) and the
+    // global operator (admin) — everything after is self-serve in Settings.
+    'leader-id': { type: 'string' },
+    'admin-id': { type: 'string' },
     // Where the deploy artifacts live (compose include, nginx vhost, .env
     // credential line). Defaults to this repo's deploy/; tests redirect it.
     'deploy-dir': { type: 'string' },
@@ -43,6 +47,15 @@ const slug = args.slug
 const displayName = args.name
 const tornFactionId = args['faction-id']
 const adopt = args.adopt ?? false
+const leaderId = args['leader-id']
+const adminId = args['admin-id']
+
+for (const [flag, v] of [['--leader-id', leaderId], ['--admin-id', adminId]]) {
+  if (v !== undefined && !/^\d+$/.test(v)) {
+    console.error(`Invalid ${flag} "${v}" — must be a Torn user id`)
+    process.exit(1)
+  }
+}
 
 if (!slug || (!adopt && (!displayName || !tornFactionId))) {
   console.error(
@@ -120,6 +133,20 @@ try {
     [slug, displayName, tornFactionId]
   )
   } // !adopt — adoption touches no schema, seeds, or identity
+
+  // First role grants (#99) — idempotent so adopt/re-runs are safe.
+  if (leaderId) {
+    await db.query(
+      `INSERT INTO role_assignments (torn_user_id, role) VALUES ($1, 'leadership') ON CONFLICT DO NOTHING`,
+      [leaderId]
+    )
+  }
+  if (adminId) {
+    await db.query(
+      `INSERT INTO role_assignments (torn_user_id, role) VALUES ($1, 'admin') ON CONFLICT DO NOTHING`,
+      [adminId]
+    )
+  }
 
   // 3. Scoped credential: this faction's API connects as app_<slug>, which
   // can only reach its own database. Revoking PUBLIC is what makes the
