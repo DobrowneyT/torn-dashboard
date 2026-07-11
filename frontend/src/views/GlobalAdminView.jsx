@@ -17,6 +17,24 @@ function Card({ title, action, children }) {
   )
 }
 
+function ScheduleCell({ job, onSave, disabled }) {
+  const [value, setValue] = useState(job.cron_schedule)
+  const dirty = value !== job.cron_schedule
+  return (
+    <span className="inline-flex items-center gap-1">
+      <input value={value} onChange={(e) => setValue(e.target.value)} disabled={disabled}
+        spellCheck={false}
+        className="font-mono text-xs px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 w-36" />
+      {dirty && (
+        <button onClick={() => onSave(value)} disabled={disabled}
+          className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs">
+          Save
+        </button>
+      )}
+    </span>
+  )
+}
+
 function StatusBadge({ status }) {
   const styles = {
     success: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
@@ -76,6 +94,20 @@ export default function GlobalAdminView() {
     }
   }
 
+  async function saveSchedule(job, cron_schedule) {
+    setBusyJob(job.job_name)
+    setNotice(null)
+    try {
+      await apiPut(`/api/admin/scraper/jobs/${job.job_name}`, { cron_schedule })
+      setNotice({ kind: 'ok', msg: `${job.job_name} cadence saved — applies on the API's next restart.` })
+      await load()
+    } catch (err) {
+      setNotice({ kind: 'err', msg: err.payload?.error || err.message })
+    } finally {
+      setBusyJob(null)
+    }
+  }
+
   async function runJob(job) {
     setBusyJob(job.job_name)
     setNotice(null)
@@ -125,6 +157,9 @@ export default function GlobalAdminView() {
       )}
 
       <Card title="Scraper Jobs" action={refreshBtn}>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Enable/disable applies on the next tick; cadence edits apply on the API's next restart.
+        </p>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
@@ -139,7 +174,10 @@ export default function GlobalAdminView() {
               {jobs.map((job) => (
                 <tr key={job.job_name} className="border-b border-gray-100 dark:border-slate-700/50">
                   <td className="py-2 pr-4 font-medium text-gray-900 dark:text-white">{job.job_name}</td>
-                  <td className="py-2 pr-4 font-mono text-xs text-gray-600 dark:text-gray-300">{job.cron_schedule}</td>
+                  <td className="py-2 pr-4">
+                    <ScheduleCell job={job} disabled={busyJob !== null}
+                      onSave={(v) => saveSchedule(job, v)} />
+                  </td>
                   <td className="py-2 pr-4">
                     <button onClick={() => toggleJob(job)} disabled={busyJob === job.job_name}
                       className={`px-2 py-0.5 rounded text-xs font-medium ${job.enabled
