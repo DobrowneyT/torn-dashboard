@@ -1302,7 +1302,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // ── Leadership actions ────────────────────────────────────────────────────
 
   async function toggleEnabled() {
-    if (!user?.apiKey) return
+    // API mode holds no raw key by design — the session token authorizes.
+    if (!API_MODE && !user?.apiKey) return
     setToggling(true); setToggleError(null)
     try {
       const enabling = !config?.enabled
@@ -1492,7 +1493,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Update Spies works even when the war room is paused: if no members are loaded
   // yet (paused state), it does an enemy fetch first, then BSP enrichment.
   async function handleUpdateSpies() {
-    if (!user?.apiKey || !config?.faction_id) return
+    if ((!API_MODE && !user?.apiKey) || !config?.faction_id) return
     setUpdatingSpies(true); setSpiesMsg(null)
     try {
       let workingMembers = membersRef.current.length ? membersRef.current : members

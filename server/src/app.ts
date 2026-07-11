@@ -26,10 +26,14 @@ export interface ServerOptions {
   db?: pg.Pool
   tornBaseUrl?: string
   jwtSecret?: string
-  /** Faction-held Torn key for server-side live reads (until slice #67's pool). */
-  tornApiKey?: string
-  /** 32-byte hex secret for the key pool — enables the on-demand sync triggers. */
+  /** 32-byte hex secret for the key pool — server-side Torn reads and the
+   *  on-demand sync triggers claim from it (#98). */
   keyEncryptionKey?: string
+  /** Spy-stat providers for the war room (#100); optional. */
+  tornStatsApiKey?: string
+  bspApiKey?: string
+  tornStatsBaseUrl?: string
+  bspBaseUrl?: string
 }
 
 export async function buildServer(
@@ -95,16 +99,18 @@ export async function buildServer(
     })
 
     registerMemberRoutes(app, opts.db)
-    registerOcRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, tornApiKey: opts.tornApiKey })
+    registerOcRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     registerPayoutRoutes(app, opts.db)
     registerWarRoutes(app, opts.db)
-    registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, tornApiKey: opts.tornApiKey })
+    registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     registerSyncRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     app.warRoomHub = await registerWarRoomRoutes(app, { db: opts.db, jwtSecret: opts.jwtSecret })
     registerWarRoomWriteRoutes(app, { db: opts.db, hub: app.warRoomHub })
     registerWarRoomSetupRoutes(app, {
       db: opts.db, hub: app.warRoomHub,
       tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey,
+      tornStatsApiKey: opts.tornStatsApiKey, bspApiKey: opts.bspApiKey,
+      tornStatsBaseUrl: opts.tornStatsBaseUrl, bspBaseUrl: opts.bspBaseUrl,
     })
     // Manual triggers run the same job code as the cron scheduler and share
     // its run history; without a (valid) at-rest key there is no pool to

@@ -273,6 +273,7 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
       ['POST /api/war-room/clear-state', 200],
       ['POST /api/war-room/fetch-members', 400],
       ['POST /api/war-room/fetch-chains', 400],
+      ['POST /api/war-room/fetch-spies', 400],
     ] as Array<[string, number]>
   ).map(([path, authorized]) => ({
     path,

@@ -23,6 +23,27 @@ export interface KeyMeta {
   hasFactionAccess?: boolean
 }
 
+/** Shown whenever a server-side Torn call finds no consented key to claim. */
+export const EMPTY_POOL_MESSAGE =
+  'No pooled Torn key available yet — a faction member logging in enrolls ' +
+  'their key (then run members-sync from Global Admin to fill the roster).'
+
+/**
+ * One-shot claim for request-scoped server-side Torn calls (#98): returns
+ * null when the pool is unconfigured (no at-rest secret) or empty.
+ */
+export async function claimPooledKey(
+  db: pg.Pool,
+  encryptionKey?: string
+): Promise<ClaimedKey | null> {
+  if (!encryptionKey) return null
+  try {
+    return await createKeyPool({ db, encryptionKey }).claim()
+  } catch {
+    return null
+  }
+}
+
 export function createKeyPool({ db, encryptionKey }: KeyPoolOptions) {
   const secret = Buffer.from(encryptionKey, 'hex')
   if (secret.length !== 32) throw new Error('encryptionKey must be 32 bytes of hex')

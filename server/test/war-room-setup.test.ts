@@ -109,6 +109,39 @@ describe('war-room manual setup', () => {
     expect((await call('POST', '/api/war-room/fetch-members', { faction_id: ENEMY }, 'member')).status).toBe(403)
   })
 
+  it('fetch-spies fills BSP columns — TornStats faction spies first, BSP for the rest (#100)', async () => {
+    // A second enemy member TornStats doesn't know — BSP must cover them.
+    await stack.db.query(`INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, state)
+                          VALUES (90121, ${ENEMY}, 'Unspied', '{}')`)
+    const nowSec = Math.floor(Date.now() / 1000)
+    stack.torn.setPath(`/api/v2/TSKEY123/spy/faction/${ENEMY}`, {
+      faction: {
+        members: {
+          '90120': { id: 90120, spy: { total: 1_500_000, strength: 500_000, speed: 400_000, defense: 300_000, dexterity: 300_000, timestamp: nowSec } },
+        },
+      },
+    })
+    stack.torn.setPath('/api/battlestats/BSPKEY99/90121/TornForge', {
+      Result: 1, TBS: 2_000_000, Strength: 800_000, Speed: 500_000, Defense: 400_000, Dexterity: 300_000,
+    })
+
+    const { status, body } = await call('POST', '/api/war-room/fetch-spies', { member_ids: [90120, 90121] })
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ fetched: 2, tornstats: 1, bsp: 1, requested: 2 })
+
+    const rows = await stack.db.query(
+      `SELECT member_id, bsp_total, spy_source, ts_spy_at FROM war_room_state_v2
+       WHERE member_id IN (90120, 90121) ORDER BY member_id`
+    )
+    // TornStats fill carries the spy's real capture time; BSP has none.
+    expect(rows.rows[0]).toMatchObject({ bsp_total: 1_500_000, spy_source: 'tornstats' })
+    expect(rows.rows[0].ts_spy_at).toBeTruthy()
+    expect(rows.rows[1]).toMatchObject({ bsp_total: 2_000_000, spy_source: 'bsp' })
+    expect(rows.rows[1].ts_spy_at).toBeNull()
+
+    expect((await call('POST', '/api/war-room/fetch-spies', { member_ids: [90120] }, 'member')).status).toBe(403)
+  })
+
   it('fetch-chains seeds both sides of the chain singleton', async () => {
     const { status } = await call('POST', '/api/war-room/fetch-chains', { enemy_faction_id: ENEMY })
     expect(status).toBe(200)

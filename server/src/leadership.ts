@@ -4,12 +4,13 @@
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireNotVisitor, requireRole } from './authz.js'
+import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
 
 export interface LeadershipDeps {
   db: pg.Pool
   tornBaseUrl: string
-  /** Faction-held Torn key for server-side syncs (until slice #67's pool). */
-  tornApiKey?: string
+  /** Key-at-rest secret — server-side Torn syncs claim from the pool (#98). */
+  encryptionKey?: string
 }
 
 const READ = { preHandler: requireRole('leadership', 'admin', 'visitor') }
@@ -193,15 +194,14 @@ export function registerLeadershipRoutes(app: FastifyInstance, deps: LeadershipD
     return { item_id: id, price: Math.floor(price), quantity: item.rows[0].quantity }
   })
 
-  // Pull the faction inventory from Torn with the server-held key and
-  // replace the stored quantities (same shape the legacy browser sync wrote).
+  // Pull the faction inventory from Torn with a pooled key and replace the
+  // stored quantities (same shape the legacy browser sync wrote).
   app.post('/api/inventory/sync', WRITE, async (req, reply) => {
-    if (!deps.tornApiKey) {
-      return reply.status(503).send({ error: 'Server Torn API key not configured' })
-    }
+    const claimed = await claimPooledKey(db, deps.encryptionKey)
+    if (!claimed) return reply.status(503).send({ error: EMPTY_POOL_MESSAGE })
     const config = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
     const factionId = config.rows[0].torn_faction_id
-    const url = `${deps.tornBaseUrl}/faction/${factionId}?selections=${INVENTORY_CATEGORIES.join(',')}&key=${deps.tornApiKey}&comment=TNL-Inventory-Sync`
+    const url = `${deps.tornBaseUrl}/faction/${factionId}?selections=${INVENTORY_CATEGORIES.join(',')}&key=${claimed.key}&comment=TNL-Inventory-Sync`
     const res = await fetch(url)
     const data = (await res.json()) as Record<string, any>
     if (data.error) {

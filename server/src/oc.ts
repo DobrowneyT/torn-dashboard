@@ -3,26 +3,25 @@
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireAuth, requireRole } from './authz.js'
+import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
 
 export interface OcDeps {
   db: pg.Pool
   tornBaseUrl: string
-  /** Faction-held Torn key for server-side live reads. Optional until the
-   *  key-pool slice (#67); endpoints depending on it 503 when absent. */
-  tornApiKey?: string
+  /** Key-at-rest secret — server-side Torn reads claim from the pool (#98). */
+  encryptionKey?: string
 }
 
 async function fetchLiveCrimes(deps: OcDeps): Promise<
   | { ok: true; payload: unknown }
   | { ok: false; status: number; error: string }
 > {
-  if (!deps.tornApiKey) {
-    return { ok: false, status: 503, error: 'No faction Torn API key configured on the server (TORN_API_KEY)' }
-  }
+  const claimed = await claimPooledKey(deps.db, deps.encryptionKey)
+  if (!claimed) return { ok: false, status: 503, error: EMPTY_POOL_MESSAGE }
   const url = new URL('/v2/faction/crimes', deps.tornBaseUrl)
   url.searchParams.set('cat', 'available')
   url.searchParams.set('sort', 'ASC')
-  url.searchParams.set('key', deps.tornApiKey)
+  url.searchParams.set('key', claimed.key)
   url.searchParams.set('comment', 'TNL_OC')
   let data: any
   try {
