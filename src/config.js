@@ -47,6 +47,7 @@ export const config = {
     `2663375`, // Rawk
     `2670532`, // Neuroticgrim
     `2637909`, // bethink
+    `2733267`, // Biigz
   ],
 
   leadershipUserIds: [
