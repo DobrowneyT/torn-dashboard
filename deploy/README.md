@@ -29,7 +29,8 @@ To target a different Postgres, set the standard `PG*` env vars — remember to
 ## Adding a faction
 
 ```bash
-node db/new-faction.mjs --slug mayhem --name "TNL Mayhem Dashboard" --faction-id <torn id>
+node db/new-faction.mjs --slug mayhem --name "TNL Mayhem Dashboard" --faction-id <torn id> \
+  --leader-id <their leader's torn id> --admin-id <your torn id>
 cd deploy && docker compose up -d --build api-mayhem nginx
 curl -H "Host: mayhem.localhost" localhost:8088/api/health   # {"faction":"mayhem"}
 ```
@@ -47,9 +48,11 @@ The script provisions everything:
 
 ### Faction bring-up (the leader's first steps)
 
-1. Grant the leader their first role:
-   `INSERT INTO role_assignments (torn_user_id, role) VALUES (<id>, 'leadership')`
-   — everything after this is self-serve in the dashboard.
+1. `--leader-id`/`--admin-id` already seeded the first roles at provisioning
+   (leadership for the faction's leader, admin for you the operator) —
+   everything after is self-serve in the dashboard. For a faction created
+   without the flags, grant via SQL: `INSERT INTO role_assignments
+   (torn_user_id, role) VALUES (<id>, 'leadership')`.
 2. The leader logs in at `http://<slug>.localhost:8088` (or their subdomain).
    The first login stubs their roster row and enrolls their key into the
    faction's pool, breaking the fresh-faction bootstrap cycle.

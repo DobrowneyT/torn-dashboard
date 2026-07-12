@@ -3,6 +3,7 @@
 // Admin-only (server-enforced); API mode only.
 import { useEffect, useState, useCallback } from 'react'
 import { API_MODE, apiGet, apiPost, apiPut } from '../utils/apiClient'
+import { fmtDbTime } from '../utils/time'
 import { CheckCircle2, AlertTriangle, Loader2, Play, RefreshCw } from 'lucide-react'
 
 function Card({ title, action, children }) {
@@ -35,6 +36,33 @@ function ScheduleCell({ job, onSave, disabled }) {
   )
 }
 
+const SECRET_LABELS = {
+  tornstats_api_key: 'TornStats API key',
+  bsp_api_key: 'BSP API key',
+}
+
+function SecretRow({ secret, onSave, disabled }) {
+  const [value, setValue] = useState('')
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-40 text-sm text-gray-700 dark:text-gray-300">{SECRET_LABELS[secret.name] || secret.name}</span>
+      <span className={`px-2 py-0.5 rounded text-xs font-medium ${secret.configured
+        ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+        : 'bg-gray-200 text-gray-600 dark:bg-slate-700 dark:text-gray-400'}`}>
+        {secret.configured ? `configured ••••${secret.hint ?? ''}` : 'not set'}
+      </span>
+      <input type="password" value={value} onChange={(e) => setValue(e.target.value)}
+        placeholder={secret.configured ? 'Replace key…' : 'Enter key…'} disabled={disabled}
+        autoComplete="off" spellCheck={false}
+        className="px-3 py-1.5 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm text-gray-900 dark:text-white w-64" />
+      <button onClick={() => { onSave(value.trim()); setValue('') }} disabled={disabled || !value.trim()}
+        className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm">
+        Save
+      </button>
+    </div>
+  )
+}
+
 function StatusBadge({ status }) {
   const styles = {
     success: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
@@ -48,14 +76,13 @@ function StatusBadge({ status }) {
   )
 }
 
-function fmtTime(ts) {
-  return ts ? new Date(ts).toLocaleString() : '—'
-}
+
 
 export default function GlobalAdminView() {
   const [jobs, setJobs] = useState([])
   const [runs, setRuns] = useState([])
   const [keys, setKeys] = useState([])
+  const [secrets, setSecrets] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [busyJob, setBusyJob] = useState(null)
@@ -63,15 +90,17 @@ export default function GlobalAdminView() {
 
   const load = useCallback(async () => {
     try {
-      const [jobsData, runsData, keysData] = await Promise.all([
+      const [jobsData, runsData, keysData, secretsData] = await Promise.all([
         apiGet('/api/admin/scraper/jobs').catch((e) => ({ jobs: [], _err: e })),
         apiGet('/api/admin/scraper/runs?limit=30'),
         apiGet('/api/admin/key-pool'),
+        apiGet('/api/admin/secrets').catch(() => ({ secrets: [] })),
       ])
       setJobs(jobsData.jobs || [])
       if (jobsData._err) setNotice({ kind: 'err', msg: jobsData._err.payload?.error || jobsData._err.message })
       setRuns(runsData.runs || [])
       setKeys(keysData.keys || [])
+      setSecrets(secretsData.secrets || [])
       setError(null)
     } catch (err) {
       setError(err.payload?.error || err.message)
@@ -105,6 +134,17 @@ export default function GlobalAdminView() {
       setNotice({ kind: 'err', msg: err.payload?.error || err.message })
     } finally {
       setBusyJob(null)
+    }
+  }
+
+  async function saveSecret(secret, value) {
+    setNotice(null)
+    try {
+      await apiPut(`/api/admin/secrets/${secret.name}`, { value })
+      setNotice({ kind: 'ok', msg: `${SECRET_LABELS[secret.name] || secret.name} saved.` })
+      await load()
+    } catch (err) {
+      setNotice({ kind: 'err', msg: err.payload?.error || err.message })
     }
   }
 
@@ -221,7 +261,7 @@ export default function GlobalAdminView() {
               {runs.map((run) => (
                 <tr key={run.id} className="border-b border-gray-100 dark:border-slate-700/50">
                   <td className="py-2 pr-4 text-gray-900 dark:text-white">{run.job_name}</td>
-                  <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtTime(run.started_at)}</td>
+                  <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtDbTime(run.started_at)}</td>
                   <td className="py-2 pr-4"><StatusBadge status={run.status} /></td>
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300">{run.rows_written}</td>
                   <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md truncate" title={run.error || ''}>{run.error || ''}</td>
@@ -232,6 +272,21 @@ export default function GlobalAdminView() {
               )}
             </tbody>
           </table>
+        </div>
+      </Card>
+
+      <Card title="Spy Providers">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Per-faction TornStats/BSP keys for Update Spies — stored encrypted; only the last 4 characters are shown.
+        </p>
+        <div className="space-y-3">
+          {secrets.map((secret) => (
+            <SecretRow key={secret.name} secret={secret} disabled={busyJob !== null}
+              onSave={(v) => saveSecret(secret, v)} />
+          ))}
+          {secrets.length === 0 && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">Secrets need KEY_ENCRYPTION_KEY on the API.</p>
+          )}
         </div>
       </Card>
 
@@ -260,7 +315,7 @@ export default function GlobalAdminView() {
                   <td className="py-2 pr-4">
                     <StatusBadge status={k.disabled ? 'failure' : 'success'} />
                   </td>
-                  <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtTime(k.last_claimed_at)}</td>
+                  <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtDbTime(k.last_claimed_at)}</td>
                   <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md truncate" title={k.last_error || ''}>{k.last_error || ''}</td>
                 </tr>
               ))}

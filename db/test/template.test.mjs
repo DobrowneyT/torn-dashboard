@@ -39,7 +39,7 @@ const LIVE_TABLES = [
   'war_room_notes_v2', 'war_room_roll_call_v2', 'war_room_state_v2',
 ]
 const NEW_TABLES = [
-  'faction_config', 'faction_settings', 'role_assignments',
+  'faction_config', 'faction_secrets', 'faction_settings', 'role_assignments',
   // Scraper core (slice #67)
   'scraper_jobs', 'scraper_runs',
 ]

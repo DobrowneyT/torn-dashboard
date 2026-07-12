@@ -191,4 +191,40 @@ describe('scheduler (end-to-end demo)', () => {
     // …and the disabled job never produced a run.
     expect(recent.some((r) => r.job_name === 'never-runs')).toBe(false)
   })
+
+  it('a tick that rejects (pool gone under a live scheduler) never escapes as an unhandled rejection', async () => {
+    const { createRunLogger } = await import('../src/scraper/runLog.js')
+    const { createScheduler } = await import('../src/scraper/scheduler.js')
+
+    // A db that answers register()/start() but throws inside every tick — the
+    // way a pool torn down under a running scheduler (e.g. at shutdown, or a
+    // transient outage) does. The tick must swallow that, not crash the process.
+    let live = true
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes('SELECT job_name')) {
+          return { rows: [{ job_name: 'flaky', cron_schedule: '* * * * * *' }] }
+        }
+        if (!live) throw new Error('pool is closed')
+        return { rows: [] }
+      },
+    } as unknown as (typeof stack)['db']
+
+    const scheduler = createScheduler({ db, runLogger: createRunLogger(db) })
+    await scheduler.register('flaky', '* * * * * *', async () => ({ rows: 0 }))
+
+    const rejections: unknown[] = []
+    const onReject = (err: unknown) => rejections.push(err)
+    process.on('unhandledRejection', onReject)
+    try {
+      await scheduler.start()
+      live = false // pull the pool out from under the running scheduler
+      await new Promise((r) => setTimeout(r, 1300)) // let a cron tick fire against it
+    } finally {
+      scheduler.stop()
+      await new Promise((r) => setTimeout(r, 50)) // drain any pending rejection
+      process.off('unhandledRejection', onReject)
+    }
+    expect(rejections).toEqual([])
+  })
 })

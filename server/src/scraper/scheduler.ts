@@ -47,7 +47,15 @@ export function createScheduler({ db, runLogger }: SchedulerOptions) {
       const rows = await db.query('SELECT job_name, cron_schedule FROM scraper_jobs')
       for (const { job_name, cron_schedule } of rows.rows) {
         if (!jobs.has(job_name)) continue
-        tasks.push(cron.schedule(cron_schedule, () => { void tick(job_name) }))
+        tasks.push(cron.schedule(cron_schedule, () => {
+          // A tick must never crash the process. stop() can't cancel a tick
+          // already in flight, so a transient DB error — or the pool being
+          // torn down under a live scheduler (shutdown, tests) — lands here
+          // as a logged failure instead of an unhandled rejection.
+          tick(job_name).catch((err) => {
+            console.error(`[scraper] scheduled tick for "${job_name}" failed:`, err)
+          })
+        }))
       }
     },
 

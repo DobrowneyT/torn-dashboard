@@ -20,6 +20,7 @@ import { registerWarRoomWriteRoutes } from './warRoomWrites.js'
 import { registerWarRoomSetupRoutes } from './warRoomSetup.js'
 import { registerAdminRoutes } from './admin.js'
 import { createJobRunner } from './scraper/registerJobs.js'
+import { createSecretStore } from './secrets.js'
 
 export interface ServerOptions {
   factionSlug: string
@@ -117,11 +118,13 @@ export async function buildServer(
     // claim from, so the trigger surface answers 503. A malformed key must
     // degrade exactly like an absent one — never crash the whole API at boot.
     let scrapers
+    let secrets
     if (opts.keyEncryptionKey) {
       try {
         scrapers = createJobRunner({
           db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey,
         })
+        secrets = createSecretStore({ db: opts.db, encryptionKey: opts.keyEncryptionKey })
       } catch (err) {
         console.error(
           `[${opts.factionSlug}] KEY_ENCRYPTION_KEY is invalid (need 32 bytes of hex) — ` +
@@ -129,7 +132,7 @@ export async function buildServer(
         )
       }
     }
-    registerAdminRoutes(app, { db: opts.db, scrapers })
+    registerAdminRoutes(app, { db: opts.db, scrapers, secrets })
   }
 
   return app

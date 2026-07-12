@@ -645,6 +645,16 @@ CREATE TABLE public.faction_settings (
   updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+-- Per-faction operator secrets (#105): spy-provider API keys, AES-256-GCM
+-- encrypted at rest with KEY_ENCRYPTION_KEY. `hint` = last 4 chars for the
+-- admin UI; plaintext never leaves the server.
+CREATE TABLE public.faction_secrets (
+  name text NOT NULL,
+  value_enc bytea NOT NULL,
+  hint text,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
 -- Role grants (replaces the hardcoded LEADERSHIP_IDS/WARLEAD_IDS/ADMIN_IDS/
 -- VISITOR_IDS lists). A user may hold several roles.
 CREATE TABLE public.role_assignments (
@@ -680,6 +690,7 @@ ALTER TABLE oc_payout_members ADD CONSTRAINT oc_payout_members_pkey PRIMARY KEY 
 ALTER TABLE oc_payout_weeks ADD CONSTRAINT oc_payout_weeks_pkey PRIMARY KEY (id);
 ALTER TABLE pricing_batches ADD CONSTRAINT pricing_batches_pkey PRIMARY KEY (id);
 ALTER TABLE ranked_wars ADD CONSTRAINT ranked_wars_pkey PRIMARY KEY (id);
+ALTER TABLE faction_secrets ADD CONSTRAINT faction_secrets_pkey PRIMARY KEY (name);
 ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_pkey PRIMARY KEY (torn_user_id, role);
 ALTER TABLE sync_metadata ADD CONSTRAINT sync_metadata_pkey PRIMARY KEY (id);
 ALTER TABLE scraper_runs ADD CONSTRAINT scraper_runs_pkey PRIMARY KEY (id);

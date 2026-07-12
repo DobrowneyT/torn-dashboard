@@ -7,11 +7,14 @@ import type pg from 'pg'
 import { ROLES, type Role } from './auth.js'
 import { requireNotVisitor, requireRole } from './authz.js'
 import type { createJobRunner } from './scraper/registerJobs.js'
+import { SECRET_NAMES, type SecretName, type createSecretStore } from './secrets.js'
 
 export interface AdminDeps {
   db: pg.Pool
   /** Manual-trigger handle; absent when KEY_ENCRYPTION_KEY is not set. */
   scrapers?: ReturnType<typeof createJobRunner>
+  /** Per-faction operator secrets (#105); absent without KEY_ENCRYPTION_KEY. */
+  secrets?: ReturnType<typeof createSecretStore>
 }
 
 // Leadership manage their faction's settings; admin implies leadership here.
@@ -24,7 +27,7 @@ const ADMIN_GUARD = { preHandler: [requireNotVisitor(), requireRole('admin')] }
 const SETTINGS_KEYS = ['tier_requirements', 'cpr_requirements', 'payout_tickets', 'war_room_defaults']
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
-  const { db, scrapers } = deps
+  const { db, scrapers, secrets } = deps
 
   app.get('/api/admin/roles', SETTINGS_GUARD, async () => {
     const res = await db.query(
@@ -187,6 +190,27 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
     if (run === null) return reply.status(404).send({ error: `Unknown scraper job: ${name}` })
     // A failed job is a successful trigger: the failure lives on the run row.
     return { run }
+  })
+
+  // Operator secrets (#105): writes accept the plaintext once; reads expose
+  // configured-state + a last-4 hint only. No endpoint returns the value.
+  app.get('/api/admin/secrets', ADMIN_GUARD, async (_req, reply) => {
+    if (!secrets) return reply.status(503).send({ error: 'Secrets not configured (KEY_ENCRYPTION_KEY)' })
+    return { secrets: await secrets.list() }
+  })
+
+  app.put('/api/admin/secrets/:name', ADMIN_GUARD, async (req, reply) => {
+    if (!secrets) return reply.status(503).send({ error: 'Secrets not configured (KEY_ENCRYPTION_KEY)' })
+    const { name } = req.params as { name: string }
+    if (!SECRET_NAMES.includes(name as SecretName)) {
+      return reply.status(400).send({ error: `Unknown secret; expected one of: ${SECRET_NAMES.join(', ')}` })
+    }
+    const value = (req.body as { value?: unknown } | null)?.value
+    if (typeof value !== 'string' || value.trim() === '') {
+      return reply.status(400).send({ error: 'value must be a non-empty string' })
+    }
+    await secrets.set(name as SecretName, value.trim())
+    return { ok: true }
   })
 
   // Pool health is metadata only — the encrypted blob (cpr_api_key) must
