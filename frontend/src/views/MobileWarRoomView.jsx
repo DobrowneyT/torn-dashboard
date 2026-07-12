@@ -57,6 +57,7 @@ import {
   Settings, Search, Pause, Play,
   SlidersHorizontal, ShoppingBag, HeartPulse, Loader2,
 } from 'lucide-react'
+import { farmCompare } from '../utils/warRoomFarmSort'
 
 // ───────────────────────────────────────────────────────────────────
 // Static config — status visuals, activity colours, flag icons
@@ -1024,22 +1025,17 @@ export default function MobileWarRoomView({
         case 'stats':
           return dir * ((a.bsp ?? -1) - (b.bsp ?? -1))
         case 'farm': {
-          // Tiered sort designed for farming targets out of hospital/jail:
-          //   tier 0 — Okay (recently transitioned first, then BSP desc)
-          //   tier 1 — has timer + not Okay (until ascending = next out first)
-          //   tier 2 — everything else (Flying / Abroad / Fallen) by BSP desc
+          // Two-tier farm sort (#108): green attack button (Online+Okay) on
+          // top by battle stats, everyone else below in the prior ordering.
           // sortDir is intentionally ignored — farm has fixed semantics.
-          const tier = m => m.state === 'Okay' ? 0 : (m.until && m.state !== 'Okay' ? 1 : 2)
-          const tA = tier(a), tB = tier(b)
-          if (tA !== tB) return tA - tB
-          if (tA === 0) {
-            const aAt = okayAt.get(a.id) ?? -1
-            const bAt = okayAt.get(b.id) ?? -1
-            if (aAt !== bAt) return bAt - aAt
-            return (b.bsp ?? 0) - (a.bsp ?? 0)
-          }
-          if (tA === 1) return (a.until ?? Infinity) - (b.until ?? Infinity)
-          return (b.bsp ?? 0) - (a.bsp ?? 0)
+          const farmTarget = m => ({
+            isGreen: m.activity === 'Online' && m.state === 'Okay',
+            okay: m.state === 'Okay',
+            until: m.until,
+            bsp: m.bsp,
+            okayAt: okayAt.get(m.id) ?? -1,
+          })
+          return farmCompare(farmTarget(a), farmTarget(b))
         }
         case 'timer':
         default: {
