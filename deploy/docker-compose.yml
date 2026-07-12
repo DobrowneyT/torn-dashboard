@@ -34,5 +34,34 @@ services:
       - "${HTTP_PORT:-8088}:80"
     restart: unless-stopped
 
+  # Nightly per-faction backups (#76). Opt-in bring-up (like the scrapers):
+  #   docker compose --profile backup up -d --build backup
+  # Dumps every faction_* DB → gzip → /backups; uploads to RCLONE_REMOTE and
+  # prunes past 14 days when object storage is wired (env below). One-shot and
+  # the restore drill run through the same image — see deploy/README.md.
+  backup:
+    profiles: ["backup"]
+    build:
+      context: ..
+      dockerfile: deploy/backup.Dockerfile
+    # .env carries any RCLONE_* provider vars the operator adds for B2.
+    env_file:
+      - .env
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-4}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-}
+    volumes:
+      - backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  backups:

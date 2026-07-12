@@ -93,6 +93,73 @@ Then delete its `api-<slug>` block from `deploy/docker-compose.override.yml`,
 its `deploy/nginx/factions/<slug>.conf`, and the `DB_PASSWORD_<SLUG>` line
 from `deploy/.env`, and rebuild nginx: `docker compose up -d --build nginx`.
 
+## Backups, restore, and monitoring (slice #76)
+
+### Nightly backups
+
+The `backup` sidecar dumps **every** `faction_*` database (`pg_dump` → gzip →
+`/backups`), then once daily at `BACKUP_HOUR_UTC` (default 04:00). It's opt-in,
+like the scrapers — bring it up once:
+
+```bash
+cd deploy
+docker compose --profile backup up -d --build backup
+docker compose logs -f backup     # watch a run
+```
+
+Local dumps live in the `backups` volume and are pruned past
+`BACKUP_RETENTION_DAYS` (default 14). Run one on demand any time:
+
+```bash
+docker compose run --rm backup node db/backup.mjs --out /backups
+```
+
+**Ship to object storage (Backblaze B2).** The upload + remote-prune are gated
+on `RCLONE_REMOTE`; until it's set the sidecar keeps local dumps only. Wire B2
+by adding to `deploy/.env` (passed through via `env_file`), no config file
+needed:
+
+```env
+RCLONE_REMOTE=b2:tnl-dashboard-backups
+RCLONE_CONFIG_B2_TYPE=b2
+RCLONE_CONFIG_B2_ACCOUNT=<your B2 keyID>
+RCLONE_CONFIG_B2_KEY=<your B2 applicationKey>
+```
+
+Recreate the sidecar (`docker compose --profile backup up -d backup`); each run
+now copies to B2 and `rclone delete --min-age 14d` enforces retention there too.
+
+### Restore drill
+
+Prove a backup is good by restoring it to a **scratch** DB and booting against
+it. Run periodically (the roadmap calls for it once in staging):
+
+```bash
+cd deploy
+# newest Forge archive → a throwaway DB (created fresh with --create)
+docker compose run --rm backup sh -c \
+  'node db/restore.mjs --create --db faction_forge_restore \
+     --archive $(ls -1t /backups/faction_forge_*.sql.gz | head -1)'
+```
+
+It restores with `ON_ERROR_STOP` and prints a smoke summary (table count +
+`faction_config`). To boot the stack against the restored copy, point a
+throwaway `api-*` service's `DATABASE_URL` at `faction_forge_restore` and hit
+`/api/health/ready`. Drop the scratch DB when done:
+`docker exec tnl-dashboard-postgres-1 psql -U postgres -c 'DROP DATABASE faction_forge_restore'`.
+
+### Healthchecks & uptime monitoring
+
+- **Liveness** — `GET /api/health` → `200 {status:ok}` whenever the process is
+  up. The generated `api-<slug>` container HEALTHCHECK hits this, so
+  `docker ps` shows health; `restart: unless-stopped` on every service means a
+  killed container comes back on its own.
+- **Readiness** — `GET /api/health/ready` reports live DB connectivity plus
+  whether the scheduler and war-room ticker are armed, and returns **503** when
+  the DB is unreachable. Point **UptimeRobot** (free tier) at
+  `https://<slug>.<domain>/api/health/ready` per faction with a keyword/HTTP
+  check so a DB outage or a down tenant pages you.
+
 ## Notes
 
 - Run `docker compose` from `deploy/` (or pass both `-f` files) so the

@@ -81,6 +81,24 @@ jobs:
       run: |
         curl -fsS http://localhost:8088/ | grep -qi '<div id="root"'
 
+    # Readiness reports live DB connectivity per faction (slice #76).
+    - name: Probe readiness through nginx
+      run: |
+        curl -fsS -H 'Host: forge.localhost' http://localhost:8088/api/health/ready | tee /tmp/ready.json
+        grep -q '"status":"ok"' /tmp/ready.json
+        grep -q '"db":"up"' /tmp/ready.json
+
+    # The nightly backup job and the restore drill, end-to-end through the
+    # sidecar image against the real postgres:17 (slice #76).
+    - name: Backup + restore drill
+      run: |
+        cd deploy
+        docker compose -f docker-compose.yml -f docker-compose.override.yml --project-directory . \
+          run --build --rm backup node db/backup.mjs --out /backups
+        docker compose -f docker-compose.yml -f docker-compose.override.yml --project-directory . \
+          run --rm backup sh -c \
+          'node db/restore.mjs --create --db faction_forge_restore --archive $(ls -1t /backups/faction_forge_*.sql.gz | head -1)'
+
     - name: Show logs on failure
       if: failure()
       run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy logs
