@@ -9,6 +9,7 @@ import type pg from 'pg'
 import { createTornClient } from './scraper/tornClient.js'
 import type { createKeyPool } from './scraper/keyPool.js'
 import type { WarRoomHub } from './warRoom.js'
+import { snapshotDibbedStatus, sweepDibsExpiry, DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
 
 export interface WarRoomTickerDeps {
   db: pg.Pool
@@ -16,6 +17,8 @@ export interface WarRoomTickerDeps {
   hub: WarRoomHub
   tornBaseUrl: string
   intervalMs?: number
+  /** #106 auto-release window: seconds after a target leaves hospital. */
+  dibsExpirySeconds?: number
 }
 
 function memberState(m: any) {
@@ -120,11 +123,18 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       const ourId = Number(us.rows[0].torn_faction_id)
       const enemyId = Number(cfg.faction_id)
 
+      // Snapshot dibbed targets' hospital status BEFORE the sync overwrites it —
+      // the auto-expiry sweep diffs old vs new (see warRoomDibsExpiry).
+      const prevDibStatus = await snapshotDibbedStatus(db)
       const changed = await syncWarRoomMemberStates(db, client, claimed.key, enemyId, ourId)
+      const expiredDibs = await sweepDibsExpiry(
+        db, prevDibStatus, deps.dibsExpirySeconds ?? DIBS_EXPIRY_SECONDS
+      )
 
-      if (changed.length > 0) {
+      if (changed.length > 0 || expiredDibs.length > 0) {
         const now = await db.query('SELECT now() AS server_now')
-        hub.broadcast('state', changed, now.rows[0].server_now)
+        if (changed.length > 0) hub.broadcast('state', changed, now.rows[0].server_now)
+        if (expiredDibs.length > 0) hub.broadcast('dibs', expiredDibs, now.rows[0].server_now)
       }
     } finally {
       ticking = false
