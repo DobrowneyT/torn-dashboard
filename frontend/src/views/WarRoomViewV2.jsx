@@ -36,6 +36,7 @@ import RollCallOverlay from '../components/warroom/RollCallOverlay'
 import WarSummaryCard from '../components/warroom/WarSummaryCard'
 import WarNotesPanel from '../components/warroom/WarNotesPanel'
 import { rollCallGateActive } from '../utils/rollCall'
+import { farmCompare } from '../utils/warRoomFarmSort'
 import { Smartphone, Settings, Crosshair, Loader2, ClipboardList } from 'lucide-react'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
@@ -1677,24 +1678,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         case 'status':
           return d * (a.status_state ?? '').localeCompare(b.status_state ?? '')
         case 'farm': {
-          // Tiered farm sort:
-          //   tier 0 — Okay (recently transitioned first, then BSP desc)
-          //   tier 1 — has timer + not Okay (until ascending = next out first)
-          //   tier 2 — everything else (Flying / Abroad / Fallen) by BSP desc
+          // Two-tier farm sort (#108): green attack button (Online+Okay) on
+          // top by battle stats, everyone else below in the prior ordering.
           // sortDir is intentionally ignored — farm has fixed semantics.
-          const tier = m => m.status_state === 'Okay'
-            ? 0
-            : (m.status_until && m.status_state !== 'Okay' ? 1 : 2)
-          const tA = tier(a), tB = tier(b)
-          if (tA !== tB) return tA - tB
-          if (tA === 0) {
-            const aAt = okayAt.get(a.member_id) ?? -1
-            const bAt = okayAt.get(b.member_id) ?? -1
-            if (aAt !== bAt) return bAt - aAt
-            return (b.bsp_total ?? 0) - (a.bsp_total ?? 0)
-          }
-          if (tA === 1) return (a.status_until ?? Infinity) - (b.status_until ?? Infinity)
-          return (b.bsp_total ?? 0) - (a.bsp_total ?? 0)
+          const farmTarget = m => ({
+            isGreen: m.last_action_status === 'Online' && m.status_state === 'Okay',
+            okay: m.status_state === 'Okay',
+            until: m.status_until,
+            bsp: m.bsp_total,
+            okayAt: okayAt.get(m.member_id) ?? -1,
+          })
+          return farmCompare(farmTarget(a), farmTarget(b))
         }
         case 'timer': {
           // Members with an active timer (Hospital/Jail with status_until) sort by
