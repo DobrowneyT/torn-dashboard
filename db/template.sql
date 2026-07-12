@@ -565,7 +565,8 @@ CREATE TABLE public.war_room_dibs_v2 (
   claimed_at timestamp with time zone DEFAULT now() NOT NULL,
   war_id bigint,
   deleted_at timestamp with time zone,
-  updated_at timestamp with time zone DEFAULT now() NOT NULL
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  auto_expire_at timestamp with time zone
 );
 
 CREATE TABLE public.war_room_notes_private_v2 (
