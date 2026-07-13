@@ -11,12 +11,13 @@ production cutover.
 
 ## Context
 
-- **Host:** a Hetzner VPS **shared with a friend** who already runs their own
-  services on it. Prime directive: **do not disrupt their workloads.** We
-  coexist (our own ports / behind their existing reverse proxy), we don't
-  commandeer ports 80/443 or their Postgres.
-- **Domain (test):** `monchoon.tech` (to be confirmed). One apex → unlimited
-  subdomains; each faction is `<slug>.monchoon.tech`.
+- **Host:** `Duby` — a Hetzner **CPX21** (3 vCPU / 4 GB / 80 GB, x86, us-east,
+  `5.161.91.183`), Ubuntu 24.04.3 LTS, **shared with a friend** who runs their
+  own services. Prime directive: **do not disrupt their workloads.** We don't
+  touch their firewall, their updates, or reboot the box.
+- **Domain (test):** `monchoon.me` (Namecheap, Advanced DNS). The apex `@`
+  already points at **GitHub Pages** and must stay that way; we only *add*
+  faction subdomains: `forge.` / `tnl.` / `mayhem.monchoon.me`.
 - **What we deploy:** `deploy/docker-compose.yml` — shared Postgres + nginx, one
   `api-<slug>` process per faction (from `docker-compose.override.yml`), plus the
   optional `backup` sidecar. See `deploy/README.md` for the module model.
@@ -82,26 +83,86 @@ docker ps --format '{{.Names}}\t{{.Image}}\t{{.Ports}}' 2>/dev/null
 curl -sS -o /dev/null -w 'api.torn.com -> %{http_code}\n' https://api.torn.com
 ```
 
-### What we're deciding from this
+### Findings (validated 2026-07-13)
 
-- **Ports 80/443:** if the friend runs a reverse proxy (nginx/Caddy/Traefik)
-  there, we route our subdomains **through it** to our nginx on a high port
-  (clean, shares their TLS). If 80/443 are free, we can take them ourselves.
-- **Postgres:** ours runs in a container on an internal network and only needs
-  a *host* port for admin/`new-faction.mjs`; if 5432 is taken we use another
-  (`POSTGRES_HOST_PORT`).
-- **Docker access:** decides whether we prefix commands with `sudo` and whether
-  we need the friend to add you to the `docker` group.
-- **Resources:** confirms headroom for our ~1.5–2 GB stack alongside theirs.
+| Check | Result |
+|---|---|
+| OS / kernel | Ubuntu 24.04.3 LTS, 6.8.0-124 x86_64 |
+| CPU / RAM / disk | 3 vCPU · 3.7 Gi (647 Mi used, 3.1 Gi avail) · 75 G (12% used) |
+| **Swap** | **none (0 B)** — must fix, see Phase 1 |
+| Access | user `monchoon`, in `sudo` group, **password required** (no passwordless sudo) |
+| **Docker** | **not installed** — must install, see Phase 1 |
+| Outbound to Torn | `api.torn.com -> 301` ✅ (301 is Torn's redirect; HTTPS egress works) |
+| Ports 80/443/5432 | _pending — see 0.4_ |
+| Pending OS updates | 47 updates + "restart required" — **coordinate with the friend; not ours to reboot** |
 
-_(Paste the Phase 0 output and we'll record the decisions here, then move to
-Phase 1.)_
+**Verdict: the box is sufficient.** The stack needs ~1.5–2 GB, landing us near
+2–2.5 GB of 3.7 GB alongside the friend's ~650 MB. 3 vCPU comfortably covers 4
+tickers (mostly IO-wait) + WebSocket fan-out.
+
+**The one real risk is the missing swap.** The nginx image *builds the SPA*
+(Vite/npm), which can transiently want 1–2 GB — on a 4 GB box beside someone
+else's services that's a plausible OOM-kill. Phase 1 adds a 4 G swapfile.
 
 ---
 
-## Phase 1 — Base setup (Docker, repo, .env)  _[pending Phase 0]_
+## Phase 1 — Host provisioning (Docker + swap)
 
-## Phase 2 — Networking & TLS (reverse proxy, wildcard cert, DNS)  _[pending]_
+Codified in **`deploy/provision-host.sh`** — idempotent, safe to re-run. It
+installs Docker Engine + the compose v2 plugin (official Docker repo, *not*
+snap/`docker.io`), adds you to the `docker` group, and creates a 4 G swapfile
+with `vm.swappiness=10`.
+
+It deliberately does **not** touch the firewall, install a reverse proxy, apply
+system updates, or reboot — this box is shared, so those stay human-coordinated.
+
+```bash
+# on Duby, from a checkout of the repo (see 1.2)
+./deploy/provision-host.sh          # or: SWAP_GB=2 ./deploy/provision-host.sh
+```
+
+After it runs, **log out and back in** (group membership only applies to new
+logins), then confirm:
+
+```bash
+docker run --rm hello-world      # no sudo → the group took effect
+free -h                          # swap now shows 4.0Gi
+```
+
+### 1.2 — Get the code onto the box
+
+```bash
+sudo apt-get install -y git
+git clone https://github.com/DobrowneyT/torn-forge-oc-system.git
+cd torn-forge-oc-system
+git checkout dev                 # the migration lives on dev until cutover
+```
+
+## Phase 2 — Networking & TLS (reverse proxy, cert, DNS)  _[pending 0.4]_
+
+### DNS (done first — propagation takes time)
+
+Namecheap → `monchoon.me` → **Advanced DNS** → Host Records → ADD NEW RECORD.
+**Leave the existing `@` A records (GitHub Pages) and `www` CNAME untouched.**
+
+| Type | Host | Value | TTL |
+|---|---|---|---|
+| A Record | `forge` | `5.161.91.183` | 5 min |
+| A Record | `tnl` | `5.161.91.183` | 5 min |
+| A Record | `mayhem` | `5.161.91.183` | 5 min |
+
+Low TTL while testing makes mistakes cheap. New hostnames have nothing cached,
+so they resolve in minutes (the 48-hour figure applies to *nameserver* changes,
+not new records). Optionally add `A * → 5.161.91.183` so future factions need no
+DNS edit — explicit records still win, so `@`/`www` are unaffected.
+
+Verify:
+
+```bash
+dig +short forge.monchoon.me tnl.monchoon.me mayhem.monchoon.me   # → 5.161.91.183 ×3
+```
+
+_(TLS strategy is chosen once 0.4 tells us whether 80/443 are free.)_
 
 ## Phase 3 — Bring up the stack + provision the staging faction  _[pending]_
 
