@@ -188,6 +188,11 @@ describe('new-faction script', () => {
       // No scraper env switch: jobs register disabled in the faction DB and
       // are enabled per job in Global Admin (the bring-up step).
       expect(override).not.toContain('SCRAPERS_ENABLED')
+      // Operational safety net (#76): auto-restart on crash + a container
+      // healthcheck hitting the liveness probe, so `docker ps` shows health.
+      expect(override).toContain('restart: unless-stopped')
+      expect(override).toContain('healthcheck:')
+      expect(override).toContain('/api/health')
 
       // nginx vhost: host-header routing for <slug>.<any domain>.
       const vhost = readFileSync(join(deployDir, 'nginx', 'factions', 'artifax.conf'), 'utf8')

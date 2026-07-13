@@ -33,12 +33,17 @@ if (!databaseUrl) {
 const db = databaseUrl ? new pg.Pool({ connectionString: databaseUrl }) : undefined
 db?.on('error', (err) => console.error(`[${factionSlug}] pg pool error:`, err.message))
 
+// Readiness flags (#76): flipped true below once background work is armed, so
+// /api/health/ready reports the real per-faction state to the uptime monitor.
+const health = { scheduler: false, ticker: false }
+
 const app = await buildServer({
   factionSlug,
   db,
   tornBaseUrl,
   jwtSecret,
   keyEncryptionKey,
+  health,
   // Spy-stat providers for the war room (#100) — optional, operator-level.
   tornStatsApiKey: process.env.TORNSTATS_API_KEY || undefined,
   bspApiKey: process.env.BSP_API_KEY || undefined,
@@ -59,6 +64,7 @@ if (db) {
     try {
       const { startScrapers } = await import('./scraper/registerJobs.js')
       await startScrapers({ db, tornBaseUrl, encryptionKey: keyEncryptionKey })
+      health.scheduler = true
       console.log(`[${factionSlug}] scrapers scheduled`)
 
       // War-room ticker (slice #71): runs at 1 Hz but self-gates each tick on
@@ -74,6 +80,7 @@ if (db) {
           tornBaseUrl,
         })
         ticker.start()
+        health.ticker = true
         console.log(`[${factionSlug}] war-room ticker armed (config-gated)`)
       }
     } catch (err) {

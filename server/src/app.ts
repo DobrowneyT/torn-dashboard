@@ -22,11 +22,20 @@ import { registerAdminRoutes } from './admin.js'
 import { createJobRunner } from './scraper/registerJobs.js'
 import { createSecretStore } from './secrets.js'
 
+/** Mutable readiness flags (#76). main.ts flips these true after arming the
+ *  background scheduler + war-room ticker; /api/health/ready reports them. */
+export interface HealthFlags {
+  scheduler: boolean
+  ticker: boolean
+}
+
 export interface ServerOptions {
   factionSlug: string
   db?: pg.Pool
   tornBaseUrl?: string
   jwtSecret?: string
+  /** Readiness flags for /api/health/ready; owned and updated by the caller. */
+  health?: HealthFlags
   /** 32-byte hex secret for the key pool — server-side Torn reads and the
    *  on-demand sync triggers claim from it (#98). */
   keyEncryptionKey?: string
@@ -42,7 +51,33 @@ export async function buildServer(
 ): Promise<FastifyInstance & { warRoomHub?: WarRoomHub }> {
   const app = Fastify({ logger: false }) as FastifyInstance & { warRoomHub?: WarRoomHub }
 
+  // Liveness: the process is up. Cheap, dependency-free — Docker's HEALTHCHECK
+  // and the cheap ping hit this. Must stay 200 even when the DB is down or the
+  // key-at-rest secret is malformed (see boot-degrade.test.ts).
   app.get('/api/health', async () => ({ status: 'ok', faction: opts.factionSlug }))
+
+  // Readiness: what an uptime monitor and an operator need per faction — live
+  // DB connectivity plus whether background work is armed. DB down ⇒ 503.
+  const health = opts.health ?? { scheduler: false, ticker: false }
+  app.get('/api/health/ready', async (_req, reply) => {
+    let db: 'up' | 'down' | 'not_configured' = 'not_configured'
+    if (opts.db) {
+      try {
+        await opts.db.query('SELECT 1')
+        db = 'up'
+      } catch {
+        db = 'down'
+      }
+    }
+    const ok = db !== 'down'
+    return reply.status(ok ? 200 : 503).send({
+      status: ok ? 'ok' : 'degraded',
+      faction: opts.factionSlug,
+      db,
+      scheduler: health.scheduler ? 'armed' : 'disarmed',
+      ticker: health.ticker ? 'armed' : 'disarmed',
+    })
+  })
 
   app.decorateRequest('session', null)
 

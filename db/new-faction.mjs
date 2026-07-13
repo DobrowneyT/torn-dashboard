@@ -204,6 +204,13 @@ const serviceBlock = `
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      # Liveness probe via the app's own runtime — no curl/wget needed in the image.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 `
 const overridePath = join(deployDir, 'docker-compose.override.yml')
 if (!existsSync(overridePath)) writeFileSync(overridePath, OVERRIDE_HEADER)
