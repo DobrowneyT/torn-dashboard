@@ -46,7 +46,21 @@ else
   warn "Log out and back in (or run: newgrp docker) before docker works without sudo."
 fi
 
-# ── 3. Swap ──────────────────────────────────────────────────────────────────
+# ── 3. Node.js ───────────────────────────────────────────────────────────────
+# The stack itself runs in containers, but the provisioning CLIs run on the HOST
+# because they write host files (deploy/.env, the compose override, the nginx
+# vhost): db/new-faction.mjs and db/migrate.mjs. Ubuntu 24.04 ships Node 18,
+# which is too old — take Node 24 from NodeSource.
+NODE_MAJOR="${NODE_MAJOR:-24}"
+if command -v node >/dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge "$NODE_MAJOR" ] 2>/dev/null; then
+  log "Node already present — $(node --version)"
+else
+  log "Installing Node.js ${NODE_MAJOR}.x (NodeSource)"
+  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | sudo -E bash -
+  sudo apt-get install -y nodejs
+fi
+
+# ── 4. Swap ──────────────────────────────────────────────────────────────────
 # Hetzner images ship with none. The SPA image build (Vite/npm) can transiently
 # want 1–2 GB; on a 4 GB box beside someone else's services that is a real
 # OOM-kill risk. Swap is the cheap insurance.
@@ -69,10 +83,11 @@ else
     || echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf >/dev/null
 fi
 
-# ── 4. Report ────────────────────────────────────────────────────────────────
+# ── 5. Report ────────────────────────────────────────────────────────────────
 log "Provisioning complete"
 docker --version || true
 docker compose version || true
+node --version || true
 echo
 free -h
 echo

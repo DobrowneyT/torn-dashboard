@@ -258,7 +258,86 @@ sudo certbot --nginx -d forge.monchoon.me -d tnl.monchoon.me -d mayhem.monchoon.
 Requires the DNS records to already resolve to this box. Renewal is automatic
 (`certbot.timer`); confirm with `sudo certbot renew --dry-run`.
 
-## Phase 3 — Bring up the stack + provision the staging faction  _[pending]_
+## Phase 3 — Bring up the stack + provision the factions
+
+Repo lives at `~/torn/torn-forge-oc-system` on Duby.
+
+### 3.1 — Secrets and `.env`
+
+Generate real secrets — never reuse the examples. `KEY_ENCRYPTION_KEY` must be
+**exactly 32 bytes of hex** (64 chars) or the scrapers/ticker silently disarm.
+
+```bash
+cd ~/torn/torn-forge-oc-system/deploy
+cp .env.example .env
+python3 - <<'PY'
+import secrets, pathlib
+p = pathlib.Path('.env'); s = p.read_text()
+s = s.replace('POSTGRES_PASSWORD=change-me', f'POSTGRES_PASSWORD={secrets.token_hex(24)}')
+s = s.replace('JWT_SECRET=change-me-too',    f'JWT_SECRET={secrets.token_hex(32)}')
+s = s.replace('KEY_ENCRYPTION_KEY=',         f'KEY_ENCRYPTION_KEY={secrets.token_hex(32)}')
+s = s.replace('HTTP_BIND=0.0.0.0',           'HTTP_BIND=127.0.0.1')  # behind the host nginx
+p.write_text(s)
+print(s)
+PY
+chmod 600 .env
+```
+
+`HTTP_BIND=127.0.0.1` is the important one: the stack is then reachable only via
+the host nginx, never straight off the internet.
+
+### 3.2 — Boot the shared services
+
+```bash
+cd ~/torn/torn-forge-oc-system/deploy
+docker compose up -d --build postgres nginx
+docker compose ps
+```
+
+### 3.3 — Provision each faction (this IS the runbook from deploy/README.md)
+
+`db/new-faction.mjs` runs on the **host** (it writes `deploy/.env`, the compose
+override, and the nginx vhost), which is why Phase 1 installs Node.
+
+```bash
+cd ~/torn/torn-forge-oc-system
+npm ci --omit=dev --workspace @tnl/db     # pg + dotenv for the CLI
+
+node db/new-faction.mjs --slug forge  --name "TNL Forge"  --faction-id 10739 \
+  --leader-id 2250591 --admin-id 2250591
+node db/new-faction.mjs --slug tnl    --name "The Next Level" --faction-id 6731 \
+  --leader-id 2605556 --admin-id 2250591
+node db/new-faction.mjs --slug mayhem --name "<Mayhem's name>" --faction-id <ID> \
+  --leader-id <leader Torn ID> --admin-id 2250591
+```
+
+Each run creates the DB from `db/template.sql`, seeds it, provisions the scoped
+role `app_<slug>`, appends `DB_PASSWORD_<SLUG>` to `deploy/.env`, writes the
+`api-<slug>` block into `docker-compose.override.yml`, and emits
+`deploy/nginx/factions/<slug>.conf`. `--admin-id 2250591` keeps MonChoon a global
+admin on every tenant.
+
+### 3.4 — Bring up the faction APIs + rebuild nginx (bakes in the new vhosts)
+
+```bash
+cd ~/torn/torn-forge-oc-system/deploy
+docker compose up -d --build api-forge api-tnl api-mayhem nginx
+docker compose ps
+```
+
+### 3.5 — Prove it locally, BEFORE exposing it
+
+```bash
+curl -s -H 'Host: forge.monchoon.me'  http://127.0.0.1:8088/api/health
+curl -s -H 'Host: tnl.monchoon.me'    http://127.0.0.1:8088/api/health
+curl -s -H 'Host: mayhem.monchoon.me' http://127.0.0.1:8088/api/health
+# each → {"status":"ok","faction":"<slug>"}
+curl -s -H 'Host: forge.monchoon.me'  http://127.0.0.1:8088/api/health/ready
+# → {"status":"ok",...,"db":"up","scheduler":"armed","ticker":"armed"}
+curl -s -H 'Host: forge.monchoon.me'  http://127.0.0.1:8088/ | head -c 200   # the SPA
+```
+
+Only once these pass do we point the world at it (Phase 2.2/2.3).
 
 ## Phase 4 — Seed / restore data  _[pending]_
 
