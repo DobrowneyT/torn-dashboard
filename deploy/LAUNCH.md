@@ -264,27 +264,57 @@ Repo lives at `~/torn/torn-forge-oc-system` on Duby.
 
 ### 3.1 — Secrets and `.env`
 
-Generate real secrets — never reuse the examples. `KEY_ENCRYPTION_KEY` must be
-**exactly 32 bytes of hex** (64 chars) or the scrapers/ticker silently disarm.
+Generate the three secrets, **store them in a password manager**, then hand-fill
+`.env`. Nothing auto-generates them into a file you never read.
+
+```bash
+openssl rand -hex 24    # → POSTGRES_PASSWORD
+openssl rand -hex 32    # → JWT_SECRET
+openssl rand -hex 32    # → KEY_ENCRYPTION_KEY   (must be exactly 64 hex chars)
+```
+
+**Use hex, not a passphrase.** `POSTGRES_PASSWORD` is interpolated into a
+`DATABASE_URL` (`postgres://user:pass@postgres:5432/db`) *and* through docker
+compose variable substitution — `@ : / # ?` break the URL and `$` breaks compose.
+Hex sidesteps all of it.
+
+**Back up `KEY_ENCRYPTION_KEY` like it's irreplaceable, because it is.** It
+encrypts every member's Torn API key at rest; lose it and the whole key pool is
+undecryptable (every member has to re-enrol). Losing `JWT_SECRET` only forces a
+re-login; losing `POSTGRES_PASSWORD` is resettable.
 
 ```bash
 cd ~/torn/torn-forge-oc-system/deploy
 cp .env.example .env
-python3 - <<'PY'
-import secrets, pathlib
-p = pathlib.Path('.env'); s = p.read_text()
-s = s.replace('POSTGRES_PASSWORD=change-me', f'POSTGRES_PASSWORD={secrets.token_hex(24)}')
-s = s.replace('JWT_SECRET=change-me-too',    f'JWT_SECRET={secrets.token_hex(32)}')
-s = s.replace('KEY_ENCRYPTION_KEY=',         f'KEY_ENCRYPTION_KEY={secrets.token_hex(32)}')
-s = s.replace('HTTP_BIND=0.0.0.0',           'HTTP_BIND=127.0.0.1')  # behind the host nginx
-p.write_text(s)
-print(s)
-PY
+nano .env          # fill in the values below
 chmod 600 .env
 ```
 
-`HTTP_BIND=127.0.0.1` is the important one: the stack is then reachable only via
-the host nginx, never straight off the internet.
+```env
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=<YOUR_POSTGRES_PASSWORD>
+JWT_SECRET=<YOUR_JWT_SECRET>
+HTTP_PORT=8088
+HTTP_BIND=127.0.0.1
+POSTGRES_HOST_PORT=5432
+KEY_ENCRYPTION_KEY=<YOUR_KEY_ENCRYPTION_KEY>
+TORNSTATS_API_KEY=
+BSP_API_KEY=
+```
+
+`HTTP_BIND=127.0.0.1` is load-bearing: the stack binds to loopback, reachable
+only through the host nginx, never straight off the internet.
+
+Verify before booting — a wrong-length key **silently disarms** the scrapers and
+ticker rather than erroring (we've been bitten by this):
+
+```bash
+awk -F= '/^KEY_ENCRYPTION_KEY=/{print length($2)" chars (must be 64)"}' .env
+awk -F= '/^HTTP_BIND=/{print "bind: "$2" (must be 127.0.0.1)"}' .env
+```
+
+`.env` is gitignored — never commit it. `db/new-faction.mjs` will later *append*
+an auto-generated `DB_PASSWORD_<SLUG>` per faction, so back up the whole file.
 
 ### 3.2 — Boot the shared services
 
