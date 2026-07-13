@@ -5812,8 +5812,8 @@
       "end_at": null,
       "opponent_id": 30820,
       "opponent_name": "Wolverines Gone Wild",
-      "our_score": 12366,
-      "opponent_score": 5195,
+      "our_score": 16213,
+      "opponent_score": 5219,
       "target": 16700,
       "winner_faction_id": null,
       "forfeit": false,
@@ -215103,6 +215103,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-07-12T04:24:19.030421"
+    "last_updated": "2026-07-13T04:29:23.302367"
   }
 }
