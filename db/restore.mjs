@@ -20,6 +20,7 @@ import { parseArgs } from 'node:util'
 import { pipeline } from 'node:stream/promises'
 import dotenv from 'dotenv'
 import pg from 'pg'
+import { applyScopedGrants, roleNameForDb } from './grants.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const composeEnv = {}
@@ -30,6 +31,13 @@ const { values: args } = parseArgs({
     archive: { type: 'string' },
     db: { type: 'string' },
     create: { type: 'boolean' },
+    // Which scoped role to re-grant on the restored DB (#115). Dumps carry no
+    // privileges, so without this the API cannot read what we just restored.
+    // Defaults to app_<slug> derived from a `faction_<slug>` target; pass it
+    // explicitly when restoring into a scratch name (e.g. --db
+    // faction_forge_restore --role app_forge) so the API can boot against it.
+    role: { type: 'string' },
+    'no-grants': { type: 'boolean' },
   },
 })
 if (!args.archive || !args.db) {
@@ -75,16 +83,49 @@ if (code !== 0) {
   process.exit(1)
 }
 
-// Smoke check: a restored stack DB should have its tables and some rows.
+// Re-apply the scoped grants (#115). pg_dump --no-privileges carries none, so
+// without this the restored DB is unreadable by app_<slug> and the API cannot
+// boot against it — which made the old "restore drill" a false positive.
 const client = new pg.Client({ ...conn, database: args.db })
 await client.connect()
 try {
+  const roleName = args.role ?? roleNameForDb(args.db)
+  if (!args['no-grants']) {
+    if (!roleName) {
+      console.warn(
+        `Could not derive a scoped role from "${args.db}" — pass --role app_<slug> ` +
+        `(or --no-grants to skip). The API cannot read this DB until it is granted.`
+      )
+    } else {
+      const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [roleName])
+      if (exists.rowCount === 0) {
+        console.warn(`Role ${roleName} does not exist — run db/new-faction.mjs first, or pass --role.`)
+      } else {
+        await applyScopedGrants(client, { dbName: args.db, roleName })
+        console.log(`Re-applied scoped grants to ${roleName}.`)
+      }
+    }
+  }
+
+  // Smoke check: tables, identity, and — the part that actually matters —
+  // that the app role can read. A superuser check would pass on a DB the API
+  // cannot use at all.
   const tables = await client.query(
     `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'`
   )
   const cfg = await client.query(`SELECT slug, torn_faction_id FROM faction_config LIMIT 1`)
+  const readable = roleName
+    ? (await client.query(
+        `SELECT has_table_privilege($1, 'members', 'SELECT') AS ok`, [roleName]
+      )).rows[0].ok
+    : null
   console.log(`Restored ${args.db}: ${tables.rows[0].n} public tables; ` +
-    `faction_config = ${cfg.rows[0] ? `${cfg.rows[0].slug}/${cfg.rows[0].torn_faction_id}` : '(none)'}.`)
+    `faction_config = ${cfg.rows[0] ? `${cfg.rows[0].slug}/${cfg.rows[0].torn_faction_id}` : '(none)'}; ` +
+    `${roleName ?? '(no role)'} can read: ${readable}`)
+  if (roleName && !args['no-grants'] && readable !== true) {
+    console.error('Restored database is NOT readable by the app role — the API will not boot.')
+    process.exit(1)
+  }
 } finally {
   await client.end()
 }

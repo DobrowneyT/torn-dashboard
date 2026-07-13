@@ -95,9 +95,15 @@ jobs:
         cd deploy
         docker compose -f docker-compose.yml -f docker-compose.override.yml --project-directory . \
           run --build --rm backup node db/backup.mjs --out /backups
+        # --role app_forge: the scratch name would derive a non-existent
+        # app_forge_restore. restore.mjs re-applies the grants and FAILS if the
+        # app role still can't read — a dump carries no privileges, so without
+        # this a "successful" restore is a DB the API cannot boot against (#115).
         docker compose -f docker-compose.yml -f docker-compose.override.yml --project-directory . \
           run --rm backup sh -c \
-          'node db/restore.mjs --create --db faction_forge_restore --archive $(ls -1t /backups/faction_forge_*.sql.gz | head -1)'
+          'node db/restore.mjs --create --db faction_forge_restore --role app_forge --archive $(ls -1t /backups/faction_forge_*.sql.gz | head -1)' \
+          | tee /tmp/restore.log
+        grep -q 'app_forge can read: true' /tmp/restore.log
 
     - name: Show logs on failure
       if: failure()

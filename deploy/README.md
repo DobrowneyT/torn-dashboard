@@ -138,14 +138,24 @@ it. Run periodically (the roadmap calls for it once in staging):
 cd deploy
 # newest Forge archive → a throwaway DB (created fresh with --create)
 docker compose run --rm backup sh -c \
-  'node db/restore.mjs --create --db faction_forge_restore \
+  'node db/restore.mjs --create --db faction_forge_restore --role app_forge \
      --archive $(ls -1t /backups/faction_forge_*.sql.gz | head -1)'
 ```
 
-It restores with `ON_ERROR_STOP` and prints a smoke summary (table count +
-`faction_config`). To boot the stack against the restored copy, point a
-throwaway `api-*` service's `DATABASE_URL` at `faction_forge_restore` and hit
-`/api/health/ready`. Drop the scratch DB when done:
+**`--role` is not optional in spirit.** `pg_dump --no-privileges` carries *no*
+GRANT statements, so a freshly-restored database is unreadable by the
+`app_<slug>` role the API connects as — it would restore "successfully" and then
+fail to boot (#115). `restore.mjs` re-applies the scoped grants and **exits
+non-zero if the app role still cannot read**. When the target *is* the real
+`faction_<slug>` name the role is derived automatically; a scratch name like
+`faction_forge_restore` would derive a non-existent `app_forge_restore`, so name
+the real role explicitly.
+
+It restores with `ON_ERROR_STOP` and prints a smoke summary: table count,
+`faction_config`, and `app_forge can read: true`. To boot the stack against the
+restored copy, point a throwaway `api-*` service's `DATABASE_URL` at
+`faction_forge_restore` and hit `/api/health/ready`. Drop the scratch DB when
+done:
 `docker exec tnl-dashboard-postgres-1 psql -U postgres -c 'DROP DATABASE faction_forge_restore'`.
 
 ### Healthchecks & uptime monitoring
