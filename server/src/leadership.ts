@@ -1,6 +1,7 @@
 // Leadership tools: member-overview saved views/thresholds, tier overrides,
 // and inventory management. Purpose-built endpoints replace the old generic
 // arbitrary-table CRUD; visitors read everything, write nothing.
+import { TORN_API_COMMENT } from './tornComment.js'
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireNotVisitor, requireRole } from './authz.js'
@@ -201,7 +202,7 @@ export function registerLeadershipRoutes(app: FastifyInstance, deps: LeadershipD
     if (!claimed) return reply.status(503).send({ error: EMPTY_POOL_MESSAGE })
     const config = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
     const factionId = config.rows[0].torn_faction_id
-    const url = `${deps.tornBaseUrl}/faction/${factionId}?selections=${INVENTORY_CATEGORIES.join(',')}&key=${claimed.key}&comment=TNL-Inventory-Sync`
+    const url = `${deps.tornBaseUrl}/faction/${factionId}?selections=${INVENTORY_CATEGORIES.join(',')}&key=${claimed.key}&comment=${encodeURIComponent(TORN_API_COMMENT)}`
     const res = await fetch(url)
     const data = (await res.json()) as Record<string, any>
     if (data.error) {

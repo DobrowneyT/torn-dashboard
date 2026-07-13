@@ -63,6 +63,8 @@ export interface TestStack {
     /** Serve a computed payload for an exact pathname (gets the request URL). */
     setHandler(pathname: string, handler: (url: URL) => unknown): void
     hits(): number
+    /** The `comment` param of every request so far (null where absent). */
+    comments(): Array<string | null>
   }
   close(): Promise<void>
 }
@@ -123,9 +125,13 @@ export async function startTestStack(
   const pathPayloads = new Map<string, unknown>()
   const pathHandlers = new Map<string, (url: URL) => unknown>()
   let hitCount = 0
+  // Every request's `comment` param (null when absent) — Torn surfaces this in
+  // each member's API-usage log, so key donors can see what used their key.
+  const seenComments: Array<string | null> = []
   const torn: Server = createServer((req, res) => {
     hitCount += 1
     const url = new URL(req.url ?? '/', 'http://fixture')
+    seenComments.push(url.searchParams.get('comment'))
     res.setHeader('content-type', 'application/json')
     // Custom handlers win over the built-in routes so tests can override
     // the crimes endpoint with parameterized (pagination) behavior.
@@ -206,6 +212,7 @@ export async function startTestStack(
       setPath: (pathname, payload) => pathPayloads.set(pathname, payload),
       setHandler: (pathname, handler) => pathHandlers.set(pathname, handler),
       hits: () => hitCount,
+      comments: () => [...seenComments],
     },
     close: async () => {
       await app.close()

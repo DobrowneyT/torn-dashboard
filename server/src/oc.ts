@@ -1,5 +1,6 @@
 // OC read surface: crimes history, slots, roster lookup, faction OC policy,
 // live Torn crimes proxy, and the role-gated planner bundle.
+import { TORN_API_COMMENT } from './tornComment.js'
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireAuth, requireRole } from './authz.js'
@@ -22,7 +23,7 @@ async function fetchLiveCrimes(deps: OcDeps): Promise<
   url.searchParams.set('cat', 'available')
   url.searchParams.set('sort', 'ASC')
   url.searchParams.set('key', claimed.key)
-  url.searchParams.set('comment', 'TNL_OC')
+  url.searchParams.set('comment', TORN_API_COMMENT)
   let data: any
   try {
     const resp = await fetch(url)
