@@ -6,8 +6,9 @@ is run, confirmed, then written down here with the real output. Target for this
 first pass is a **staging** deployment (a shared VPS, a test domain) — not the
 production cutover.
 
-> **Status:** in progress. Phase 0 (recon) is the only validated section so far.
-> Later phases are outlines until we run them.
+> **Status:** Phases 0–3 validated on `Duby` (2026-07-13) — all three tenants
+> (forge, tnl, mayhem) build, boot healthy, and answer on `127.0.0.1:8088`.
+> Phase 4 (exposing it publicly) is next; Phases 5+ are outlines.
 
 ## Context
 
@@ -27,9 +28,12 @@ production cutover.
 - [ ] Friend has **agreed** we can install/run Docker containers, use disk/RAM,
       and add reverse-proxy routes + subdomains.
 - [ ] You have **SSH access** to the VPS (and know whether you have `sudo`).
-- [ ] `monchoon.tech` is yours and you can **edit its DNS records** (or a
-      delegated subdomain like `*.torn.monchoon.tech`).
+- [ ] `monchoon.me` is yours and you can **edit its DNS records** (Namecheap →
+      Advanced DNS).
 - [ ] A Torn API key or two to seed the pool for the staging faction.
+- [ ] Faction ID + leader's Torn user ID for each tenant. Used here:
+      forge `10739` (leader 2250591), tnl `6731` (leader 2605556),
+      mayhem `525` (leader 14297). MonChoon (`2250591`) is admin on all three.
 
 ---
 
@@ -163,12 +167,12 @@ free -h                          # swap now shows 4.0Gi
 
 ```bash
 sudo apt-get install -y git
-git clone https://github.com/DobrowneyT/torn-forge-oc-system.git
+git clone git@github.com:DobrowneyT/torn-forge-oc-system.git   # or https://
 cd torn-forge-oc-system
-git checkout dev                 # the migration lives on dev until cutover
+git checkout docs/hetzner-launch   # carries HTTP_BIND + this runbook (merges to dev later)
 ```
 
-## Phase 2 — Networking & TLS (reverse proxy, cert, DNS)  _[pending 0.4]_
+## Phase 2 — DNS
 
 ### DNS (done first — propagation takes time)
 
@@ -192,71 +196,17 @@ Verify:
 dig +short forge.monchoon.me tnl.monchoon.me mayhem.monchoon.me   # → 5.161.91.183 ×3
 ```
 
-### 2.1 — Recon the existing host nginx first (read-only)
+### 2.1 — Existing host nginx (validated 2026-07-13)
 
-We're adding server blocks to a config that already serves someone else's apps.
-Look before writing:
+nginx 1.24.0, `sites-enabled/`:
 
-```bash
-nginx -v
-ls -l /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null
-sudo nginx -T 2>/dev/null | grep -E 'server_name|listen|root|proxy_pass|default_server'
-```
+- `default` — `listen 80 default_server`, `server_name _`, root `/var/www/html`
+- `torn-armory` — `listen 80`, `server_name 5.161.91.183`, `proxy_pass http://localhost:3000`
 
-What matters: whether any block is a `default_server` (it will catch our
-hostnames until ours exist), and which ports/names are already claimed.
-
-### 2.2 — Front-door vhost (after the stack is up in Phase 3)
-
-One server block per faction, all proxying to the Docker nginx on loopback and
-**preserving the Host header** (that's what selects the tenant downstream).
-Written to `/etc/nginx/sites-available/tnl-dashboard` and symlinked into
-`sites-enabled/`. WebSocket upgrade headers are required — the war room is a
-WebSocket app.
-
-```nginx
-# /etc/nginx/sites-available/tnl-dashboard
-server {
-    listen 80;
-    listen [::]:80;
-    server_name forge.monchoon.me tnl.monchoon.me mayhem.monchoon.me;
-
-    location / {
-        proxy_pass http://127.0.0.1:8088;
-        proxy_http_version 1.1;
-
-        # The tenant is selected downstream by Host — it must survive the hop.
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # War room is a WebSocket app.
-        proxy_set_header Upgrade    $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/tnl-dashboard /etc/nginx/sites-enabled/
-sudo nginx -t          # MUST pass — this config also serves the friend's apps
-sudo systemctl reload nginx
-```
-
-### 2.3 — TLS (certbot, HTTP-01)
-
-Port 443 is currently empty, so we're *adding* HTTPS, not migrating it. certbot
-edits only the vhosts named with `-d` and leaves the friend's blocks alone.
-
-```bash
-sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d forge.monchoon.me -d tnl.monchoon.me -d mayhem.monchoon.me
-```
-
-Requires the DNS records to already resolve to this box. Renewal is automatic
-(`certbot.timer`); confirm with `sudo certbot renew --dry-run`.
+**No conflict.** nginx matches `server_name` against the Host header first;
+`default_server` only catches hostnames no block claims. Our
+`forge/tnl/mayhem.monchoon.me` blocks win by name, and raw-IP requests keep
+going to torn-armory. We add a file and touch neither of theirs.
 
 ## Phase 3 — Bring up the stack + provision the factions
 
@@ -367,12 +317,129 @@ curl -s -H 'Host: forge.monchoon.me'  http://127.0.0.1:8088/api/health/ready
 curl -s -H 'Host: forge.monchoon.me'  http://127.0.0.1:8088/ | head -c 200   # the SPA
 ```
 
-Only once these pass do we point the world at it (Phase 2.2/2.3).
+Only once these pass do we point the world at it (Phase 4).
 
-## Phase 4 — Seed / restore data  _[pending]_
+**Validated 2026-07-13** — all three tenants built, booted `(healthy)`, and
+answered:
 
-## Phase 5 — Validation (health, readiness, war room, backups)  _[pending]_
+```
+{"status":"ok","faction":"forge"}
+{"status":"ok","faction":"tnl"}
+{"status":"ok","faction":"mayhem"}
+{"status":"ok","faction":"forge","db":"up","scheduler":"armed","ticker":"armed"}
+<!DOCTYPE html> …the SPA…
+```
 
-## Phase 6 — Stress test (4 tickers + ~400 WS clients)  _[pending]_
+Note the ordering that made this work: **provision every faction before the
+final `nginx` build.** The faction vhosts (`deploy/nginx/factions/<slug>.conf`)
+are baked into the nginx image at build time, so a faction added *after* the
+last nginx build won't route until nginx is rebuilt.
 
-## Phase 7 — Monitoring (UptimeRobot) + off-site backups (B2)  _[pending]_
+## Phase 4 — Expose it (host nginx front door + TLS)
+
+The stack answers on `127.0.0.1:8088`. Now we let the world reach it.
+
+### 4.0 — Is inbound 443 actually open?
+
+Port 443 has never been used on this box, so it may be closed at the host
+firewall **or** at the Hetzner Cloud Firewall (a separate layer, in the Hetzner
+console → the server → *Firewalls*). certbot's HTTP-01 challenge only needs
+port 80, so a cert will issue fine even if 443 is blocked — and then HTTPS just
+won't load. Check both before blaming nginx:
+
+```bash
+sudo ufw status            # 'inactive' is fine; if active, 443/tcp must be allowed
+```
+Plus Hetzner console → Firewalls: if a firewall is attached, it needs an inbound
+rule for **TCP 443** (and 80).
+
+### 4.1 — The front-door vhost
+
+One block for all three hostnames, proxying to the Docker nginx on loopback.
+Two things are load-bearing:
+
+1. **`proxy_set_header Host $host`** — the tenant is selected *downstream* by
+   Host header (`server_name <slug>.*`). Drop it and every request lands on the
+   default tenant.
+2. **WebSocket upgrade headers** — the war room is a WebSocket app; without
+   these the live ticker silently fails to connect.
+
+The `map` variable is deliberately named `$tnl_connection_upgrade` rather than
+the conventional `$connection_upgrade`: the friend's config may already define
+that name, and a duplicate `map` is a fatal config error.
+
+```nginx
+# /etc/nginx/sites-available/tnl-dashboard
+map $http_upgrade $tnl_connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name forge.monchoon.me tnl.monchoon.me mayhem.monchoon.me;
+
+    client_max_body_size 10m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_http_version 1.1;
+
+        # The tenant is selected downstream by Host — it must survive the hop.
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # War room = WebSockets.
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $tnl_connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/tnl-dashboard /etc/nginx/sites-enabled/
+sudo nginx -t                     # MUST pass — this config also serves the friend's apps
+sudo systemctl reload nginx       # reload, not restart: no dropped connections
+```
+
+Verify over plain HTTP from your laptop before adding TLS:
+
+```bash
+curl -s http://forge.monchoon.me/api/health;  echo   # {"status":"ok","faction":"forge"}
+curl -s http://tnl.monchoon.me/api/health;    echo
+curl -s http://mayhem.monchoon.me/api/health; echo
+```
+
+### 4.2 — TLS (certbot, HTTP-01)
+
+Port 443 was empty, so we're *adding* HTTPS rather than migrating it — small
+blast radius. certbot only edits the block whose `server_name` matches the `-d`
+names, leaving the friend's vhosts alone.
+
+```bash
+sudo apt-get install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d forge.monchoon.me -d tnl.monchoon.me -d mayhem.monchoon.me
+```
+
+It will ask for an email, ToS agreement, and whether to redirect HTTP→HTTPS —
+**choose redirect**. Then confirm renewal works:
+
+```bash
+sudo certbot renew --dry-run      # renewal is automatic via certbot.timer
+curl -s https://forge.monchoon.me/api/health; echo
+```
+
+Browse **https://forge.monchoon.me** — log in with a Torn API key.
+
+## Phase 5 — Seed / restore data  _[pending]_
+
+## Phase 6 — Validation (health, readiness, war room, backups)  _[pending]_
+
+## Phase 7 — Stress test (4 tickers + ~400 WS clients)  _[pending]_
+
+## Phase 8 — Monitoring (UptimeRobot) + off-site backups (B2)  _[pending]_
