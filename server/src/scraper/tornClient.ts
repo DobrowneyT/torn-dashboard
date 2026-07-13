@@ -1,6 +1,7 @@
 // Rate-limited Torn API client. One client per faction process; the budget
 // is shared across every job in the process (per-pool budget), so parallel
 // scrapers can't blow through Torn's per-key limits collectively.
+import { withTornAuth } from '../tornComment.js'
 
 export interface TornClientOptions {
   baseUrl: string
@@ -49,8 +50,7 @@ export function createTornClient({ baseUrl, budget }: TornClientOptions) {
      */
     async fetch(path: string, key: string): Promise<any> {
       await acquire()
-      const sep = path.includes('?') ? '&' : '?'
-      const res = await fetch(`${baseUrl}${path}${sep}key=${key}&comment=TNL-Scraper`)
+      const res = await fetch(withTornAuth(`${baseUrl}${path}`, key))
       const data = (await res.json()) as any
       if (data?.error) throw new TornApiError(Number(data.error.code), String(data.error.error))
       return data
