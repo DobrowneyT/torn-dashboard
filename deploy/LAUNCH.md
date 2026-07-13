@@ -93,8 +93,38 @@ curl -sS -o /dev/null -w 'api.torn.com -> %{http_code}\n' https://api.torn.com
 | Access | user `monchoon`, in `sudo` group, **password required** (no passwordless sudo) |
 | **Docker** | **not installed** — must install, see Phase 1 |
 | Outbound to Torn | `api.torn.com -> 301` ✅ (301 is Torn's redirect; HTTPS egress works) |
-| Ports 80/443/5432 | _pending — see 0.4_ |
+| **Port 80** | **taken** — host `nginx` (systemd, `/usr/sbin/nginx`), IPv4+IPv6 |
+| **Port 443** | **free** — nothing serves HTTPS on this box today |
+| Ports 5432 / 8080 / 8088 | free — no host Postgres to collide with |
+| Also running | `mug-bot.service` (our own sibling project!), `pm2-root` (Node apps behind that nginx) |
 | Pending OS updates | 47 updates + "restart required" — **coordinate with the friend; not ours to reboot** |
+
+### Decision: the host nginx is the public front door
+
+We do **not** contest port 80. The existing systemd nginx fronts everything; our
+Docker stack listens only on loopback behind it.
+
+```
+Internet :80/:443
+      │
+   host nginx (systemd — already serving the friend's apps)
+      │   + new server blocks: forge/tnl/mayhem.monchoon.me
+      │   + TLS terminated here (certbot)
+      ▼
+ 127.0.0.1:8088   ← our Docker nginx (HTTP_BIND=127.0.0.1, not internet-facing)
+      │   routes by Host header (server_name <slug>.*)
+      ▼
+ api-forge / api-tnl / api-mayhem containers
+```
+
+Why: zero disruption to the friend's vhosts; certbot's HTTP-01 challenge needs
+port 80, which host nginx already owns, so TLS needs no DNS-01 plumbing or
+registrar API token; and binding our stack to loopback means it is unreachable
+from the internet except through the front door. Port 443 being empty means we
+*add* HTTPS rather than migrate it — small blast radius.
+
+`deploy/docker-compose.yml` gained an `HTTP_BIND` var for exactly this
+(`0.0.0.0` default for local dev, `127.0.0.1` on the VPS).
 
 **Verdict: the box is sufficient.** The stack needs ~1.5–2 GB, landing us near
 2–2.5 GB of 3.7 GB alongside the friend's ~650 MB. 3 vCPU comfortably covers 4
@@ -162,7 +192,71 @@ Verify:
 dig +short forge.monchoon.me tnl.monchoon.me mayhem.monchoon.me   # → 5.161.91.183 ×3
 ```
 
-_(TLS strategy is chosen once 0.4 tells us whether 80/443 are free.)_
+### 2.1 — Recon the existing host nginx first (read-only)
+
+We're adding server blocks to a config that already serves someone else's apps.
+Look before writing:
+
+```bash
+nginx -v
+ls -l /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null
+sudo nginx -T 2>/dev/null | grep -E 'server_name|listen|root|proxy_pass|default_server'
+```
+
+What matters: whether any block is a `default_server` (it will catch our
+hostnames until ours exist), and which ports/names are already claimed.
+
+### 2.2 — Front-door vhost (after the stack is up in Phase 3)
+
+One server block per faction, all proxying to the Docker nginx on loopback and
+**preserving the Host header** (that's what selects the tenant downstream).
+Written to `/etc/nginx/sites-available/tnl-dashboard` and symlinked into
+`sites-enabled/`. WebSocket upgrade headers are required — the war room is a
+WebSocket app.
+
+```nginx
+# /etc/nginx/sites-available/tnl-dashboard
+server {
+    listen 80;
+    listen [::]:80;
+    server_name forge.monchoon.me tnl.monchoon.me mayhem.monchoon.me;
+
+    location / {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_http_version 1.1;
+
+        # The tenant is selected downstream by Host — it must survive the hop.
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # War room is a WebSocket app.
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/tnl-dashboard /etc/nginx/sites-enabled/
+sudo nginx -t          # MUST pass — this config also serves the friend's apps
+sudo systemctl reload nginx
+```
+
+### 2.3 — TLS (certbot, HTTP-01)
+
+Port 443 is currently empty, so we're *adding* HTTPS, not migrating it. certbot
+edits only the vhosts named with `-d` and leaves the friend's blocks alone.
+
+```bash
+sudo apt-get install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d forge.monchoon.me -d tnl.monchoon.me -d mayhem.monchoon.me
+```
+
+Requires the DNS records to already resolve to this box. Renewal is automatic
+(`certbot.timer`); confirm with `sudo certbot renew --dry-run`.
 
 ## Phase 3 — Bring up the stack + provision the staging faction  _[pending]_
 

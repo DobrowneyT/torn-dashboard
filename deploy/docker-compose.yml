@@ -31,7 +31,10 @@ services:
       context: ..
       dockerfile: deploy/nginx.Dockerfile
     ports:
-      - "${HTTP_PORT:-8088}:80"
+      # HTTP_BIND=127.0.0.1 when a host reverse proxy fronts us (the Hetzner
+      # deployment): the stack is then reachable only through that proxy, never
+      # straight off the internet. Defaults to all interfaces for local dev.
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-8088}:80"
     restart: unless-stopped
 
   # Nightly per-faction backups (#76). Opt-in bring-up (like the scrapers):
