@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import dotenv from 'dotenv'
 import pg from 'pg'
+import { applyScopedGrants } from './grants.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -157,16 +158,9 @@ try {
     console.error(`Role ${roleName} already exists — refusing to touch it`)
     process.exit(2)
   }
-  // Identifiers are validated by the slug regex; passwords via literal quoting.
-  await db.query(`CREATE ROLE ${roleName} LOGIN PASSWORD '${password}'`)
-  await db.query(`REVOKE CONNECT ON DATABASE ${dbName} FROM PUBLIC`)
-  await db.query(`GRANT CONNECT ON DATABASE ${dbName} TO ${roleName}`)
-  await db.query(`GRANT USAGE ON SCHEMA public TO ${roleName}`)
-  await db.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${roleName}`)
-  await db.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${roleName}`)
-  // Future tables from db/migrate.mjs (run as the admin user) stay reachable.
-  await db.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${roleName}`)
-  await db.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${roleName}`)
+  // Shared with db/restore.mjs — a restored DB has no grants (dumps carry none)
+  // and must be able to get them back without recreating the role (#115).
+  await applyScopedGrants(db, { dbName, roleName, password })
 
   // The credential lives in the deploy env file; compose interpolates it
   // into this faction's DATABASE_URL. Never printed. A hand-edited .env may
