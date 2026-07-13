@@ -1,6 +1,7 @@
 // Torn-key login: verify against the Torn key-info endpoint (24h cached by
 // key hash, raw keys never stored), resolve roles from the faction database,
 // mint the API-signed 4h session JWT with the established claim shape.
+import { TORN_API_COMMENT } from './tornComment.js'
 import { createHash } from 'node:crypto'
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose'
 import type pg from 'pg'
@@ -95,6 +96,7 @@ async function verifyTornKey(deps: AuthDeps, apiKey: string): Promise<
   try {
     const url = new URL('/v2/key/info', deps.tornBaseUrl)
     url.searchParams.set('key', apiKey)
+    url.searchParams.set('comment', TORN_API_COMMENT)
     const resp = await fetch(url)
     if (!resp.ok) return { ok: false, status: 502, error: 'Failed to verify API key' }
     data = await resp.json()
@@ -171,6 +173,7 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
         try {
           const url = new URL('/v2/user/basic', deps.tornBaseUrl)
           url.searchParams.set('key', apiKey)
+          url.searchParams.set('comment', TORN_API_COMMENT)
           const basic: any = await (await fetch(url)).json()
           if (typeof basic?.basic?.name === 'string') name = basic.basic.name
         } catch {
