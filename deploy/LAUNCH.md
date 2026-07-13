@@ -436,6 +436,23 @@ curl -s https://forge.monchoon.me/api/health; echo
 
 Browse **https://forge.monchoon.me** — log in with a Torn API key.
 
+**Validated 2026-07-13 — the stack is LIVE.**
+
+- `ufw` already allowed 22/80/443 (plus 3001 for mug-bot); no firewall change needed.
+- `nginx -t` passed against the friend's existing config; reload was clean.
+- Cert issued for all three names, deployed into `sites-enabled/tnl-dashboard`,
+  expiring 2026-10-11; `certbot renew --dry-run` succeeded (auto-renew armed via
+  `certbot.timer`).
+- All three answer over HTTPS, and **the war room runs with no browser errors** —
+  the WebSocket upgrade survives both proxy hops (host nginx → Docker nginx →
+  API), which was the one thing most likely to break.
+
+```
+https://forge.monchoon.me/api/health  → {"status":"ok","faction":"forge"}
+https://tnl.monchoon.me/api/health    → {"status":"ok","faction":"tnl"}
+https://mayhem.monchoon.me/api/health → {"status":"ok","faction":"mayhem"}
+```
+
 ## Phase 5 — Seed / restore data  _[pending]_
 
 ## Phase 6 — Validation (health, readiness, war room, backups)  _[pending]_
