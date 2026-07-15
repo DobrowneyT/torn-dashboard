@@ -4,7 +4,7 @@
 // by the compose E2E against a real postgres:17 (embedded-postgres ships no
 // pg_dump), not here.
 import { describe, it, expect } from 'vitest'
-import { factionDbsFromRows, backupName, parseBackup, selectExpired } from '../backupLib.mjs'
+import { factionDbsFromRows, backupName, parseBackup, selectExpired, remotePruneArgs } from '../backupLib.mjs'
 
 describe('factionDbsFromRows', () => {
   it('keeps only faction_* databases and derives the slug', () => {
@@ -31,6 +31,21 @@ describe('backupName / parseBackup', () => {
 
   it('returns null time for names that are not backup archives', () => {
     expect(parseBackup('not-a-backup.txt').at).toBeNull()
+  })
+})
+
+describe('remotePruneArgs — remote retention is scoped to OUR archives (#117)', () => {
+  it('deletes only past-retention faction archives, never other files in the remote', () => {
+    const args = remotePruneArgs('b2:tnl-backups', 14)
+    expect(args[0]).toBe('delete')
+    expect(args[args.length - 1]).toBe('b2:tnl-backups')
+    // Retention window: rclone's --min-age selects files OLDER than the age.
+    expect(args).toContain('--min-age')
+    expect(args[args.indexOf('--min-age') + 1]).toBe('14d')
+    // The safety scope: a shared or dirty bucket path must never lose foreign
+    // files to our prune — only names shaped like our archives qualify.
+    expect(args).toContain('--include')
+    expect(args[args.indexOf('--include') + 1]).toBe('faction_*.sql.gz')
   })
 })
 

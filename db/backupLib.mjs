@@ -35,6 +35,16 @@ export function parseBackup(name) {
 }
 
 /**
+ * rclone argv for pruning the OFF-SITE copies (#117). Scoped with --include so
+ * a shared or dirty bucket path can never lose foreign files to our retention
+ * sweep — only names shaped like our archives qualify, and only those older
+ * than the window (rclone --min-age selects files OLDER than the given age).
+ */
+export function remotePruneArgs(remote, retentionDays) {
+  return ['delete', '--min-age', `${retentionDays}d`, '--include', 'faction_*.sql.gz', remote]
+}
+
+/**
  * Names to prune: our archives strictly older than `retentionDays` before
  * `now`. Non-archive files are never selected. The boundary day is kept.
  */

@@ -611,4 +611,73 @@ issues: load behaviour under #116, off-site backups + alerting under #117.
 
 ## Phase 7 — Stress test (4 tickers + ~400 WS clients) — **issue #116**
 
-## Phase 8 — Monitoring (UptimeRobot) + off-site backups (B2) — **issue #117**
+## Phase 8 — Off-site backups (B2) + monitoring (UptimeRobot) — issue #117
+
+The machinery shipped in slice #76; this wires it to the real world. The whole
+rclone path (upload, **scoped** retention that can never touch foreign files,
+restore-from-remote) is proven in CI on every PR against a local-dir rclone
+remote — the only untested part left is the B2 credential itself.
+
+### 8.1 — Backblaze B2 (operator steps)
+
+1. Create a B2 account → **Buckets → Create a Bucket** — name e.g.
+   `tnl-dashboard-backups`, **private**.
+2. **App Keys → Add a New Application Key** — scope it to that bucket,
+   read+write. Note the `keyID` and `applicationKey` (shown once).
+3. Append to `deploy/.env` on the server (rclone reads its config straight
+   from env vars — no config file):
+
+```env
+RCLONE_REMOTE=b2:tnl-dashboard-backups
+RCLONE_CONFIG_B2_TYPE=b2
+RCLONE_CONFIG_B2_ACCOUNT=<keyID>
+RCLONE_CONFIG_B2_KEY=<applicationKey>
+```
+
+4. Recreate the sidecar and watch a run upload:
+
+```bash
+cd ~/torn/torn-forge-oc-system/deploy
+docker compose --profile backup up -d --build backup
+docker compose run --rm backup node db/backup.mjs --out /backups   # on-demand run
+docker compose run --rm backup rclone lsf "$RCLONE_REMOTE" --include 'faction_*.sql.gz'
+```
+
+Retention: local copies and B2 copies are both pruned past
+`BACKUP_RETENTION_DAYS` (14). The remote sweep is `--include`-scoped to our
+archive names, so nothing else in the bucket can ever be deleted by it.
+
+### 8.2 — Restore drill from the B2 copy
+
+An untested backup is not a backup. Quarterly (or after any infra change),
+prove the OFF-SITE copy restores — not just the local one:
+
+```bash
+cd ~/torn/torn-forge-oc-system/deploy
+docker compose run --rm backup sh -c '
+  NAME=$(rclone lsf "$RCLONE_REMOTE" --include "faction_forge_*.sql.gz" | sort | tail -1)
+  rclone copy "$RCLONE_REMOTE/$NAME" /tmp/from-b2/
+  node db/restore.mjs --create --db faction_forge_b2drill --role app_forge --archive "/tmp/from-b2/$NAME"
+'
+# expect: "…app_forge can read: true", then clean up:
+docker exec tnl-dashboard-postgres-1 psql -U postgres -c 'DROP DATABASE faction_forge_b2drill'
+```
+
+### 8.3 — UptimeRobot (operator steps)
+
+`/api/health/ready` is built for exactly this: it checks live DB connectivity
+per faction and answers **503** when the DB is down (a plain down-host also
+fails the check). Free tier, ~5-minute interval:
+
+1. uptimerobot.com → **Add New Monitor**, type **HTTP(s)** — one per tenant:
+   - `https://forge.monchoon.me/api/health/ready`
+   - `https://tnl.monchoon.me/api/health/ready`
+   - `https://mayhem.monchoon.me/api/health/ready`
+2. Optionally make each a **Keyword** monitor asserting `"status":"ok"`
+   exists — catches a 200-but-degraded response too.
+3. Alert contact: your email (and/or a Discord webhook via the integrations).
+
+What this covers end-to-end: DNS, TLS/cert expiry, the host nginx, our nginx,
+the per-faction API, and its DB connection. What it can't see: scraper-job
+failures (Global Admin → recent runs) and backup-run failures
+(`docker compose logs backup`).
