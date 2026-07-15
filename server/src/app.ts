@@ -3,6 +3,7 @@ import type pg from 'pg'
 import {
   factionIdentity,
   loginWithTornKey,
+  refreshSession,
   rolesFromClaims,
   verifySessionToken,
   type AuthDeps,
@@ -101,6 +102,19 @@ export async function buildServer(
         return reply.status(400).send({ error: 'apiKey is required' })
       }
       const result = await loginWithTornKey(deps, apiKey.trim())
+      if (!result.ok) return reply.status(result.status).send({ error: result.error })
+      return { token: result.token, expires_at: result.expiresAt }
+    })
+
+    // Silent session renewal (#119). Reads the raw header itself: the
+    // onRequest hook above deliberately drops STALE tokens (that's the 24h
+    // gate), but a stale-yet-unexpired token is exactly what refresh is for.
+    app.post('/api/auth/refresh', async (req, reply) => {
+      const header = req.headers.authorization
+      if (!header?.startsWith('Bearer ')) {
+        return reply.status(401).send({ error: 'Session expired — please log in again' })
+      }
+      const result = await refreshSession(deps, header.slice('Bearer '.length))
       if (!result.ok) return reply.status(result.status).send({ error: result.error })
       return { token: result.token, expires_at: result.expiresAt }
     })

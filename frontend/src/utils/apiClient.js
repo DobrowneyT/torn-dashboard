@@ -45,12 +45,53 @@ export async function apiLogin(apiKey) {
   return { ok: true, ...body }
 }
 
+/**
+ * Silent session renewal (#119). Sessions live 30 days but only act for 24h
+ * from their last verification; this swaps the stored token for a fresh one
+ * (the server re-checks roster/roles — kicked members get a 403 here).
+ * `transient: true` marks network failures, which callers must NOT treat as
+ * a revoked session.
+ */
+export async function apiRefresh() {
+  const session = getApiSession()
+  if (!session) return { ok: false, status: 401, error: 'No session' }
+  let res
+  try {
+    res = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${session.token}` },
+    })
+  } catch {
+    return { ok: false, transient: true, error: 'Network error during session refresh' }
+  }
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) return { ok: false, status: res.status, error: body.error ?? `Refresh failed (${res.status})` }
+  storeApiSession({ token: body.token, expires_at: body.expires_at })
+  return { ok: true, ...body }
+}
+
+// One shared request path: on a 401 (the 24h freshness gate), silently refresh
+// once and retry, so an open tab never bounces the user to the login screen
+// while their 30-day session is still good.
+async function authorizedFetch(path, init = {}) {
+  const attempt = () => {
+    const session = getApiSession()
+    return fetch(path, {
+      ...init,
+      headers: {
+        ...(init.headers ?? {}),
+        ...(session ? { authorization: `Bearer ${session.token}` } : {}),
+      },
+    })
+  }
+  let res = await attempt()
+  if (res.status === 401 && (await apiRefresh()).ok) res = await attempt()
+  return res
+}
+
 /** Authorized GET against the faction API. Throws with the server's error message. */
 export async function apiGet(path) {
-  const session = getApiSession()
-  const res = await fetch(path, {
-    headers: session ? { authorization: `Bearer ${session.token}` } : {},
-  })
+  const res = await authorizedFetch(path)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.error ?? `API error ${res.status}`)
@@ -60,13 +101,9 @@ export async function apiGet(path) {
 
 /** Authorized POST against the faction API. Throws with the server's error message. */
 export async function apiPost(path, payload) {
-  const session = getApiSession()
-  const res = await fetch(path, {
+  const res = await authorizedFetch(path, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(session ? { authorization: `Bearer ${session.token}` } : {}),
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   })
   const body = await res.json().catch(() => ({}))
@@ -76,13 +113,9 @@ export async function apiPost(path, payload) {
 
 /** Authorized PUT against the faction API. Throws with the server's error message. */
 export async function apiPut(path, payload) {
-  const session = getApiSession()
-  const res = await fetch(path, {
+  const res = await authorizedFetch(path, {
     method: 'PUT',
-    headers: {
-      'content-type': 'application/json',
-      ...(session ? { authorization: `Bearer ${session.token}` } : {}),
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   })
   const body = await res.json().catch(() => ({}))
@@ -92,11 +125,7 @@ export async function apiPut(path, payload) {
 
 /** Authorized DELETE against the faction API. Throws with the server's error message. */
 export async function apiDelete(path) {
-  const session = getApiSession()
-  const res = await fetch(path, {
-    method: 'DELETE',
-    headers: session ? { authorization: `Bearer ${session.token}` } : {},
-  })
+  const res = await authorizedFetch(path, { method: 'DELETE' })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error ?? `API error ${res.status}`)
   return body

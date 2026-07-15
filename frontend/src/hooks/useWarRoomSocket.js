@@ -16,7 +16,7 @@
  *     isInitialLoading, lastTick, pollError, pollNow }
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { API_MODE, getApiSession, apiGet } from '../utils/apiClient'
+import { API_MODE, getApiSession, apiGet, apiRefresh } from '../utils/apiClient'
 import { useWarRoomPoll } from './useWarRoomPoll'
 
 const RECONNECT_BASE_MS = 1000
@@ -172,12 +172,20 @@ function useWarRoomSocketImpl({ enabled = true, ourFactionId }) {
         reconnectDelay = RECONNECT_BASE_MS
         stopFallback()
       }
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (!alive) return
         // Keep the board alive over REST while we reconnect with backoff.
         startFallback()
-        reconnectTimer = setTimeout(connect, reconnectDelay)
-        reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS)
+        // 4401 = auth rejected. With remember-me sessions (#119) that usually
+        // means the token aged past its 24h freshness window mid-session —
+        // silently refresh it so the next attempt connects, instead of
+        // hammering the handshake with the same stale token.
+        const next = () => {
+          reconnectTimer = setTimeout(connect, reconnectDelay)
+          reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS)
+        }
+        if (event?.code === 4401) apiRefresh().finally(next)
+        else next()
       }
       ws.onerror = () => { try { ws.close() } catch { /* noop */ } }
     }

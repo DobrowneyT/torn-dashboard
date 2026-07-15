@@ -11,7 +11,13 @@ export const ROLES = ['admin', 'leadership', 'warlead', 'ocmanager', 'visitor'] 
 export type Role = (typeof ROLES)[number]
 
 const AUTH_CACHE_TTL_MS = 24 * 60 * 60 * 1000
-const SESSION_TTL_SECONDS = 4 * 60 * 60
+// Remember-me sessions (#119): the token LIVES 30 days but only ACTS for 24h
+// from its last verification — protected surfaces reject older ones, and the
+// SPA silently exchanges a stale token via POST /api/auth/refresh, which
+// re-checks the member server-side. Login once; kicked members still lose
+// access within a day; raw keys never persist in the browser.
+const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
+const SESSION_FRESH_SECONDS = 24 * 60 * 60
 
 export interface AuthDeps {
   db: pg.Pool
@@ -202,13 +208,26 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
     )
   }
 
+  const { token, expiresAt } = await mintSessionToken(deps.jwtSecret, {
+    userId: verified.userId,
+    factionId: config.torn_faction_id,
+    roles,
+  })
+  return { ok: true, token, expiresAt, userId: verified.userId, roles }
+}
+
+/** Mint the session JWT — shared by login and refresh so claims never drift. */
+async function mintSessionToken(
+  jwtSecret: string,
+  { userId, factionId, roles }: { userId: string; factionId: string; roles: Role[] }
+): Promise<{ token: string; expiresAt: number }> {
   const now = Math.floor(Date.now() / 1000)
   const expiresAt = now + SESSION_TTL_SECONDS
   const token = await new SignJWT({
     aud: 'authenticated',
     role: 'authenticated',
-    torn_user_id: verified.userId,
-    faction_id: config.torn_faction_id,
+    torn_user_id: userId,
+    faction_id: factionId,
     is_leadership: roles.includes('leadership'),
     is_admin: roles.includes('admin'),
     is_warlead: roles.includes('warlead'),
@@ -216,21 +235,71 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
     is_visitor: roles.includes('visitor'),
   })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-    .setSubject(`torn-${verified.userId}`)
+    .setSubject(`torn-${userId}`)
     .setIssuedAt(now)
     .setExpirationTime(expiresAt)
-    .sign(new TextEncoder().encode(deps.jwtSecret))
-
-  return { ok: true, token, expiresAt, userId: verified.userId, roles }
+    .sign(new TextEncoder().encode(jwtSecret))
+  return { token, expiresAt }
 }
 
-export async function verifySessionToken(jwtSecret: string, token: string): Promise<SessionClaims | null> {
+/**
+ * Verify a session token. By default a token also has to be FRESH — issued or
+ * refreshed within the last 24h — so a long-lived token can't keep acting
+ * after its holder was kicked. Only the refresh endpoint passes allowStale
+ * (it re-checks membership in the DB before minting a replacement).
+ */
+export async function verifySessionToken(
+  jwtSecret: string,
+  token: string,
+  { allowStale = false } = {}
+): Promise<SessionClaims | null> {
   try {
     const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret), {
       audience: 'authenticated',
     })
-    return payload as SessionClaims
+    const claims = payload as SessionClaims
+    if (!allowStale) {
+      const now = Math.floor(Date.now() / 1000)
+      if (typeof claims.iat !== 'number' || claims.iat + SESSION_FRESH_SECONDS < now) return null
+    }
+    return claims
   } catch {
     return null
   }
+}
+
+export type RefreshResult =
+  | { ok: true; token: string; expiresAt: number }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Exchange a signed, unexpired (possibly stale) token for a fresh one, after
+ * re-checking the member server-side: still on the roster, or still holding a
+ * DB role (visitors and out-of-faction leaders live there). Roles are re-read,
+ * so grants and revocations land within 24h without a re-login. No key
+ * material is involved anywhere in this path.
+ */
+export async function refreshSession(
+  deps: Pick<AuthDeps, 'db' | 'jwtSecret'>,
+  token: string
+): Promise<RefreshResult> {
+  const claims = await verifySessionToken(deps.jwtSecret, token, { allowStale: true })
+  if (!claims) return { ok: false, status: 401, error: 'Session expired — please log in again' }
+
+  const userId = claims.torn_user_id
+  const [config, roles, roster] = await Promise.all([
+    factionIdentity(deps.db),
+    fetchRoles(deps.db, userId),
+    deps.db.query('SELECT 1 FROM members WHERE member_id = $1 AND is_current', [userId]),
+  ])
+  if (roster.rows.length === 0 && roles.length === 0) {
+    return { ok: false, status: 403, error: 'No longer a faction member' }
+  }
+
+  const { token: fresh, expiresAt } = await mintSessionToken(deps.jwtSecret, {
+    userId,
+    factionId: config.torn_faction_id,
+    roles,
+  })
+  return { ok: true, token: fresh, expiresAt }
 }
