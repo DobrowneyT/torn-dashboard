@@ -453,7 +453,66 @@ https://tnl.monchoon.me/api/health    → {"status":"ok","faction":"tnl"}
 https://mayhem.monchoon.me/api/health → {"status":"ok","faction":"mayhem"}
 ```
 
-## Phase 5 — Seed / restore data  _[pending]_
+## Phase 5 — Seed real Forge data
+
+The other two tenants start empty and fill from live scraping + member logins.
+**Forge** already has real history (359k attacks, 207 members, 158 ranked wars),
+so we seed it by restoring a dump of the existing `faction_forge`.
+
+### 5.1 — Dump the source (on the machine that holds the real Forge DB)
+
+`--exclude-table-data=member_secrets` is essential: those rows are Torn keys
+encrypted with that machine's `KEY_ENCRYPTION_KEY`, which is **different** on
+Duby — they'd restore as undecryptable garbage. The table schema stays; members
+re-enrol simply by logging in, and no key material ever leaves the source box.
+
+```bash
+docker exec tnl-dashboard-postgres-1 pg_dump -U postgres --no-owner --no-privileges \
+  --exclude-table-data=public.member_secrets faction_forge \
+  | gzip > deploy/backups/forge-seed-$(date -u +%Y%m%dT%H%M%SZ).sql.gz
+```
+
+### 5.2 — Copy it to Duby
+
+```bash
+# on Duby: make sure the (gitignored) dir exists
+mkdir -p ~/torn/torn-forge-oc-system/deploy/backups
+# from the source machine:
+scp deploy/backups/forge-seed-<TS>.sql.gz \
+    monchoon@5.161.91.183:~/torn/torn-forge-oc-system/deploy/backups/
+```
+
+### 5.3 — Restore into the live faction_forge
+
+`--create` drops and recreates the DB, so **stop `api-forge` first** or the drop
+blocks on its open connections. `--role app_forge` re-applies the scoped grants
+(dumps carry none — #115) and the restore **fails loudly if the app role still
+can't read**. The role's password in `deploy/.env` is left untouched.
+
+```bash
+cd ~/torn/torn-forge-oc-system/deploy
+docker compose stop api-forge
+
+docker compose run --rm -v "$(pwd)/backups:/seed" backup \
+  node db/restore.mjs --create --db faction_forge --role app_forge \
+    --archive /seed/forge-seed-<TS>.sql.gz
+# expect: "…app_forge can read: true"
+
+docker compose up -d api-forge
+```
+
+### 5.4 — Confirm
+
+```bash
+curl -s -H 'Host: forge.monchoon.me' http://127.0.0.1:8088/api/health/ready; echo
+# → db:up, and the SPA now shows real members/attacks/wars once you log in
+```
+
+> **member_secrets / key pools:** all three tenants start with **empty pools**
+> (forge's were excluded; tnl/mayhem never had any). A faction's war-room ticker
+> can't fetch until at least one member logs in (which enrols their key), and
+> each *warring* faction wants **2–3 keys** to stay under Torn's 100/min per-key
+> limit. Line up a couple of members per faction before a real war.
 
 ## Phase 6 — Validation (health, readiness, war room, backups)  _[pending]_
 
