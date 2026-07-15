@@ -6,9 +6,10 @@ is run, confirmed, then written down here with the real output. Target for this
 first pass is a **staging** deployment (a shared VPS, a test domain) — not the
 production cutover.
 
-> **Status:** Phases 0–3 validated on `Duby` (2026-07-13) — all three tenants
-> (forge, tnl, mayhem) build, boot healthy, and answer on `127.0.0.1:8088`.
-> Phase 4 (exposing it publicly) is next; Phases 5+ are outlines.
+> **Status:** Phases 0–5 validated on `Duby` — the stack is **live on HTTPS**
+> for all three tenants, with real Forge data restored (2026-07-15). Phase 6
+> (operating: deploys + the dev loop) is tooled and documented; the stress test
+> and monitoring/off-site backups are tracked as issues #116 / #117.
 
 ## Context
 
@@ -514,8 +515,100 @@ curl -s -H 'Host: forge.monchoon.me' http://127.0.0.1:8088/api/health/ready; ech
 > each *warring* faction wants **2–3 keys** to stay under Torn's 100/min per-key
 > limit. Line up a couple of members per faction before a real war.
 
-## Phase 6 — Validation (health, readiness, war room, backups)  _[pending]_
+**Validated 2026-07-15** — restored on Duby: 57 public tables,
+`faction_config = forge/10739`, **`app_forge can read: true`** (the #115 grants
+re-apply), readiness `db:up, scheduler:armed, ticker:armed`.
 
-## Phase 7 — Stress test (4 tickers + ~400 WS clients)  _[pending]_
+> **Gotcha that bit the first attempt:** the server checkout was still on a
+> deleted feature branch, so `git pull` fetched but merged nothing ("no such
+> ref") and the sidecar was built from the STALE tree — the restore then died
+> on `Unknown option '--role'`. If you see that pull warning, `git checkout
+> dev && git pull origin dev` first, and pass `--build` to `docker compose run`
+> so the sidecar picks up the fresh tree.
 
-## Phase 8 — Monitoring (UptimeRobot) + off-site backups (B2)  _[pending]_
+## Phase 6 — Operating: deploying updates + the local dev loop
+
+The steady-state workflow once the launch phases are done.
+
+```
+laptop: feature branch → local compose stack (real data via pull-live-db.sh)
+   → PR → CI green → merge to the deploy branch (staging: dev; production: main)
+      → Duby: update.sh (cron-run every 5 min with --if-changed)
+         → pull, migrate every faction DB, rebuild, restart, verify readiness
+```
+
+### 6.1 — Deploying to the server: `deploy/update.sh`
+
+One idempotent script does the whole server-side deploy:
+
+1. `git fetch` + **fast-forward-only** pull of *the branch the checkout is on*
+   (staging tracks `dev` today; at cutover you `git checkout main` once and it
+   tracks `main` — no config to edit). Refuses to invent merge commits.
+2. **Pre-deploy safety dump** of every faction DB through the backup sidecar
+   (skippable with `SKIP_BACKUP=1`; failure warns, never blocks).
+3. `node db/migrate.mjs` against **every** `faction_*` database (idempotent).
+4. `docker compose up -d --build` — compose rebuilds images and recreates only
+   the containers that actually changed (the SPA rides the nginx image).
+5. **Readiness probe per tenant** (`Host: <slug>.localhost` matches the
+   `<slug>.*` vhosts on any domain); non-zero exit if any tenant is down.
+
+A `flock` guard means overlapping runs are impossible, and operator state
+(`deploy/.env`, the compose override, `nginx/factions/*.conf`) is gitignored so
+a pull can never clobber it.
+
+```bash
+cd ~/torn/torn-forge-oc-system && ./deploy/update.sh     # manual deploy
+```
+
+### 6.2 — Auto-deploy on merge
+
+**Decision: a 5-minute poller on the server, not a GitHub-Actions SSH push.**
+An Actions deploy needs an SSH private key to the box stored in GitHub secrets
+— CI shell access to a *shared* server. Polling gives the same "merge and walk
+away" outcome with zero inbound access and zero secrets held by CI; worst case
+a merge takes 5 minutes to land. (Switching to Actions later is trivial if
+ever wanted.)
+
+```bash
+crontab -e     # on Duby, add:
+*/5 * * * * cd $HOME/torn/torn-forge-oc-system && ./deploy/update.sh --if-changed >> $HOME/torn/deploy.log 2>&1
+```
+
+`--if-changed` exits silently when origin hasn't moved, so the log only grows
+on real deploys. Watch a deploy land with `tail -f ~/torn/deploy.log`.
+
+### 6.3 — Local development with real data
+
+Develop on feature branches against a local compose stack (one tenant is
+plenty), then PR into the deploy branch:
+
+```bash
+# local stack, forge only:
+cd deploy && docker compose up -d --build postgres api-forge nginx
+# hack, test at http://forge.localhost:8088 (or localhost:8088), run suites…
+```
+
+To make the local DB mirror the live one:
+
+```bash
+./deploy/pull-live-db.sh forge               # dump on server → stream over ssh → restore locally
+./deploy/pull-live-db.sh tnl --pull-only     # just fetch the archive, restore later
+```
+
+The dump streams over SSH (no server temp files), **always excludes
+`member_secrets` data** — those are members' Torn keys encrypted with the
+*server's* `KEY_ENCRYPTION_KEY`: undecryptable locally, and live key material
+has no business on a dev machine — and the restore re-applies the scoped
+grants (#115) so the local API boots against it immediately.
+
+### 6.4 — Validation summary (folded in from the old Phase 6)
+
+Everything the validation phase called for got proven during Phases 3–5:
+health + readiness per tenant (3.5, 4.2, 5.4), the war room live in a browser
+over both proxy hops (4.2), and a real backup → restore → bootable-DB drill
+(Phase 5 — which also *caught* #115). Remaining proof points are tracked as
+issues: load behaviour under #116, off-site backups + alerting under #117.
+
+## Phase 7 — Stress test (4 tickers + ~400 WS clients) — **issue #116**
+
+## Phase 8 — Monitoring (UptimeRobot) + off-site backups (B2) — **issue #117**
