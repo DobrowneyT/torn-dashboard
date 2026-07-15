@@ -47,8 +47,9 @@ describe('POST /api/auth/login', () => {
     expect(claims.is_warlead).toBe(false)
     expect(claims.is_ocmanager).toBe(false)
     expect(claims.is_visitor).toBe(false)
-    // 4-hour lifetime, per the established session-token contract
-    expect(claims.exp! - claims.iat!).toBe(4 * 60 * 60)
+    // 30-day remember-me lifetime (#119); the 24h freshness gate + refresh
+    // endpoint carry the revocation guarantees (see session-refresh.test.ts).
+    expect(claims.exp! - claims.iat!).toBe(30 * 24 * 60 * 60)
     expect(body.expires_at).toBe(claims.exp)
   })
 

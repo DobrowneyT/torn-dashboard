@@ -8,7 +8,8 @@ import {
   API_MODE,
   apiLogin,
   apiBootstrap,
-  apiSessionValid,
+  apiRefresh,
+  getApiSession,
   storeApiSession,
   clearApiSession,
 } from '../utils/apiClient'
@@ -87,11 +88,23 @@ const FATAL_REVAL_CODES = new Set([
 // comes from an unambiguous "this key is invalid" response.
 async function revalidateSession(savedUser) {
   if (API_MODE) {
-    // The API session token is the authority; when it lapses, re-login re-runs
-    // the server-side Torn + role checks.
-    return apiSessionValid()
-      ? { ok: true }
-      : { ok: false, reason: 'Your session expired. Please log in again.' }
+    // Remember-me sessions (#119): tokens live 30 days but only act for 24h
+    // from their last verification, so on load we silently REFRESH rather
+    // than merely check expiry — the server re-verifies roster membership +
+    // roles and mints a fresh token. Only an unambiguous server verdict
+    // (401 expired / 403 kicked) tears the session down; network failures
+    // are transient and must not log anyone out.
+    if (!getApiSession()) {
+      return { ok: false, reason: 'Your session expired. Please log in again.' }
+    }
+    const refreshed = await apiRefresh()
+    if (refreshed.ok || refreshed.transient) return { ok: true }
+    return {
+      ok: false,
+      reason: refreshed.status === 403
+        ? 'Your faction access was removed. Contact your leadership if this is unexpected.'
+        : 'Your session expired. Please log in again.',
+    }
   }
   if (!savedUser?.apiKey) {
     return { ok: false, reason: 'Saved session is missing its API key. Please log in again.' }
@@ -211,6 +224,17 @@ export function AuthProvider({ children }) {
     sessionToken.configure(user)
     const unsubscribe = sessionToken.subscribeToReady(setTokenReady)
     return unsubscribe
+  }, [user])
+
+  // Keep a long-lived tab's session fresh (#119): tokens only act for 24h from
+  // their last verification, so refresh well inside that window while the app
+  // is open. A 401 mid-use is still self-healed by apiClient's refresh-retry;
+  // this just keeps the WebSocket connect (which can't retry a handshake as
+  // gracefully) working across day-spanning war-room sessions.
+  useEffect(() => {
+    if (!API_MODE || !user) return
+    const timer = setInterval(() => { apiRefresh() }, 4 * 60 * 60 * 1000)
+    return () => clearInterval(timer)
   }, [user])
 
   async function login(apiKey) {
