@@ -21,7 +21,7 @@ import { parseArgs } from 'node:util'
 import { pipeline } from 'node:stream/promises'
 import dotenv from 'dotenv'
 import pg from 'pg'
-import { factionDbsFromRows, backupName, selectExpired } from './backupLib.mjs'
+import { factionDbsFromRows, backupName, selectExpired, remotePruneArgs } from './backupLib.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const composeEnv = {}
@@ -100,8 +100,9 @@ function prune() {
   const local = selectExpired(readdirSync(outDir), new Date(), retentionDays)
   for (const name of local) rmSync(join(outDir, name), { force: true })
   if (rcloneRemote) {
-    // rclone enforces the same window remotely by age.
-    execFileSync('rclone', ['delete', '--min-age', `${retentionDays}d`, rcloneRemote], { stdio: 'inherit' })
+    // rclone enforces the same window remotely by age, scoped to OUR archive
+    // names so nothing else in the bucket path can ever be swept (#117).
+    execFileSync('rclone', remotePruneArgs(rcloneRemote, retentionDays), { stdio: 'inherit' })
   }
   return local.length
 }
