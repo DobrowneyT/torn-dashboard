@@ -66,4 +66,4 @@ jobs:
       # Pre-existing tests in tests/ may require Google Sheets, live API keys, etc.
       env:
         TESTING_MODE: 'true'
-      run: pytest tests/test_war_data_update.py tests/test_war_sync.py tests/test_key_pool.py -v
+      run: pytest tests/test_war_data_update.py tests/test_war_sync.py tests/test_key_pool.py tests/test_torn_api.py -v
