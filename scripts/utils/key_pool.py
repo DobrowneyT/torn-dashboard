@@ -154,11 +154,25 @@ def claim_next_api_key(faction_only=True, client=None, validate=True, max_attemp
     Pass validate=False for the old raw behaviour.
     """
     sb = client or _supabase()
+    dead_members = set()
     for attempt in range(1, max_attempts + 1):
         member_id, api_key = _claim_next_raw(faction_only, sb)
         if not validate or _key_is_live(api_key):
             logger.info("Claimed rotation key for member %s", member_id)
             return api_key
+        # The RPC rotates by sequence % pool-size, so seeing a DEAD member a
+        # second time means we've lapped the whole eligible pool — every
+        # further claim would re-hammer keys already proven dead (the
+        # 2026-07-16 outage: a pool of ONE saturated key, re-claimed on every
+        # attempt by every parallel job). Abort with the real diagnosis.
+        if member_id in dead_members:
+            raise RuntimeError(
+                f"Rotation pool exhausted: only {len(dead_members)} distinct eligible "
+                f"key(s) and every one is dead or rate-limited right now. The pool "
+                f"needs more members logged in with Limited (level 3+) keys — "
+                f"Minimal keys never qualify for faction endpoints."
+            )
+        dead_members.add(member_id)
         logger.warning(
             "Rotation key for member %s is dead — skipping (attempt %d/%d)",
             member_id, attempt, max_attempts,
