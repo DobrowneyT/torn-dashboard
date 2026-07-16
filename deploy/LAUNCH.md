@@ -646,6 +646,151 @@ issues: load behaviour under #116, off-site backups + alerting under #117.
 
 ## Phase 7 — Stress test (4 tickers + ~400 WS clients) — **issue #116**
 
+The production target is 4 factions warring simultaneously with ~400
+war-room clients in aggregate. The harness lives in `deploy/stress/` and
+measures **our stack only**: stress tenants talk to a **mock Torn API**
+(`mock-torn.mjs`), so no real key is used, no Torn quota is burned, and
+Torn's 100 req/min cap can't mask our own ceiling. Every generated "stress
+key" encodes its owner (faction + member index), so logins verify against
+the mock and enroll into the tenant's pool through the *normal* auth path —
+no manual key seeding anywhere.
+
+> **Shared-box etiquette:** this run is designed to saturate CPU headroom on
+> Duby. Coordinate timing with the box's other user, and tear down (§7.6)
+> as soon as the numbers are captured.
+
+### 7.1 Start the mock Torn API (on the VPS)
+
+```bash
+cd ~/torn/torn-forge-oc-system
+docker compose -f deploy/docker-compose.yml --profile stress up -d mock-torn
+docker compose -f deploy/docker-compose.yml logs mock-torn | tail -1
+# → mock-torn listening on :3999 — 100 members/faction, 20% churn every 5s
+```
+
+Churn knobs (set in `deploy/.env` before bring-up if you want them non-default):
+`STRESS_MEMBERS_PER_FACTION` (100), `STRESS_CHURN_FRACTION` (0.2),
+`STRESS_CHURN_PERIOD_SEC` (5). 20%-of-100 every 5s ≈ 20 changed rows
+broadcast per tenant per 5s — a busy but realistic war.
+
+### 7.2 Create 4 stress tenants (on the VPS)
+
+Stress faction ids are `990001–990004` (enemies `990101–990104` exist only
+inside the mock). The leader id must be stress member index 0, which is
+`<faction_id % 1000000> * 1000` — e.g. faction `990001` → leader `990001000`.
+
+```bash
+cd ~/torn/torn-forge-oc-system
+for n in 1 2 3 4; do
+  node db/new-faction.mjs --slug stress$n --faction-id 99000$n \
+    --name "Stress $n" --leader-id 99000${n}000
+done
+```
+
+Then point the four new `api-stress*` services at the mock: edit
+`deploy/docker-compose.override.yml` and add to each `api-stressN`
+service's `environment:` block:
+
+```yaml
+      TORN_API_BASE: http://mock-torn:3999
+```
+
+(Real tenants keep the default `https://api.torn.com` — never set this
+globally.) Bring them up:
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build
+for n in 1 2 3 4; do
+  curl -s -H "Host: stress$n.localhost" http://127.0.0.1:8088/api/health/ready && echo " stress$n ready"
+done
+```
+
+No DNS needed: the swarm can drive them through the front door with Host
+headers, or add `stress1–4.<domain>` vhosts if running the swarm over the
+internet (more realistic WAN framing).
+
+### 7.3 Enable the 4 war rooms (from anywhere that reaches the tenants)
+
+```bash
+for n in 1 2 3 4; do
+  node deploy/stress/enable-war.mjs \
+    --base https://stress$n.<domain> --faction 99000$n --enemy 99010$n
+done
+# → war room enabled … ticker is live
+```
+
+Each ticker now claims a pooled key (the leader's login enrolled one) and
+polls the mock at 1 Hz — 2 roster calls per tick per tenant.
+
+### 7.4 Run the load (swarm from the operator machine, sampler on the VPS)
+
+On the VPS, start the resource sampler first:
+
+```bash
+./deploy/stress/collect-stats.sh 180 > stress-stats.csv &
+```
+
+From the operator machine (repo checkout, Node ≥20 — uses the hoisted `ws`
+package when the global WebSocket client is missing):
+
+```bash
+node deploy/stress/ws-swarm.mjs \
+  --tenant 990001=https://stress1.<domain> \
+  --tenant 990002=https://stress2.<domain> \
+  --tenant 990003=https://stress3.<domain> \
+  --tenant 990004=https://stress4.<domain> \
+  --clients 400 --duration 120
+```
+
+The swarm logs 100 clients into each tenant (ramped, 25 logins in flight),
+holds the WS streams open for the duration, then prints a JSON report:
+connects, login/connect failures, mid-run drops, frames/sec, MB received,
+and broadcast latency percentiles (client receipt − the delta's
+`server_now`; keep both machines NTP-synced and read p50/p95/p99 rather
+than absolutes).
+
+### 7.5 What to record (acceptance criteria of #116)
+
+Into the table below, from the swarm report + `stress-stats.csv`:
+
+| Metric | Target | Measured |
+| --- | --- | --- |
+| Clients connected | 400/400 | |
+| Mid-run socket drops | 0 | |
+| Broadcast latency p95 | < 500 ms | |
+| Broadcast latency p99 | < 1 s | |
+| api-stress* CPU (each, steady) | < 60% of one core | |
+| api-stress* RSS (each) | < 300 MB | |
+| Postgres connections | < 40 | |
+| Box load vs. friend's workloads | no visible impact | |
+
+Also worth capturing: re-run with `--clients 100` and `--clients 200` to
+see how latency scales, and bump `STRESS_CHURN_FRACTION` to 0.5 for a
+worst-case broadcast storm.
+
+**Key-pool depth finding:** each warring faction's ticker makes ~120 Torn
+calls/min (2/sec), so against the real API each warring faction needs
+**2–3 pooled Limited keys** to stay under Torn's 100/min/key — the mock
+removes that cap here, so confirm the number by arithmetic, not load.
+
+### 7.6 Teardown
+
+```bash
+cd ~/torn/torn-forge-oc-system
+docker compose -f deploy/docker-compose.yml --profile stress stop mock-torn
+docker compose -f deploy/docker-compose.yml rm -f mock-torn
+for n in 1 2 3 4; do docker compose -f deploy/docker-compose.yml stop api-stress$n; done
+# Remove the api-stress* blocks from deploy/docker-compose.override.yml and the
+# stress vhosts from deploy/nginx/factions/, then:
+docker compose -f deploy/docker-compose.yml up -d
+# Drop the stress DBs + roles:
+for n in 1 2 3 4; do
+  docker compose -f deploy/docker-compose.yml exec -T postgres \
+    psql -U postgres -c "DROP DATABASE IF EXISTS faction_stress$n" \
+         -c "DROP ROLE IF EXISTS app_stress$n"
+done
+```
+
 ## Phase 8 — Off-site backups (B2) + monitoring (UptimeRobot) — issue #117
 
 The machinery shipped in slice #76; this wires it to the real world. The whole
