@@ -675,7 +675,9 @@ RCLONE_CONFIG_B2_KEY=<applicationKey>
 cd ~/torn/torn-forge-oc-system/deploy
 docker compose --profile backup up -d --build backup
 docker compose run --rm backup node db/backup.mjs --out /backups   # on-demand run
-docker compose run --rm backup rclone lsf "$RCLONE_REMOTE" --include 'faction_*.sql.gz'
+# single quotes matter: RCLONE_REMOTE lives in the CONTAINER's env (via .env),
+# not your host shell — let sh inside the container expand it.
+docker compose run --rm backup sh -c 'rclone lsf "$RCLONE_REMOTE" --include "faction_*.sql.gz"'
 ```
 
 Retention: local copies and B2 copies are both pruned past
