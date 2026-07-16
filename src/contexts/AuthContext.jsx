@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { config } from '../config'
 import { getTornErrorMessage } from '../utils/apiUtils'
 import { submitApiKey, setVisitorReadOnly } from '../utils/adminApi'
+import { checkStoredSession } from '../utils/sessionGuard'
 import * as sessionToken from '../utils/sessionToken'
 
 // Persist the member's consented key + ToS acceptance into member_secrets so it
@@ -113,6 +114,18 @@ export function AuthProvider({ children }) {
     if (savedUser) {
       try {
         const userData = JSON.parse(savedUser)
+        // Sessions from before the current consent version never passed the
+        // API-key disclosure (their keys aren't in the rotation pool) —
+        // retire them once so the next login enrolls the key properly.
+        const guard = checkStoredSession(userData, config.apiKey.consentVersion)
+        if (!guard.ok) {
+          console.warn('Stored session predates consent version — forcing re-login')
+          sessionToken.clear()
+          localStorage.removeItem('tornUser')
+          setAuthError(guard.reason)
+          setLoading(false)
+          return
+        }
         setUser(userData)
         // Background re-validation — non-blocking so cached UI renders
         // immediately. On a fatal verdict (key invalid / wrong faction /
