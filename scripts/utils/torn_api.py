@@ -15,13 +15,24 @@ class TornAPIError(Exception):
     """Custom exception for Torn API errors"""
     pass
 
+class RateLimitedError(TornAPIError):
+    """The key is rate-limited RIGHT NOW (HTTP 429 or Torn error code 5).
+
+    Distinct from TornAPIError so callers can react correctly: rotate to a
+    different pooled key or fail fast — never sleep-and-retry the same key.
+    The 2026-07-16 nightly outage was six parallel jobs each doing 3x60s
+    retries against the one saturated key in the pool."""
+    pass
+
 class TornAPI:
     """Wrapper for Torn City API v2"""
 
     BASE_URL = "https://api.torn.com/v2"
 
-    RATE_LIMIT_SLEEP = 60        # seconds to wait on error 5 (too many requests)
-    RATE_LIMIT_MAX_RETRIES = 3
+    # Rate limits get ONE short retry, then a typed RateLimitedError. Long
+    # same-key retry loops make saturation worse and stall every caller.
+    RATE_LIMIT_SLEEP = 30        # seconds to wait on 429 / error 5, once
+    RATE_LIMIT_MAX_RETRIES = 1
 
     NETWORK_ERROR_RETRY_DELAY = 60   # seconds between retries on 5xx / connection errors
     NETWORK_ERROR_MAX_RETRIES = 3
@@ -35,7 +46,9 @@ class TornAPI:
         """
         self.api_key = api_key
         self.session = requests.Session()
-        self.rate_limit_delay = 0.6  # ~100 requests per minute
+        # ~85 requests/min. 0.6s paced EXACTLY at Torn's 100/min cap, so a
+        # process could self-inflict 429s; 0.7s leaves real headroom.
+        self.rate_limit_delay = 0.7
         self.last_request_time = 0
 
     def _wait_for_rate_limit(self):
@@ -81,6 +94,20 @@ class TornAPI:
                 response = self.session.get(url, params=params, timeout=30)
                 response.raise_for_status()
             except requests.exceptions.RequestException as e:
+                # HTTP 429 is a rate limit, not a transient network fault —
+                # it must NOT enter the 3x60s same-key retry loop below.
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 429:
+                    rate_limit_retries += 1
+                    if rate_limit_retries <= self.RATE_LIMIT_MAX_RETRIES:
+                        logger.warning(
+                            f"Rate limited (HTTP 429) — one {self.RATE_LIMIT_SLEEP}s retry..."
+                        )
+                        time.sleep(self.RATE_LIMIT_SLEEP)
+                        continue
+                    raise RateLimitedError(
+                        f"Key is rate-limited (HTTP 429) — rotate keys or retry later: {url}"
+                    )
                 network_retries += 1
                 logger.error(f"Network error: {e}")
                 if network_retries < self.NETWORK_ERROR_MAX_RETRIES:
@@ -116,7 +143,10 @@ class TornAPI:
                         )
                         time.sleep(self.RATE_LIMIT_SLEEP)
                         continue
-                    logger.error(f"Still rate limited after {self.RATE_LIMIT_MAX_RETRIES} retries")
+                    logger.error(f"Still rate limited after {self.RATE_LIMIT_MAX_RETRIES} retry")
+                    raise RateLimitedError(
+                        f"Key is rate-limited (Torn error 5) — rotate keys or retry later"
+                    )
 
                 logger.error(error_msg)
                 raise TornAPIError(error_msg)
