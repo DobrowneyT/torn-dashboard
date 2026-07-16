@@ -123,11 +123,39 @@ def test_claim_skips_dead_key_and_returns_next_live_one(monkeypatch):
     assert claim_next_api_key(client=client) == "LIVELIVELIVELIVE"
 
 
-def test_claim_raises_after_exhausting_dead_keys(monkeypatch):
+def test_claim_raises_after_exhausting_distinct_dead_keys(monkeypatch):
     monkeypatch.setattr(key_pool, "_key_is_live", lambda api_key, timeout=15: False)
-    client = _FakeClient([{"member_id": "1", "api_key": "DEADDEADDEADDEAD"}])
+    client = _FakeRotatingClient([
+        [{"member_id": "1", "api_key": "DEADDEADDEADDEA1"}],
+        [{"member_id": "2", "api_key": "DEADDEADDEADDEA2"}],
+        [{"member_id": "3", "api_key": "DEADDEADDEADDEA3"}],
+    ])
     with pytest.raises(RuntimeError, match="No working API key after 3 attempts"):
         claim_next_api_key(client=client, max_attempts=3)
+
+
+def test_claim_aborts_fast_when_the_pool_cycles_back_to_a_dead_member(monkeypatch):
+    """2026-07-16 incident: the eligible pool had shrunk to ONE key. The claim
+    RPC (sequence % 1) returned the same member forever, and the loop burned
+    all max_attempts re-claiming a key it already knew was dead — adding load
+    to the very key that was rate-limited. Seeing a dead member a second time
+    must abort immediately with a diagnosis of the real problem: the pool is
+    starved of distinct keys."""
+    monkeypatch.setattr(key_pool, "_key_is_live", lambda api_key, timeout=15: False)
+    client = _FakeClient([{"member_id": "4090594", "api_key": "ONLYKEYONLYKEY16"}])
+    with pytest.raises(RuntimeError, match="1 distinct"):
+        claim_next_api_key(client=client, max_attempts=8)
+    # Aborted on the FIRST repeat — two claims, not eight.
+    assert len(client.calls) == 2
+
+
+def test_claim_repeat_of_a_live_member_is_fine(monkeypatch):
+    """A healthy one-key pool must keep serving that key — the cycle abort
+    applies only to keys already proven dead this run."""
+    monkeypatch.setattr(key_pool, "_key_is_live", lambda api_key, timeout=15: True)
+    client = _FakeClient([{"member_id": "4090594", "api_key": "ONLYKEYONLYKEY16"}])
+    assert claim_next_api_key(client=client) == "ONLYKEYONLYKEY16"
+    assert claim_next_api_key(client=client) == "ONLYKEYONLYKEY16"
 
 
 def test_claim_validate_false_never_checks_liveness(monkeypatch):

@@ -101,7 +101,8 @@ jobs:
   # ── 1b. Scrape CPR ───────────────────────────────────────────────────────────
   scrape-cpr:
     name: Scrape CPR Data
-    needs: prepare
+    needs: [prepare, scrape-crimes]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -140,7 +141,8 @@ jobs:
   # ── 1c. Scrape Wars ──────────────────────────────────────────────────────────
   scrape-wars:
     name: Scrape War Data
-    needs: prepare
+    needs: [prepare, scrape-cpr]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -194,7 +196,8 @@ jobs:
   # ── 1d. Scrape Faction Attacks ───────────────────────────────────────────────
   scrape-faction-attacks:
     name: Scrape Faction Attacks
-    needs: prepare
+    needs: [prepare, scrape-wars]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -249,7 +252,8 @@ jobs:
   # ── 1e. Scrape Member Daily Stats ─────────────────────────────────────────────
   scrape-member-stats:
     name: Scrape Member Daily Stats
-    needs: prepare
+    needs: [prepare, scrape-faction-attacks]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -280,7 +284,8 @@ jobs:
   # ── 1f. Sync Items Catalog ───────────────────────────────────────────────────
   sync-items:
     name: Sync Items Catalog
-    needs: prepare
+    needs: [prepare, scrape-member-stats]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
