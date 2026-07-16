@@ -59,3 +59,8 @@ node_modules/
 dist/
 *.local
 .env
+# Per-deployment artifacts written by db/new-faction.mjs (slice #75)
+deploy/docker-compose.override.yml
+deploy/nginx/factions/*.conf
+# Local backup archives written by db/backup.mjs (slice #76)
+deploy/backups/
