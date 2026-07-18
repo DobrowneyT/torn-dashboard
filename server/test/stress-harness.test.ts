@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 // @ts-ignore — plain-JS harness module, no type declarations
 import { makeStressKey, parseStressKey, rosterAt, startMockTorn } from '../../deploy/stress/mock-torn.mjs'
 // @ts-ignore — plain-JS harness module, no type declarations
-import { summarize } from '../../deploy/stress/stats.mjs'
+import { summarize, parseServerTimestamp } from '../../deploy/stress/stats.mjs'
 
 describe('stress key encoding', () => {
   it('round-trips faction id and member index through a 16-char key', () => {
@@ -30,6 +30,14 @@ describe('deterministic roster churn', () => {
     expect(a.members).toHaveLength(100)
     expect(a.members.map((m: any) => m.id)).toEqual(b.members.map((m: any) => m.id))
     expect(a.members[0].name).toBe(b.members[0].name)
+  })
+
+  it('members are fully stable within a bucket — no per-second field churn', () => {
+    // Regression: last_action.timestamp derived from the exact second made
+    // EVERY member differ on EVERY tick, so each broadcast carried the whole
+    // roster (~120KB/frame in the first live run) instead of real churn.
+    const t0 = 10_000_000
+    expect(rosterAt(990001, t0 + 1_000, opts)).toEqual(rosterAt(990001, t0, opts))
   })
 
   it('is identical within a churn bucket and different across buckets', () => {
@@ -108,6 +116,24 @@ describe('mock Torn HTTP server', () => {
       await fetch(`${base()}/v2/faction/rankedwars?key=${makeStressKey(990001, 0)}`)
     ).json()
     expect(data.error).toBeUndefined()
+  })
+})
+
+describe('parseServerTimestamp', () => {
+  it('parses the pg-style "+00" offset the server actually emits', () => {
+    // Regression: Date.parse('…T13:48:56.622+00') is NaN in V8, so the first
+    // live run silently collected ZERO latency samples.
+    const t = parseServerTimestamp('2026-07-18T13:48:56.622+00')
+    expect(t).toBe(Date.parse('2026-07-18T13:48:56.622Z'))
+  })
+
+  it('parses plain ISO strings unchanged', () => {
+    expect(parseServerTimestamp('2026-07-18T13:48:56.622Z')).toBe(1784382536622)
+  })
+
+  it('returns NaN for garbage without throwing', () => {
+    expect(Number.isNaN(parseServerTimestamp('not-a-date'))).toBe(true)
+    expect(Number.isNaN(parseServerTimestamp(undefined))).toBe(true)
   })
 })
 
