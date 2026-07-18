@@ -789,6 +789,30 @@ calls/min (2/sec), so against the real API each warring faction needs
 **2–3 pooled Limited keys** to stay under Torn's 100/min/key — the mock
 removes that cap here, so confirm the number by arithmetic, not load.
 
+### 7.5b ABSOLUTE mode — full-roster broadcast every tick
+
+Deliberate ceiling test (pinned by a unit test so it can't be "fixed"
+away): with a **1-second churn bucket**, every member's time-derived
+fields move every tick, so each broadcast carries the entire roster
+(~120 KB/frame at 1 Hz per tenant — no real war comes close). Enable it,
+run the same §7.4 commands, then restore the defaults:
+
+```bash
+# in deploy/.env:
+#   STRESS_CHURN_PERIOD_SEC=1
+#   STRESS_CHURN_FRACTION=0.5      # optional: max state flips on top
+DC --profile stress up -d mock-torn   # recreate — env changes need up, not restart
+```
+
+First live run (2026-07-18, accidental absolute mode, 400 clients / 4
+tenants / 120 s): **400/400 connected, 0 drops**, 31,900 frames, **3.79 GB**
+fanned out; steady-state CPU ≈ 7–8% per stress api, nginx ≈ 20%, Postgres
+≈ 45–60% of one core (the 1 Hz × 200-row upsert loop × 4 tenants), RSS flat
+(~140 MB/api), real tenants unaffected — about half of one of the box's
+three vCPUs in total. One ~15 s broadcast lull was observed mid-run and
+self-recovered (not chased; no drops resulted). Latency was not captured
+on that run (swarm parsing bug, fixed since) — capture it on the re-run.
+
 ### 7.6 Teardown
 
 ```bash

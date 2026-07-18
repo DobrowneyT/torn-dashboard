@@ -54,6 +54,20 @@ describe('deterministic roster churn', () => {
     const b = rosterAt(990002, 0, opts).members.map((m: any) => m.id)
     expect(a.some((id: number) => b.includes(id))).toBe(false)
   })
+
+  it('ABSOLUTE mode: churnPeriodSec=1 changes every member every second', () => {
+    // Deliberate worst case (LAUNCH.md §7.5b): with a 1s bucket, every
+    // member's time-derived fields move each tick, so each broadcast carries
+    // the full roster — the load profile of the first live run, kept on
+    // purpose as the ceiling test. This pin stops a future "fix" from
+    // quantizing it away.
+    const abs = { membersPerFaction: 50, churnFraction: 0.2, churnPeriodSec: 1 }
+    const a = rosterAt(990001, 20_000_000, abs).members
+    const b = rosterAt(990001, 20_001_000, abs).members
+    for (let i = 0; i < a.length; i++) {
+      expect(JSON.stringify(a[i])).not.toBe(JSON.stringify(b[i]))
+    }
+  })
 })
 
 describe('mock Torn HTTP server', () => {
