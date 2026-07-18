@@ -65,6 +65,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Mock Torn API for the #116 stress test. Opt-in only:
+  #   docker compose --profile stress up -d mock-torn
+  # Stress tenants point at it via TORN_API_BASE=http://mock-torn:3999 in
+  # their override entries — real tenants never touch it. See LAUNCH.md §7.
+  mock-torn:
+    profiles: ["stress"]
+    image: node:24-alpine
+    working_dir: /app
+    command: node deploy/stress/mock-torn.mjs
+    volumes:
+      - ../deploy/stress:/app/deploy/stress:ro
+    environment:
+      PORT: "3999"
+      MEMBERS_PER_FACTION: ${STRESS_MEMBERS_PER_FACTION:-100}
+      CHURN_FRACTION: ${STRESS_CHURN_FRACTION:-0.2}
+      CHURN_PERIOD_SEC: ${STRESS_CHURN_PERIOD_SEC:-5}
+    restart: unless-stopped
+
 volumes:
   pgdata:
   backups:
