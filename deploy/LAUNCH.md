@@ -661,10 +661,20 @@ no manual key seeding anywhere.
 
 ### 7.1 Start the mock Torn API (on the VPS)
 
+All compose commands in this phase use the same invocation as `update.sh` —
+**both** files plus the project directory. Passing only the main file makes
+compose skip `docker-compose.override.yml` entirely (it auto-loads only
+under default discovery), so the per-faction api services would never start
+and every tenant would 502. Set an alias once per shell:
+
 ```bash
 cd ~/torn/torn-forge-oc-system
-docker compose -f deploy/docker-compose.yml --profile stress up -d mock-torn
-docker compose -f deploy/docker-compose.yml logs mock-torn | tail -1
+DC() { docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy "$@"; }
+```
+
+```bash
+DC --profile stress up -d mock-torn
+DC logs mock-torn | tail -1
 # → mock-torn listening on :3999 — 100 members/faction, 20% churn every 5s
 ```
 
@@ -699,11 +709,17 @@ service's `environment:` block:
 globally.) Bring them up:
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d --build
+DC up -d --build
 for n in 1 2 3 4; do
-  curl -s -H "Host: stress$n.localhost" http://127.0.0.1:8088/api/health/ready && echo " stress$n ready"
+  printf 'stress%s: ' $n
+  curl -s -H "Host: stress$n.localhost" http://127.0.0.1:8088/api/health/ready
+  echo
 done
 ```
+
+Each line must show the readiness JSON — an HTML `502 Bad Gateway` body
+means that tenant's api container isn't up (check `DC ps` and
+`DC logs api-stressN`).
 
 No DNS needed: the swarm can drive them through the front door with Host
 headers, or add `stress1–4.<domain>` vhosts if running the swarm over the
@@ -776,16 +792,18 @@ removes that cap here, so confirm the number by arithmetic, not load.
 ### 7.6 Teardown
 
 ```bash
-cd ~/torn/torn-forge-oc-system
-docker compose -f deploy/docker-compose.yml --profile stress stop mock-torn
-docker compose -f deploy/docker-compose.yml rm -f mock-torn
-for n in 1 2 3 4; do docker compose -f deploy/docker-compose.yml stop api-stress$n; done
-# Remove the api-stress* blocks from deploy/docker-compose.override.yml and the
-# stress vhosts from deploy/nginx/factions/, then:
-docker compose -f deploy/docker-compose.yml up -d
+cd ~/torn/torn-forge-oc-system   # DC() alias from §7.1
+DC --profile stress stop mock-torn
+DC rm -f mock-torn
+for n in 1 2 3 4; do DC stop api-stress$n; done
+DC rm -f api-stress1 api-stress2 api-stress3 api-stress4
+# Remove the api-stress* blocks from deploy/docker-compose.override.yml, the
+# stress vhosts from deploy/nginx/factions/, and the DB_PASSWORD_STRESS* lines
+# from deploy/.env, then:
+DC up -d --build
 # Drop the stress DBs + roles:
 for n in 1 2 3 4; do
-  docker compose -f deploy/docker-compose.yml exec -T postgres \
+  DC exec -T postgres \
     psql -U postgres -c "DROP DATABASE IF EXISTS faction_stress$n" \
          -c "DROP ROLE IF EXISTS app_stress$n"
 done
