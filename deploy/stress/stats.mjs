@@ -8,6 +8,18 @@ function percentile(sorted, p) {
   return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1]
 }
 
+/**
+ * Parse a server timestamp into epoch ms. The API's pg layer emits
+ * timestamptz as strings like "2026-07-18T13:48:56.622+00" — a bare "+00"
+ * offset that V8's Date.parse rejects (NaN). Normalize it to "+00:00".
+ */
+export function parseServerTimestamp(value) {
+  if (typeof value !== 'string') return NaN
+  const t = Date.parse(value)
+  if (Number.isFinite(t)) return t
+  return Date.parse(value.replace(/([+-]\d{2})$/, '$1:00'))
+}
+
 /** Summarize raw millisecond samples into the numbers the report prints. */
 export function summarize(samples) {
   const sorted = [...samples].sort((a, b) => a - b)

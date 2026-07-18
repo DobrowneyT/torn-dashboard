@@ -15,7 +15,7 @@
 // Clients are split evenly across tenants. Member indexes start at 1
 // (index 0 is the tenant's leader, reserved for enable-war.mjs).
 import { makeStressKey } from './mock-torn.mjs'
-import { summarize } from './stats.mjs'
+import { summarize, parseServerTimestamp } from './stats.mjs'
 
 const WebSocketImpl =
   globalThis.WebSocket ?? (await import('ws')).WebSocket
@@ -66,8 +66,9 @@ function connectClient(tenant, token, stats, endAt) {
       stats.bytes += raw.length
       if (raw.startsWith('{"type":"delta"')) {
         try {
-          const serverNow = Date.parse(JSON.parse(raw).server_now)
+          const serverNow = parseServerTimestamp(JSON.parse(raw).server_now)
           if (Number.isFinite(serverNow)) stats.latencies.push(Date.now() - serverNow)
+          else stats.unparsedServerNow = (stats.unparsedServerNow ?? 0) + 1
         } catch { /* count the frame, skip the sample */ }
       }
     }
@@ -139,6 +140,7 @@ async function main() {
     frames: s.frames,
     frames_per_sec: +(s.frames / measuredSec).toFixed(1),
     megabytes: +(s.bytes / 1e6).toFixed(2),
+    unparsed_server_now: s.unparsedServerNow ?? 0,
     latency_ms: summarize(s.latencies),
   }))
   const allLat = summarize(tenantStats.flatMap((s) => s.latencies))

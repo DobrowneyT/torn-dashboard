@@ -57,7 +57,11 @@ export function rosterAt(factionId, epochMs, opts = {}) {
   const churnFraction = opts.churnFraction ?? 0.2
   const churnPeriodSec = opts.churnPeriodSec ?? 5
   const bucket = Math.floor(epochMs / 1000 / churnPeriodSec)
-  const nowSec = Math.floor(epochMs / 1000)
+  // Every time-derived field is quantized to the bucket (or coarser), never
+  // the raw second: otherwise EVERY member differs on EVERY fetch and each
+  // tick broadcasts the whole roster instead of the churned slice.
+  const bucketStartSec = bucket * churnPeriodSec
+  const hourBaseSec = bucketStartSec - (bucketStartSec % 3600)
 
   const members = []
   for (let i = 0; i < membersPerFaction; i++) {
@@ -78,7 +82,7 @@ export function rosterAt(factionId, epochMs, opts = {}) {
       revive_setting: 'No one',
       last_action: {
         status: okay ? 'Online' : 'Offline',
-        timestamp: nowSec - (okay ? 30 : 3600),
+        timestamp: bucketStartSec - (okay ? 30 : 3600),
         relative: okay ? '1 minute ago' : '1 hour ago',
       },
       status: okay
@@ -87,7 +91,7 @@ export function rosterAt(factionId, epochMs, opts = {}) {
             description: 'In hospital',
             details: 'Stress-test injury',
             state: 'Hospital',
-            until: nowSec + 600 + (unitHash('until', id, bucket) * 1200) | 0,
+            until: (hourBaseSec + 3600 + unitHash('until', id) * 1200) | 0,
           },
     })
   }
