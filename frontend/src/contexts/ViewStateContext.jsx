@@ -12,7 +12,7 @@ import { createContext, useContext, useState, useCallback, useMemo, useEffect } 
  * won't survive — convert to arrays/objects at the persistence boundary.
  */
 
-const STORAGE_KEY = 'tnl-forge-view-states'
+const STORAGE_KEY = 'torn-dashboard-view-states'
 
 function loadInitial() {
   if (typeof window === 'undefined') return {}

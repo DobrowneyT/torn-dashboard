@@ -312,7 +312,7 @@ function PayoutCsvImport() {
     <div className="card border border-green-200 dark:border-green-900/30">
       <h3 className="text-lg font-semibold mb-4">Import Payout CSV</h3>
       <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-        Upload payout CSV with filename format: YYYYMMDD-Forge_OC_Payout.csv
+        Upload payout CSV with filename format: YYYYMMDD-YourFaction_OC_Payout.csv
       </p>
 
       <input
