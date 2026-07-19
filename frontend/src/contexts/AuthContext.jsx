@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { config } from '../config'
 import { loadFactionIdentity } from '../utils/factionIdentity'
 import { getTornErrorMessage } from '../utils/apiUtils'
-import { submitApiKey, setVisitorReadOnly } from '../utils/adminApi'
+import { setVisitorReadOnly } from '../utils/adminApi'
 import * as sessionToken from '../utils/sessionToken'
 import {
   API_MODE,
@@ -50,21 +50,6 @@ async function loginViaApi(apiKey) {
     lastLogin: new Date().toISOString(),
   }
   return { success: true, user: userObj }
-}
-
-// Persist the member's consented key + ToS acceptance into member_secrets so it
-// joins the rotating pool (War Room + scrapers) and the CPR scraper. Best-effort:
-// the key already validated, so a transient storage hiccup must not block login —
-// the pool just won't include this key until the next successful store.
-async function persistConsentedKey(apiKey, rank) {
-  try {
-    await submitApiKey(apiKey, apiKey, {
-      rank: rank ?? null,
-      consentVersion: config.apiKey.consentVersion,
-    })
-  } catch (e) {
-    console.warn('Could not persist consented API key:', e?.message || e)
-  }
 }
 
 const AuthContext = createContext(null)
@@ -257,226 +242,13 @@ export function AuthProvider({ children }) {
         return result
       }
 
-      // Fetch key info from Torn API v2
-      const response = await fetch(`https://api.torn.com/v2/key/info?key=${apiKey}`)
-
-      if (!response.ok) {
-        return {
-          success: false,
-          error: 'Failed to connect to Torn API. Please try again.'
-        }
-      }
-
-      const data = await response.json()
-
-      // Check for Torn API errors
-      if (data.error) {
-        return {
-          success: false,
-          error: getTornErrorMessage(data.error)
-        }
-      }
-
-      // Get user ID and check permissions FIRST
-      const userId = data.info.user.id
-      const isLeader = config.leadershipUserIds.includes(String(userId))
-      const isAdminUser = config.adminsUserIds.includes(String(userId))
-      const isWarLeadUser = config.warleadUserIds.includes(String(userId))
-      const isVisitorUser = config.visitorUserIds.includes(String(userId))
-
-      // Get faction info
-      const userFactionId = data.info?.user?.faction_id
-      const requiredFactionId = parseInt(config.faction.id)
-
-      // 2.0: the single consolidated key must be Limited Access (level 3+) for
-      // EVERYONE — it powers identity, CPR, the War Room rotation pool, and the
-      // faction scrapers. This is independent of `access.faction`, which is
-      // false for Recruits; Recruits with a Limited key still log in fine (we
-      // just flag their key so faction-scoped pool usage skips it).
-      const accessLevel = data.info?.access?.level ?? 0
-      if (accessLevel < config.apiKey.requiredLevel) {
-        return {
-          success: false,
-          error: 'This dashboard needs a Limited Access key. Use the "Generate Limited Key" button below, then paste the new key here.',
-        }
-      }
-
-      // LEADERSHIP USERS: Skip all permission checks
-      if (isLeader) {
-        console.log(`Leadership user ${userId} detected - bypassing all permission checks`)
-
-        // Fetch user details for name and faction position
-        const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
-        const userData = await userResponse.json()
-
-        if (userData.error) {
-          return {
-            success: false,
-            error: getTornErrorMessage(userData.error)
-          }
-        }
-
-        // Create user object for leadership user
-        const userObj = {
-          id: userId,
-          name: userData.name,
-          factionId: userFactionId || null,
-          factionPosition: userData.faction?.position || 'Leadership',
-          apiKey: apiKey,
-          accessLevel: data.info?.access?.level || 1,
-          isLeadership: true,
-          isAdmin: isAdminUser,
-          isWarLead: isWarLeadUser,
-          consentVersion: config.apiKey.consentVersion,
-          lastLogin: new Date().toISOString()
-        }
-
-        // Store the consented key (leaders' keys feed the pool too) then save.
-        await persistConsentedKey(apiKey, userObj.factionPosition)
-        setUser(userObj)
-        localStorage.setItem('tornUser', JSON.stringify(userObj))
-
-        return {
-          success: true,
-          user: userObj
-        }
-      }
-
-      // VISITOR USERS: read-only demo access for allied faction leaders.
-      // Skips faction validation like admins, but the key is used for
-      // identity + session-token minting ONLY — it is never persisted to
-      // member_secrets, so it can't join the CPR/War-Room rotation pool.
-      if (isVisitorUser && !isLeader && !isAdminUser) {
-        const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
-        const userData = await userResponse.json()
-
-        if (userData.error) {
-          return {
-            success: false,
-            error: getTornErrorMessage(userData.error)
-          }
-        }
-
-        const userObj = {
-          id: userId,
-          name: userData.name,
-          factionId: userFactionId || null,
-          factionPosition: userData.faction?.position || 'Visitor',
-          apiKey: apiKey,
-          accessLevel: data.info?.access?.level || 1,
-          isLeadership: false,
-          isAdmin: false,
-          isWarLead: false,
-          isVisitor: true,
-          consentVersion: config.apiKey.consentVersion,
-          lastLogin: new Date().toISOString()
-        }
-
-        // NOTE: deliberately NO persistConsentedKey() here — visitor keys
-        // must never enter the rotation pool.
-        setUser(userObj)
-        localStorage.setItem('tornUser', JSON.stringify(userObj))
-
-        return {
-          success: true,
-          user: userObj
-        }
-      }
-
-      // ADMIN USERS: Skip faction validation
-      if (isAdminUser) {
-        console.log(`Admin user ${userId} detected - bypassing faction checks`)
-
-        // Fetch user details for name
-        const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
-        const userData = await userResponse.json()
-
-        if (userData.error) {
-          return {
-            success: false,
-            error: getTornErrorMessage(userData.error)
-          }
-        }
-
-        // Create user object for admin user
-        const userObj = {
-          id: userId,
-          name: userData.name,
-          factionId: userFactionId || null,
-          factionPosition: userData.faction?.position || 'Admin',
-          apiKey: apiKey,
-          accessLevel: data.info?.access?.level || 1,
-          isLeadership: isLeader,
-          isAdmin: true,
-          isWarLead: isWarLeadUser,
-          consentVersion: config.apiKey.consentVersion,
-          lastLogin: new Date().toISOString()
-        }
-
-        await persistConsentedKey(apiKey, userObj.factionPosition)
-        setUser(userObj)
-        localStorage.setItem('tornUser', JSON.stringify(userObj))
-
-        return {
-          success: true,
-          user: userObj
-        }
-      }
-
-      if (!userFactionId) {
-        return {
-          success: false,
-          error: 'You are not currently in a faction. Please join The Next Level - Forge to access this dashboard.'
-        }
-      }
-
-      if (userFactionId !== requiredFactionId) {
-        return {
-          success: false,
-          error: `Incorrect faction. This dashboard is for ${config.faction.name} members only.`
-        }
-      }
-
-      // Access level was already validated above (Limited, uniform for all
-      // roles). We do NOT additionally require `access.faction` — Recruits have
-      // it false but still get full access to everything the site reads from
-      // Supabase via their JWT; their key is simply flagged out of the
-      // faction-scoped rotation pool until they're off Recruit.
-
-      // NON-LEADERSHIP USERS: Fetch user details for name and faction position
-      const userResponse = await fetch(`https://api.torn.com/user/?selections=profile&key=${apiKey}`)
-      const userData = await userResponse.json()
-
-      if (userData.error) {
-        return {
-          success: false,
-          error: getTornErrorMessage(userData.error)
-        }
-      }
-
-      // Create user object for non-leadership user
-      const userObj = {
-        id: userId,
-        name: userData.name,
-        factionId: userFactionId,
-        factionPosition: userData.faction?.position || 'Member',
-        apiKey: apiKey,
-        accessLevel: accessLevel,
-        isLeadership: isLeader,
-        isAdmin: false,
-        isWarLead: isWarLeadUser,
-        consentVersion: config.apiKey.consentVersion,
-        lastLogin: new Date().toISOString()
-      }
-
-      // Store the consented key (powers CPR + the rotation pool) then save.
-      await persistConsentedKey(apiKey, userObj.factionPosition)
-      setUser(userObj)
-      localStorage.setItem('tornUser', JSON.stringify(userObj))
-
+      // API_MODE is always true for this stack (self-hosted, VITE_API_MODE=true
+      // at build time) — nothing reaches past here in production. Kept as a
+      // defensive fallback rather than throwing, matching login()'s existing
+      // error-result contract.
       return {
-        success: true,
-        user: userObj
+        success: false,
+        error: 'This dashboard is API-mode only. Please contact an admin.'
       }
 
     } catch (err) {

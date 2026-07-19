@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import SettingsDropdown from '../components/SettingsDropdown'
-import { useFactionIdentity } from '../utils/factionIdentity'
+import { useFactionIdentity, faviconHrefFor } from '../utils/factionIdentity'
 
 import { Moon, Sun } from 'lucide-react'
 
@@ -15,6 +15,13 @@ export default function Header({ viewAsRole, setViewAsRole, canViewAs }) {
   useEffect(() => {
     if (faction.displayName) document.title = `${faction.displayName} Dashboard`
   }, [faction.displayName])
+
+  // Favicon follows the tenant's own branding.favicon (Leadership -> Settings),
+  // falling back to the shared default (#131).
+  useEffect(() => {
+    const link = document.querySelector('link[rel="icon"]')
+    if (link) link.href = faviconHrefFor(faction)
+  }, [faction.branding?.favicon])
 
   return (
     <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">

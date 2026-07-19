@@ -257,9 +257,11 @@ export const config = {
 // One-click Torn link that generates a correctly-titled Limited Access key
 // (type=3). Shown in the login opt-in disclosure so members don't have to
 // hand-pick selections. See Torn's "addNewKey" preferences deep-link.
-export function tornKeyGenUrl() {
-  const title = encodeURIComponent(config.apiKey.title)
-  return `https://www.torn.com/preferences.php#tab=api?&step=addNewKey&title=${title}&type=3`
+// `title` defaults to the static legacy-mode value; API-mode callers pass
+// the tenant-branded title from factionIdentity's getApiKeyTitle() (#131).
+export function tornKeyGenUrl(title = config.apiKey.title) {
+  const encoded = encodeURIComponent(title)
+  return `https://www.torn.com/preferences.php#tab=api?&step=addNewKey&title=${encoded}&type=3`
 }
 
 export function isAdmin(userId) {

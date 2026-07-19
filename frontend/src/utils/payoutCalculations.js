@@ -726,6 +726,15 @@ export function formatTimeHM(seconds) {
 }
 
 /**
+ * Downloaded/imported payout CSV filename, branded with the current
+ * tenant's own faction rather than a hardcoded 'Forge' (#131 audit).
+ */
+export function exportPayoutFilename(fromDate, factionName) {
+  const safe = (factionName || '').trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  return safe ? `${fromDate}-${safe}_OC_Payout.csv` : `${fromDate}-OC_Payout.csv`
+}
+
+/**
  * Export payouts to CSV
  */
 export function exportPayoutsToCSV(members, metadata) {

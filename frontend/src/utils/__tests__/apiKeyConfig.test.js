@@ -28,4 +28,10 @@ describe('tornKeyGenUrl', () => {
     // 'Forge-Dashboard' URL-encoded (hyphen is safe, so it stays literal)
     expect(url).toContain('title=Forge-Dashboard')
   })
+
+  it('uses an explicit title override when given (#131: per-tenant branding)', () => {
+    const url = tornKeyGenUrl('Mayhem-Dashboard')
+    expect(url).toContain('title=Mayhem-Dashboard')
+    expect(url).not.toContain('Forge')
+  })
 })

@@ -52,7 +52,7 @@ export default function LoginModal() {
         <div className="mb-6">
           <h2 className="text-2xl font-bold mb-2">Faction Member Login</h2>
           <p className="text-gray-600 dark:text-gray-400">
-            Enter your Torn API key to access the OC Dashboard
+            Enter your Torn API key to access the Torn Dashboard
           </p>
         </div>
 
