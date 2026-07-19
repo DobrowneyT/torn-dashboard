@@ -1,4 +1,5 @@
-import { config, tornKeyGenUrl } from '../config'
+import { tornKeyGenUrl } from '../config'
+import { getApiKeyTitle } from '../utils/factionIdentity'
 import { KeyRound } from 'lucide-react'
 
 // Single source of truth for the "how your API key is used" disclosure required
@@ -16,6 +17,7 @@ const ROWS = [
 ]
 
 export default function ApiKeyDisclosure({ showGenerateButton = false }) {
+  const keyTitle = getApiKeyTitle()
   return (
     <div className="space-y-3">
       <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -59,13 +61,13 @@ export default function ApiKeyDisclosure({ showGenerateButton = false }) {
 
       {showGenerateButton && (
         <a
-          href={tornKeyGenUrl()}
+          href={tornKeyGenUrl(keyTitle)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
         >
           <KeyRound className="w-4 h-4" />
-          Generate Limited Key ({config.apiKey.title})
+          Generate Limited Key ({keyTitle})
         </a>
       )}
     </div>
