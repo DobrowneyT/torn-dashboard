@@ -35,41 +35,51 @@ const dbName = args.db ?? 'faction_forge'
 
 // Ordered parents-before-children so inserts satisfy FKs.
 // filter = PostgREST query string appended to the fetch.
+// pk = primary key columns (db/template.sql), required for two reasons:
+//   1. Range-paginated PostgREST fetches must sort by something stable, or a
+//      row can shift between requests and get returned on two different
+//      pages — which duplicate-key-crashes the insert if the source table
+//      (still-live Supabase) is being concurrently written by production
+//      scrapers while the snapshot runs.
+//   2. ON CONFLICT DO NOTHING backstop for the rare case a genuinely new row
+//      lands inside the just-fetched keyspace between page requests.
 const thirtyFiveDaysAgo = new Date(Date.now() - 35 * 24 * 3600 * 1000).toISOString().slice(0, 10)
 const TABLES = [
-  { name: 'members' },
-  { name: 'member_cpr_v2' },
-  { name: 'member_daily_stats', filter: `snapshot_date=gte.${thirtyFiveDaysAgo}` },
-  { name: 'oc_payout_weeks' },
-  { name: 'oc_payout_members' },
-  { name: 'crimes' },
-  { name: 'crime_slots' },
-  { name: 'crime_reward_items' },
-  { name: 'crime_required_items' },
-  { name: 'ranked_wars' },
+  { name: 'members', pk: ['member_id'] },
+  { name: 'member_cpr_v2', pk: ['member_id', 'crime_name', 'position_label'] },
+  { name: 'member_daily_stats', pk: ['member_id', 'snapshot_date'], filter: `snapshot_date=gte.${thirtyFiveDaysAgo}` },
+  { name: 'oc_payout_weeks', pk: ['id'] },
+  { name: 'oc_payout_members', pk: ['id'] },
+  { name: 'crimes', pk: ['crime_id'] },
+  { name: 'crime_slots', pk: ['id'] },
+  { name: 'crime_reward_items', pk: ['id'] },
+  { name: 'crime_required_items', pk: ['id'] },
+  { name: 'ranked_wars', pk: ['id'] },
   {
     name: 'faction_attacks',
+    pk: ['attack_id'],
     filter: args['full-attacks']
       ? undefined
       : `started=gte.${Math.floor(Date.now() / 1000) - 35 * 24 * 3600}`,
   },
-  { name: 'war_member_contributions' },
-  { name: 'war_payouts' },
-  { name: 'war_payout_members' },
-  { name: 'faction_revives' },
-  { name: 'inventory_items' },
-  { name: 'pricing_batches' },
-  { name: 'tier_requirements' },
-  { name: 'member_overview_views' },
-  { name: 'member_overview_thresholds' },
-  { name: 'factions' },
+  { name: 'war_member_contributions', pk: ['id'] },
+  { name: 'war_payouts', pk: ['id'] },
+  { name: 'war_payout_members', pk: ['id'] },
+  { name: 'faction_revives', pk: ['revive_id'] },
+  { name: 'inventory_items', pk: ['id'] },
+  { name: 'pricing_batches', pk: ['id'] },
+  { name: 'tier_requirements', pk: ['tier', 'requirement_index'] },
+  { name: 'member_overview_views', pk: ['id'] },
+  { name: 'member_overview_thresholds', pk: ['id'] },
+  { name: 'factions', pk: ['id'] },
 ]
 
-async function fetchAll(table, filter) {
+async function fetchAll(table, filter, pk) {
   const rows = []
   const page = 1000
+  const order = `order=${pk.join(',')}`
   for (let from = 0; ; from += page) {
-    const url = `${SUPABASE_URL}/rest/v1/${table}?select=*${filter ? `&${filter}` : ''}`
+    const url = `${SUPABASE_URL}/rest/v1/${table}?select=*&${order}${filter ? `&${filter}` : ''}`
     const res = await fetch(url, {
       headers: {
         apikey: SERVICE_KEY,
@@ -97,14 +107,15 @@ try {
   // Children truncate with their parents via CASCADE.
   await db.query(`TRUNCATE ${TABLES.map((t) => t.name).join(', ')} CASCADE`)
 
-  for (const { name, filter } of TABLES) {
-    const rows = await fetchAll(name, filter)
+  for (const { name, filter, pk } of TABLES) {
+    const rows = await fetchAll(name, filter, pk)
     if (rows.length === 0) {
       console.log(`${name}: 0 rows`)
       continue
     }
     const cols = Object.keys(rows[0])
     const colList = cols.map((c) => `"${c}"`).join(', ')
+    const conflictCols = pk.map((c) => `"${c}"`).join(', ')
     const batchSize = Math.max(1, Math.floor(30000 / cols.length))
     for (let at = 0; at < rows.length; at += batchSize) {
       const batch = rows.slice(at, at + batchSize)
@@ -118,8 +129,12 @@ try {
         return `(${cols.map((_, i) => `$${r * cols.length + i + 1}`).join(', ')})`
       })
       // OVERRIDING SYSTEM VALUE lets snapshot rows keep their identity ids.
+      // ON CONFLICT DO NOTHING: the ordered fetch makes pagination stable,
+      // but a genuinely new row landing mid-keyspace between page requests
+      // (the source table is still live) stays merely a skip, not a crash.
       await db.query(
-        `INSERT INTO "${name}" (${colList}) OVERRIDING SYSTEM VALUE VALUES ${tuples.join(', ')}`,
+        `INSERT INTO "${name}" (${colList}) OVERRIDING SYSTEM VALUE VALUES ${tuples.join(', ')} ` +
+        `ON CONFLICT (${conflictCols}) DO NOTHING`,
         params
       )
     }
