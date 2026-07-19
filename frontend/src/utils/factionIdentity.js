@@ -66,6 +66,15 @@ export function getApiKeyTitle() {
   return apiKeyTitleFor(getFactionIdentity())
 }
 
+// Shared default favicon (frontend/public/torn-dashboard-favicon.ico), used
+// by every tenant that hasn't set its own via Leadership -> Settings ->
+// branding.favicon (already editable there; this is what applies it).
+export const DEFAULT_FAVICON = '/torn-dashboard-favicon.ico'
+
+export function faviconHrefFor(identity) {
+  return identity.branding?.favicon || DEFAULT_FAVICON
+}
+
 export function useFactionIdentity() {
   const [identity, setIdentity] = useState(getFactionIdentity())
   useEffect(() => {

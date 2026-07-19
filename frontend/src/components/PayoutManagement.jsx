@@ -19,11 +19,13 @@ import {
   formatPercent,
   formatTimeHours,
   exportPayoutsToCSV,
+  exportPayoutFilename,
   generateBatchPayoutURL,
   parsePayoutCSV,
   parsePayoutXLSX,
   getCrimeStats
 } from '../utils/payoutCalculations'
+import { useFactionIdentity } from '../utils/factionIdentity'
 import { enrichItemBreakdown } from '../utils/lookupHelpers'
 import { importPayoutCSV } from '../utils/csvPayoutImport'
 import ImportPreviewModal from './ImportPreviewModal'
@@ -107,6 +109,7 @@ function recalculateWithItemPrices(results, factionCutPercent) {
 
 export default function PayoutManagement() {
   const { user, isVisitor } = useAuth()
+  const faction = useFactionIdentity()
 
   // Date range state
   const [fromDate, setFromDate] = useState('')
@@ -594,7 +597,7 @@ export default function PayoutManagement() {
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${fromDate}-Forge_OC_Payout.csv`
+    a.download = exportPayoutFilename(fromDate, faction.displayName)
     a.click()
     window.URL.revokeObjectURL(url)
   }

@@ -8,11 +8,11 @@ import { KeyRound } from 'lucide-react'
 // Reused by the login opt-in modal and the hamburger "API Key Usage" window so
 // the wording can never drift between them.
 
-const ROWS = [
-  ['Storage', 'Encrypted with pgp_sym_encrypt and stored in a service-role-only Supabase table (member_secrets). The raw key never leaves the server in plaintext — clients, leadership, and the Supabase anon role cannot read it. It is decrypted only inside server-side functions (Edge Functions / scrapers) at the moment of use.'],
-  ['Sharing', 'Your key is never shared with other members. Data fetched with it (CPR stats, war/attack history, live war-room state) is visible to faction members.'],
-  ['Purpose', 'Identity & faction verification, CPR (organised-crime) scraping, live War Room polling, and the nightly faction data scrapers. To bypass Torn’s per-key cache, your key joins a rotating pool shared across these automated calls.'],
-  ['Torn API Calls', 'GET /v2/key/info · GET /user (profile, personalstats, organizedcrimes) · GET /v2/faction (crimes, members, chain, attacks, rankedwars)'],
+export const ROWS = [
+  ['Storage', 'Encrypted with AES-256-GCM, using a secret held only by the server process, and stored in your faction\'s own database (not shared with any other faction). The raw key never leaves the server in plaintext — clients, faction leadership, and the browser cannot read it, not even from the admin key-pool panel (which shows only status: consent date, key level, enabled/disabled). It is decrypted only inside the server process at the moment of use.'],
+  ['Sharing', 'Your key is never shared with other members or other factions. Data fetched with it (CPR stats, member stats, war/attack history, live war-room state) is visible to your faction.'],
+  ['Purpose', 'Identity & faction verification, CPR (organised-crime) scraping, live War Room polling, and background faction data scrapers (cadence varies by job — every few minutes to once daily). To bypass Torn’s per-key cache, your key joins a rotating pool shared across these automated calls, so it may occasionally be used to fetch a teammate’s public stats or profile, not only your own.'],
+  ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes) · GET /v2/faction (crimes, members, contributors, chain, attacks, revives, rankedwars + report, basic)'],
   ['Access Level', 'Limited Access'],
 ]
 

@@ -9,6 +9,7 @@ import {
   calculatePayouts,
   formatCurrency,
   formatCurrencyShort,
+  exportPayoutFilename,
 } from '../payoutCalculations.js'
 
 // Suppress console.log in tests
@@ -500,5 +501,22 @@ describe('formatCurrencyShort', () => {
 
   it('handles negative values', () => {
     expect(formatCurrencyShort(-1_500_000)).toBe('-$1.50M')
+  })
+})
+
+// ─── exportPayoutFilename ───────────────────────────────────────────
+describe('exportPayoutFilename', () => {
+  it('brands the downloaded file with the tenant\'s own faction, not Forge', () => {
+    expect(exportPayoutFilename('20260719', 'Mayhem')).toBe('20260719-Mayhem_OC_Payout.csv')
+  })
+
+  it('strips characters unsafe in a filename from multi-word faction names', () => {
+    expect(exportPayoutFilename('20260719', 'The Next Level - Forge'))
+      .toBe('20260719-The_Next_Level_Forge_OC_Payout.csv')
+  })
+
+  it('falls back to a generic label when no faction name is available', () => {
+    expect(exportPayoutFilename('20260719', '')).toBe('20260719-OC_Payout.csv')
+    expect(exportPayoutFilename('20260719', undefined)).toBe('20260719-OC_Payout.csv')
   })
 })

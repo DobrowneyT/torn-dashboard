@@ -3,7 +3,7 @@ import { parsePayoutCSV } from './payoutCalculations'
 
 /**
  * Import a payout CSV file
- * @param {File} file - CSV file with format YYYYMMDD-Forge_OC_Payout.csv
+ * @param {File} file - CSV file with format YYYYMMDD-YourFaction_OC_Payout.csv
  * @param {string} apiKey - Torn API key for authentication
  * @param {string} userName - Name of user importing
  * @returns {Promise<Object>} Import result
@@ -21,10 +21,10 @@ export async function importPayoutCSV(file, apiKey, userName) {
 
         console.log('Starting CSV import with user:', userName)
 
-        // Parse week start from filename: "20251215-Forge_OC_Payout.csv"
+        // Parse week start from filename: "20251215-YourFaction_OC_Payout.csv"
         const dateMatch = file.name.match(/^(\d{8})/)
         if (!dateMatch) {
-            throw new Error('Filename must start with date in YYYYMMDD format (e.g., 20251215-Forge_OC_Payout.csv)')
+            throw new Error('Filename must start with date in YYYYMMDD format (e.g., 20251215-YourFaction_OC_Payout.csv)')
         }
 
         const dateStr = dateMatch[1]
