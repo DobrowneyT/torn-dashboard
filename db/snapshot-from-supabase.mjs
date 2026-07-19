@@ -3,11 +3,12 @@
 // the repo-root .env). Used to verify migrated pages against real data before
 // the big-bang cutover; safe to re-run (truncates the listed tables first).
 //
-//   node db/snapshot-from-supabase.mjs [--db faction_forge]
+//   node db/snapshot-from-supabase.mjs [--db faction_forge] [--full-attacks]
 //
 // Deliberately skipped: member_secrets (never copy key material out of
-// production). faction_attacks is bounded to recent rows (the full table is
-// 400k+; the war pages only need windows for recent wars).
+// production). faction_attacks defaults to recent rows (the full table is
+// 400k+; the war pages only need windows for recent wars) — pass
+// --full-attacks for the real cutover, where full history matters.
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -27,7 +28,9 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
   process.exit(1)
 }
 
-const { values: args } = parseArgs({ options: { db: { type: 'string' } } })
+const { values: args } = parseArgs({
+  options: { db: { type: 'string' }, 'full-attacks': { type: 'boolean' } },
+})
 const dbName = args.db ?? 'faction_forge'
 
 // Ordered parents-before-children so inserts satisfy FKs.
@@ -46,7 +49,9 @@ const TABLES = [
   { name: 'ranked_wars' },
   {
     name: 'faction_attacks',
-    filter: `started=gte.${Math.floor(Date.now() / 1000) - 35 * 24 * 3600}`,
+    filter: args['full-attacks']
+      ? undefined
+      : `started=gte.${Math.floor(Date.now() / 1000) - 35 * 24 * 3600}`,
   },
   { name: 'war_member_contributions' },
   { name: 'war_payouts' },
