@@ -1,6 +1,6 @@
 # torn-forge-oc-system
 
-TNL faction management dashboard for Torn (React SPA + Supabase, migrating to a self-hosted multi-faction stack — see `dashboard-migration.md` for the roadmap of record). The repo also hosts two sibling projects: the Discord bot (`discord/`) and mug-bot (`mug-bot/`) — see `CONTEXT-MAP.md`.
+TNL faction management dashboard for Torn (React SPA + Supabase, migrating to a self-hosted multi-faction stack — see `dashboard-migration.md` for the roadmap of record). Two sibling projects that used to live here have been extracted to their own repos — the Discord bot (`DobrowneyT/torn-discord-bot`) and mug-bot (`DobrowneyT/torn-mug-bot`); this repo is now just the dashboard.
 
 ## Branch policy
 
@@ -18,4 +18,4 @@ The five canonical triage roles map 1:1 to their default label strings (`needs-t
 
 ### Domain docs
 
-Multi-context: `CONTEXT-MAP.md` at the root points at the Dashboard (root `CONTEXT.md`), Discord bot, and mug-bot contexts. See `docs/agents/domain.md`.
+Single context (Dashboard): `CONTEXT-MAP.md` at the root points at the Dashboard glossary (root `CONTEXT.md`). See `docs/agents/domain.md`. (The Discord bot and mug-bot are now separate repos.)
