@@ -35,7 +35,7 @@ import MobileWarRoomView from './MobileWarRoomView'
 import RollCallOverlay from '../components/warroom/RollCallOverlay'
 import WarSummaryCard from '../components/warroom/WarSummaryCard'
 import WarNotesPanel from '../components/warroom/WarNotesPanel'
-import { rollCallGateActive } from '../utils/rollCall'
+import { rollCallGateActive, canSeeWarNotes } from '../utils/rollCall'
 import { farmCompare } from '../utils/warRoomFarmSort'
 import { Smartphone, Settings, Crosshair, Loader2, ClipboardList } from 'lucide-react'
 
@@ -1071,6 +1071,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // API mode: the session's role_assignments are authoritative (bootstrap
   // sets user.isWarLead); legacy builds fall back to the config.js ID list.
   const isWarLead = user?.isWarLead ?? checkWarLead(user?.id)
+  // War Notes & roll-call panel: war leaders + real leadership/admin, never
+  // visitors (isLeadership is true for them — the leadership layout — but the
+  // panel exposes the leads-only private note). See canSeeWarNotes.
+  const canSeeNotes = canSeeWarNotes({ isWarLead, isLeadership, isVisitor })
 
   // Reload-persisted prefs: filter chips, stats range, sort, poll rate.
   // Sets are stored as arrays so JSON.stringify can round-trip them.
@@ -1455,6 +1459,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       await submitRollCall(currentWar.id, answers, user.name, user.apiKey)
       await refreshRollCall()
       setRollCallOpen(false)
+      // Let the global roll-call reminder banner re-check immediately so it
+      // clears on submit instead of lingering until its next poll/refocus.
+      window.dispatchEvent(new Event('rollcall:submitted'))
     } catch (e) {
       setRcError(e.message || 'Failed to submit roll call.')
     } finally {
@@ -1466,13 +1473,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // opens the notes panel (it's never client-readable).
   useEffect(() => {
     // API mode authenticates with the session token — no browser key needed.
-    if (!notesPanelOpen || (!isWarLead && !isVisitor) || !currentWar?.id || (!API_MODE && !user?.apiKey)) return
+    if (!notesPanelOpen || !canSeeNotes || !currentWar?.id || (!API_MODE && !user?.apiKey)) return
     let cancelled = false
     getWarNotesPrivate(currentWar.id, user.apiKey)
       .then(r => { if (!cancelled) setPrivateNotes(r?.notes ?? '') })
       .catch(() => { if (!cancelled) setPrivateNotes('') })
     return () => { cancelled = true }
-  }, [notesPanelOpen, isWarLead, isVisitor, currentWar?.id, user?.apiKey])
+  }, [notesPanelOpen, canSeeNotes, currentWar?.id, user?.apiKey])
 
   async function handleSaveWarNotes(fields) {
     if (!currentWar?.id) return false
@@ -1896,10 +1903,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   <Settings className="w-4 h-4" />
                 </button>
               )}
-              {/* War Notes panel toggle — War Leaders, plus read-only
-                  visitors (they can view notes incl. the private leads note
-                  but not save). Sits beside the settings gear. */}
-              {(isWarLead || isVisitor) && (
+              {/* War Notes panel toggle — War Leaders + leadership/admin
+                  (never visitors). Sits beside the settings gear. */}
+              {canSeeNotes && (
                 <button
                   onClick={() => setNotesPanelOpen(v => !v)}
                   title={notesPanelOpen ? 'Hide war notes' : 'Show war notes & roll-call results'}
@@ -1989,9 +1995,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           />
         )}
 
-        {/* War Notes & Roll Call results — War Leaders, plus visitors in
-            read-only mode (view everything, save nothing). */}
-        {(isWarLead || isVisitor) && notesPanelOpen && (
+        {/* War Notes & Roll Call results — War Leaders + leadership/admin. */}
+        {canSeeNotes && notesPanelOpen && (
           <WarNotesPanel
             currentWar={currentWar}
             notes={warNotes}
