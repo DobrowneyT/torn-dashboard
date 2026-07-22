@@ -58,9 +58,16 @@ export default function RollCallReminderBanner() {
     check()
     const onVis = () => { if (document.visibilityState === 'visible') check() }
     document.addEventListener('visibilitychange', onVis)
+    // The War Room dispatches this on a successful roll-call submit so the
+    // banner clears immediately instead of lingering until its next poll.
+    window.addEventListener('rollcall:submitted', check)
     // Re-verify roughly on the session-refresh cadence so the nudge tracks reality.
     const t = setInterval(check, 15 * 60 * 1000)
-    return () => { document.removeEventListener('visibilitychange', onVis); clearInterval(t) }
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('rollcall:submitted', check)
+      clearInterval(t)
+    }
   }, [check])
 
   // Only render once we've confirmed it's pending (no flash), and not for a war

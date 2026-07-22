@@ -7,9 +7,30 @@ import {
   formatCountdown,
   availabilityLabel,
   warTypeBadge,
+  canSeeWarNotes,
 } from '../rollCall'
 
 const HOUR = 3600
+
+describe('canSeeWarNotes', () => {
+  it('grants war leaders', () => {
+    expect(canSeeWarNotes({ isWarLead: true, isLeadership: false, isVisitor: false })).toBe(true)
+  })
+
+  it('grants real leadership/admin (isLeadership true, not a visitor)', () => {
+    expect(canSeeWarNotes({ isWarLead: false, isLeadership: true, isVisitor: false })).toBe(true)
+  })
+
+  it('denies visitors even though the leadership layout flag is on for them', () => {
+    // In the SPA the isLeadership prop is true for visitors (they see the
+    // leadership layout), so the gate must exclude them explicitly.
+    expect(canSeeWarNotes({ isWarLead: false, isLeadership: true, isVisitor: true })).toBe(false)
+  })
+
+  it('denies a plain member', () => {
+    expect(canSeeWarNotes({ isWarLead: false, isLeadership: false, isVisitor: false })).toBe(false)
+  })
+})
 
 describe('rollCallGateActive', () => {
   const startAt = 1_000_000

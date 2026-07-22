@@ -38,6 +38,14 @@ export function formatCountdown(unixSec, nowSec = Math.floor(Date.now() / 1000))
   return `in ${m}m`
 }
 
+// Who may view/edit the War Notes & roll-call results panel: war leaders and
+// real leadership/admin. In the SPA the `isLeadership` flag is also true for
+// read-only visitors (they see the leadership layout), so visitors must be
+// excluded explicitly — war notes include a leads-only private note.
+export function canSeeWarNotes({ isWarLead, isLeadership, isVisitor }) {
+  return Boolean(isWarLead || (isLeadership && !isVisitor))
+}
+
 // The blocking gate is active only when there's a current war, the member
 // hasn't responded, and we're still more than the lead-time before kickoff.
 export function rollCallGateActive({ currentWar, mySubmitted, nowSec = Math.floor(Date.now() / 1000) }) {
