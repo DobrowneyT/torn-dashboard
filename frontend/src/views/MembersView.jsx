@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
 import { useAuth } from '../contexts/AuthContext'
 import { API_MODE, apiGet } from '../utils/apiClient'
+import CompetitionsSection from '../components/CompetitionsSection'
 import { filterItemsForMember } from '../utils/payoutDataLoader'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { X } from 'lucide-react'
@@ -243,6 +244,8 @@ export default function MembersView({ isLeadership }) {
 
   return (
     <>
+      {API_MODE && <CompetitionsSection isLeadership={isLeadership} />}
+
       {!loading && members.length > 0 && (
         <div className="card mb-4">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Tier Distribution</h3>

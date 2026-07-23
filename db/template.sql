@@ -694,6 +694,21 @@ CREATE TABLE public.role_assignments (
   granted_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+-- Competitions (#183): member-facing contests over faction stats. Leaderboard
+-- standings are computed on read from member_daily_stats deltas.
+CREATE TABLE public.competitions (
+  id           bigserial PRIMARY KEY,
+  name         text NOT NULL,
+  type         text NOT NULL DEFAULT 'leaderboard',
+  metric_id    text NOT NULL,
+  direction    text NOT NULL DEFAULT 'desc',
+  window_start date NOT NULL,
+  window_end   date NOT NULL,
+  created_by   text,
+  created_at   timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at   timestamp with time zone NOT NULL DEFAULT now()
+);
+
 -- ── Constraints ───────────────────────────────────────────────────────────────
 
 ALTER TABLE crime_required_items ADD CONSTRAINT crime_required_items_pkey PRIMARY KEY (id);

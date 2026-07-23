@@ -19,6 +19,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competitions (first slice).** Leadership can create a named, fixed-window
+  leaderboard competition over a faction stat (metric picked from a curated,
+  code-defined registry backed by the daily personalstats snapshots); members see
+  a live leaderboard in a new Competitions section on the Members page. Standings
+  are per-member deltas over the window (day-granular, forward-only — no data
+  before the snapshot started); members whose first in-window snapshot lands after
+  the window opened are flagged *partial*. Ranks highest-wins by default with a
+  lowest-wins option (#183).
 - **The faction logo now renders in the header**, left of the title, sized to match
   it; the title shifts right to sit beside it. Unset → the header shows the text title
   alone (no placeholder, no broken image). Logo/hero uploads also accept animated GIFs
