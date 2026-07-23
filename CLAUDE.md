@@ -19,3 +19,7 @@ The five canonical triage roles map 1:1 to their default label strings (`needs-t
 ### Domain docs
 
 Single context (Dashboard): `CONTEXT-MAP.md` at the root points at the Dashboard glossary (root `CONTEXT.md`). See `docs/agents/domain.md`. (The Discord bot and mug-bot are now separate repos.)
+
+### Delivery agent
+
+The `delivery` agent (`.claude/agents/delivery.md`) authors issues (`/to-prd` → `/to-issues`) and implements ready-for-agent issues end-to-end. The per-change conventions it follows — branch off `dev`, TDD, CHANGELOG line, `VERSION`+`package.json` bump, PR with `Closes #`, auto-merge-on-green with the `hold-merge` opt-out — are the canonical checklist in `docs/agents/delivery-workflow.md`.
