@@ -17,6 +17,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **OC participation log** — the crimes-sync now retains a per-(crime, member) stint
+  (`joined_at`/`left_at`, `completed`), so time a member banked in a crime they left
+  before it executed is no longer lost. Foundation for crediting that time in payouts
+  and a per-crime breakdown (#168, part 1).
+
 ### Fixed
 
 - **War Room roll-call overlay no longer reappears after you've submitted.** A

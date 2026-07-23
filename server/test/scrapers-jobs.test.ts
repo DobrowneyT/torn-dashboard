@@ -185,6 +185,13 @@ describe('crimes sync job', () => {
     expect(req102.rows[0]).toMatchObject({
       item_id: '206', was_consumed: true, outcome: 'used', outcome_owned_by: '801', outcome_item_uid: '555',
     })
+
+    // #168: the sync also maintains the participation log — crime 101's
+    // occupant is an open segment with the exact joined_at.
+    const part = await stack.db.query(
+      `SELECT joined_at, left_at, completed FROM crime_participation_v2 WHERE crime_id = '101' AND member_id = '800'`
+    )
+    expect(part.rows[0]).toMatchObject({ joined_at: 1200, left_at: null, completed: false })
   })
 
   it('resumes from the oldest incomplete crime and applies status transitions in place', async () => {

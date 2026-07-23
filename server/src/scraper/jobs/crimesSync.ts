@@ -4,6 +4,7 @@
 // remains in-repo as the executable reference spec.
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
+import { updateCrimeParticipation } from './crimeParticipation.js'
 
 const PAGE_FULL = 100
 
@@ -153,6 +154,11 @@ export async function crimesSyncJob({ db, pool, client }: JobDeps): Promise<RunR
           [crimeId, String(item.id), item.name ?? null, qty]
         )
       }
+
+      // #168: keep the per-(crime, member) participation log in step with this
+      // crime's current occupants — banks time for members who leave before it
+      // executes (which crime_slots, keyed by refillable position, loses).
+      await updateCrimeParticipation(dbc, crime)
     }
     await dbc.query('COMMIT')
   } catch (err) {
