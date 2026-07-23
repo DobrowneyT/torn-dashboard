@@ -1,0 +1,86 @@
+name: Changelog Gate
+
+# Enforce the delivery workflow (#164/#165): a PR that changes source under
+# frontend/, server/, or db/ should also add a CHANGELOG.md line (and, once
+# past the batching phase, bump VERSION). See docs/agents/delivery-workflow.md.
+#
+# PHASE 1 (now): WARN-ONLY — this job annotates and writes a job summary but
+# never fails the PR, so we can confirm it doesn't misfire on legitimate
+# changes. PHASE 2: flip WARN_ONLY to 'false' (and REQUIRE_VERSION when per-PR
+# bumps become the norm), then add "Changelog + version check" as a required
+# status check in branch protection so it blocks merge.
+
+on:
+  pull_request:
+    branches: [dev]
+
+jobs:
+  changelog-gate:
+    name: Changelog + version check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # Phase 1 = warn-only. Set to 'false' to make the gate blocking.
+      WARN_ONLY: 'true'
+      # Whether a VERSION bump is also required. Kept 'false' during the
+      # batching phase (changelog lines accumulate under [Unreleased]; VERSION
+      # is bumped when a release is cut). Flip to 'true' to require a bump on
+      # every source-touching PR.
+      REQUIRE_VERSION: 'false'
+    steps:
+      - name: Evaluate the gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          # ── Escape hatches for legit no-bump PRs (test-only, pure refactor…) ──
+          if printf '%s' "$LABELS" | tr ',' '\n' | grep -qx 'no-changelog'; then
+            echo "→ 'no-changelog' label present — gate skipped."; exit 0
+          fi
+          if printf '%s' "$BODY" | grep -qiF '[skip changelog]'; then
+            echo "→ '[skip changelog]' marker in PR body — gate skipped."; exit 0
+          fi
+
+          # ── Which files did this PR change? ──────────────────────────────────
+          files=$(gh pr view "$PR" --repo "$REPO" --json files -q '.files[].path')
+          echo "Changed files:"; echo "$files" | sed 's/^/  /'
+
+          # Source = anything under the three app workspaces.
+          source_changed=$(printf '%s\n' "$files" | grep -E '^(frontend|server|db)/' || true)
+          if [ -z "$source_changed" ]; then
+            echo "→ No source under frontend/ server/ db/ changed — gate not applicable."
+            exit 0
+          fi
+
+          changelog_changed=$(printf '%s\n' "$files" | grep -xF 'CHANGELOG.md' || true)
+          version_changed=$(printf '%s\n' "$files" | grep -xF 'VERSION' || true)
+
+          missing=""
+          [ -z "$changelog_changed" ] && missing="CHANGELOG.md"
+          if [ "$REQUIRE_VERSION" = 'true' ] && [ -z "$version_changed" ]; then
+            [ -n "$missing" ] && missing="$missing and VERSION" || missing="VERSION"
+          fi
+
+          if [ -z "$missing" ]; then
+            echo "✓ Source change is accompanied by the required changelog/version update."
+            exit 0
+          fi
+
+          summary="Source under frontend/server/db changed, but ${missing} was not updated. Add a CHANGELOG.md line referencing the issue (and bump VERSION per docs/agents/delivery-workflow.md), or opt out with the 'no-changelog' label or '[skip changelog]' in the PR body."
+          echo "::warning::${summary}"
+          {
+            echo "### ⚠️ Changelog gate"
+            echo ""
+            echo "$summary"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$WARN_ONLY" = 'true' ]; then
+            echo "→ WARN_ONLY mode — reporting only, not failing the PR."
+            exit 0
+          fi
+          exit 1

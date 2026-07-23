@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Changelog CI gate** (warn-only for now): a PR touching `frontend/`, `server/`, or
+  `db/` source without a `CHANGELOG.md` update gets a warning annotation, with a
+  `no-changelog` / `[skip changelog]` escape hatch and a documented path to enforce
+  it later (#165).
+
 - **War Room Defaults** now shows a starting schema shape (poll cadences, dibs
   auto-drop window, revive service) in Leadership → Settings when it hasn't been
   saved yet, instead of an empty object.

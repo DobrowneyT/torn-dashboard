@@ -78,6 +78,24 @@ The PR's required status checks are the repo's CI: **Node tests** (vitest —
 frontend/server/db), **Python tests** (pytest), and the **Compose build + boot
 check**. Auto-merge waits for all of them to pass.
 
+## The changelog gate (#165)
+
+`.github/workflows/changelog-gate.yml` checks that a PR changing source under
+`frontend/`, `server/`, or `db/` also updates `CHANGELOG.md` (and `VERSION`, once
+`REQUIRE_VERSION` is turned on). It's rolling out in two phases:
+
+- **Phase 1 (current): warn-only.** `WARN_ONLY: 'true'` — the job annotates the PR
+  and writes a job summary but **never fails** it, so we can confirm it doesn't
+  misfire before it can block anyone.
+- **Phase 2: enforce.** Flip `WARN_ONLY` to `'false'` (and `REQUIRE_VERSION` to
+  `'true'` when per-PR bumps become the norm — see the batching note above), then add
+  **"Changelog + version check"** as a required status check in branch protection so
+  it blocks merge.
+
+**Escape hatch** for a legitimate no-bump PR (test-only, pure refactor, tooling): add
+the **`no-changelog`** label, or put `[skip changelog]` in the PR body. The gate does
+not fire on docs-only / non-source PRs at all.
+
 ## The `hold-merge` label
 
 `hold-merge` is the documented opt-out from auto-merge-on-green. Apply it to an issue
