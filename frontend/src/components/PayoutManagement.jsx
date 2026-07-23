@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useFactionConfig } from '../contexts/FactionConfigContext'
 import { apiGet } from '../utils/apiClient'
 import {
   loadCrimesForPayout,
@@ -113,6 +114,8 @@ function recalculateWithItemPrices(results, factionCutPercent) {
 
 export default function PayoutManagement() {
   const { user, isVisitor } = useAuth()
+  // Non-tiered factions hide the Tier column in the results table (#136).
+  const { usesTiers } = useFactionConfig()
   const faction = useFactionIdentity()
 
   // Date range state
@@ -1439,9 +1442,11 @@ export default function PayoutManagement() {
                     <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('timePercent')}>
                       Time % <SortIcon columnKey="timePercent" />
                     </th>
+                    {usesTiers && (
                     <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('tier')}>
                       Tier <SortIcon columnKey="tier" />
                     </th>
+                    )}
                     <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('baseTickets')}>
                       Tickets <SortIcon columnKey="baseTickets" />
                     </th>
@@ -1462,7 +1467,7 @@ export default function PayoutManagement() {
                 <tbody>
                   {sortedMembers.length === 0 ? (
                     <tr>
-                      <td colSpan="10" className="py-8 text-center text-gray-500">
+                      <td colSpan={usesTiers ? 10 : 9} className="py-8 text-center text-gray-500">
                         No payouts calculated. Click "Run Payout" to calculate.
                       </td>
                     </tr>
@@ -1473,7 +1478,7 @@ export default function PayoutManagement() {
                         <td className="py-2 px-2 text-xs text-gray-600 dark:text-gray-400">{member.userId}</td>
                         <td className="py-2 px-2 text-xs">{formatTimeHours(member.timeSpent)}</td>
                         <td className="py-2 px-2 text-xs">{member.timePercent.toFixed(2)}%</td>
-                        <td className="py-2 px-2"><TierBadge tier={member.tier} /></td>
+                        {usesTiers && <td className="py-2 px-2"><TierBadge tier={member.tier} /></td>}
                         <td className="py-2 px-2 text-xs">{member.baseTickets}</td>
                         <td className="py-2 px-2 text-xs">
                           {editingPenalty?.userId === member.userId ? (

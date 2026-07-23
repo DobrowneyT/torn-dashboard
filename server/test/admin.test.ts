@@ -130,6 +130,25 @@ describe('faction settings documents', () => {
     })
     expect(res.status).toBe(400)
   })
+
+  it('leadership sets the faction payout mode (a plain string) and members read it back', async () => {
+    const memberToken = await loginAs('PLAINMEMBER7500X', '7500')
+
+    const put = await api('PUT', '/api/admin/settings/payout_mode', leadershipToken, {
+      value: 'tiered',
+    })
+    expect(put.status).toBe(200)
+
+    const after = await api('GET', '/api/oc-config', memberToken)
+    expect(after.body.payout_mode).toBe('tiered')
+  })
+
+  it('rejects a payout mode that is not one of the three known modes', async () => {
+    const res = await api('PUT', '/api/admin/settings/payout_mode', leadershipToken, {
+      value: 'random-mode',
+    })
+    expect(res.status).toBe(400)
+  })
 })
 
 describe('global-admin scraper surface', () => {

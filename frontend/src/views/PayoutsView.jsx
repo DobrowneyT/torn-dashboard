@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useFactionConfig } from '../contexts/FactionConfigContext'
 import { useViewState } from '../contexts/ViewStateContext'
 import { apiGet } from '../utils/apiClient'
 import { formatCurrency, formatCurrencyShort, formatTimeHours, getCrimeStats, weekCrimeRowsToMap } from '../utils/payoutCalculations'
@@ -416,6 +417,8 @@ function TierBadge({ tier }) {
 }
 
 function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMemberClick, onShowCrimeStats, isLeadership }) {
+  // Non-tiered factions hide the Tier column here too (#136).
+  const { usesTiers } = useFactionConfig()
   const [sortCol, setSortCol] = useState('payout')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -532,7 +535,7 @@ function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMembe
               <thead>
                 <tr className="text-left">
                   <SortHeader col="name" label="Member" sticky />
-                  <SortHeader col="tier" label="Tier" sticky />
+                  {usesTiers && <SortHeader col="tier" label="Tier" sticky />}
                   <SortHeader col="time" label="Time" sticky />
                   <SortHeader col="tickets" label="Tickets" sticky />
                   <SortHeader col="penalty" label="Penalty" sticky />
@@ -546,7 +549,7 @@ function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMembe
                 {sortedMembers.map((m) => (
                   <tr key={m.member_id} className="border-b border-gray-100 dark:border-slate-800">
                     <td className="py-2 px-2 text-xs font-medium">{m.member_name}</td>
-                    <td className="py-2 px-2"><TierBadge tier={m.tier} /></td>
+                    {usesTiers && <td className="py-2 px-2"><TierBadge tier={m.tier} /></td>}
                     <td className="py-2 px-2 text-xs">{formatTimeHours(m.time_spent || 0)}</td>
                     <td className="py-2 px-2 text-xs">{m.base_tickets}</td>
                     <td className="py-2 px-2 text-xs">

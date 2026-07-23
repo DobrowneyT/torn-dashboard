@@ -14,6 +14,7 @@ import {
   getCrimeStats,
   PAYOUT_MODES,
   DEFAULT_PAYOUT_MODE,
+  factionUsesTiers,
 } from '../payoutCalculations.js'
 
 // Suppress console.log in tests
@@ -81,6 +82,21 @@ function makeMembers(ids, tier = 6) {
 }
 
 // ─── getWeekRangeFromDate ──────────────────────────────────────────
+describe('factionUsesTiers', () => {
+  it('is true only for the tiered mode', () => {
+    expect(factionUsesTiers('tiered')).toBe(true)
+    expect(factionUsesTiers('flat-weighted')).toBe(false)
+    expect(factionUsesTiers('equal')).toBe(false)
+  })
+
+  it('treats an absent/unknown mode as the flat-weighted default (no tiers)', () => {
+    expect(factionUsesTiers(null)).toBe(false)
+    expect(factionUsesTiers(undefined)).toBe(false)
+    expect(factionUsesTiers('')).toBe(false)
+    expect(factionUsesTiers('nonsense')).toBe(false)
+  })
+})
+
 describe('getWeekRangeFromDate', () => {
   it('returns correct Monday-Sunday range for a Wednesday', () => {
     // Wednesday 2026-03-18

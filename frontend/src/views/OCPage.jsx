@@ -5,14 +5,15 @@ import OCPlannerView from './OCPlannerView'
 import TierRequirementsView from './TierRequirementsView'
 import PayoutManagement from '../components/PayoutManagement'
 import TierManagement from '../components/TierManagement'
+import { useFactionConfig } from '../contexts/FactionConfigContext'
 
 const TABS = [
   { to: '/oc/payouts',           label: 'Payouts',           leadership: false },
   { to: '/oc/oc-history',        label: 'OC History',        leadership: false },
   { to: '/oc/oc-planner',        label: 'OC Planner',        ocPlanner: true   },
-  { to: '/oc/tier-requirements', label: 'Tier Requirements', leadership: false },
+  { to: '/oc/tier-requirements', label: 'Tier Requirements', leadership: false, tier: true },
   { to: '/oc/payout-management', label: 'Payout Management', leadership: true  },
-  { to: '/oc/tier-management',   label: 'Tier Management',   leadership: true  },
+  { to: '/oc/tier-management',   label: 'Tier Management',   leadership: true, tier: true },
 ]
 
 const tabClass = ({ isActive }) =>
@@ -23,8 +24,12 @@ const tabClass = ({ isActive }) =>
   }`
 
 export default function OCPage({ isLeadership, canAccessOCPlanner }) {
+  // Tier tabs/routes only exist for a tiered faction (#136). Non-tiered
+  // factions never see Tier Requirements or Tier Management, and a direct
+  // URL falls through to the catch-all redirect below.
+  const { usesTiers } = useFactionConfig()
   const visibleTabs = TABS.filter(t =>
-    (!t.leadership || isLeadership) && (!t.ocPlanner || canAccessOCPlanner)
+    (!t.leadership || isLeadership) && (!t.ocPlanner || canAccessOCPlanner) && (!t.tier || usesTiers)
   )
 
   return (
@@ -40,9 +45,9 @@ export default function OCPage({ isLeadership, canAccessOCPlanner }) {
         <Route path="payouts"           element={<PayoutsView isLeadership={isLeadership} />} />
         <Route path="oc-history"        element={<CrimesView isLeadership={isLeadership} />} />
         {canAccessOCPlanner && <Route path="oc-planner" element={<OCPlannerView />} />}
-        <Route path="tier-requirements" element={<TierRequirementsView />} />
+        {usesTiers && <Route path="tier-requirements" element={<TierRequirementsView />} />}
         {isLeadership && <Route path="payout-management" element={<PayoutManagement />} />}
-        {isLeadership && <Route path="tier-management"   element={<TierManagement />} />}
+        {isLeadership && usesTiers && <Route path="tier-management" element={<TierManagement />} />}
         <Route path="*" element={<Navigate to="/oc/oc-history" replace />} />
       </Routes>
     </div>
