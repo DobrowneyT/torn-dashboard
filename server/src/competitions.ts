@@ -113,6 +113,95 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
       return reply.status(201).send({ competition: inserted.rows[0] })
     }
   )
+
+  // Resolve → materialise the current standings into competition_results as a
+  // new resolution (fixed resolves once; rolling accretes one per resolve). The
+  // top-ranked member is the winner. Refuses an empty board (nothing to crown).
+  app.post(
+    '/api/competitions/:id/resolve',
+    { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string }
+      if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'Competition not found' })
+      const compRes = await db.query(`SELECT ${SELECT_COLS} FROM competitions WHERE id = $1`, [id])
+      if (compRes.rows.length === 0) return reply.status(404).send({ error: 'Competition not found' })
+      const competition = compRes.rows[0]
+
+      const window = effectiveWindow(competition)
+      const standings = await computeStandings(db, competition)
+      if (!window || standings.length === 0) {
+        return reply.status(409).send({ error: 'No standings to resolve yet in this window' })
+      }
+      const resolvedBy = String(req.session!.torn_user_id)
+
+      const client = await db.connect()
+      try {
+        await client.query('BEGIN')
+        const seqRes = await client.query(
+          `SELECT COALESCE(MAX(resolution_seq), 0) + 1 AS seq
+             FROM competition_results WHERE competition_id = $1`,
+          [id]
+        )
+        const seq = seqRes.rows[0].seq as number
+        for (const s of standings) {
+          await client.query(
+            `INSERT INTO competition_results
+               (competition_id, resolution_seq, resolved_by, window_start, window_end,
+                member_id, member_name, value, rank, partial, winner)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [id, seq, resolvedBy, window.start, window.end, s.member_id, s.member_name,
+             s.value, s.rank, s.partial, s.rank === 1]
+          )
+        }
+        await client.query('COMMIT')
+        const winner = standings.find((s) => s.rank === 1) ?? null
+        return { resolution_seq: seq, winner, member_count: standings.length }
+      } catch (err) {
+        await client.query('ROLLBACK')
+        throw err
+      } finally {
+        client.release()
+      }
+    }
+  )
+
+  // Past resolutions, newest first, each with its frozen standings + winner.
+  app.get('/api/competitions/:id/history', { preHandler: requireAuth() }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'Competition not found' })
+    const res = await db.query(
+      `SELECT resolution_seq, resolved_at, resolved_by, window_start, window_end,
+              member_id, member_name, value, rank, partial, winner
+         FROM competition_results
+        WHERE competition_id = $1
+        ORDER BY resolution_seq DESC, rank ASC`,
+      [id]
+    )
+    // Group the flat rows into resolutions.
+    const bySeq = new Map<number, any>()
+    for (const r of res.rows) {
+      let group = bySeq.get(r.resolution_seq)
+      if (!group) {
+        group = {
+          resolution_seq: r.resolution_seq,
+          resolved_at: r.resolved_at,
+          resolved_by: r.resolved_by,
+          window_start: r.window_start,
+          window_end: r.window_end,
+          winner: null as any,
+          standings: [] as any[],
+        }
+        bySeq.set(r.resolution_seq, group)
+      }
+      const row = {
+        member_id: r.member_id, member_name: r.member_name,
+        value: r.value, rank: r.rank, partial: r.partial, winner: r.winner,
+      }
+      group.standings.push(row)
+      if (r.winner) group.winner = row
+    }
+    return { resolutions: [...bySeq.values()] }
+  })
 }
 
 interface CompetitionRow {

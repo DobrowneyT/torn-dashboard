@@ -19,6 +19,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competitions can be resolved into a recorded result.** Leadership can "Close &
+  record" a competition, freezing its current standings into history and crowning
+  the top-ranked member; each resolution is kept (a rolling competition accretes
+  one per close), and past results with their frozen standings are browsable under
+  the competition. The stored rows are self-contained so a future payout can read a
+  result without recomputing it (#185).
 - **Competitions: rolling windows + per-day averages.** A competition can now use
   a rolling "last N days" window (recomputed live) instead of only fixed dates,
   and can score by per-day average of the metric as well as the raw total —

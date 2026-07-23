@@ -204,4 +204,49 @@ describe('competitions (#183)', () => {
       window_start: '2026-07-01', window_end: '2026-07-07',
     })).status).toBe(400)
   })
+
+  // ── #185: resolve → history ──────────────────────────────────────────────
+
+  async function createFixedXanax(name: string) {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name, metric_id: 'xanax_taken', window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    return c.body.competition.id
+  }
+
+  it('resolving materialises the standings and crowns the top-ranked member', async () => {
+    const id = await createFixedXanax('Resolve me')
+    const resolve = await api('POST', `/api/competitions/${id}/resolve`, leadershipToken)
+    expect(resolve.status).toBe(200)
+    expect(resolve.body.resolution_seq).toBe(1)
+    expect(resolve.body.winner.member_id).toBe('10') // Ace, delta 40
+    expect(resolve.body.member_count).toBe(3)
+
+    const history = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    expect(history.body.resolutions).toHaveLength(1)
+    const r = history.body.resolutions[0]
+    expect(r.winner.member_id).toBe('10')
+    expect(r.standings).toHaveLength(3)
+    // Frozen standings carry their own value/rank (self-contained).
+    expect(r.standings.find((s: any) => s.member_id === '10').value).toBe(40)
+  })
+
+  it('members cannot resolve; resolving an empty window is refused', async () => {
+    const id = await createFixedXanax('No touchy')
+    expect((await api('POST', `/api/competitions/${id}/resolve`, memberToken)).status).toBe(403)
+
+    const empty = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Empty window', metric_id: 'xanax_taken', window_start: '2020-01-01', window_end: '2020-01-02',
+    })
+    expect((await api('POST', `/api/competitions/${empty.body.competition.id}/resolve`, leadershipToken)).status).toBe(409)
+  })
+
+  it('a competition can be resolved repeatedly, each resolution its own history row', async () => {
+    const id = await createFixedXanax('Repeat resolve')
+    await api('POST', `/api/competitions/${id}/resolve`, leadershipToken)
+    const second = await api('POST', `/api/competitions/${id}/resolve`, leadershipToken)
+    expect(second.body.resolution_seq).toBe(2)
+    const history = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    expect(history.body.resolutions.map((r: any) => r.resolution_seq)).toEqual([2, 1])
+  })
 })
