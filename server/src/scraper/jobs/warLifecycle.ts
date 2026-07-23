@@ -45,13 +45,14 @@ export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
       const dbc = await db.connect()
       try {
         await dbc.query('BEGIN')
-        // Weekly wipe — roll call + notes are per-war, not kept for posterity.
+        // Roll call is per-war availability — reset it each week. Notes are
+        // ARCHIVED (#145): prior wars' rows are keyed by war_id and kept so
+        // leadership can browse past strategy/negotiations; only the new war's
+        // row is seeded (idempotently) as a fresh slate to edit.
         await dbc.query('DELETE FROM war_room_roll_call_v2')
-        await dbc.query('DELETE FROM war_room_notes_v2')
-        await dbc.query('DELETE FROM war_room_notes_private_v2')
-        // Seed a notes row so the leader panel has a row to edit.
         await dbc.query(
-          'INSERT INTO war_room_notes_v2 (war_id, opponent_faction_id) VALUES ($1, $2)',
+          `INSERT INTO war_room_notes_v2 (war_id, opponent_faction_id) VALUES ($1, $2)
+           ON CONFLICT (war_id) DO NOTHING`,
           [upcoming.id, oppId]
         )
         await dbc.query('COMMIT')

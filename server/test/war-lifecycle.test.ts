@@ -89,11 +89,16 @@ describe('war lifecycle job', () => {
       auto_managed: true, managed_war_id: 800, enabled: false,
     })
 
-    // Prior week wiped: roll call + notes gone, notes reseeded for war 800.
+    // Roll call resets each week; notes are ARCHIVED (#145) — prior war 600's
+    // public + private notes are retained, and war 800 gets a fresh seed row.
     expect((await stack.db.query('SELECT count(*)::int AS n FROM war_room_roll_call_v2')).rows[0].n).toBe(0)
-    const notes = await stack.db.query('SELECT war_id, opponent_faction_id FROM war_room_notes_v2')
-    expect(notes.rows).toEqual([{ war_id: 800, opponent_faction_id: ENEMY }])
-    expect((await stack.db.query('SELECT count(*)::int AS n FROM war_room_notes_private_v2')).rows[0].n).toBe(0)
+    const notes = await stack.db.query('SELECT war_id, opponent_faction_id FROM war_room_notes_v2 ORDER BY war_id')
+    expect(notes.rows).toEqual([
+      { war_id: 600, opponent_faction_id: null },   // last week's, kept
+      { war_id: 800, opponent_faction_id: ENEMY },  // this week's fresh seed
+    ])
+    // The prior week's leads-only note survives for the archive.
+    expect((await stack.db.query('SELECT count(*)::int AS n FROM war_room_notes_private_v2')).rows[0].n).toBe(1)
 
     // Old state/dibs tombstoned; chain reset (no inherited save claim).
     const oldState = await stack.db.query('SELECT deleted_at FROM war_room_state_v2 WHERE member_id = 88801')
