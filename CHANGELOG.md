@@ -50,6 +50,8 @@ cutover; this line is the containerized `dev` stack.
   leads-only browser (#145).
 - **OC payout modes** — tiered / flat-weighted / equal (#134) — and **Crime Statistics**
   for a saved week from OC → Payouts history (#142).
+- **Faction payout-mode default** in Leadership → Settings; non-tiered factions hide the
+  tier machinery (Tier Management / Requirements + tier columns) entirely (#136).
 - **Ops**: nightly per-faction backups, healthchecks, off-site backups to B2, and
   UptimeRobot monitoring (#76, #117); a deploy script with an auto-deploy poller and a
   live-DB dev loop (#121).
