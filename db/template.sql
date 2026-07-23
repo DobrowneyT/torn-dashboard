@@ -657,6 +657,15 @@ CREATE TABLE public.faction_config (
   updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+-- Uploaded branding images (#173): logo / favicon / hero, stored as bytea in
+-- the tenant DB (small, few — rides existing backups + isolation).
+CREATE TABLE public.faction_branding_assets (
+  kind         text PRIMARY KEY,
+  content_type text NOT NULL,
+  bytes        bytea NOT NULL,
+  updated_at   timestamp with time zone NOT NULL DEFAULT now()
+);
+
 -- Per-faction policy settings as whole JSON documents (tier requirements,
 -- CPR requirements, payout tickets, ...) — replaces hardcoded frontend config.
 -- The leader admin UI (slice #74) edits these; db/seed/03 provides defaults.

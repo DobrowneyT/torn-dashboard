@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Branding image uploads.** Leadership can upload a logo, favicon, and hero image in
+  Settings (with preview + a URL fallback) instead of pasting a URL; images are stored
+  per-faction in the DB and served over the tenant's own origin. The favicon applies to
+  the browser tab; where the logo/hero render is a follow-up (#173).
+
 - **War Room leader headline banner.** Warleads/leadership/admin can pin one urgent
   message to the top of the War Room ("TURTLE — STAY IN HOSPITAL", "STOP ALL HITS",
   "PUSH 2 20:30", or free text) from quick-pick presets or a custom field, with a
