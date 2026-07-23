@@ -100,6 +100,20 @@ CREATE TABLE public.crime_slots (
   item_outcome_value bigint DEFAULT 0
 );
 
+-- Per-(crime, member) participation stints (#168): retains time banked in a
+-- crime a member left before it executed, which crime_slots (keyed by refillable
+-- position) can't. Maintained by the crimes-sync.
+CREATE TABLE public.crime_participation_v2 (
+  crime_id   text NOT NULL,
+  member_id  text NOT NULL,
+  joined_at  bigint NOT NULL,
+  left_at    bigint,
+  completed  boolean NOT NULL DEFAULT false,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  PRIMARY KEY (crime_id, member_id)
+);
+CREATE INDEX crime_participation_v2_member_idx ON public.crime_participation_v2 (member_id);
+
 CREATE TABLE public.crimes (
   crime_id text NOT NULL,
   name text NOT NULL,
