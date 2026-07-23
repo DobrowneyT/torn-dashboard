@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { getFactionIdentity } from '../../utils/factionIdentity'
 import { Swords, Clock } from 'lucide-react'
-import { formatTct, formatCountdown, warTypeBadge, availabilityLabel } from '../../utils/rollCall'
+import { formatTct, formatCountdown, warTypeBadge, availabilityLabel, notePointsFromText } from '../../utils/rollCall'
+import { fmtAgo } from '../../utils/time'
 import RollCallResultsModal from './RollCallResultsModal'
 
 // Compact "this week's war" summary shown to everyone in the War Room (and
@@ -45,11 +46,27 @@ export default function WarSummaryCard({ currentWar, notes, rollCallRows = [], o
         )}
       </div>
 
-      {notes?.notes_public && (
-        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap line-clamp-3">
-          {notes.notes_public}
-        </p>
-      )}
+      {(() => {
+        const bullets = notePointsFromText(notes?.notes_public)
+        if (bullets.length === 0) return null
+        return (
+          <div className="mt-2">
+            {/* Every point shown in full (no clipping) — members must not miss
+                war instructions; scrolls only past ~10 points (#141). */}
+            <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5 max-h-40 overflow-y-auto">
+              {bullets.map((b, i) => (
+                <li key={i} className="flex gap-1.5">
+                  <span className="text-gray-400 shrink-0">•</span>
+                  <span className="min-w-0 break-words">{b}</span>
+                </li>
+              ))}
+            </ul>
+            {notes?.updated_at && (
+              <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">updated {fmtAgo(notes.updated_at)}</div>
+            )}
+          </div>
+        )
+      })()}
 
       <div className="mt-2 flex items-center justify-between text-xs">
         <span className="text-gray-500 dark:text-gray-400">

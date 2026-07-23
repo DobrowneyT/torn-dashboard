@@ -38,6 +38,26 @@ export function formatCountdown(unixSec, nowSec = Math.floor(Date.now() / 1000))
   return `in ${m}m`
 }
 
+// War notes are stored as newline-delimited text (#141) — one point per line —
+// but edited as a list and rendered as bullets. These convert between the two:
+// backward-compatible, since any existing free-text note is just its lines.
+
+/** Text (one point per line) → trimmed, non-empty point list. */
+export function notePointsFromText(text) {
+  return String(text ?? '')
+    .split('\n')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+}
+
+/** Point list → newline-delimited text for storage (drops blanks). */
+export function notePointsToText(points) {
+  return (points ?? [])
+    .map((p) => String(p ?? '').trim())
+    .filter((p) => p.length > 0)
+    .join('\n')
+}
+
 // Who may view/edit the War Notes & roll-call results panel: war leaders and
 // real leadership/admin. In the SPA the `isLeadership` flag is also true for
 // read-only visitors (they see the leadership layout), so visitors must be

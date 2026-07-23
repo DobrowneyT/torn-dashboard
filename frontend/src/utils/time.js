@@ -20,3 +20,15 @@ export function fmtDbTime(ts) {
   const d = parseDbTime(ts)
   return d ? d.toLocaleString() : '—'
 }
+
+/** Relative "time ago" for any DB timestamp shape; '—' when absent/invalid. */
+export function fmtAgo(ts, nowMs = Date.now()) {
+  const d = parseDbTime(ts)
+  if (!d) return '—'
+  const diff = Math.floor((nowMs - d.getTime()) / 1000)
+  if (diff < 0) return 'just now'
+  if (diff < 60) return 'just now'
+  if (diff < 3_600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86_400) return `${Math.floor(diff / 3_600)}h ago`
+  return `${Math.floor(diff / 86_400)}d ago`
+}

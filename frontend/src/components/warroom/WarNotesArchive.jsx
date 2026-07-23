@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { History, LoaderCircle, Lock, ChevronRight } from 'lucide-react'
 import { apiGet } from '../../utils/apiClient'
-import { formatTct, warTypeBadge } from '../../utils/rollCall'
+import { formatTct, warTypeBadge, notePointsFromText } from '../../utils/rollCall'
 
 // Leads-only browser for past wars' notes (#145). Rendered inside WarNotesPanel
 // (already gated to warlead/leadership/admin), so no extra gate here. Read-only:
@@ -87,9 +87,16 @@ export default function WarNotesArchive({ currentWarId }) {
                   <div className="px-3 pb-3 space-y-2 text-sm">
                     <div>
                       <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Public note</div>
-                      <p className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">
-                        {w.notes_public || <span className="italic text-gray-400">— none —</span>}
-                      </p>
+                      {(() => {
+                        const bullets = notePointsFromText(w.notes_public)
+                        return bullets.length
+                          ? <ul className="space-y-0.5 text-gray-800 dark:text-gray-200">
+                              {bullets.map((b, i) => (
+                                <li key={i} className="flex gap-1.5"><span className="text-gray-400 shrink-0">•</span><span className="min-w-0 break-words">{b}</span></li>
+                              ))}
+                            </ul>
+                          : <span className="italic text-gray-400">— none —</span>
+                      })()}
                     </div>
                     <div>
                       <div className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">

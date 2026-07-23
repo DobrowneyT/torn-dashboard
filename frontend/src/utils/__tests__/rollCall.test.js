@@ -8,9 +8,37 @@ import {
   availabilityLabel,
   warTypeBadge,
   canSeeWarNotes,
+  notePointsFromText,
+  notePointsToText,
 } from '../rollCall'
 
 const HOUR = 3600
+
+describe('note points <-> text', () => {
+  it('splits text into trimmed, non-empty points', () => {
+    expect(notePointsFromText('130 per person\n  Bonus = 10  \n\nUse warlords'))
+      .toEqual(['130 per person', 'Bonus = 10', 'Use warlords'])
+  })
+
+  it('treats a legacy single-line note as one point', () => {
+    expect(notePointsFromText('Focus their top 10')).toEqual(['Focus their top 10'])
+  })
+
+  it('is empty for blank/absent input', () => {
+    expect(notePointsFromText('')).toEqual([])
+    expect(notePointsFromText(null)).toEqual([])
+    expect(notePointsFromText('   \n  ')).toEqual([])
+  })
+
+  it('joins points back to newline text, dropping blanks', () => {
+    expect(notePointsToText([' A ', '', 'B', '   '])).toBe('A\nB')
+  })
+
+  it('round-trips', () => {
+    const text = 'Opens after 24h\nOffliners only\nUse warlords'
+    expect(notePointsToText(notePointsFromText(text))).toBe(text)
+  })
+})
 
 describe('canSeeWarNotes', () => {
   it('grants war leaders', () => {
