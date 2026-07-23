@@ -22,6 +22,7 @@ import { registerWarRoomSetupRoutes } from './warRoomSetup.js'
 import { registerAdminRoutes } from './admin.js'
 import { createJobRunner } from './scraper/registerJobs.js'
 import { createSecretStore } from './secrets.js'
+import { APP_VERSION } from './version.js'
 
 /** Mutable readiness flags (#76). main.ts flips these true after arming the
  *  background scheduler + war-room ticker; /api/health/ready reports them. */
@@ -55,7 +56,7 @@ export async function buildServer(
   // Liveness: the process is up. Cheap, dependency-free — Docker's HEALTHCHECK
   // and the cheap ping hit this. Must stay 200 even when the DB is down or the
   // key-at-rest secret is malformed (see boot-degrade.test.ts).
-  app.get('/api/health', async () => ({ status: 'ok', faction: opts.factionSlug }))
+  app.get('/api/health', async () => ({ status: 'ok', faction: opts.factionSlug, version: APP_VERSION }))
 
   // Readiness: what an uptime monitor and an operator need per faction — live
   // DB connectivity plus whether background work is armed. DB down ⇒ 503.

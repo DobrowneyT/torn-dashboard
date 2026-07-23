@@ -8,6 +8,8 @@ COPY frontend/package.json frontend/
 COPY db/package.json db/
 RUN npm ci --workspace @tnl/server
 
+# Version source of truth (#154) — /api/health reads ../../VERSION at runtime.
+COPY VERSION ./
 COPY server/ server/
 
 WORKDIR /app/server

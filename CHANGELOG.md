@@ -5,13 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-**How to bump:** Before committing a release, add a new `## [X.Y.Z] - YYYY-MM-DD` block
-at the top (below `[Released]`). The deploy pipeline reads the first versioned block
-and stamps the footer automatically.
+**How to bump:** The repo-root **`VERSION`** file is the single source of truth for
+the app version. To cut a release: set `VERSION` to the new `X.Y.Z`, sync the root
+`package.json` `version` to match, and add a new `## [X.Y.Z] - YYYY-MM-DD` block at
+the top (below `[Unreleased]`) whose version equals `VERSION`. Level follows the
+change: `feat` → minor, `fix` → patch, breaking → major (a human may override). The
+footer (`VITE_APP_VERSION`, read from `VERSION` at build) and `/api/health` (read
+from `VERSION` at runtime) both surface it automatically.
 
 ---
 
-## [Released]
+## [Unreleased]
+
+
+## [3.0.0] - 2026-07-23
+
+The **self-hosted, multi-faction** release. The dashboard moves off Supabase onto a
+self-hosted stack — React SPA + Fastify/TypeScript API + Postgres — deployed as one
+container module per faction. `main` stays on the Supabase build (GitHub Pages) until
+cutover; this line is the containerized `dev` stack.
+
+### Added
+
+- **Self-hosted per-faction stack** (slices #59–#75): docker compose project
+  `tnl-dashboard` (shared Postgres + nginx), a faction DB template, and a
+  `new-faction` script that scaffolds a tenant's DB, scoped credentials, and vhost.
+- **Torn-key login → API JWT** auth path with `/api/bootstrap`; remember-me sessions
+  with a 24h membership re-check (#119).
+- **Multi-faction tenancy** (#94, #95): scoped per-tenant DB credentials, host-based
+  routing, dynamic per-tenant branding from bootstrap (#131), a global-admin surface,
+  and boot hardening so every faction is an independently bootable module.
+- **Scrapers rewritten in TypeScript** (#67–#70): key-rotation pool, Torn client with
+  a consistent API comment on every call (#113), run log, in-process scheduler, and
+  the items / crimes / CPR / members / member-stats / wars / attacks / revives jobs
+  plus on-demand sync triggers.
+- **Self-hosted War Room** (#71–#73): HTTP-polled read path, war-gated ticker, write
+  path (dibs, chain save, roll call, notes), and in-process weekly war-lifecycle
+  automation. Auto-expiring stale dibs (#106/#107) and two-tier farm-mode sort (#108).
+- **Auto spy-fetch** on the weekly matchup setup (#139).
+- **Structured public war notes** — reorderable bullet list, no truncation,
+  last-updated stamp (#141) — and **collaborative live editing** with optimistic
+  locking and near-real-time refresh (#160).
+- **Past Wars notes archive**: prior wars' notes are retained instead of wiped, with a
+  leads-only browser (#145).
+- **OC payout modes** — tiered / flat-weighted / equal (#134) — and **Crime Statistics**
+  for a saved week from OC → Payouts history (#142).
+- **Ops**: nightly per-faction backups, healthchecks, off-site backups to B2, and
+  UptimeRobot monitoring (#76, #117); a deploy script with an auto-deploy poller and a
+  live-DB dev loop (#121).
+- **Load/stress harness** (#116): mock Torn API, WebSocket swarm, and documented modes.
+- **`VERSION` file** as the single version source of truth, surfaced in the footer and
+  on `/api/health` (#154).
+
+### Changed
+
+- The Discord bot and mug-bot were **extracted to their own repos** (`torn-discord-bot`,
+  `torn-mug-bot`); this repo is now just the dashboard (#137).
+- crimes-sync cursor now skips terminal `Expired` crimes so it no longer rescans the
+  whole backlog each run (#144).
+- War notes panel is available to leadership/admin, and the roll-call ribbon clears on
+  submit (#138).
+
+### Fixed
+
+- Spy-age no longer shows a dash despite a real `ts_spy_at` (timestamptz parsing) (#140).
+- Deploy readiness now polls after a rebuild instead of a single shot (#146).
+- Scraper key handling: stop dogpiling a rate-limited key — rotate, fail fast,
+  serialize (#123); one-time forced re-login to refill the rotation pool (#124).
+- Restored faction DBs are bootable again — scoped grants are re-applied (#115).
 
 
 ## [2.1.0] - 2026-06-24

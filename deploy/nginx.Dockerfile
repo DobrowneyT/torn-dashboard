@@ -9,6 +9,9 @@ COPY db/package.json db/
 RUN npm ci --workspace @tnl/frontend
 
 COPY frontend/ frontend/
+# Version source of truth (#154) — vite.config reads ../VERSION so the footer
+# matches /api/health instead of falling back to a stale default.
+COPY VERSION ./
 # The self-hosted bundle talks to /api/* on its own origin instead of Supabase.
 ENV VITE_API_MODE=true
 RUN npm run build -w frontend
