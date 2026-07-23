@@ -24,7 +24,9 @@ import {
   parsePayoutCSV,
   parsePayoutXLSX,
   getCrimeStats,
-  weekCrimeRowsToMap
+  weekCrimeRowsToMap,
+  PAYOUT_MODES,
+  DEFAULT_PAYOUT_MODE
 } from '../utils/payoutCalculations'
 import { useFactionIdentity } from '../utils/factionIdentity'
 import { enrichItemBreakdown } from '../utils/lookupHelpers'
@@ -119,6 +121,10 @@ export default function PayoutManagement() {
   const [fromTimestamp, setFromTimestamp] = useState(null)
   const [toTimestamp, setToTimestamp] = useState(null)
   const [factionCutPercent, setFactionCutPercent] = useState(20)
+  // Payout mode (#134). Pre-filled from the faction default; a leader can pick
+  // a different mode for any individual week. Absent faction setting → the
+  // multi-faction default (flat-weighted).
+  const [payoutMode, setPayoutMode] = useState(DEFAULT_PAYOUT_MODE)
 
   // Data loading state
   const [crimesData, setCrimesData] = useState(null)
@@ -165,6 +171,18 @@ export default function PayoutManagement() {
     setToDate(currentWeek.sunday.toISOString().split('T')[0])
     setFromTimestamp(currentWeek.mondayTimestamp)
     setToTimestamp(currentWeek.sundayTimestamp)
+  }, [])
+
+  // Pre-fill the mode from the faction default (absent → flat-weighted).
+  useEffect(() => {
+    let on = true
+    apiGet('/api/oc-config')
+      .then(cfg => {
+        const m = cfg?.payout_mode
+        if (on && PAYOUT_MODES.includes(m)) setPayoutMode(m)
+      })
+      .catch(() => { /* keep the default */ })
+    return () => { on = false }
   }, [])
 
   // Load historical payouts when tab is shown
@@ -394,36 +412,42 @@ export default function PayoutManagement() {
         membersData,
         fromTimestamp,
         toTimestamp,
-        factionCutPercent / 100
+        factionCutPercent / 100,
+        payoutMode
       )
 
-      // Apply penalty overrides
-      results.members = results.members.map(member => {
-        const override = penaltyOverrides[member.userId]
-        if (override !== undefined) {
-          const oldPenalty = member.sitOutPenalty
-          const newAdjustedTickets = member.baseTickets + override
-          return {
-            ...member,
-            sitOutPenalty: override,
-            adjustedTickets: Math.max(0, newAdjustedTickets),
-            penaltyOverridden: true
+      // Penalty overrides adjust ticket-weighted shares, so they apply only to
+      // the ticket modes (tiered / flat-weighted). In equal mode there's no
+      // ticket weighting — calculatePayouts' even split stands untouched.
+      let totalAdjustedTickets = 0
+      if (payoutMode !== 'equal') {
+        // Apply penalty overrides
+        results.members = results.members.map(member => {
+          const override = penaltyOverrides[member.userId]
+          if (override !== undefined) {
+            const newAdjustedTickets = member.baseTickets + override
+            return {
+              ...member,
+              sitOutPenalty: override,
+              adjustedTickets: Math.max(0, newAdjustedTickets),
+              penaltyOverridden: true
+            }
           }
-        }
-        return member
-      })
+          return member
+        })
 
-      // Recalculate shares after penalty overrides
-      const totalAdjustedTickets = results.members.reduce((sum, m) => sum + m.adjustedTickets, 0)
-      const memberPayoutTotal = results.memberPayoutTotal
+        // Recalculate shares after penalty overrides
+        totalAdjustedTickets = results.members.reduce((sum, m) => sum + m.adjustedTickets, 0)
+        const memberPayoutTotal = results.memberPayoutTotal
 
-      results.members = results.members.map(member => {
-        if (totalAdjustedTickets > 0) {
-          member.sharePercent = member.adjustedTickets / totalAdjustedTickets
-          member.payout = Math.floor(member.sharePercent * memberPayoutTotal)
-        }
-        return member
-      })
+        results.members = results.members.map(member => {
+          if (totalAdjustedTickets > 0) {
+            member.sharePercent = member.adjustedTickets / totalAdjustedTickets
+            member.payout = Math.floor(member.sharePercent * memberPayoutTotal)
+          }
+          return member
+        })
+      }
 
       // Enrich item breakdown and recalculate totals
       enrichItemBreakdown(results.itemBreakdown, user.apiKey).then(enriched => {
@@ -485,10 +509,20 @@ export default function PayoutManagement() {
         // Recalculate theoretical payouts with enriched per-crime values
         const theoreticalByMember = calculateTheoreticalPayouts(enrichedCrimeValues, factionCutPercent / 100)
 
-        // Recalculate member payouts with new total
+        // Recalculate member payouts against the item-enriched pool. Equal
+        // mode re-splits evenly among participants (≥1 OC); the ticket modes
+        // re-derive from adjusted tickets.
+        const equalParticipants = payoutMode === 'equal'
+          ? results.members.filter(m => m.timeSpent > 0).length
+          : 0
         const recalculatedMembers = results.members.map(member => {
           const updated = { ...member }
-          if (totalAdjustedTickets > 0) {
+          if (payoutMode === 'equal') {
+            const isParticipant = member.timeSpent > 0
+            updated.sharePercent = isParticipant && equalParticipants > 0 ? 1 / equalParticipants : 0
+            updated.payout = isParticipant && equalParticipants > 0
+              ? Math.floor(newMemberPayoutTotal / equalParticipants) : 0
+          } else if (totalAdjustedTickets > 0) {
             updated.sharePercent = member.adjustedTickets / totalAdjustedTickets
             updated.payout = Math.floor(updated.sharePercent * newMemberPayoutTotal)
           }
@@ -514,7 +548,7 @@ export default function PayoutManagement() {
         setHasCalculated(true)
       })
     }
-  }, [crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent, penaltyOverrides, user.apiKey])
+  }, [crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent, penaltyOverrides, payoutMode, user.apiKey])
 
   async function handleSaveWeek() {
     if (!payoutResults || payoutResults.members.length === 0) {
@@ -559,7 +593,8 @@ export default function PayoutManagement() {
         crimes_processed: payoutResults.crimesProcessed,
         total_time_spent: payoutResults.totalTimeSpent,
         average_time_spent: payoutResults.averageTime,
-        total_adjusted_tickets: payoutResults.totalAdjustedTickets
+        total_adjusted_tickets: payoutResults.totalAdjustedTickets,
+        payout_mode: payoutMode
       }
 
       const memberData = payoutResults.members.map(m => ({
@@ -863,6 +898,8 @@ export default function PayoutManagement() {
       setFromTimestamp(weekData.week_start_timestamp)
       setToTimestamp(weekData.week_end_timestamp)
       setFactionCutPercent(weekData.faction_cut_percent || 20)
+      // Show the mode this week was computed with; legacy weeks (null) are tiered.
+      setPayoutMode(weekData.payout_mode || 'tiered')
 
       // Transform member data to match expected format
       const transformedMembers = members.map(m => ({
@@ -1041,6 +1078,31 @@ export default function PayoutManagement() {
               step="0.1"
               className="input bg-purple-50 dark:bg-purple-900/20 border-purple-300"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Payout Mode:</label>
+            <div className="inline-flex rounded-lg border border-gray-300 dark:border-slate-600 overflow-hidden">
+              {PAYOUT_MODES.map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPayoutMode(m)}
+                  className={`px-3 py-2 text-sm capitalize transition-colors ${
+                    payoutMode === m
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {m.replace('-', ' ')}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {payoutMode === 'tiered' && 'Per-tier tickets × time weighting.'}
+              {payoutMode === 'flat-weighted' && 'Everyone one tier; time/sit-out weighting applies.'}
+              {payoutMode === 'equal' && 'Even split among everyone who did ≥1 OC.'}
+            </p>
           </div>
         </div>
 

@@ -361,7 +361,8 @@ CREATE TABLE public.oc_payout_weeks (
   saved_by text,
   saved_at timestamp without time zone DEFAULT now(),
   updated_at timestamp without time zone DEFAULT now(),
-  crime_ids text[]
+  crime_ids text[],
+  payout_mode text
 );
 
 CREATE TABLE public.pricing_batches (
