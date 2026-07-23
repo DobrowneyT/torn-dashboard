@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { LoaderCircle, Lock } from 'lucide-react'
 import RollCallResultsTable from './RollCallResultsTable'
+import WarNotesArchive from './WarNotesArchive'
 
 // War Leaders only. War type / agreed scores / strategy notes + the embedded
 // roll-call results table and a "not yet responded" list. Edited responses
@@ -138,6 +139,9 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
           </p>
         )}
       </div>
+
+      {/* Leads-only archive of past wars' notes & negotiations (#145). */}
+      <WarNotesArchive currentWarId={currentWar?.id} />
     </div>
   )
 }

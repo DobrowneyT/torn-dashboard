@@ -304,6 +304,26 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     }
   )
 
+  // Past-wars archive (#145): every war's notes joined to ranked_wars for the
+  // opponent + start date, newest first. Leads only — never members/visitors.
+  // The list carries only the public note; the private note stays behind the
+  // per-war leads-gated endpoint below. (Static route — Fastify matches it
+  // ahead of /notes/:warId.)
+  app.get(
+    '/api/war-room/notes/archive',
+    { preHandler: requireRole('warlead', 'leadership', 'admin') },
+    async () => {
+      const res = await db.query(
+        `SELECT n.war_id, n.opponent_faction_id, n.war_type, n.notes_public, n.updated_at,
+                w.opponent_name, w.start_at, w.end_at
+         FROM war_room_notes_v2 n
+         LEFT JOIN ranked_wars w ON w.id = n.war_id
+         ORDER BY COALESCE(w.start_at, 0) DESC, n.war_id DESC`
+      )
+      return { wars: res.rows }
+    }
+  )
+
   app.get('/api/war-room/notes/:warId', { preHandler: requireAuth() }, async (req) => {
     const { warId } = req.params as { warId: string }
     const res = await db.query('SELECT * FROM war_room_notes_v2 WHERE war_id = $1', [warId])

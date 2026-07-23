@@ -239,4 +239,25 @@ describe('war notes', () => {
     expect((await call('GET', '/api/war-room/notes/700/private', undefined, 'visitor')).status).toBe(200)
     expect((await call('GET', '/api/war-room/notes/700/private', undefined, 'member')).status).toBe(403)
   })
+
+  it('leads browse the past-wars archive (labelled by opponent + start); members/visitors cannot', async () => {
+    // A ranked_wars row lets the archive label the war by opponent + start.
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, start_at, end_at, opponent_id, opponent_name)
+       VALUES (700, 1750000000, 1750600000, 55501, 'Old Rivals')
+       ON CONFLICT (id) DO NOTHING`
+    )
+
+    const arch = await call('GET', '/api/war-room/notes/archive', undefined, 'warlead')
+    expect(arch.status).toBe(200)
+    const war700 = arch.body.wars.find((w: { war_id: number }) => Number(w.war_id) === 700)
+    expect(war700).toMatchObject({ opponent_name: 'Old Rivals', notes_public: 'Focus their top 5' })
+    expect(Number(war700.start_at)).toBe(1750000000)
+    // The archive list never carries the private note.
+    expect(JSON.stringify(arch.body)).not.toContain('Merc budget')
+
+    // Leads only — the browse entry point is closed to members and visitors.
+    expect((await call('GET', '/api/war-room/notes/archive', undefined, 'member')).status).toBe(403)
+    expect((await call('GET', '/api/war-room/notes/archive', undefined, 'visitor')).status).toBe(403)
+  })
 })
