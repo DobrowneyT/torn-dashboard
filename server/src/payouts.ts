@@ -14,7 +14,7 @@ const WEEK_COLUMNS = new Set([
   'faction_cut_percent', 'faction_cut_amount', 'member_payout_total',
   'total_member_payout', 'member_count', 'crimes_processed', 'total_time_spent',
   'average_time_spent', 'total_adjusted_tickets', 'total_time_spent_percent',
-  'min_time_for_full_tickets', 'min_time_for_any_payout',
+  'min_time_for_full_tickets', 'min_time_for_any_payout', 'payout_mode',
 ])
 const MEMBER_COLUMNS = new Set([
   'member_id', 'member_name', 'tier', 'base_tickets', 'sit_out_penalty',

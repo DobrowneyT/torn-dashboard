@@ -16,6 +16,20 @@ const TIER_TICKETS = {
   6: 2
 }
 
+// Payout modes (#134):
+//   tiered        — per-tier base tickets (Forge). The original behavior.
+//   flat-weighted — every member gets the same base tickets (as if one tier);
+//                   time-spent / sit-out weighting still applies.
+//   equal         — even split among members who did >=1 OC; no weighting,
+//                   no sit-out floor.
+// Absent faction setting defaults to flat-weighted — tiered is Forge-specific,
+// so the multi-faction default must not assume tiers.
+export const PAYOUT_MODES = ['tiered', 'flat-weighted', 'equal']
+export const DEFAULT_PAYOUT_MODE = 'flat-weighted'
+// Uniform base for the non-tiered modes (Tier-1 value). In flat-weighted this
+// cancels out of the share math — it's only what shows in the Tickets column.
+const FLAT_BASE_TICKETS = TIER_TICKETS[1]
+
 // Time thresholds for penalty calculation (in seconds)
 const MIN_TIME_FOR_FULL_TICKETS = 120 * 3600  // 120 hours = 432,000 seconds
 const MIN_TIME_FOR_ANY_PAYOUT = 48 * 3600     // 48 hours = 172,800 seconds
@@ -247,7 +261,7 @@ export function validateNoOverlappingCrimes(crimesData) {
  * @param {number} factionCutPercent - Faction cut as decimal (e.g., 0.20 for 20%)
  * @returns {Object} Payout calculation results
  */
-export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent = 0.20) {
+export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent = 0.20, mode = 'tiered') {
   console.log('\n===========================================')
   console.log('PAYOUT CALCULATION START (Supabase)')
   console.log('===========================================')
@@ -506,9 +520,13 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   const totalTimeSpent = memberArray.reduce((sum, m) => sum + m.timeSpent, 0)
   const averageTime = totalTimeSpent / memberArray.length
 
-  // Calculate tickets and penalties for each member
+  // Calculate tickets and penalties for each member. tiered uses per-tier
+  // tickets; flat-weighted and equal use a uniform base (equal ignores the
+  // ticket weighting entirely below, but still carries a base for display).
   for (const member of memberArray) {
-    const baseTickets = TIER_TICKETS[member.tier] || TIER_TICKETS[6]
+    const baseTickets = mode === 'tiered'
+      ? (TIER_TICKETS[member.tier] || TIER_TICKETS[6])
+      : FLAT_BASE_TICKETS
     const sitOutPenalty = calculateSitOutPenalty(member.timeSpent, baseTickets)
 
     member.baseTickets = baseTickets
@@ -527,17 +545,33 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   // Calculate total adjusted tickets
   const totalAdjustedTickets = memberArray.reduce((sum, m) => sum + m.adjustedTickets, 0)
 
-  // Calculate share and payout for each member
-  for (const member of memberArray) {
-    if (totalAdjustedTickets > 0) {
-      member.sharePercent = member.adjustedTickets / totalAdjustedTickets
-      member.payout = Math.floor(member.sharePercent * memberPayoutTotal)
-    } else {
-      member.sharePercent = 0
-      member.payout = 0
+  // Calculate share and payout for each member.
+  if (mode === 'equal') {
+    // Even split among members who did at least one OC (participated in the
+    // window) — no ticket weighting, no sit-out floor.
+    const participants = memberArray.filter(m => m.timeSpent > 0)
+    const share = participants.length > 0 ? 1 / participants.length : 0
+    const each = participants.length > 0 ? Math.floor(memberPayoutTotal / participants.length) : 0
+    for (const member of memberArray) {
+      const isParticipant = member.timeSpent > 0
+      member.sharePercent = isParticipant ? share : 0
+      member.payout = isParticipant ? each : 0
     }
+  } else {
+    // tiered + flat-weighted: proportional to adjusted (time-weighted) tickets.
+    for (const member of memberArray) {
+      if (totalAdjustedTickets > 0) {
+        member.sharePercent = member.adjustedTickets / totalAdjustedTickets
+        member.payout = Math.floor(member.sharePercent * memberPayoutTotal)
+      } else {
+        member.sharePercent = 0
+        member.payout = 0
+      }
+    }
+  }
 
-    // Calculate time percentage
+  // Time percentage (mode-independent)
+  for (const member of memberArray) {
     member.timePercent = totalTimeSpent > 0 ? (member.timeSpent / totalTimeSpent) * 100 : 0
   }
 
@@ -589,6 +623,7 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
 
   return {
     members: memberArray,
+    payoutMode: mode,
     totalMoneyReward,
     totalItemReward,
     totalItemCost,

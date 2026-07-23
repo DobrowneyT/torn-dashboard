@@ -84,13 +84,16 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
   app.get('/api/oc-config', { preHandler: requireAuth() }, async () => {
     const res = await deps.db.query(
       `SELECT key, value FROM faction_settings
-       WHERE key IN ('tier_requirements', 'cpr_requirements', 'payout_tickets')`
+       WHERE key IN ('tier_requirements', 'cpr_requirements', 'payout_tickets', 'payout_mode')`
     )
     const settings = Object.fromEntries(res.rows.map((r) => [r.key, r.value]))
     return {
       tier_requirements: settings.tier_requirements ?? {},
       cpr_requirements: settings.cpr_requirements ?? {},
       payout_tickets: settings.payout_tickets ?? {},
+      // Faction default payout mode (#134); absent → flat-weighted (the Settings
+      // editor to write this lands in #136). Stored as a plain jsonb string.
+      payout_mode: settings.payout_mode ?? null,
     }
   })
 

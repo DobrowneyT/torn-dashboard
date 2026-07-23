@@ -12,6 +12,8 @@ import {
   exportPayoutFilename,
   weekCrimeRowsToMap,
   getCrimeStats,
+  PAYOUT_MODES,
+  DEFAULT_PAYOUT_MODE,
 } from '../payoutCalculations.js'
 
 // Suppress console.log in tests
@@ -520,6 +522,92 @@ describe('exportPayoutFilename', () => {
   it('falls back to a generic label when no faction name is available', () => {
     expect(exportPayoutFilename('20260719', '')).toBe('20260719-OC_Payout.csv')
     expect(exportPayoutFilename('20260719', undefined)).toBe('20260719-OC_Payout.csv')
+  })
+})
+
+describe('calculatePayouts modes (#134)', () => {
+  const FROM = 1000000
+  const TO = FROM + 7 * DAY
+  const executedAt = FROM + 6 * DAY
+
+  const twoTierCrime = () => makeCrimeFixture({
+    executedAt, rewardsMoney: 10_000_000,
+    slots: [makeSlot(1, FROM - DAY, 'T1'), makeSlot(2, FROM - DAY, 'T6')],
+  })
+  const twoTierMembers = {
+    members: {
+      '1': { member_id: '1', name: 'T1', tier: 1, is_current: true },
+      '2': { member_id: '2', name: 'T6', tier: 6, is_current: true },
+    },
+  }
+
+  it('defaults to flat-weighted at the faction level, tiered is opt-in', () => {
+    expect(DEFAULT_PAYOUT_MODE).toBe('flat-weighted')
+    expect(PAYOUT_MODES).toEqual(['tiered', 'flat-weighted', 'equal'])
+  })
+
+  it('tiered is byte-identical to the default (regression)', () => {
+    const shape = (r) => r.members.map(m => [m.userId, m.payout, m.sharePercent, m.baseTickets, m.adjustedTickets])
+    const def = calculatePayouts(twoTierCrime(), twoTierMembers, FROM, TO, 0.20)
+    const tiered = calculatePayouts(twoTierCrime(), twoTierMembers, FROM, TO, 0.20, 'tiered')
+    expect(shape(tiered)).toEqual(shape(def))
+    expect(tiered.payoutMode).toBe('tiered')
+  })
+
+  it('tiered weights by tier — T1 earns far more than T6', () => {
+    const r = calculatePayouts(twoTierCrime(), twoTierMembers, FROM, TO, 0.20, 'tiered')
+    const t1 = r.members.find(m => m.userId === 1)
+    const t6 = r.members.find(m => m.userId === 2)
+    expect(t1.payout).toBeGreaterThan(t6.payout * 10)
+  })
+
+  it('flat-weighted gives every tier the same base — full-time T1 and T6 split evenly', () => {
+    const r = calculatePayouts(twoTierCrime(), twoTierMembers, FROM, TO, 0.20, 'flat-weighted')
+    const t1 = r.members.find(m => m.userId === 1)
+    const t6 = r.members.find(m => m.userId === 2)
+    expect(t1.baseTickets).toBe(40)
+    expect(t6.baseTickets).toBe(40)
+    expect(t1.payout).toBe(t6.payout)
+    expect(r.payoutMode).toBe('flat-weighted')
+  })
+
+  it('flat-weighted still applies the sit-out floor — a sub-48h member gets $0', () => {
+    const crime = makeCrimeFixture({
+      executedAt, rewardsMoney: 10_000_000,
+      slots: [makeSlot(1, FROM - DAY, 'Full'), makeSlot(2, executedAt - 20 * 3600, 'Late')],
+    })
+    const members = { members: {
+      '1': { member_id: '1', name: 'Full', tier: 1, is_current: true },
+      '2': { member_id: '2', name: 'Late', tier: 1, is_current: true },
+    } }
+    const late = calculatePayouts(crime, members, FROM, TO, 0.20, 'flat-weighted').members.find(m => m.userId === 2)
+    expect(late.payout).toBe(0)
+  })
+
+  it('equal splits evenly among everyone who did >=1 OC, ignoring time and tier', () => {
+    const crime = makeCrimeFixture({
+      executedAt, rewardsMoney: 10_000_000,
+      slots: [
+        makeSlot(1, FROM - DAY, 'Full'),          // full time
+        makeSlot(2, executedAt - 20 * 3600, 'Late'), // ~20h, sub-floor
+        makeSlot(3, executedAt, 'Zero'),          // joined at execution → 0h
+      ],
+    })
+    const members = { members: {
+      '1': { member_id: '1', name: 'Full', tier: 1, is_current: true },
+      '2': { member_id: '2', name: 'Late', tier: 6, is_current: true },
+      '3': { member_id: '3', name: 'Zero', tier: 1, is_current: true },
+    } }
+    const r = calculatePayouts(crime, members, FROM, TO, 0.20, 'equal')
+    const full = r.members.find(m => m.userId === 1)
+    const late = r.members.find(m => m.userId === 2)
+    const zero = r.members.find(m => m.userId === 3)
+    // Full and Late each did an OC → even split despite the time + tier gap.
+    expect(full.payout).toBe(late.payout)
+    expect(full.sharePercent).toBeCloseTo(0.5)
+    // Zero time in-window → no OC participation → excluded from the split.
+    expect(zero.timeSpent).toBe(0)
+    expect(zero.payout).toBe(0)
   })
 })
 
