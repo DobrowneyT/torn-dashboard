@@ -162,6 +162,37 @@ describe('chain save', () => {
   })
 })
 
+describe('headline banner (#158)', () => {
+  it('warleads/leads/admin set + clear a headline that rides the config channel; members cannot', async () => {
+    const watcher = await wsConnect(tokens.member)
+    await watcher.next((m) => m.type === 'snapshot')
+
+    // A plain member cannot set the headline.
+    expect((await call('POST', '/api/war-room/headline', { text: 'STOP ALL HITS', tone: 'danger' }, 'member')).status).toBe(403)
+
+    // A warlead sets it — broadcast rides the 'config' channel to everyone.
+    const set = await call('POST', '/api/war-room/headline', { text: 'STOP ALL HITS', tone: 'danger' }, 'warlead')
+    expect(set.status).toBe(200)
+    const frame = await watcher.next(
+      (m) => m.type === 'delta' && m.channel === 'config' && m.rows?.some((r: any) => r.headline_text === 'STOP ALL HITS')
+    )
+    expect(frame.rows[0]).toMatchObject({ headline_text: 'STOP ALL HITS', headline_tone: 'danger', headline_set_by: 1403 })
+
+    // Empty text is rejected; an unknown tone falls back to neutral.
+    expect((await call('POST', '/api/war-room/headline', { text: '   ' }, 'warlead')).status).toBe(400)
+    await call('POST', '/api/war-room/headline', { text: 'PUSH 2 20:30', tone: 'bogus' }, 'admin')
+    const toned = await stack.db.query(`SELECT headline_text, headline_tone FROM war_room_config_v2 WHERE id = 1`)
+    expect(toned.rows[0]).toMatchObject({ headline_text: 'PUSH 2 20:30', headline_tone: 'neutral' })
+
+    // Admin clears it.
+    expect((await call('DELETE', '/api/war-room/headline', undefined, 'admin')).status).toBe(200)
+    const cleared = await stack.db.query(`SELECT headline_text FROM war_room_config_v2 WHERE id = 1`)
+    expect(cleared.rows[0].headline_text).toBeNull()
+
+    watcher.ws.close()
+  })
+})
+
 describe('roll call', () => {
   it('members submit and revise; leads read results; visitors rejected', async () => {
     const submit = await call('POST', '/api/war-room/roll-call', { war_id: 700, on_at_start: true })

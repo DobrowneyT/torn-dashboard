@@ -97,6 +97,17 @@ export async function clearWarRoomStateV2(tornApiKey) {
   return callWarRoom('clear_state_v2', {}, tornApiKey)
 }
 
+// Leader headline banner (#158) — self-hosted stack only; broadcasts on 'config'.
+export async function setWarHeadline(text, tone) {
+  if (API_MODE) return warRoomApi('POST', '/api/war-room/headline', { text, tone })
+  return { ok: false, error: 'Headline requires the self-hosted stack' }
+}
+
+export async function clearWarHeadline() {
+  if (API_MODE) return warRoomApi('DELETE', '/api/war-room/headline')
+  return { ok: false, error: 'Headline requires the self-hosted stack' }
+}
+
 // Roll call — member submits/edits their availability for a war. member_id is
 // derived server-side from the key; user_name is passed for display.
 export async function submitRollCall(warId, answers, userName, tornApiKey) {

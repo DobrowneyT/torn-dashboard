@@ -570,7 +570,11 @@ CREATE TABLE public.war_room_config_v2 (
   chain_poll_interval_enemy_sec integer DEFAULT 30 NOT NULL,
   auto_managed boolean DEFAULT false NOT NULL,
   managed_war_id bigint,
-  dibs_expiry_seconds integer DEFAULT 30 NOT NULL
+  dibs_expiry_seconds integer DEFAULT 30 NOT NULL,
+  headline_text text,
+  headline_tone text,
+  headline_set_by bigint,
+  headline_set_at timestamp with time zone
 );
 
 CREATE TABLE public.war_room_dibs_v2 (

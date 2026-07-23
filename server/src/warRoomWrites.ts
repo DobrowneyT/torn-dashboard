@@ -170,6 +170,42 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     return { ok: true }
   })
 
+  // ── Headline banner (#158) ───────────────────────────────────────────────
+  // One active leader headline on the config singleton, broadcast live over the
+  // 'config' channel. Warleads/leadership/admin set or clear it; everyone sees it.
+  const HEADLINE_TONES = ['danger', 'warn', 'go', 'neutral']
+  const HEADLINE_MAX = 200
+
+  app.post('/api/war-room/headline', { preHandler: requireRole('warlead', 'leadership', 'admin') }, async (req, reply) => {
+    const body = req.body as { text?: unknown; tone?: unknown } | null
+    const text = typeof body?.text === 'string' ? body.text.trim() : ''
+    if (!text) return reply.status(400).send({ error: 'text required' })
+    if (text.length > HEADLINE_MAX) return reply.status(400).send({ error: `text must be ≤ ${HEADLINE_MAX} chars` })
+    const tone = typeof body?.tone === 'string' && HEADLINE_TONES.includes(body.tone) ? body.tone : 'neutral'
+    const userId = Number(req.session!.torn_user_id)
+    const res = await db.query(
+      `INSERT INTO war_room_config_v2 (id, headline_text, headline_tone, headline_set_by, headline_set_at, updated_at)
+       VALUES (1, $1, $2, $3, now(), now())
+       ON CONFLICT (id) DO UPDATE SET headline_text = EXCLUDED.headline_text,
+         headline_tone = EXCLUDED.headline_tone, headline_set_by = EXCLUDED.headline_set_by,
+         headline_set_at = now(), updated_at = now()
+       RETURNING *`,
+      [text, tone, userId]
+    )
+    if (res.rows.length > 0) hub.broadcast('config', res.rows, await serverNow())
+    return { ok: true }
+  })
+
+  app.delete('/api/war-room/headline', { preHandler: requireRole('warlead', 'leadership', 'admin') }, async () => {
+    const res = await db.query(
+      `UPDATE war_room_config_v2 SET headline_text = NULL, headline_tone = NULL,
+              headline_set_by = NULL, headline_set_at = NULL, updated_at = now()
+       WHERE id = 1 RETURNING *`
+    )
+    if (res.rows.length > 0) hub.broadcast('config', res.rows, await serverNow())
+    return { ok: true }
+  })
+
   // ── Roll call ───────────────────────────────────────────────────────────
   // Visitors excluded on submit: a roll-call row for a non-member would
   // pollute leadership's results table.
