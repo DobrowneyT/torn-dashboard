@@ -36,6 +36,7 @@ import RollCallOverlay from '../components/warroom/RollCallOverlay'
 import WarSummaryCard from '../components/warroom/WarSummaryCard'
 import WarNotesPanel from '../components/warroom/WarNotesPanel'
 import { rollCallGateActive, canSeeWarNotes } from '../utils/rollCall'
+import { parseDbTime } from '../utils/time'
 import { farmCompare } from '../utils/warRoomFarmSort'
 import { Smartphone, Settings, Crosshair, Loader2, ClipboardList } from 'lucide-react'
 
@@ -99,9 +100,11 @@ function BspCell({ member: m }) {
   const isTs = m.spy_source === 'tornstats'
   // ts_spy_at is the real spy capture time; bsp_fetched_at is when we polled.
   // BSP rows don't have a "real" spy timestamp so we use the fetch time.
-  const ageSourceTs = isTs && m.ts_spy_at
-    ? Math.floor(new Date(m.ts_spy_at).getTime() / 1000)
-    : (m.bsp_fetched_at ? Math.floor(new Date(m.bsp_fetched_at).getTime() / 1000) : null)
+  // Use parseDbTime, not new Date(): the API serves Postgres timestamptz text
+  // with a bare "+00" offset (db.ts) that JS Date rejects → the age showed a
+  // dash even with a real ts_spy_at (#140).
+  const ageDate = isTs && m.ts_spy_at ? parseDbTime(m.ts_spy_at) : parseDbTime(m.bsp_fetched_at)
+  const ageSourceTs = ageDate ? Math.floor(ageDate.getTime() / 1000) : null
   const sourceLabel = isTs ? 'TS' : 'BSP'
   const ageLabel = ageSourceTs ? formatRelative(ageSourceTs) : '—'
 
