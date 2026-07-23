@@ -19,11 +19,26 @@ const PAYOUT_MODE_LABELS = {
   equal: { label: 'Equal', hint: 'Even split among everyone who did ≥1 OC. No tier UI.' },
 }
 
+// `template` seeds the editor when a document has never been saved, so a leader
+// can see the expected schema shape instead of an empty `{}`. The War Room
+// Defaults shape mirrors the editable war_room_config_v2 fields (poll cadences,
+// dibs auto-drop window, revive service) — a starting point for new war sessions.
 const SETTINGS_DOCS = [
   { key: 'tier_requirements', label: 'Tier Requirements', hint: 'Per-tier CPR checks the tier assigner and OC pages use.' },
   { key: 'cpr_requirements', label: 'CPR Requirements', hint: 'Per-crime/position minimum CPR shown on the OC pages.' },
   { key: 'payout_tickets', label: 'Payout Tickets', hint: 'Tickets per tier for the OC payout split.' },
-  { key: 'war_room_defaults', label: 'War Room Defaults', hint: 'Default poll cadences / revive service for new war sessions.' },
+  {
+    key: 'war_room_defaults', label: 'War Room Defaults',
+    hint: 'Default poll cadences / dibs auto-drop / revive service for new war sessions.',
+    template: {
+      chain_poll_interval_ours_sec: 5,
+      chain_poll_interval_enemy_sec: 30,
+      dibs_expiry_seconds: 30,
+      tornstats_max_age_days: 0,
+      revive_service_name: null,
+      revive_service_url: null,
+    },
+  },
 ]
 
 function SectionCard({ title, children }) {
@@ -232,7 +247,10 @@ function IdentitySection({ readOnly }) {
 }
 
 function PolicyDocEditor({ doc, initial, readOnly }) {
-  const [text, setText] = useState(() => JSON.stringify(initial ?? {}, null, 2))
+  // Seed from the saved value; if there is none, fall back to the doc's template
+  // shape (or an empty object) so the schema is visible before the first save.
+  const seed = initial ?? doc.template ?? {}
+  const [text, setText] = useState(() => JSON.stringify(seed, null, 2))
   const [feedback, setFeedback] = useState(null)
   const [parseError, setParseError] = useState(null)
 

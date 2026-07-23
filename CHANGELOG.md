@@ -19,6 +19,10 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **War Room Defaults** now shows a starting schema shape (poll cadences, dibs
+  auto-drop window, revive service) in Leadership → Settings when it hasn't been
+  saved yet, instead of an empty object.
+
 - **War Room: dibs auto-drop on a live target.** A claim on an already-alive target
   auto-releases after a configurable window (default 30s) if the holder still hasn't
   killed them, so a stalled claim can't block the queue. A target killed inside the
