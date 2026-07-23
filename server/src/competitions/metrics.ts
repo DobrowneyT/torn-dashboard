@@ -17,7 +17,7 @@
 // the board), never a wrong number.
 
 export type MetricSource = 'personalstats'
-export type MetricReducer = 'total' // 'avg_per_day' added in #184
+export type MetricReducer = 'total' | 'avg_per_day'
 
 export interface MetricDef {
   id: string
@@ -31,14 +31,14 @@ export interface MetricDef {
 
 // Curated shortlist — deliberately small and sensible, not the 200+ raw keys.
 export const METRICS: MetricDef[] = [
-  { id: 'xanax_taken', label: 'Xanax taken', source: 'personalstats', path: ['drugs', 'xantaken'], reducers: ['total'] },
-  { id: 'attacks_won', label: 'Attacks won', source: 'personalstats', path: ['attacking', 'attacks', 'won'], reducers: ['total'] },
-  { id: 'respect_for_faction', label: 'Respect earned for faction', source: 'personalstats', path: ['attacking', 'faction', 'respect'], reducers: ['total'] },
-  { id: 'blood_withdrawn', label: 'Blood bags filled', source: 'personalstats', path: ['medical', 'blood', 'withdrawn'], reducers: ['total'] },
-  { id: 'revives', label: 'Revives made', source: 'personalstats', path: ['medical', 'revives'], reducers: ['total'] },
-  { id: 'energy_refills', label: 'Energy refills used', source: 'personalstats', path: ['other', 'refills', 'energy'], reducers: ['total'] },
-  { id: 'nerve_refills', label: 'Nerve refills used', source: 'personalstats', path: ['other', 'refills', 'nerve'], reducers: ['total'] },
-  { id: 'gym_energy_trained', label: 'Energy spent in the gym', source: 'personalstats', path: ['other', 'trains'], reducers: ['total'] },
+  { id: 'xanax_taken', label: 'Xanax taken', source: 'personalstats', path: ['drugs', 'xantaken'], reducers: ['total', 'avg_per_day'] },
+  { id: 'attacks_won', label: 'Attacks won', source: 'personalstats', path: ['attacking', 'attacks', 'won'], reducers: ['total', 'avg_per_day'] },
+  { id: 'respect_for_faction', label: 'Respect earned for faction', source: 'personalstats', path: ['attacking', 'faction', 'respect'], reducers: ['total', 'avg_per_day'] },
+  { id: 'blood_withdrawn', label: 'Blood bags filled', source: 'personalstats', path: ['medical', 'blood', 'withdrawn'], reducers: ['total', 'avg_per_day'] },
+  { id: 'revives', label: 'Revives made', source: 'personalstats', path: ['medical', 'revives'], reducers: ['total', 'avg_per_day'] },
+  { id: 'energy_refills', label: 'Energy refills used', source: 'personalstats', path: ['other', 'refills', 'energy'], reducers: ['total', 'avg_per_day'] },
+  { id: 'nerve_refills', label: 'Nerve refills used', source: 'personalstats', path: ['other', 'refills', 'nerve'], reducers: ['total', 'avg_per_day'] },
+  { id: 'gym_energy_trained', label: 'Energy spent in the gym', source: 'personalstats', path: ['other', 'trains'], reducers: ['total', 'avg_per_day'] },
 ]
 
 const BY_ID = new Map(METRICS.map((m) => [m.id, m]))

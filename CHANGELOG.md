@@ -19,6 +19,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competitions: rolling windows + per-day averages.** A competition can now use
+  a rolling "last N days" window (recomputed live) instead of only fixed dates,
+  and can score by per-day average of the metric as well as the raw total —
+  backing rate-based contests like "avg xanax/day" (#184).
+- **The Members page is now tabbed** (Overview + Competitions), matching the OC and
+  War pages; Overview is the default. The Competitions tab only appears on the
+  self-hosted stack (#184).
+- **The dashboard title in the header links back to the Dashboard**, like a site
+  masthead.
 - **Competitions (first slice).** Leadership can create a named, fixed-window
   leaderboard competition over a faction stat (metric picked from a curated,
   code-defined registry backed by the daily personalstats snapshots); members see

@@ -3,6 +3,7 @@
 // against the real templated Postgres.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
+import { effectiveWindow } from '../src/competitions.js'
 
 let stack: TestStack
 let leadershipToken: string
@@ -148,5 +149,59 @@ describe('competitions (#183)', () => {
     expect(list.status).toBe(200)
     expect(list.body.competitions.length).toBeGreaterThan(0)
     expect((await api('GET', '/api/competitions/99999', memberToken)).status).toBe(404)
+  })
+
+  // ── #184: rolling windows + per-day-average reducer ──────────────────────
+
+  it('effectiveWindow: fixed uses stored dates; rolling trails rolling_days from today', () => {
+    expect(effectiveWindow({ metric_id: 'x', direction: 'desc', window_kind: 'fixed', window_start: '2026-07-01', window_end: '2026-07-07' }))
+      .toEqual({ start: '2026-07-01', end: '2026-07-07' })
+    const today = new Date('2026-07-23T12:00:00Z')
+    expect(effectiveWindow({ metric_id: 'x', direction: 'desc', window_kind: 'rolling', rolling_days: 7 }, today))
+      .toEqual({ start: '2026-07-16', end: '2026-07-23' })
+  })
+
+  it('per-day-average reducer divides the window delta by the window length', async () => {
+    const created = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Xanax per day', metric_id: 'xanax_taken', reducer: 'avg_per_day',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.competition.reducer).toBe('avg_per_day')
+    const res = await api('GET', `/api/competitions/${created.body.competition.id}`, memberToken)
+    const byId = Object.fromEntries(res.body.standings.map((r: any) => [r.member_id, r]))
+    // Ace delta 40 over a 6-day window → 6.67; Bea 15/6 → 2.5.
+    expect(byId['10'].value).toBe(6.67)
+    expect(byId['11'].value).toBe(2.5)
+  })
+
+  it('rolling window computes a live board over the trailing days', async () => {
+    // CURRENT_DATE-relative seed so the assertion holds on any run date.
+    await stack.db.query(`INSERT INTO members (member_id, member_name, is_current) VALUES ('20','Rolla',true) ON CONFLICT (member_id) DO NOTHING`)
+    await stack.db.query(`
+      INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats) VALUES
+        ('20', CURRENT_DATE - 10, '{"drugs":{"xantaken":100}}'),
+        ('20', CURRENT_DATE - 1,  '{"drugs":{"xantaken":130}}')
+      ON CONFLICT (member_id, snapshot_date) DO NOTHING
+    `)
+    const created = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Rolling xanax', metric_id: 'xanax_taken', window_kind: 'rolling', rolling_days: 10,
+    })
+    expect(created.status).toBe(201)
+    const res = await api('GET', `/api/competitions/${created.body.competition.id}`, memberToken)
+    const rolla = res.body.standings.find((r: any) => r.member_id === '20')
+    expect(rolla).toBeTruthy()
+    expect(rolla.value).toBe(30)
+    expect(rolla.partial).toBe(false)
+  })
+
+  it('rejects rolling without a valid rolling_days, and a reducer the metric does not support', async () => {
+    expect((await api('POST', '/api/competitions', leadershipToken, {
+      name: 'bad rolling', metric_id: 'xanax_taken', window_kind: 'rolling', rolling_days: 0,
+    })).status).toBe(400)
+    expect((await api('POST', '/api/competitions', leadershipToken, {
+      name: 'bad reducer', metric_id: 'xanax_taken', reducer: 'median',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })).status).toBe(400)
   })
 })

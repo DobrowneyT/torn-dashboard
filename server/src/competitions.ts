@@ -12,6 +12,11 @@ import { getMetric, metricOptions } from './competitions/metrics.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const NAME_MAX = 120
+const ROLLING_DAYS_MAX = 366
+
+const SELECT_COLS =
+  `id, name, type, metric_id, direction, reducer, window_kind,
+   window_start, window_end, rolling_days, created_by, created_at`
 
 export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
   // Registry shortlist for the create form (no internal paths exposed).
@@ -21,9 +26,8 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
 
   app.get('/api/competitions', { preHandler: requireAuth() }, async () => {
     const res = await db.query(
-      `SELECT id, name, type, metric_id, direction, window_start, window_end,
-              created_by, created_at
-       FROM competitions ORDER BY window_end DESC, id DESC`
+      `SELECT ${SELECT_COLS} FROM competitions
+       ORDER BY COALESCE(window_end, CURRENT_DATE) DESC, id DESC`
     )
     return { competitions: res.rows }
   })
@@ -32,9 +36,7 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
     const { id } = req.params as { id: string }
     if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'Competition not found' })
     const res = await db.query(
-      `SELECT id, name, type, metric_id, direction, window_start, window_end,
-              created_by, created_at
-       FROM competitions WHERE id = $1`,
+      `SELECT ${SELECT_COLS} FROM competitions WHERE id = $1`,
       [id]
     )
     if (res.rows.length === 0) return reply.status(404).send({ error: 'Competition not found' })
@@ -48,15 +50,17 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
     { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] },
     async (req, reply) => {
       const body = (req.body ?? {}) as {
-        name?: unknown; metric_id?: unknown; direction?: unknown
-        window_start?: unknown; window_end?: unknown; type?: unknown
+        name?: unknown; metric_id?: unknown; direction?: unknown; reducer?: unknown
+        window_kind?: unknown; window_start?: unknown; window_end?: unknown
+        rolling_days?: unknown; type?: unknown
       }
 
       const name = typeof body.name === 'string' ? body.name.trim() : ''
       if (!name || name.length > NAME_MAX) {
         return reply.status(400).send({ error: `name is required (max ${NAME_MAX} chars)` })
       }
-      if (typeof body.metric_id !== 'string' || !getMetric(body.metric_id)) {
+      const metric = typeof body.metric_id === 'string' ? getMetric(body.metric_id) : undefined
+      if (!metric) {
         return reply.status(400).send({ error: 'metric_id must be a known competition metric' })
       }
       // Only leaderboard exists in this slice; lottery lands with #187.
@@ -68,20 +72,43 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
       if (direction !== 'asc' && direction !== 'desc') {
         return reply.status(400).send({ error: 'direction must be "asc" or "desc"' })
       }
-      if (typeof body.window_start !== 'string' || !DATE_RE.test(body.window_start) ||
-          typeof body.window_end !== 'string' || !DATE_RE.test(body.window_end)) {
-        return reply.status(400).send({ error: 'window_start and window_end must be YYYY-MM-DD dates' })
+      const reducer = body.reducer == null ? 'total' : body.reducer
+      if (typeof reducer !== 'string' || !metric.reducers.includes(reducer as never)) {
+        return reply.status(400).send({ error: `reducer must be one of: ${metric.reducers.join(', ')}` })
       }
-      if (body.window_end < body.window_start) {
-        return reply.status(400).send({ error: 'window_end must be on or after window_start' })
+
+      // Fixed → explicit dates; rolling → a trailing day count (dates are null
+      // and the effective window is computed at read time).
+      const windowKind = body.window_kind == null ? 'fixed' : body.window_kind
+      let windowStart: string | null = null
+      let windowEnd: string | null = null
+      let rollingDays: number | null = null
+      if (windowKind === 'fixed') {
+        if (typeof body.window_start !== 'string' || !DATE_RE.test(body.window_start) ||
+            typeof body.window_end !== 'string' || !DATE_RE.test(body.window_end)) {
+          return reply.status(400).send({ error: 'window_start and window_end must be YYYY-MM-DD dates' })
+        }
+        if (body.window_end < body.window_start) {
+          return reply.status(400).send({ error: 'window_end must be on or after window_start' })
+        }
+        windowStart = body.window_start
+        windowEnd = body.window_end
+      } else if (windowKind === 'rolling') {
+        rollingDays = Number(body.rolling_days)
+        if (!Number.isInteger(rollingDays) || rollingDays < 1 || rollingDays > ROLLING_DAYS_MAX) {
+          return reply.status(400).send({ error: `rolling_days must be an integer 1..${ROLLING_DAYS_MAX}` })
+        }
+      } else {
+        return reply.status(400).send({ error: 'window_kind must be "fixed" or "rolling"' })
       }
 
       const createdBy = req.session!.torn_user_id
       const inserted = await db.query(
-        `INSERT INTO competitions (name, type, metric_id, direction, window_start, window_end, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, name, type, metric_id, direction, window_start, window_end, created_by, created_at`,
-        [name, type, body.metric_id, direction, body.window_start, body.window_end, String(createdBy)]
+        `INSERT INTO competitions
+           (name, type, metric_id, direction, reducer, window_kind, window_start, window_end, rolling_days, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING ${SELECT_COLS}`,
+        [name, type, body.metric_id, direction, reducer, windowKind, windowStart, windowEnd, rollingDays, String(createdBy)]
       )
       return reply.status(201).send({ competition: inserted.rows[0] })
     }
@@ -91,17 +118,53 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
 interface CompetitionRow {
   metric_id: string
   direction: string
-  window_start: string | Date
-  window_end: string | Date
+  reducer?: string
+  window_kind?: string
+  window_start?: string | Date | null
+  window_end?: string | Date | null
+  rolling_days?: number | null
 }
 
-// Per-current-member delta of the metric over the window. Rows without a
-// numeric value at the metric's path are skipped (never miscounted). `partial`
-// marks members whose first in-window snapshot is after the window opened.
+function toIsoDate(d: string | Date): string {
+  return typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10)
+}
+
+// The concrete [start, end] the standings cover: a fixed competition's stored
+// dates, or — for a rolling one — the trailing rolling_days ending today (UTC).
+export function effectiveWindow(
+  competition: CompetitionRow,
+  today = new Date()
+): { start: string; end: string } | null {
+  if (competition.window_kind === 'rolling') {
+    const days = competition.rolling_days ?? 0
+    if (days < 1) return null
+    const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+    const start = new Date(end)
+    start.setUTCDate(start.getUTCDate() - days)
+    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) }
+  }
+  if (competition.window_start == null || competition.window_end == null) return null
+  return { start: toIsoDate(competition.window_start), end: toIsoDate(competition.window_end) }
+}
+
+function daysBetween(start: string, end: string): number {
+  const ms = Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)
+  return Math.max(1, Math.round(ms / 86_400_000))
+}
+
+// Per-current-member delta of the metric over the effective window. Rows
+// without a numeric value at the metric's path are skipped (never miscounted).
+// `partial` marks members whose first in-window snapshot is after the window
+// opened. With the per-day-average reducer, the delta is divided by the window
+// length — a positive constant, so the SQL ordering on raw delta still holds.
 export async function computeStandings(db: pg.Pool, competition: CompetitionRow) {
   const metric = getMetric(competition.metric_id)
   if (!metric) return []
+  const window = effectiveWindow(competition)
+  if (!window) return []
   const order = competition.direction === 'asc' ? 'ASC' : 'DESC'
+  const perDay = competition.reducer === 'avg_per_day'
+  const windowDays = daysBetween(window.start, window.end)
 
   const res = await db.query(
     `WITH in_window AS (
@@ -127,13 +190,15 @@ export async function computeStandings(db: pg.Pool, competition: CompetitionRow)
      FROM bounds b
      JOIN members m ON m.member_id = b.member_id AND m.is_current = true
      ORDER BY value ${order}, m.member_name`,
-    [competition.window_start, competition.window_end, metric.path]
+    [window.start, window.end, metric.path]
   )
   return res.rows.map((r, i) => ({
     rank: i + 1,
     member_id: r.member_id,
     member_name: r.member_name,
-    value: r.value,
+    // Per-day average divides by the window length (order-preserving), rounded
+    // to 2 dp; total is the raw delta.
+    value: perDay ? Math.round((r.value / windowDays) * 100) / 100 : r.value,
     partial: r.partial,
     start_date: r.start_date,
     end_date: r.end_date,

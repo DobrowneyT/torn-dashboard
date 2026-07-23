@@ -702,8 +702,11 @@ CREATE TABLE public.competitions (
   type         text NOT NULL DEFAULT 'leaderboard',
   metric_id    text NOT NULL,
   direction    text NOT NULL DEFAULT 'desc',
-  window_start date NOT NULL,
-  window_end   date NOT NULL,
+  reducer      text NOT NULL DEFAULT 'total',
+  window_kind  text NOT NULL DEFAULT 'fixed',
+  window_start date,
+  window_end   date,
+  rolling_days integer,
   created_by   text,
   created_at   timestamp with time zone NOT NULL DEFAULT now(),
   updated_at   timestamp with time zone NOT NULL DEFAULT now()

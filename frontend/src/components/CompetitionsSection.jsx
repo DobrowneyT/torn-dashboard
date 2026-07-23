@@ -11,6 +11,11 @@ function fmtDate(d) {
   return String(d).slice(0, 10)
 }
 
+function windowLabel(c) {
+  if (c.window_kind === 'rolling') return `rolling · last ${c.rolling_days} days`
+  return `${fmtDate(c.window_start)} → ${fmtDate(c.window_end)}`
+}
+
 export default function CompetitionsSection({ isLeadership }) {
   const [competitions, setCompetitions] = useState([])
   const [loading, setLoading] = useState(true)
@@ -44,8 +49,6 @@ export default function CompetitionsSection({ isLeadership }) {
       setDetailLoading(false)
     }
   }
-
-  if (!loading && competitions.length === 0 && !isLeadership) return null
 
   return (
     <div className="card mb-4">
@@ -85,7 +88,7 @@ export default function CompetitionsSection({ isLeadership }) {
                 <div>
                   <div className="text-sm font-medium text-gray-900 dark:text-white">{c.name}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {c.metric_id} · {fmtDate(c.window_start)} → {fmtDate(c.window_end)}
+                    {c.metric_id}{c.reducer === 'avg_per_day' ? ' /day' : ''} · {windowLabel(c)}
                   </div>
                 </div>
                 <span className="text-xs text-gray-400">{selectedId === c.id ? '▲' : '▼'}</span>
@@ -148,8 +151,11 @@ function CreateCompetitionForm({ onCreated }) {
   const [name, setName] = useState('')
   const [metricId, setMetricId] = useState('')
   const [direction, setDirection] = useState('desc')
+  const [reducer, setReducer] = useState('total')
+  const [windowKind, setWindowKind] = useState('fixed')
   const [windowStart, setWindowStart] = useState('')
   const [windowEnd, setWindowEnd] = useState('')
+  const [rollingDays, setRollingDays] = useState(90)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
 
@@ -162,14 +168,25 @@ function CreateCompetitionForm({ onCreated }) {
       .catch(() => setMetrics([]))
   }, [])
 
+  const selectedMetric = metrics.find((m) => m.id === metricId)
+  const reducers = selectedMetric?.reducers || ['total']
+  // Keep the reducer valid when the metric changes.
+  useEffect(() => {
+    if (!reducers.includes(reducer)) setReducer(reducers[0])
+  }, [metricId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function submit(e) {
     e.preventDefault()
     setErr(null); setBusy(true)
     try {
-      await apiPost('/api/competitions', {
-        name, metric_id: metricId, direction,
-        window_start: windowStart, window_end: windowEnd,
-      })
+      const payload = { name, metric_id: metricId, direction, reducer, window_kind: windowKind }
+      if (windowKind === 'rolling') {
+        payload.rolling_days = Number(rollingDays)
+      } else {
+        payload.window_start = windowStart
+        payload.window_end = windowEnd
+      }
+      await apiPost('/api/competitions', payload)
       onCreated()
     } catch (e2) {
       setErr(e2.message)
@@ -195,13 +212,37 @@ function CreateCompetitionForm({ onCreated }) {
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-600 dark:text-gray-400">Start date</span>
-          <input type="date" className={field} value={windowStart} onChange={(e) => setWindowStart(e.target.value)} required />
+          <span className="text-xs text-gray-600 dark:text-gray-400">Window</span>
+          <select className={field} value={windowKind} onChange={(e) => setWindowKind(e.target.value)}>
+            <option value="fixed">Fixed dates</option>
+            <option value="rolling">Rolling (last N days)</option>
+          </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-600 dark:text-gray-400">End date</span>
-          <input type="date" className={field} value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} required />
+          <span className="text-xs text-gray-600 dark:text-gray-400">Score</span>
+          <select className={field} value={reducer} onChange={(e) => setReducer(e.target.value)}>
+            {reducers.includes('total') && <option value="total">Total over window</option>}
+            {reducers.includes('avg_per_day') && <option value="avg_per_day">Average per day</option>}
+          </select>
         </label>
+        {windowKind === 'fixed' ? (
+          <>
+            <label className="block">
+              <span className="text-xs text-gray-600 dark:text-gray-400">Start date</span>
+              <input type="date" className={field} value={windowStart} onChange={(e) => setWindowStart(e.target.value)} required />
+            </label>
+            <label className="block">
+              <span className="text-xs text-gray-600 dark:text-gray-400">End date</span>
+              <input type="date" className={field} value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} required />
+            </label>
+          </>
+        ) : (
+          <label className="block">
+            <span className="text-xs text-gray-600 dark:text-gray-400">Trailing days</span>
+            <input type="number" min="1" max="366" className={field} value={rollingDays}
+              onChange={(e) => setRollingDays(e.target.value)} required />
+          </label>
+        )}
         <label className="block">
           <span className="text-xs text-gray-600 dark:text-gray-400">Ranking</span>
           <select className={field} value={direction} onChange={(e) => setDirection(e.target.value)}>

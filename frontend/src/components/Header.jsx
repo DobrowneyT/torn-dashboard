@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import SettingsDropdown from '../components/SettingsDropdown'
@@ -27,7 +28,8 @@ export default function Header({ viewAsRole, setViewAsRole, canViewAs }) {
     <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 sm:gap-4">
+          {/* Logo + title link back to the Dashboard, like a site masthead. */}
+          <Link to="/" className="flex items-center gap-3 sm:gap-4 group">
             {logoSrcFor(faction) && (
               // Sized to roughly match the two-line title block; object-contain
               // keeps any aspect ratio (incl. animated GIFs) intact (#178).
@@ -38,12 +40,12 @@ export default function Header({ viewAsRole, setViewAsRole, canViewAs }) {
               />
             )}
             <div>
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white">{faction.displayName} Dashboard</h1>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{faction.displayName} Dashboard</h1>
               <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5 sm:mt-1">
                 {faction.name} - Performance Tracking
               </p>
             </div>
-          </div>
+          </Link>
 
           <div className="flex items-center gap-4">
             {user && (
