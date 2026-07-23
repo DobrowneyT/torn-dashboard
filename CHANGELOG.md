@@ -19,6 +19,10 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **The faction logo now renders in the header**, left of the title, sized to match
+  it; the title shifts right to sit beside it. Unset → the header shows the text title
+  alone (no placeholder, no broken image). Logo/hero uploads also accept animated GIFs
+  and now allow up to 3 MB (favicon stays 1 MB) so animated marks fit (#178).
 - **OC payouts now credit time banked in crimes a member left before execution** —
   the left-early time from #168's participation log is added to their weekly
   time-spent (so their share reflects it), and Payout Management's time cell has a
