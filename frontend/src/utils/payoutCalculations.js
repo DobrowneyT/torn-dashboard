@@ -949,6 +949,29 @@ export function getCrimeStats(crimes) {
 }
 
 /**
+ * Shape the rows from GET /api/payouts/weeks/:id/crimes into the crime map
+ * getCrimeStats() consumes (keyed by crime_id; rewards_money nested under
+ * rewards.money). Shared by Payout Management and the Payouts history view so
+ * the Crime Statistics breakdown is built identically in both. The endpoint
+ * returns no slots, so participant expansion shows "no data" for saved weeks.
+ */
+export function weekCrimeRowsToMap(rows) {
+  const map = {}
+  for (const c of rows || []) {
+    map[c.crime_id] = {
+      crime_id: c.crime_id,
+      name: c.name,
+      difficulty: c.difficulty,
+      status: c.status,
+      executed_at: c.executed_at,
+      rewards: { money: c.rewards_money || 0 },
+      slots: [],
+    }
+  }
+  return map
+}
+
+/**
  * Parse a single CSV line respecting quoted fields.
  * Handles values like "$15,170,274" where commas appear inside quotes.
  */

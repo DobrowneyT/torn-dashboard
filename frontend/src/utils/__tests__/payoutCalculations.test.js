@@ -10,6 +10,8 @@ import {
   formatCurrency,
   formatCurrencyShort,
   exportPayoutFilename,
+  weekCrimeRowsToMap,
+  getCrimeStats,
 } from '../payoutCalculations.js'
 
 // Suppress console.log in tests
@@ -518,5 +520,34 @@ describe('exportPayoutFilename', () => {
   it('falls back to a generic label when no faction name is available', () => {
     expect(exportPayoutFilename('20260719', '')).toBe('20260719-OC_Payout.csv')
     expect(exportPayoutFilename('20260719', undefined)).toBe('20260719-OC_Payout.csv')
+  })
+})
+
+describe('weekCrimeRowsToMap', () => {
+  const rows = [
+    { crime_id: 101, name: 'Break the Bank', difficulty: 8, status: 'Successful', executed_at: 1700, rewards_money: 5000 },
+    { crime_id: 102, name: 'Blast from the Past', difficulty: 7, status: 'Failure', executed_at: 1600, rewards_money: 0 },
+  ]
+
+  it('keys crimes by crime_id and nests rewards_money under rewards.money', () => {
+    const map = weekCrimeRowsToMap(rows)
+    expect(Object.keys(map)).toEqual(['101', '102'])
+    expect(map[101]).toMatchObject({
+      crime_id: 101, name: 'Break the Bank', difficulty: 8,
+      status: 'Successful', executed_at: 1700, rewards: { money: 5000 }, slots: [],
+    })
+  })
+
+  it('produces input getCrimeStats consumes directly', () => {
+    const stats = getCrimeStats(weekCrimeRowsToMap(rows))
+    expect(stats.totals.count).toBe(2)
+    expect(stats.totals.success).toBe(1)
+    expect(stats.totals.failed).toBe(1)
+    expect(stats.totals.totalMoney).toBe(5000)
+  })
+
+  it('handles empty / missing input', () => {
+    expect(weekCrimeRowsToMap([])).toEqual({})
+    expect(weekCrimeRowsToMap(undefined)).toEqual({})
   })
 })

@@ -2,9 +2,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useViewState } from '../contexts/ViewStateContext'
 import { apiGet } from '../utils/apiClient'
-import { formatCurrency, formatCurrencyShort, formatTimeHours } from '../utils/payoutCalculations'
-import { X, Info } from 'lucide-react'
+import { formatCurrency, formatCurrencyShort, formatTimeHours, getCrimeStats, weekCrimeRowsToMap } from '../utils/payoutCalculations'
+import { X, Info, BarChart3 } from 'lucide-react'
 import StatCards from '../components/StatCards'
+import CrimeStatsView from '../components/CrimeStatsView'
 
 export default function PayoutsView({ isLeadership }) {
   const { user } = useAuth()
@@ -24,6 +25,11 @@ export default function PayoutsView({ isLeadership }) {
   const [selectedMember, setSelectedMember] = useState(null)
   const [memberCrimes, setMemberCrimes] = useState([])
   const [loadingMemberCrimes, setLoadingMemberCrimes] = useState(false)
+
+  // Crime Statistics for a saved week (same view as Payout Management)
+  const [crimeStatsWeek, setCrimeStatsWeek] = useState(null)   // weekData | null
+  const [crimeStats, setCrimeStats] = useState(null)           // getCrimeStats() result
+  const [loadingCrimeStats, setLoadingCrimeStats] = useState(false)
 
   // Week comparison
   const [compareMode, setCompareMode] = useState(false)
@@ -96,6 +102,26 @@ export default function PayoutsView({ isLeadership }) {
       console.error('Error loading member crimes:', error)
     } finally {
       setLoadingMemberCrimes(false)
+    }
+  }
+
+  // Load the saved week's linked crimes and build the same Crime Statistics
+  // the Payout Management page shows — no payout re-run needed (crime_ids are
+  // stored with the week). Shared getCrimeStats + weekCrimeRowsToMap keep the
+  // two views identical.
+  async function openCrimeStats(weekData) {
+    if (!weekData) return
+    try {
+      setCrimeStatsWeek(weekData)
+      setLoadingCrimeStats(true)
+      setCrimeStats(null)
+      const { crimes } = await apiGet(`/api/payouts/weeks/${weekData.id}/crimes`)
+      setCrimeStats(getCrimeStats(weekCrimeRowsToMap(crimes)))
+    } catch (error) {
+      console.error('Error loading crime statistics:', error)
+      setCrimeStats(getCrimeStats({}))
+    } finally {
+      setLoadingCrimeStats(false)
     }
   }
 
@@ -299,7 +325,18 @@ export default function PayoutsView({ isLeadership }) {
           loading={loadingWeekDetails}
           onClose={() => setSelectedWeek(null)}
           onMemberClick={(memberId, weekStart, weekEnd) => loadMemberCrimes(memberId, weekStart, weekEnd)}
+          onShowCrimeStats={openCrimeStats}
           isLeadership={isLeadership}
+        />
+      )}
+
+      {/* Crime Statistics Modal — same breakdown as Payout Management */}
+      {crimeStatsWeek && (
+        <CrimeStatsModal
+          weekData={crimeStatsWeek}
+          stats={crimeStats}
+          loading={loadingCrimeStats}
+          onClose={() => { setCrimeStatsWeek(null); setCrimeStats(null) }}
         />
       )}
 
@@ -378,7 +415,7 @@ function TierBadge({ tier }) {
   return <span className={`inline-block px-2 py-1 rounded text-white font-semibold text-xs ${colors[tier] ?? 'bg-tier-review'}`}>{label}</span>
 }
 
-function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMemberClick, isLeadership }) {
+function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMemberClick, onShowCrimeStats, isLeadership }) {
   const [sortCol, setSortCol] = useState('payout')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -456,9 +493,21 @@ function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMembe
               {weekStart} - {weekEnd} | {members.length} members
             </p>
           </div>
-          <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-            <X className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-2">
+            {weekData && onShowCrimeStats && (
+              <button
+                onClick={() => onShowCrimeStats(weekData)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
+                title="View crime-by-crime statistics for this week"
+              >
+                <BarChart3 className="w-4 h-4" />
+                Crime Statistics
+              </button>
+            )}
+            <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         {/* Payout Summary — outside scroll area */}
@@ -526,6 +575,37 @@ function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMembe
                 ))}
               </tbody>
             </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CrimeStatsModal({ weekData, stats, loading, onClose }) {
+  // Pay-period window for CrimeStatsView's executed_at filter — prefer the
+  // stored timestamps, fall back to the date strings (mirrors Payout Management).
+  const fromTs = weekData.week_start_timestamp
+    ?? Math.floor(new Date(weekData.week_start).getTime() / 1000)
+  const toTs = weekData.week_end_timestamp
+    ?? (Math.floor(new Date(weekData.week_end).getTime() / 1000) + 86400)
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-dialog sm:max-w-4xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading || !stats ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+              <p className="text-gray-600 dark:text-gray-400">Loading crime statistics...</p>
+            </div>
+          ) : (
+            <CrimeStatsView
+              stats={stats}
+              fromTimestamp={fromTs}
+              toTimestamp={toTs}
+              onClose={onClose}
+            />
+          )}
         </div>
       </div>
     </div>
