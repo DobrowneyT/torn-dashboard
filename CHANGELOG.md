@@ -30,6 +30,11 @@ from `VERSION` at runtime) both surface it automatically.
   drop and rings attackable targets' buttons red so you know where to click (#157).
   Each has a configurable lead/threshold and sound + screen-flash toggles, with
   distinct tones so the two are told apart by ear.
+- **Delivery agent + workflow docs.** A combined `delivery` agent (`.claude/agents/`)
+  that authors issues (`/to-prd` → `/to-issues`) and implements ready-for-agent issues
+  end-to-end, plus the canonical per-change checklist in
+  `docs/agents/delivery-workflow.md` (branch off `dev`, TDD, changelog, `VERSION`
+  bump, PR with auto-merge-on-green + a `hold-merge` opt-out) (#164).
 
 
 ## [3.0.0] - 2026-07-23
