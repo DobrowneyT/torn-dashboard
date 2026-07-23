@@ -19,6 +19,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **War Room leader headline banner.** Warleads/leadership/admin can pin one urgent
+  message to the top of the War Room ("TURTLE — STAY IN HOSPITAL", "STOP ALL HITS",
+  "PUSH 2 20:30", or free text) from quick-pick presets or a custom field, with a
+  tone that colours the banner. Shown to everyone and broadcast live; cleared on a new
+  matchup (#158).
+
 - **OC participation log** — the crimes-sync now retains a per-(crime, member) stint
   (`joined_at`/`left_at`, `completed`), so time a member banked in a crime they left
   before it executed is no longer lost. Foundation for crediting that time in payouts

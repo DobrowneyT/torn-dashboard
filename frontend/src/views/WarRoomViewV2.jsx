@@ -36,6 +36,7 @@ import RollCallOverlay from '../components/warroom/RollCallOverlay'
 import WarSummaryCard from '../components/warroom/WarSummaryCard'
 import WarNotesPanel from '../components/warroom/WarNotesPanel'
 import AlertSettingsButton from '../components/warroom/AlertSettingsButton'
+import HeadlineBanner from '../components/warroom/HeadlineBanner'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
@@ -2091,6 +2092,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             readOnly={isVisitor}
           />
         )}
+
+        {/* Leader headline banner (#158) — pinned above the summary, live to all. */}
+        <HeadlineBanner config={config} canManage={(isWarLead || isLeadership || isAdmin) && !isVisitor} />
 
         {/* This week's war summary — lives in the top card with the controls. */}
         {currentWar && (

@@ -55,7 +55,13 @@ export async function clearWarRoomState(db: pg.Pool) {
        updated_at = now()
      WHERE id = 1 RETURNING *`
   )
-  return { state: state.rows, dibs: dibs.rows, chain: chain.rows }
+  // A new matchup must not inherit the prior war's headline (#158).
+  const config = await db.query(
+    `UPDATE war_room_config_v2 SET headline_text = NULL, headline_tone = NULL,
+       headline_set_by = NULL, headline_set_at = NULL, updated_at = now()
+     WHERE id = 1 RETURNING *`
+  )
+  return { state: state.rows, dibs: dibs.rows, chain: chain.rows, config: config.rows }
 }
 
 const GUARD = { preHandler: [requireNotVisitor(), requireRole('warlead', 'leadership', 'admin')] }
@@ -107,6 +113,7 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
     hub.broadcast('state', cleared.state, ts)
     hub.broadcast('dibs', cleared.dibs, ts)
     hub.broadcast('chain', cleared.chain, ts)
+    hub.broadcast('config', cleared.config, ts)  // headline reset (#158)
     return { ok: true }
   })
 
