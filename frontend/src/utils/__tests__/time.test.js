@@ -3,7 +3,20 @@
 // rendered 'Invalid Date' everywhere. parseDbTime accepts every shape the
 // stack emits.
 import { describe, expect, it } from 'vitest'
-import { parseDbTime, fmtDbTime } from '../time'
+import { parseDbTime, fmtDbTime, fmtAgo } from '../time'
+
+describe('fmtAgo', () => {
+  const now = Date.UTC(2026, 6, 23, 12, 0, 0)
+  it('renders minutes/hours/days ago from a Postgres +00 timestamp', () => {
+    expect(fmtAgo('2026-07-23T11:30:00+00', now)).toBe('30m ago')
+    expect(fmtAgo('2026-07-23T09:00:00+00', now)).toBe('3h ago')
+    expect(fmtAgo('2026-07-21T12:00:00+00', now)).toBe('2d ago')
+  })
+  it('says "just now" for very recent or future, "—" when absent', () => {
+    expect(fmtAgo('2026-07-23T11:59:30+00', now)).toBe('just now')
+    expect(fmtAgo(null, now)).toBe('—')
+  })
+})
 
 describe('parseDbTime', () => {
   it('parses Postgres timestamptz text with a short offset (+00)', () => {

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
-import { LoaderCircle, Lock } from 'lucide-react'
+import { LoaderCircle, Lock, ChevronUp, ChevronDown, X, Plus } from 'lucide-react'
 import RollCallResultsTable from './RollCallResultsTable'
 import WarNotesArchive from './WarNotesArchive'
+import { notePointsFromText, notePointsToText } from '../../utils/rollCall'
+import { fmtAgo } from '../../utils/time'
 
 // War Leaders only. War type / agreed scores / strategy notes + the embedded
 // roll-call results table and a "not yet responded" list. Edited responses
@@ -12,9 +14,26 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
   const [termedUs, setTermedUs] = useState(notes?.termed_score_us ?? '')
   const [termedThem, setTermedThem] = useState(notes?.termed_score_them ?? '')
   const [raceTarget, setRaceTarget] = useState(notes?.race_target_score ?? '')
-  const [text, setText] = useState(notes?.notes_public ?? '')
+  // Public note is edited as a list of short points (#141) and stored as
+  // newline-delimited text. A legacy free-text note splits into its lines;
+  // always keep at least one (empty) row to type into.
+  const [points, setPoints] = useState(() => {
+    const p = notePointsFromText(notes?.notes_public)
+    return p.length ? p : ['']
+  })
   const [privText, setPrivText] = useState(privateNotes ?? '')
   const [msg, setMsg] = useState(null)
+
+  const updatePoint = (i, v) => setPoints(ps => ps.map((p, j) => (j === i ? v : p)))
+  const addPoint = () => setPoints(ps => [...ps, ''])
+  const removePoint = (i) => setPoints(ps => (ps.length > 1 ? ps.filter((_, j) => j !== i) : ['']))
+  const movePoint = (i, dir) => setPoints(ps => {
+    const j = i + dir
+    if (j < 0 || j >= ps.length) return ps
+    const next = ps.slice()
+    ;[next[i], next[j]] = [next[j], next[i]]
+    return next
+  })
 
   async function handleSave() {
     setMsg(null)
@@ -24,7 +43,7 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
       termed_score_us:   warType === 'termed' ? (Number(termedUs) || null) : null,
       termed_score_them: warType === 'termed' ? (Number(termedThem) || null) : null,
       race_target_score: warType === 'race' ? (Number(raceTarget) || null) : null,
-      notes_public: text || null,
+      notes_public: notePointsToText(points) || null,
       notes_private: privText || null,
       expected_updated_at: notes?.updated_at ?? null,
     })
@@ -41,7 +60,12 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
 
   return (
     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700">
-      <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">War Notes &amp; Roll Call</h4>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200">War Notes &amp; Roll Call</h4>
+        {notes?.updated_at && (
+          <span className="text-xs text-gray-400 dark:text-gray-500">updated {fmtAgo(notes.updated_at)}</span>
+        )}
+      </div>
 
       {!currentWar && (
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
@@ -87,15 +111,44 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
           to all members; private is leads-only (e.g. negotiation details). */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Public note (visible to all members)</label>
-          <textarea
-            value={text}
-            disabled={readOnly}
-            onChange={e => setText(e.target.value)}
-            rows={3}
-            placeholder="Strategy / agreed terms / hit-list priorities…"
-            className="input w-full text-sm"
-          />
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Public points (visible to all members)</label>
+          <div className="space-y-1.5">
+            {points.map((p, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <span className="text-gray-400 text-xs w-3 text-center">•</span>
+                <input
+                  type="text"
+                  value={p}
+                  disabled={readOnly}
+                  onChange={e => updatePoint(i, e.target.value)}
+                  placeholder="One short, important point…"
+                  className="input flex-1 py-1 text-sm"
+                />
+                {!readOnly && (
+                  <div className="flex items-center shrink-0">
+                    <button type="button" onClick={() => movePoint(i, -1)} disabled={i === 0}
+                      className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed" title="Move up" aria-label="Move up">
+                      <ChevronUp className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => movePoint(i, 1)} disabled={i === points.length - 1}
+                      className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed" title="Move down" aria-label="Move down">
+                      <ChevronDown className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => removePoint(i)}
+                      className="p-1 text-gray-400 hover:text-red-500" title="Remove point" aria-label="Remove point">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {!readOnly && (
+            <button type="button" onClick={addPoint}
+              className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline">
+              <Plus className="w-3.5 h-3.5" /> Add point
+            </button>
+          )}
         </div>
         <div>
           <label className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">
