@@ -9,10 +9,17 @@ import { requireNotVisitor, requireRole } from './authz.js'
 const KINDS = ['logo', 'favicon', 'hero']
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml', 'image/gif']
 const FAVICON_TYPES = ['image/x-icon', 'image/vnd.microsoft.icon', 'image/png']
-const MAX_BYTES = 1_048_576 // 1 MB — branding images are small
+// Favicons are tiny; logo/hero can be animated GIFs, so they get more headroom
+// (#178). Kept well under a MB for the favicon so tab icons stay light.
+const FAVICON_MAX_BYTES = 1_048_576 // 1 MB
+const IMAGE_MAX_BYTES = 3_145_728 // 3 MB — room for animated GIF logos/heroes
 
 function allowedTypes(kind: string): string[] {
   return kind === 'favicon' ? FAVICON_TYPES : IMAGE_TYPES
+}
+
+function maxBytesFor(kind: string): number {
+  return kind === 'favicon' ? FAVICON_MAX_BYTES : IMAGE_MAX_BYTES
 }
 
 // Accept a raw base64 string or a full data: URL — strip the prefix if present.
@@ -29,9 +36,9 @@ export function registerBrandingRoutes(app: FastifyInstance, deps: { db: pg.Pool
   const { db } = deps
   const WRITE_GUARD = { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }
 
-  // Upload/replace an asset. Leadership-gated. base64 body → bytea. The raised
-  // bodyLimit covers base64's ~33% overhead on a 1 MB image.
-  app.put('/api/admin/branding/:kind', { ...WRITE_GUARD, bodyLimit: 3_000_000 }, async (req, reply) => {
+  // Upload/replace an asset. Leadership-gated. base64 body → bytea. The
+  // bodyLimit covers base64's ~33% overhead on the 3 MB image ceiling (#178).
+  app.put('/api/admin/branding/:kind', { ...WRITE_GUARD, bodyLimit: 4_500_000 }, async (req, reply) => {
     const { kind } = req.params as { kind: string }
     if (!KINDS.includes(kind)) return reply.status(404).send({ error: `unknown asset kind; expected ${KINDS.join(', ')}` })
 
@@ -44,7 +51,8 @@ export function registerBrandingRoutes(app: FastifyInstance, deps: { db: pg.Pool
     }
     const bytes = decodeBase64(body.data_base64)
     if (bytes.length === 0) return reply.status(400).send({ error: 'decoded image is empty' })
-    if (bytes.length > MAX_BYTES) return reply.status(413).send({ error: `image exceeds ${MAX_BYTES} bytes` })
+    const maxBytes = maxBytesFor(kind)
+    if (bytes.length > maxBytes) return reply.status(413).send({ error: `image exceeds ${maxBytes} bytes` })
 
     await db.query(
       `INSERT INTO faction_branding_assets (kind, content_type, bytes, updated_at)

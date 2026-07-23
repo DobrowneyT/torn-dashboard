@@ -296,13 +296,13 @@ function IdentitySection({ readOnly }) {
       </div>
       <div className="grid sm:grid-cols-3 gap-4">
         <ImageUploadField kind="logo" label="Logo" readOnly={readOnly}
-          hint="Your faction mark."
+          hint="Shows in the header, left of the title. PNG/GIF/SVG, up to 3 MB (GIFs animate)."
           value={branding.logo || ''} onChange={(v) => setBranding((b) => ({ ...b, logo: v }))} />
         <ImageUploadField kind="favicon" label="Favicon" readOnly={readOnly}
           hint="Browser-tab icon (.ico or .png). Applies on reload."
           value={branding.favicon || ''} onChange={(v) => setBranding((b) => ({ ...b, favicon: v }))} />
         <ImageUploadField kind="hero" label="Hero image" readOnly={readOnly}
-          hint="Large banner/splash image (placement TBD)."
+          hint="Large banner/splash image (placement TBD). PNG/GIF/SVG, up to 3 MB."
           value={branding.hero || ''} onChange={(v) => setBranding((b) => ({ ...b, hero: v }))} />
       </div>
       {!readOnly && (

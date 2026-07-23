@@ -75,6 +75,14 @@ export function faviconHrefFor(identity) {
   return identity.branding?.favicon || DEFAULT_FAVICON
 }
 
+// The header logo (#178). Unlike the favicon there is no shared default — an
+// unset logo renders nothing (the header falls back to the text title alone),
+// so this returns null rather than a placeholder. A served `/api/branding/logo`
+// path or an external URL both work as an <img src>.
+export function logoSrcFor(identity) {
+  return identity.branding?.logo || null
+}
+
 export function useFactionIdentity() {
   const [identity, setIdentity] = useState(getFactionIdentity())
   useEffect(() => {

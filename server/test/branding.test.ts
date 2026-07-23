@@ -75,4 +75,16 @@ describe('branding uploads (#173)', () => {
   it('404s serving an asset that was never uploaded', async () => {
     expect((await fetch(`${stack.baseUrl}/api/branding/hero`)).status).toBe(404)
   })
+
+  // #178: logo/hero get a larger ceiling (animated GIFs); favicon stays small.
+  it('accepts a logo above the favicon ceiling but rejects an oversized favicon', async () => {
+    const base64OfSize = (bytes: number) => Buffer.alloc(bytes, 0).toString('base64')
+    // 1.5 MB — over the 1 MB favicon cap, under the 3 MB image cap.
+    const oneAndAHalfMb = base64OfSize(1_572_864)
+    expect((await api('PUT', '/api/admin/branding/logo', leadershipToken, { content_type: 'image/gif', data_base64: oneAndAHalfMb })).status).toBe(200)
+    expect((await api('PUT', '/api/admin/branding/favicon', leadershipToken, { content_type: 'image/png', data_base64: oneAndAHalfMb })).status).toBe(413)
+    // Over the 3 MB image cap → rejected even for a logo.
+    const fourMb = base64OfSize(4_194_304)
+    expect((await api('PUT', '/api/admin/branding/logo', leadershipToken, { content_type: 'image/gif', data_base64: fourMb })).status).toBe(413)
+  })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { apiKeyTitleFor, faviconHrefFor, DEFAULT_FAVICON } from '../factionIdentity'
+import { apiKeyTitleFor, faviconHrefFor, logoSrcFor, DEFAULT_FAVICON } from '../factionIdentity'
 import { config } from '../../config'
 
 // The Torn API key title/comment (#131): must reflect the current tenant's
@@ -30,5 +30,18 @@ describe('faviconHrefFor', () => {
     expect(faviconHrefFor({ branding: {} })).toBe(DEFAULT_FAVICON)
     expect(faviconHrefFor({ branding: { favicon: '' } })).toBe(DEFAULT_FAVICON)
     expect(faviconHrefFor({})).toBe(DEFAULT_FAVICON)
+  })
+})
+
+describe('logoSrcFor', () => {
+  it('uses the faction\'s own branding.logo when set (served path or external URL)', () => {
+    expect(logoSrcFor({ branding: { logo: '/api/branding/logo?v=123' } })).toBe('/api/branding/logo?v=123')
+    expect(logoSrcFor({ branding: { logo: 'https://cdn.example/logo.gif' } })).toBe('https://cdn.example/logo.gif')
+  })
+
+  it('returns null when no logo is set (header shows the text title alone — no default, no broken image)', () => {
+    expect(logoSrcFor({ branding: {} })).toBe(null)
+    expect(logoSrcFor({ branding: { logo: '' } })).toBe(null)
+    expect(logoSrcFor({})).toBe(null)
   })
 })
