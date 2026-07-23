@@ -16,7 +16,8 @@ const ROLLING_DAYS_MAX = 366
 
 const SELECT_COLS =
   `id, name, type, metric_id, direction, reducer, window_kind,
-   window_start, window_end, rolling_days, created_by, created_at`
+   window_start, window_end, rolling_days, auto_resolve, resolve_interval_days,
+   next_resolve_at, created_by, created_at`
 
 export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
   // Registry shortlist for the create form (no internal paths exposed).
@@ -53,6 +54,7 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
         name?: unknown; metric_id?: unknown; direction?: unknown; reducer?: unknown
         window_kind?: unknown; window_start?: unknown; window_end?: unknown
         rolling_days?: unknown; type?: unknown
+        auto_resolve?: unknown; resolve_interval_days?: unknown
       }
 
       const name = typeof body.name === 'string' ? body.name.trim() : ''
@@ -102,13 +104,33 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
         return reply.status(400).send({ error: 'window_kind must be "fixed" or "rolling"' })
       }
 
+      // Auto-resolve (#186): the scheduler closes a fixed competition once its
+      // end day passes, or draws a rolling one every resolve_interval_days
+      // (defaulting to its window length). next_resolve_at seeds the first
+      // rolling draw one interval out.
+      const autoResolve = body.auto_resolve === true
+      let resolveIntervalDays: number | null = null
+      let nextResolveAt: Date | null = null
+      if (autoResolve && windowKind === 'rolling') {
+        resolveIntervalDays = body.resolve_interval_days == null
+          ? (rollingDays as number)
+          : Number(body.resolve_interval_days)
+        if (!Number.isInteger(resolveIntervalDays) || resolveIntervalDays < 1 || resolveIntervalDays > ROLLING_DAYS_MAX) {
+          return reply.status(400).send({ error: `resolve_interval_days must be an integer 1..${ROLLING_DAYS_MAX}` })
+        }
+        nextResolveAt = new Date()
+        nextResolveAt.setUTCDate(nextResolveAt.getUTCDate() + resolveIntervalDays)
+      }
+
       const createdBy = req.session!.torn_user_id
       const inserted = await db.query(
         `INSERT INTO competitions
-           (name, type, metric_id, direction, reducer, window_kind, window_start, window_end, rolling_days, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           (name, type, metric_id, direction, reducer, window_kind, window_start, window_end,
+            rolling_days, auto_resolve, resolve_interval_days, next_resolve_at, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING ${SELECT_COLS}`,
-        [name, type, body.metric_id, direction, reducer, windowKind, windowStart, windowEnd, rollingDays, String(createdBy)]
+        [name, type, body.metric_id, direction, reducer, windowKind, windowStart, windowEnd,
+         rollingDays, autoResolve, resolveIntervalDays, nextResolveAt, String(createdBy)]
       )
       return reply.status(201).send({ competition: inserted.rows[0] })
     }
@@ -127,41 +149,11 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
       if (compRes.rows.length === 0) return reply.status(404).send({ error: 'Competition not found' })
       const competition = compRes.rows[0]
 
-      const window = effectiveWindow(competition)
-      const standings = await computeStandings(db, competition)
-      if (!window || standings.length === 0) {
+      const result = await resolveCompetition(db, competition, String(req.session!.torn_user_id))
+      if (!result) {
         return reply.status(409).send({ error: 'No standings to resolve yet in this window' })
       }
-      const resolvedBy = String(req.session!.torn_user_id)
-
-      const client = await db.connect()
-      try {
-        await client.query('BEGIN')
-        const seqRes = await client.query(
-          `SELECT COALESCE(MAX(resolution_seq), 0) + 1 AS seq
-             FROM competition_results WHERE competition_id = $1`,
-          [id]
-        )
-        const seq = seqRes.rows[0].seq as number
-        for (const s of standings) {
-          await client.query(
-            `INSERT INTO competition_results
-               (competition_id, resolution_seq, resolved_by, window_start, window_end,
-                member_id, member_name, value, rank, partial, winner)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-            [id, seq, resolvedBy, window.start, window.end, s.member_id, s.member_name,
-             s.value, s.rank, s.partial, s.rank === 1]
-          )
-        }
-        await client.query('COMMIT')
-        const winner = standings.find((s) => s.rank === 1) ?? null
-        return { resolution_seq: seq, winner, member_count: standings.length }
-      } catch (err) {
-        await client.query('ROLLBACK')
-        throw err
-      } finally {
-        client.release()
-      }
+      return result
     }
   )
 
@@ -205,6 +197,7 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
 }
 
 interface CompetitionRow {
+  id?: number | string
   metric_id: string
   direction: string
   reducer?: string
@@ -212,6 +205,9 @@ interface CompetitionRow {
   window_start?: string | Date | null
   window_end?: string | Date | null
   rolling_days?: number | null
+  auto_resolve?: boolean
+  resolve_interval_days?: number | null
+  next_resolve_at?: string | Date | null
 }
 
 function toIsoDate(d: string | Date): string {
@@ -292,4 +288,127 @@ export async function computeStandings(db: pg.Pool, competition: CompetitionRow)
     start_date: r.start_date,
     end_date: r.end_date,
   }))
+}
+
+// Materialise the current standings as the next resolution (winner = rank 1).
+// Returns null when the window has no standings — nothing to crown. Shared by
+// the manual endpoint and the scheduled auto-resolver.
+export async function resolveCompetition(
+  db: pg.Pool,
+  competition: CompetitionRow & { id: number | string },
+  resolvedBy: string
+) {
+  const window = effectiveWindow(competition)
+  const standings = await computeStandings(db, competition)
+  if (!window || standings.length === 0) return null
+
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const seqRes = await client.query(
+      `SELECT COALESCE(MAX(resolution_seq), 0) + 1 AS seq
+         FROM competition_results WHERE competition_id = $1`,
+      [competition.id]
+    )
+    const seq = seqRes.rows[0].seq as number
+    for (const s of standings) {
+      await client.query(
+        `INSERT INTO competition_results
+           (competition_id, resolution_seq, resolved_by, window_start, window_end,
+            member_id, member_name, value, rank, partial, winner)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [competition.id, seq, resolvedBy, window.start, window.end, s.member_id, s.member_name,
+         s.value, s.rank, s.partial, s.rank === 1]
+      )
+    }
+    await client.query('COMMIT')
+    const winner = standings.find((s) => s.rank === 1) ?? null
+    return { resolution_seq: seq, winner, member_count: standings.length }
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+// Parse a stored timestamp to a Date. db.ts returns timestamptz as a text
+// string (space→T) with Postgres's microsecond precision and a bare ±HH offset,
+// which `new Date()` can't parse — so normalise the offset to ±HH:MM and trim
+// fractional seconds to milliseconds first. Dates and ISO strings pass through.
+function toDate(v: string | Date): Date {
+  if (v instanceof Date) return v
+  let s = String(v)
+  // Only a value with a time part carries an offset to normalise; a date-only
+  // string like "2999-01-01" must pass through untouched (its trailing "-01"
+  // is not an offset).
+  if (s.includes('T')) {
+    s = s
+      .replace(/(\.\d{3})\d+/, '$1')        // micros → millis
+      .replace(/([+-]\d{2})$/, '$1:00')     // bare ±HH offset → ±HH:MM
+  }
+  return new Date(s)
+}
+
+// Advance a rolling competition's next-resolution time past `now`, skipping any
+// intervals missed while the scheduler was down (catch-up draws the same "today"
+// window, so we jump straight to the next future boundary rather than duplicate).
+export function advanceNextResolve(from: Date, intervalDays: number, now: Date): Date {
+  const next = new Date(from)
+  do { next.setUTCDate(next.getUTCDate() + intervalDays) } while (next <= now)
+  return next
+}
+
+// Whether an auto-managed competition is due to resolve right now. Pure so the
+// due/not-due decision is unit-testable; the DB-dependent gates (already
+// resolved, end-day snapshot present) are checked in runAutoResolve.
+export function isDueToResolve(competition: CompetitionRow, now: Date): boolean {
+  if (!competition.auto_resolve) return false
+  if (competition.window_kind === 'rolling') {
+    if (competition.next_resolve_at == null) return false
+    return toDate(competition.next_resolve_at) <= now
+  }
+  // Fixed: due once the end day has fully passed (strictly after window_end).
+  if (competition.window_end == null) return false
+  return isoDay(now) > toIsoDate(competition.window_end)
+}
+
+// The scheduled tick: resolve every auto-managed competition that's due, gated
+// so a fixed one resolves exactly once and only after its final-day snapshot has
+// landed. Rolling ones advance their next-resolution time each cycle. Returns
+// the number resolved (for the run log).
+export async function runAutoResolve(db: pg.Pool, now = new Date()) {
+  const { rows } = await db.query(
+    `SELECT ${SELECT_COLS} FROM competitions WHERE auto_resolve = true`
+  )
+  let resolved = 0
+  for (const comp of rows) {
+    if (!isDueToResolve(comp, now)) continue
+
+    if (comp.window_kind === 'rolling') {
+      const result = await resolveCompetition(db, comp, 'scheduler')
+      if (result) resolved++
+      // Advance regardless of an empty window so we don't spin on this cycle.
+      const interval = comp.resolve_interval_days ?? comp.rolling_days ?? 1
+      const next = advanceNextResolve(toDate(comp.next_resolve_at), interval, now)
+      await db.query('UPDATE competitions SET next_resolve_at = $1, updated_at = now() WHERE id = $2', [next, comp.id])
+    } else {
+      // Fixed: resolve once. Skip if already resolved or the end-day snapshot
+      // hasn't landed yet (don't freeze an under-counted board).
+      const already = await db.query('SELECT 1 FROM competition_results WHERE competition_id = $1 LIMIT 1', [comp.id])
+      if (already.rows.length > 0) continue
+      const endData = await db.query(
+        'SELECT 1 FROM member_daily_stats WHERE snapshot_date >= $1 LIMIT 1',
+        [toIsoDate(comp.window_end)]
+      )
+      if (endData.rows.length === 0) continue
+      const result = await resolveCompetition(db, comp, 'scheduler')
+      if (result) resolved++
+    }
+  }
+  return resolved
 }

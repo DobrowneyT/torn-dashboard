@@ -3,7 +3,7 @@
 // against the real templated Postgres.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
-import { effectiveWindow } from '../src/competitions.js'
+import { effectiveWindow, isDueToResolve, advanceNextResolve, runAutoResolve } from '../src/competitions.js'
 
 let stack: TestStack
 let leadershipToken: string
@@ -248,5 +248,64 @@ describe('competitions (#183)', () => {
     expect(second.body.resolution_seq).toBe(2)
     const history = await api('GET', `/api/competitions/${id}/history`, memberToken)
     expect(history.body.resolutions.map((r: any) => r.resolution_seq)).toEqual([2, 1])
+  })
+
+  // ── #186: auto-scheduling ────────────────────────────────────────────────
+
+  it('isDueToResolve gates on auto_resolve, a passed fixed end day, and rolling next_resolve_at', () => {
+    const base = { metric_id: 'xanax_taken', direction: 'desc' }
+    expect(isDueToResolve({ ...base, auto_resolve: false, window_kind: 'fixed', window_end: '2000-01-01' }, new Date('2020-01-01T00:00:00Z'))).toBe(false)
+    expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'fixed', window_end: '2000-01-01' }, new Date('2000-01-02T00:00:00Z'))).toBe(true)
+    // Same day as the end date is not "strictly after" → not yet due.
+    expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'fixed', window_end: '2000-01-02' }, new Date('2000-01-02T12:00:00Z'))).toBe(false)
+    expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'rolling', next_resolve_at: '2999-01-01' }, new Date())).toBe(false)
+    expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'rolling', next_resolve_at: '2000-01-01' }, new Date())).toBe(true)
+  })
+
+  it('advanceNextResolve skips intervals missed while down, landing just past now', () => {
+    const dayMs = 86_400_000
+    const from = new Date('2026-01-01T00:00:00Z')
+    const now = new Date('2026-03-15T00:00:00Z')
+    const next = advanceNextResolve(from, 30, now)
+    expect(next.getTime()).toBeGreaterThan(now.getTime())
+    expect(next.getTime() - now.getTime()).toBeLessThanOrEqual(30 * dayMs)
+    expect(((next.getTime() - from.getTime()) / dayMs) % 30).toBe(0)
+  })
+
+  it('runAutoResolve closes a due fixed competition exactly once', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Auto fixed', metric_id: 'xanax_taken', auto_resolve: true,
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    const id = c.body.competition.id
+    await runAutoResolve(stack.db)
+    let hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    expect(hist.body.resolutions).toHaveLength(1)
+    expect(hist.body.resolutions[0].winner.member_id).toBe('10')
+    // A second tick does not re-resolve a fixed competition.
+    await runAutoResolve(stack.db)
+    hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    expect(hist.body.resolutions).toHaveLength(1)
+  })
+
+  it('runAutoResolve draws a due rolling competition and advances its next_resolve_at', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Auto rolling', metric_id: 'xanax_taken', window_kind: 'rolling',
+      rolling_days: 10, auto_resolve: true, resolve_interval_days: 7,
+    })
+    const id = c.body.competition.id
+    // Force it due by moving the next-resolution time into the past.
+    await stack.db.query(`UPDATE competitions SET next_resolve_at = now() - interval '1 day' WHERE id = $1`, [id])
+    await runAutoResolve(stack.db)
+    const hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    expect(hist.body.resolutions).toHaveLength(1)
+    // next_resolve_at advanced into the future (compared in SQL to avoid JS
+    // parsing of Postgres's timestamptz text form).
+    const row = await stack.db.query('SELECT next_resolve_at > now() AS future FROM competitions WHERE id = $1', [id])
+    expect(row.rows[0].future).toBe(true)
+    // Not due again on the very next tick.
+    await runAutoResolve(stack.db)
+    const hist2 = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    expect(hist2.body.resolutions).toHaveLength(1)
   })
 })
