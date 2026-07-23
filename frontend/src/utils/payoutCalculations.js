@@ -33,6 +33,29 @@ export const DEFAULT_PAYOUT_MODE = 'flat-weighted'
 export function factionUsesTiers(mode) {
   return (mode ?? DEFAULT_PAYOUT_MODE) === 'tiered'
 }
+
+// #168: aggregate a member's "banked" time — seconds spent in crimes they LEFT
+// before execution (the left-early participation stints), each clipped to the
+// payout window. Returns { [memberId]: { seconds, crimes: [{crime_id,
+// crime_name, seconds}] } }. Today's slot-based calc counts this as zero, so
+// it's added on top (no double-count: they aren't in the current/executed slots).
+export function bankedTimeByMember(participation, fromTimestamp, toTimestamp) {
+  const byMember = {}
+  for (const seg of participation || []) {
+    const joined = Number(seg.joined_at)
+    const left = Number(seg.left_at)
+    if (!Number.isFinite(joined) || !Number.isFinite(left)) continue
+    const start = Math.max(joined, fromTimestamp)
+    const end = Math.min(left, toTimestamp)
+    const seconds = end - start
+    if (seconds <= 0) continue
+    const id = String(seg.member_id)
+    if (!byMember[id]) byMember[id] = { seconds: 0, crimes: [] }
+    byMember[id].seconds += seconds
+    byMember[id].crimes.push({ crime_id: String(seg.crime_id), crime_name: seg.crime_name || null, seconds })
+  }
+  return byMember
+}
 // Uniform base for the non-tiered modes (Tier-1 value). In flat-weighted this
 // cancels out of the share math — it's only what shows in the Tickets column.
 const FLAT_BASE_TICKETS = TIER_TICKETS[1]
@@ -489,6 +512,32 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
         status
       })
     }
+  }
+
+  // #168: add time banked in crimes a member LEFT before execution (which the
+  // slot loop above counts as zero — they've been refilled). Purely additive:
+  // left-early members aren't in the current/executed slots, so no double-count
+  // with completed/current time. A member whose ONLY window activity was a
+  // left-early stint is added here so they still get credit.
+  const banked = bankedTimeByMember(crimesData?.participation, fromTimestamp, toTimestamp)
+  for (const [userId, info] of Object.entries(banked)) {
+    if (info.seconds <= 0) continue
+    if (!participatingMembers[userId]) {
+      const memberData = members[userId] || {}
+      const memberName = memberData.name || 'Unknown'
+      participatingMembers[userId] = {
+        userId,
+        name: memberName !== 'Unknown' ? `${memberName} [${userId}]` : `User ${userId}`,
+        tier: memberData.tier ?? 6,
+        crimesCount: 0,
+        timeSpent: 0,
+        crimeIds: [],
+        positions: [],
+      }
+    }
+    participatingMembers[userId].timeSpent += info.seconds
+    participatingMembers[userId].bankedSeconds = info.seconds
+    participatingMembers[userId].bankedCrimes = info.crimes
   }
 
   console.log('Crimes processed (successful in window):', crimesProcessed)

@@ -39,7 +39,7 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
     const crimes = windowData.crimes || []
 
     if (crimes.length === 0) {
-      return { crimes: {}, slots: [], rewardItems: [], requiredItems: [] }
+      return { crimes: {}, slots: [], rewardItems: [], requiredItems: [], participation: windowData.participation || [] }
     }
 
     const slots = windowData.slots || []
@@ -163,7 +163,9 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
       crimes: crimesMap,
       slots: slots,
       rewardItems: rewardItems,
-      requiredItems: requiredItems
+      requiredItems: requiredItems,
+      // #168: left-early participation stints, for banked-time augmentation.
+      participation: windowData.participation || []
     }
 
   } catch (error) {

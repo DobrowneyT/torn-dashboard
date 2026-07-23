@@ -1476,7 +1476,7 @@ export default function PayoutManagement() {
                       <tr key={member.userId} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50">
                         <td className="py-2 px-2 font-medium text-xs whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">{member.name}</td>
                         <td className="py-2 px-2 text-xs text-gray-600 dark:text-gray-400">{member.userId}</td>
-                        <td className="py-2 px-2 text-xs">{formatTimeHours(member.timeSpent)}</td>
+                        <TimeCell member={member} />
                         <td className="py-2 px-2 text-xs">{member.timePercent.toFixed(2)}%</td>
                         {usesTiers && <td className="py-2 px-2"><TierBadge tier={member.tier} /></td>}
                         <td className="py-2 px-2 text-xs">{member.baseTickets}</td>
@@ -1640,6 +1640,40 @@ function TierBadge({ tier }) {
     <span className={`inline-block px-2 py-0.5 rounded text-white font-semibold text-xs ${colors[tier] ?? 'bg-tier-review'}`}>
       {label}
     </span>
+  )
+}
+
+// Time-spent cell with a hover breakdown (#168). When a member banked time in
+// crimes they left before execution, flag it red and list those stints on hover
+// so leadership can see a legitimate reassignment vs join-and-bail farming.
+function TimeCell({ member }) {
+  const bankedCrimes = member.bankedCrimes || []
+  const bankedSeconds = member.bankedSeconds || 0
+  const hasBanked = bankedSeconds > 0
+  return (
+    <td className="py-2 px-2 text-xs relative group">
+      <span className={hasBanked ? 'cursor-help border-b border-dashed border-red-400' : ''}>
+        {formatTimeHours(member.timeSpent)}
+        {hasBanked && <span className="ml-1 text-red-500" title="includes banked time from crimes left early">⚑</span>}
+      </span>
+      {hasBanked && (
+        <div className="hidden group-hover:block absolute z-30 left-0 top-full mt-1 w-72 p-2 rounded bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 shadow-xl text-left normal-case">
+          <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Time breakdown</div>
+          <div className="flex justify-between text-[11px] text-gray-600 dark:text-gray-300">
+            <span>Completed / current</span>
+            <span>{formatTimeHours(Math.max(0, member.timeSpent - bankedSeconds))}</span>
+          </div>
+          <div className="mt-1 pt-1 border-t border-gray-100 dark:border-slate-700 space-y-0.5">
+            {bankedCrimes.map((c) => (
+              <div key={c.crime_id} className="flex justify-between gap-2 text-[11px] text-red-600 dark:text-red-400">
+                <span className="truncate">{c.crime_name || 'Crime'} #{c.crime_id} · left early</span>
+                <span className="whitespace-nowrap">+{formatTimeHours(c.seconds)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </td>
   )
 }
 

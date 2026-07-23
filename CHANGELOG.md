@@ -17,6 +17,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **OC payouts now credit time banked in crimes a member left before execution** —
+  the left-early time from #168's participation log is added to their weekly
+  time-spent (so their share reflects it), and Payout Management's time cell has a
+  hover breakdown listing those stints, flagged red (#168, part 2). Only from when the
+  log started — genuinely-old weeks have no data.
+
 ### Fixed
 
 - CI: the `db` schema-drift test now knows about the new `crime_participation_v2`
