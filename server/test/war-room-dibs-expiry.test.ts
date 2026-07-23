@@ -214,7 +214,7 @@ describe('war-room dibs auto-expiry', () => {
     expect(dib.rows[0].auto_expire_at).toBeNull()
   })
 
-  it('a re-claim inside the window carries no stale expiry — the fresh claim behaves normally', async () => {
+  it('a re-claim inside the window carries no stale expiry — the fresh claim starts its own countdown', async () => {
     await seedDib({ state: 'Hospital', until: 1752200500 })
     stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload({ state: 'Okay', until: null }))
 
@@ -222,8 +222,10 @@ describe('war-room dibs auto-expiry', () => {
     const ticker = createWarRoomTicker(tickerDeps())
     await ticker.tick() // schedules a release on the current claim
 
-    // The holder re-claims the same target (the real write path tombstones the
-    // scheduled row and inserts a fresh one with no auto_expire_at).
+    // The holder re-claims the same (now-Okay) target. The real write path
+    // tombstones the scheduled row and inserts a fresh one — which, because the
+    // target is alive, starts its OWN claim-timeout countdown (#159), never the
+    // stale hospital-exit deadline.
     const reclaim = await fetch(`${stack.baseUrl}/api/war-room/dibs`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -232,15 +234,124 @@ describe('war-room dibs auto-expiry', () => {
     expect(reclaim.status).toBe(200)
 
     const fresh = await stack.db.query(
-      `SELECT auto_expire_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`
+      `SELECT EXTRACT(EPOCH FROM (auto_expire_at - now())) AS secs
+       FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`
     )
-    expect(fresh.rows[0].auto_expire_at).toBeNull()
+    expect(Number(fresh.rows[0].secs)).toBeGreaterThan(20)
+    expect(Number(fresh.rows[0].secs)).toBeLessThanOrEqual(31)
 
-    // A subsequent tick (target still Okay, no new transition) must not drop it.
+    // A subsequent tick (target still Okay, window not yet lapsed) must not drop it.
     await ticker.tick()
     const dib = await stack.db.query(
       `SELECT deleted_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`
     )
+    expect(dib.rows).toHaveLength(1)
+  })
+})
+
+// #159 — a dib on an already-alive target auto-releases N seconds after the
+// claim if the holder still hasn't killed them. Seam: the real claim write
+// path (which reads the target's stored status + the configurable window) plus
+// the same per-tick sweep the #106/#107 rules ride.
+describe('war-room dibs claim-timeout (#159)', () => {
+  // Seed only the target's stored status (no dib) so the claim endpoint reads it.
+  async function seedTargetStatus(status: Record<string, unknown>) {
+    await stack.db.query(`DELETE FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`)
+    await stack.db.query(
+      `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, level, state)
+       VALUES (${TARGET}, ${ENEMY}, 'Foe', 55, $1)
+       ON CONFLICT (member_id) DO UPDATE SET state = EXCLUDED.state, deleted_at = NULL, updated_at = now()`,
+      [JSON.stringify({ status })]
+    )
+  }
+  async function claim() {
+    return fetch(`${stack.baseUrl}/api/war-room/dibs`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ target_id: TARGET }),
+    })
+  }
+
+  it('claiming an alive (Okay) target starts the auto-drop countdown', async () => {
+    await stack.db.query(`UPDATE war_room_config_v2 SET dibs_expiry_seconds = 30 WHERE id = 1`)
+    await seedTargetStatus({ state: 'Okay', until: null })
+
+    expect((await claim()).status).toBe(200)
+
+    const dib = await stack.db.query(
+      `SELECT deleted_at, EXTRACT(EPOCH FROM (auto_expire_at - now())) AS secs
+       FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`
+    )
+    expect(dib.rows[0].deleted_at).toBeNull()
+    expect(Number(dib.rows[0].secs)).toBeGreaterThan(20)
+    expect(Number(dib.rows[0].secs)).toBeLessThanOrEqual(31)
+  })
+
+  it('honours the configurable window (a shorter dibs_expiry_seconds)', async () => {
+    await stack.db.query(`UPDATE war_room_config_v2 SET dibs_expiry_seconds = 10 WHERE id = 1`)
+    await seedTargetStatus({ state: 'Okay', until: null })
+
+    expect((await claim()).status).toBe(200)
+
+    const dib = await stack.db.query(
+      `SELECT EXTRACT(EPOCH FROM (auto_expire_at - now())) AS secs
+       FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`
+    )
+    expect(Number(dib.rows[0].secs)).toBeGreaterThan(5)
+    expect(Number(dib.rows[0].secs)).toBeLessThanOrEqual(11)
+    await stack.db.query(`UPDATE war_room_config_v2 SET dibs_expiry_seconds = 30 WHERE id = 1`)
+  })
+
+  it('claiming a target still in hospital sets no claim-time expiry (the exit window governs)', async () => {
+    await seedTargetStatus({ state: 'Hospital', until: 1752209999 })
+
+    expect((await claim()).status).toBe(200)
+
+    const dib = await stack.db.query(
+      `SELECT auto_expire_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`
+    )
+    expect(dib.rows[0].auto_expire_at).toBeNull()
+  })
+
+  it('drops the claim once the window lapses if the target is still alive, broadcasting the release', async () => {
+    await seedTargetStatus({ state: 'Okay', until: null })
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload({ state: 'Okay', until: null }))
+    expect((await claim()).status).toBe(200)
+
+    const client = await wsConnect(token)
+    await client.next((m) => m.type === 'snapshot')
+
+    // Advance the clock past the claim window.
+    await stack.db.query(
+      `UPDATE war_room_dibs_v2 SET auto_expire_at = now() - interval '1 second' WHERE target_id = ${TARGET} AND deleted_at IS NULL`
+    )
+
+    const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+    await createWarRoomTicker(tickerDeps()).tick()
+
+    const dib = await stack.db.query(`SELECT deleted_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`)
+    expect(dib.rows[0].deleted_at).toBeTruthy()
+    const frame = await client.next(
+      (m) => m.type === 'delta' && m.channel === 'dibs' && m.rows.some((r: any) => Number(r.target_id) === TARGET && r.deleted_at)
+    )
+    expect(frame.rows.some((r: any) => Number(r.target_id) === TARGET)).toBe(true)
+    client.ws.close()
+  })
+
+  it('does NOT release when the target died inside the window (the kill succeeded)', async () => {
+    await seedTargetStatus({ state: 'Okay', until: null })
+    expect((await claim()).status).toBe(200)
+
+    // Deadline lapsed, but the target is now in hospital — the holder converted.
+    await stack.db.query(
+      `UPDATE war_room_dibs_v2 SET auto_expire_at = now() - interval '1 second' WHERE target_id = ${TARGET} AND deleted_at IS NULL`
+    )
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload({ state: 'Hospital', until: 1752209999 }))
+
+    const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+    await createWarRoomTicker(tickerDeps()).tick()
+
+    const dib = await stack.db.query(`SELECT deleted_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`)
     expect(dib.rows).toHaveLength(1)
   })
 })

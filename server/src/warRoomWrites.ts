@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
 import { rolesFromClaims } from './auth.js'
+import { DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
 import type { WarRoomHub } from './warRoom.js'
 
 export interface WarRoomWriteDeps {
@@ -65,10 +66,23 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
          WHERE claimed_by = $1 AND deleted_at IS NULL RETURNING *`,
         [userId]
       )
+      // #159: if the target is already alive (Okay) at claim time, start the
+      // auto-drop countdown — dibs_expiry_seconds out — so a claim the holder
+      // never converts frees up. A target still in hospital gets no claim-time
+      // deadline; the #106 hospital-exit window governs that case instead.
+      const ctx = await dbc.query(
+        `SELECT (SELECT dibs_expiry_seconds FROM war_room_config_v2 WHERE id = 1) AS secs,
+                (SELECT state->'status'->>'state' FROM war_room_state_v2 WHERE member_id = $1) AS status`,
+        [targetId]
+      )
+      const expirySecs = Number(ctx.rows[0]?.secs ?? DIBS_EXPIRY_SECONDS)
+      const targetAlive = ctx.rows[0]?.status === 'Okay'
       const inserted = await dbc.query(
-        `INSERT INTO war_room_dibs_v2 (target_id, claimed_by, claimed_name, war_id)
-         VALUES ($1, $2, $3, $4) RETURNING *`,
-        [targetId, userId, name, body?.war_id ?? null]
+        `INSERT INTO war_room_dibs_v2 (target_id, claimed_by, claimed_name, war_id, auto_expire_at)
+         VALUES ($1, $2, $3, $4,
+                 CASE WHEN $5 THEN now() + make_interval(secs => $6) ELSE NULL END)
+         RETURNING *`,
+        [targetId, userId, name, body?.war_id ?? null, targetAlive, expirySecs]
       )
       await dbc.query('COMMIT')
       hub.broadcast('dibs', [...tombstoned.rows, ...inserted.rows], await serverNow())

@@ -840,6 +840,18 @@ function ConfigPanel({
     catch (e) { setMsg({ ok: false, text: e.message }) }
   }
 
+  // Dibs auto-drop window (#159): a claim on an already-alive target releases
+  // this many seconds later if the holder still hasn't killed them. Default 30s,
+  // clamped [5, 600]s. Same commit-on-blur pattern as the chain cadences.
+  const [dibsExpirySec, setDibsExpirySec] = useState(String(config?.dibs_expiry_seconds ?? 30))
+  useEffect(() => { setDibsExpirySec(String(config?.dibs_expiry_seconds ?? 30)) }, [config?.dibs_expiry_seconds])
+  async function commitDibsExpiry() {
+    const next = Math.min(600, Math.max(5, Math.floor(Number(dibsExpirySec) || 30)))
+    if (next === (config?.dibs_expiry_seconds ?? 30)) return
+    try { await onSaveReviveService({ dibs_expiry_seconds: next }); setMsg({ ok: true, text: `Dibs auto-drop set to ${next}s.` }) }
+    catch (e) { setMsg({ ok: false, text: e.message }) }
+  }
+
   // Dropdown change → look up the preset and persist its name + url as the active selection.
   async function handlePickReviveService(e) {
     const picked = e.target.value
@@ -1019,6 +1031,25 @@ function ConfigPanel({
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="30"
             title="How often the server polls the enemy faction's chain endpoint. Clamped to 1–600s. Pauses while enemy is in cooldown."
+            className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        {/* Dibs auto-drop window (#159): free an unconverted claim on a live target. */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Dibs auto-drop <span className="text-gray-400 dark:text-gray-600">(s)</span>
+          </label>
+          <input
+            type="number"
+            min={5}
+            max={600}
+            step={1}
+            value={dibsExpirySec}
+            onChange={e => setDibsExpirySec(e.target.value)}
+            onBlur={commitDibsExpiry}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="30"
+            title="If you dib an already-alive target and haven't killed them within this many seconds, your claim is released so someone else can take them. Only applies to alive targets — a hospital claim waits for them to come out. Clamped to 5–600s."
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
