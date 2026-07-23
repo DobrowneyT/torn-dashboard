@@ -17,6 +17,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+
+- **War Room roll-call overlay no longer reappears after you've submitted.** A
+  backgrounded/throttled tab's periodic refresh could transiently return empty and
+  wipe your submitted response, re-tripping the blocking gate; the refresh now keeps
+  known-good data on a failed read, and a submit/leader-bypass is persisted per war
+  so tab switches don't re-gate (#167).
+
 ### Added
 
 - **Changelog CI gate** (warn-only for now): a PR touching `frontend/`, `server/`, or

@@ -38,7 +38,7 @@ import WarNotesPanel from '../components/warroom/WarNotesPanel'
 import AlertSettingsButton from '../components/warroom/AlertSettingsButton'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs } from '../utils/warRoomAlerts'
-import { rollCallGateActive, canSeeWarNotes } from '../utils/rollCall'
+import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
 import { parseDbTime } from '../utils/time'
 import { farmCompare } from '../utils/warRoomFarmSort'
 import { Smartphone, Settings, Crosshair, Loader2, ClipboardList } from 'lucide-react'
@@ -1186,7 +1186,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const [rollCallLoaded, setRollCallLoaded] = useState(false)  // gate waits for this
   const [privateNotes, setPrivateNotes] = useState('')      // leads-only note
   const [rollCallOpen, setRollCallOpen] = useState(false)  // manual (edit) open
-  const [leaderBypass, setLeaderBypass] = useState(false)  // leader dismissed the gate
+  // Gate dismissed for this war (member submitted, or a leader bypassed).
+  // Persisted per war (#167) so a tab switch / re-mount / transient-empty
+  // refresh can't re-trip the blocking overlay.
+  const [rollCallDismissed, setRollCallDismissed] = useState(false)
   const [submittingRC, setSubmittingRC] = useState(false)
   const [rcError, setRcError]           = useState(null)
   const [savingNotes, setSavingNotes]   = useState(false)
@@ -1453,22 +1456,26 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const refreshRollCall = useCallback(async () => {
     if (!currentWar?.id) { setRollCallRows([]); setWarNotes(null); setRollCallLoaded(true); return }
     if (API_MODE) {
-      const [rc, nt] = await Promise.all([
-        fetchRollCall(currentWar.id).catch(() => []),
-        fetchWarNotes(currentWar.id).catch(() => null),
+      // Per-channel guard (#167): a transient failure must NOT overwrite
+      // known-good rows with [] — that would drop a submitted response and
+      // re-trip the gate on a backgrounded/throttled tab. Adopt only a
+      // successful read; only mark "loaded" once roll call actually loaded.
+      const [rcRes, ntRes] = await Promise.allSettled([
+        fetchRollCall(currentWar.id),
+        fetchWarNotes(currentWar.id),
       ])
-      setRollCallRows(rc ?? [])
-      setWarNotes(nt ?? null)
-      setRollCallLoaded(true)
+      if (rcRes.status === 'fulfilled') { setRollCallRows(rcRes.value ?? []); setRollCallLoaded(true) }
+      if (ntRes.status === 'fulfilled') setWarNotes(ntRes.value ?? null)
       return
     }
-    const [{ data: rc }, { data: nt }] = await Promise.all([
+    const [rcResp, ntResp] = await Promise.allSettled([
       supabase.from('war_room_roll_call_v2').select('*').eq('war_id', currentWar.id),
       supabase.from('war_room_notes_v2').select('*').eq('war_id', currentWar.id).maybeSingle(),
     ])
-    setRollCallRows(rc ?? [])
-    setWarNotes(nt ?? null)
-    setRollCallLoaded(true)   // only after this can the gate decide to block
+    // Same guard for the legacy path: a query error (or thrown network fault)
+    // leaves the last known-good rows in place instead of clearing them.
+    if (rcResp.status === 'fulfilled' && !rcResp.value.error) { setRollCallRows(rcResp.value.data ?? []); setRollCallLoaded(true) }
+    if (ntResp.status === 'fulfilled' && !ntResp.value.error) setWarNotes(ntResp.value.data ?? null)
   }, [currentWar?.id])
 
   useEffect(() => {
@@ -1486,15 +1493,20 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     [rollCallRows, user?.id],
   )
 
-  // A new war re-gates everyone: clear any prior bypass / manual open, and
-  // mark roll call "not loaded" so the gate waits for the silent check.
-  useEffect(() => { setLeaderBypass(false); setRollCallOpen(false); setRollCallLoaded(false) }, [currentWar?.id])
+  // A new war re-gates everyone: re-read this browser's persisted dismissal for
+  // the new war (so a leader's bypass / a submit survives a re-mount), clear any
+  // manual open, and mark roll call "not loaded" so the gate waits for the check.
+  useEffect(() => {
+    setRollCallDismissed(isRollCallDismissed(currentWar?.id))
+    setRollCallOpen(false)
+    setRollCallLoaded(false)
+  }, [currentWar?.id])
 
   // Blocking gate: a current war, member hasn't responded, >1h before start, and
-  // a leader hasn't chosen to bypass. We only let it block AFTER the roll-call
-  // check has completed (rollCallLoaded) so the overlay never flashes for people
-  // who already filled it out. Manual "Roll Call" button opens edit mode anytime.
-  const gateActive = rollCallLoaded && rollCallGateActive({ currentWar, mySubmitted: !!myRollCall }) && !leaderBypass
+  // this browser hasn't dismissed it for this war. We only let it block AFTER the
+  // roll-call check has completed (rollCallLoaded) so the overlay never flashes
+  // for people who already filled it out. Manual "Roll Call" opens edit anytime.
+  const gateActive = rollCallLoaded && rollCallGateActive({ currentWar, mySubmitted: !!myRollCall }) && !rollCallDismissed
   const showRollCall = gateActive || rollCallOpen
 
   async function handleSubmitRollCall(answers) {
@@ -1502,6 +1514,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     setSubmittingRC(true); setRcError(null)
     try {
       await submitRollCall(currentWar.id, answers, user.name, user.apiKey)
+      // Latch the gate closed for this war immediately + persistently (#167):
+      // even before the refresh reflects the new row (or if a later refresh
+      // transiently fails), the overlay won't come back for this browser.
+      markRollCallDismissed(currentWar.id)
+      setRollCallDismissed(true)
       await refreshRollCall()
       setRollCallOpen(false)
       // Let the global roll-call reminder banner re-check immediately so it
@@ -2525,7 +2542,12 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           onSubmit={handleSubmitRollCall}
           onClose={() => {
             if (rollCallOpen) setRollCallOpen(false)  // manual edit → just close
-            else setLeaderBypass(true)                // hard gate → leadership bypass
+            else {
+              // Hard gate → leadership bypass. Persist per war (#167) so it
+              // survives tab switches / re-mounts instead of re-gating.
+              markRollCallDismissed(currentWar?.id)
+              setRollCallDismissed(true)
+            }
           }}
         />
       )}
