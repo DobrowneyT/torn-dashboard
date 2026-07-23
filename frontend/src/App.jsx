@@ -9,7 +9,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import ViewErrorBoundary from './components/ViewErrorBoundary'
 import Header from './components/Header'
 import Navigation from './components/Navigation'
-import MembersView from './views/MembersView'
+import MembersPage from './views/MembersPage'
 import DashboardView from './views/DashboardView'
 import OCPage from './views/OCPage'
 import RWPage from './views/RWPage'
@@ -121,7 +121,7 @@ function DashboardLayout() {
             <ViewErrorBoundary pathname={location.pathname}>
               <Routes>
                 <Route index element={<DashboardView />} />
-                <Route path="members" element={<MembersView isLeadership={effectiveIsLeadership} />} />
+                <Route path="members/*" element={<MembersPage isLeadership={effectiveIsLeadership} />} />
                 <Route path="oc/*" element={<OCPage isLeadership={effectiveIsLeadership} canAccessOCPlanner={effectiveCanAccessOCPlanner} />} />
                 <Route path="rw/*" element={<RWPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} canAccessWarOverview={effectiveCanAccessWarOverview} />} />
                 <Route path="leadership/*" element={
