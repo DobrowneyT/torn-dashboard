@@ -15,6 +15,7 @@ import {
   PAYOUT_MODES,
   DEFAULT_PAYOUT_MODE,
   factionUsesTiers,
+  bankedTimeByMember,
 } from '../payoutCalculations.js'
 
 // Suppress console.log in tests
@@ -82,6 +83,45 @@ function makeMembers(ids, tier = 6) {
 }
 
 // ─── getWeekRangeFromDate ──────────────────────────────────────────
+describe('bankedTimeByMember (#168)', () => {
+  const seg = (member_id, crime_id, joined_at, left_at, crime_name = 'C') =>
+    ({ member_id, crime_id, joined_at, left_at, crime_name })
+
+  it('sums each member\'s left-early time, clipped to the window, with a per-crime breakdown', () => {
+    const from = 1000, to = 2000
+    const banked = bankedTimeByMember([
+      seg('7', '100', 1100, 1300, 'Break the Bank'), // fully inside → 200
+      seg('7', '101', 900, 1200, 'Pet Store'),       // straddles start → clip to [1000,1200] = 200
+    ], from, to)
+    expect(banked['7'].seconds).toBe(400)
+    expect(banked['7'].crimes).toEqual([
+      { crime_id: '100', crime_name: 'Break the Bank', seconds: 200 },
+      { crime_id: '101', crime_name: 'Pet Store', seconds: 200 },
+    ])
+  })
+
+  it('clips a stint that runs past the window end', () => {
+    const banked = bankedTimeByMember([seg('9', '200', 1800, 2500)], 1000, 2000)
+    expect(banked['9'].seconds).toBe(200) // [1800, 2000]
+  })
+
+  it('ignores stints entirely outside the window', () => {
+    expect(bankedTimeByMember([seg('9', '200', 100, 500)], 1000, 2000)).toEqual({})
+    expect(bankedTimeByMember([seg('9', '200', 3000, 4000)], 1000, 2000)).toEqual({})
+  })
+
+  it('keeps members separate and tolerates empty input', () => {
+    const banked = bankedTimeByMember([
+      seg('7', '100', 1000, 1500),
+      seg('8', '100', 1000, 1200),
+    ], 1000, 2000)
+    expect(banked['7'].seconds).toBe(500)
+    expect(banked['8'].seconds).toBe(200)
+    expect(bankedTimeByMember([], 1000, 2000)).toEqual({})
+    expect(bankedTimeByMember(undefined, 1000, 2000)).toEqual({})
+  })
+})
+
 describe('factionUsesTiers', () => {
   it('is true only for the tiered mode', () => {
     expect(factionUsesTiers('tiered')).toBe(true)
@@ -254,6 +294,39 @@ describe('calculatePayouts', () => {
     expect(result.members).toHaveLength(1)
     expect(result.members[0].payout).toBe(800_000)
     expect(result.members[0].sharePercent).toBe(1)
+  })
+
+  it('adds banked left-early time on top of a member\'s completed-crime time (#168)', () => {
+    const executedAt = FROM + 3 * DAY
+    const crimes = makeCrimeFixture({ executedAt, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM - DAY, 'Mover')] })
+    // Same member also spent 2 days in a crime they LEFT before it executed.
+    crimes.participation = [
+      { member_id: '1', crime_id: '999', crime_name: 'Abandoned Job', joined_at: FROM, left_at: FROM + 2 * DAY },
+    ]
+    const result = calculatePayouts(crimes, makeMembers([1], 6), FROM, TO, 0.20)
+    const m = result.members.find(x => String(x.userId) === '1')
+    // completed = executedAt − FROM (joined before window) = 3 days; + 2 banked.
+    expect(m.timeSpent).toBe(3 * DAY + 2 * DAY)
+    expect(m.bankedSeconds).toBe(2 * DAY)
+    expect(m.bankedCrimes).toEqual([{ crime_id: '999', crime_name: 'Abandoned Job', seconds: 2 * DAY }])
+  })
+
+  it('credits a member whose ONLY window activity was a left-early stint (#168)', () => {
+    const crimes = makeCrimeFixture({ executedAt: FROM + 3 * DAY, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM - DAY)] })
+    crimes.participation = [
+      { member_id: '2', crime_id: '888', crime_name: 'Bailed', joined_at: FROM, left_at: FROM + DAY },
+    ]
+    const members = {
+      members: {
+        '1': { member_id: '1', name: 'A', tier: 6, is_current: true },
+        '2': { member_id: '2', name: 'B', tier: 6, is_current: true },
+      },
+    }
+    const result = calculatePayouts(crimes, members, FROM, TO, 0.20)
+    const m2 = result.members.find(x => String(x.userId) === '2')
+    expect(m2).toBeTruthy()
+    expect(m2.timeSpent).toBe(DAY)
+    expect(m2.bankedSeconds).toBe(DAY)
   })
 
   it('distributes proportionally to tier tickets across multiple members', () => {

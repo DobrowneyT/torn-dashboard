@@ -107,8 +107,23 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
       [from, to, lookbackFrom]
     )
     const crimeIds = crimes.rows.map((c) => c.crime_id)
+
+    // #168: left-early participation stints overlapping the window — time a
+    // member banked in a crime they left before it executed, which the slot
+    // rows (refilled by the next occupant) no longer show. `completed = false`
+    // excludes crimes they finished; the window overlap is independent of the
+    // crime union above so it catches crimes not otherwise in the payout set.
+    const participation = await db.query(
+      `SELECT p.crime_id, p.member_id, p.joined_at, p.left_at, c.name AS crime_name
+       FROM crime_participation_v2 p
+       JOIN crimes c ON c.crime_id = p.crime_id
+       WHERE p.completed = false AND p.left_at IS NOT NULL
+         AND p.joined_at < $2 AND p.left_at > $1`,
+      [from, to]
+    )
+
     if (crimeIds.length === 0) {
-      return { crimes: [], slots: [], reward_items: [], required_items: [] }
+      return { crimes: [], slots: [], reward_items: [], required_items: [], participation: participation.rows }
     }
 
     const [slots, rewards, required] = await Promise.all([
@@ -121,6 +136,7 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
       slots: slots.rows,
       reward_items: rewards.rows,
       required_items: required.rows,
+      participation: participation.rows,
     }
   })
 
