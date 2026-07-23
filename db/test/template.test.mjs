@@ -42,6 +42,8 @@ const NEW_TABLES = [
   'faction_config', 'faction_secrets', 'faction_settings', 'role_assignments',
   // Scraper core (slice #67)
   'scraper_jobs', 'scraper_runs',
+  // Crime participation log (#168) + uploaded branding images (#173)
+  'crime_participation_v2', 'faction_branding_assets',
 ]
 
 let server

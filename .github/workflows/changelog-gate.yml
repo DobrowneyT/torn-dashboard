@@ -14,6 +14,10 @@ on:
   pull_request:
     branches: [dev]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   changelog-gate:
     name: Changelog + version check
@@ -47,7 +51,11 @@ jobs:
           fi
 
           # ── Which files did this PR change? ──────────────────────────────────
-          files=$(gh pr view "$PR" --repo "$REPO" --json files -q '.files[].path')
+          # Never let an infra hiccup (token scope, API blip) fail the job — this
+          # gate is advisory. Degrade to a skip instead.
+          if ! files=$(gh pr view "$PR" --repo "$REPO" --json files -q '.files[].path'); then
+            echo "→ could not read PR files (token scope / API) — gate skipped."; exit 0
+          fi
           echo "Changed files:"; echo "$files" | sed 's/^/  /'
 
           # Source = anything under the three app workspaces.
