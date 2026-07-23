@@ -24,6 +24,10 @@ describe('per-faction API service', () => {
   it('reports healthy and names the faction it serves', async () => {
     const res = await fetch(`${baseUrl}/api/health`)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ status: 'ok', faction: 'forge' })
+    const body = await res.json()
+    expect(body).toMatchObject({ status: 'ok', faction: 'forge' })
+    // Liveness carries the app version (source of truth: the repo-root VERSION
+    // file). A real semver, never the 'unknown' fallback, when the file ships.
+    expect(body.version).toMatch(/^\d+\.\d+\.\d+$/)
   })
 })
