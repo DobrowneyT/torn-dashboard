@@ -63,7 +63,12 @@ if (db) {
   } else {
     try {
       const { startScrapers } = await import('./scraper/registerJobs.js')
-      await startScrapers({ db, tornBaseUrl, encryptionKey: keyEncryptionKey })
+      await startScrapers({
+        db, tornBaseUrl, encryptionKey: keyEncryptionKey,
+        // #139: lets war-lifecycle auto-fetch spies on the weekly setup.
+        tornStatsApiKey: process.env.TORNSTATS_API_KEY || undefined,
+        bspApiKey: process.env.BSP_API_KEY || undefined,
+      })
       health.scheduler = true
       console.log(`[${factionSlug}] scrapers scheduled`)
 

@@ -8,7 +8,7 @@ import type pg from 'pg'
 import { requireNotVisitor, requireRole } from './authz.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
-import { createSecretStore } from './secrets.js'
+import { resolveSpyProviders, fetchSpiesForMembers } from './spyFetch.js'
 import { syncWarRoomMemberStates } from './warRoomTicker.js'
 import type { WarRoomHub } from './warRoom.js'
 
@@ -198,114 +198,22 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
       return reply.status(400).send({ error: 'member_ids required' })
     }
 
-    // Provider keys: the faction's own stored secrets first (#105 — set in
-    // Global Admin), env vars as the deprecated operator-wide fallback.
-    let tsKey = deps.tornStatsApiKey ?? null
-    let bspKey = deps.bspApiKey ?? null
-    if (deps.encryptionKey) {
-      try {
-        const store = createSecretStore({ db, encryptionKey: deps.encryptionKey })
-        tsKey = (await store.get('tornstats_api_key')) ?? tsKey
-        bspKey = (await store.get('bsp_api_key')) ?? bspKey
-      } catch {
-        // Malformed at-rest key — fall back to env.
+    const providers = await resolveSpyProviders(db, deps)
+    const result = await fetchSpiesForMembers({ db, memberIds: ids, providers })
+    if (!result.ok) {
+      if (result.reason === 'no_provider') {
+        return reply.status(503).send({
+          error: 'No spy provider configured — set the TornStats/BSP keys in Global Admin',
+        })
       }
-    }
-    if (!tsKey && !bspKey) {
-      return reply.status(503).send({
-        error: 'No spy provider configured — set the TornStats/BSP keys in Global Admin',
-      })
-    }
-
-    const ourId = Number(
-      (await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')).rows[0].torn_faction_id
-    )
-    const nowIso = new Date().toISOString()
-    let tornstatsFilled = 0
-    let needBsp = ids.slice()
-
-    // ── Pass 1: TornStats faction spies ─────────────────────────────────
-    const enemySample = await db.query(
-      `SELECT faction_id FROM war_room_state_v2
-       WHERE member_id = ANY($1) AND faction_id <> $2 AND deleted_at IS NULL LIMIT 1`,
-      [ids, ourId]
-    )
-    const enemyFactionId = enemySample.rows[0]?.faction_id ?? null
-
-    if (tsKey && enemyFactionId) {
-      const cfg = await db.query(
-        'SELECT tornstats_max_age_days FROM war_room_config_v2 WHERE id = 1'
-      )
-      const maxAgeDays = Number(cfg.rows[0]?.tornstats_max_age_days ?? 0)
-      const minTimestamp = maxAgeDays > 0
-        ? Math.floor((Date.now() - maxAgeDays * 86_400_000) / 1000)
-        : 0
-
-      let spies: any = null
-      try {
-        const base = deps.tornStatsBaseUrl ?? 'https://www.tornstats.com'
-        const resp = await fetch(`${base}/api/v2/${tsKey}/spy/faction/${enemyFactionId}`)
-        if (resp.ok) spies = await resp.json()
-      } catch {
-        // TornStats down — BSP covers everyone below.
-      }
-
-      const idSet = new Set(ids)
-      const filled = new Set<number>()
-      const entries = spies?.faction?.members
-      if (entries && typeof entries === 'object') {
-        for (const key of Object.keys(entries)) {
-          const entry = entries[key]
-          const id = Number(entry?.id ?? key)
-          if (!idSet.has(id)) continue
-          const spy = entry?.spy
-          if (!spy || typeof spy.total !== 'number' || spy.total <= 0) continue
-          if (typeof spy.timestamp !== 'number' || spy.timestamp < minTimestamp) continue
-          await db.query(
-            `UPDATE war_room_state_v2 SET
-               bsp_total = $2, bsp_str = $3, bsp_spd = $4, bsp_def = $5, bsp_dex = $6,
-               bsp_fetched_at = $7, spy_source = 'tornstats', ts_spy_at = $8, updated_at = now()
-             WHERE member_id = $1`,
-            [id, spy.total, spy.strength ?? null, spy.speed ?? null, spy.defense ?? null,
-             spy.dexterity ?? null, nowIso, new Date(spy.timestamp * 1000).toISOString()]
-          )
-          filled.add(id)
-        }
-      }
-      tornstatsFilled = filled.size
-      needBsp = ids.filter((id) => !filled.has(id))
-    }
-
-    // ── Pass 2: BSP for the rest ─────────────────────────────────────────
-    let bspFilled = 0
-    if (bspKey) {
-      const base = deps.bspBaseUrl ?? 'http://www.lol-manager.com'
-      for (let i = 0; i < needBsp.length; i++) {
-        const id = needBsp[i]
-        try {
-          const resp = await fetch(`${base}/api/battlestats/${bspKey}/${id}/TornForge`)
-          const data: any = await resp.json()
-          if (data && (data.Result === 1 || data.Result === 6) && data.TBS) {
-            await db.query(
-              `UPDATE war_room_state_v2 SET
-                 bsp_total = $2, bsp_str = $3, bsp_spd = $4, bsp_def = $5, bsp_dex = $6,
-                 bsp_fetched_at = $7, spy_source = 'bsp', ts_spy_at = NULL, updated_at = now()
-               WHERE member_id = $1`,
-              [id, data.TBS, data.Strength ?? null, data.Speed ?? null,
-               data.Defense ?? null, data.Dexterity ?? null, nowIso]
-            )
-            bspFilled += 1
-          }
-        } catch {
-          // Per-member best-effort — a dead BSP row just stays unspied.
-        }
-        // BSP rate courtesy (matches the legacy 30ms spacing).
-        if (i < needBsp.length - 1) await new Promise((r) => setTimeout(r, 30))
-      }
+      return reply.status(400).send({ error: 'member_ids required' })
     }
 
     const fresh = await db.query('SELECT * FROM war_room_state_v2 WHERE deleted_at IS NULL')
     hub.broadcast('state', fresh.rows, await now())
-    return { ok: true, fetched: tornstatsFilled + bspFilled, tornstats: tornstatsFilled, bsp: bspFilled, requested: ids.length }
+    return {
+      ok: true, fetched: result.fetched, tornstats: result.tornstats,
+      bsp: result.bsp, requested: result.requested,
+    }
   })
 }

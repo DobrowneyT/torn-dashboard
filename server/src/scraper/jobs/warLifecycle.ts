@@ -9,8 +9,10 @@ import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
 import { syncWarRoomMemberStates } from '../../warRoomTicker.js'
 import { clearWarRoomState } from '../../warRoomSetup.js'
+import { resolveSpyProviders, fetchSpiesForMembers } from '../../spyFetch.js'
 
-export async function warLifecycleJob({ db, pool, client }: JobDeps): Promise<RunResult> {
+export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
+  const { db, pool, client } = deps
   const cfgRes = await db.query('SELECT * FROM war_room_config_v2 WHERE id = 1')
   const cfg = cfgRes.rows[0] ?? null
 
@@ -80,7 +82,27 @@ export async function warLifecycleJob({ db, pool, client }: JobDeps): Promise<Ru
       const changed = await syncWarRoomMemberStates(db, client, claimed.key, oppId, us)
       rows += changed.length
       actions.push('auto_setup')
-      return { rows, details: { actions, war_id: upcoming.id, opponent: oppId } }
+
+      // Then — linearly, once the board is baselined — pull spy stats for the
+      // new matchup (#139), the same enrichment the manual Fetch Spies button
+      // runs. No-op (logged) when no spy provider is configured; leaders can
+      // still refresh manually after a fresh spy exchange / TornStats sync.
+      let spies: { fetched: number; tornstats: number; bsp: number } | { skipped: string } = { skipped: 'no_provider' }
+      if (deps.spy) {
+        const providers = await resolveSpyProviders(db, deps.spy)
+        if (providers.tsKey || providers.bspKey) {
+          const board = await db.query(
+            'SELECT member_id FROM war_room_state_v2 WHERE deleted_at IS NULL'
+          )
+          const memberIds = board.rows.map((r: { member_id: string | number }) => Number(r.member_id))
+          const result = await fetchSpiesForMembers({ db, memberIds, providers })
+          spies = result.ok
+            ? { fetched: result.fetched, tornstats: result.tornstats, bsp: result.bsp }
+            : { skipped: result.reason }
+        }
+      }
+
+      return { rows, details: { actions, war_id: upcoming.id, opponent: oppId, spies } }
     }
 
     // AUTO-ENABLE at T-1h (only for the war we own).
