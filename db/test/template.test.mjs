@@ -44,6 +44,8 @@ const NEW_TABLES = [
   'scraper_jobs', 'scraper_runs',
   // Crime participation log (#168) + uploaded branding images (#173)
   'crime_participation_v2', 'faction_branding_assets',
+  // Competitions (#183)
+  'competitions',
 ]
 
 let server
