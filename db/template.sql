@@ -712,6 +712,26 @@ CREATE TABLE public.competitions (
   updated_at   timestamp with time zone NOT NULL DEFAULT now()
 );
 
+-- Resolved competition standings (#185): materialised history, one row per
+-- member per resolution. Payout-referenceable without recomputation.
+CREATE TABLE public.competition_results (
+  id             bigserial PRIMARY KEY,
+  competition_id bigint NOT NULL,
+  resolution_seq integer NOT NULL,
+  resolved_at    timestamp with time zone NOT NULL DEFAULT now(),
+  resolved_by    text,
+  window_start   date NOT NULL,
+  window_end     date NOT NULL,
+  member_id      text NOT NULL,
+  member_name    text,
+  value          double precision NOT NULL,
+  rank           integer NOT NULL,
+  partial        boolean NOT NULL DEFAULT false,
+  winner         boolean NOT NULL DEFAULT false
+);
+CREATE INDEX competition_results_competition_idx
+  ON public.competition_results (competition_id, resolution_seq);
+
 -- ── Constraints ───────────────────────────────────────────────────────────────
 
 ALTER TABLE crime_required_items ADD CONSTRAINT crime_required_items_pkey PRIMARY KEY (id);

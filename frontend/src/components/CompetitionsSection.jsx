@@ -4,7 +4,7 @@
 // caller gates rendering on API_MODE.
 import { useState, useEffect } from 'react'
 import { apiGet, apiPost } from '../utils/apiClient'
-import { Trophy, Plus, X } from 'lucide-react'
+import { Trophy, Plus, X, Award } from 'lucide-react'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -21,7 +21,9 @@ export default function CompetitionsSection({ isLeadership }) {
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
+  const [history, setHistory] = useState([])
   const [detailLoading, setDetailLoading] = useState(false)
+  const [resolving, setResolving] = useState(false)
   const [showForm, setShowForm] = useState(false)
 
   async function loadList() {
@@ -38,15 +40,35 @@ export default function CompetitionsSection({ isLeadership }) {
 
   useEffect(() => { loadList() }, [])
 
+  async function loadDetail(id) {
+    const [d, h] = await Promise.allSettled([
+      apiGet(`/api/competitions/${id}`),
+      apiGet(`/api/competitions/${id}/history`),
+    ])
+    setDetail(d.status === 'fulfilled' ? d.value : null)
+    setHistory(h.status === 'fulfilled' ? (h.value.resolutions || []) : [])
+  }
+
   async function openCompetition(id) {
-    if (selectedId === id) { setSelectedId(null); setDetail(null); return }
-    setSelectedId(id); setDetailLoading(true); setDetail(null)
+    if (selectedId === id) { setSelectedId(null); setDetail(null); setHistory([]); return }
+    setSelectedId(id); setDetailLoading(true); setDetail(null); setHistory([])
     try {
-      setDetail(await apiGet(`/api/competitions/${id}`))
-    } catch {
-      setDetail(null)
+      await loadDetail(id)
     } finally {
       setDetailLoading(false)
+    }
+  }
+
+  async function resolveCompetition(id) {
+    setResolving(true)
+    try {
+      await apiPost(`/api/competitions/${id}/resolve`, {})
+      await loadDetail(id)
+    } catch (e) {
+      // Surfaced inline below via a thrown message; keep the board as-is.
+      alert(e.message)
+    } finally {
+      setResolving(false)
     }
   }
 
@@ -94,11 +116,30 @@ export default function CompetitionsSection({ isLeadership }) {
                 <span className="text-xs text-gray-400">{selectedId === c.id ? '▲' : '▼'}</span>
               </button>
               {selectedId === c.id && (
-                <div className="border-t border-gray-100 dark:border-slate-700 p-2">
+                <div className="border-t border-gray-100 dark:border-slate-700 p-2 space-y-3">
                   {detailLoading ? (
                     <div className="text-xs text-gray-500 py-2 px-1">Loading standings…</div>
                   ) : (
-                    <Leaderboard standings={detail?.standings || []} />
+                    <>
+                      <div>
+                        <div className="flex items-center justify-between px-1 mb-1">
+                          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Live standings</span>
+                          {isLeadership && (
+                            <button
+                              onClick={() => resolveCompetition(c.id)}
+                              disabled={resolving || (detail?.standings || []).length === 0}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50"
+                              title="Freeze the current standings into history and crown the winner"
+                            >
+                              <Award className="w-3.5 h-3.5" />
+                              {resolving ? 'Recording…' : 'Close & record result'}
+                            </button>
+                          )}
+                        </div>
+                        <Leaderboard standings={detail?.standings || []} />
+                      </div>
+                      {history.length > 0 && <HistoryList resolutions={history} />}
+                    </>
                   )}
                 </div>
               )}
@@ -106,6 +147,38 @@ export default function CompetitionsSection({ isLeadership }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function HistoryList({ resolutions }) {
+  const [openSeq, setOpenSeq] = useState(null)
+  return (
+    <div className="pt-1">
+      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 px-1 mb-1">Past results</div>
+      <div className="space-y-1">
+        {resolutions.map((r) => (
+          <div key={r.resolution_seq} className="rounded border border-gray-100 dark:border-slate-700">
+            <button
+              onClick={() => setOpenSeq(openSeq === r.resolution_seq ? null : r.resolution_seq)}
+              className="w-full flex items-center justify-between px-2 py-1.5 text-left hover:bg-gray-50 dark:hover:bg-slate-700/40"
+            >
+              <span className="text-xs text-gray-600 dark:text-gray-300">
+                {fmtDate(r.resolved_at)} · winner{' '}
+                <span className="font-medium text-amber-600 dark:text-amber-400">
+                  {r.winner ? `${r.winner.member_name} (${Number(r.winner.value).toLocaleString()})` : '—'}
+                </span>
+              </span>
+              <span className="text-xs text-gray-400">{openSeq === r.resolution_seq ? '▲' : '▼'}</span>
+            </button>
+            {openSeq === r.resolution_seq && (
+              <div className="border-t border-gray-100 dark:border-slate-700 p-1">
+                <Leaderboard standings={r.standings} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
