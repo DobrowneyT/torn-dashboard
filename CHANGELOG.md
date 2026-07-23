@@ -17,6 +17,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+
+- CI: the `db` schema-drift test now knows about the new `crime_participation_v2`
+  and `faction_branding_assets` tables (it had gone red after those merged), and the
+  changelog gate no longer errors on a missing `pull-requests: read` token scope —
+  it degrades to a skip and stays advisory (never blocking).
+
 ### Added
 
 - **Branding image uploads.** Leadership can upload a logo, favicon, and hero image in
