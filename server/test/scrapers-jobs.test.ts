@@ -214,6 +214,31 @@ describe('crimes sync job', () => {
     // first_seen survives updates (set on first insert only).
     expect(updated.rows[0].first_seen).toBe(before.rows[0].first_seen)
   })
+
+  it('anchors the incremental start on the oldest still-in-flight crime, skipping terminal Expired ones', async () => {
+    // Regression: `executed_at IS NULL` alone treats Expired crimes (which
+    // never execute) as in-flight, so one stale Expired crime pinned the
+    // cursor months back and every run re-fetched the whole tail. The cursor
+    // must skip Expired and anchor on the oldest genuinely-incomplete crime.
+    await stack.db.query(`
+      INSERT INTO crimes (crime_id, name, difficulty, status, created_at, executed_at) VALUES
+        ('9001', 'Old Expired',      7, 'Expired',    50, NULL),
+        ('9002', 'Fresh Recruiting', 7, 'Recruiting', 60, NULL)
+    `)
+    let capturedFrom = -1
+    stack.torn.setHandler('/v2/faction/crimes', (url) => {
+      capturedFrom = Number(url.searchParams.get('from') ?? -1)
+      return { crimes: [] }
+    })
+
+    const { crimesSyncJob } = await import('../src/scraper/jobs/crimesSync.js')
+    await crimesSyncJob(deps())
+
+    // 60 (the Recruiting crime), NOT 50 (the Expired one).
+    expect(capturedFrom).toBe(60)
+
+    await stack.db.query(`DELETE FROM crimes WHERE crime_id IN ('9001', '9002')`)
+  })
 })
 
 describe('CPR scan job', () => {

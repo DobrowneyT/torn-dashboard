@@ -11,10 +11,14 @@ const PAGE_FULL = 100
  * Incremental start: the oldest crime that hasn't executed yet (so its
  * status/slots keep updating), else the newest created_at (check for new
  * spawns only), else 0 (empty DB — fetch all history).
+ *
+ * `Expired` is terminal but never gets an executed_at, so it must be excluded
+ * here — otherwise one stale Expired crime pins the cursor at its created_at
+ * forever and every run re-fetches the whole tail behind it.
  */
 async function fetchStartTimestamp(db: JobDeps['db']): Promise<number> {
   const incomplete = await db.query(
-    'SELECT min(created_at) AS ts FROM crimes WHERE executed_at IS NULL'
+    `SELECT min(created_at) AS ts FROM crimes WHERE executed_at IS NULL AND status <> 'Expired'`
   )
   if (incomplete.rows[0].ts != null) return Number(incomplete.rows[0].ts)
   const newest = await db.query('SELECT max(created_at) AS ts FROM crimes')
