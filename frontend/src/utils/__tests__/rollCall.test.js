@@ -10,9 +10,44 @@ import {
   canSeeWarNotes,
   notePointsFromText,
   notePointsToText,
+  isRollCallDismissed,
+  markRollCallDismissed,
 } from '../rollCall'
 
 const HOUR = 3600
+
+describe('roll-call per-war dismissal (#167)', () => {
+  function fakeStorage(initial = {}) {
+    const m = { ...initial }
+    return {
+      getItem: (k) => (k in m ? m[k] : null),
+      setItem: (k, v) => { m[k] = String(v) },
+    }
+  }
+
+  it('is not dismissed by default', () => {
+    expect(isRollCallDismissed('42', fakeStorage())).toBe(false)
+  })
+
+  it('marks a war dismissed and reads it back, scoped per war', () => {
+    const s = fakeStorage()
+    markRollCallDismissed('42', s)
+    expect(isRollCallDismissed('42', s)).toBe(true)
+    expect(isRollCallDismissed('99', s)).toBe(false)
+  })
+
+  it('matches numeric and string war ids', () => {
+    const s = fakeStorage()
+    markRollCallDismissed(42, s)
+    expect(isRollCallDismissed('42', s)).toBe(true)
+  })
+
+  it('no-ops safely without a war id or storage', () => {
+    expect(isRollCallDismissed(null, fakeStorage())).toBe(false)
+    expect(() => markRollCallDismissed(null, fakeStorage())).not.toThrow()
+    expect(isRollCallDismissed('42', null)).toBe(false)
+  })
+})
 
 describe('note points <-> text', () => {
   it('splits text into trimmed, non-empty points', () => {

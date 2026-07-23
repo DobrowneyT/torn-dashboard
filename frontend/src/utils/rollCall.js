@@ -66,6 +66,33 @@ export function canSeeWarNotes({ isWarLead, isLeadership, isVisitor }) {
   return Boolean(isWarLead || (isLeadership && !isVisitor))
 }
 
+// Per-war overlay dismissal (#167). Persist "this browser cleared the roll-call
+// gate for war N" — because the member submitted OR a leader chose to bypass —
+// so a tab switch, re-mount, or a transient-empty refresh can't re-trip the
+// blocking overlay for someone who's already dealt with it. Keyed by war id.
+const ROLL_CALL_DISMISS_KEY = 'warRoomRollCallDismissed'
+
+function defaultStorage() {
+  try { return typeof localStorage !== 'undefined' ? localStorage : null } catch { return null }
+}
+
+export function isRollCallDismissed(warId, storage = defaultStorage()) {
+  if (!warId || !storage) return false
+  try {
+    const map = JSON.parse(storage.getItem(ROLL_CALL_DISMISS_KEY) || '{}')
+    return map[String(warId)] === true
+  } catch { return false }
+}
+
+export function markRollCallDismissed(warId, storage = defaultStorage()) {
+  if (!warId || !storage) return
+  try {
+    const map = JSON.parse(storage.getItem(ROLL_CALL_DISMISS_KEY) || '{}')
+    map[String(warId)] = true
+    storage.setItem(ROLL_CALL_DISMISS_KEY, JSON.stringify(map))
+  } catch { /* ignore quota / serialization */ }
+}
+
 // The blocking gate is active only when there's a current war, the member
 // hasn't responded, and we're still more than the lead-time before kickoff.
 export function rollCallGateActive({ currentWar, mySubmitted, nowSec = Math.floor(Date.now() / 1000) }) {
