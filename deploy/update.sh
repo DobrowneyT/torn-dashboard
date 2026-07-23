@@ -71,13 +71,23 @@ docker image prune -f >/dev/null
 # <slug>.localhost matches regardless of the real domain.
 echo "==> readiness"
 HTTP_PORT="$(grep -s '^HTTP_PORT=' deploy/.env | cut -d= -f2-)"
-sleep 3
 fail=0
 for conf in deploy/nginx/factions/*.conf; do
   [ -e "$conf" ] || continue
   slug="$(basename "$conf" .conf)"
-  if curl -fsS -H "Host: ${slug}.localhost" \
-      "http://127.0.0.1:${HTTP_PORT:-8088}/api/health/ready" >/dev/null 2>&1; then
+  # Freshly-rebuilt containers take a few seconds to start listening, so poll
+  # rather than a single shot — otherwise a cold start is a false FAIL (which
+  # also makes the cron deploy log spurious failures). ~40s worst case per
+  # tenant, but breaks as soon as /ready answers 200.
+  ok=0
+  for _ in $(seq 1 20); do
+    if curl -fsS -H "Host: ${slug}.localhost" \
+        "http://127.0.0.1:${HTTP_PORT:-8088}/api/health/ready" >/dev/null 2>&1; then
+      ok=1; break
+    fi
+    sleep 2
+  done
+  if [ "$ok" = 1 ]; then
     echo "  ok   $slug"
   else
     echo "  FAIL $slug — check: docker compose --project-directory deploy logs api-$slug"
