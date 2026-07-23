@@ -26,6 +26,13 @@ const TIER_TICKETS = {
 // so the multi-faction default must not assume tiers.
 export const PAYOUT_MODES = ['tiered', 'flat-weighted', 'equal']
 export const DEFAULT_PAYOUT_MODE = 'flat-weighted'
+
+// Whether a faction's payout mode makes the tier machinery meaningful (#136).
+// Only `tiered` uses tiers; every other mode (and an absent/unknown setting,
+// which defaults to flat-weighted) hides the tier UI entirely.
+export function factionUsesTiers(mode) {
+  return (mode ?? DEFAULT_PAYOUT_MODE) === 'tiered'
+}
 // Uniform base for the non-tiered modes (Tier-1 value). In flat-weighted this
 // cancels out of the share math — it's only what shows in the Tickets column.
 const FLAT_BASE_TICKETS = TIER_TICKETS[1]

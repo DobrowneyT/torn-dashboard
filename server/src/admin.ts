@@ -24,7 +24,11 @@ const ADMIN_GUARD = { preHandler: [requireNotVisitor(), requireRole('admin')] }
 
 // The whole-document policy settings a leader may edit (db/seed/03 shapes
 // the first three; war_room_defaults is written by the admin UI only).
-const SETTINGS_KEYS = ['tier_requirements', 'cpr_requirements', 'payout_tickets', 'war_room_defaults']
+// payout_mode is the odd one out — a scalar (the faction's default OC payout
+// mode, #136), not a JSON document — so it validates differently below.
+const SETTINGS_KEYS = ['tier_requirements', 'cpr_requirements', 'payout_tickets', 'war_room_defaults', 'payout_mode']
+// The three OC payout modes (#134). Absent → flat-weighted (see /api/oc-config).
+const PAYOUT_MODES = ['tiered', 'flat-weighted', 'equal']
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
   const { db, scrapers, secrets } = deps
@@ -108,7 +112,12 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
       return reply.status(400).send({ error: `Unknown settings key; expected one of: ${SETTINGS_KEYS.join(', ')}` })
     }
     const value = (req.body as { value?: unknown } | null)?.value
-    if (value === undefined || value === null || typeof value !== 'object') {
+    // payout_mode is a scalar enum; every other key is a whole JSON document.
+    if (key === 'payout_mode') {
+      if (typeof value !== 'string' || !PAYOUT_MODES.includes(value)) {
+        return reply.status(400).send({ error: `payout_mode must be one of: ${PAYOUT_MODES.join(', ')}` })
+      }
+    } else if (value === undefined || value === null || typeof value !== 'object') {
       return reply.status(400).send({ error: 'value must be a JSON document' })
     }
     await db.query(

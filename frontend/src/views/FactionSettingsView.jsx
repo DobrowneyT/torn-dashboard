@@ -4,10 +4,20 @@
 // the Supabase stack keeps its config.js-driven behavior until cutover.
 import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useFactionConfig } from '../contexts/FactionConfigContext'
 import { API_MODE, apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient'
+import { PAYOUT_MODES, DEFAULT_PAYOUT_MODE } from '../utils/payoutCalculations'
 import { CheckCircle2, AlertTriangle, Trash2, Loader2 } from 'lucide-react'
 
 const ROLE_OPTIONS = ['admin', 'leadership', 'warlead', 'ocmanager', 'visitor']
+
+// Faction default OC payout mode (#136). `tiered` is the only mode that shows
+// the tier machinery (Tier Management / Requirements + tier columns).
+const PAYOUT_MODE_LABELS = {
+  tiered: { label: 'Tiered', hint: 'Per-tier tickets × time weighting. Shows the tier machinery.' },
+  'flat-weighted': { label: 'Flat-weighted', hint: 'Everyone one tier; time / sit-out weighting still applies. No tier UI.' },
+  equal: { label: 'Equal', hint: 'Even split among everyone who did ≥1 OC. No tier UI.' },
+}
 
 const SETTINGS_DOCS = [
   { key: 'tier_requirements', label: 'Tier Requirements', hint: 'Per-tier CPR checks the tier assigner and OC pages use.' },
@@ -271,6 +281,63 @@ function PolicyDocEditor({ doc, initial, readOnly }) {
   )
 }
 
+function PayoutModeSection({ readOnly }) {
+  const { payoutMode, refresh } = useFactionConfig()
+  const [mode, setMode] = useState(payoutMode ?? DEFAULT_PAYOUT_MODE)
+  const [feedback, setFeedback] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  // Adopt the loaded faction mode once it arrives (context resolves async).
+  useEffect(() => {
+    if (payoutMode) setMode(payoutMode)
+  }, [payoutMode])
+
+  async function save() {
+    setFeedback(null)
+    setSaving(true)
+    try {
+      await apiPut('/api/admin/settings/payout_mode', { value: mode })
+      await refresh()
+      setFeedback({ kind: 'ok', msg: 'Saved — tier UI and payout defaults follow this now.' })
+    } catch (err) {
+      setFeedback({ kind: 'err', msg: err.payload?.error || err.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <SectionCard title="OC Payout Mode">
+      <p className="text-sm text-gray-500 dark:text-gray-400">
+        The faction default for OC payouts. Only <strong>Tiered</strong> shows the tier
+        machinery (Tier Management, Tier Requirements, and tier columns); the other modes
+        hide it. New payout weeks pre-fill from this default.
+      </p>
+      <div className="space-y-2">
+        {PAYOUT_MODES.map((m) => (
+          <label key={m} className="flex items-start gap-3 cursor-pointer">
+            <input type="radio" name="payout_mode" value={m} checked={mode === m}
+              disabled={readOnly} onChange={() => setMode(m)} className="mt-1" />
+            <span>
+              <span className="font-medium text-gray-900 dark:text-white">{PAYOUT_MODE_LABELS[m].label}</span>
+              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{PAYOUT_MODE_LABELS[m].hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {!readOnly && (
+        <div className="flex items-center gap-3">
+          <button onClick={save} disabled={saving}
+            className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium">
+            Save Payout Mode
+          </button>
+          <Feedback state={feedback} />
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
 function PolicySection({ readOnly }) {
   const [docs, setDocs] = useState(null)
   const [error, setError] = useState(null)
@@ -317,6 +384,7 @@ export default function FactionSettingsView() {
     <div className="space-y-6">
       <RolesSection readOnly={readOnly} />
       <IdentitySection readOnly={readOnly} />
+      <PayoutModeSection readOnly={readOnly} />
       <PolicySection readOnly={readOnly} />
     </div>
   )

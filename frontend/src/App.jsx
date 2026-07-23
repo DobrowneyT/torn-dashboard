@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { FactionConfigProvider } from './contexts/FactionConfigContext'
 import { ViewStateProvider } from './contexts/ViewStateContext'
 import LoginModal from './components/LoginModal'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -145,11 +146,13 @@ export default function App() {
     <HashRouter>
       <ThemeProvider>
         <AuthProvider>
-          <ViewStateProvider>
-            <Routes>
-              <Route path="/*" element={<DashboardLayout />} />
-            </Routes>
-          </ViewStateProvider>
+          <FactionConfigProvider>
+            <ViewStateProvider>
+              <Routes>
+                <Route path="/*" element={<DashboardLayout />} />
+              </Routes>
+            </ViewStateProvider>
+          </FactionConfigProvider>
         </AuthProvider>
       </ThemeProvider>
     </HashRouter>
