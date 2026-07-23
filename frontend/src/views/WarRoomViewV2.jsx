@@ -1484,6 +1484,24 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     return () => { cancelled = true }
   }, [notesPanelOpen, canSeeNotes, currentWar?.id, user?.apiKey])
 
+  // Collaborative live refresh: while the notes panel is open, pull the notes
+  // (public via refreshRollCall + the leads-only private note) every few
+  // seconds so war leads see each other's edits near-live. WarNotesPanel
+  // re-syncs from these without clobbering in-progress local edits.
+  useEffect(() => {
+    if (!notesPanelOpen || !canSeeNotes || !currentWar?.id || !tokenReady) return
+    let cancelled = false
+    const tick = async () => {
+      await refreshRollCall()
+      if (API_MODE || user?.apiKey) {
+        const r = await getWarNotesPrivate(currentWar.id, user.apiKey).catch(() => null)
+        if (!cancelled && r) setPrivateNotes(r.notes ?? '')
+      }
+    }
+    const t = setInterval(tick, 3000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [notesPanelOpen, canSeeNotes, currentWar?.id, tokenReady, refreshRollCall, user?.apiKey])
+
   async function handleSaveWarNotes(fields) {
     if (!currentWar?.id) return false
     setSavingNotes(true); setNotesError(null)
