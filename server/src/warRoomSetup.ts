@@ -31,6 +31,7 @@ const CONFIG_COLUMNS = new Set([
   'enabled', 'faction_id', 'faction_name', 'auto_managed', 'managed_war_id',
   'revive_service_name', 'revive_service_url', 'revive_services',
   'tornstats_max_age_days', 'chain_poll_interval_ours_sec', 'chain_poll_interval_enemy_sec',
+  'dibs_expiry_seconds',
 ])
 
 /**

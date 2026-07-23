@@ -555,7 +555,8 @@ CREATE TABLE public.war_room_config_v2 (
   chain_poll_interval_ours_sec integer DEFAULT 5 NOT NULL,
   chain_poll_interval_enemy_sec integer DEFAULT 30 NOT NULL,
   auto_managed boolean DEFAULT false NOT NULL,
-  managed_war_id bigint
+  managed_war_id bigint,
+  dibs_expiry_seconds integer DEFAULT 30 NOT NULL
 );
 
 CREATE TABLE public.war_room_dibs_v2 (

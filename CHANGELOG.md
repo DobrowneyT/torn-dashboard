@@ -17,6 +17,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **War Room: dibs auto-drop on a live target.** A claim on an already-alive target
+  auto-releases after a configurable window (default 30s) if the holder still hasn't
+  killed them, so a stalled claim can't block the queue. A target killed inside the
+  window keeps the dib; a claim on someone still in hospital waits for the exit window
+  instead. Window is a leadership-editable War Room setting (#159).
+
 
 ## [3.0.0] - 2026-07-23
 
