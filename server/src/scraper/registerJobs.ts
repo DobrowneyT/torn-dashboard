@@ -15,6 +15,7 @@ import { memberStatsJob } from './jobs/memberStats.js'
 import { warsSyncJob } from './jobs/warsSync.js'
 import { attacksSyncJob } from './jobs/attacksSync.js'
 import { warLifecycleJob } from './jobs/warLifecycle.js'
+import { competitionsResolveJob } from './jobs/competitionsResolve.js'
 
 export interface ScraperWiringOptions {
   db: pg.Pool
@@ -46,6 +47,9 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   ['wars-sync', '0 10 */3 * * *', warsSyncJob],
   ['attacks-sync', '0 20,50 * * * *', attacksSyncJob],
   ['war-lifecycle', '0 */3 * * * *', warLifecycleJob],
+  // Competitions auto-resolve (#186): every 15 min — day-boundary closes and
+  // interval draws don't need finer granularity.
+  ['competitions-resolve', '0 */15 * * * *', competitionsResolveJob],
 ]
 
 function buildDeps(opts: ScraperWiringOptions): JobDeps {

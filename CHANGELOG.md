@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competitions can auto-resolve on a schedule.** A competition can be marked
+  auto-resolve: a fixed one closes itself once its end day has passed (waiting for
+  the final day's stat snapshot to land first), and a rolling one draws on a chosen
+  interval, each draw kept in history. Runs as a new `competitions-resolve` scraper
+  job (enable it alongside the other scrapers) (#186).
 - **Competitions can be resolved into a recorded result.** Leadership can "Close &
   record" a competition, freezing its current standings into history and crowning
   the top-ranked member; each resolution is kept (a rolling competition accretes

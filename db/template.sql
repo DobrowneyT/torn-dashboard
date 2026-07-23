@@ -707,6 +707,9 @@ CREATE TABLE public.competitions (
   window_start date,
   window_end   date,
   rolling_days integer,
+  auto_resolve boolean NOT NULL DEFAULT false,
+  resolve_interval_days integer,
+  next_resolve_at timestamp with time zone,
   created_by   text,
   created_at   timestamp with time zone NOT NULL DEFAULT now(),
   updated_at   timestamp with time zone NOT NULL DEFAULT now()

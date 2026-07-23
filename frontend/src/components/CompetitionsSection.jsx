@@ -229,6 +229,8 @@ function CreateCompetitionForm({ onCreated }) {
   const [windowStart, setWindowStart] = useState('')
   const [windowEnd, setWindowEnd] = useState('')
   const [rollingDays, setRollingDays] = useState(90)
+  const [autoResolve, setAutoResolve] = useState(false)
+  const [resolveIntervalDays, setResolveIntervalDays] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
 
@@ -252,9 +254,10 @@ function CreateCompetitionForm({ onCreated }) {
     e.preventDefault()
     setErr(null); setBusy(true)
     try {
-      const payload = { name, metric_id: metricId, direction, reducer, window_kind: windowKind }
+      const payload = { name, metric_id: metricId, direction, reducer, window_kind: windowKind, auto_resolve: autoResolve }
       if (windowKind === 'rolling') {
         payload.rolling_days = Number(rollingDays)
+        if (autoResolve && resolveIntervalDays) payload.resolve_interval_days = Number(resolveIntervalDays)
       } else {
         payload.window_start = windowStart
         payload.window_end = windowEnd
@@ -323,6 +326,24 @@ function CreateCompetitionForm({ onCreated }) {
             <option value="asc">Lowest wins</option>
           </select>
         </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+          <input type="checkbox" checked={autoResolve} onChange={(e) => setAutoResolve(e.target.checked)} />
+          Auto-resolve{' '}
+          {windowKind === 'fixed'
+            ? '(close automatically at the end date)'
+            : '(draw automatically on an interval)'}
+        </label>
+        {autoResolve && windowKind === 'rolling' && (
+          <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+            Draw every
+            <input type="number" min="1" max="366" placeholder="= window"
+              className="w-20 px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm"
+              value={resolveIntervalDays} onChange={(e) => setResolveIntervalDays(e.target.value)} />
+            days
+          </label>
+        )}
       </div>
       {err && <div className="text-xs text-red-500">{err}</div>}
       <button type="submit" disabled={busy}
