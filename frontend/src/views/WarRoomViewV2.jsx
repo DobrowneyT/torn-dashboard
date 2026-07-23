@@ -35,6 +35,9 @@ import MobileWarRoomView from './MobileWarRoomView'
 import RollCallOverlay from '../components/warroom/RollCallOverlay'
 import WarSummaryCard from '../components/warroom/WarSummaryCard'
 import WarNotesPanel from '../components/warroom/WarNotesPanel'
+import AlertSettingsButton from '../components/warroom/AlertSettingsButton'
+import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
+import { loadAlertPrefs } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes } from '../utils/rollCall'
 import { parseDbTime } from '../utils/time'
 import { farmCompare } from '../utils/warRoomFarmSort'
@@ -1156,6 +1159,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     [rawMembers]
   )
 
+  // Personal alerts (#156 dibs hospital-exit, #157 chain-watch). Per-user
+  // prefs in localStorage; the hook fires sound/flash over the polled data and
+  // reports when the chain is dropping so attack buttons can flag red.
+  const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
+  const { chainAlerting } = useWarRoomAlerts({
+    chain, members, dibs, userId: user?.id, prefs: alertPrefs, active: !!config?.enabled,
+  })
+
   const [toggling, setToggling]       = useState(false)
   const [toggleError, setToggleError] = useState(null)
   const [updatingSpies, setUpdatingSpies] = useState(false)
@@ -1999,6 +2010,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   Roll Call{myRollCall ? '' : ' !'}
                 </button>
               )}
+              {/* Personal alerts (#156/#157) — any member, saved per-browser. */}
+              <AlertSettingsButton prefs={alertPrefs} setPrefs={setAlertPrefs} />
             </div>
             {/* Subtitle / enemy summary */}
             {!isActive && (
@@ -2385,11 +2398,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                 : 'bg-red-600 hover:bg-red-700'
                             const label = showAssist ? `⚔ Assist ${dib.claimed_name}` : '⚔ Attack'
                             const title = showAssist ? `${dib.claimed_name} called dibs — click to assist` : undefined
+                            // #157: while the chain is about to drop, ring the
+                            // buttons of hittable (Okay) targets red so it's
+                            // obvious where to click to save it.
+                            const chainCue = chainAlerting && m.status_state === 'Okay'
+                              ? ' ring-2 ring-red-500 ring-offset-1 ring-offset-white dark:ring-offset-slate-800 animate-pulse'
+                              : ''
                             return (
                               <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
                                 target="_blank" rel="noopener noreferrer"
                                 title={title}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-white rounded text-xs font-medium transition-colors ${colorClass}`}>
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-white rounded text-xs font-medium transition-colors ${colorClass}${chainCue}`}>
                                 {label}
                               </a>
                             )

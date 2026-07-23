@@ -24,6 +24,12 @@ from `VERSION` at runtime) both surface it automatically.
   killed them, so a stalled claim can't block the queue. A target killed inside the
   window keeps the dib; a claim on someone still in hospital waits for the exit window
   instead. Window is a leadership-editable War Room setting (#159).
+- **War Room personal alerts.** Opt-in per-user (saved to the browser): a **dib
+  hospital-exit reminder** that fires shortly before a target you've dibbed leaves
+  hospital (#156), and a **chain-watch alert** that fires when the chain is about to
+  drop and rings attackable targets' buttons red so you know where to click (#157).
+  Each has a configurable lead/threshold and sound + screen-flash toggles, with
+  distinct tones so the two are told apart by ear.
 
 
 ## [3.0.0] - 2026-07-23
