@@ -79,12 +79,27 @@ export async function sweepDibsExpiry(
     )
   }
 
-  // Tombstone the immediate #107 drops plus any #106 windows that have lapsed.
+  // Tombstone the immediate #107 drops plus any expiry window that has lapsed
+  // WHILE THE TARGET IS STILL ALIVE. The alive gate matters for the #159
+  // claim-timeout: a holder who actually killed the target inside the window
+  // (target now in hospital) keeps the dib — the countdown only frees claims
+  // that were never converted. #106's hospital-exit window lapses on an Okay
+  // target too, so this gate is a no-op there.
   const expired = await db.query(
-    `UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now()
-     WHERE deleted_at IS NULL
-       AND (id = ANY($1) OR (auto_expire_at IS NOT NULL AND auto_expire_at <= now()))
-     RETURNING *`,
+    `UPDATE war_room_dibs_v2 d SET deleted_at = now(), updated_at = now()
+     WHERE d.deleted_at IS NULL
+       AND (
+         d.id = ANY($1)
+         OR (
+           d.auto_expire_at IS NOT NULL AND d.auto_expire_at <= now()
+           AND EXISTS (
+             SELECT 1 FROM war_room_state_v2 s
+             WHERE s.member_id = d.target_id
+               AND s.state->'status'->>'state' = 'Okay'
+           )
+         )
+       )
+     RETURNING d.*`,
     [dropNow]
   )
   return expired.rows

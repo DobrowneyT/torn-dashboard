@@ -35,6 +35,9 @@ import MobileWarRoomView from './MobileWarRoomView'
 import RollCallOverlay from '../components/warroom/RollCallOverlay'
 import WarSummaryCard from '../components/warroom/WarSummaryCard'
 import WarNotesPanel from '../components/warroom/WarNotesPanel'
+import AlertSettingsButton from '../components/warroom/AlertSettingsButton'
+import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
+import { loadAlertPrefs } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes } from '../utils/rollCall'
 import { parseDbTime } from '../utils/time'
 import { farmCompare } from '../utils/warRoomFarmSort'
@@ -837,6 +840,18 @@ function ConfigPanel({
     catch (e) { setMsg({ ok: false, text: e.message }) }
   }
 
+  // Dibs auto-drop window (#159): a claim on an already-alive target releases
+  // this many seconds later if the holder still hasn't killed them. Default 30s,
+  // clamped [5, 600]s. Same commit-on-blur pattern as the chain cadences.
+  const [dibsExpirySec, setDibsExpirySec] = useState(String(config?.dibs_expiry_seconds ?? 30))
+  useEffect(() => { setDibsExpirySec(String(config?.dibs_expiry_seconds ?? 30)) }, [config?.dibs_expiry_seconds])
+  async function commitDibsExpiry() {
+    const next = Math.min(600, Math.max(5, Math.floor(Number(dibsExpirySec) || 30)))
+    if (next === (config?.dibs_expiry_seconds ?? 30)) return
+    try { await onSaveReviveService({ dibs_expiry_seconds: next }); setMsg({ ok: true, text: `Dibs auto-drop set to ${next}s.` }) }
+    catch (e) { setMsg({ ok: false, text: e.message }) }
+  }
+
   // Dropdown change → look up the preset and persist its name + url as the active selection.
   async function handlePickReviveService(e) {
     const picked = e.target.value
@@ -1019,6 +1034,25 @@ function ConfigPanel({
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+        {/* Dibs auto-drop window (#159): free an unconverted claim on a live target. */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Dibs auto-drop <span className="text-gray-400 dark:text-gray-600">(s)</span>
+          </label>
+          <input
+            type="number"
+            min={5}
+            max={600}
+            step={1}
+            value={dibsExpirySec}
+            onChange={e => setDibsExpirySec(e.target.value)}
+            onBlur={commitDibsExpiry}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="30"
+            title="If you dib an already-alive target and haven't killed them within this many seconds, your claim is released so someone else can take them. Only applies to alive targets — a hospital claim waits for them to come out. Clamped to 5–600s."
+            className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
       </div>
 
       {/* Revive service — preset dropdown + gear to manage the list */}
@@ -1124,6 +1158,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     () => rawMembers.filter(m => m.status_state !== 'Fallen' && m.status_state !== 'Federal'),
     [rawMembers]
   )
+
+  // Personal alerts (#156 dibs hospital-exit, #157 chain-watch). Per-user
+  // prefs in localStorage; the hook fires sound/flash over the polled data and
+  // reports when the chain is dropping so attack buttons can flag red.
+  const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
+  const { chainAlerting } = useWarRoomAlerts({
+    chain, members, dibs, userId: user?.id, prefs: alertPrefs, active: !!config?.enabled,
+  })
 
   const [toggling, setToggling]       = useState(false)
   const [toggleError, setToggleError] = useState(null)
@@ -1968,6 +2010,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   Roll Call{myRollCall ? '' : ' !'}
                 </button>
               )}
+              {/* Personal alerts (#156/#157) — any member, saved per-browser. */}
+              <AlertSettingsButton prefs={alertPrefs} setPrefs={setAlertPrefs} />
             </div>
             {/* Subtitle / enemy summary */}
             {!isActive && (
@@ -2354,11 +2398,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                 : 'bg-red-600 hover:bg-red-700'
                             const label = showAssist ? `⚔ Assist ${dib.claimed_name}` : '⚔ Attack'
                             const title = showAssist ? `${dib.claimed_name} called dibs — click to assist` : undefined
+                            // #157: while the chain is about to drop, ring the
+                            // buttons of hittable (Okay) targets red so it's
+                            // obvious where to click to save it.
+                            const chainCue = chainAlerting && m.status_state === 'Okay'
+                              ? ' ring-2 ring-red-500 ring-offset-1 ring-offset-white dark:ring-offset-slate-800 animate-pulse'
+                              : ''
                             return (
                               <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
                                 target="_blank" rel="noopener noreferrer"
                                 title={title}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-white rounded text-xs font-medium transition-colors ${colorClass}`}>
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-white rounded text-xs font-medium transition-colors ${colorClass}${chainCue}`}>
                                 {label}
                               </a>
                             )

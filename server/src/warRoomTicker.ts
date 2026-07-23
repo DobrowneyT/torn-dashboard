@@ -128,7 +128,10 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       const prevDibStatus = await snapshotDibbedStatus(db)
       const changed = await syncWarRoomMemberStates(db, client, claimed.key, enemyId, ourId)
       const expiredDibs = await sweepDibsExpiry(
-        db, prevDibStatus, deps.dibsExpirySeconds ?? DIBS_EXPIRY_SECONDS
+        db, prevDibStatus,
+        // Live-editable in the war-room settings (#159); the static dep is a
+        // test/override fallback.
+        Number(cfg.dibs_expiry_seconds ?? deps.dibsExpirySeconds ?? DIBS_EXPIRY_SECONDS)
       )
 
       if (changed.length > 0 || expiredDibs.length > 0) {
