@@ -10,6 +10,15 @@ export interface JobDeps {
   db: pg.Pool
   pool: ReturnType<typeof createKeyPool>
   client: ReturnType<typeof createTornClient>
+  /** Spy-stat provider config (#139) — lets war-lifecycle auto-fetch spies
+   *  on the weekly setup. Optional: absent ⇒ the spy step no-ops. */
+  spy?: {
+    encryptionKey?: string
+    tornStatsApiKey?: string
+    bspApiKey?: string
+    tornStatsBaseUrl?: string
+    bspBaseUrl?: string
+  }
 }
 
 export async function itemsSyncJob({ db, pool, client }: JobDeps): Promise<RunResult> {

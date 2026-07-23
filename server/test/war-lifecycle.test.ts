@@ -24,6 +24,15 @@ function deps() {
   }
 }
 
+// deps with spy-stat providers wired (#139) — the TornStats/BSP base URL
+// points at the fixture so the mock intercepts.
+function spyDeps() {
+  return {
+    ...deps(),
+    spy: { encryptionKey: TEST_KEY_ENCRYPTION_KEY, tornStatsBaseUrl: stack.tornBaseUrl },
+  }
+}
+
 beforeAll(async () => {
   stack = await startTestStack()
   await stack.db.query(
@@ -154,5 +163,58 @@ describe('war lifecycle job', () => {
     expect(run.details).toHaveProperty('actions')
     const recent = await runs.recentRuns(1)
     expect(recent[0].job_name).toBe('war-lifecycle')
+  })
+})
+
+describe('war lifecycle spy auto-fetch (#139)', () => {
+  it('pulls spy stats for the new matchup after baselining, when a provider is configured', async () => {
+    const { createSecretStore } = await import('../src/secrets.js')
+    await createSecretStore({ db: stack.db, encryptionKey: TEST_KEY_ENCRYPTION_KEY })
+      .set('tornstats_api_key', 'LIFETSKEY')
+    // TornStats faction spy for the enemy member baselined into the board.
+    stack.torn.setPath(`/api/v2/LIFETSKEY/spy/faction/${ENEMY}`, {
+      faction: {
+        members: {
+          '90110': { id: 90110, spy: { total: 4_200_000, strength: 1, speed: 1, defense: 1, dexterity: 1, timestamp: Math.floor(Date.now() / 1000) } },
+        },
+      },
+    })
+
+    // Reset to a not-owned session so auto-setup fires again for war 800.
+    await stack.db.query(
+      `UPDATE war_room_config_v2 SET enabled = false, auto_managed = false,
+              managed_war_id = NULL, faction_id = NULL WHERE id = 1`
+    )
+    warStart = Math.floor(Date.now() / 1000) + 7200
+    warEnd = null
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    const result = await warLifecycleJob(spyDeps())
+
+    expect(result.details!.actions).toEqual(['auto_setup'])
+    expect(result.details!.spies).toMatchObject({ tornstats: 1 })
+
+    // The enemy member now carries a TornStats spy with a real capture time.
+    const row = await stack.db.query(
+      `SELECT spy_source, bsp_total, ts_spy_at FROM war_room_state_v2 WHERE member_id = 90110`
+    )
+    expect(row.rows[0].spy_source).toBe('tornstats')
+    expect(Number(row.rows[0].bsp_total)).toBe(4_200_000)
+    expect(row.rows[0].ts_spy_at).toBeTruthy()
+  })
+
+  it('no-ops the spy step (no provider configured) without failing setup', async () => {
+    await stack.db.query(
+      `UPDATE war_room_config_v2 SET enabled = false, auto_managed = false,
+              managed_war_id = NULL, faction_id = NULL WHERE id = 1`
+    )
+    warStart = Math.floor(Date.now() / 1000) + 7200
+    warEnd = null
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    // deps() has no spy config → the spy step is skipped, setup still succeeds.
+    const result = await warLifecycleJob(deps())
+    expect(result.details!.actions).toEqual(['auto_setup'])
+    expect(result.details!.spies).toEqual({ skipped: 'no_provider' })
   })
 })

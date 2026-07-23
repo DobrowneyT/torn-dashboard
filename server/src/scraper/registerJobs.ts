@@ -21,6 +21,13 @@ export interface ScraperWiringOptions {
   tornBaseUrl: string
   /** 32-byte hex secret for key-at-rest encryption (KEY_ENCRYPTION_KEY). */
   encryptionKey: string
+  /** Spy-stat providers (#139) so war-lifecycle can auto-fetch spies. Keys
+   *  are the deprecated operator-wide env fallback; the faction's own stored
+   *  secrets (Global Admin) take precedence. Base URLs are test-injectable. */
+  tornStatsApiKey?: string
+  bspApiKey?: string
+  tornStatsBaseUrl?: string
+  bspBaseUrl?: string
 }
 
 // Every job with its production cadence. Cadences mirror the Python cron
@@ -41,12 +48,20 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   ['war-lifecycle', '0 */3 * * * *', warLifecycleJob],
 ]
 
-function buildDeps({ db, tornBaseUrl, encryptionKey }: ScraperWiringOptions): JobDeps {
+function buildDeps(opts: ScraperWiringOptions): JobDeps {
+  const { db, tornBaseUrl, encryptionKey } = opts
   return {
     db,
     pool: createKeyPool({ db, encryptionKey }),
     // Torn allows 100 req/min per key; stay well inside it pool-wide.
     client: createTornClient({ baseUrl: tornBaseUrl, budget: { requests: 60, perMs: 60_000 } }),
+    spy: {
+      encryptionKey,
+      tornStatsApiKey: opts.tornStatsApiKey,
+      bspApiKey: opts.bspApiKey,
+      tornStatsBaseUrl: opts.tornStatsBaseUrl,
+      bspBaseUrl: opts.bspBaseUrl,
+    },
   }
 }
 
