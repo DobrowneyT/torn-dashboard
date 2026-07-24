@@ -19,6 +19,10 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competitions can be pinned to the dashboard.** Leadership can pin any
+  competition (multiple at once); each pinned one shows a compact card on the
+  dashboard — a leaderboard's top few, or a lottery's qualified count — linking
+  through to the full view (#188).
 - **Competitions: lottery type.** As well as ranked leaderboards, a competition can
   be a lottery — members who meet a threshold on the metric (at least / at most a
   value, e.g. "avg ≥ 2 xanax/day") form a qualified pool, and resolving draws a
