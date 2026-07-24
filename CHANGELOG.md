@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competitions: lottery type.** As well as ranked leaderboards, a competition can
+  be a lottery — members who meet a threshold on the metric (at least / at most a
+  value, e.g. "avg ≥ 2 xanax/day") form a qualified pool, and resolving draws a
+  winner from that pool uniformly at random. The pool (and who qualifies) is shown
+  live, and auto-resolve draws it on schedule like any other competition (#187).
 - **Competitions can auto-resolve on a schedule.** A competition can be marked
   auto-resolve: a fixed one closes itself once its end day has passed (waiting for
   the final day's stat snapshot to land first), and a rolling one draws on a chosen

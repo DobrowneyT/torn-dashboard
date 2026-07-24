@@ -17,7 +17,7 @@ const ROLLING_DAYS_MAX = 366
 const SELECT_COLS =
   `id, name, type, metric_id, direction, reducer, window_kind,
    window_start, window_end, rolling_days, auto_resolve, resolve_interval_days,
-   next_resolve_at, created_by, created_at`
+   next_resolve_at, threshold_comparator, threshold_value, created_by, created_at`
 
 export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
   // Registry shortlist for the create form (no internal paths exposed).
@@ -43,6 +43,15 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
     if (res.rows.length === 0) return reply.status(404).send({ error: 'Competition not found' })
     const competition = res.rows[0]
     const standings = await computeStandings(db, competition)
+    // For a lottery, flag who qualifies for the draw (the pool). The client
+    // shows the pool; non-qualifiers are visible but greyed.
+    if (competition.type === 'lottery') {
+      const cmp = competition.threshold_comparator ?? 'gte'
+      const val = competition.threshold_value ?? 0
+      for (const s of standings as any[]) {
+        s.qualified = cmp === 'lte' ? s.value <= val : s.value >= val
+      }
+    }
     return { competition, standings }
   })
 
@@ -55,6 +64,7 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
         window_kind?: unknown; window_start?: unknown; window_end?: unknown
         rolling_days?: unknown; type?: unknown
         auto_resolve?: unknown; resolve_interval_days?: unknown
+        threshold_comparator?: unknown; threshold_value?: unknown
       }
 
       const name = typeof body.name === 'string' ? body.name.trim() : ''
@@ -65,10 +75,9 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
       if (!metric) {
         return reply.status(400).send({ error: 'metric_id must be a known competition metric' })
       }
-      // Only leaderboard exists in this slice; lottery lands with #187.
       const type = body.type == null ? 'leaderboard' : body.type
-      if (type !== 'leaderboard') {
-        return reply.status(400).send({ error: 'type must be "leaderboard"' })
+      if (type !== 'leaderboard' && type !== 'lottery') {
+        return reply.status(400).send({ error: 'type must be "leaderboard" or "lottery"' })
       }
       const direction = body.direction == null ? 'desc' : body.direction
       if (direction !== 'asc' && direction !== 'desc') {
@@ -77,6 +86,21 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
       const reducer = body.reducer == null ? 'total' : body.reducer
       if (typeof reducer !== 'string' || !metric.reducers.includes(reducer as never)) {
         return reply.status(400).send({ error: `reducer must be one of: ${metric.reducers.join(', ')}` })
+      }
+
+      // A lottery qualifies members by a threshold on the metric value, then
+      // draws the pool at random (#187). Leaderboards have no threshold.
+      let thresholdComparator: string | null = null
+      let thresholdValue: number | null = null
+      if (type === 'lottery') {
+        thresholdComparator = body.threshold_comparator == null ? 'gte' : String(body.threshold_comparator)
+        if (thresholdComparator !== 'gte' && thresholdComparator !== 'lte') {
+          return reply.status(400).send({ error: 'threshold_comparator must be "gte" or "lte"' })
+        }
+        thresholdValue = Number(body.threshold_value)
+        if (!Number.isFinite(thresholdValue)) {
+          return reply.status(400).send({ error: 'threshold_value must be a number' })
+        }
       }
 
       // Fixed → explicit dates; rolling → a trailing day count (dates are null
@@ -126,11 +150,13 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
       const inserted = await db.query(
         `INSERT INTO competitions
            (name, type, metric_id, direction, reducer, window_kind, window_start, window_end,
-            rolling_days, auto_resolve, resolve_interval_days, next_resolve_at, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            rolling_days, auto_resolve, resolve_interval_days, next_resolve_at,
+            threshold_comparator, threshold_value, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          RETURNING ${SELECT_COLS}`,
         [name, type, body.metric_id, direction, reducer, windowKind, windowStart, windowEnd,
-         rollingDays, autoResolve, resolveIntervalDays, nextResolveAt, String(createdBy)]
+         rollingDays, autoResolve, resolveIntervalDays, nextResolveAt,
+         thresholdComparator, thresholdValue, String(createdBy)]
       )
       return reply.status(201).send({ competition: inserted.rows[0] })
     }
@@ -198,6 +224,7 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
 
 interface CompetitionRow {
   id?: number | string
+  type?: string
   metric_id: string
   direction: string
   reducer?: string
@@ -208,6 +235,22 @@ interface CompetitionRow {
   auto_resolve?: boolean
   resolve_interval_days?: number | null
   next_resolve_at?: string | Date | null
+  threshold_comparator?: string | null
+  threshold_value?: number | null
+}
+
+type Standing = Awaited<ReturnType<typeof computeStandings>>[number]
+
+// A lottery's qualified pool: members whose metric value meets the threshold.
+export function qualifiedPool(standings: Standing[], comparator: string, value: number): Standing[] {
+  return standings.filter((s) =>
+    comparator === 'lte' ? s.value <= value : s.value >= value
+  )
+}
+
+// Uniform random pick from a non-empty pool (rng injectable for tests).
+export function drawWinner<T>(pool: T[], rng: () => number = Math.random): T {
+  return pool[Math.floor(rng() * pool.length)]
 }
 
 function toIsoDate(d: string | Date): string {
@@ -290,17 +333,31 @@ export async function computeStandings(db: pg.Pool, competition: CompetitionRow)
   }))
 }
 
-// Materialise the current standings as the next resolution (winner = rank 1).
-// Returns null when the window has no standings — nothing to crown. Shared by
-// the manual endpoint and the scheduled auto-resolver.
+// Materialise a resolution. For a leaderboard the top-ranked member wins; for a
+// lottery the qualified pool is drawn uniformly at random. Returns null when
+// there's nothing to record (empty window, or an empty lottery pool). Shared by
+// the manual endpoint and the scheduled auto-resolver; rng is injectable.
 export async function resolveCompetition(
   db: pg.Pool,
   competition: CompetitionRow & { id: number | string },
-  resolvedBy: string
+  resolvedBy: string,
+  rng: () => number = Math.random
 ) {
   const window = effectiveWindow(competition)
   const standings = await computeStandings(db, competition)
   if (!window || standings.length === 0) return null
+
+  // The rows this resolution records, re-ranked 1..n, and the winning member.
+  let recorded = standings
+  let winnerId: string
+  if (competition.type === 'lottery') {
+    const pool = qualifiedPool(standings, competition.threshold_comparator ?? 'gte', competition.threshold_value ?? 0)
+    if (pool.length === 0) return null
+    recorded = pool.map((s, i) => ({ ...s, rank: i + 1 }))
+    winnerId = drawWinner(recorded, rng).member_id
+  } else {
+    winnerId = recorded[0].member_id
+  }
 
   const client = await db.connect()
   try {
@@ -311,19 +368,19 @@ export async function resolveCompetition(
       [competition.id]
     )
     const seq = seqRes.rows[0].seq as number
-    for (const s of standings) {
+    for (const s of recorded) {
       await client.query(
         `INSERT INTO competition_results
            (competition_id, resolution_seq, resolved_by, window_start, window_end,
             member_id, member_name, value, rank, partial, winner)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [competition.id, seq, resolvedBy, window.start, window.end, s.member_id, s.member_name,
-         s.value, s.rank, s.partial, s.rank === 1]
+         s.value, s.rank, s.partial, s.member_id === winnerId]
       )
     }
     await client.query('COMMIT')
-    const winner = standings.find((s) => s.rank === 1) ?? null
-    return { resolution_seq: seq, winner, member_count: standings.length }
+    const winner = recorded.find((s) => s.member_id === winnerId) ?? null
+    return { resolution_seq: seq, winner, member_count: recorded.length }
   } catch (err) {
     await client.query('ROLLBACK')
     throw err

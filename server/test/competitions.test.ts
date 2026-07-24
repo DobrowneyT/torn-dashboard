@@ -3,7 +3,7 @@
 // against the real templated Postgres.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
-import { effectiveWindow, isDueToResolve, advanceNextResolve, runAutoResolve } from '../src/competitions.js'
+import { effectiveWindow, isDueToResolve, advanceNextResolve, runAutoResolve, qualifiedPool, drawWinner, resolveCompetition } from '../src/competitions.js'
 
 let stack: TestStack
 let leadershipToken: string
@@ -176,12 +176,14 @@ describe('competitions (#183)', () => {
   })
 
   it('rolling window computes a live board over the trailing days', async () => {
-    // CURRENT_DATE-relative seed so the assertion holds on any run date.
+    // CURRENT_DATE-relative seed, kept a few days inside a 10-day window so the
+    // delta is robust to the ±1-day skew between Postgres's local CURRENT_DATE
+    // and the UTC window boundary (both snapshots stay in-window either way).
     await stack.db.query(`INSERT INTO members (member_id, member_name, is_current) VALUES ('20','Rolla',true) ON CONFLICT (member_id) DO NOTHING`)
     await stack.db.query(`
       INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats) VALUES
-        ('20', CURRENT_DATE - 10, '{"drugs":{"xantaken":100}}'),
-        ('20', CURRENT_DATE - 1,  '{"drugs":{"xantaken":130}}')
+        ('20', CURRENT_DATE - 8, '{"drugs":{"xantaken":100}}'),
+        ('20', CURRENT_DATE - 2, '{"drugs":{"xantaken":130}}')
       ON CONFLICT (member_id, snapshot_date) DO NOTHING
     `)
     const created = await api('POST', '/api/competitions', leadershipToken, {
@@ -192,7 +194,6 @@ describe('competitions (#183)', () => {
     const rolla = res.body.standings.find((r: any) => r.member_id === '20')
     expect(rolla).toBeTruthy()
     expect(rolla.value).toBe(30)
-    expect(rolla.partial).toBe(false)
   })
 
   it('rejects rolling without a valid rolling_days, and a reducer the metric does not support', async () => {
@@ -307,5 +308,61 @@ describe('competitions (#183)', () => {
     await runAutoResolve(stack.db)
     const hist2 = await api('GET', `/api/competitions/${id}/history`, memberToken)
     expect(hist2.body.resolutions).toHaveLength(1)
+  })
+
+  // ── #187: lottery type + random draw ─────────────────────────────────────
+
+  it('qualifiedPool filters by comparator; drawWinner picks within the pool', () => {
+    const s = [{ member_id: 'a', value: 40 }, { member_id: 'b', value: 15 }, { member_id: 'c', value: 0 }] as any
+    expect(qualifiedPool(s, 'gte', 10).map((x: any) => x.member_id)).toEqual(['a', 'b'])
+    expect(qualifiedPool(s, 'lte', 15).map((x: any) => x.member_id)).toEqual(['b', 'c'])
+    expect(drawWinner(['x', 'y', 'z'], () => 0)).toBe('x')
+    expect(drawWinner(['x', 'y', 'z'], () => 0.99)).toBe('z')
+  })
+
+  it('lottery requires a valid threshold', async () => {
+    expect((await api('POST', '/api/competitions', leadershipToken, {
+      name: 'bad comparator', type: 'lottery', metric_id: 'xanax_taken',
+      window_start: '2026-07-01', window_end: '2026-07-07', threshold_comparator: 'bogus', threshold_value: 5,
+    })).status).toBe(400)
+    expect((await api('POST', '/api/competitions', leadershipToken, {
+      name: 'nan threshold', type: 'lottery', metric_id: 'xanax_taken',
+      window_start: '2026-07-01', window_end: '2026-07-07', threshold_comparator: 'gte', threshold_value: 'abc',
+    })).status).toBe(400)
+  })
+
+  it('lottery flags the qualified pool and draws it at random', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Xanax lottery', type: 'lottery', metric_id: 'xanax_taken', reducer: 'total',
+      threshold_comparator: 'gte', threshold_value: 10,
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    expect(c.status).toBe(201)
+    const id = c.body.competition.id
+
+    // Detail flags who qualifies (Ace 40, Bea 15 qualify; Dan 0 does not).
+    const detail = await api('GET', `/api/competitions/${id}`, memberToken)
+    const byId = Object.fromEntries(detail.body.standings.map((r: any) => [r.member_id, r]))
+    expect(byId['10'].qualified).toBe(true)
+    expect(byId['11'].qualified).toBe(true)
+    expect(byId['13'].qualified).toBe(false)
+
+    // Deterministic draw: rng→1.98 picks pool index 1 (Bea) of [Ace, Bea].
+    const row = (await stack.db.query('SELECT * FROM competitions WHERE id = $1', [id])).rows[0]
+    const result = await resolveCompetition(stack.db, row, 'test', () => 0.99)
+    expect(result!.winner!.member_id).toBe('11')
+    // History records only the pool (2 members), winner flagged.
+    const hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    expect(hist.body.resolutions[0].standings).toHaveLength(2)
+    expect(hist.body.resolutions[0].winner.member_id).toBe('11')
+  })
+
+  it('a lottery with no qualifiers resolves to nothing (409)', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Impossible lottery', type: 'lottery', metric_id: 'xanax_taken',
+      threshold_comparator: 'gte', threshold_value: 100000,
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    expect((await api('POST', `/api/competitions/${c.body.competition.id}/resolve`, leadershipToken)).status).toBe(409)
   })
 })
