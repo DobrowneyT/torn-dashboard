@@ -42,6 +42,8 @@ export interface PushService {
   subscribe(memberId: string, sub: PushSubscriptionInput): Promise<void>
   unsubscribe(endpoint: string): Promise<void>
   sendToMembers(memberIds: string[], payload: PushPayload): Promise<PushResult>
+  /** Send to every subscriber (e.g. a war-room surge alert, #208). */
+  sendToAll(payload: PushPayload): Promise<PushResult>
 }
 
 export interface PushResult {
@@ -143,6 +145,12 @@ export function createPushService({ db, vapid, sender }: PushServiceOptions): Pu
         })
       )
       return result
+    },
+
+    async sendToAll(payload) {
+      if (!configured) return { sent: 0, pruned: 0, failed: 0 }
+      const rows = await db.query('SELECT DISTINCT member_id FROM push_subscriptions')
+      return this.sendToMembers(rows.rows.map((r) => String(r.member_id)), payload)
     },
   }
 }

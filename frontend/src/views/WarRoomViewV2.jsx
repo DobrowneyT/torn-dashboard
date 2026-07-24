@@ -41,11 +41,11 @@ import AlertSettingsButton from '../components/warroom/AlertSettingsButton'
 import HeadlineBanner from '../components/warroom/HeadlineBanner'
 import WarRoomPushPrompt from '../components/warroom/WarRoomPushPrompt'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
-import { loadAlertPrefs } from '../utils/warRoomAlerts'
+import { loadAlertPrefs, fireAlert } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
 import { parseDbTime } from '../utils/time'
 import { farmCompare } from '../utils/warRoomFarmSort'
-import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle } from 'lucide-react'
+import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon } from 'lucide-react'
 import HelpPanel from '../components/warroom/HelpPanel'
 import SpotlightTour from '../components/warroom/SpotlightTour'
 import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
@@ -860,6 +860,34 @@ function ConfigPanel({
     catch (e) { setMsg({ ok: false, text: e.message }) }
   }
 
+  // PUSH-surge alerts (#208): a global on/off plus per-direction rate thresholds
+  // (N members Okay within M sec) and a cooldown. Off = a termed war stays
+  // silent. Same commit-on-blur pattern as the cadences above; the toggle saves
+  // immediately. All clamped server-side too via the config allowlist.
+  const surgeEnabled = !!config?.surge_alerts_enabled
+  const [surgeFields, setSurgeFields] = useState(null)
+  useEffect(() => {
+    setSurgeFields({
+      surge_enemy_threshold:  String(config?.surge_enemy_threshold  ?? 3),
+      surge_enemy_window_sec: String(config?.surge_enemy_window_sec ?? 60),
+      surge_our_threshold:    String(config?.surge_our_threshold    ?? 4),
+      surge_our_window_sec:   String(config?.surge_our_window_sec   ?? 60),
+      surge_cooldown_sec:     String(config?.surge_cooldown_sec     ?? 300),
+    })
+  }, [config?.surge_enemy_threshold, config?.surge_enemy_window_sec, config?.surge_our_threshold, config?.surge_our_window_sec, config?.surge_cooldown_sec])
+  async function toggleSurge() {
+    try {
+      await onSaveReviveService({ surge_alerts_enabled: !surgeEnabled })
+      setMsg({ ok: true, text: `Surge alerts ${!surgeEnabled ? 'enabled' : 'disabled'}.` })
+    } catch (e) { setMsg({ ok: false, text: e.message }) }
+  }
+  async function commitSurgeField(field, min, max, fallback) {
+    const next = Math.min(max, Math.max(min, Math.floor(Number(surgeFields?.[field]) || fallback)))
+    if (next === (config?.[field] ?? fallback)) return
+    try { await onSaveReviveService({ [field]: next }); setMsg({ ok: true, text: 'Surge alert settings saved.' }) }
+    catch (e) { setMsg({ ok: false, text: e.message }) }
+  }
+
   // Dropdown change → look up the preset and persist its name + url as the active selection.
   async function handlePickReviveService(e) {
     const picked = e.target.value
@@ -1063,6 +1091,40 @@ function ConfigPanel({
         </div>
       </div>
 
+      {/* PUSH-surge alerts (#208): global on/off + per-direction rate + cooldown.
+          Off means a termed war never pings anyone. */}
+      <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 space-y-2">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={surgeEnabled} onChange={toggleSurge}
+            className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Push-surge alerts</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">— warn on a wave of hospital exits (leave off for termed wars)</span>
+        </label>
+        {surgeEnabled && surgeFields && (
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-2 pl-6">
+            {[
+              { label: 'Enemy ≥', field: 'surge_enemy_threshold', min: 1, max: 100, fb: 3, w: 'w-16', hint: 'Enemies leaving hospital to trigger a defensive alert.' },
+              { label: 'within (s)', field: 'surge_enemy_window_sec', min: 5, max: 600, fb: 60, w: 'w-20', hint: 'Rolling window for the enemy count.' },
+              { label: 'Ours ≥', field: 'surge_our_threshold', min: 1, max: 100, fb: 4, w: 'w-16', hint: 'Our members out of hospital to trigger a push-window alert.' },
+              { label: 'within (s)', field: 'surge_our_window_sec', min: 5, max: 600, fb: 60, w: 'w-20', hint: 'Rolling window for our count.' },
+              { label: 'Cooldown (s)', field: 'surge_cooldown_sec', min: 30, max: 3600, fb: 300, w: 'w-24', hint: 'Quiet period after an alert so flicker can’t re-spam.' },
+            ].map(({ label, field, min, max, fb, w, hint }) => (
+              <div key={field}>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+                <input
+                  type="number" min={min} max={max} step={1} title={hint}
+                  value={surgeFields[field]}
+                  onChange={e => setSurgeFields(f => ({ ...f, [field]: e.target.value }))}
+                  onBlur={() => commitSurgeField(field, min, max, fb)}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                  className={`${w} px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Revive service — preset dropdown + gear to manage the list */}
       <div className="flex flex-wrap items-end gap-2">
         <div>
@@ -1134,6 +1196,19 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Per-tenant identity from bootstrap (#96) — resolved before views render.
   // Coerce to number to match the bigint faction_id column.
   const OUR_FACTION_ID = getFactionId()
+
+  // Server-detected PUSH surge (#208): a transient banner + sound/flash, fired
+  // automatically for every open tab (no opt-in). The web-push to subscribers
+  // is sent server-side in the ticker.
+  const [surgeAlert, setSurgeAlert] = useState(null)
+  const onSurgeAlert = useCallback((msg) => {
+    if (msg?.kind !== 'surge') return
+    fireAlert('surge', { sound: true, flash: true })
+    const shown = { ...msg, at: Date.now() }
+    setSurgeAlert(shown)
+    setTimeout(() => setSurgeAlert((cur) => (cur?.at === shown.at ? null : cur)), 12000)
+  }, [])
+
   const {
     members: rawMembers,
     ourMembers,
@@ -1150,6 +1225,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     intervalMs: Math.max(500, Math.round(pollIntervalSec * 1000)),
     enabled: !!user,
     ourFactionId: OUR_FACTION_ID,
+    onAlert: onSurgeAlert,
   })
 
   // Hide enemy members who are effectively non-combatants:
@@ -2351,6 +2427,21 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       {/* Push opt-in (#207): offer background notifications on entering a live
           war room (API mode only; visitors are read-only observers). */}
       {API_MODE && !isVisitor && <WarRoomPushPrompt live={isActive} />}
+
+      {/* Server-detected PUSH surge (#208) — auto-fires sound/flash for everyone. */}
+      {surgeAlert && (
+        <div className={`mb-3 rounded-lg px-4 py-3 flex items-center justify-between gap-3 shadow text-white ${
+          surgeAlert.direction === 'enemy' ? 'bg-red-600' : 'bg-green-600'}`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+            <span className="font-bold text-base sm:text-lg truncate">{surgeAlert.title}</span>
+            <span className="text-sm opacity-90 hidden sm:inline truncate">{surgeAlert.body}</span>
+          </div>
+          <button onClick={() => setSurgeAlert(null)} aria-label="Dismiss" className="p-1 rounded hover:bg-black/20 flex-shrink-0">
+            <XIcon className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Member table — shown whenever members exist, or when active (so "waiting…" shows) */}
       {(hasMembers || isActive) ? (

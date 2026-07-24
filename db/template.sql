@@ -574,7 +574,13 @@ CREATE TABLE public.war_room_config_v2 (
   headline_text text,
   headline_tone text,
   headline_set_by bigint,
-  headline_set_at timestamp with time zone
+  headline_set_at timestamp with time zone,
+  surge_alerts_enabled boolean DEFAULT false NOT NULL,
+  surge_enemy_threshold integer DEFAULT 3 NOT NULL,
+  surge_enemy_window_sec integer DEFAULT 60 NOT NULL,
+  surge_our_threshold integer DEFAULT 4 NOT NULL,
+  surge_our_window_sec integer DEFAULT 60 NOT NULL,
+  surge_cooldown_sec integer DEFAULT 300 NOT NULL
 );
 
 CREATE TABLE public.war_room_dibs_v2 (

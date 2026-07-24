@@ -139,4 +139,22 @@ describe('push delivery + pruning (#207)', () => {
     const result = await svc.sendToMembers(['9000'], { title: 'x', body: 'y' })
     expect(result).toEqual({ sent: 0, pruned: 0, failed: 0 })
   })
+
+  it('sendToAll delivers to every distinct subscriber (surge fan-out)', async () => {
+    await stack.db.query('DELETE FROM push_subscriptions')
+    // Two members, one with two devices — three endpoints, all should get it.
+    const subs = [
+      ['https://push.example/m1-a', '5001'],
+      ['https://push.example/m1-b', '5001'],
+      ['https://push.example/m2', '5002'],
+    ]
+    for (const [ep, mid] of subs) {
+      await stack.db.query('INSERT INTO push_subscriptions (endpoint, member_id, p256dh, auth) VALUES ($1,$2,$3,$4)', [ep, mid, 'p', 'a'])
+    }
+    const seen: string[] = []
+    const svc = createPushService({ db: stack.db, vapid, sender: async (s) => { seen.push(s.endpoint) } })
+    const result = await svc.sendToAll({ title: 'surge', body: 'incoming' })
+    expect(result.sent).toBe(3)
+    expect(seen.sort()).toEqual(subs.map(([ep]) => ep).sort())
+  })
 })
