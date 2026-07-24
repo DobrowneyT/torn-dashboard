@@ -42,7 +42,8 @@ import { loadAlertPrefs } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
 import { parseDbTime } from '../utils/time'
 import { farmCompare } from '../utils/warRoomFarmSort'
-import { Smartphone, Settings, Crosshair, Loader2, ClipboardList } from 'lucide-react'
+import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle } from 'lucide-react'
+import HelpPanel from '../components/warroom/HelpPanel'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -1204,6 +1205,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
   // Mobile War Room overlay (only visible on < md viewport — see launcher button)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   // Lock body scroll AND width while the mobile overlay is up. The width
   // lock is critical: if the desktop page underneath overflows
@@ -2030,6 +2032,15 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               )}
               {/* Personal alerts (#156/#157) — any member, saved per-browser. */}
               <AlertSettingsButton prefs={alertPrefs} setPrefs={setAlertPrefs} />
+              {/* Contextual help (#153) — the "?" reference panel, everyone. */}
+              <button
+                onClick={() => setHelpOpen(true)}
+                title="How the War Room works"
+                aria-label="War Room help"
+                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
             </div>
             {/* Subtitle / enemy summary */}
             {!isActive && (
@@ -2530,6 +2541,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           </div>
         </div>
       )}
+
+      {/* Contextual help panel (#153) — the "?" reference. Leader sections show
+          for war leads / leadership / admin (never visitors). */}
+      <HelpPanel
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        isLeader={(isWarLead || isLeadership || isAdmin) && !isVisitor}
+      />
 
       {/* Roll-call overlay — hard gate when the member hasn't responded and
           we're >1h from kickoff; also opened manually (edit) via the button.
