@@ -8,7 +8,7 @@ import { WAR_ROOM_HELP_SECTIONS, helpSectionsFor } from '../warroom/warRoomHelp'
 describe('War Room help content', () => {
   it('covers every required member-facing section, including Mobile App', () => {
     const ids = WAR_ROOM_HELP_SECTIONS.map((s) => s.id)
-    for (const required of ['dibs', 'attack', 'chain', 'rollcall', 'alerts', 'mobile']) {
+    for (const required of ['dibs', 'attack', 'chain', 'quickbar', 'filters', 'farm', 'rollcall', 'alerts', 'mobile']) {
       expect(ids).toContain(required)
     }
   })
