@@ -92,7 +92,10 @@ function Composer({ onSet, busy }) {
   )
 }
 
-export default function HeadlineBanner({ config, canManage, nowMs = Date.now() }) {
+// `mode` lets the banner display and the leader composer live in different
+// places (#197/layout): 'full' = both (default), 'banner' = display only,
+// 'composer' = the post/clear controls only.
+export default function HeadlineBanner({ config, canManage, nowMs = Date.now(), mode = 'full' }) {
   const [busy, setBusy] = useState(false)
   const text = config?.headline_text
   const tone = HEADLINE_TONE_STYLES[config?.headline_tone] ? config.headline_tone : 'neutral'
@@ -106,12 +109,13 @@ export default function HeadlineBanner({ config, canManage, nowMs = Date.now() }
     try { await clearWarHeadline() } finally { setBusy(false) }
   }
 
-  // Nothing set and nobody can manage → render nothing.
-  if (!text && !canManage) return null
+  const showBanner = mode !== 'composer' && !!text
+  const showComposer = mode !== 'banner' && canManage
+  if (!showBanner && !showComposer) return null
 
   return (
-    <div className="mb-3 space-y-2">
-      {text && (
+    <div className={mode === 'composer' ? '' : 'mb-3 space-y-2'}>
+      {showBanner && (
         <div className={`rounded-lg px-4 py-3 flex items-center justify-between gap-3 shadow ${HEADLINE_TONE_STYLES[tone]}`}>
           <div className="flex items-center gap-2 min-w-0">
             <Megaphone className="w-5 h-5 flex-shrink-0" />
@@ -130,7 +134,7 @@ export default function HeadlineBanner({ config, canManage, nowMs = Date.now() }
           </div>
         </div>
       )}
-      {canManage && (
+      {showComposer && (
         <div className="flex justify-end">
           <Composer onSet={set} busy={busy} />
         </div>

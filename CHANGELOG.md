@@ -17,6 +17,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Changed
+
+- **War Room header/footer tidy-up.** The leader **headline composer** moved into
+  the filters card (the banner itself still shows above the roster); the **"?" help
+  button** moved to the top-right of the header card; and the **"last updated"**
+  readout moved into the roster footer — now members (left) · last updated (centre)
+  · refresh rates (right).
+
 ### Added
 
 - **Per-member War Room notes + an overdose flag.** Each roster row has a pencil —
