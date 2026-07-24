@@ -2138,9 +2138,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           />
         )}
 
-        {/* Leader headline banner (#158) — pinned above the summary, live to all. */}
-        <HeadlineBanner config={config} canManage={(isWarLead || isLeadership || isAdmin) && !isVisitor} />
-
         {/* This week's war summary — lives in the top card with the controls. */}
         {currentWar && (
           <WarSummaryCard
@@ -2319,6 +2316,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           </div>
         )
       })()}
+
+      {/* Leader headline banner (#158) — sits between the status bar and the
+          roster, in-flow above the action (#197). Live to all; hides when unset. */}
+      <HeadlineBanner config={config} canManage={(isWarLead || isLeadership || isAdmin) && !isVisitor} />
 
       {/* Member table — shown whenever members exist, or when active (so "waiting…" shows) */}
       {(hasMembers || isActive) ? (
@@ -2526,6 +2527,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               members={mobileMembers}
               dibsByEnemyId={mobileDibs}
               currentUserId={user?.id}
+              headlineConfig={config}
+              canManageHeadline={(isWarLead || isLeadership || isAdmin) && !isVisitor}
               factionId={String(config?.faction_id ?? '')}
               factionName={factionName ?? config?.faction_name}
               ourCounts={mobileOurCounts}

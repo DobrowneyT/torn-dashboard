@@ -61,6 +61,7 @@ import { farmCompare } from '../utils/warRoomFarmSort'
 import SpotlightTour from '../components/warroom/SpotlightTour'
 import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
 import { isTourSeen, markTourSeen } from '../utils/warRoomTour'
+import HeadlineBanner from '../components/warroom/HeadlineBanner'
 
 // ───────────────────────────────────────────────────────────────────
 // Static config — status visuals, activity colours, flag icons
@@ -919,6 +920,8 @@ export default function MobileWarRoomView({
   members = [],
   dibsByEnemyId = {},
   currentUserId,
+  headlineConfig = null,
+  canManageHeadline = false,
   factionId,
   factionName,
   ourCounts = { Online: 0, Idle: 0, Okay: 0, OkayOnline: 0 },
@@ -1099,6 +1102,15 @@ export default function MobileWarRoomView({
         onOpenLeadership={() => setLeaderOpen(true)}
         onClose={onClose}
       />
+
+      {/* Leader headline (#197) — pinned to the top of the overlay so it stays
+          visible as the roster scrolls. Only mount the sticky wrapper when the
+          banner has something to show (a headline, or the leader composer). */}
+      {(headlineConfig?.headline_text || canManageHeadline) && (
+        <div className="sticky top-0 z-30 px-3 pt-2 bg-gray-50/95 dark:bg-slate-900/95 backdrop-blur">
+          <HeadlineBanner config={headlineConfig} canManage={canManageHeadline} />
+        </div>
+      )}
 
       {paused && (
         <div className="mx-3 my-2.5 px-3 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs leading-relaxed flex items-start gap-2 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300">
