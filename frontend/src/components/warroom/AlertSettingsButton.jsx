@@ -45,16 +45,25 @@ function ChannelSection({ title, hint, cfg, onChange, sampleKind, unitLabel, uni
   )
 }
 
-export default function AlertSettingsButton({ prefs, setPrefs }) {
-  const [open, setOpen] = useState(false)
+export default function AlertSettingsButton({ prefs, setPrefs, open: openProp, onOpenChange, lockOpen = false }) {
+  const [openState, setOpenState] = useState(false)
   const ref = useRef(null)
+  // Optionally controlled (the first-run tour opens it on the alerts step).
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp : openState
+  const setOpen = (v) => {
+    const next = typeof v === 'function' ? v(open) : v
+    if (isControlled) onOpenChange?.(next)
+    else setOpenState(next)
+  }
 
   useEffect(() => {
-    if (!open) return
+    // Don't auto-close on an outside click while the tour is holding it open.
+    if (!open || lockOpen) return
     const onDown = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
+  }, [open, lockOpen])
 
   function update(channel, cfg) {
     const next = { ...prefs, [channel]: cfg }
