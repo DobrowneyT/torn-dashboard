@@ -2088,16 +2088,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   lockOpen={tourStep?.id === 'alerts'}
                 />
               </span>
-              {/* Contextual help (#153) — the "?" reference panel, everyone. */}
-              <button
-                data-tour="help"
-                onClick={() => setHelpOpen(true)}
-                title="How the War Room works"
-                aria-label="War Room help"
-                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-              >
-                <HelpCircle className="w-4 h-4" />
-              </button>
             </div>
             {/* Subtitle / enemy summary */}
             {!isActive && (
@@ -2109,15 +2099,20 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             )}
           </div>
 
-          {/* Header right column — just status indicator + error messages.
-              All leadership actions live in ConfigPanel below, grouped
-              with the rest of the admin controls. */}
+          {/* Header right column — the "?" help sits top-right (#197 layout);
+              status/error messages below. Leadership actions live in
+              ConfigPanel below with the rest of the admin controls. */}
           <div className="flex flex-col items-end gap-1.5 shrink-0">
-            {isActive && lastFetched && !pollError && (
-              <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block">
-                {Math.round((Date.now() - lastFetched) / 1000)}s ago
-              </span>
-            )}
+            {/* Contextual help (#153) — the "?" reference panel, everyone. */}
+            <button
+              data-tour="help"
+              onClick={() => setHelpOpen(true)}
+              title="How the War Room works"
+              aria-label="War Room help"
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
             {(pollError || toggleError || spiesMsg || dibsError) && (
               <div className="text-right space-y-0.5">
                 {pollError   && <p className="text-xs text-red-500 dark:text-red-400">⚠ Poll: {pollError}</p>}
@@ -2177,6 +2172,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       {/* Filters — their own card below the controls. */}
       {hasMembers && (
         <div data-tour="filters" className="card flex flex-col gap-2">
+            {/* Leader headline composer (#197 layout) — post/clear the headline
+                from here; the banner itself renders above the roster. */}
+            {(isWarLead || isLeadership || isAdmin) && !isVisitor && (
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Headline:</span>
+                <HeadlineBanner config={config} canManage mode="composer" />
+              </div>
+            )}
             <div className="flex flex-wrap gap-y-2 gap-x-4 items-center">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Status:</span>
@@ -2340,9 +2343,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         )
       })()}
 
-      {/* Leader headline banner (#158) — sits between the status bar and the
-          roster, in-flow above the action (#197). Live to all; hides when unset. */}
-      <HeadlineBanner config={config} canManage={(isWarLead || isLeadership || isAdmin) && !isVisitor} />
+      {/* Leader headline banner (#158) — display sits between the status bar
+          and roster (#197). The leader composer lives in the filters card. */}
+      <HeadlineBanner config={config} mode="banner" />
 
       {/* Member table — shown whenever members exist, or when active (so "waiting…" shows) */}
       {(hasMembers || isActive) ? (
@@ -2526,12 +2529,20 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             </div>
           )}
 
-          <div className="px-4 py-2.5 border-t border-gray-200 dark:border-slate-700 flex items-center justify-between text-xs text-gray-400 dark:text-gray-600">
-            <span>Showing {filtered.length} of {members.length} members</span>
-            {isActive
-              ? <span>Enemy: every {pollIntervalSec}s · Ours: every 30s · Timers: every 1s</span>
-              : <span>Static snapshot · Enable to refresh</span>
-            }
+          {/* Footer (#197 layout): members (left) · last updated (center) ·
+              refresh rates (right). */}
+          <div className="px-4 py-2.5 border-t border-gray-200 dark:border-slate-700 grid grid-cols-3 items-center text-xs text-gray-400 dark:text-gray-600">
+            <span className="justify-self-start">Showing {filtered.length} of {members.length} members</span>
+            <span className="justify-self-center">
+              {isActive && lastFetched && !pollError
+                ? `Updated ${Math.round((Date.now() - lastFetched) / 1000)}s ago`
+                : ''}
+            </span>
+            <span className="justify-self-end text-right">
+              {isActive
+                ? `Enemy: every ${pollIntervalSec}s · Ours: every 30s · Timers: every 1s`
+                : 'Static snapshot · Enable to refresh'}
+            </span>
           </div>
         </div>
       ) : (
