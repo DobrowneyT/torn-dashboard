@@ -62,6 +62,8 @@ import SpotlightTour from '../components/warroom/SpotlightTour'
 import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
 import { isTourSeen, markTourSeen } from '../utils/warRoomTour'
 import HeadlineBanner from '../components/warroom/HeadlineBanner'
+import MemberNoteButton from '../components/warroom/MemberNoteButton'
+import { isOverdosed } from '../utils/memberNotes'
 
 // ───────────────────────────────────────────────────────────────────
 // Static config — status visuals, activity colours, flag icons
@@ -233,7 +235,7 @@ function FlagsRow({ flags, state, description }) {
 // Member card — compact, side-by-side actions (per design system spec)
 // ───────────────────────────────────────────────────────────────────
 
-function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
+function MemberCard({ m, dib, currentUserId, onClaim, onRelease, note, canEditNote = false, onSaveNote }) {
   const isMyDib = dib && String(dib.claimedBy) === String(currentUserId)
   const claimedByOther = dib && !isMyDib
   const isPending = !!(dib && dib._pending)
@@ -274,6 +276,16 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease }) {
             <span>[{m.id}]</span>
             <span>·</span>
             <span>Lv{m.level}</span>
+            {m.overdosed && (
+              <span title="Overdosed" className="px-1 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold">OD</span>
+            )}
+            <MemberNoteButton
+              memberId={m.id}
+              memberName={m.name}
+              note={note}
+              canEdit={canEditNote}
+              onSave={onSaveNote}
+            />
           </div>
         </div>
         <button
@@ -922,6 +934,9 @@ export default function MobileWarRoomView({
   currentUserId,
   headlineConfig = null,
   canManageHeadline = false,
+  memberNotes = {},
+  canEditNotes = false,
+  onSaveNote,
   factionId,
   factionName,
   ourCounts = { Online: 0, Idle: 0, Okay: 0, OkayOnline: 0 },
@@ -1154,6 +1169,9 @@ export default function MobileWarRoomView({
             currentUserId={currentUserId}
             onClaim={onClaim}
             onRelease={onRelease}
+            note={memberNotes[m.id]}
+            canEditNote={canEditNotes}
+            onSaveNote={onSaveNote}
           />
         ))}
         <div className="mt-1 text-[11px] text-gray-400 text-center px-3 py-2">

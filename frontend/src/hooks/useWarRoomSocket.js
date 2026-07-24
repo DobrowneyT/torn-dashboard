@@ -33,6 +33,7 @@ function flattenStateRow(row) {
     last_action_timestamp: s.last_action?.timestamp ?? null,
     status_state:          s.status?.state          ?? null,
     status_description:    s.status?.description    ?? null,
+    status_details:        s.status?.details        ?? null,
     status_until:          s.status?.until          ?? null,
     is_revivable:          s.is_revivable          ?? false,
     has_early_discharge:   s.has_early_discharge   ?? false,

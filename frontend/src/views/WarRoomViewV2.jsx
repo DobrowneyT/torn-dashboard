@@ -25,7 +25,9 @@ import {
   fetchRollCall,
   fetchWarNotes,
 } from '../utils/warRoomApiV2'
-import { API_MODE, apiGet } from '../utils/apiClient'
+import { API_MODE, apiGet, apiPut } from '../utils/apiClient'
+import MemberNoteButton from '../components/warroom/MemberNoteButton'
+import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberNotes'
 import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
 import { isWarLead as checkWarLead } from '../config'
 import { getFactionId, getFactionIdentity } from '../utils/factionIdentity'
@@ -1219,6 +1221,26 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     setAlertsOpen(!!tourStep?.openAlerts)
   }, [tourStep])
 
+  // Per-member war notes (#199) — fetched once for the roster; war leads /
+  // leadership / admin can edit, everyone reads. API-only feature.
+  const [memberNotes, setMemberNotes] = useState({})
+  const canEditNotes = canEditMemberNotes({ isWarLead, isLeadership, isAdmin, isVisitor })
+  useEffect(() => {
+    if (!API_MODE) return
+    apiGet('/api/member-notes')
+      .then(({ notes }) => setMemberNotes(notesByMember(notes)))
+      .catch(() => {})
+  }, [])
+  async function saveMemberNote(memberId, note) {
+    await apiPut(`/api/member-notes/${memberId}`, { note })
+    setMemberNotes(prev => {
+      const next = { ...prev }
+      if (note && note.trim()) next[memberId] = note.trim()
+      else delete next[memberId]
+      return next
+    })
+  }
+
   // First-run spotlight tour (#153): auto-run once per browser on first War
   // Room visit. Steps whose targets aren't present are skipped, so it's safe to
   // start even before a war is active.
@@ -1839,6 +1861,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     state:        m.status_state,
     description:  m.status_description,
     until:        m.status_until,
+    overdosed:    isOverdosed(m),
     bsp:          m.bsp_total,
     // Stats breakdown + provenance so the mobile card can show the same
     // expand-on-tap breakdown the desktop shows on hover.
@@ -2369,6 +2392,18 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                               {m.member_name}
                             </a>
                             <span className="text-xs text-gray-400 dark:text-gray-600">Lv{m.level}</span>
+                            {isOverdosed(m) && (
+                              <span title="Overdosed" className="px-1 py-0.5 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold">OD</span>
+                            )}
+                            {API_MODE && (
+                              <MemberNoteButton
+                                memberId={m.member_id}
+                                memberName={m.member_name}
+                                note={memberNotes[m.member_id]}
+                                canEdit={canEditNotes}
+                                onSave={saveMemberNote}
+                              />
+                            )}
                           </div>
                         </td>
 
@@ -2529,6 +2564,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               currentUserId={user?.id}
               headlineConfig={config}
               canManageHeadline={(isWarLead || isLeadership || isAdmin) && !isVisitor}
+              memberNotes={memberNotes}
+              canEditNotes={canEditNotes}
+              onSaveNote={saveMemberNote}
               factionId={String(config?.faction_id ?? '')}
               factionName={factionName ?? config?.faction_name}
               ourCounts={mobileOurCounts}

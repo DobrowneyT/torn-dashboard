@@ -738,6 +738,14 @@ CREATE TABLE public.competition_results (
 CREATE INDEX competition_results_competition_idx
   ON public.competition_results (competition_id, resolution_seq);
 
+-- Per-member war notes (#199): one global note per member, war-lead editable.
+CREATE TABLE public.member_notes (
+  member_id  text PRIMARY KEY,
+  note       text NOT NULL DEFAULT '',
+  updated_by text,
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
 -- ── Constraints ───────────────────────────────────────────────────────────────
 
 ALTER TABLE crime_required_items ADD CONSTRAINT crime_required_items_pkey PRIMARY KEY (id);

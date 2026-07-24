@@ -17,6 +17,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **Per-member War Room notes + an overdose flag.** Each roster row has a pencil —
+  war leads / leadership / admin can jot a note (armour, job, timezone, OD-prone…),
+  and everyone can read it; notes persist across wars. Members currently in hospital
+  from an overdose also show an automatic **OD** flag (read live from Torn’s status
+  reason). Works on desktop and the Mobile App overlay (#199).
+
 ### Changed
 
 - **The War Room headline banner moved to a more in-flow spot.** On desktop it now
