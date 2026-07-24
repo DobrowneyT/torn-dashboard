@@ -38,8 +38,9 @@ import RollCallOverlay from '../components/warroom/RollCallOverlay'
 import WarSummaryCard from '../components/warroom/WarSummaryCard'
 import WarNotesPanel from '../components/warroom/WarNotesPanel'
 import AlertSettingsButton from '../components/warroom/AlertSettingsButton'
-import HeadlineBanner from '../components/warroom/HeadlineBanner'
+import HeadlineBanner, { PUSH_HEADLINE_PRESETS } from '../components/warroom/HeadlineBanner'
 import WarRoomPushPrompt from '../components/warroom/WarRoomPushPrompt'
+import { setWarHeadline } from '../utils/warRoomApiV2'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs, fireAlert } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
@@ -1208,6 +1209,22 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     setSurgeAlert(shown)
     setTimeout(() => setSurgeAlert((cur) => (cur?.at === shown.at ? null : cur)), 12000)
   }, [])
+
+  // #209: a leader can one-tap the matching rally-call preset onto the faction
+  // headline. Nothing hits the banner until a leader confirms here (the surge
+  // sound/flash/push in #208 already went to everyone).
+  const [postingHeadline, setPostingHeadline] = useState(false)
+  async function postSurgeHeadline() {
+    const preset = PUSH_HEADLINE_PRESETS[surgeAlert?.direction]
+    if (!preset) return
+    setPostingHeadline(true)
+    try {
+      await setWarHeadline(preset.text, preset.tone)
+      setSurgeAlert((cur) => (cur ? { ...cur, posted: true } : cur))
+    } finally {
+      setPostingHeadline(false)
+    }
+  }
 
   const {
     members: rawMembers,
@@ -2437,9 +2454,23 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             <span className="font-bold text-base sm:text-lg truncate">{surgeAlert.title}</span>
             <span className="text-sm opacity-90 hidden sm:inline truncate">{surgeAlert.body}</span>
           </div>
-          <button onClick={() => setSurgeAlert(null)} aria-label="Dismiss" className="p-1 rounded hover:bg-black/20 flex-shrink-0">
-            <XIcon className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Leader-only one-tap rally call (#209). Non-leaders never see it. */}
+            {(isWarLead || isLeadership || isAdmin) && !isVisitor && PUSH_HEADLINE_PRESETS[surgeAlert.direction] && (
+              surgeAlert.posted ? (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded bg-white/20">Headline posted ✓</span>
+              ) : (
+                <button onClick={postSurgeHeadline} disabled={postingHeadline}
+                  title="Post the matching rally call to the headline banner for everyone"
+                  className="text-xs font-semibold px-3 py-1.5 rounded bg-white/90 text-gray-900 hover:bg-white disabled:opacity-60">
+                  {postingHeadline ? 'Posting…' : 'Post rally call'}
+                </button>
+              )
+            )}
+            <button onClick={() => setSurgeAlert(null)} aria-label="Dismiss" className="p-1 rounded hover:bg-black/20">
+              <XIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 

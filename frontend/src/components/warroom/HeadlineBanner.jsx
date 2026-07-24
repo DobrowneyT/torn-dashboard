@@ -13,11 +13,21 @@ export const HEADLINE_TONE_STYLES = {
   neutral: 'bg-blue-600 text-white',
 }
 
+// Rally-call presets a war lead can post when a PUSH surge is detected (#209).
+// Keyed by surge direction so the surge banner can one-tap the matching one.
+export const PUSH_HEADLINE_PRESETS = {
+  enemy: { text: "WE'RE BEING PUSHED — RETALIATE TO KEEP CONTROL", tone: 'danger' },
+  our:   { text: 'WE HAVE THE NUMBERS — ORGANIZE A PUSH',          tone: 'go' },
+}
+
 // Quick-pick presets. `push` renders a time input and produces "PUSH 2 HH:MM".
 const PRESETS = [
   { label: 'Turtle / stay in hospital', text: 'TURTLE — STAY IN HOSPITAL', tone: 'warn' },
   { label: 'Stop all hits',             text: 'STOP ALL HITS',             tone: 'danger' },
   { label: 'Keep the chain alive',      text: 'KEEP THE CHAIN ALIVE',      tone: 'go' },
+  // Push rally calls (#209) — also available manually, not just on a surge.
+  { label: 'We’re being pushed — retaliate', text: PUSH_HEADLINE_PRESETS.enemy.text, tone: PUSH_HEADLINE_PRESETS.enemy.tone },
+  { label: 'We have the numbers — push',           text: PUSH_HEADLINE_PRESETS.our.text,   tone: PUSH_HEADLINE_PRESETS.our.tone },
 ]
 
 function Composer({ onSet, busy }) {

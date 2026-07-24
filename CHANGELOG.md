@@ -19,6 +19,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Leader-confirmed rally headline on a surge (#209).** When a PUSH surge is
+  detected, war leads / leadership / admin get a **one-tap "Post rally call"** on
+  the surge banner that posts the matching preset — **defensive** ("we're being
+  pushed — retaliate") or **offensive** ("we have the numbers — organize a push")
+  — to the faction headline for everyone (#158). Non-leaders never see the prompt,
+  and nothing hits the banner until a leader confirms. Both presets are also
+  available in the manual headline composer.
 - **War Room PUSH-surge alerts (#208).** The server ticker now detects a surge of
   members leaving hospital — **enemy-side** ("we're being pushed", defensive) and
   **our-side** ("organize a push", offensive) — on a rate rule (≥ N Okay within M
