@@ -22,6 +22,7 @@ import { registerWarRoomSetupRoutes } from './warRoomSetup.js'
 import { registerAdminRoutes } from './admin.js'
 import { registerBrandingRoutes } from './branding.js'
 import { registerCompetitionRoutes } from './competitions.js'
+import { registerMemberNotesRoutes } from './memberNotes.js'
 import { createJobRunner } from './scraper/registerJobs.js'
 import { createSecretStore } from './secrets.js'
 import { APP_VERSION } from './version.js'
@@ -187,6 +188,7 @@ export async function buildServer(
     registerAdminRoutes(app, { db: opts.db, scrapers, secrets })
     registerBrandingRoutes(app, { db: opts.db })
     registerCompetitionRoutes(app, opts.db)
+    registerMemberNotesRoutes(app, opts.db)
   }
 
   return app

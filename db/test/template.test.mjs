@@ -46,6 +46,8 @@ const NEW_TABLES = [
   'crime_participation_v2', 'faction_branding_assets',
   // Competitions (#183) + resolved-standings history (#185)
   'competitions', 'competition_results',
+  // Per-member war notes (#199)
+  'member_notes',
 ]
 
 let server
