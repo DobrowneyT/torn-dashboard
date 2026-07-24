@@ -365,4 +365,39 @@ describe('competitions (#183)', () => {
     })
     expect((await api('POST', `/api/competitions/${c.body.competition.id}/resolve`, leadershipToken)).status).toBe(409)
   })
+
+  // ── #188: dashboard pins ─────────────────────────────────────────────────
+
+  it('leadership pins a competition; the pinned feed returns compact standings; members cannot pin', async () => {
+    const id = await createFixedXanax('Pin me')
+    expect((await api('PUT', `/api/competitions/${id}/pin`, memberToken, { pinned: true })).status).toBe(403)
+
+    const pin = await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: true })
+    expect(pin.status).toBe(200)
+    expect(pin.body.competition.pinned).toBe(true)
+
+    const feed = await api('GET', '/api/competitions/pinned', memberToken)
+    const found = feed.body.competitions.find((c: any) => c.id === id)
+    expect(found).toBeTruthy()
+    expect(found.top[0].member_id).toBe('10') // Ace leads the compact board
+
+    // Unpin removes it from the feed.
+    await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: false })
+    const feed2 = await api('GET', '/api/competitions/pinned', memberToken)
+    expect(feed2.body.competitions.find((c: any) => c.id === id)).toBeFalsy()
+  })
+
+  it('a pinned lottery reports its qualified count', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Pinned lottery', type: 'lottery', metric_id: 'xanax_taken',
+      threshold_comparator: 'gte', threshold_value: 10,
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    const id = c.body.competition.id
+    await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: true })
+    const feed = await api('GET', '/api/competitions/pinned', memberToken)
+    const found = feed.body.competitions.find((x: any) => x.id === id)
+    expect(found.qualified_count).toBe(2) // Ace (40) + Bea (15) qualify
+    await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: false })
+  })
 })

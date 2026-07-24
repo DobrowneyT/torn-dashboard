@@ -3,8 +3,8 @@
 // API-only feature (needs the faction API + daily-stats snapshots), so the
 // caller gates rendering on API_MODE.
 import { useState, useEffect } from 'react'
-import { apiGet, apiPost } from '../utils/apiClient'
-import { Trophy, Plus, X, Award } from 'lucide-react'
+import { apiGet, apiPost, apiPut } from '../utils/apiClient'
+import { Trophy, Plus, X, Award, Pin } from 'lucide-react'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -59,6 +59,15 @@ export default function CompetitionsSection({ isLeadership }) {
     }
   }
 
+  async function togglePin(c) {
+    try {
+      await apiPut(`/api/competitions/${c.id}/pin`, { pinned: !c.pinned })
+      await loadList()
+    } catch (e) {
+      alert(e.message)
+    }
+  }
+
   async function resolveCompetition(id) {
     setResolving(true)
     try {
@@ -103,25 +112,36 @@ export default function CompetitionsSection({ isLeadership }) {
         <div className="space-y-2">
           {competitions.map((c) => (
             <div key={c.id} className="border border-gray-200 dark:border-slate-700 rounded-lg overflow-hidden">
-              <button
-                onClick={() => openCompetition(c.id)}
-                className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-700/50"
-              >
-                <div>
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">
-                    {c.name}
-                    {c.type === 'lottery' && (
-                      <span className="ml-2 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 text-[10px] font-semibold align-middle">lottery</span>
-                    )}
+              <div className="flex items-center hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                <button
+                  onClick={() => openCompetition(c.id)}
+                  className="flex-1 flex items-center justify-between px-3 py-2 text-left"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-white">
+                      {c.name}
+                      {c.type === 'lottery' && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 text-[10px] font-semibold align-middle">lottery</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {c.metric_id}{c.reducer === 'avg_per_day' ? ' /day' : ''}
+                      {c.type === 'lottery' && ` ${c.threshold_comparator === 'lte' ? '≤' : '≥'} ${c.threshold_value}`}
+                      {' · '}{windowLabel(c)}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {c.metric_id}{c.reducer === 'avg_per_day' ? ' /day' : ''}
-                    {c.type === 'lottery' && ` ${c.threshold_comparator === 'lte' ? '≤' : '≥'} ${c.threshold_value}`}
-                    {' · '}{windowLabel(c)}
-                  </div>
-                </div>
-                <span className="text-xs text-gray-400">{selectedId === c.id ? '▲' : '▼'}</span>
-              </button>
+                  <span className="text-xs text-gray-400">{selectedId === c.id ? '▲' : '▼'}</span>
+                </button>
+                {isLeadership && (
+                  <button
+                    onClick={() => togglePin(c)}
+                    title={c.pinned ? 'Unpin from dashboard' : 'Pin to dashboard'}
+                    className={`px-3 py-2 ${c.pinned ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600 hover:text-gray-500'}`}
+                  >
+                    <Pin className="w-4 h-4" fill={c.pinned ? 'currentColor' : 'none'} />
+                  </button>
+                )}
+              </div>
               {selectedId === c.id && (
                 <div className="border-t border-gray-100 dark:border-slate-700 p-2 space-y-3">
                   {detailLoading ? (

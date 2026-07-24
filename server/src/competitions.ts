@@ -17,7 +17,7 @@ const ROLLING_DAYS_MAX = 366
 const SELECT_COLS =
   `id, name, type, metric_id, direction, reducer, window_kind,
    window_start, window_end, rolling_days, auto_resolve, resolve_interval_days,
-   next_resolve_at, threshold_comparator, threshold_value, created_by, created_at`
+   next_resolve_at, threshold_comparator, threshold_value, pinned, created_by, created_at`
 
 export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
   // Registry shortlist for the create form (no internal paths exposed).
@@ -31,6 +31,23 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
        ORDER BY COALESCE(window_end, CURRENT_DATE) DESC, id DESC`
     )
     return { competitions: res.rows }
+  })
+
+  // Pinned competitions with a compact live standing for the dashboard cards
+  // (#188). Declared before /:id so "pinned" isn't matched as an id.
+  app.get('/api/competitions/pinned', { preHandler: requireAuth() }, async () => {
+    const res = await db.query(`SELECT ${SELECT_COLS} FROM competitions WHERE pinned = true ORDER BY id DESC`)
+    const competitions = await Promise.all(res.rows.map(async (competition) => {
+      const standings = await computeStandings(db, competition)
+      if (competition.type === 'lottery') {
+        const cmp = competition.threshold_comparator ?? 'gte'
+        const val = competition.threshold_value ?? 0
+        const qualified = standings.filter((s) => (cmp === 'lte' ? s.value <= val : s.value >= val))
+        return { ...competition, qualified_count: qualified.length, top: qualified.slice(0, 5) }
+      }
+      return { ...competition, top: standings.slice(0, 5) }
+    }))
+    return { competitions }
   })
 
   app.get('/api/competitions/:id', { preHandler: requireAuth() }, async (req, reply) => {
@@ -180,6 +197,23 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
         return reply.status(409).send({ error: 'No standings to resolve yet in this window' })
       }
       return result
+    }
+  )
+
+  // Pin/unpin a competition to the dashboard (#188). Leadership-gated.
+  app.put(
+    '/api/competitions/:id/pin',
+    { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string }
+      if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'Competition not found' })
+      const pinned = (req.body as { pinned?: unknown })?.pinned === true
+      const res = await db.query(
+        `UPDATE competitions SET pinned = $1, updated_at = now() WHERE id = $2 RETURNING ${SELECT_COLS}`,
+        [pinned, id]
+      )
+      if (res.rows.length === 0) return reply.status(404).send({ error: 'Competition not found' })
+      return { competition: res.rows[0] }
     }
   )
 
