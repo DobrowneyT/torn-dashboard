@@ -35,21 +35,29 @@ export default function SpotlightTour({ steps, onFinish }) {
 
   const step = index >= 0 ? steps[index] : null
 
-  // Track the target's position (recompute on scroll/resize). If it vanished,
-  // skip forward to the next present step.
+  // Track the target's position. Bring it to the middle FIRST (instantly), then
+  // measure — a smooth scroll after measuring left the highlight lagging below
+  // the element. Re-measure on a short interval so the live-polling war-room
+  // re-renders (and scroll/resize) can't leave the ring stale. If the target
+  // vanished, skip forward to the next present step.
   useLayoutEffect(() => {
     if (!step) { finish(); return }
+    const el0 = targetEl(step)
+    if (!el0) { go(1); return }
+    el0.scrollIntoView({ block: 'center', behavior: 'auto' })
     const measure = () => {
       const el = targetEl(step)
       if (!el) { go(1); return }
       const r = el.getBoundingClientRect()
       setRect({ top: r.top, left: r.left, width: r.width, height: r.height })
-      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }
-    measure()
+    const raf = requestAnimationFrame(measure)
+    const id = setInterval(measure, 400)
     window.addEventListener('resize', measure)
     window.addEventListener('scroll', measure, true)
     return () => {
+      cancelAnimationFrame(raf)
+      clearInterval(id)
       window.removeEventListener('resize', measure)
       window.removeEventListener('scroll', measure, true)
     }

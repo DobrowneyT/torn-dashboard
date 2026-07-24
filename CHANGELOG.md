@@ -19,6 +19,20 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **War Room help panel now covers the quick bar, alerts window, filters and farm
+  mode.** New sections explain each quick-bar button (war page, medical, items,
+  revives, find-target), what’s inside the personal-alerts bell (dib hospital-exit
+  and chain-watch, with lead/threshold, sound, flash), how the status/activity/
+  battle-stat filters work, and farm mode’s priority order (#153).
+
+### Fixed
+
+- **War Room tour highlight alignment.** The spotlight ring sat slightly below its
+  target because a smooth scroll ran after measuring; it now scrolls the target to
+  centre first and re-measures, so the highlight frames the control it’s pointing at.
+
+### Added
+
 - **War Room first-run tour.** On a member's first War Room visit, a dismissable
   spotlight tour highlights the key controls in place — targets/dibs, chain, roll
   call, alerts, the Mobile App launcher, and the "?" help button — with a one-click

@@ -37,6 +37,35 @@ export const WAR_ROOM_HELP_SECTIONS = [
     ],
   },
   {
+    id: 'quickbar',
+    title: 'The quick bar',
+    points: [
+      { term: 'Faction War Page', desc: 'Opens your faction’s war/ranked-war page on Torn in a new tab.' },
+      { term: 'Faction Medical', desc: 'Jumps to your faction armoury’s medical items (blood bags, first-aid, morphine) so you can grab a heal fast.' },
+      { term: 'Items', desc: 'Opens your Torn items page — quick access to your own inventory mid-war.' },
+      { term: 'Revives', desc: 'Requests a revive from your faction’s configured revive service (leadership sets the service up in settings). Shows Sent / an error, with a short cooldown between requests.' },
+      { term: 'Find Target', desc: 'Opens a random enemy’s attack page within a user-ID range you set (click it, then the little settings to choose the min/max ID) — handy for finding chain filler outside the war list.' },
+    ],
+  },
+  {
+    id: 'filters',
+    title: 'Filtering the list',
+    points: [
+      { term: 'Status', desc: 'Show only Okay / Hospital / Flying / Jail — pick any combination (multi-select); “All” clears it. Most of the time you want Okay (attackable now).' },
+      { term: 'Activity', desc: 'Filter by Online / Idle / Offline to focus on who’s actually at their keyboard.' },
+      { term: 'Battle-stat filter', desc: 'Turn “Stats” On and set a Min and/or Max to show only enemies whose spied battle-stat total is in range. Values accept shorthand — e.g. 3m, 750k, 2.6b. Un-spied targets (shown as ??? in the Stats column) are hidden while a min/max is set, since we can’t know their stats. Use it to hide people you can’t beat, or to farm only softer targets.' },
+    ],
+  },
+  {
+    id: 'farm',
+    title: 'Farm mode',
+    points: [
+      { term: 'What it does', desc: 'A one-click sort tuned for grinding hits — it overrides the column sort with a tiered order built for watching the hospital list. Click any column header to leave farm mode.' },
+      { term: 'Priority order', desc: 'Green targets (online + Okay) float to the very top, biggest battle stats first. Then everyone else: freshly-out-of-hospital Okay targets next (most-recently released first), then whoever’s timer is about to expire (soonest out first), then the rest.' },
+      { term: 'Why', desc: 'You’re always looking at the best available hit — a live green target, or the next person about to become attackable — without hunting the list yourself.' },
+    ],
+  },
+  {
     id: 'rollcall',
     title: 'Roll call',
     points: [
@@ -47,11 +76,12 @@ export const WAR_ROOM_HELP_SECTIONS = [
   },
   {
     id: 'alerts',
-    title: 'Personal alerts',
+    title: 'Personal alerts (the bell)',
     points: [
-      { term: 'Dib reminder', desc: 'Get a personal nudge when a target you’ve got dibs on comes out of hospital, so you don’t miss the window.' },
-      { term: 'Chain watch', desc: 'Get alerted when the chain timer drops low, so you can jump in for the save.' },
-      { term: 'Per-browser', desc: 'Alert settings live in the gear next to the toolbar and are saved on this device — set them once per browser/phone.' },
+      { term: 'Opening it', desc: 'The bell button opens “My War Room Alerts”. It turns blue when you have an alert on. Everything here is personal and saved to this browser — it’s not a leadership setting.' },
+      { term: 'Dib hospital-exit', desc: 'Toggle On, then set a Lead time in seconds — you’ll be alerted that many seconds before a target you’ve dibbed leaves hospital, so you’re ready when they’re Okay.' },
+      { term: 'Chain watch', desc: 'Toggle On, then set a Threshold in seconds — you’ll be alerted when the chain timer drops below it (and attack buttons flag red), so you can jump in for the save.' },
+      { term: 'Sound & Screen flash', desc: 'Each alert has its own Sound and Screen-flash toggles, plus a “Test sound” link to preview it. Note: the browser only allows alert sounds after you’ve clicked on the page at least once.' },
     ],
   },
   {
