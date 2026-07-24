@@ -19,6 +19,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **War Room help panel.** A "?" button in the War Room opens a reference panel
+  explaining the member-facing features — dibs (incl. auto-drop), the attack-button
+  colours, the chain, roll call, personal alerts, and where the same controls live
+  in the Mobile App — plus a clearly-labelled "For leaders" section shown only to
+  leaders. First slice of the in-app tutorial; the first-run spotlight tour follows
+  (#153).
 - **Competitions can be pinned to the dashboard.** Leadership can pin any
   competition (multiple at once); each pinned one shows a compact card on the
   dashboard — a leaderboard's top few, or a lottery's qualified count — linking
