@@ -19,6 +19,18 @@ const jwtSecret = process.env.JWT_SECRET
 const tornBaseUrl = process.env.TORN_API_BASE ?? 'https://api.torn.com'
 const keyEncryptionKey = process.env.KEY_ENCRYPTION_KEY || undefined
 
+// VAPID keypair for Web Push (#207). Operator step — generate with
+// `npx web-push generate-vapid-keys` (see docs/PUSH.md). All three must be set
+// for push to arm; otherwise the endpoints still exist but delivery is a no-op.
+const vapid =
+  process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY
+    ? {
+        publicKey: process.env.VAPID_PUBLIC_KEY,
+        privateKey: process.env.VAPID_PRIVATE_KEY,
+        subject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
+      }
+    : null
+
 if (databaseUrl && !jwtSecret) {
   console.error('JWT_SECRET is required when DATABASE_URL is set (auth endpoints need it)')
   process.exit(1)
@@ -47,7 +59,10 @@ const app = await buildServer({
   // Spy-stat providers for the war room (#100) — optional, operator-level.
   tornStatsApiKey: process.env.TORNSTATS_API_KEY || undefined,
   bspApiKey: process.env.BSP_API_KEY || undefined,
+  // Web Push (#207) — optional; push is disabled until the operator sets it.
+  vapid,
 })
+if (vapid) console.log(`[${factionSlug}] Web Push armed (VAPID configured)`)
 await app.listen({ port, host: '0.0.0.0' })
 console.log(`[${factionSlug}] API listening on :${port}`)
 

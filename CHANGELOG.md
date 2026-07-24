@@ -19,6 +19,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **War Room push notifications — delivery pipe (#207).** Members can now opt in
+  to background push from a live war room; the browser subscription is stored
+  server-side and stale endpoints self-prune on delivery (HTTP 404/410). The PWA
+  service worker (#206) now shows pushes and, on click, focuses/opens the War
+  Room. Delivery is VAPID-signed via a one-time operator keypair (documented in
+  `docs/PUSH.md`); push stays fully off until it's set. This is the pipe the
+  surge alerts (#208) and leader headlines (#209) will send through — a
+  leadership **test send** (`POST /api/push/test`) verifies it end-to-end.
 - **Install the dashboard as an app (PWA).** The dashboard now ships a web app
   manifest, app icons (incl. a maskable icon), and a service worker that caches the
   app shell for a fast, offline-tolerant launch. Supported browsers (Chrome/Edge/

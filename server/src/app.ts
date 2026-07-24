@@ -23,6 +23,7 @@ import { registerAdminRoutes } from './admin.js'
 import { registerBrandingRoutes } from './branding.js'
 import { registerCompetitionRoutes } from './competitions.js'
 import { registerMemberNotesRoutes } from './memberNotes.js'
+import { registerPushRoutes, type PushService, type VapidConfig } from './push.js'
 import { createJobRunner } from './scraper/registerJobs.js'
 import { createSecretStore } from './secrets.js'
 import { APP_VERSION } from './version.js'
@@ -49,12 +50,17 @@ export interface ServerOptions {
   bspApiKey?: string
   tornStatsBaseUrl?: string
   bspBaseUrl?: string
+  /** VAPID keypair for Web Push (#207); optional — push is off when unset. */
+  vapid?: VapidConfig | null
 }
 
 export async function buildServer(
   opts: ServerOptions
-): Promise<FastifyInstance & { warRoomHub?: WarRoomHub }> {
-  const app = Fastify({ logger: false }) as FastifyInstance & { warRoomHub?: WarRoomHub }
+): Promise<FastifyInstance & { warRoomHub?: WarRoomHub; pushService?: PushService }> {
+  const app = Fastify({ logger: false }) as FastifyInstance & {
+    warRoomHub?: WarRoomHub
+    pushService?: PushService
+  }
 
   // Liveness: the process is up. Cheap, dependency-free — Docker's HEALTHCHECK
   // and the cheap ping hit this. Must stay 200 even when the DB is down or the
@@ -189,6 +195,9 @@ export async function buildServer(
     registerBrandingRoutes(app, { db: opts.db })
     registerCompetitionRoutes(app, opts.db)
     registerMemberNotesRoutes(app, opts.db)
+    // Web Push (#207): subscription storage + VAPID-signed delivery. The service
+    // is kept on the app so background senders (#208/#209) can reuse it.
+    app.pushService = registerPushRoutes(app, { db: opts.db, vapid: opts.vapid ?? null })
   }
 
   return app

@@ -94,8 +94,47 @@ self.addEventListener('message', (event) => {
 })
 
 /* ---------------------------------------------------------------------------
- * War Room push notifications (#198) extend THIS worker. When that slice lands
- * it adds `self.addEventListener('push', ...)` and
- * `self.addEventListener('notificationclick', ...)` handlers below. Keep them
- * in this file so the app owns a single service worker.
+ * War Room push notifications (#207). The server sends a VAPID-signed push with
+ * a JSON payload { title, body, url?, tag? }; we surface it as a notification
+ * and, on click, focus an existing dashboard tab or open the target path.
  * ------------------------------------------------------------------------- */
+
+const DEFAULT_PUSH_URL = '/war-room'
+
+self.addEventListener('push', (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch {
+    data = { body: event.data ? event.data.text() : '' }
+  }
+  const title = data.title || 'War Room'
+  const options = {
+    body: data.body || '',
+    icon: '/icons/pwa-icon-192.png',
+    badge: '/icons/pwa-icon-192.png',
+    tag: data.tag || undefined,
+    // Re-alert even when a notification with the same tag is showing.
+    renotify: !!data.tag,
+    data: { url: data.url || DEFAULT_PUSH_URL },
+  }
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const target = (event.notification.data && event.notification.data.url) || DEFAULT_PUSH_URL
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      // Focus an already-open dashboard tab if we have one; else open a new one.
+      for (const client of clients) {
+        const path = new URL(client.url).pathname
+        if (path === target || path.startsWith(target)) return client.focus()
+      }
+      if (clients.length > 0 && 'navigate' in clients[0]) {
+        return clients[0].focus().then((c) => c.navigate(target))
+      }
+      return self.clients.openWindow(target)
+    }),
+  )
+})

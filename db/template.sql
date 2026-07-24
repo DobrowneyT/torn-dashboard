@@ -746,6 +746,18 @@ CREATE TABLE public.member_notes (
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
 
+-- #207: Web Push subscriptions for War Room notifications (one row per browser
+-- push endpoint; pruned on 404/410 at delivery).
+CREATE TABLE public.push_subscriptions (
+  endpoint   text PRIMARY KEY,
+  member_id  text NOT NULL,
+  p256dh     text NOT NULL,
+  auth       text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE INDEX push_subscriptions_member_id_idx ON public.push_subscriptions (member_id);
+
 -- ── Constraints ───────────────────────────────────────────────────────────────
 
 ALTER TABLE crime_required_items ADD CONSTRAINT crime_required_items_pkey PRIMARY KEY (id);
