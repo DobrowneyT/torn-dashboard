@@ -98,6 +98,8 @@ if (db) {
           pool: createKeyPool({ db, encryptionKey: keyEncryptionKey }),
           hub: app.warRoomHub,
           tornBaseUrl,
+          // Surge fan-out (#208) sends background web-push via the #207 service.
+          pushService: app.pushService,
         })
         ticker.start()
         health.ticker = true

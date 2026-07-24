@@ -32,6 +32,11 @@ const CONFIG_COLUMNS = new Set([
   'revive_service_name', 'revive_service_url', 'revive_services',
   'tornstats_max_age_days', 'chain_poll_interval_ours_sec', 'chain_poll_interval_enemy_sec',
   'dibs_expiry_seconds',
+  // PUSH-surge alerts (#208): global on/off + per-direction rate + cooldown.
+  'surge_alerts_enabled',
+  'surge_enemy_threshold', 'surge_enemy_window_sec',
+  'surge_our_threshold', 'surge_our_window_sec',
+  'surge_cooldown_sec',
 ])
 
 /**

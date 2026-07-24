@@ -76,6 +76,8 @@ function ctx() {
 const TONES = {
   dibs:  { freq: 660, beeps: 2, gap: 0.18, dur: 0.14 },
   chain: { freq: 990, beeps: 3, gap: 0.14, dur: 0.12 },
+  // Surge (#208): an urgent low-high klaxon so it's unmistakable.
+  surge: { freq: 520, beeps: 4, gap: 0.10, dur: 0.16 },
 }
 
 export function playAlertSound(kind) {
@@ -97,7 +99,11 @@ export function playAlertSound(kind) {
   }
 }
 
-const FLASH_COLORS = { dibs: 'rgba(59,130,246,0.45)', chain: 'rgba(239,68,68,0.5)' }
+const FLASH_COLORS = {
+  dibs: 'rgba(59,130,246,0.45)',
+  chain: 'rgba(239,68,68,0.5)',
+  surge: 'rgba(245,158,11,0.5)', // amber — a war-wide surge (#208)
+}
 
 export function flashScreen(kind) {
   if (typeof document === 'undefined') return

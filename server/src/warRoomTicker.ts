@@ -9,6 +9,8 @@ import type pg from 'pg'
 import { createTornClient } from './scraper/tornClient.js'
 import type { createKeyPool } from './scraper/keyPool.js'
 import type { WarRoomHub } from './warRoom.js'
+import type { PushService } from './push.js'
+import { createSurgeDetector, type SurgeConfig, type SurgeEvent } from './warRoomSurge.js'
 import { snapshotDibbedStatus, sweepDibsExpiry, DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
 
 export interface WarRoomTickerDeps {
@@ -19,6 +21,26 @@ export interface WarRoomTickerDeps {
   intervalMs?: number
   /** #106 auto-release window: seconds after a target leaves hospital. */
   dibsExpirySeconds?: number
+  /** Web Push service (#207) for surge fan-out (#208); optional. */
+  pushService?: PushService
+}
+
+// Map the war_room_config_v2 surge columns to the detector's config shape.
+function surgeConfigFrom(cfg: Record<string, unknown>): SurgeConfig {
+  return {
+    enabled: !!cfg.surge_alerts_enabled,
+    enemy: { threshold: Number(cfg.surge_enemy_threshold ?? 3), windowSec: Number(cfg.surge_enemy_window_sec ?? 60) },
+    our: { threshold: Number(cfg.surge_our_threshold ?? 4), windowSec: Number(cfg.surge_our_window_sec ?? 60) },
+    cooldownSec: Number(cfg.surge_cooldown_sec ?? 300),
+  }
+}
+
+// User-facing copy for each surge direction: enemy = we're being pushed
+// (defensive), our = organize a push (offensive).
+function surgeMessage(ev: SurgeEvent): { title: string; body: string } {
+  return ev.direction === 'enemy'
+    ? { title: '🛡️ Incoming push!', body: `${ev.count} enemies just left hospital — defend / turtle up.` }
+    : { title: '⚔️ Push window!', body: `${ev.count} of ours are out — organize a push.` }
 }
 
 function memberState(m: any) {
@@ -92,6 +114,9 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
   const { db, pool, hub, tornBaseUrl } = deps
   // The ticker's own client: budget sized for 1 Hz member fetches.
   const client = createTornClient({ baseUrl: tornBaseUrl, budget: { requests: 80, perMs: 60_000 } })
+  // One detector for the process lifetime — it tracks per-member state and the
+  // rolling recovery windows across ticks (the single source of truth, #208).
+  const surge = createSurgeDetector()
   let timer: NodeJS.Timeout | null = null
   let ticking = false
 
@@ -138,6 +163,19 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
         const now = await db.query('SELECT now() AS server_now')
         if (changed.length > 0) hub.broadcast('state', changed, now.rows[0].server_now)
         if (expiredDibs.length > 0) hub.broadcast('dibs', expiredDibs, now.rows[0].server_now)
+      }
+
+      // PUSH-surge detection + fan-out (#208). Detection runs even when nothing
+      // else changed is cheap; observe() is a no-op when the toggle is off.
+      const surges = surge.observe(changed, {
+        enemyId, ourId, config: surgeConfigFrom(cfg), nowMs: Date.now(),
+      })
+      for (const ev of surges) {
+        const msg = surgeMessage(ev)
+        // Open tabs: sound/flash automatically for everyone (reuses #156/#157).
+        hub.alert({ kind: 'surge', direction: ev.direction, count: ev.count, ...msg })
+        // Subscribers: a background web-push, even with the tab closed.
+        void deps.pushService?.sendToAll({ ...msg, url: '/war-room', tag: `surge-${ev.direction}` }).catch(() => {})
       }
     } finally {
       ticking = false

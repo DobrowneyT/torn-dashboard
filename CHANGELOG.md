@@ -19,6 +19,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **War Room PUSH-surge alerts (#208).** The server ticker now detects a surge of
+  members leaving hospital — **enemy-side** ("we're being pushed", defensive) and
+  **our-side** ("organize a push", offensive) — on a rate rule (≥ N Okay within M
+  seconds) with per-direction thresholds and a cooldown so flicker can't re-spam.
+  On a surge, every open War Room tab auto-fires a sound/flash + banner, and
+  subscribers get a background web-push (via #207). A **global on/off toggle**
+  plus the thresholds live in War Room settings (war leads / leadership / admin) —
+  **off by default**, so a termed war stays silent until leadership opts in.
 - **War Room push notifications — delivery pipe (#207).** Members can now opt in
   to background push from a live war room; the browser subscription is stored
   server-side and stale endpoints self-prune on delivery (HTTP 404/410). The PWA

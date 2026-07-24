@@ -19,6 +19,8 @@ export interface WarRoomDeps {
 export interface WarRoomHub {
   /** Push a delta to every connected war-room client. */
   broadcast(channel: 'state' | 'dibs' | 'config' | 'chain', rows: unknown[], serverNow: string): void
+  /** Push an out-of-band alert event (e.g. a PUSH surge, #208) to every tab. */
+  alert(payload: Record<string, unknown>): void
   clientCount(): number
 }
 
@@ -90,6 +92,12 @@ export async function registerWarRoomRoutes(
     broadcast(channel, rows, serverNow) {
       if (rows.length === 0) return
       const frame = JSON.stringify({ type: 'delta', channel, rows, server_now: serverNow })
+      for (const socket of clients) {
+        if (socket.readyState === socket.OPEN) socket.send(frame)
+      }
+    },
+    alert(payload) {
+      const frame = JSON.stringify({ type: 'alert', ...payload })
       for (const socket of clients) {
         if (socket.readyState === socket.OPEN) socket.send(frame)
       }

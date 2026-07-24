@@ -43,10 +43,13 @@ function flattenStateRow(row) {
   }
 }
 
-function useWarRoomSocketImpl({ enabled = true, ourFactionId }) {
+function useWarRoomSocketImpl({ enabled = true, ourFactionId, onAlert }) {
   const stateMapRef = useRef(new Map())
   const dibsMapRef = useRef(new Map())
   const watermarkRef = useRef(null)
+  // Keep the alert callback in a ref so it can change without reconnecting.
+  const onAlertRef = useRef(onAlert)
+  onAlertRef.current = onAlert
 
   const [members, setMembers] = useState([])
   const [ourMembers, setOurMembers] = useState([])
@@ -163,6 +166,9 @@ function useWarRoomSocketImpl({ enabled = true, ourFactionId }) {
             applyChannel(msg.channel, msg.rows)
             if (msg.server_now) watermarkRef.current = msg.server_now
             setLastTick(Date.now())
+          } else if (msg.type === 'alert') {
+            // Out-of-band event (e.g. a PUSH surge, #208) — fire the sound/flash.
+            onAlertRef.current?.(msg)
           }
         } catch (e) {
           console.warn('[useWarRoomSocket] bad frame:', e)
