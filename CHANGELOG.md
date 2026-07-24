@@ -19,6 +19,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **War Room first-run tour.** On a member's first War Room visit, a dismissable
+  spotlight tour highlights the key controls in place — targets/dibs, chain, roll
+  call, alerts, the Mobile App launcher, and the "?" help button — with a one-click
+  **Skip** on every step and a **Replay** from the help panel. Opening the Mobile
+  App runs a short pass over the phone layout. Any step whose target isn't on screen
+  is skipped, and "seen" is remembered per browser (#153, completes the in-app
+  tutorial).
 - **War Room help panel.** A "?" button in the War Room opens a reference panel
   explaining the member-facing features — dibs (incl. auto-drop), the attack-button
   colours, the chain, roll call, personal alerts, and where the same controls live

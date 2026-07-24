@@ -44,6 +44,9 @@ import { parseDbTime } from '../utils/time'
 import { farmCompare } from '../utils/warRoomFarmSort'
 import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle } from 'lucide-react'
 import HelpPanel from '../components/warroom/HelpPanel'
+import SpotlightTour from '../components/warroom/SpotlightTour'
+import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
+import { isTourSeen, markTourSeen, resetTourSeen } from '../utils/warRoomTour'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -1206,6 +1209,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Mobile War Room overlay (only visible on < md viewport — see launcher button)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [tourActive, setTourActive] = useState(false)
+
+  // First-run spotlight tour (#153): auto-run once per browser on first War
+  // Room visit. Steps whose targets aren't present are skipped, so it's safe to
+  // start even before a war is active.
+  useEffect(() => {
+    if (!isTourSeen('desktop')) setTourActive(true)
+  }, [])
+
+  const finishTour = () => { markTourSeen('desktop'); setTourActive(false) }
+  const replayTour = () => { resetTourSeen('desktop'); setHelpOpen(false); setTourActive(true) }
 
   // Lock body scroll AND width while the mobile overlay is up. The width
   // lock is critical: if the desktop page underneath overflows
@@ -2006,6 +2020,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               {/* Mobile launcher — always visible, regardless of viewport.
                   Opens the dedicated mobile-optimised War Room overlay. */}
               <button
+                data-tour="mobile"
                 onClick={() => setMobileOpen(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
               >
@@ -2018,6 +2033,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   for a non-member. */}
               {currentWar && !isVisitor && (
                 <button
+                  data-tour="rollcall"
                   onClick={() => { setRollCallOpen(true) }}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                     myRollCall
@@ -2031,9 +2047,12 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 </button>
               )}
               {/* Personal alerts (#156/#157) — any member, saved per-browser. */}
-              <AlertSettingsButton prefs={alertPrefs} setPrefs={setAlertPrefs} />
+              <span data-tour="alerts" className="inline-flex">
+                <AlertSettingsButton prefs={alertPrefs} setPrefs={setAlertPrefs} />
+              </span>
               {/* Contextual help (#153) — the "?" reference panel, everyone. */}
               <button
+                data-tour="help"
                 onClick={() => setHelpOpen(true)}
                 title="How the War Room works"
                 aria-label="War Room help"
@@ -2263,6 +2282,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         const myRow = ourMembers.find(m => String(m.member_id) === String(user?.id))
         const userCountry = resolveCountryFromDescription(myRow?.status_description)
         return (
+          <div data-tour="chain">
           <FactionStatusBar
             enemyMembers={members}
             ourMembers={ourMembers}
@@ -2281,12 +2301,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             chainClaimError={chainClaimError}
             isAdmin={isAdmin}
           />
+          </div>
         )
       })()}
 
       {/* Member table — shown whenever members exist, or when active (so "waiting…" shows) */}
       {(hasMembers || isActive) ? (
-        <div className="card p-0 overflow-hidden">
+        <div data-tour="roster" className="card p-0 overflow-hidden">
 
           {!hasMembers ? (
             <div className="flex items-center justify-center py-16 text-gray-400 dark:text-gray-600 text-sm">
@@ -2548,7 +2569,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         open={helpOpen}
         onClose={() => setHelpOpen(false)}
         isLeader={(isWarLead || isLeadership || isAdmin) && !isVisitor}
+        onReplayTour={replayTour}
       />
+
+      {/* First-run spotlight tour (#153) — desktop pass. */}
+      {tourActive && <SpotlightTour steps={tourStepsFor('desktop')} onFinish={finishTour} />}
 
       {/* Roll-call overlay — hard gate when the member hasn't responded and
           we're >1h from kickoff; also opened manually (edit) via the button.
