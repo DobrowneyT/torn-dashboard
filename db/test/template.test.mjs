@@ -48,6 +48,8 @@ const NEW_TABLES = [
   'competitions', 'competition_results',
   // Per-member war notes (#199)
   'member_notes',
+  // Web Push subscriptions (#207)
+  'push_subscriptions',
 ]
 
 let server

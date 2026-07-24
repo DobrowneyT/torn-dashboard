@@ -194,6 +194,9 @@ const serviceBlock = `
       KEY_ENCRYPTION_KEY: \${KEY_ENCRYPTION_KEY:-}
       TORNSTATS_API_KEY: \${TORNSTATS_API_KEY:-}
       BSP_API_KEY: \${BSP_API_KEY:-}
+      VAPID_PUBLIC_KEY: \${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: \${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: \${VAPID_SUBJECT:-}
     depends_on:
       postgres:
         condition: service_healthy

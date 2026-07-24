@@ -39,6 +39,7 @@ import WarSummaryCard from '../components/warroom/WarSummaryCard'
 import WarNotesPanel from '../components/warroom/WarNotesPanel'
 import AlertSettingsButton from '../components/warroom/AlertSettingsButton'
 import HeadlineBanner from '../components/warroom/HeadlineBanner'
+import WarRoomPushPrompt from '../components/warroom/WarRoomPushPrompt'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
@@ -2346,6 +2347,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       {/* Leader headline banner (#158) — display sits between the status bar
           and roster (#197). The leader composer lives in the filters card. */}
       <HeadlineBanner config={config} mode="banner" />
+
+      {/* Push opt-in (#207): offer background notifications on entering a live
+          war room (API mode only; visitors are read-only observers). */}
+      {API_MODE && !isVisitor && <WarRoomPushPrompt live={isActive} />}
 
       {/* Member table — shown whenever members exist, or when active (so "waiting…" shows) */}
       {(hasMembers || isActive) ? (
