@@ -17,6 +17,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **Install the dashboard as an app (PWA).** The dashboard now ships a web app
+  manifest, app icons (incl. a maskable icon), and a service worker that caches the
+  app shell for a fast, offline-tolerant launch. Supported browsers (Chrome/Edge/
+  Android) get an **"Install app"** item in the Settings menu; iOS shows Add-to-Home-
+  Screen instructions. Navigations stay network-first so deploys still land
+  immediately. Foundation for War Room push notifications (#198), which extend this
+  same service worker (#206).
+
 ### Changed
 
 - **Member notes open on hover; the pencil edits.** Hovering a roster row's note

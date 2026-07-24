@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { isAdmin, tornKeyGenUrl } from '../config'
 import { Menu, Key, Info, Eye, ChevronRight, Check, LogOut, X } from 'lucide-react'
 import ApiKeyDisclosure from './ApiKeyDisclosure'
+import InstallAppMenuItem from './InstallAppMenuItem'
 
 export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs }) {
   const { user, logout } = useAuth()
@@ -148,6 +149,8 @@ export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs 
                   )}
                 </div>
               )}
+
+              <InstallAppMenuItem onAction={() => setIsOpen(false)} />
 
               <div className="border-t border-gray-200 dark:border-slate-700 my-1"></div>
 
