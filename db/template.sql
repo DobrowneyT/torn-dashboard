@@ -710,6 +710,8 @@ CREATE TABLE public.competitions (
   auto_resolve boolean NOT NULL DEFAULT false,
   resolve_interval_days integer,
   next_resolve_at timestamp with time zone,
+  threshold_comparator text,
+  threshold_value double precision,
   created_by   text,
   created_at   timestamp with time zone NOT NULL DEFAULT now(),
   updated_at   timestamp with time zone NOT NULL DEFAULT now()

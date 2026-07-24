@@ -108,9 +108,16 @@ export default function CompetitionsSection({ isLeadership }) {
                 className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-700/50"
               >
                 <div>
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">{c.name}</div>
+                  <div className="text-sm font-medium text-gray-900 dark:text-white">
+                    {c.name}
+                    {c.type === 'lottery' && (
+                      <span className="ml-2 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 text-[10px] font-semibold align-middle">lottery</span>
+                    )}
+                  </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {c.metric_id}{c.reducer === 'avg_per_day' ? ' /day' : ''} · {windowLabel(c)}
+                    {c.metric_id}{c.reducer === 'avg_per_day' ? ' /day' : ''}
+                    {c.type === 'lottery' && ` ${c.threshold_comparator === 'lte' ? '≤' : '≥'} ${c.threshold_value}`}
+                    {' · '}{windowLabel(c)}
                   </div>
                 </div>
                 <span className="text-xs text-gray-400">{selectedId === c.id ? '▲' : '▼'}</span>
@@ -123,20 +130,24 @@ export default function CompetitionsSection({ isLeadership }) {
                     <>
                       <div>
                         <div className="flex items-center justify-between px-1 mb-1">
-                          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Live standings</span>
+                          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                            {c.type === 'lottery' ? 'Qualified pool' : 'Live standings'}
+                          </span>
                           {isLeadership && (
                             <button
                               onClick={() => resolveCompetition(c.id)}
                               disabled={resolving || (detail?.standings || []).length === 0}
                               className="flex items-center gap-1 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50"
-                              title="Freeze the current standings into history and crown the winner"
+                              title={c.type === 'lottery'
+                                ? 'Draw a winner at random from the qualified pool and record it'
+                                : 'Freeze the current standings into history and crown the winner'}
                             >
                               <Award className="w-3.5 h-3.5" />
-                              {resolving ? 'Recording…' : 'Close & record result'}
+                              {resolving ? 'Recording…' : c.type === 'lottery' ? 'Draw winner' : 'Close & record result'}
                             </button>
                           )}
                         </div>
-                        <Leaderboard standings={detail?.standings || []} />
+                        <Leaderboard standings={detail?.standings || []} lottery={c.type === 'lottery'} />
                       </div>
                       {history.length > 0 && <HistoryList resolutions={history} />}
                     </>
@@ -183,10 +194,12 @@ function HistoryList({ resolutions }) {
   )
 }
 
-function Leaderboard({ standings }) {
+function Leaderboard({ standings, lottery = false }) {
   if (standings.length === 0) {
     return <div className="text-xs text-gray-500 dark:text-gray-400 py-2 px-1">No data in this window yet.</div>
   }
+  // In a lottery, non-qualifiers are shown greyed (they're not in the draw).
+  // Frozen history rows carry no `qualified` flag — they are all pool members.
   return (
     <table className="w-full text-sm">
       <thead>
@@ -197,23 +210,29 @@ function Leaderboard({ standings }) {
         </tr>
       </thead>
       <tbody>
-        {standings.map((r) => (
-          <tr key={r.member_id} className="border-t border-gray-100 dark:border-slate-700/50">
-            <td className="py-1 px-2 text-gray-500 dark:text-gray-400">{r.rank}</td>
-            <td className="py-1 px-2 text-gray-900 dark:text-white">
-              {r.member_name} <span className="text-gray-400">[{r.member_id}]</span>
-              {r.partial && (
-                <span
-                  className="ml-1 text-amber-500 cursor-help"
-                  title="Partial — first snapshot is after the window opened, so this isn't a full-window figure"
-                >⚑</span>
-              )}
-            </td>
-            <td className="py-1 px-2 text-right font-medium text-gray-900 dark:text-white">
-              {Number(r.value).toLocaleString()}
-            </td>
-          </tr>
-        ))}
+        {standings.map((r) => {
+          const dimmed = lottery && r.qualified === false
+          return (
+            <tr key={r.member_id} className={`border-t border-gray-100 dark:border-slate-700/50 ${dimmed ? 'opacity-40' : ''}`}>
+              <td className="py-1 px-2 text-gray-500 dark:text-gray-400">{dimmed ? '—' : r.rank}</td>
+              <td className="py-1 px-2 text-gray-900 dark:text-white">
+                {r.member_name} <span className="text-gray-400">[{r.member_id}]</span>
+                {r.partial && (
+                  <span
+                    className="ml-1 text-amber-500 cursor-help"
+                    title="Partial — first snapshot is after the window opened, so this isn't a full-window figure"
+                  >⚑</span>
+                )}
+                {lottery && r.qualified && (
+                  <span className="ml-1 text-green-600 dark:text-green-400" title="Qualifies for the draw">✓</span>
+                )}
+              </td>
+              <td className="py-1 px-2 text-right font-medium text-gray-900 dark:text-white">
+                {Number(r.value).toLocaleString()}
+              </td>
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   )
@@ -222,9 +241,12 @@ function Leaderboard({ standings }) {
 function CreateCompetitionForm({ onCreated }) {
   const [metrics, setMetrics] = useState([])
   const [name, setName] = useState('')
+  const [type, setType] = useState('leaderboard')
   const [metricId, setMetricId] = useState('')
   const [direction, setDirection] = useState('desc')
   const [reducer, setReducer] = useState('total')
+  const [thresholdComparator, setThresholdComparator] = useState('gte')
+  const [thresholdValue, setThresholdValue] = useState('')
   const [windowKind, setWindowKind] = useState('fixed')
   const [windowStart, setWindowStart] = useState('')
   const [windowEnd, setWindowEnd] = useState('')
@@ -254,13 +276,17 @@ function CreateCompetitionForm({ onCreated }) {
     e.preventDefault()
     setErr(null); setBusy(true)
     try {
-      const payload = { name, metric_id: metricId, direction, reducer, window_kind: windowKind, auto_resolve: autoResolve }
+      const payload = { name, type, metric_id: metricId, direction, reducer, window_kind: windowKind, auto_resolve: autoResolve }
       if (windowKind === 'rolling') {
         payload.rolling_days = Number(rollingDays)
         if (autoResolve && resolveIntervalDays) payload.resolve_interval_days = Number(resolveIntervalDays)
       } else {
         payload.window_start = windowStart
         payload.window_end = windowEnd
+      }
+      if (type === 'lottery') {
+        payload.threshold_comparator = thresholdComparator
+        payload.threshold_value = Number(thresholdValue)
       }
       await apiPost('/api/competitions', payload)
       onCreated()
@@ -282,11 +308,31 @@ function CreateCompetitionForm({ onCreated }) {
             placeholder="July Xanax Grind" required />
         </label>
         <label className="block">
+          <span className="text-xs text-gray-600 dark:text-gray-400">Type</span>
+          <select className={field} value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="leaderboard">Leaderboard (rank, highest/lowest wins)</option>
+            <option value="lottery">Lottery (meet a threshold, random draw)</option>
+          </select>
+        </label>
+        <label className="block">
           <span className="text-xs text-gray-600 dark:text-gray-400">Metric</span>
           <select className={field} value={metricId} onChange={(e) => setMetricId(e.target.value)} required>
             {metrics.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
         </label>
+        {type === 'lottery' && (
+          <label className="block">
+            <span className="text-xs text-gray-600 dark:text-gray-400">Qualify when the value is</span>
+            <div className="flex gap-2">
+              <select className={field} value={thresholdComparator} onChange={(e) => setThresholdComparator(e.target.value)}>
+                <option value="gte">at least</option>
+                <option value="lte">at most</option>
+              </select>
+              <input type="number" step="any" className={field} value={thresholdValue}
+                onChange={(e) => setThresholdValue(e.target.value)} placeholder="threshold" required />
+            </div>
+          </label>
+        )}
         <label className="block">
           <span className="text-xs text-gray-600 dark:text-gray-400">Window</span>
           <select className={field} value={windowKind} onChange={(e) => setWindowKind(e.target.value)}>
