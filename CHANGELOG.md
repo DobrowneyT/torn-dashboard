@@ -19,6 +19,10 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Changed
 
+- **Member notes open on hover; the pencil edits.** Hovering a roster row's note
+  icon now shows the note (read-only) for everyone; clicking the pencil opens the
+  editor (war leads / leadership / admin only). A click also pins it open for touch
+  devices (#199).
 - **War Room header/footer tidy-up.** The leader **headline composer** moved into
   the filters card (the banner itself still shows above the roster); the **"?" help
   button** moved to the top-right of the header card; and the **"last updated"**
