@@ -17,6 +17,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Changed
+
+- **The War Room headline banner moved to a more in-flow spot.** On desktop it now
+  sits between the chain/quick-button status bar and the player roster (instead of
+  at the very top); in the Mobile App overlay it’s pinned to the top so it stays
+  visible as the roster scrolls (#197).
+
 ### Added
 
 - **War Room help panel now covers the quick bar, alerts window, filters and farm
