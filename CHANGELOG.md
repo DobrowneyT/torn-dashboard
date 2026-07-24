@@ -25,6 +25,11 @@ from `VERSION` at runtime) both surface it automatically.
   and chain-watch, with lead/threshold, sound, flash), how the status/activity/
   battle-stat filters work, and farm mode’s priority order (#153).
 
+- **The War Room first-run tour now also walks the quick bar, filters and farm
+  mode, and opens the alerts window** on its alerts step so members see what’s
+  inside it. (Replay it from the "?" panel if you’ve already seen the old tour —
+  it only auto-runs once per browser.) (#153)
+
 ### Fixed
 
 - **War Room tour highlight alignment.** The spotlight ring sat slightly below its

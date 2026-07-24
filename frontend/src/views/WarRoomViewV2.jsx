@@ -496,7 +496,7 @@ function FactionStatusBar({ enemyMembers, ourMembers, factionLabel, reviveServic
           </span>
           <ActivityCounts members={enemyMembers} />
         </div>
-        <div className="flex items-center justify-center md:justify-center shrink-0 self-center md:self-auto">
+        <div data-tour="quickbar" className="flex items-center justify-center md:justify-center shrink-0 self-center md:self-auto">
           <QuickLinksBar
             reviveServiceName={reviveServiceName}
             reviveServiceUrl={reviveServiceUrl}
@@ -1210,6 +1210,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [tourActive, setTourActive] = useState(false)
+  const [tourStep, setTourStep] = useState(null)
+  const [alertsOpen, setAlertsOpen] = useState(false)
+
+  // The tour opens the alerts window on its alerts step so members see what's
+  // inside; it closes again when the tour moves on or ends.
+  useEffect(() => {
+    setAlertsOpen(!!tourStep?.openAlerts)
+  }, [tourStep])
 
   // First-run spotlight tour (#153): auto-run once per browser on first War
   // Room visit. Steps whose targets aren't present are skipped, so it's safe to
@@ -2046,9 +2054,16 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   Roll Call{myRollCall ? '' : ' !'}
                 </button>
               )}
-              {/* Personal alerts (#156/#157) — any member, saved per-browser. */}
+              {/* Personal alerts (#156/#157) — any member, saved per-browser.
+                  Controlled so the first-run tour can open it on the alerts step. */}
               <span data-tour="alerts" className="inline-flex">
-                <AlertSettingsButton prefs={alertPrefs} setPrefs={setAlertPrefs} />
+                <AlertSettingsButton
+                  prefs={alertPrefs}
+                  setPrefs={setAlertPrefs}
+                  open={alertsOpen}
+                  onOpenChange={setAlertsOpen}
+                  lockOpen={tourStep?.id === 'alerts'}
+                />
               </span>
               {/* Contextual help (#153) — the "?" reference panel, everyone. */}
               <button
@@ -2141,7 +2156,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
       {/* Filters — their own card below the controls. */}
       {hasMembers && (
-        <div className="card flex flex-col gap-2">
+        <div data-tour="filters" className="card flex flex-col gap-2">
             <div className="flex flex-wrap gap-y-2 gap-x-4 items-center">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Status:</span>
@@ -2198,7 +2213,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 "Okay (most-recently-released first) → timer ascending → other"
                 layout designed for watching hospital list during farming.
                 Clicking any sortable column header turns farm off again. */}
-            <div className="flex items-center gap-2 flex-wrap">
+            <div data-tour="farm" className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Sort:</span>
               <button
                 onClick={() => setSortCol(c => c === 'farm' ? 'timer' : 'farm')}
@@ -2573,7 +2588,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       />
 
       {/* First-run spotlight tour (#153) — desktop pass. */}
-      {tourActive && <SpotlightTour steps={tourStepsFor('desktop')} onFinish={finishTour} />}
+      {tourActive && (
+        <SpotlightTour
+          steps={tourStepsFor('desktop')}
+          onFinish={finishTour}
+          onStepEnter={setTourStep}
+        />
+      )}
 
       {/* Roll-call overlay — hard gate when the member hasn't responded and
           we're >1h from kickoff; also opened manually (edit) via the button.

@@ -14,7 +14,7 @@ function targetEl(step) {
 }
 const isPresent = (step) => !!targetEl(step)
 
-export default function SpotlightTour({ steps, onFinish }) {
+export default function SpotlightTour({ steps, onFinish, onStepEnter }) {
   // Start at the first step whose target is actually present.
   const [index, setIndex] = useState(() => firstPresentStep(steps, 0, 1, isPresent))
   const [rect, setRect] = useState(null)
@@ -34,6 +34,13 @@ export default function SpotlightTour({ steps, onFinish }) {
   }, [steps, finish])
 
   const step = index >= 0 ? steps[index] : null
+
+  // Let the host react to the active step (e.g. open the alerts window for the
+  // alerts step). Cleared when the tour ends/unmounts.
+  useEffect(() => {
+    onStepEnter?.(step ?? null)
+    return () => onStepEnter?.(null)
+  }, [step, onStepEnter])
 
   // Track the target's position. Bring it to the middle FIRST (instantly), then
   // measure — a smooth scroll after measuring left the highlight lagging below

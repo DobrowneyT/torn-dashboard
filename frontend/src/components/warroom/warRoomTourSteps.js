@@ -16,6 +16,21 @@ export const WAR_ROOM_TOUR_STEPS = [
     body: 'Watch the chain timer — keep hits landing before it drops, and jump in to save the chain when it’s low.',
   },
   {
+    id: 'quickbar', surface: 'desktop',
+    title: 'The quick bar',
+    body: 'Fast links for the war: your Faction War Page, faction Medical items, your Items page, a Revives button (requests from your faction’s revive service), and Find Target (opens a random enemy’s attack page in an ID range you set).',
+  },
+  {
+    id: 'filters', surface: 'desktop',
+    title: 'Filters',
+    body: 'Narrow the list by Status (Okay / Hospital / Flying / Jail) and Activity (Online / Idle / Offline). The battle-stat filter shows only enemies whose spied stats are in a Min–Max range (shorthand like 3m / 2.6b works) — un-spied “???” targets drop out while it’s set.',
+  },
+  {
+    id: 'farm', surface: 'desktop',
+    title: 'Farm mode',
+    body: 'One click sorts the list for grinding hits: green (online + Okay) on top by stats, then freshly-out-of-hospital targets, then whoever’s timer is about to expire. Click a column header to leave farm mode.',
+  },
+  {
     id: 'rollcall', surface: 'desktop',
     title: 'Roll call',
     body: 'When a war starts, fill out your roll call so leaders know your availability. You can edit your answer any time from here.',
@@ -23,7 +38,8 @@ export const WAR_ROOM_TOUR_STEPS = [
   {
     id: 'alerts', surface: 'desktop',
     title: 'Personal alerts',
-    body: 'Turn on personal alerts — a nudge when a target you’ve got dibs on leaves hospital, and a chain-watch when the timer runs low. Saved on this device.',
+    body: 'This is your alerts window (we opened it for you). Toggle on the Dib hospital-exit reminder (with a lead time) and the Chain watch (with a threshold) — each has Sound and Screen-flash options and a Test button. Saved to this device; sounds need one click on the page first.',
+    openAlerts: true,
   },
   {
     id: 'mobile', surface: 'desktop',

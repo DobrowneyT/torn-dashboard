@@ -59,4 +59,14 @@ describe('tour steps content', () => {
     expect(mobileIds.length).toBeGreaterThan(0)
     expect(mobileIds.every((id) => id.startsWith('m-'))).toBe(true)
   })
+
+  it('the desktop pass now walks the quick bar, filters and farm mode', () => {
+    const desktopIds = tourStepsFor('desktop').map((s) => s.id)
+    for (const id of ['quickbar', 'filters', 'farm']) expect(desktopIds).toContain(id)
+  })
+
+  it('the alerts step is flagged to open the alerts window', () => {
+    const alerts = tourStepsFor('desktop').find((s) => s.id === 'alerts')
+    expect(alerts.openAlerts).toBe(true)
+  })
 })
