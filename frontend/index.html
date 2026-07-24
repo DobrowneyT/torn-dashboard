@@ -6,6 +6,16 @@
     <!-- Static pre-JS default; Header.jsx applies the tenant's own
          branding.favicon at runtime once identity loads (#131). -->
     <link rel="icon" type="image/x-icon" href="/torn-dashboard-favicon.ico" />
+    <!-- PWA (#206): manifest + iOS home-screen icon + install theming. iOS has
+         no manifest install prompt, so apple-touch-icon / status-bar meta drive
+         its "Add to Home Screen" experience. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="TNL Forge" />
     <!-- Static pre-JS fallback; Header.jsx overwrites with the tenant's own
          faction name once identity loads (#97, #131). -->
     <title>Torn Dashboard</title>
