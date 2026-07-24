@@ -7,7 +7,7 @@ import { useEffect } from 'react'
 import { X, HelpCircle } from 'lucide-react'
 import { helpSectionsFor } from './warRoomHelp'
 
-export default function HelpPanel({ open, onClose, isLeader = false }) {
+export default function HelpPanel({ open, onClose, isLeader = false, onReplayTour }) {
   // Close on Escape while open.
   useEffect(() => {
     if (!open) return
@@ -43,6 +43,14 @@ export default function HelpPanel({ open, onClose, isLeader = false }) {
         </div>
 
         <div className="p-4 space-y-5">
+          {onReplayTour && (
+            <button
+              onClick={onReplayTour}
+              className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+            >
+              ▶ Replay the tour
+            </button>
+          )}
           {sections.map((s) => (
             <section key={s.id}>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">

@@ -58,6 +58,9 @@ import {
   SlidersHorizontal, ShoppingBag, HeartPulse, Loader2,
 } from 'lucide-react'
 import { farmCompare } from '../utils/warRoomFarmSort'
+import SpotlightTour from '../components/warroom/SpotlightTour'
+import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
+import { isTourSeen, markTourSeen } from '../utils/warRoomTour'
 
 // ───────────────────────────────────────────────────────────────────
 // Static config — status visuals, activity colours, flag icons
@@ -961,6 +964,12 @@ export default function MobileWarRoomView({
   const [filterOpen, setFilterOpen] = useState(false)
   const [leaderOpen, setLeaderOpen] = useState(false)
 
+  // First-open spotlight pass for the mobile overlay (#153). Runs once per
+  // browser the first time the overlay is opened; steps whose targets aren't
+  // present are skipped. Its own seen-flag + one-click Skip, separate from the
+  // desktop tour.
+  const [tourActive, setTourActive] = useState(() => !isTourSeen('mobile'))
+
   // Persist any user-tweakable pref back to the context whenever it changes.
   useEffect(() => {
     setPersistedState({
@@ -1106,6 +1115,7 @@ export default function MobileWarRoomView({
         onRequestRevive={onRequestRevive}
       />
       <CombinedCountRibbon enemyCounts={enemyCounts} ourCounts={ourCounts} />
+      <div data-tour="m-settings">
       <TwoTierFilters
         statusFilter={statusFilter}
         onToggleStatus={toggleStatus}
@@ -1116,8 +1126,9 @@ export default function MobileWarRoomView({
         advancedCount={advancedCount}
         onOpenAdvanced={() => setFilterOpen(true)}
       />
+      </div>
 
-      <div className="px-3 pt-3 pb-20 flex flex-col gap-2">
+      <div data-tour="m-roster" className="px-3 pt-3 pb-20 flex flex-col gap-2">
         {filtered.length === 0 ? (
           <div className="p-8 text-center text-gray-500 text-sm">
             No members match the current filters.<br />
@@ -1167,6 +1178,14 @@ export default function MobileWarRoomView({
         onSetFactionId={onSetFactionId}
         onClearState={onClearState}
       />
+
+      {/* First-open spotlight pass for the mobile layout (#153). */}
+      {tourActive && (
+        <SpotlightTour
+          steps={tourStepsFor('mobile')}
+          onFinish={() => { markTourSeen('mobile'); setTourActive(false) }}
+        />
+      )}
     </div>
   )
 }
