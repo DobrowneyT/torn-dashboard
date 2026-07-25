@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react'
 import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { Trophy, Plus, X, Award, Pin } from 'lucide-react'
 import { boundaryValue, windowLabel } from '../utils/competitionWindow'
+import { buildPrizes, prizeTableRows, formatPrize, ordinal } from '../utils/competitionPrizes'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -144,6 +145,7 @@ export default function CompetitionsSection({ isLeadership }) {
                     <div className="text-xs text-gray-500 py-2 px-1">Loading standings…</div>
                   ) : (
                     <>
+                      <PrizeTable competition={c} />
                       <div>
                         <div className="flex items-center justify-between px-1 mb-1">
                           <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
@@ -174,6 +176,24 @@ export default function CompetitionsSection({ isLeadership }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// The prize table shown to every member on a competition (#239).
+function PrizeTable({ competition }) {
+  const rows = prizeTableRows(competition)
+  if (rows.length === 0) return null
+  return (
+    <div className="px-1">
+      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Prizes</div>
+      <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+        {rows.map((r) => (
+          <span key={r.place} className="text-gray-700 dark:text-gray-200">
+            <span className="text-gray-400">{r.place}</span> {r.prize}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }
@@ -216,6 +236,8 @@ function Leaderboard({ standings, lottery = false }) {
   }
   // In a lottery, non-qualifiers are shown greyed (they're not in the draw).
   // Frozen history rows carry no `qualified` flag — they are all pool members.
+  // A resolved board carries the prize each member earned (#239) → show it.
+  const showPrize = standings.some((r) => r.prize)
   return (
     <table className="w-full text-sm">
       <thead>
@@ -223,6 +245,7 @@ function Leaderboard({ standings, lottery = false }) {
           <th className="py-1 px-2 w-10">#</th>
           <th className="py-1 px-2">Member</th>
           <th className="py-1 px-2 text-right">Value</th>
+          {showPrize && <th className="py-1 px-2 text-right">Prize</th>}
         </tr>
       </thead>
       <tbody>
@@ -246,6 +269,9 @@ function Leaderboard({ standings, lottery = false }) {
               <td className="py-1 px-2 text-right font-medium text-gray-900 dark:text-white">
                 {Number(r.value).toLocaleString()}
               </td>
+              {showPrize && (
+                <td className="py-1 px-2 text-right text-amber-600 dark:text-amber-400">{formatPrize(r.prize)}</td>
+              )}
             </tr>
           )
         })}
@@ -268,6 +294,11 @@ function CreateCompetitionForm({ onCreated }) {
   const [windowEnd, setWindowEnd] = useState('')
   const [windowStartTime, setWindowStartTime] = useState('')
   const [windowEndTime, setWindowEndTime] = useState('')
+  // Prize slots (#239): ordered placement prizes, each cash or text.
+  const [prizeSlots, setPrizeSlots] = useState([])
+  const addPrize = () => setPrizeSlots((s) => [...s, { kind: 'cash', amount: '', text: '' }])
+  const updatePrize = (i, patch) => setPrizeSlots((s) => s.map((p, j) => (j === i ? { ...p, ...patch } : p)))
+  const removePrize = (i) => setPrizeSlots((s) => s.filter((_, j) => j !== i))
   const [rollingDays, setRollingDays] = useState(90)
   const [autoResolve, setAutoResolve] = useState(false)
   const [resolveIntervalDays, setResolveIntervalDays] = useState('')
@@ -308,6 +339,9 @@ function CreateCompetitionForm({ onCreated }) {
         payload.threshold_comparator = thresholdComparator
         payload.threshold_value = Number(thresholdValue)
       }
+      // Placement prizes (#239) — informational; blank slots are dropped.
+      payload.prize_kind = 'placement'
+      payload.prizes = buildPrizes(prizeSlots)
       await apiPost('/api/competitions', payload)
       onCreated()
     } catch (e2) {
@@ -403,6 +437,35 @@ function CreateCompetitionForm({ onCreated }) {
             <option value="asc">Lowest wins</option>
           </select>
         </label>
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">Prizes (optional)</span>
+          <button type="button" onClick={addPrize} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">+ Add prize</button>
+        </div>
+        {prizeSlots.map((p, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 w-8 shrink-0">{ordinal(i + 1)}</span>
+            <select className="px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm shrink-0"
+              value={p.kind} onChange={(e) => updatePrize(i, { kind: e.target.value })}>
+              <option value="cash">Cash</option>
+              <option value="text">Text</option>
+            </select>
+            {p.kind === 'cash' ? (
+              <input type="number" min="1" step="any" className={field} placeholder="amount ($)"
+                value={p.amount} onChange={(e) => updatePrize(i, { amount: e.target.value })} />
+            ) : (
+              <input type="text" maxLength={120} className={field} placeholder="e.g. 1x Xanax, Bragging rights"
+                value={p.text} onChange={(e) => updatePrize(i, { text: e.target.value })} />
+            )}
+            <button type="button" onClick={() => removePrize(i)} className="text-gray-400 hover:text-red-500 shrink-0" title="Remove prize">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+          Slots are placement — 1st, 2nd, 3rd… A lottery awards the top slot to the drawn winner. Cash / text only for now.
+        </p>
       </div>
       <div className="flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">

@@ -30,7 +30,41 @@ function parseWindowBoundary(value: unknown, edge: 'start' | 'end'): string | nu
 const SELECT_COLS =
   `id, name, type, metric_id, direction, reducer, window_kind,
    window_start, window_end, rolling_days, auto_resolve, resolve_interval_days,
-   next_resolve_at, threshold_comparator, threshold_value, pinned, created_by, created_at`
+   next_resolve_at, threshold_comparator, threshold_value, pinned,
+   prize_kind, prizes, created_by, created_at`
+
+const PRIZES_MAX = 10
+const TEXT_PRIZE_MAX = 120
+
+// Validate + normalise the prize table (#239). Placement = an ordered list of
+// tagged slots (slot 0 = 1st / lottery winner). Each slot is cash (a positive
+// number) or text (non-empty, capped). Returns the normalised prizes array, or
+// an { error } to reject with. Absent prizes → an empty placement table.
+function parsePrizes(body: { prize_kind?: unknown; prizes?: unknown }):
+  { prize_kind: string; prizes: unknown[] } | { error: string } {
+  const kind = body.prize_kind == null ? 'placement' : body.prize_kind
+  // 'flat' arrives in a later slice — only 'placement' is accepted here.
+  if (kind !== 'placement') return { error: 'prize_kind must be "placement"' }
+  if (body.prizes == null) return { prize_kind: 'placement', prizes: [] }
+  if (!Array.isArray(body.prizes)) return { error: 'prizes must be an array' }
+  if (body.prizes.length > PRIZES_MAX) return { error: `at most ${PRIZES_MAX} prizes` }
+  const out: unknown[] = []
+  for (const raw of body.prizes) {
+    const slot = raw as { kind?: unknown; amount?: unknown; text?: unknown }
+    if (slot.kind === 'cash') {
+      const amount = Number(slot.amount)
+      if (!Number.isFinite(amount) || amount <= 0) return { error: 'a cash prize needs a positive amount' }
+      out.push({ kind: 'cash', amount })
+    } else if (slot.kind === 'text') {
+      const text = typeof slot.text === 'string' ? slot.text.trim() : ''
+      if (!text || text.length > TEXT_PRIZE_MAX) return { error: `a text prize must be 1..${TEXT_PRIZE_MAX} chars` }
+      out.push({ kind: 'text', text })
+    } else {
+      return { error: 'each prize must be { kind: "cash" | "text", … }' }
+    }
+  }
+  return { prize_kind: 'placement', prizes: out }
+}
 
 // Minimal structural handle on the boundary-timer manager (#230), injected so
 // this module doesn't import competitionTimers (which imports back from here).
@@ -187,17 +221,22 @@ export function registerCompetitionRoutes(
         nextResolveAt.setUTCDate(nextResolveAt.getUTCDate() + resolveIntervalDays)
       }
 
+      // Prize table (#239) — placement cash/text slots, informational.
+      const prizes = parsePrizes(body as { prize_kind?: unknown; prizes?: unknown })
+      if ('error' in prizes) return reply.status(400).send({ error: prizes.error })
+
       const createdBy = req.session!.torn_user_id
       const inserted = await db.query(
         `INSERT INTO competitions
            (name, type, metric_id, direction, reducer, window_kind, window_start, window_end,
             rolling_days, auto_resolve, resolve_interval_days, next_resolve_at,
-            threshold_comparator, threshold_value, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            threshold_comparator, threshold_value, prize_kind, prizes, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
          RETURNING ${SELECT_COLS}`,
         [name, type, body.metric_id, direction, reducer, windowKind, windowStart, windowEnd,
          rollingDays, autoResolve, resolveIntervalDays, nextResolveAt,
-         thresholdComparator, thresholdValue, String(createdBy)]
+         thresholdComparator, thresholdValue, prizes.prize_kind, JSON.stringify(prizes.prizes),
+         String(createdBy)]
       )
       // Arm the boundary timers (#230): a baseline capture at start, a final
       // capture + auto-freeze at end. immediate=true lets a just-started contest
@@ -251,7 +290,7 @@ export function registerCompetitionRoutes(
     if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'Competition not found' })
     const res = await db.query(
       `SELECT resolution_seq, resolved_at, resolved_by, window_start, window_end,
-              member_id, member_name, value, rank, partial, winner
+              member_id, member_name, value, rank, partial, winner, prize
          FROM competition_results
         WHERE competition_id = $1
         ORDER BY resolution_seq DESC, rank ASC`,
@@ -275,7 +314,7 @@ export function registerCompetitionRoutes(
       }
       const row = {
         member_id: r.member_id, member_name: r.member_name,
-        value: r.value, rank: r.rank, partial: r.partial, winner: r.winner,
+        value: r.value, rank: r.rank, partial: r.partial, winner: r.winner, prize: r.prize,
       }
       group.standings.push(row)
       if (r.winner) group.winner = row
@@ -299,6 +338,8 @@ export interface CompetitionRow {
   next_resolve_at?: string | Date | null
   threshold_comparator?: string | null
   threshold_value?: number | null
+  prize_kind?: string | null
+  prizes?: unknown[] | null
 }
 
 type Standing = Awaited<ReturnType<typeof computeStandings>>[number]
@@ -439,14 +480,25 @@ export async function resolveCompetition(
       [competition.id]
     )
     const seq = seqRes.rows[0].seq as number
+    // The prize each member earns (#239). Placement: leaderboard maps rank r →
+    // slot r-1 (winner is rank 1 → slot 0); lottery awards slot 0 to the drawn
+    // winner only (the winner is random, not rank-1).
+    const prizeSlots: unknown[] = Array.isArray(competition.prizes) ? competition.prizes : []
+    const isLottery = competition.type === 'lottery'
+    const prizeFor = (s: { member_id: string; rank: number }): unknown =>
+      isLottery
+        ? (s.member_id === winnerId ? (prizeSlots[0] ?? null) : null)
+        : (prizeSlots[s.rank - 1] ?? null)
     for (const s of recorded) {
+      const prize = prizeFor(s)
       await client.query(
         `INSERT INTO competition_results
            (competition_id, resolution_seq, resolved_by, window_start, window_end,
-            member_id, member_name, value, rank, partial, winner)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            member_id, member_name, value, rank, partial, winner, prize)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [competition.id, seq, resolvedBy, window.start, window.end, s.member_id, s.member_name,
-         s.value, s.rank, s.partial, s.member_id === winnerId]
+         s.value, s.rank, s.partial, s.member_id === winnerId,
+         prize == null ? null : JSON.stringify(prize)]
       )
     }
     await client.query('COMMIT')
