@@ -212,6 +212,10 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **War Room alert timers no longer corrupt typed input.** The dib lead-time and
+  chain-watch threshold fields clamped to a minimum on every keystroke, so typing
+  "15" bumped the leading "1" to "5" → "55" (any 1–4 became 5). They now let you
+  type freely and clamp only on commit (blur/Enter), and the floor is 1 second.
 - **Competition metric paths corrected against live personalstats.** Several
   metrics pointed at the wrong keys, so their boards silently showed "No data in
   this window yet" even with snapshots present: **Xanax** (`drugs.xantaken` →
