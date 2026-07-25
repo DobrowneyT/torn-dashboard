@@ -8,7 +8,7 @@
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
-import { getMetric, metricOptions } from './competitions/metrics.js'
+import { getMetric, metricOptions, DAILY_STAT_COLUMNS } from './competitions/metrics.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const NAME_MAX = 120
@@ -328,13 +328,26 @@ export async function computeStandings(db: pg.Pool, competition: CompetitionRow)
   const perDay = competition.reducer === 'avg_per_day'
   const windowDays = daysBetween(window.start, window.end)
 
+  // The per-snapshot value comes either from a personalstats jsonb path or from
+  // a dedicated numeric column (e.g. gym_energy). The column name is validated
+  // against DAILY_STAT_COLUMNS so it's safe to embed in SQL; the path stays a
+  // bound parameter.
+  const isColumn = metric.source === 'daily_column'
+  if (isColumn ? !(metric.column && DAILY_STAT_COLUMNS.has(metric.column)) : !metric.path) return []
+  const valExpr = isColumn ? `s.${metric.column}::numeric` : `(s.personalstats #>> $3::text[])::numeric`
+  const guard = isColumn
+    ? `s.${metric.column} IS NOT NULL`
+    : `(s.personalstats #>> $3::text[]) ~ '^-?[0-9]+(\\.[0-9]+)?$'`
+  const params: unknown[] = isColumn
+    ? [window.start, window.end]
+    : [window.start, window.end, metric.path]
+
   const res = await db.query(
     `WITH in_window AS (
-       SELECT s.member_id, s.snapshot_date,
-              (s.personalstats #>> $3::text[])::numeric AS val
+       SELECT s.member_id, s.snapshot_date, ${valExpr} AS val
        FROM member_daily_stats s
        WHERE s.snapshot_date BETWEEN $1 AND $2
-         AND (s.personalstats #>> $3::text[]) ~ '^-?[0-9]+(\\.[0-9]+)?$'
+         AND ${guard}
      ),
      bounds AS (
        SELECT member_id,
@@ -352,7 +365,7 @@ export async function computeStandings(db: pg.Pool, competition: CompetitionRow)
      FROM bounds b
      JOIN members m ON m.member_id = b.member_id AND m.is_current = true
      ORDER BY value ${order}, m.member_name`,
-    [window.start, window.end, metric.path]
+    params
   )
   return res.rows.map((r, i) => ({
     rank: i + 1,
