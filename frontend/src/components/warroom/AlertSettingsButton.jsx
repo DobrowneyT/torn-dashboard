@@ -6,6 +6,26 @@ import { useEffect, useRef, useState } from 'react'
 import { Bell } from 'lucide-react'
 import { saveAlertPrefs, playAlertSound } from '../../utils/warRoomAlerts'
 
+// A number input that lets you type freely and only clamps to [min,max] on
+// commit (blur / Enter). Clamping on every keystroke corrupted input — e.g.
+// typing "15" bumped the leading "1" up to the minimum, giving "55" (#alerts).
+function NumberField({ value, disabled, min, max, onCommit }) {
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => { setDraft(String(value)) }, [value])
+  function commit() {
+    const n = Math.min(max, Math.max(min, Math.floor(Number(draft) || value)))
+    setDraft(String(n))
+    if (n !== value) onCommit(n)
+  }
+  return (
+    <input type="number" min={min} max={max} step={1} value={draft} disabled={disabled}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+      className="w-20 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white disabled:opacity-50" />
+  )
+}
+
 function Row({ label, children }) {
   return (
     <label className="flex items-center justify-between gap-3 text-sm text-gray-700 dark:text-gray-200">
@@ -27,9 +47,8 @@ function ChannelSection({ title, hint, cfg, onChange, sampleKind, unitLabel, uni
       </div>
       <p className="text-xs text-gray-500 dark:text-gray-400">{hint}</p>
       <Row label={unitLabel}>
-        <input type="number" min={5} max={600} step={1} value={cfg[unitKey]} disabled={!cfg.enabled}
-          onChange={e => onChange({ ...cfg, [unitKey]: Math.min(600, Math.max(5, Math.floor(Number(e.target.value) || cfg[unitKey]))) })}
-          className="w-20 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white disabled:opacity-50" />
+        <NumberField value={cfg[unitKey]} disabled={!cfg.enabled} min={1} max={600}
+          onCommit={n => onChange({ ...cfg, [unitKey]: n })} />
       </Row>
       <Row label="Sound">
         <input type="checkbox" checked={cfg.sound} disabled={!cfg.enabled}
