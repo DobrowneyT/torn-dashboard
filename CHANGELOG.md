@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competition start/end time-of-day picker + visible end time (#231).** The
+  create form now takes an optional **time** beside each date (Torn City Time);
+  leave it blank for start-of-day / end-of-day. Every member sees the window —
+  including the **exact end time** — on the competition, so a hard cutoff is
+  clear to everyone. Date-only windows still display cleanly as just dates.
 - **Exact competition boundaries via precise timers (#230).** Each fixed
   competition now arms a one-off timer at its **start** (captures a baseline
   sample) and its **end** (captures a final sample, then auto-freezes an

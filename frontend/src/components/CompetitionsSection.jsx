@@ -5,15 +5,11 @@
 import { useState, useEffect } from 'react'
 import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { Trophy, Plus, X, Award, Pin } from 'lucide-react'
+import { boundaryValue, windowLabel } from '../utils/competitionWindow'
 
 function fmtDate(d) {
   if (!d) return ''
   return String(d).slice(0, 10)
-}
-
-function windowLabel(c) {
-  if (c.window_kind === 'rolling') return `rolling · last ${c.rolling_days} days`
-  return `${fmtDate(c.window_start)} → ${fmtDate(c.window_end)}`
 }
 
 export default function CompetitionsSection({ isLeadership }) {
@@ -270,6 +266,8 @@ function CreateCompetitionForm({ onCreated }) {
   const [windowKind, setWindowKind] = useState('fixed')
   const [windowStart, setWindowStart] = useState('')
   const [windowEnd, setWindowEnd] = useState('')
+  const [windowStartTime, setWindowStartTime] = useState('')
+  const [windowEndTime, setWindowEndTime] = useState('')
   const [rollingDays, setRollingDays] = useState(90)
   const [autoResolve, setAutoResolve] = useState(false)
   const [resolveIntervalDays, setResolveIntervalDays] = useState('')
@@ -301,8 +299,10 @@ function CreateCompetitionForm({ onCreated }) {
         payload.rolling_days = Number(rollingDays)
         if (autoResolve && resolveIntervalDays) payload.resolve_interval_days = Number(resolveIntervalDays)
       } else {
-        payload.window_start = windowStart
-        payload.window_end = windowEnd
+        // A time-of-day is optional (#231): with one, submit an exact TCT
+        // timestamp; without, a bare date the API maps to start/end-of-day.
+        payload.window_start = boundaryValue(windowStart, windowStartTime)
+        payload.window_end = boundaryValue(windowEnd, windowEndTime)
       }
       if (type === 'lottery') {
         payload.threshold_comparator = thresholdComparator
@@ -371,12 +371,23 @@ function CreateCompetitionForm({ onCreated }) {
           <>
             <label className="block">
               <span className="text-xs text-gray-600 dark:text-gray-400">Start date</span>
-              <input type="date" className={field} value={windowStart} onChange={(e) => setWindowStart(e.target.value)} required />
+              <div className="flex gap-2">
+                <input type="date" className={field} value={windowStart} onChange={(e) => setWindowStart(e.target.value)} required />
+                <input type="time" className={field} value={windowStartTime} onChange={(e) => setWindowStartTime(e.target.value)}
+                  title="Optional start time (TCT). Blank = start of day." />
+              </div>
             </label>
             <label className="block">
               <span className="text-xs text-gray-600 dark:text-gray-400">End date</span>
-              <input type="date" className={field} value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} required />
+              <div className="flex gap-2">
+                <input type="date" className={field} value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} required />
+                <input type="time" className={field} value={windowEndTime} onChange={(e) => setWindowEndTime(e.target.value)}
+                  title="Optional end time (TCT). Blank = end of day." />
+              </div>
             </label>
+            <p className="sm:col-span-2 text-[11px] text-gray-500 dark:text-gray-400 -mt-1">
+              Times are Torn City Time (TCT). Leave a time blank for start-of-day / end-of-day.
+            </p>
           </>
         ) : (
           <label className="block">
