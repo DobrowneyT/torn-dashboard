@@ -19,6 +19,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Exact competition boundaries via precise timers (#230).** Each fixed
+  competition now arms a one-off timer at its **start** (captures a baseline
+  sample) and its **end** (captures a final sample, then auto-freezes an
+  auto-resolving contest) — stamped at the exact boundary instant, so a contest
+  with a hard time cutoff freezes on the values as they were at that moment, no
+  leader action required. Timers are re-armed from the DB on restart; the
+  auto-resolve tick remains the backstop if a timer was missed. A just-started
+  contest grabs its baseline immediately; a long-past start is left to the
+  latest existing reading.
 - **Faster, gap-free `member-stats` via multi-key fan-out (#228).** The run now
   spreads its per-member calls across up to ~3 pooled keys (operator-tunable via
   `MEMBER_STATS_MAX_KEYS`), finishing in a fraction of the single-key time. The

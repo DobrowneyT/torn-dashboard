@@ -22,7 +22,10 @@ import { registerWarRoomSetupRoutes } from './warRoomSetup.js'
 import { registerAdminRoutes } from './admin.js'
 import { registerBrandingRoutes } from './branding.js'
 import { registerManifestRoute } from './manifest.js'
-import { registerCompetitionRoutes } from './competitions.js'
+import { registerCompetitionRoutes, resolveCompetition } from './competitions.js'
+import { createCompetitionTimers, type CompetitionTimers } from './competitions/competitionTimers.js'
+import { createKeyPool } from './scraper/keyPool.js'
+import { createTornClient } from './scraper/tornClient.js'
 import { registerMemberNotesRoutes } from './memberNotes.js'
 import { registerPushRoutes, type PushService, type VapidConfig } from './push.js'
 import { createJobRunner } from './scraper/registerJobs.js'
@@ -57,10 +60,11 @@ export interface ServerOptions {
 
 export async function buildServer(
   opts: ServerOptions
-): Promise<FastifyInstance & { warRoomHub?: WarRoomHub; pushService?: PushService }> {
+): Promise<FastifyInstance & { warRoomHub?: WarRoomHub; pushService?: PushService; competitionTimers?: CompetitionTimers }> {
   const app = Fastify({ logger: false }) as FastifyInstance & {
     warRoomHub?: WarRoomHub
     pushService?: PushService
+    competitionTimers?: CompetitionTimers
   }
 
   // Liveness: the process is up. Cheap, dependency-free — Docker's HEALTHCHECK
@@ -197,7 +201,29 @@ export async function buildServer(
     // Per-tenant PWA manifest (follow-up to #206) — each faction's installed app
     // shows its own name/icon instead of the shared "TNL Forge" default.
     registerManifestRoute(app, opts.db)
-    registerCompetitionRoutes(app, opts.db)
+    // Precise competition boundary timers (#230): capture a baseline at start and
+    // a final sample + auto-freeze at end. Needs a key pool → only when a valid
+    // at-rest key is configured; otherwise competitions still resolve live/on the
+    // backstop tick without exact-instant captures.
+    if (opts.keyEncryptionKey) {
+      try {
+        const capDeps = {
+          db: opts.db,
+          pool: createKeyPool({ db: opts.db, encryptionKey: opts.keyEncryptionKey }),
+          client: createTornClient({ baseUrl: opts.tornBaseUrl, budget: { requests: 60, perMs: 60_000 } }),
+        } as Parameters<typeof createCompetitionTimers>[0]['deps']
+        app.competitionTimers = createCompetitionTimers({
+          db: opts.db,
+          deps: capDeps,
+          resolve: (comp) => resolveCompetition(opts.db, comp as never, 'scheduler'),
+        })
+        app.addHook('onClose', async () => { app.competitionTimers?.stopAll() })
+      } catch {
+        // A malformed key already logged above via the scraper path — timers just
+        // stay off.
+      }
+    }
+    registerCompetitionRoutes(app, opts.db, { competitionTimers: app.competitionTimers })
     registerMemberNotesRoutes(app, opts.db)
     // Web Push (#207): subscription storage + VAPID-signed delivery. The service
     // is kept on the app so background senders (#208/#209) can reuse it.
