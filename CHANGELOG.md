@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Default revive services in the War Room.** A never-configured faction now
+  starts with **UHC, WTF and Nuke** preset (name/URL/source/payload shape) instead
+  of an empty list, so leaders can pick one from the dropdown without re-entering
+  them. Editing or clearing the list saves an explicit list that overrides the
+  defaults.
 - **Per-tenant PWA manifest.** Each faction API now serves its own
   `/api/manifest.webmanifest` from its identity, so an **installed** dashboard
   shows the tenant's name (and its logo as the app icon when one is set) instead
