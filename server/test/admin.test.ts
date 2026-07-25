@@ -162,6 +162,19 @@ describe('global-admin scraper surface', () => {
     await loginAs('KEYDONORKEY7600X', '7600')
   })
 
+  // The trigger backgrounds the job (returns a 'running' record at once so a
+  // minutes-long job can't hold the HTTP request open past the nginx timeout).
+  // Poll the visible history until the run settles.
+  async function waitForRun(runId: number, tries = 50): Promise<any> {
+    for (let i = 0; i < tries; i++) {
+      const history = await api('GET', '/api/admin/scraper/runs', adminToken)
+      const row = history.body.runs.find((r: any) => r.id === runId)
+      if (row && row.status !== 'running') return row
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    throw new Error(`run ${runId} did not settle`)
+  }
+
   it('admin triggers a job manually and the run lands in the visible history', async () => {
     stack.torn.setPath('/v2/torn/items', {
       items: [{ id: 66, name: 'Morphine', value: { market_price: 20000, sell_price: 15000, buy_price: 0 } }],
@@ -169,12 +182,11 @@ describe('global-admin scraper surface', () => {
 
     const run = await api('POST', '/api/admin/scraper/jobs/items-sync/run', adminToken, {})
     expect(run.status).toBe(200)
-    expect(run.body.run.status).toBe('success')
-    expect(run.body.run.rows_written).toBe(1)
+    // Returns immediately with a 'running' record; the job runs in the background.
+    expect(run.body.run.status).toBe('running')
 
-    const history = await api('GET', '/api/admin/scraper/runs', adminToken)
-    expect(history.status).toBe(200)
-    const row = history.body.runs.find((r: any) => r.job_name === 'items-sync')
+    const row = await waitForRun(run.body.run.id)
+    expect(row.job_name).toBe('items-sync')
     expect(row.status).toBe('success')
     expect(row.rows_written).toBe(1)
   })
@@ -183,8 +195,11 @@ describe('global-admin scraper surface', () => {
     // wars-sync will claim a key then hit an unconfigured fixture path.
     const run = await api('POST', '/api/admin/scraper/jobs/wars-sync/run', adminToken, {})
     expect(run.status).toBe(200)
-    expect(run.body.run.status).toBe('failure')
-    expect(run.body.run.error).toBeTruthy()
+    expect(run.body.run.status).toBe('running')
+
+    const row = await waitForRun(run.body.run.id)
+    expect(row.status).toBe('failure')
+    expect(row.error).toBeTruthy()
   })
 
   it('rejects an unknown job name', async () => {

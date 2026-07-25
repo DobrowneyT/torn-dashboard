@@ -212,6 +212,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **Manually-triggered scrapers no longer 502 the Global Admin page.** The "Run"
+  button held the HTTP request open until the whole job finished, so a long job
+  (member-stats runs for minutes) blew past the reverse-proxy read timeout and
+  returned a 502 — while the job kept running invisibly. The trigger now returns
+  immediately with a **running** record; the job runs in the background and the
+  **Recent Runs** panel auto-refreshes until it settles. Any run left stuck in
+  **running** by a killed process (redeploy/crash) is now **reaped to failure at
+  startup**, so it can't linger forever or masquerade as in-flight.
 - **Competitions now count the full final window day.** A cumulative-stat board
   read its end value from the snapshot dated on the window's end day, but the
   daily `member-stats` job runs early each morning, so that snapshot only captured
