@@ -291,6 +291,15 @@ function toIsoDate(d: string | Date): string {
   return typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10)
 }
 
+// One UTC day later as a YYYY-MM-DD string. Used to reach the day-after snapshot:
+// the daily member-stats job runs early each morning, so the cumulative stat at
+// the END of day D is captured by the snapshot dated D+1 — not the one dated D.
+function addUtcDays(iso: string, days: number): string {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
 // The concrete [start, end] the standings cover: a fixed competition's stored
 // dates, or — for a rolling one — the trailing rolling_days ending today (UTC).
 export function effectiveWindow(
@@ -338,9 +347,13 @@ export async function computeStandings(db: pg.Pool, competition: CompetitionRow)
   const guard = isColumn
     ? `s.${metric.column} IS NOT NULL`
     : `(s.personalstats #>> $3::text[]) ~ '^-?[0-9]+(\\.[0-9]+)?$'`
+  // The upper query bound reaches one day past window.end so the end value comes
+  // from the day-after snapshot, which captures the full final day of the window
+  // (see addUtcDays). windowDays and the `partial` flag stay keyed to window.end.
+  const endBound = addUtcDays(window.end, 1)
   const params: unknown[] = isColumn
-    ? [window.start, window.end]
-    : [window.start, window.end, metric.path]
+    ? [window.start, endBound]
+    : [window.start, endBound, metric.path]
 
   const res = await db.query(
     `WITH in_window AS (
@@ -501,12 +514,13 @@ export async function runAutoResolve(db: pg.Pool, now = new Date()) {
       const next = advanceNextResolve(toDate(comp.next_resolve_at), interval, now)
       await db.query('UPDATE competitions SET next_resolve_at = $1, updated_at = now() WHERE id = $2', [next, comp.id])
     } else {
-      // Fixed: resolve once. Skip if already resolved or the end-day snapshot
-      // hasn't landed yet (don't freeze an under-counted board).
+      // Fixed: resolve once. Skip if already resolved or the day-after snapshot
+      // hasn't landed yet — that snapshot captures the full final day, so freezing
+      // the board before it lands would under-count everyone's final-day activity.
       const already = await db.query('SELECT 1 FROM competition_results WHERE competition_id = $1 LIMIT 1', [comp.id])
       if (already.rows.length > 0) continue
       const endData = await db.query(
-        'SELECT 1 FROM member_daily_stats WHERE snapshot_date >= $1 LIMIT 1',
+        'SELECT 1 FROM member_daily_stats WHERE snapshot_date > $1 LIMIT 1',
         [toIsoDate(comp.window_end)]
       )
       if (endData.rows.length === 0) continue

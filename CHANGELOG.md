@@ -212,6 +212,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **Competitions now count the full final window day.** A cumulative-stat board
+  read its end value from the snapshot dated on the window's end day, but the
+  daily `member-stats` job runs early each morning, so that snapshot only captured
+  activity up to the end day's *start* — losing the entire last day. Standings now
+  read the end value from the **day-after** snapshot (which captures the full end
+  day), and an auto-resolving fixed competition **waits until that day-after
+  snapshot has landed** before it freezes the board, so no one's final-day effort
+  is under-counted when picking the winner.
 - **War Room alert timers no longer corrupt typed input.** The dib lead-time and
   chain-watch threshold fields clamped to a minimum on every keystroke, so typing
   "15" bumped the leading "1" to "5" → "55" (any 1–4 became 5). They now let you
