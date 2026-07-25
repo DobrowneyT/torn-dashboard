@@ -148,15 +148,43 @@ export default function GlobalAdminView() {
     }
   }
 
+  // Poll the run log until a specific run settles, refreshing the table as it
+  // goes. Manual triggers now return immediately with a 'running' record (the
+  // job runs in the background so a minutes-long job can't 502 the request), so
+  // we watch it here instead of blocking on the trigger call.
+  async function pollRunUntilDone(runId, { tries = 60, intervalMs = 4000 } = {}) {
+    for (let i = 0; i < tries; i++) {
+      await new Promise((r) => setTimeout(r, intervalMs))
+      let data
+      try { data = await apiGet('/api/admin/scraper/runs?limit=30') } catch { continue }
+      setRuns(data.runs || [])
+      const found = (data.runs || []).find((r) => r.id === runId)
+      if (found && found.status !== 'running') return found
+    }
+    return null
+  }
+
   async function runJob(job) {
     setBusyJob(job.job_name)
     setNotice(null)
     try {
       const { run } = await apiPost(`/api/admin/scraper/jobs/${job.job_name}/run`, {})
-      setNotice(run.status === 'success'
-        ? { kind: 'ok', msg: `${job.job_name}: ${run.rows_written} rows written` }
-        : { kind: 'err', msg: `${job.job_name} failed: ${run.error}` })
-      await load()
+      if (run.status === 'running' && run.id != null) {
+        setNotice({ kind: 'ok', msg: `${job.job_name}: started — running in the background…` })
+        await load()
+        const settled = await pollRunUntilDone(run.id)
+        if (settled) {
+          setNotice(settled.status === 'success'
+            ? { kind: 'ok', msg: `${job.job_name}: ${settled.rows_written} rows written` }
+            : { kind: 'err', msg: `${job.job_name} failed: ${settled.error}` })
+        }
+      } else {
+        // Defensive: a run that already settled synchronously.
+        setNotice(run.status === 'success'
+          ? { kind: 'ok', msg: `${job.job_name}: ${run.rows_written} rows written` }
+          : { kind: 'err', msg: `${job.job_name} failed: ${run.error}` })
+        await load()
+      }
     } catch (err) {
       setNotice({ kind: 'err', msg: err.payload?.error || err.message })
     } finally {

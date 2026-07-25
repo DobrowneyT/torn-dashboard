@@ -124,6 +124,66 @@ describe('run logging', () => {
     expect(recent[1].job_name).toBe('demo-sync')
     expect(recent[1].details).toEqual({ pages: 3 })
   })
+
+  it('startRun returns a running record immediately and settles the row in the background', async () => {
+    const { createRunLogger } = await import('../src/scraper/runLog.js')
+    const runs = createRunLogger(stack.db)
+
+    // A body the test controls: it stays pending until we release it, standing
+    // in for a long job (member-stats runs for minutes). The caller must not
+    // block on it — a synchronous trigger holds the HTTP request open and nginx
+    // 502s at 60s.
+    let release: (r: { rows: number }) => void = () => {}
+    const gate = new Promise<{ rows: number }>((res) => { release = res })
+
+    const started = await runs.startRun('bg-demo', () => gate)
+    // Returned while the body is still pending.
+    expect(started.status).toBe('running')
+    expect(started.finished_at).toBeNull()
+    expect(started.id).toBeTruthy()
+    const midRow = await stack.db.query('SELECT status FROM scraper_runs WHERE id = $1', [started.id])
+    expect(midRow.rows[0].status).toBe('running')
+
+    // Once the body resolves, the background settle closes the row.
+    release({ rows: 7 })
+    let settled: { status: string; rows_written: number; finished_at: string | null } | undefined
+    for (let i = 0; i < 50 && settled?.status !== 'success'; i++) {
+      settled = (await stack.db.query(
+        'SELECT status, rows_written, finished_at FROM scraper_runs WHERE id = $1', [started.id]
+      )).rows[0]
+      if (settled?.status !== 'success') await new Promise((r) => setTimeout(r, 20))
+    }
+    expect(settled!.status).toBe('success')
+    expect(settled!.rows_written).toBe(7)
+    expect(settled!.finished_at).toBeTruthy()
+  })
+
+  it('reapOrphanedRuns fails leftover running rows on boot and leaves finished runs alone', async () => {
+    const { createRunLogger } = await import('../src/scraper/runLog.js')
+    const runs = createRunLogger(stack.db)
+
+    // A finished run (must survive the reap) and an orphan left 'running' the
+    // way a job killed mid-flight by a redeploy/crash leaves it.
+    const good = await runs.withRun('reap-demo', async () => ({ rows: 3 }))
+    const orphan = await stack.db.query(
+      `INSERT INTO scraper_runs (job_name, status) VALUES ('reap-demo', 'running') RETURNING id`
+    )
+    const orphanId = orphan.rows[0].id
+
+    const reaped = await runs.reapOrphanedRuns()
+    expect(reaped).toBeGreaterThanOrEqual(1)
+
+    const rows = await stack.db.query(
+      'SELECT id, status, error, finished_at FROM scraper_runs WHERE id = ANY($1)', [[good.id, orphanId]]
+    )
+    const byId = Object.fromEntries(rows.rows.map((r) => [String(r.id), r]))
+    // The orphan is closed out as a failure with a restart marker.
+    expect(byId[String(orphanId)].status).toBe('failure')
+    expect(byId[String(orphanId)].error).toMatch(/interrupt|restart/i)
+    expect(byId[String(orphanId)].finished_at).toBeTruthy()
+    // The already-finished run is untouched.
+    expect(byId[String(good.id)].status).toBe('success')
+  })
 })
 
 describe('scheduler (end-to-end demo)', () => {

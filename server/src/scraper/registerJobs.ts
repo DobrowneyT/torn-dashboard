@@ -74,6 +74,12 @@ export async function startScrapers(opts: ScraperWiringOptions) {
   const runLogger = createRunLogger(opts.db)
   const scheduler = createScheduler({ db: opts.db, runLogger })
 
+  // A previous process may have died mid-run (redeploy, crash, OOM), leaving
+  // rows stuck 'running' forever. Close them out before we start so the run
+  // history is honest and stale rows can't mask themselves as in-flight.
+  const reaped = await runLogger.reapOrphanedRuns()
+  if (reaped > 0) console.log(`[scraper] reaped ${reaped} orphaned running run(s) from a prior process`)
+
   for (const [name, schedule, job] of JOB_TABLE) {
     await scheduler.register(name, schedule, () => job(deps))
   }
@@ -97,7 +103,11 @@ export function createJobRunner(opts: ScraperWiringOptions) {
     async runNow(jobName: string) {
       const entry = byName.get(jobName)
       if (!entry) return null
-      return runLogger.withRun(jobName, () => entry.job(deps))
+      // Background the run: return the 'running' record at once so the admin
+      // HTTP request returns immediately (a minutes-long job behind a blocking
+      // request 502s at the nginx read timeout). The Global Admin "Recent Runs"
+      // view polls for the row to settle.
+      return runLogger.startRun(jobName, () => entry.job(deps))
     },
   }
 }
