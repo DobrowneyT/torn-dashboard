@@ -155,6 +155,18 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
     return { items: items.rows, inventory_prices: inventoryPrices.rows }
   })
 
+  // Item name search for the competition prize picker (#241): up to ~20
+  // catalogue matches by name (ILIKE), auth-gated. Empty query → no results.
+  app.get('/api/items/search', { preHandler: requireAuth() }, async (req) => {
+    const q = ((req.query as { q?: string }).q ?? '').trim()
+    if (!q) return { items: [] }
+    const rows = await db.query(
+      'SELECT id, name, market_price FROM items WHERE name ILIKE $1 ORDER BY name LIMIT 20',
+      [`%${q}%`]
+    )
+    return { items: rows.rows }
+  })
+
   // Full member rows + all CPR rows: the calculator's roster input.
   app.get('/api/members/with-cpr', { preHandler: requireAuth() }, async () => {
     const [members, cpr] = await Promise.all([

@@ -50,7 +50,7 @@ function parsePrizes(body: { prize_kind?: unknown; prizes?: unknown }):
   if (rawPrizes.length > PRIZES_MAX) return { error: `at most ${PRIZES_MAX} prizes` }
   const out: unknown[] = []
   for (const raw of rawPrizes) {
-    const slot = raw as { kind?: unknown; amount?: unknown; text?: unknown }
+    const slot = raw as { kind?: unknown; amount?: unknown; text?: unknown; item_id?: unknown; qty?: unknown }
     if (slot.kind === 'cash') {
       const amount = Number(slot.amount)
       if (!Number.isFinite(amount) || amount <= 0) return { error: 'a cash prize needs a positive amount' }
@@ -59,8 +59,16 @@ function parsePrizes(body: { prize_kind?: unknown; prizes?: unknown }):
       const text = typeof slot.text === 'string' ? slot.text.trim() : ''
       if (!text || text.length > TEXT_PRIZE_MAX) return { error: `a text prize must be 1..${TEXT_PRIZE_MAX} chars` }
       out.push({ kind: 'text', text })
+    } else if (slot.kind === 'item') {
+      // Structural validation only; the item_id is checked against the catalogue
+      // (and its canonical name stamped) by the create route, which has DB access.
+      const itemId = Number(slot.item_id)
+      if (!Number.isInteger(itemId) || itemId <= 0) return { error: 'an item prize needs a valid item_id' }
+      const qty = slot.qty == null ? 1 : Number(slot.qty)
+      if (!Number.isInteger(qty) || qty < 1) return { error: 'an item prize needs a quantity >= 1' }
+      out.push({ kind: 'item', item_id: itemId, qty })
     } else {
-      return { error: 'each prize must be { kind: "cash" | "text", … }' }
+      return { error: 'each prize must be { kind: "cash" | "text" | "item", … }' }
     }
   }
   // A flat competition awards one prize to everyone — it must define exactly one slot.
@@ -223,9 +231,25 @@ export function registerCompetitionRoutes(
         nextResolveAt.setUTCDate(nextResolveAt.getUTCDate() + resolveIntervalDays)
       }
 
-      // Prize table (#239) — placement cash/text slots, informational.
+      // Prize table (#239/#240/#241) — cash/text/item slots, informational.
       const prizes = parsePrizes(body as { prize_kind?: unknown; prizes?: unknown })
       if ('error' in prizes) return reply.status(400).send({ error: prizes.error })
+      // Item slots (#241): every item_id must exist in the catalogue; stamp its
+      // canonical name so the frozen prize displays correctly and consistently.
+      const itemSlots = prizes.prizes.filter(
+        (p): p is { kind: 'item'; item_id: number; qty: number } =>
+          typeof p === 'object' && p != null && (p as { kind?: unknown }).kind === 'item'
+      )
+      if (itemSlots.length > 0) {
+        const ids = itemSlots.map((p) => p.item_id)
+        const found = await db.query('SELECT id, name FROM items WHERE id = ANY($1::int[])', [ids])
+        const nameById = new Map<number, string>(found.rows.map((r) => [r.id, r.name]))
+        for (const slot of itemSlots) {
+          const name = nameById.get(slot.item_id)
+          if (!name) return reply.status(400).send({ error: `unknown item ${slot.item_id}` })
+          ;(slot as { name?: string }).name = name
+        }
+      }
 
       const createdBy = req.session!.torn_user_id
       const inserted = await db.query(
