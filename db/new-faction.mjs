@@ -257,4 +257,9 @@ Bring it up:
 
 Then browse http://${slug}.localhost:<HTTP_PORT>/ and grant the leader a role:
   role_assignments via the Settings page, or SQL as a first bootstrap.
+
+Prod front door (if a host reverse proxy fronts the stack): point
+${slug}.<your-domain> at it and issue/extend its TLS cert — this script does NOT
+touch the host proxy. For the monchoon.me VPS (host nginx + certbot), see
+deploy/LAUNCH.md § 4.3 "Adding a faction later".
 `)

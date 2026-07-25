@@ -454,6 +454,64 @@ https://tnl.monchoon.me/api/health    → {"status":"ok","faction":"tnl"}
 https://mayhem.monchoon.me/api/health → {"status":"ok","faction":"mayhem"}
 ```
 
+### 4.3 — Adding a faction later (recurring runbook)
+
+Adding a tenant after launch is the same four moves — provision, bring up, then
+the **host front door** (DNS + TLS), which is the only part `db/new-faction.mjs`
+can't do for you. Worked example: `capacityx` (Torn faction 9357), added
+2026-07-24.
+
+```bash
+# 1. Provision (on the host, from the repo root). --admin-id keeps you a global admin.
+cd ~/torn/torn-forge-oc-system && git pull
+node db/new-faction.mjs --slug capacityx --name "Capacity X Dashboard" \
+  --faction-id 9357 --leader-id <leader Torn ID> --admin-id 2250591
+
+# 2. Build the new API + rebuild nginx (bakes in deploy/nginx/factions/<slug>.conf)
+cd deploy && docker compose up -d --build api-capacityx nginx
+docker compose ps
+docker compose logs api-capacityx 2>/dev/null | tail -5   # want: API listening + "Web Push armed"
+```
+
+**DNS:** the `*.monchoon.me` wildcard `A` record already resolves any new
+subdomain to the VPS — **no new DNS record needed**.
+
+**Host TLS (host nginx + certbot).** All tenants share ONE vhost
+(`/etc/nginx/sites-available/tnl-dashboard`) with a single multi-domain cert
+(`Certificate Name: forge.monchoon.me`). Add the subdomain to the two
+`server_name` lines, then **expand** the existing cert to cover it:
+
+```bash
+# a. add <slug>.monchoon.me to both server_name lines (:443 and :80 blocks)
+sudo cp /etc/nginx/sites-available/tnl-dashboard{,.bak}
+sudo sed -i 's/\(server_name .*\)\;/\1 capacityx.monchoon.me;/' \
+  /etc/nginx/sites-available/tnl-dashboard    # or edit by hand
+sudo nginx -t && sudo systemctl reload nginx  # reload so :80 answers for the ACME challenge
+
+# b. expand the shared cert. IMPORTANT: --cert-name + -d REPLACES the domain set,
+#    so you MUST list every existing domain plus the new one, or you'll drop
+#    tenants. Derive the current list so you can't forget one:
+NEW=capacityx.monchoon.me
+EXISTING=$(sudo certbot certificates --cert-name forge.monchoon.me 2>/dev/null | awk '/Domains:/{$1="";print}')
+DFLAGS=$(for d in $EXISTING $NEW; do printf -- '-d %s ' "$d"; done)
+sudo certbot --nginx --cert-name forge.monchoon.me $DFLAGS
+# → confirm "Update certificate" (U); if asked about redirect, "No redirect"
+#   (the block already redirects 80→443). certbot reloads nginx itself.
+```
+
+Verify: `sudo certbot certificates | grep Domains` lists the new subdomain, and
+`https://<slug>.monchoon.me/` loads the (tenant-branded) dashboard securely.
+
+> The `sed` above matches the tenant list by the trailing `;` on each
+> `server_name` line — sanity-check with `sudo nginx -T | grep server_name`
+> before reloading. If `nginx -t` fails, restore `tnl-dashboard.bak` and edit by
+> hand.
+
+**Cosmetic caveat:** the PWA install name ("TNL Forge Dashboard") and app icons
+are one shared static asset, so a non-TNL tenant's *installed* app still shows
+TNL branding until per-tenant manifests land (deferred from #206). The site
+itself (title, header, favicon/logo) is per-tenant.
+
 ## Phase 5 — Seed real Forge data
 
 The other two tenants start empty and fill from live scraping + member logins.
