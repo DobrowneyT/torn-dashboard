@@ -21,6 +21,7 @@ import { registerWarRoomWriteRoutes } from './warRoomWrites.js'
 import { registerWarRoomSetupRoutes } from './warRoomSetup.js'
 import { registerAdminRoutes } from './admin.js'
 import { registerBrandingRoutes } from './branding.js'
+import { registerManifestRoute } from './manifest.js'
 import { registerCompetitionRoutes } from './competitions.js'
 import { registerMemberNotesRoutes } from './memberNotes.js'
 import { registerPushRoutes, type PushService, type VapidConfig } from './push.js'
@@ -193,6 +194,9 @@ export async function buildServer(
     }
     registerAdminRoutes(app, { db: opts.db, scrapers, secrets })
     registerBrandingRoutes(app, { db: opts.db })
+    // Per-tenant PWA manifest (follow-up to #206) — each faction's installed app
+    // shows its own name/icon instead of the shared "TNL Forge" default.
+    registerManifestRoute(app, opts.db)
     registerCompetitionRoutes(app, opts.db)
     registerMemberNotesRoutes(app, opts.db)
     // Web Push (#207): subscription storage + VAPID-signed delivery. The service

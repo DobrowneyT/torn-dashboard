@@ -19,6 +19,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Per-tenant PWA manifest.** Each faction API now serves its own
+  `/api/manifest.webmanifest` from its identity, so an **installed** dashboard
+  shows the tenant's name (and its logo as the app icon when one is set) instead
+  of the shared "TNL Forge" default — important for non-TNL tenants. iOS uses the
+  per-tenant page title for the home-screen name. Falls back to the default tile
+  when a faction hasn't uploaded a logo.
 - **Leader-confirmed rally headline on a surge (#209).** When a PUSH surge is
   detected, war leads / leadership / admin get a **one-tap "Post rally call"** on
   the surge banner that posts the matching preset — **defensive** ("we're being
