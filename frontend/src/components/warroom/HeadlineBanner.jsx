@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Megaphone, X } from 'lucide-react'
 import { setWarHeadline, clearWarHeadline } from '../../utils/warRoomApiV2'
 import { fmtAgo } from '../../utils/time'
+import { parsePushTarget, pushHeadlineText, formatPushCountdown } from '../../utils/pushHeadline'
 
 export const HEADLINE_TONE_STYLES = {
   danger:  'bg-red-600 text-white',
@@ -71,9 +72,11 @@ function Composer({ onSet, busy }) {
             <div className="flex items-center gap-2">
               <input type="time" value={pushTime} onChange={e => setPushTime(e.target.value)}
                 className="px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white" />
-              <button type="button" disabled={!pushTime} onClick={() => send(`PUSH 2 ${pushTime}`, 'go')}
+              <button type="button" disabled={!pushTime}
+                onClick={() => { const t = pushHeadlineText(pushTime); if (t) send(t, 'go') }}
+                title="Post a live countdown to this time for the whole War Room"
                 className={`text-sm px-3 py-1.5 rounded ${HEADLINE_TONE_STYLES.go} disabled:opacity-40`}>
-                Push to…
+                Push at…
               </button>
             </div>
           </div>
@@ -100,6 +103,21 @@ function Composer({ onSet, busy }) {
       )}
     </div>
   )
+}
+
+// Renders the headline text — or, when it's a scheduled push (`PUSH@<epoch>`),
+// a live "PUSH IN M:SS" countdown that ticks to "PUSH NOW". Self-contained 1 Hz
+// clock, armed only while a countdown is showing.
+function HeadlineText({ text }) {
+  const target = parsePushTarget(text)
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
+  useEffect(() => {
+    if (target == null) return
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000)
+    return () => clearInterval(id)
+  }, [target])
+  const display = target == null ? text : formatPushCountdown(target - nowSec)
+  return <span className="font-bold text-base sm:text-lg truncate">{display}</span>
 }
 
 // `mode` lets the banner display and the leader composer live in different
@@ -129,7 +147,7 @@ export default function HeadlineBanner({ config, canManage, nowMs = Date.now(), 
         <div className={`rounded-lg px-4 py-3 flex items-center justify-between gap-3 shadow ${HEADLINE_TONE_STYLES[tone]}`}>
           <div className="flex items-center gap-2 min-w-0">
             <Megaphone className="w-5 h-5 flex-shrink-0" />
-            <span className="font-bold text-base sm:text-lg truncate">{text}</span>
+            <HeadlineText text={text} />
           </div>
           <div className="flex items-center gap-3 flex-shrink-0">
             {config?.headline_set_at && (

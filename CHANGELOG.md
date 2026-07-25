@@ -68,6 +68,14 @@ from `VERSION` at runtime) both surface it automatically.
   readout moved into the roster footer — now members (left) · last updated (centre)
   · refresh rates (right).
 
+### Changed
+
+- **Scheduled-push headline is now a live countdown.** The leader "Push at…"
+  headline preset posts a **live countdown** — "PUSH IN 4:37" ticking down to
+  "PUSH NOW" — instead of the old static "PUSH 2 HH:MM" text. It's driven by an
+  absolute target time, so every War Room tab counts down to the same instant
+  regardless of timezone.
+
 ### Fixed
 
 - **Generic default branding.** Removed leftover "TNL"/"Forge" strings from
