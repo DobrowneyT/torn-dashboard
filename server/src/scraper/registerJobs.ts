@@ -12,6 +12,7 @@ import { crimesSyncJob } from './jobs/crimesSync.js'
 import { cprScanJob } from './jobs/cprScan.js'
 import { membersSyncJob } from './jobs/membersSync.js'
 import { memberStatsJob } from './jobs/memberStats.js'
+import { memberProfileJob } from './jobs/memberProfile.js'
 import { warsSyncJob } from './jobs/warsSync.js'
 import { attacksSyncJob } from './jobs/attacksSync.js'
 import { warLifecycleJob } from './jobs/warLifecycle.js'
@@ -44,6 +45,9 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   ['cpr-scan', '0 30 5,17 * * *', cprScanJob],
   ['members-sync', '0 5 * * * *', membersSyncJob],
   ['member-stats', '0 5 1 * * *', memberStatsJob],
+  // Profile denorms (donator/property/last-action) change slowly — once daily,
+  // just after member-stats (#226). Composes onto the same day's row via COALESCE.
+  ['member-profile', '0 20 1 * * *', memberProfileJob],
   ['wars-sync', '0 10 */3 * * *', warsSyncJob],
   ['attacks-sync', '0 20,50 * * * *', attacksSyncJob],
   ['war-lifecycle', '0 */3 * * * *', warLifecycleJob],
