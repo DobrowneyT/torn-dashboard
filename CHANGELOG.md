@@ -19,6 +19,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competition prizes — catalogue item slots (#241).** A prize slot can now be
+  a **Torn item** with a quantity (e.g. `2x Xanax`) alongside cash and text, in
+  both placement and flat modes. The create form's slot picker gains an **Item**
+  kind with an async name search over the catalogue (new auth-gated
+  `GET /api/items/search?q=`); the chosen item's canonical name is frozen onto
+  the prize so tables and history render it consistently for all members. Unknown
+  item ids are rejected at create time.
 - **Competition prizes — flat distribution (#240).** Leaders can now choose a
   **flat** distribution instead of ranked placements: one prize slot awarded to
   **every** ranked / qualified member. The competition shows it to all members as
@@ -30,8 +37,7 @@ from `VERSION` at runtime) both surface it automatically.
   (formatted) or **free-text** prize slots. Every member sees the prize table on
   the competition, and on resolution each member's **earned prize is recorded**
   in the frozen results and shown in history — leaderboard by rank, lottery to
-  the drawn winner only. Informational (no automatic disbursement). Catalogue
-  item prizes follow in #241.
+  the drawn winner only. Informational (no automatic disbursement).
 - **Competition start/end time-of-day picker + visible end time (#231).** The
   create form now takes an optional **time** beside each date (Torn City Time);
   leave it blank for start-of-day / end-of-day. Every member sees the window —

@@ -180,6 +180,58 @@ export default function CompetitionsSection({ isLeadership }) {
   )
 }
 
+// Async item picker for an item prize slot (#241): a debounced name search over
+// the catalogue plus a quantity. Selecting a result stores id + name + qty on
+// the slot; buildPrizes submits only id + qty (the server re-stamps the name).
+function ItemPrizeInput({ slot, onChange, field }) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    const q = query.trim()
+    if (!q) { setResults([]); return }
+    let live = true
+    const t = setTimeout(() => {
+      apiGet(`/api/items/search?q=${encodeURIComponent(q)}`)
+        .then(({ items }) => { if (live) setResults(items || []) })
+        .catch(() => { if (live) setResults([]) })
+    }, 250)
+    return () => { live = false; clearTimeout(t) }
+  }, [query])
+
+  const pick = (it) => {
+    onChange({ item_id: it.id, name: it.name })
+    setQuery(''); setResults([]); setOpen(false)
+  }
+
+  return (
+    <div className="flex items-center gap-2 grow">
+      <input type="number" min="1" step="1" className="px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm w-16 shrink-0"
+        value={slot.qty ?? 1} onChange={(e) => onChange({ qty: e.target.value })} title="Quantity" />
+      <div className="relative grow">
+        <input type="text" className={field}
+          placeholder={slot.item_id ? `${slot.name}` : 'search item…'}
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)} />
+        {open && results.length > 0 && (
+          <ul className="absolute z-10 mt-1 w-full max-h-48 overflow-auto rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 shadow-lg text-sm">
+            {results.map((it) => (
+              <li key={it.id}>
+                <button type="button" onClick={() => pick(it)}
+                  className="block w-full text-left px-2 py-1 hover:bg-blue-50 dark:hover:bg-slate-600 text-gray-900 dark:text-white">
+                  {it.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // The prize table shown to every member on a competition (#239).
 function PrizeTable({ competition }) {
   const rows = prizeTableRows(competition)
@@ -466,12 +518,15 @@ function CreateCompetitionForm({ onCreated }) {
               value={p.kind} onChange={(e) => updatePrize(i, { kind: e.target.value })}>
               <option value="cash">Cash</option>
               <option value="text">Text</option>
+              <option value="item">Item</option>
             </select>
             {p.kind === 'cash' ? (
               <input type="number" min="1" step="any" className={field} placeholder="amount ($)"
                 value={p.amount} onChange={(e) => updatePrize(i, { amount: e.target.value })} />
+            ) : p.kind === 'item' ? (
+              <ItemPrizeInput slot={p} onChange={(patch) => updatePrize(i, patch)} field={field} />
             ) : (
-              <input type="text" maxLength={120} className={field} placeholder="e.g. 1x Xanax, Bragging rights"
+              <input type="text" maxLength={120} className={field} placeholder="e.g. Bragging rights"
                 value={p.text} onChange={(e) => updatePrize(i, { text: e.target.value })} />
             )}
             {!isFlat && (
@@ -483,8 +538,8 @@ function CreateCompetitionForm({ onCreated }) {
         ))}
         <p className="text-[11px] text-gray-500 dark:text-gray-400">
           {isFlat
-            ? 'Flat — one prize awarded to every ranked / qualified member. Cash / text only for now.'
-            : 'Placement — 1st, 2nd, 3rd… A lottery awards the top slot to the drawn winner. Cash / text only for now.'}
+            ? 'Flat — one prize awarded to every ranked / qualified member. Cash, text, or a Torn item.'
+            : 'Placement — 1st, 2nd, 3rd… A lottery awards the top slot to the drawn winner. Cash, text, or a Torn item.'}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-4">

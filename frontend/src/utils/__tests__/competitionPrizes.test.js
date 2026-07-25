@@ -11,6 +11,9 @@ describe('formatPrize', () => {
   it('is empty for a missing slot', () => {
     expect(formatPrize(null)).toBe('')
   })
+  it('renders an item slot as "<qty>x <name>" (#241)', () => {
+    expect(formatPrize({ kind: 'item', item_id: 206, qty: 2, name: 'Xanax' })).toBe('2x Xanax')
+  })
 })
 
 describe('ordinal', () => {
@@ -68,5 +71,11 @@ describe('buildPrizes', () => {
   })
   it('returns an empty array for no slots', () => {
     expect(buildPrizes([])).toEqual([])
+  })
+  it('emits an item slot with id + qty and drops one with no item picked (#241)', () => {
+    expect(buildPrizes([
+      { kind: 'item', item_id: 206, qty: 2, name: 'Xanax' },
+      { kind: 'item', item_id: null, qty: 1 },  // no item picked → dropped
+    ])).toEqual([{ kind: 'item', item_id: 206, qty: 2 }])
   })
 })

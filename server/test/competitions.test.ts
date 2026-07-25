@@ -639,3 +639,53 @@ describe('competitions (#240): flat prize distribution', () => {
     for (const s of rows) expect(s.prize).toEqual({ kind: 'text', text: 'Participation medal' })
   })
 })
+
+// ── #241: item prize slot + catalogue search ────────────────────────────────
+describe('competitions (#241): item prizes', () => {
+  beforeAll(async () => {
+    await stack.db.query(`
+      INSERT INTO items (id, name, market_price) VALUES
+        (206,'Xanax',830000),(207,'Ecstasy',12000),(18,'Feathery Hotel Coupon',5000000)
+      ON CONFLICT (id) DO NOTHING
+    `)
+  })
+
+  it('searches the catalogue by name (ILIKE), capped and auth-gated', async () => {
+    const r = await api('GET', '/api/items/search?q=xan', memberToken)
+    expect(r.status).toBe(200)
+    expect(r.body.items).toEqual([{ id: 206, name: 'Xanax', market_price: 830000 }])
+    const noauth = await fetch(`${stack.baseUrl}/api/items/search?q=xan`)
+    expect(noauth.status).toBe(401)
+  })
+
+  it('creates a competition with an item prize slot and stamps the catalogue name', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Item prize', metric_id: 'xanax_taken',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+      prizes: [{ kind: 'item', item_id: 206, qty: 2 }],
+    })
+    expect(c.status).toBe(201)
+    expect(c.body.competition.prizes).toEqual([{ kind: 'item', item_id: 206, qty: 2, name: 'Xanax' }])
+  })
+
+  it('rejects an unknown item id and a non-positive quantity', async () => {
+    const bad = (prizes: unknown[]) => api('POST', '/api/competitions', leadershipToken, {
+      name: 'x', metric_id: 'xanax_taken', window_start: '2026-07-01', window_end: '2026-07-07', prizes,
+    })
+    expect((await bad([{ kind: 'item', item_id: 999999, qty: 1 }])).status).toBe(400)
+    expect((await bad([{ kind: 'item', item_id: 206, qty: 0 }])).status).toBe(400)
+    expect((await bad([{ kind: 'item', qty: 1 }])).status).toBe(400)
+  })
+
+  it('records an item prize at resolution like any other slot', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Item resolve', metric_id: 'xanax_taken', window_start: '2026-07-01', window_end: '2026-07-07',
+      prizes: [{ kind: 'item', item_id: 206, qty: 3 }],
+    })
+    const id = c.body.competition.id
+    await api('POST', `/api/competitions/${id}/resolve`, leadershipToken)
+    const hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    const byId = Object.fromEntries(hist.body.resolutions[0].standings.map((s: any) => [s.member_id, s]))
+    expect(byId['10'].prize).toEqual({ kind: 'item', item_id: 206, qty: 3, name: 'Xanax' })
+  })
+})

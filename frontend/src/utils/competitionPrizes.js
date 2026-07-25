@@ -8,6 +8,7 @@ export function formatPrize(slot) {
   if (!slot) return ''
   if (slot.kind === 'cash') return `$${Number(slot.amount).toLocaleString('en-US')}`
   if (slot.kind === 'text') return String(slot.text ?? '')
+  if (slot.kind === 'item') return `${slot.qty ?? 1}x ${slot.name ?? `#${slot.item_id}`}`
   return ''
 }
 
@@ -39,6 +40,14 @@ export function buildPrizes(slots) {
     } else if (s.kind === 'text') {
       const text = String(s.text ?? '').trim()
       if (text) out.push({ kind: 'text', text })
+    } else if (s.kind === 'item') {
+      // #241: only submit the id + quantity; the server stamps the canonical
+      // name. A slot with no item picked is dropped.
+      const itemId = Number(s.item_id)
+      if (Number.isInteger(itemId) && itemId > 0) {
+        const qty = Math.max(1, Math.floor(Number(s.qty) || 1))
+        out.push({ kind: 'item', item_id: itemId, qty })
+      }
     }
   }
   return out
