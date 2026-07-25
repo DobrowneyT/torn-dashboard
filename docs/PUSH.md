@@ -68,6 +68,30 @@ The API logs `Web Push armed (VAPID configured)` per faction on boot.
    A **"War Room test"** notification should appear even with the tab closed.
    The response is `{ "sent": N, "pruned": M, "failed": K }`.
 
+## Troubleshooting
+
+- **`AbortError: Registration failed - push service error` (code 20) when subscribing.**
+  The browser couldn't register with its upstream push service (Google FCM) — this
+  is a client/network issue, not the server.
+  - **Brave** disables Google push by default. Enable
+    `brave://settings/privacy` → **"Use Google services for push messaging"**, then
+    **relaunch Brave**. This is the most common cause.
+  - **Chrome/Edge**: a network/firewall or DNS filter (corporate proxy, VPN,
+    Pi-hole/ad-blocker) is blocking `fcm.googleapis.com`. Test on another network.
+- **`/api/push/test` returns `{"sent":0}`** — no stored subscription for that member
+  *on that tenant*. Remember `localhost:<HTTP_PORT>` hits the **default (forge)** API;
+  a subscription made on another tenant lives in that tenant's DB. Check with
+  `select member_id, left(endpoint,45) from push_subscriptions;` in the right DB.
+- **The "Get War Room alerts" banner never appears.** It only shows when the war
+  room is **enabled** (`config.enabled`) and the site's notification permission is
+  still `default`. Once permission is granted the app subscribes silently and the
+  banner stays hidden by design.
+- **`{"publicKey":null}` / `push not configured`** — VAPID isn't reaching the API.
+  Confirm `docker compose config | grep -i vapid` lists the three vars with real
+  values, then `docker compose up -d` to recreate the api services. Note the
+  compose **override is gitignored** and lives only on the host — new env vars must
+  be wired into it there.
+
 ## How it fits together
 
 - **Subscriptions** live in the `push_subscriptions` table (one row per browser

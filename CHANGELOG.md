@@ -22,18 +22,18 @@ from `VERSION` at runtime) both surface it automatically.
 - **Leader-confirmed rally headline on a surge (#209).** When a PUSH surge is
   detected, war leads / leadership / admin get a **one-tap "Post rally call"** on
   the surge banner that posts the matching preset — **defensive** ("we're being
-  pushed — retaliate") or **offensive** ("we have the numbers — organize a push")
-  — to the faction headline for everyone (#158). Non-leaders never see the prompt,
-  and nothing hits the banner until a leader confirms. Both presets are also
-  available in the manual headline composer.
-- **War Room PUSH-surge alerts (#208).** The server ticker now detects a surge of
-  members leaving hospital — **enemy-side** ("we're being pushed", defensive) and
-  **our-side** ("organize a push", offensive) — on a rate rule (≥ N Okay within M
-  seconds) with per-direction thresholds and a cooldown so flicker can't re-spam.
-  On a surge, every open War Room tab auto-fires a sound/flash + banner, and
-  subscribers get a background web-push (via #207). A **global on/off toggle**
-  plus the thresholds live in War Room settings (war leads / leadership / admin) —
-  **off by default**, so a termed war stays silent until leadership opts in.
+  pushed — retaliate") to the faction headline for everyone (#158). Non-leaders
+  never see the prompt, and nothing hits the banner until a leader confirms. The
+  offensive ("we have the numbers — organize a push") preset also lives in the
+  manual headline composer.
+- **War Room PUSH-surge alerts (#208).** The server ticker detects an **enemy**
+  surge — a wave of enemies leaving hospital ("we're being pushed") — on a rate
+  rule (≥ N enemies Okay within M seconds) with a cooldown so flicker can't
+  re-spam. On a surge, every open War Room tab auto-fires a sound/flash + banner,
+  and subscribers get a background web-push (via #207). A **global on/off toggle**
+  plus the threshold/window/cooldown live in War Room settings (war leads /
+  leadership / admin) — **off by default**, so a termed war stays silent until
+  leadership opts in.
 - **War Room push notifications — delivery pipe (#207).** Members can now opt in
   to background push from a live war room; the browser subscription is stored
   server-side and stale endpoints self-prune on delivery (HTTP 404/410). The PWA
@@ -61,6 +61,12 @@ from `VERSION` at runtime) both surface it automatically.
   button** moved to the top-right of the header card; and the **"last updated"**
   readout moved into the roster footer — now members (left) · last updated (centre)
   · refresh rates (right).
+
+### Fixed
+
+- **Restored the headline "clear" (✕) button.** The header/footer reshuffle dropped
+  the clear control from the displayed headline banner; war leads / leadership /
+  admin can once again dismiss/clear a posted headline from the banner itself.
 
 ### Added
 
