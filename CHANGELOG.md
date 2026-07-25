@@ -19,6 +19,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Faster, gap-free `member-stats` via multi-key fan-out (#228).** The run now
+  spreads its per-member calls across up to ~3 pooled keys (operator-tunable via
+  `MEMBER_STATS_MAX_KEYS`), finishing in a fraction of the single-key time. The
+  Torn client's rate budget is now enforced **per key**, so N keys run at N×
+  throughput (each within Torn's per-key limit). A member whose call fails on one
+  key is **retried on another** — no one is dropped after a single failed attempt
+  — and a key returning a bad-key error is **disabled and removed** from the run,
+  which finishes on the survivors.
 - **Intraday competition-stat sampling (#227).** New append-only
   `member_stat_samples` table holding a slim, timestamped sample (the
   competition-relevant personalstats categories + gym) per member. `member-stats`

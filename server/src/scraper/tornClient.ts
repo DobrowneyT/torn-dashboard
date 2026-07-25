@@ -1,11 +1,12 @@
-// Rate-limited Torn API client. One client per faction process; the budget
-// is shared across every job in the process (per-pool budget), so parallel
-// scrapers can't blow through Torn's per-key limits collectively.
+// Rate-limited Torn API client. One client per faction process; the budget is
+// enforced PER KEY (Torn's rate limit is per key), so N keys run at N× the
+// budget — fanning a job across several keys (#228) actually multiplies
+// throughput instead of being throttled together.
 import { withTornAuth } from '../tornComment.js'
 
 export interface TornClientOptions {
   baseUrl: string
-  /** Shared budget: at most `requests` dispatches per `perMs` window. */
+  /** Per-key budget: at most `requests` dispatches per `perMs` window, per key. */
   budget: { requests: number; perMs: number }
 }
 
@@ -17,8 +18,8 @@ export class TornApiError extends Error {
   }
 }
 
-export function createTornClient({ baseUrl, budget }: TornClientOptions) {
-  // Sliding-window limiter: timestamps of recent dispatches + FIFO queue.
+// A single-key sliding-window limiter: timestamps of recent dispatches + FIFO queue.
+function createLimiter(budget: { requests: number; perMs: number }) {
   const dispatched: number[] = []
   const waiting: Array<() => void> = []
   let timer: NodeJS.Timeout | null = null
@@ -36,20 +37,33 @@ export function createTornClient({ baseUrl, budget }: TornClientOptions) {
     }
   }
 
-  function acquire(): Promise<void> {
-    return new Promise((resolve) => {
-      waiting.push(resolve)
-      pump()
-    })
+  return {
+    acquire(): Promise<void> {
+      return new Promise((resolve) => {
+        waiting.push(resolve)
+        pump()
+      })
+    },
+  }
+}
+
+export function createTornClient({ baseUrl, budget }: TornClientOptions) {
+  // One limiter per API key — keys are rate-limited independently.
+  const limiters = new Map<string, ReturnType<typeof createLimiter>>()
+  function acquire(key: string): Promise<void> {
+    let limiter = limiters.get(key)
+    if (!limiter) { limiter = createLimiter(budget); limiters.set(key, limiter) }
+    return limiter.acquire()
   }
 
   return {
     /**
-     * Rate-limited GET against the Torn API. Torn error payloads reject with
-     * a TornApiError (carrying `tornCode`) instead of resolving.
+     * Rate-limited GET against the Torn API (throttled per key). Torn error
+     * payloads reject with a TornApiError (carrying `tornCode`) instead of
+     * resolving.
      */
     async fetch(path: string, key: string): Promise<any> {
-      await acquire()
+      await acquire(key)
       const res = await fetch(withTornAuth(`${baseUrl}${path}`, key))
       const data = (await res.json()) as any
       if (data?.error) throw new TornApiError(Number(data.error.code), String(data.error.error))

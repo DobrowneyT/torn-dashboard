@@ -67,10 +67,10 @@ describe('key pool', () => {
 })
 
 describe('rate-limited Torn client', () => {
-  it('holds the per-pool budget under parallel job load', async () => {
+  it('holds the per-key budget under parallel load on one key', async () => {
     stack.torn.setPath('/v2/faction/basic', { basic: { id: 53100 } })
     const { createTornClient } = await import('../src/scraper/tornClient.js')
-    // Budget: 2 requests per 400ms window, shared by every caller.
+    // Budget: 2 requests per 400ms window, per key.
     const client = createTornClient({ baseUrl: stack.tornBaseUrl, budget: { requests: 2, perMs: 400 } })
 
     const resolved: number[] = []
@@ -81,12 +81,32 @@ describe('rate-limited Torn client', () => {
     )
     resolved.sort((a, b) => a - b)
 
-    // 6 requests at 2/window dispatch in three waves: ~0ms, ~400ms, ~800ms.
+    // 6 requests on ONE key at 2/window dispatch in three waves: ~0ms, ~400ms, ~800ms.
     // Margins are generous because a loaded event loop can delay the FIRST
     // resolution (compressing observed gaps) — the waves are what matter.
     expect(resolved).toHaveLength(6)
     expect(resolved[2] - resolved[0]).toBeGreaterThanOrEqual(250)
     expect(resolved[4] - resolved[0]).toBeGreaterThanOrEqual(600)
+  })
+
+  it('rate-limits each key independently, so multiple keys multiply throughput (#228)', async () => {
+    stack.torn.setPath('/v2/faction/basic', { basic: { id: 53100 } })
+    const { createTornClient } = await import('../src/scraper/tornClient.js')
+    // Budget: 1 request per 400ms window, PER KEY.
+    const client = createTornClient({ baseUrl: stack.tornBaseUrl, budget: { requests: 1, perMs: 400 } })
+
+    const resolved: number[] = []
+    // Three distinct keys, one request each: each key's own window admits it
+    // immediately, so all three land in the first wave. A shared budget would
+    // have serialised them into three waves (~0/400/800ms).
+    await Promise.all(
+      ['KEYAAAAAAAAAAAA1', 'KEYBBBBBBBBBBBB2', 'KEYCCCCCCCCCCCC3'].map((k) =>
+        client.fetch('/v2/faction/basic', k).then(() => resolved.push(Date.now()))
+      )
+    )
+    resolved.sort((a, b) => a - b)
+    expect(resolved).toHaveLength(3)
+    expect(resolved[2] - resolved[0]).toBeLessThan(300)
   })
 
   it('surfaces Torn error payloads as typed failures, not resolved data', async () => {

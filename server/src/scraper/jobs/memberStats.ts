@@ -9,9 +9,22 @@
 //      (gym-only rows for anyone missing personalstats today).
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
+import { TornApiError } from '../tornClient.js'
 
 const BACKFILL_DAYS = 30
 const SNAPSHOT_OFFSET_SECONDS = 3600
+
+// Multi-key fan-out (#228): spread the per-member calls across several pooled
+// keys so a run finishes in a fraction of the single-key time, and retry a call
+// on another key when one fails. Bounded (default 3) so other scrapers keep keys
+// available; operator-tunable via MEMBER_STATS_MAX_KEYS.
+const MAX_KEYS = Math.max(1, Number(process.env.MEMBER_STATS_MAX_KEYS) || 3)
+// Torn error codes that mean the KEY is bad — drop it from the run and disable
+// it in the pool.
+const KEY_DISABLE_CODES = new Set([2, 10, 13])
+// Codes that are transient for the key (rate limit / IP block) — just try
+// another key for this call; the key stays in rotation.
+const KEY_TRANSIENT_CODES = new Set([5, 8])
 
 // The personalstats categories a competition metric can read (#227). Only these
 // are kept in the slim sample series — the full ~200-field blob stays in the
@@ -46,8 +59,48 @@ interface StatsRecord {
 const isoDate = (d: Date) => d.toISOString().slice(0, 10)
 
 export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<RunResult> {
-  const claimed = await pool.claim()
-  if (!claimed) throw new Error('no pooled key available')
+  // Claim up to MAX_KEYS distinct pooled keys to fan out across. The pool hands
+  // out least-recently-claimed keys; we stop when it repeats (pool smaller than
+  // MAX_KEYS) or is empty.
+  const active: { member_id: string; key: string }[] = []
+  const seen = new Set<string>()
+  for (let i = 0; i < MAX_KEYS; i++) {
+    const k = await pool.claim()
+    if (!k || seen.has(k.member_id)) break
+    seen.add(k.member_id)
+    active.push(k)
+  }
+  if (active.length === 0) throw new Error('no pooled key available')
+
+  // Fetch with key rotation + retry (#228): rotate keys for load-spread; on a
+  // transient or bad-key error retry the SAME call on another key; drop+disable
+  // a bad key. Returns null only when the call can't be satisfied by any key (a
+  // member-specific/unknown error, or every key exhausted) — so no member is
+  // dropped after a single failed attempt.
+  let rr = 0
+  async function rfetch(path: string): Promise<any | null> {
+    const tried = new Set<string>()
+    while (true) {
+      const candidates = active.filter((k) => !tried.has(k.member_id))
+      if (candidates.length === 0) return null
+      const key = candidates[rr % candidates.length]
+      rr++
+      tried.add(key.member_id)
+      try {
+        return await client.fetch(path, key.key)
+      } catch (err) {
+        const code = err instanceof TornApiError ? err.tornCode : -1
+        if (KEY_DISABLE_CODES.has(code)) {
+          await pool.disable(key.member_id, `Torn error ${code}: key rejected`)
+          const i = active.findIndex((k) => k.member_id === key.member_id)
+          if (i >= 0) active.splice(i, 1)
+          continue // key gone — try another
+        }
+        if (KEY_TRANSIENT_CODES.has(code)) continue // try another key, keep this one
+        return null // member-specific / unknown — another key won't help
+      }
+    }
+  }
 
   const members = await db.query(
     `SELECT member_id, member_name FROM members WHERE is_current = true ORDER BY member_id`
@@ -75,17 +128,11 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
       if (have.has(d)) continue
       const ts = Math.floor(new Date(`${d}T00:00:00Z`).getTime() / 1000) + SNAPSHOT_OFFSET_SECONDS
       backfillCalls += 1
-      try {
-        const data = await client.fetch(
-          `/v2/user/${m.member_id}/personalstats?cat=all&timestamp=${ts}`,
-          claimed.key
-        )
-        if (data.personalstats) {
-          records.push({ member_id: m.member_id, snapshot_date: d, personalstats: data.personalstats })
-        }
-      } catch {
-        // Skip the day — the next run retries it (it stays missing).
+      const data = await rfetch(`/v2/user/${m.member_id}/personalstats?cat=all&timestamp=${ts}`)
+      if (data?.personalstats) {
+        records.push({ member_id: m.member_id, snapshot_date: d, personalstats: data.personalstats })
       }
+      // If no key could satisfy it, the day stays missing — the next run retries.
     }
   }
 
@@ -93,13 +140,8 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
   //    last_action_timestamp) are the separate once-daily member-profile job
   //    (#226) — they change too slowly to re-fetch on every intraday run.
   for (const m of members.rows) {
-    let personalstats: unknown = null
-    try {
-      const data = await client.fetch(`/v2/user/${m.member_id}/personalstats?cat=all`, claimed.key)
-      personalstats = data.personalstats ?? null
-    } catch {
-      personalstats = null
-    }
+    const data = await rfetch(`/v2/user/${m.member_id}/personalstats?cat=all`)
+    const personalstats = data?.personalstats ?? null
     if (!personalstats) continue
     records.push({ member_id: m.member_id, snapshot_date: todayStr, personalstats })
   }
@@ -107,16 +149,15 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
   // 3. Gym contributions (five faction-level calls).
   const gymData = new Map<string, Record<string, number>>()
   for (const [stat, column] of Object.entries(GYM_COLUMNS)) {
-    try {
-      const data = await client.fetch(`/v2/faction/contributors?stat=${stat}&cat=current`, claimed.key)
+    const data = await rfetch(`/v2/faction/contributors?stat=${stat}&cat=current`)
+    if (data) {
       for (const entry of data.contributors ?? []) {
         const mid = String(entry.id)
         if (!gymData.has(mid)) gymData.set(mid, {})
         gymData.get(mid)![column] = entry.value ?? 0
       }
-    } catch {
-      // A missing gym stat never blocks the snapshot.
     }
+    // A missing gym stat never blocks the snapshot (rfetch returns null).
   }
   const todayIds = new Set(records.filter((r) => r.snapshot_date === todayStr).map((r) => r.member_id))
   for (const r of records) {
