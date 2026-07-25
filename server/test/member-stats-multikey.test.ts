@@ -90,4 +90,32 @@ describe('member-stats multi-key fan-out (#228)', () => {
     expect(bad.rows[0].disabled).toBe(true)
     expect(bad.rows[0].last_error).toMatch(/Torn error 2/)
   })
+
+  it('captureBoundarySamples writes a sample per member stamped at the boundary instant (#230)', async () => {
+    await stack.db.query(`DELETE FROM member_stat_samples`)
+    for (const mid of [1, 2, 3]) {
+      stack.torn.setHandler(`/v2/user/${mid}/personalstats`, () => ({ personalstats: { drugs: { xanax: 7 * mid } } }))
+    }
+    stack.torn.setHandler('/v2/faction/contributors', (url) => {
+      const base = url.searchParams.get('stat') === 'gymenergy' ? 5 : 0
+      return { contributors: [{ id: 1, value: base * 100 }] }
+    })
+
+    const { captureBoundarySamples } = await import('../src/scraper/sampleCapture.js')
+    const at = new Date('2026-09-01T18:00:00.000Z')
+    const n = await captureBoundarySamples(deps(), at)
+
+    expect(n).toBe(3)
+    // Every sample is stamped at exactly the boundary instant (not now()).
+    const atBoundary = await stack.db.query(
+      `SELECT count(*)::int AS n FROM member_stat_samples WHERE captured_at = $1`, [at]
+    )
+    expect(atBoundary.rows[0].n).toBe(3)
+    const rows = await stack.db.query(
+      `SELECT member_id, stats, gym_energy FROM member_stat_samples ORDER BY member_id`
+    )
+    expect(rows.rows.map((r) => r.member_id)).toEqual(['1', '2', '3'])
+    expect(rows.rows.find((r) => r.member_id === '1')!.stats).toEqual({ drugs: { xanax: 7 } })
+    expect(rows.rows.find((r) => r.member_id === '1')!.gym_energy).toBe(500)
+  })
 })

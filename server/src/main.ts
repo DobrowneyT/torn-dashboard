@@ -87,6 +87,11 @@ if (db) {
       health.scheduler = true
       console.log(`[${factionSlug}] scrapers scheduled`)
 
+      // Re-arm competition boundary timers (#230): any competition whose start
+      // or end is still in the future gets its one-off capture timer back after
+      // a restart.
+      await app.competitionTimers?.rearmAll()
+
       // War-room ticker (slice #71): runs at 1 Hz but self-gates each tick on
       // war_room_config_v2.enabled + the managed war's active window, so an
       // idle faction costs one SELECT per second and zero Torn calls.

@@ -32,7 +32,17 @@ const SELECT_COLS =
    window_start, window_end, rolling_days, auto_resolve, resolve_interval_days,
    next_resolve_at, threshold_comparator, threshold_value, pinned, created_by, created_at`
 
-export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
+// Minimal structural handle on the boundary-timer manager (#230), injected so
+// this module doesn't import competitionTimers (which imports back from here).
+interface CompetitionTimersHandle {
+  arm(comp: CompetitionRow, opts?: { immediate?: boolean }): void
+}
+
+export function registerCompetitionRoutes(
+  app: FastifyInstance,
+  db: pg.Pool,
+  opts: { competitionTimers?: CompetitionTimersHandle } = {}
+) {
   // Registry shortlist for the create form (no internal paths exposed).
   app.get('/api/competitions/metrics', { preHandler: requireAuth() }, async () => {
     return { metrics: metricOptions() }
@@ -189,6 +199,10 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
          rollingDays, autoResolve, resolveIntervalDays, nextResolveAt,
          thresholdComparator, thresholdValue, String(createdBy)]
       )
+      // Arm the boundary timers (#230): a baseline capture at start, a final
+      // capture + auto-freeze at end. immediate=true lets a just-started contest
+      // grab its baseline now.
+      opts.competitionTimers?.arm(inserted.rows[0], { immediate: true })
       return reply.status(201).send({ competition: inserted.rows[0] })
     }
   )
@@ -270,7 +284,7 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
   })
 }
 
-interface CompetitionRow {
+export interface CompetitionRow {
   id?: number | string
   type?: string
   metric_id: string
@@ -450,7 +464,7 @@ export async function resolveCompetition(
 // string (space→T) with Postgres's microsecond precision and a bare ±HH offset,
 // which `new Date()` can't parse — so normalise the offset to ±HH:MM and trim
 // fractional seconds to milliseconds first. Dates and ISO strings pass through.
-function toDate(v: string | Date): Date {
+export function toDate(v: string | Date): Date {
   if (v instanceof Date) return v
   let s = String(v)
   // Only a value with a time part carries an offset to normalise; a date-only

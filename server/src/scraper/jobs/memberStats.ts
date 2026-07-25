@@ -9,41 +9,10 @@
 //      (gym-only rows for anyone missing personalstats today).
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
-import { TornApiError } from '../tornClient.js'
+import { createKeyRotator, slimStats, GYM_COLUMNS } from '../sampleCapture.js'
 
 const BACKFILL_DAYS = 30
 const SNAPSHOT_OFFSET_SECONDS = 3600
-
-// Multi-key fan-out (#228): spread the per-member calls across several pooled
-// keys so a run finishes in a fraction of the single-key time, and retry a call
-// on another key when one fails. Bounded (default 3) so other scrapers keep keys
-// available; operator-tunable via MEMBER_STATS_MAX_KEYS.
-const MAX_KEYS = Math.max(1, Number(process.env.MEMBER_STATS_MAX_KEYS) || 3)
-// Torn error codes that mean the KEY is bad — drop it from the run and disable
-// it in the pool.
-const KEY_DISABLE_CODES = new Set([2, 10, 13])
-// Codes that are transient for the key (rate limit / IP block) — just try
-// another key for this call; the key stays in rotation.
-const KEY_TRANSIENT_CODES = new Set([5, 8])
-
-// The personalstats categories a competition metric can read (#227). Only these
-// are kept in the slim sample series — the full ~200-field blob stays in the
-// once-daily member_daily_stats row.
-const SAMPLE_CATEGORIES = ['drugs', 'attacking', 'hospital', 'other']
-
-function slimStats(personalstats: unknown): Record<string, unknown> {
-  const ps = (personalstats ?? {}) as Record<string, unknown>
-  const out: Record<string, unknown> = {}
-  for (const cat of SAMPLE_CATEGORIES) if (ps[cat] !== undefined) out[cat] = ps[cat]
-  return out
-}
-const GYM_COLUMNS: Record<string, string> = {
-  gymstrength: 'gym_strength',
-  gymspeed: 'gym_speed',
-  gymdexterity: 'gym_dexterity',
-  gymdefense: 'gym_defense',
-  gymenergy: 'gym_energy',
-}
 
 interface StatsRecord {
   member_id: string
@@ -59,48 +28,10 @@ interface StatsRecord {
 const isoDate = (d: Date) => d.toISOString().slice(0, 10)
 
 export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<RunResult> {
-  // Claim up to MAX_KEYS distinct pooled keys to fan out across. The pool hands
-  // out least-recently-claimed keys; we stop when it repeats (pool smaller than
-  // MAX_KEYS) or is empty.
-  const active: { member_id: string; key: string }[] = []
-  const seen = new Set<string>()
-  for (let i = 0; i < MAX_KEYS; i++) {
-    const k = await pool.claim()
-    if (!k || seen.has(k.member_id)) break
-    seen.add(k.member_id)
-    active.push(k)
-  }
+  // Multi-key fan-out + retry (#228): spread per-member calls across up to
+  // MAX_KEYS pooled keys, retrying a call on another key when one fails.
+  const { active, rfetch } = await createKeyRotator(pool, client)
   if (active.length === 0) throw new Error('no pooled key available')
-
-  // Fetch with key rotation + retry (#228): rotate keys for load-spread; on a
-  // transient or bad-key error retry the SAME call on another key; drop+disable
-  // a bad key. Returns null only when the call can't be satisfied by any key (a
-  // member-specific/unknown error, or every key exhausted) — so no member is
-  // dropped after a single failed attempt.
-  let rr = 0
-  async function rfetch(path: string): Promise<any | null> {
-    const tried = new Set<string>()
-    while (true) {
-      const candidates = active.filter((k) => !tried.has(k.member_id))
-      if (candidates.length === 0) return null
-      const key = candidates[rr % candidates.length]
-      rr++
-      tried.add(key.member_id)
-      try {
-        return await client.fetch(path, key.key)
-      } catch (err) {
-        const code = err instanceof TornApiError ? err.tornCode : -1
-        if (KEY_DISABLE_CODES.has(code)) {
-          await pool.disable(key.member_id, `Torn error ${code}: key rejected`)
-          const i = active.findIndex((k) => k.member_id === key.member_id)
-          if (i >= 0) active.splice(i, 1)
-          continue // key gone — try another
-        }
-        if (KEY_TRANSIENT_CODES.has(code)) continue // try another key, keep this one
-        return null // member-specific / unknown — another key won't help
-      }
-    }
-  }
 
   const members = await db.query(
     `SELECT member_id, member_name FROM members WHERE is_current = true ORDER BY member_id`
