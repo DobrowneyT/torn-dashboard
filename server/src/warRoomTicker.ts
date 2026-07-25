@@ -165,11 +165,12 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
         if (expiredDibs.length > 0) hub.broadcast('dibs', expiredDibs, now.rows[0].server_now)
       }
 
-      // PUSH-surge detection + fan-out (#208). Detection runs even when nothing
-      // else changed is cheap; observe() is a no-op when the toggle is off.
-      const surges = surge.observe(changed, {
-        enemyId, ourId, config: surgeConfigFrom(cfg), nowMs: Date.now(),
-      })
+      // PUSH-surge detection + fan-out (#208). observe() is a no-op when the
+      // toggle is off. We only act on ENEMY-side surges ("we're being pushed") —
+      // the our-side / offensive direction is intentionally not alerted.
+      const surges = surge
+        .observe(changed, { enemyId, ourId, config: surgeConfigFrom(cfg), nowMs: Date.now() })
+        .filter((ev) => ev.direction === 'enemy')
       for (const ev of surges) {
         const msg = surgeMessage(ev)
         // Open tabs: sound/flash automatically for everyone (reuses #156/#157).

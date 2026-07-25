@@ -1104,10 +1104,8 @@ function ConfigPanel({
         {surgeEnabled && surgeFields && (
           <div className="flex flex-wrap items-end gap-x-3 gap-y-2 pl-6">
             {[
-              { label: 'Enemy ≥', field: 'surge_enemy_threshold', min: 1, max: 100, fb: 3, w: 'w-16', hint: 'Enemies leaving hospital to trigger a defensive alert.' },
-              { label: 'within (s)', field: 'surge_enemy_window_sec', min: 5, max: 600, fb: 60, w: 'w-20', hint: 'Rolling window for the enemy count.' },
-              { label: 'Ours ≥', field: 'surge_our_threshold', min: 1, max: 100, fb: 4, w: 'w-16', hint: 'Our members out of hospital to trigger a push-window alert.' },
-              { label: 'within (s)', field: 'surge_our_window_sec', min: 5, max: 600, fb: 60, w: 'w-20', hint: 'Rolling window for our count.' },
+              { label: 'Alert when ≥', field: 'surge_enemy_threshold', min: 1, max: 100, fb: 3, w: 'w-16', hint: 'Enemies leaving hospital within the window to trigger a "we\'re being pushed" alert.' },
+              { label: 'within (s)', field: 'surge_enemy_window_sec', min: 5, max: 600, fb: 60, w: 'w-20', hint: 'Rolling window for the enemy hospital-exit count.' },
               { label: 'Cooldown (s)', field: 'surge_cooldown_sec', min: 30, max: 3600, fb: 300, w: 'w-24', hint: 'Quiet period after an alert so flicker can’t re-spam.' },
             ].map(({ label, field, min, max, fb, w, hint }) => (
               <div key={field}>
@@ -2439,7 +2437,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
       {/* Leader headline banner (#158) — display sits between the status bar
           and roster (#197). The leader composer lives in the filters card. */}
-      <HeadlineBanner config={config} mode="banner" />
+      <HeadlineBanner config={config} mode="banner" canManage={(isWarLead || isLeadership || isAdmin) && !isVisitor} />
 
       {/* Push opt-in (#207): offer background notifications on entering a live
           war room (API mode only; visitors are read-only observers). */}
