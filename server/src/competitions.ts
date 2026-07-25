@@ -14,6 +14,19 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const NAME_MAX = 120
 const ROLLING_DAYS_MAX = 366
 
+// A competition window boundary (#229): a bare YYYY-MM-DD becomes start-of-day
+// (00:00:00Z) or end-of-day (23:59:59.999Z) so a date-only contest still covers
+// its whole last day; a full ISO timestamp is taken as the exact instant. Returns
+// an ISO timestamp string, or null if the input isn't a valid date/timestamp.
+function parseWindowBoundary(value: unknown, edge: 'start' | 'end'): string | null {
+  if (typeof value !== 'string') return null
+  if (DATE_RE.test(value)) {
+    return edge === 'start' ? `${value}T00:00:00.000Z` : `${value}T23:59:59.999Z`
+  }
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
 const SELECT_COLS =
   `id, name, type, metric_id, direction, reducer, window_kind,
    window_start, window_end, rolling_days, auto_resolve, resolve_interval_days,
@@ -127,15 +140,16 @@ export function registerCompetitionRoutes(app: FastifyInstance, db: pg.Pool) {
       let windowEnd: string | null = null
       let rollingDays: number | null = null
       if (windowKind === 'fixed') {
-        if (typeof body.window_start !== 'string' || !DATE_RE.test(body.window_start) ||
-            typeof body.window_end !== 'string' || !DATE_RE.test(body.window_end)) {
-          return reply.status(400).send({ error: 'window_start and window_end must be YYYY-MM-DD dates' })
+        // A bare YYYY-MM-DD maps to start-of-day / end-of-day UTC; a full ISO
+        // timestamp is taken as the exact instant (the time-of-day picker, #231).
+        windowStart = parseWindowBoundary(body.window_start, 'start')
+        windowEnd = parseWindowBoundary(body.window_end, 'end')
+        if (windowStart == null || windowEnd == null) {
+          return reply.status(400).send({ error: 'window_start and window_end must be YYYY-MM-DD dates or ISO timestamps' })
         }
-        if (body.window_end < body.window_start) {
+        if (windowEnd < windowStart) {
           return reply.status(400).send({ error: 'window_end must be on or after window_start' })
         }
-        windowStart = body.window_start
-        windowEnd = body.window_end
       } else if (windowKind === 'rolling') {
         rollingDays = Number(body.rolling_days)
         if (!Number.isInteger(rollingDays) || rollingDays < 1 || rollingDays > ROLLING_DAYS_MAX) {
@@ -287,47 +301,30 @@ export function drawWinner<T>(pool: T[], rng: () => number = Math.random): T {
   return pool[Math.floor(rng() * pool.length)]
 }
 
-function toIsoDate(d: string | Date): string {
-  return typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10)
-}
-
-// One UTC day later as a YYYY-MM-DD string. Used to reach the day-after snapshot:
-// the daily member-stats job runs early each morning, so the cumulative stat at
-// the END of day D is captured by the snapshot dated D+1 — not the one dated D.
-function addUtcDays(iso: string, days: number): string {
-  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-
-// The concrete [start, end] the standings cover: a fixed competition's stored
-// dates, or — for a rolling one — the trailing rolling_days ending today (UTC).
+// The concrete [start, end] instants the standings cover: a fixed competition's
+// stored timestamps, or — for a rolling one — the trailing rolling_days ending
+// now. Boundaries are exact instants (#229), not whole days.
 export function effectiveWindow(
   competition: CompetitionRow,
-  today = new Date()
-): { start: string; end: string } | null {
+  now = new Date()
+): { start: Date; end: Date } | null {
   if (competition.window_kind === 'rolling') {
     const days = competition.rolling_days ?? 0
     if (days < 1) return null
-    const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
-    const start = new Date(end)
-    start.setUTCDate(start.getUTCDate() - days)
-    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) }
+    return { start: new Date(now.getTime() - days * 86_400_000), end: new Date(now) }
   }
   if (competition.window_start == null || competition.window_end == null) return null
-  return { start: toIsoDate(competition.window_start), end: toIsoDate(competition.window_end) }
+  return { start: toDate(competition.window_start), end: toDate(competition.window_end) }
 }
 
-function daysBetween(start: string, end: string): number {
-  const ms = Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)
-  return Math.max(1, Math.round(ms / 86_400_000))
-}
-
-// Per-current-member delta of the metric over the effective window. Rows
-// without a numeric value at the metric's path are skipped (never miscounted).
-// `partial` marks members whose first in-window snapshot is after the window
-// opened. With the per-day-average reducer, the delta is divided by the window
-// length — a positive constant, so the SQL ordering on raw delta still holds.
+// Per-current-member delta of the metric over the effective window, computed
+// from the intraday sample series (#227) at exact boundaries (#229): each
+// member's value is `(latest reading <= window_end) - (latest reading <=
+// window_start)`. A reading is a slim sample OR — where no sample exists yet
+// (pre-deploy competitions) — the once-daily member_daily_stats row at its
+// snapshot date's UTC midnight; samples supersede a same-day daily row because
+// their timestamp is later. `partial` marks a member with no reading at/before
+// window_start (baseline taken from their first in-window reading instead).
 export async function computeStandings(db: pg.Pool, competition: CompetitionRow) {
   const metric = getMetric(competition.metric_id)
   if (!metric) return []
@@ -335,48 +332,50 @@ export async function computeStandings(db: pg.Pool, competition: CompetitionRow)
   if (!window) return []
   const order = competition.direction === 'asc' ? 'ASC' : 'DESC'
   const perDay = competition.reducer === 'avg_per_day'
-  const windowDays = daysBetween(window.start, window.end)
+  const windowDays = Math.max(1, Math.round((window.end.getTime() - window.start.getTime()) / 86_400_000))
 
-  // The per-snapshot value comes either from a personalstats jsonb path or from
-  // a dedicated numeric column (e.g. gym_energy). The column name is validated
-  // against DAILY_STAT_COLUMNS so it's safe to embed in SQL; the path stays a
-  // bound parameter.
+  // The per-reading value comes either from a personalstats jsonb path (present
+  // in both the slim sample `stats` and the daily `personalstats`) or from a
+  // dedicated numeric column (e.g. gym_energy, on both tables). Column names are
+  // validated against DAILY_STAT_COLUMNS so they're safe to embed; the path
+  // stays a bound parameter ($3).
   const isColumn = metric.source === 'daily_column'
   if (isColumn ? !(metric.column && DAILY_STAT_COLUMNS.has(metric.column)) : !metric.path) return []
-  const valExpr = isColumn ? `s.${metric.column}::numeric` : `(s.personalstats #>> $3::text[])::numeric`
-  const guard = isColumn
-    ? `s.${metric.column} IS NOT NULL`
-    : `(s.personalstats #>> $3::text[]) ~ '^-?[0-9]+(\\.[0-9]+)?$'`
-  // The upper query bound reaches one day past window.end so the end value comes
-  // from the day-after snapshot, which captures the full final day of the window
-  // (see addUtcDays). windowDays and the `partial` flag stay keyed to window.end.
-  const endBound = addUtcDays(window.end, 1)
-  const params: unknown[] = isColumn
-    ? [window.start, endBound]
-    : [window.start, endBound, metric.path]
+  const numRe = "'^-?[0-9]+(\\.[0-9]+)?$'"
+  const sampleVal = isColumn ? `s.${metric.column}::numeric` : `(s.stats #>> $3::text[])::numeric`
+  const sampleGuard = isColumn ? `s.${metric.column} IS NOT NULL` : `(s.stats #>> $3::text[]) ~ ${numRe}`
+  const dailyVal = isColumn ? `d.${metric.column}::numeric` : `(d.personalstats #>> $3::text[])::numeric`
+  const dailyGuard = isColumn ? `d.${metric.column} IS NOT NULL` : `(d.personalstats #>> $3::text[]) ~ ${numRe}`
+  const params: unknown[] = isColumn ? [window.start, window.end] : [window.start, window.end, metric.path]
 
   const res = await db.query(
-    `WITH in_window AS (
-       SELECT s.member_id, s.snapshot_date, ${valExpr} AS val
-       FROM member_daily_stats s
-       WHERE s.snapshot_date BETWEEN $1 AND $2
-         AND ${guard}
-     ),
-     bounds AS (
-       SELECT member_id,
-              min(snapshot_date) AS start_date,
-              max(snapshot_date) AS end_date,
-              (array_agg(val ORDER BY snapshot_date ASC))[1]  AS start_val,
-              (array_agg(val ORDER BY snapshot_date DESC))[1] AS end_val
-       FROM in_window
-       GROUP BY member_id
+    `WITH readings AS (
+       SELECT s.member_id, s.captured_at AS at, ${sampleVal} AS val
+       FROM member_stat_samples s WHERE ${sampleGuard}
+       UNION ALL
+       SELECT d.member_id, (d.snapshot_date::timestamp AT TIME ZONE 'UTC') AS at, ${dailyVal} AS val
+       FROM member_daily_stats d WHERE ${dailyGuard}
      )
-     SELECT b.member_id, m.member_name,
-            (b.end_val - b.start_val)::float8 AS value,
-            b.start_date, b.end_date,
-            (b.start_date > $1) AS partial
-     FROM bounds b
-     JOIN members m ON m.member_id = b.member_id AND m.is_current = true
+     SELECT m.member_id, m.member_name,
+            (e.val - COALESCE(pre.val, fst.val))::float8 AS value,
+            (pre.at IS NULL) AS partial
+     FROM members m
+     JOIN LATERAL (
+       SELECT r.val, r.at FROM readings r
+       WHERE r.member_id = m.member_id AND r.at <= $2
+       ORDER BY r.at DESC LIMIT 1
+     ) e ON true
+     LEFT JOIN LATERAL (
+       SELECT r.val, r.at FROM readings r
+       WHERE r.member_id = m.member_id AND r.at <= $1
+       ORDER BY r.at DESC LIMIT 1
+     ) pre ON true
+     LEFT JOIN LATERAL (
+       SELECT r.val FROM readings r
+       WHERE r.member_id = m.member_id AND r.at <= $2
+       ORDER BY r.at ASC LIMIT 1
+     ) fst ON true
+     WHERE m.is_current = true
      ORDER BY value ${order}, m.member_name`,
     params
   )
@@ -388,8 +387,6 @@ export async function computeStandings(db: pg.Pool, competition: CompetitionRow)
     // to 2 dp; total is the raw delta.
     value: perDay ? Math.round((r.value / windowDays) * 100) / 100 : r.value,
     partial: r.partial,
-    start_date: r.start_date,
-    end_date: r.end_date,
   }))
 }
 
@@ -449,10 +446,6 @@ export async function resolveCompetition(
   }
 }
 
-function isoDay(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
 // Parse a stored timestamp to a Date. db.ts returns timestamptz as a text
 // string (space→T) with Postgres's microsecond precision and a bare ±HH offset,
 // which `new Date()` can't parse — so normalise the offset to ±HH:MM and trim
@@ -489,9 +482,9 @@ export function isDueToResolve(competition: CompetitionRow, now: Date): boolean 
     if (competition.next_resolve_at == null) return false
     return toDate(competition.next_resolve_at) <= now
   }
-  // Fixed: due once the end day has fully passed (strictly after window_end).
+  // Fixed: due once the end instant has passed (#229 — window_end is a timestamp).
   if (competition.window_end == null) return false
-  return isoDay(now) > toIsoDate(competition.window_end)
+  return now.getTime() >= toDate(competition.window_end).getTime()
 }
 
 // The scheduled tick: resolve every auto-managed competition that's due, gated
@@ -514,16 +507,19 @@ export async function runAutoResolve(db: pg.Pool, now = new Date()) {
       const next = advanceNextResolve(toDate(comp.next_resolve_at), interval, now)
       await db.query('UPDATE competitions SET next_resolve_at = $1, updated_at = now() WHERE id = $2', [next, comp.id])
     } else {
-      // Fixed: resolve once. Skip if already resolved or the day-after snapshot
-      // hasn't landed yet — that snapshot captures the full final day, so freezing
-      // the board before it lands would under-count everyone's final-day activity.
+      // Fixed: resolve once. Skip if already resolved, or if no reading has
+      // landed at/after the end boundary yet — freezing before the end value is
+      // settled would under-count the final stretch. A sample captured at/after
+      // window_end (the #230 forced end capture, normally) or a daily row past
+      // the window's date both confirm the boundary is covered.
       const already = await db.query('SELECT 1 FROM competition_results WHERE competition_id = $1 LIMIT 1', [comp.id])
       if (already.rows.length > 0) continue
-      const endData = await db.query(
-        'SELECT 1 FROM member_daily_stats WHERE snapshot_date > $1 LIMIT 1',
-        [toIsoDate(comp.window_end)]
+      const endReady = await db.query(
+        `SELECT (EXISTS (SELECT 1 FROM member_stat_samples WHERE captured_at >= $1)
+              OR EXISTS (SELECT 1 FROM member_daily_stats WHERE snapshot_date > ($1)::date)) AS ready`,
+        [comp.window_end]
       )
-      if (endData.rows.length === 0) continue
+      if (!endReady.rows[0].ready) continue
       const result = await resolveCompetition(db, comp, 'scheduler')
       if (result) resolved++
     }

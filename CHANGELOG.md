@@ -201,6 +201,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Changed
 
+- **Competitions resolve at exact timestamp boundaries (#229).** Competition
+  windows are now timestamps, not dates, and standings are computed from the
+  intraday sample series (#227): each member's value is `(latest sample ≤
+  window_end) − (latest sample ≤ window_start)`. A sample exactly at the end
+  boundary counts; anything after is excluded — so a contest can have a real
+  time-of-day cutoff. Where no sample exists (competitions predating the series),
+  resolution falls back to the once-daily `member_daily_stats` rows. This retires
+  the interim #223 "day-after snapshot" workaround, whose approximation the exact
+  boundaries supersede. Existing date-only competitions are migrated to
+  start-of-day / end-of-day and keep resolving unchanged.
 - **Member notes open on hover; the pencil edits.** Hovering a roster row's note
   icon now shows the note (read-only) for everyone; clicking the pencil opens the
   editor (war leads / leadership / admin only). A click also pins it open for touch

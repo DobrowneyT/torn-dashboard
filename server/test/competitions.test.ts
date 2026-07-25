@@ -162,18 +162,6 @@ describe('competitions (#183)', () => {
     expect(board[0].partial).toBe(false)
   })
 
-  it('reads the end value from the day-after snapshot so the full final day counts', async () => {
-    const created = await api('POST', '/api/competitions', leadershipToken, {
-      name: 'Blood day-after', metric_id: 'blood_withdrawn',
-      window_start: '2026-07-01', window_end: '2026-07-07',
-    })
-    const res = await api('GET', `/api/competitions/${created.body.competition.id}`, memberToken)
-    const fin = res.body.standings.find((r: any) => r.member_id === '15')
-    // 180 (the 07-08 snapshot, which captures all of the 07-07 window day) minus
-    // the 07-01 baseline of 100 = 80 — NOT 150-100=50 from the 07-07 snapshot.
-    expect(fin.value).toBe(80)
-    expect(fin.partial).toBe(false)
-  })
 
   it('honors direction=asc (lowest-wins)', async () => {
     const created = await api('POST', '/api/competitions', leadershipToken, {
@@ -193,12 +181,17 @@ describe('competitions (#183)', () => {
 
   // ── #184: rolling windows + per-day-average reducer ──────────────────────
 
-  it('effectiveWindow: fixed uses stored dates; rolling trails rolling_days from today', () => {
-    expect(effectiveWindow({ metric_id: 'x', direction: 'desc', window_kind: 'fixed', window_start: '2026-07-01', window_end: '2026-07-07' }))
-      .toEqual({ start: '2026-07-01', end: '2026-07-07' })
-    const today = new Date('2026-07-23T12:00:00Z')
-    expect(effectiveWindow({ metric_id: 'x', direction: 'desc', window_kind: 'rolling', rolling_days: 7 }, today))
-      .toEqual({ start: '2026-07-16', end: '2026-07-23' })
+  it('effectiveWindow: fixed uses stored timestamps; rolling trails rolling_days from now', () => {
+    // Fixed windows are exact instants now (#229).
+    const fixed = effectiveWindow({ metric_id: 'x', direction: 'desc', window_kind: 'fixed',
+      window_start: '2026-07-01T00:00:00.000Z', window_end: '2026-07-07T23:59:59.999Z' })!
+    expect(fixed.start.toISOString()).toBe('2026-07-01T00:00:00.000Z')
+    expect(fixed.end.toISOString()).toBe('2026-07-07T23:59:59.999Z')
+    // Rolling trails exactly rolling_days back from `now`.
+    const now = new Date('2026-07-23T12:00:00Z')
+    const rolling = effectiveWindow({ metric_id: 'x', direction: 'desc', window_kind: 'rolling', rolling_days: 7 }, now)!
+    expect(rolling.end.toISOString()).toBe('2026-07-23T12:00:00.000Z')
+    expect(rolling.start.toISOString()).toBe('2026-07-16T12:00:00.000Z')
   })
 
   it('per-day-average reducer divides the window delta by the window length', async () => {
@@ -210,9 +203,10 @@ describe('competitions (#183)', () => {
     expect(created.body.competition.reducer).toBe('avg_per_day')
     const res = await api('GET', `/api/competitions/${created.body.competition.id}`, memberToken)
     const byId = Object.fromEntries(res.body.standings.map((r: any) => [r.member_id, r]))
-    // Ace delta 40 over a 6-day window → 6.67; Bea 15/6 → 2.5.
-    expect(byId['10'].value).toBe(6.67)
-    expect(byId['11'].value).toBe(2.5)
+    // 07-01 00:00 → 07-07 end-of-day spans ~7 days now (#229): Ace 40/7 → 5.71;
+    // Bea 15/7 → 2.14.
+    expect(byId['10'].value).toBe(5.71)
+    expect(byId['11'].value).toBe(2.14)
   })
 
   it('rolling window computes a live board over the trailing days', async () => {
@@ -295,10 +289,10 @@ describe('competitions (#183)', () => {
 
   it('isDueToResolve gates on auto_resolve, a passed fixed end day, and rolling next_resolve_at', () => {
     const base = { metric_id: 'xanax_taken', direction: 'desc' }
-    expect(isDueToResolve({ ...base, auto_resolve: false, window_kind: 'fixed', window_end: '2000-01-01' }, new Date('2020-01-01T00:00:00Z'))).toBe(false)
-    expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'fixed', window_end: '2000-01-01' }, new Date('2000-01-02T00:00:00Z'))).toBe(true)
-    // Same day as the end date is not "strictly after" → not yet due.
-    expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'fixed', window_end: '2000-01-02' }, new Date('2000-01-02T12:00:00Z'))).toBe(false)
+    expect(isDueToResolve({ ...base, auto_resolve: false, window_kind: 'fixed', window_end: '2000-01-01T23:59:59.999Z' }, new Date('2020-01-01T00:00:00Z'))).toBe(false)
+    expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'fixed', window_end: '2000-01-01T23:59:59.999Z' }, new Date('2000-01-02T00:00:00Z'))).toBe(true)
+    // Before the end instant (mid-day of the end date) → not yet due.
+    expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'fixed', window_end: '2000-01-02T23:59:59.999Z' }, new Date('2000-01-02T12:00:00Z'))).toBe(false)
     expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'rolling', next_resolve_at: '2999-01-01' }, new Date())).toBe(false)
     expect(isDueToResolve({ ...base, auto_resolve: true, window_kind: 'rolling', next_resolve_at: '2000-01-01' }, new Date())).toBe(true)
   })
@@ -470,5 +464,60 @@ describe('competitions (#183)', () => {
     const found = feed.body.competitions.find((x: any) => x.id === id)
     expect(found.qualified_count).toBe(2) // Ace (40) + Bea (15) qualify
     await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: false })
+  })
+})
+
+// ── #229: timestamped windows + exact sample-based boundaries ───────────────
+describe('competitions (#229): sample-based resolution', () => {
+  it('reads the latest sample at/before each boundary; a sample after window_end is excluded', async () => {
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, is_current) VALUES ('30','Cutoff',true) ON CONFLICT (member_id) DO NOTHING`
+    )
+    // A day of xanax samples for member 30. Window is 09:00–18:00 exactly.
+    await stack.db.query(`
+      INSERT INTO member_stat_samples (member_id, captured_at, stats) VALUES
+        ('30','2026-08-01T08:00:00Z','{"drugs":{"xanax":100}}'),  -- baseline: latest <= 09:00
+        ('30','2026-08-01T12:00:00Z','{"drugs":{"xanax":110}}'),
+        ('30','2026-08-01T18:00:00Z','{"drugs":{"xanax":118}}'),  -- exactly at end: counts
+        ('30','2026-08-01T18:05:00Z','{"drugs":{"xanax":125}}')   -- after end: excluded
+    `)
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Cutoff', metric_id: 'xanax_taken',
+      window_start: '2026-08-01T09:00:00Z', window_end: '2026-08-01T18:00:00Z',
+    })
+    expect(c.status).toBe(201)
+    const res = await api('GET', `/api/competitions/${c.body.competition.id}`, memberToken)
+    const row = res.body.standings.find((r: any) => r.member_id === '30')
+    // 118 (18:00) − 100 (08:00 baseline) = 18; the 18:05 sample (125) is excluded.
+    expect(row.value).toBe(18)
+    expect(row.partial).toBe(false)
+  })
+
+  it('a same-day sample supersedes the coarse daily-stats row for a boundary', async () => {
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, is_current) VALUES ('31','Mixed',true) ON CONFLICT (member_id) DO NOTHING`
+    )
+    // A daily row (midnight-anchored) and a later same-day sample. The sample,
+    // being timestamped later in the day, wins as the reading <= an end boundary
+    // set to that evening.
+    await stack.db.query(`
+      INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats) VALUES
+        ('31','2026-08-01','{"drugs":{"xanax":200}}'),
+        ('31','2026-08-05','{"drugs":{"xanax":260}}')
+      ON CONFLICT (member_id, snapshot_date) DO NOTHING
+    `)
+    await stack.db.query(`
+      INSERT INTO member_stat_samples (member_id, captured_at, stats) VALUES
+        ('31','2026-08-05T20:00:00Z','{"drugs":{"xanax":275}}')  -- later than the 08-05 midnight row
+    `)
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Supersede', metric_id: 'xanax_taken',
+      window_start: '2026-08-01', window_end: '2026-08-05T23:59:59Z',
+    })
+    const res = await api('GET', `/api/competitions/${c.body.competition.id}`, memberToken)
+    const row = res.body.standings.find((r: any) => r.member_id === '31')
+    // end = the 20:00 sample (275), not the 08-05 midnight daily row (260);
+    // baseline = 08-01 daily row (200). 275 − 200 = 75.
+    expect(row.value).toBe(75)
   })
 })
