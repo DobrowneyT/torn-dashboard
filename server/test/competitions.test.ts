@@ -36,10 +36,12 @@ async function api(method: string, path: string, token: string, payload?: unknow
 //  Cal   — has data but is_current = false: excluded from the board.
 //  Dan   — a single in-window snapshot: delta 0, partial (baseline after open).
 //  Eve   — personalstats missing the metric path: excluded (never miscounted).
+//  Fin   — blood-withdrawn metric, with a day-after snapshot (07-08) that
+//          captures the full final window day: the end value must come from it.
 async function seedStandingsFixture() {
   await stack.db.query(`
     INSERT INTO members (member_id, member_name, is_current) VALUES
-      ('10','Ace',true),('11','Bea',true),('12','Cal',false),('13','Dan',true),('14','Eve',true)
+      ('10','Ace',true),('11','Bea',true),('12','Cal',false),('13','Dan',true),('14','Eve',true),('15','Fin',true),('16','Gus',true)
     ON CONFLICT (member_id) DO NOTHING
   `)
   await stack.db.query(`
@@ -54,7 +56,10 @@ async function seedStandingsFixture() {
       ('12','2026-07-07','{"drugs":{"xanax":999}}'),
       ('13','2026-07-05','{"drugs":{"xanax":5}}'),
       ('14','2026-07-01','{"hospital":{"reviving":{"revives":3}}}'),
-      ('14','2026-07-07','{"hospital":{"reviving":{"revives":9}}}')
+      ('14','2026-07-07','{"hospital":{"reviving":{"revives":9}}}'),
+      ('15','2026-07-01','{"hospital":{"blood_withdrawn":100}}'),
+      ('15','2026-07-07','{"hospital":{"blood_withdrawn":150}}'),
+      ('15','2026-07-08','{"hospital":{"blood_withdrawn":180}}')
     ON CONFLICT (member_id, snapshot_date) DO NOTHING
   `)
   // Gym energy lives in a dedicated column (not personalstats) — the
@@ -155,6 +160,19 @@ describe('competitions (#183)', () => {
     expect(board.map((r: any) => r.member_id)).toEqual(['11'])
     expect(board[0].value).toBe(3500)
     expect(board[0].partial).toBe(false)
+  })
+
+  it('reads the end value from the day-after snapshot so the full final day counts', async () => {
+    const created = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Blood day-after', metric_id: 'blood_withdrawn',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    const res = await api('GET', `/api/competitions/${created.body.competition.id}`, memberToken)
+    const fin = res.body.standings.find((r: any) => r.member_id === '15')
+    // 180 (the 07-08 snapshot, which captures all of the 07-07 window day) minus
+    // the 07-01 baseline of 100 = 80 — NOT 150-100=50 from the 07-07 snapshot.
+    expect(fin.value).toBe(80)
+    expect(fin.partial).toBe(false)
   })
 
   it('honors direction=asc (lowest-wins)', async () => {
@@ -307,6 +325,37 @@ describe('competitions (#183)', () => {
     expect(hist.body.resolutions[0].winner.member_id).toBe('10')
     // A second tick does not re-resolve a fixed competition.
     await runAutoResolve(stack.db)
+    hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    expect(hist.body.resolutions).toHaveLength(1)
+  })
+
+  it('runAutoResolve holds a due fixed competition until a snapshot lands after the end day', async () => {
+    // The gate is global — it asks "has the daily stats job run at all since the
+    // window closed?" To isolate from other tests' CURRENT_DATE-relative rows we
+    // use a far-future window (Gus is the only member with snapshots out there)
+    // and drive `now` explicitly to just past the end day.
+    const now = new Date('2099-01-06T12:00:00Z')
+    await stack.db.query(`
+      INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats)
+      VALUES ('16','2099-01-01','{"drugs":{"xanax":100}}')
+      ON CONFLICT (member_id, snapshot_date) DO NOTHING
+    `)
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Wait for day-after', metric_id: 'xanax_taken', auto_resolve: true,
+      window_start: '2099-01-01', window_end: '2099-01-05',
+    })
+    const id = c.body.competition.id
+    await runAutoResolve(stack.db, now)
+    let hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    expect(hist.body.resolutions).toHaveLength(0) // due, but held: no snapshot after 2099-01-05
+
+    // The day-after snapshot lands → the board is now complete and resolves.
+    await stack.db.query(`
+      INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats)
+      VALUES ('16','2099-01-06','{"drugs":{"xanax":260}}')
+      ON CONFLICT (member_id, snapshot_date) DO NOTHING
+    `)
+    await runAutoResolve(stack.db, now)
     hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
     expect(hist.body.resolutions).toHaveLength(1)
   })
