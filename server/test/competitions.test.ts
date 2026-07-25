@@ -521,3 +521,82 @@ describe('competitions (#229): sample-based resolution', () => {
     expect(row.value).toBe(75)
   })
 })
+
+// ── #239: placement prizes (cash + text) ────────────────────────────────────
+describe('competitions (#239): placement prizes', () => {
+  it('creates a competition with placement cash + text prizes and returns them', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Prized Grind', metric_id: 'xanax_taken',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+      prize_kind: 'placement',
+      prizes: [
+        { kind: 'cash', amount: 10000000 },
+        { kind: 'cash', amount: 5000000 },
+        { kind: 'text', text: 'Bragging rights' },
+      ],
+    })
+    expect(c.status).toBe(201)
+    expect(c.body.competition.prize_kind).toBe('placement')
+    expect(c.body.competition.prizes).toEqual([
+      { kind: 'cash', amount: 10000000 },
+      { kind: 'cash', amount: 5000000 },
+      { kind: 'text', text: 'Bragging rights' },
+    ])
+  })
+
+  it('defaults to placement with an empty prize list when none is given', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'No prizes', metric_id: 'xanax_taken',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    expect(c.status).toBe(201)
+    expect(c.body.competition.prize_kind).toBe('placement')
+    expect(c.body.competition.prizes).toEqual([])
+  })
+
+  it('rejects invalid prize slots, an oversized list, and a non-placement kind', async () => {
+    const bad = (extra: Record<string, unknown>) => api('POST', '/api/competitions', leadershipToken, {
+      name: 'x', metric_id: 'xanax_taken', window_start: '2026-07-01', window_end: '2026-07-07', ...extra,
+    })
+    expect((await bad({ prizes: [{ kind: 'cash', amount: -5 }] })).status).toBe(400)
+    expect((await bad({ prizes: [{ kind: 'cash', amount: 'lots' }] })).status).toBe(400)
+    expect((await bad({ prizes: [{ kind: 'text', text: '   ' }] })).status).toBe(400)
+    expect((await bad({ prizes: [{ kind: 'bogus' }] })).status).toBe(400)
+    expect((await bad({ prizes: Array.from({ length: 11 }, () => ({ kind: 'cash', amount: 1 })) })).status).toBe(400)
+    // 'flat' arrives in a later slice.
+    expect((await bad({ prize_kind: 'flat', prizes: [] })).status).toBe(400)
+  })
+
+  it('records the earned prize per placement at resolution (leaderboard by rank)', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Prize resolve', metric_id: 'xanax_taken', window_start: '2026-07-01', window_end: '2026-07-07',
+      prizes: [{ kind: 'cash', amount: 10000000 }, { kind: 'text', text: 'Silver' }], // 1st, 2nd (no 3rd)
+    })
+    const id = c.body.competition.id
+    await api('POST', `/api/competitions/${id}/resolve`, leadershipToken)
+    const hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    const byId = Object.fromEntries(hist.body.resolutions[0].standings.map((s: any) => [s.member_id, s]))
+    // Ace (rank 1) → slot 0; Bea (rank 2) → slot 1; Dan (rank 3) → no slot → null.
+    expect(byId['10'].prize).toEqual({ kind: 'cash', amount: 10000000 })
+    expect(byId['11'].prize).toEqual({ kind: 'text', text: 'Silver' })
+    expect(byId['13'].prize).toBeNull()
+  })
+
+  it('records the prize only for the drawn winner (lottery), not the whole pool', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Prize lottery', type: 'lottery', metric_id: 'xanax_taken', reducer: 'total',
+      threshold_comparator: 'gte', threshold_value: 10,
+      window_start: '2026-07-01', window_end: '2026-07-07',
+      prizes: [{ kind: 'cash', amount: 20000000 }],
+    })
+    const id = c.body.competition.id
+    const row = (await stack.db.query('SELECT * FROM competitions WHERE id = $1', [id])).rows[0]
+    // Deterministic draw: rng→0.99 picks pool index 1 (Bea) of [Ace, Bea].
+    const result = await resolveCompetition(stack.db, row, 'test', () => 0.99)
+    expect(result!.winner!.member_id).toBe('11')
+    const hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    const byId = Object.fromEntries(hist.body.resolutions[0].standings.map((s: any) => [s.member_id, s]))
+    expect(byId['11'].prize).toEqual({ kind: 'cash', amount: 20000000 }) // drawn winner
+    expect(byId['10'].prize).toBeNull()                                  // qualified but not drawn
+  })
+})

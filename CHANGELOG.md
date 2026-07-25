@@ -19,6 +19,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competition prizes — placement cash/text (#239).** Leaders can attach a
+  **placement** prize table (1st / 2nd / 3rd …) to a competition using **cash**
+  (formatted) or **free-text** prize slots. Every member sees the prize table on
+  the competition, and on resolution each member's **earned prize is recorded**
+  in the frozen results and shown in history — leaderboard by rank, lottery to
+  the drawn winner only. Informational (no automatic disbursement). Flat
+  distribution and catalogue item prizes follow in #240/#241.
 - **Competition start/end time-of-day picker + visible end time (#231).** The
   create form now takes an optional **time** beside each date (Torn City Time);
   leave it blank for start-of-day / end-of-day. Every member sees the window —

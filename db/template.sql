@@ -719,6 +719,12 @@ CREATE TABLE public.competitions (
   threshold_comparator text,
   threshold_value double precision,
   pinned       boolean NOT NULL DEFAULT false,
+  -- Prize table (#239): prize_kind 'placement' (ordered slots, slot 0 = 1st /
+  -- lottery winner) or 'flat' (one prize to all). Each slot in `prizes` is a
+  -- tagged jsonb value: {kind:'cash',amount} | {kind:'text',text} | (later)
+  -- {kind:'item',item_id,qty}. Informational only.
+  prize_kind   text NOT NULL DEFAULT 'placement',
+  prizes       jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_by   text,
   created_at   timestamp with time zone NOT NULL DEFAULT now(),
   updated_at   timestamp with time zone NOT NULL DEFAULT now()
@@ -739,7 +745,10 @@ CREATE TABLE public.competition_results (
   value          double precision NOT NULL,
   rank           integer NOT NULL,
   partial        boolean NOT NULL DEFAULT false,
-  winner         boolean NOT NULL DEFAULT false
+  winner         boolean NOT NULL DEFAULT false,
+  -- The prize this member earned at resolution (#239), a tagged jsonb slot or
+  -- null. Self-contained so history records who won what without recomputation.
+  prize          jsonb
 );
 CREATE INDEX competition_results_competition_idx
   ON public.competition_results (competition_id, resolution_seq);
