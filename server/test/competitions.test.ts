@@ -44,18 +44,26 @@ async function seedStandingsFixture() {
   `)
   await stack.db.query(`
     INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats) VALUES
-      ('10','2026-06-25','{"drugs":{"xantaken":50}}'),
-      ('10','2026-07-01','{"drugs":{"xantaken":100}}'),
-      ('10','2026-07-07','{"drugs":{"xantaken":140}}'),
-      ('10','2026-07-10','{"drugs":{"xantaken":200}}'),
-      ('11','2026-07-03','{"drugs":{"xantaken":10}}'),
-      ('11','2026-07-07','{"drugs":{"xantaken":25}}'),
-      ('12','2026-07-01','{"drugs":{"xantaken":0}}'),
-      ('12','2026-07-07','{"drugs":{"xantaken":999}}'),
-      ('13','2026-07-05','{"drugs":{"xantaken":5}}'),
-      ('14','2026-07-01','{"medical":{"revives":3}}'),
-      ('14','2026-07-07','{"medical":{"revives":9}}')
+      ('10','2026-06-25','{"drugs":{"xanax":50}}'),
+      ('10','2026-07-01','{"drugs":{"xanax":100}}'),
+      ('10','2026-07-07','{"drugs":{"xanax":140}}'),
+      ('10','2026-07-10','{"drugs":{"xanax":200}}'),
+      ('11','2026-07-03','{"drugs":{"xanax":10}}'),
+      ('11','2026-07-07','{"drugs":{"xanax":25}}'),
+      ('12','2026-07-01','{"drugs":{"xanax":0}}'),
+      ('12','2026-07-07','{"drugs":{"xanax":999}}'),
+      ('13','2026-07-05','{"drugs":{"xanax":5}}'),
+      ('14','2026-07-01','{"hospital":{"reviving":{"revives":3}}}'),
+      ('14','2026-07-07','{"hospital":{"reviving":{"revives":9}}}')
     ON CONFLICT (member_id, snapshot_date) DO NOTHING
+  `)
+  // Gym energy lives in a dedicated column (not personalstats) — the
+  // 'daily_column' metric source reads it. Ace trains across the window.
+  await stack.db.query(`
+    INSERT INTO member_daily_stats (member_id, snapshot_date, gym_energy) VALUES
+      ('11','2026-07-01', 1000),
+      ('11','2026-07-07', 4500)
+    ON CONFLICT (member_id, snapshot_date) DO UPDATE SET gym_energy = EXCLUDED.gym_energy
   `)
 }
 
@@ -135,6 +143,20 @@ describe('competitions (#183)', () => {
     expect(board.map((r: any) => r.rank)).toEqual([1, 2, 3])
   })
 
+  it('computes standings from a daily column (gym energy), not personalstats', async () => {
+    const created = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Gym Grind', metric_id: 'gym_energy_trained',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    const res = await api('GET', `/api/competitions/${created.body.competition.id}`, memberToken)
+    expect(res.status).toBe(200)
+    const board = res.body.standings
+    // Only Bea has gym_energy in the window: 4500 - 1000 = 3500, full window.
+    expect(board.map((r: any) => r.member_id)).toEqual(['11'])
+    expect(board[0].value).toBe(3500)
+    expect(board[0].partial).toBe(false)
+  })
+
   it('honors direction=asc (lowest-wins)', async () => {
     const created = await api('POST', '/api/competitions', leadershipToken, {
       name: 'Fewest Xanax', metric_id: 'xanax_taken', direction: 'asc',
@@ -182,8 +204,8 @@ describe('competitions (#183)', () => {
     await stack.db.query(`INSERT INTO members (member_id, member_name, is_current) VALUES ('20','Rolla',true) ON CONFLICT (member_id) DO NOTHING`)
     await stack.db.query(`
       INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats) VALUES
-        ('20', CURRENT_DATE - 8, '{"drugs":{"xantaken":100}}'),
-        ('20', CURRENT_DATE - 2, '{"drugs":{"xantaken":130}}')
+        ('20', CURRENT_DATE - 8, '{"drugs":{"xanax":100}}'),
+        ('20', CURRENT_DATE - 2, '{"drugs":{"xanax":130}}')
       ON CONFLICT (member_id, snapshot_date) DO NOTHING
     `)
     const created = await api('POST', '/api/competitions', leadershipToken, {

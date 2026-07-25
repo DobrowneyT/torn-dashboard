@@ -212,6 +212,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **Competition metric paths corrected against live personalstats.** Several
+  metrics pointed at the wrong keys, so their boards silently showed "No data in
+  this window yet" even with snapshots present: **Xanax** (`drugs.xantaken` →
+  `drugs.xanax`), **Blood bags** and **Revives** (there is no `medical` category —
+  now `hospital.blood_withdrawn` / `hospital.reviving.revives`). **Energy spent in
+  the gym** isn't a personalstat at all — it now reads the dedicated `gym_energy`
+  column (a new `daily_column` metric source) that `member-stats` already collects.
+  Existing snapshots populate the corrected boards with no re-scrape.
 - **Generic default branding.** Removed leftover "TNL"/"Forge" strings from
   shared (non-per-tenant) surfaces: the revive-service **Nuke `app_info`** fallback
   is now `War Room` (was `TNL War Room`), the faction-tag settings placeholder is a
