@@ -31,6 +31,7 @@ import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberN
 import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
 import { isWarLead as checkWarLead } from '../config'
 import { getFactionId, getFactionIdentity } from '../utils/factionIdentity'
+import { effectiveReviveServices } from '../utils/reviveServices'
 import { FactionWarIcon, FactionMedicalIcon, ItemsIcon, RevivesIcon } from '../components/WarRoomIcons'
 import ReviveServicesModal from '../components/ReviveServicesModal'
 import MobileWarRoomView from './MobileWarRoomView'
@@ -805,7 +806,7 @@ function ConfigPanel({
   const [msg, setMsg]             = useState(null)
   const [showServicesModal, setShowServicesModal] = useState(false)
 
-  const services = Array.isArray(config?.revive_services) ? config.revive_services : []
+  const services = effectiveReviveServices(config)
   const activeReviveName = config?.revive_service_name ?? ''
 
   // TornStats max-age — number of days a TornStats spy is "fresh enough" to
@@ -2401,7 +2402,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       {hasMembers && (() => {
         // The active service's "source" + "sourceKey" live inside the revive_services
         // jsonb list (alongside name + url). Derive at render — no extra DB columns.
-        const activeService = (config?.revive_services ?? []).find(s => s.name === config?.revive_service_name)
+        const activeService = effectiveReviveServices(config).find(s => s.name === config?.revive_service_name)
         const activeSource    = activeService?.source    ?? activeService?.name ?? null
         const activeSourceKey = activeService?.sourceKey ?? 'source'
         const activePreset    = activeService?.preset    ?? 'json'
@@ -2711,7 +2712,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               paused={!isActive}
               pollIntervalS={pollIntervalSec}
               onPollIntervalChange={(s) => setPollIntervalSec(Math.max(0.5, Number(s) || 0.5))}
-              reviveServices={Array.isArray(config?.revive_services) ? config.revive_services : []}
+              reviveServices={effectiveReviveServices(config)}
               activeReviveName={config?.revive_service_name ?? ''}
               activeReviveUrl={config?.revive_service_url ?? ''}
               onPickReviveService={handleSaveReviveService}
@@ -2723,7 +2724,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 // selects payload shape AND transport (nuke = direct browser
                 // POST to match userscript fingerprint). `country` is only
                 // consumed by the nuke path.
-                const active = (config?.revive_services ?? []).find(s => s.name === config?.revive_service_name)
+                const active = effectiveReviveServices(config).find(s => s.name === config?.revive_service_name)
                 const myRow = ourMembers.find(m => String(m.member_id) === String(user?.id))
                 return requestRevive(
                   {
