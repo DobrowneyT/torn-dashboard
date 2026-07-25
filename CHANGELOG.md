@@ -19,13 +19,19 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Competition prizes — flat distribution (#240).** Leaders can now choose a
+  **flat** distribution instead of ranked placements: one prize slot awarded to
+  **every** ranked / qualified member. The competition shows it to all members as
+  an **"Everyone"** prize, and on resolution every recorded result row gets that
+  prize. The create form offers a Placement / Flat choice; Flat collapses the
+  editor to a single slot. Placement competitions are unaffected.
 - **Competition prizes — placement cash/text (#239).** Leaders can attach a
   **placement** prize table (1st / 2nd / 3rd …) to a competition using **cash**
   (formatted) or **free-text** prize slots. Every member sees the prize table on
   the competition, and on resolution each member's **earned prize is recorded**
   in the frozen results and shown in history — leaderboard by rank, lottery to
-  the drawn winner only. Informational (no automatic disbursement). Flat
-  distribution and catalogue item prizes follow in #240/#241.
+  the drawn winner only. Informational (no automatic disbursement). Catalogue
+  item prizes follow in #241.
 - **Competition start/end time-of-day picker + visible end time (#231).** The
   create form now takes an optional **time** beside each date (Torn City Time);
   leave it blank for start-of-day / end-of-day. Every member sees the window —

@@ -563,8 +563,10 @@ describe('competitions (#239): placement prizes', () => {
     expect((await bad({ prizes: [{ kind: 'text', text: '   ' }] })).status).toBe(400)
     expect((await bad({ prizes: [{ kind: 'bogus' }] })).status).toBe(400)
     expect((await bad({ prizes: Array.from({ length: 11 }, () => ({ kind: 'cash', amount: 1 })) })).status).toBe(400)
-    // 'flat' arrives in a later slice.
+    // 'flat' needs exactly one slot (#240) — an empty list is invalid.
     expect((await bad({ prize_kind: 'flat', prizes: [] })).status).toBe(400)
+    // an unknown kind is still rejected.
+    expect((await bad({ prize_kind: 'bogus' })).status).toBe(400)
   })
 
   it('records the earned prize per placement at resolution (leaderboard by rank)', async () => {
@@ -598,5 +600,42 @@ describe('competitions (#239): placement prizes', () => {
     const byId = Object.fromEntries(hist.body.resolutions[0].standings.map((s: any) => [s.member_id, s]))
     expect(byId['11'].prize).toEqual({ kind: 'cash', amount: 20000000 }) // drawn winner
     expect(byId['10'].prize).toBeNull()                                  // qualified but not drawn
+  })
+})
+
+// ── #240: flat prize distribution (one prize to everyone) ────────────────────
+describe('competitions (#240): flat prize distribution', () => {
+  it('creates a flat competition with a single prize slot and returns it', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Flat prize', metric_id: 'xanax_taken',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+      prize_kind: 'flat', prizes: [{ kind: 'cash', amount: 1000000 }],
+    })
+    expect(c.status).toBe(201)
+    expect(c.body.competition.prize_kind).toBe('flat')
+    expect(c.body.competition.prizes).toEqual([{ kind: 'cash', amount: 1000000 }])
+  })
+
+  it('rejects a flat competition with more than one slot', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Flat multi', metric_id: 'xanax_taken',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+      prize_kind: 'flat', prizes: [{ kind: 'cash', amount: 1 }, { kind: 'cash', amount: 2 }],
+    })
+    expect(c.status).toBe(400)
+  })
+
+  it('awards slot 0 to every recorded member at resolution', async () => {
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Flat resolve', metric_id: 'xanax_taken',
+      window_start: '2026-07-01', window_end: '2026-07-07',
+      prize_kind: 'flat', prizes: [{ kind: 'text', text: 'Participation medal' }],
+    })
+    const id = c.body.competition.id
+    await api('POST', `/api/competitions/${id}/resolve`, leadershipToken)
+    const hist = await api('GET', `/api/competitions/${id}/history`, memberToken)
+    const rows = hist.body.resolutions[0].standings
+    expect(rows.length).toBeGreaterThan(1)
+    for (const s of rows) expect(s.prize).toEqual({ kind: 'text', text: 'Participation medal' })
   })
 })

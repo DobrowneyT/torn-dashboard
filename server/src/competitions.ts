@@ -43,13 +43,13 @@ const TEXT_PRIZE_MAX = 120
 function parsePrizes(body: { prize_kind?: unknown; prizes?: unknown }):
   { prize_kind: string; prizes: unknown[] } | { error: string } {
   const kind = body.prize_kind == null ? 'placement' : body.prize_kind
-  // 'flat' arrives in a later slice — only 'placement' is accepted here.
-  if (kind !== 'placement') return { error: 'prize_kind must be "placement"' }
-  if (body.prizes == null) return { prize_kind: 'placement', prizes: [] }
-  if (!Array.isArray(body.prizes)) return { error: 'prizes must be an array' }
-  if (body.prizes.length > PRIZES_MAX) return { error: `at most ${PRIZES_MAX} prizes` }
+  // 'placement' = ranked slots (slot r-1 → rank r); 'flat' = one slot to everyone (#240).
+  if (kind !== 'placement' && kind !== 'flat') return { error: 'prize_kind must be "placement" or "flat"' }
+  const rawPrizes = body.prizes == null ? [] : body.prizes
+  if (!Array.isArray(rawPrizes)) return { error: 'prizes must be an array' }
+  if (rawPrizes.length > PRIZES_MAX) return { error: `at most ${PRIZES_MAX} prizes` }
   const out: unknown[] = []
-  for (const raw of body.prizes) {
+  for (const raw of rawPrizes) {
     const slot = raw as { kind?: unknown; amount?: unknown; text?: unknown }
     if (slot.kind === 'cash') {
       const amount = Number(slot.amount)
@@ -63,7 +63,9 @@ function parsePrizes(body: { prize_kind?: unknown; prizes?: unknown }):
       return { error: 'each prize must be { kind: "cash" | "text", … }' }
     }
   }
-  return { prize_kind: 'placement', prizes: out }
+  // A flat competition awards one prize to everyone — it must define exactly one slot.
+  if (kind === 'flat' && out.length !== 1) return { error: 'a flat prize needs exactly one slot' }
+  return { prize_kind: kind, prizes: out }
 }
 
 // Minimal structural handle on the boundary-timer manager (#230), injected so
@@ -480,15 +482,18 @@ export async function resolveCompetition(
       [competition.id]
     )
     const seq = seqRes.rows[0].seq as number
-    // The prize each member earns (#239). Placement: leaderboard maps rank r →
-    // slot r-1 (winner is rank 1 → slot 0); lottery awards slot 0 to the drawn
-    // winner only (the winner is random, not rank-1).
+    // The prize each member earns. Flat (#240): slot 0 to every recorded member.
+    // Placement (#239): leaderboard maps rank r → slot r-1 (winner is rank 1 →
+    // slot 0); lottery awards slot 0 to the drawn winner only (random, not rank-1).
     const prizeSlots: unknown[] = Array.isArray(competition.prizes) ? competition.prizes : []
+    const isFlat = competition.prize_kind === 'flat'
     const isLottery = competition.type === 'lottery'
     const prizeFor = (s: { member_id: string; rank: number }): unknown =>
-      isLottery
-        ? (s.member_id === winnerId ? (prizeSlots[0] ?? null) : null)
-        : (prizeSlots[s.rank - 1] ?? null)
+      isFlat
+        ? (prizeSlots[0] ?? null)
+        : isLottery
+          ? (s.member_id === winnerId ? (prizeSlots[0] ?? null) : null)
+          : (prizeSlots[s.rank - 1] ?? null)
     for (const s of recorded) {
       const prize = prizeFor(s)
       await client.query(
