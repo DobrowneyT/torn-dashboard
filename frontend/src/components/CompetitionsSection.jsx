@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react'
 import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { Trophy, Plus, X, Award, Pin } from 'lucide-react'
 import { boundaryValue, windowLabel } from '../utils/competitionWindow'
-import { buildPrizes, prizeTableRows, formatPrize, ordinal } from '../utils/competitionPrizes'
+import { buildPrizes, buildPrizePayload, prizeTableRows, formatPrize, ordinal } from '../utils/competitionPrizes'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -294,11 +294,19 @@ function CreateCompetitionForm({ onCreated }) {
   const [windowEnd, setWindowEnd] = useState('')
   const [windowStartTime, setWindowStartTime] = useState('')
   const [windowEndTime, setWindowEndTime] = useState('')
-  // Prize slots (#239): ordered placement prizes, each cash or text.
+  // Prize distribution (#240): 'placement' = ranked slots, 'flat' = one prize to
+  // everyone (collapsed to a single slot). Slots are cash or text (#239).
+  const [prizeKind, setPrizeKind] = useState('placement')
   const [prizeSlots, setPrizeSlots] = useState([])
   const addPrize = () => setPrizeSlots((s) => [...s, { kind: 'cash', amount: '', text: '' }])
   const updatePrize = (i, patch) => setPrizeSlots((s) => s.map((p, j) => (j === i ? { ...p, ...patch } : p)))
   const removePrize = (i) => setPrizeSlots((s) => s.filter((_, j) => j !== i))
+  const isFlat = prizeKind === 'flat'
+  // Flat awards a single prize — keep at most one slot when that mode is on.
+  const setDistribution = (kind) => {
+    setPrizeKind(kind)
+    if (kind === 'flat') setPrizeSlots((s) => (s.length ? [s[0]] : [{ kind: 'cash', amount: '', text: '' }]))
+  }
   const [rollingDays, setRollingDays] = useState(90)
   const [autoResolve, setAutoResolve] = useState(false)
   const [resolveIntervalDays, setResolveIntervalDays] = useState('')
@@ -339,9 +347,8 @@ function CreateCompetitionForm({ onCreated }) {
         payload.threshold_comparator = thresholdComparator
         payload.threshold_value = Number(thresholdValue)
       }
-      // Placement prizes (#239) — informational; blank slots are dropped.
-      payload.prize_kind = 'placement'
-      payload.prizes = buildPrizes(prizeSlots)
+      // Prizes (#239/#240) — informational; blank slots dropped, flat capped to one.
+      Object.assign(payload, buildPrizePayload(prizeKind, prizeSlots))
       await apiPost('/api/competitions', payload)
       onCreated()
     } catch (e2) {
@@ -441,11 +448,20 @@ function CreateCompetitionForm({ onCreated }) {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">Prizes (optional)</span>
-          <button type="button" onClick={addPrize} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">+ Add prize</button>
+          <div className="flex items-center gap-3">
+            <select className="px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-xs"
+              value={prizeKind} onChange={(e) => setDistribution(e.target.value)}>
+              <option value="placement">Placement</option>
+              <option value="flat">Flat (everyone)</option>
+            </select>
+            {!isFlat && (
+              <button type="button" onClick={addPrize} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">+ Add prize</button>
+            )}
+          </div>
         </div>
         {prizeSlots.map((p, i) => (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-xs text-gray-400 w-8 shrink-0">{ordinal(i + 1)}</span>
+            <span className="text-xs text-gray-400 w-14 shrink-0">{isFlat ? 'Everyone' : ordinal(i + 1)}</span>
             <select className="px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm shrink-0"
               value={p.kind} onChange={(e) => updatePrize(i, { kind: e.target.value })}>
               <option value="cash">Cash</option>
@@ -458,13 +474,17 @@ function CreateCompetitionForm({ onCreated }) {
               <input type="text" maxLength={120} className={field} placeholder="e.g. 1x Xanax, Bragging rights"
                 value={p.text} onChange={(e) => updatePrize(i, { text: e.target.value })} />
             )}
-            <button type="button" onClick={() => removePrize(i)} className="text-gray-400 hover:text-red-500 shrink-0" title="Remove prize">
-              <X className="w-4 h-4" />
-            </button>
+            {!isFlat && (
+              <button type="button" onClick={() => removePrize(i)} className="text-gray-400 hover:text-red-500 shrink-0" title="Remove prize">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         ))}
         <p className="text-[11px] text-gray-500 dark:text-gray-400">
-          Slots are placement — 1st, 2nd, 3rd… A lottery awards the top slot to the drawn winner. Cash / text only for now.
+          {isFlat
+            ? 'Flat — one prize awarded to every ranked / qualified member. Cash / text only for now.'
+            : 'Placement — 1st, 2nd, 3rd… A lottery awards the top slot to the drawn winner. Cash / text only for now.'}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-4">

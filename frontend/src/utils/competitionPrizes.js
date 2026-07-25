@@ -18,9 +18,13 @@ export function ordinal(n) {
   return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`
 }
 
-// The rows a placement prize table renders: rank label + formatted prize.
+// The rows a prize table renders. Placement: rank label + prize per slot. Flat
+// (#240): a single "Everyone" row for the one shared prize.
 export function prizeTableRows(competition) {
   const prizes = Array.isArray(competition?.prizes) ? competition.prizes : []
+  if (competition?.prize_kind === 'flat') {
+    return prizes.length ? [{ place: 'Everyone', prize: formatPrize(prizes[0]) }] : []
+  }
   return prizes.map((slot, i) => ({ place: ordinal(i + 1), prize: formatPrize(slot) }))
 }
 
@@ -38,4 +42,13 @@ export function buildPrizes(slots) {
     }
   }
   return out
+}
+
+// Build the full prize payload for the create form: the chosen distribution
+// mode plus its slots. Flat (#240) awards one prize to everyone, so its payload
+// is capped to a single slot; placement keeps every slot.
+export function buildPrizePayload(prizeKind, slots) {
+  const kind = prizeKind === 'flat' ? 'flat' : 'placement'
+  const prizes = buildPrizes(slots)
+  return { prize_kind: kind, prizes: kind === 'flat' ? prizes.slice(0, 1) : prizes }
 }
