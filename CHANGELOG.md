@@ -19,6 +19,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Intraday competition-stat sampling (#227).** New append-only
+  `member_stat_samples` table holding a slim, timestamped sample (the
+  competition-relevant personalstats categories + gym) per member. `member-stats`
+  now runs **every 4h** and appends a sample each run (still refreshing the daily
+  full-blob row), so competition leaderboards can be fresh through the day. A
+  daily retention job prunes samples past 90 days, keeping any still needed to
+  resolve an unresolved competition. Foundation for exact, timestamped
+  competition boundaries (#229/#230).
 - **Separate daily `member-profile` scraper (#226).** Donator status, property
   name and last-action move out of `member-stats` into their own once-daily job,
   so the upcoming intraday `member-stats` runs (#225) don't re-fetch slow-changing

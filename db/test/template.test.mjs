@@ -46,6 +46,8 @@ const NEW_TABLES = [
   'crime_participation_v2', 'faction_branding_assets',
   // Competitions (#183) + resolved-standings history (#185)
   'competitions', 'competition_results',
+  // Intraday competition-stat sample series (#227)
+  'member_stat_samples',
   // Per-member war notes (#199)
   'member_notes',
   // Web Push subscriptions (#207)

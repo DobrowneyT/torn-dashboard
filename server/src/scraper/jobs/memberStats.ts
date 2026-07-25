@@ -12,6 +12,18 @@ import type { RunResult } from '../runLog.js'
 
 const BACKFILL_DAYS = 30
 const SNAPSHOT_OFFSET_SECONDS = 3600
+
+// The personalstats categories a competition metric can read (#227). Only these
+// are kept in the slim sample series — the full ~200-field blob stays in the
+// once-daily member_daily_stats row.
+const SAMPLE_CATEGORIES = ['drugs', 'attacking', 'hospital', 'other']
+
+function slimStats(personalstats: unknown): Record<string, unknown> {
+  const ps = (personalstats ?? {}) as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const cat of SAMPLE_CATEGORIES) if (ps[cat] !== undefined) out[cat] = ps[cat]
+  return out
+}
 const GYM_COLUMNS: Record<string, string> = {
   gymstrength: 'gym_strength',
   gymspeed: 'gym_speed',
@@ -143,5 +155,24 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
     )
   }
 
-  return { rows: records.length, details: { backfill_calls: backfillCalls, gym_members: gymData.size } }
+  // 5. Append a slim, timestamped sample per member for today (#227). Append-
+  //    only — this is the series competition resolution reads at exact
+  //    boundaries. captured_at defaults to now(); gym-only members still get a
+  //    sample (empty stats + gym) so gym-metric contests see them.
+  let samples = 0
+  for (const r of records) {
+    if (r.snapshot_date !== todayStr) continue
+    const gym = r.gym ?? {}
+    await db.query(
+      `INSERT INTO member_stat_samples
+         (member_id, stats, gym_strength, gym_speed, gym_dexterity, gym_defense, gym_energy)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [r.member_id, JSON.stringify(slimStats(r.personalstats)),
+       gym.gym_strength ?? null, gym.gym_speed ?? null, gym.gym_dexterity ?? null,
+       gym.gym_defense ?? null, gym.gym_energy ?? null]
+    )
+    samples++
+  }
+
+  return { rows: records.length, details: { backfill_calls: backfillCalls, gym_members: gymData.size, samples } }
 }
