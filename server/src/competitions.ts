@@ -102,17 +102,24 @@ export function registerCompetitionRoutes(
 
   // Pinned competitions with a compact live standing for the dashboard cards
   // (#188). Declared before /:id so "pinned" isn't matched as an id.
-  app.get('/api/competitions/pinned', { preHandler: requireAuth() }, async () => {
+  app.get('/api/competitions/pinned', { preHandler: requireAuth() }, async (req) => {
     const res = await db.query(`SELECT ${SELECT_COLS} FROM competitions WHERE pinned = true ORDER BY id DESC`)
+    // Each card also carries the caller's OWN standing (#242) so a member sees
+    // where they stand, not just the top. The caller's Torn id is their member_id.
+    const meId = String(req.session!.torn_user_id)
     const competitions = await Promise.all(res.rows.map(async (competition) => {
       const standings = await computeStandings(db, competition)
+      const mine = standings.find((s) => s.member_id === meId) ?? null
       if (competition.type === 'lottery') {
         const cmp = competition.threshold_comparator ?? 'gte'
         const val = competition.threshold_value ?? 0
-        const qualified = standings.filter((s) => (cmp === 'lte' ? s.value <= val : s.value >= val))
-        return { ...competition, qualified_count: qualified.length, top: qualified.slice(0, 5) }
+        const isQualified = (v: number) => (cmp === 'lte' ? v <= val : v >= val)
+        const qualified = standings.filter((s) => isQualified(s.value))
+        const me = mine ? { value: mine.value, qualified: isQualified(mine.value) } : null
+        return { ...competition, qualified_count: qualified.length, top: qualified.slice(0, 5), me }
       }
-      return { ...competition, top: standings.slice(0, 5) }
+      const me = mine ? { rank: mine.rank, value: mine.value, partial: mine.partial } : null
+      return { ...competition, top: standings.slice(0, 5), me }
     }))
     return { competitions }
   })

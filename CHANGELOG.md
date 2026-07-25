@@ -19,6 +19,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Pinned competitions show your own position (#242).** The dashboard
+  pinned-competition cards now tell a member **where they stand**, not just the
+  top of the board. A **leaderboard** card shows the top 5 plus your own **rank +
+  value** — highlighted in place when you're inside the top 5, or appended as a
+  "you: #14 · 1,240" row when you're outside it. A **lottery** card keeps the
+  qualified count and adds your own **score + a qualified / not-yet indicator**
+  against the threshold. Members with no data yet see a graceful note. Backed by
+  an additive `me` field on `GET /api/competitions/pinned` (no schema change).
 - **Competition prizes — catalogue item slots (#241).** A prize slot can now be
   a **Torn item** with a quantity (e.g. `2x Xanax`) alongside cash and text, in
   both placement and flat modes. The create form's slot picker gains an **Item**

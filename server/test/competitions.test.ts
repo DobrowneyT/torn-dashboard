@@ -465,6 +465,47 @@ describe('competitions (#183)', () => {
     expect(found.qualified_count).toBe(2) // Ace (40) + Bea (15) qualify
     await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: false })
   })
+
+  // #242: each pinned card also carries the caller's OWN standing so a member
+  // sees where they stand, not just the top of the board.
+  it('a pinned leaderboard reports the caller\'s own rank + value (null when they have none)', async () => {
+    const aceToken = await loginAs('PINACE100000XXXX', '10') // Ace: rank 1, value 40, full window
+    const id = await createFixedXanax('Own-position board')
+    await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: true })
+
+    const asAce = (await api('GET', '/api/competitions/pinned', aceToken))
+      .body.competitions.find((c: any) => c.id === id)
+    expect(asAce.me).toEqual({ rank: 1, value: 40, partial: false })
+
+    // memberToken (id 9200) is not a current member → no standing in the window.
+    const asStranger = (await api('GET', '/api/competitions/pinned', memberToken))
+      .body.competitions.find((c: any) => c.id === id)
+    expect(asStranger.me).toBeNull()
+
+    await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: false })
+  })
+
+  it('a pinned lottery reports the caller\'s own score + qualified flag', async () => {
+    const aceToken = await loginAs('PINACE100000XXXX', '10') // 40 >= 10 → qualified
+    const danToken = await loginAs('PINDAN130000XXXX', '13') //  0 <  10 → not
+    const c = await api('POST', '/api/competitions', leadershipToken, {
+      name: 'Own-position lottery', type: 'lottery', metric_id: 'xanax_taken',
+      threshold_comparator: 'gte', threshold_value: 10,
+      window_start: '2026-07-01', window_end: '2026-07-07',
+    })
+    const id = c.body.competition.id
+    await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: true })
+
+    const asAce = (await api('GET', '/api/competitions/pinned', aceToken))
+      .body.competitions.find((x: any) => x.id === id)
+    expect(asAce.me).toEqual({ value: 40, qualified: true })
+
+    const asDan = (await api('GET', '/api/competitions/pinned', danToken))
+      .body.competitions.find((x: any) => x.id === id)
+    expect(asDan.me).toEqual({ value: 0, qualified: false })
+
+    await api('PUT', `/api/competitions/${id}/pin`, leadershipToken, { pinned: false })
+  })
 })
 
 // ── #229: timestamped windows + exact sample-based boundaries ───────────────
