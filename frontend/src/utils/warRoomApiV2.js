@@ -178,7 +178,7 @@ async function requestReviveNukeDirect({ url, userID, userName, country, source 
     torn_player_id:      String(userID),
     torn_player_name:    userName ? `${userName} [${userID}]` : String(userID),
     torn_player_country: country || 'Torn',
-    app_info:            source || 'TNL War Room',
+    app_info:            source || 'War Room',
   }
   const body = new URLSearchParams(formFields).toString()
   try {
