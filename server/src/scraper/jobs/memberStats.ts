@@ -27,6 +27,38 @@ interface StatsRecord {
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10)
 
+// Upsert one (member_id, snapshot_date) row. Shared by the incremental backfill
+// (#247 — written as each day is fetched, so a crash mid-backfill keeps its
+// progress) and the today/gym write. Idempotent: re-running COALESCEs onto the
+// existing row.
+async function upsertDailyStats(db: JobDeps['db'], r: StatsRecord): Promise<void> {
+  const gym = r.gym ?? {}
+  await db.query(
+    `INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats, profile,
+       is_donator, property_name, last_action_timestamp, api_version,
+       gym_strength, gym_speed, gym_dexterity, gym_defense, gym_energy)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'v2-all', $8, $9, $10, $11, $12)
+     ON CONFLICT (member_id, snapshot_date) DO UPDATE SET
+       personalstats = COALESCE(EXCLUDED.personalstats, member_daily_stats.personalstats),
+       profile = COALESCE(EXCLUDED.profile, member_daily_stats.profile),
+       is_donator = COALESCE(EXCLUDED.is_donator, member_daily_stats.is_donator),
+       property_name = COALESCE(EXCLUDED.property_name, member_daily_stats.property_name),
+       last_action_timestamp = COALESCE(EXCLUDED.last_action_timestamp, member_daily_stats.last_action_timestamp),
+       api_version = EXCLUDED.api_version,
+       gym_strength = COALESCE(EXCLUDED.gym_strength, member_daily_stats.gym_strength),
+       gym_speed = COALESCE(EXCLUDED.gym_speed, member_daily_stats.gym_speed),
+       gym_dexterity = COALESCE(EXCLUDED.gym_dexterity, member_daily_stats.gym_dexterity),
+       gym_defense = COALESCE(EXCLUDED.gym_defense, member_daily_stats.gym_defense),
+       gym_energy = COALESCE(EXCLUDED.gym_energy, member_daily_stats.gym_energy)`,
+    [r.member_id, r.snapshot_date,
+     r.personalstats != null ? JSON.stringify(r.personalstats) : null,
+     r.profile != null ? JSON.stringify(r.profile) : null,
+     r.is_donator ?? null, r.property_name ?? null, r.last_action_timestamp ?? null,
+     gym.gym_strength ?? null, gym.gym_speed ?? null, gym.gym_dexterity ?? null,
+     gym.gym_defense ?? null, gym.gym_energy ?? null]
+  )
+}
+
 export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<RunResult> {
   // Multi-key fan-out + retry (#228): spread per-member calls across up to
   // MAX_KEYS pooled keys, retrying a call on another key when one fails.
@@ -47,8 +79,11 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
 
   const records: StatsRecord[] = []
   let backfillCalls = 0
+  let backfillRows = 0
 
-  // 1. Backfill (personalstats only).
+  // 1. Backfill (personalstats only) — written PER DAY as fetched (#247), so an
+  //    interruption during this long phase keeps the days already captured and
+  //    the next run only fetches the still-missing ones.
   for (const m of members.rows) {
     const existing = await db.query(
       `SELECT snapshot_date FROM member_daily_stats WHERE member_id = $1`,
@@ -61,7 +96,8 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
       backfillCalls += 1
       const data = await rfetch(`/v2/user/${m.member_id}/personalstats?cat=all&timestamp=${ts}`)
       if (data?.personalstats) {
-        records.push({ member_id: m.member_id, snapshot_date: d, personalstats: data.personalstats })
+        await upsertDailyStats(db, { member_id: m.member_id, snapshot_date: d, personalstats: data.personalstats })
+        backfillRows += 1
       }
       // If no key could satisfy it, the day stays missing — the next run retries.
     }
@@ -98,33 +134,10 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
     if (!todayIds.has(mid)) records.push({ member_id: mid, snapshot_date: todayStr, gym })
   }
 
-  // 4. Upsert on (member_id, snapshot_date).
+  // 4. Upsert today's + gym-only rows (backfill days were already written in
+  //    step 1). Same idempotent upsert.
   for (const r of records) {
-    const gym = r.gym ?? {}
-    await db.query(
-      `INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats, profile,
-         is_donator, property_name, last_action_timestamp, api_version,
-         gym_strength, gym_speed, gym_dexterity, gym_defense, gym_energy)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'v2-all', $8, $9, $10, $11, $12)
-       ON CONFLICT (member_id, snapshot_date) DO UPDATE SET
-         personalstats = COALESCE(EXCLUDED.personalstats, member_daily_stats.personalstats),
-         profile = COALESCE(EXCLUDED.profile, member_daily_stats.profile),
-         is_donator = COALESCE(EXCLUDED.is_donator, member_daily_stats.is_donator),
-         property_name = COALESCE(EXCLUDED.property_name, member_daily_stats.property_name),
-         last_action_timestamp = COALESCE(EXCLUDED.last_action_timestamp, member_daily_stats.last_action_timestamp),
-         api_version = EXCLUDED.api_version,
-         gym_strength = COALESCE(EXCLUDED.gym_strength, member_daily_stats.gym_strength),
-         gym_speed = COALESCE(EXCLUDED.gym_speed, member_daily_stats.gym_speed),
-         gym_dexterity = COALESCE(EXCLUDED.gym_dexterity, member_daily_stats.gym_dexterity),
-         gym_defense = COALESCE(EXCLUDED.gym_defense, member_daily_stats.gym_defense),
-         gym_energy = COALESCE(EXCLUDED.gym_energy, member_daily_stats.gym_energy)`,
-      [r.member_id, r.snapshot_date,
-       r.personalstats != null ? JSON.stringify(r.personalstats) : null,
-       r.profile != null ? JSON.stringify(r.profile) : null,
-       r.is_donator ?? null, r.property_name ?? null, r.last_action_timestamp ?? null,
-       gym.gym_strength ?? null, gym.gym_speed ?? null, gym.gym_dexterity ?? null,
-       gym.gym_defense ?? null, gym.gym_energy ?? null]
-    )
+    await upsertDailyStats(db, r)
   }
 
   // 5. Append a slim, timestamped sample per member for today (#227). Append-
@@ -146,5 +159,5 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
     samples++
   }
 
-  return { rows: records.length, details: { backfill_calls: backfillCalls, gym_members: gymData.size, samples } }
+  return { rows: backfillRows + records.length, details: { backfill_calls: backfillCalls, backfill_rows: backfillRows, gym_members: gymData.size, samples } }
 }
