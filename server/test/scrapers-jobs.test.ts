@@ -337,3 +337,35 @@ describe('CPR scan job', () => {
     expect(row.rows[0].first_seen_at).toBe(before.rows[0].first_seen_at)
   })
 })
+
+// #247: a failure part-way through the crimes backlog must not throw away the
+// pages already fetched — crimes-sync commits per page, so an error on a later
+// page leaves the earlier pages persisted for the next run to resume from.
+describe('crimes sync job — incremental persistence on failure', () => {
+  it('persists earlier pages when a later page fails mid-pagination', async () => {
+    // Clean slate so the cursor starts at 0 and page sizes are predictable.
+    await stack.db.query('DELETE FROM crime_required_items')
+    await stack.db.query('DELETE FROM crime_reward_items')
+    await stack.db.query('DELETE FROM crime_slots')
+    await stack.db.query('DELETE FROM crime_participation_v2')
+    await stack.db.query('DELETE FROM crimes')
+
+    // Page 1 (from=0) returns a full 100 crimes; the next page (from=1100)
+    // rate-limits. The current all-in-one-transaction code loses everything;
+    // per-page commits keep page 1.
+    stack.torn.setHandler('/v2/faction/crimes', (url) => {
+      const from = Number(url.searchParams.get('from') ?? 0)
+      if (from === 0) {
+        return { crimes: Array.from({ length: 100 }, (_, i) => plainCrime(i + 1)) }
+      }
+      return { error: { code: 5, error: 'Too many requests' } }
+    })
+
+    const { crimesSyncJob } = await import('../src/scraper/jobs/crimesSync.js')
+    await expect(crimesSyncJob(deps())).rejects.toThrow()
+
+    // Page 1's 100 crimes survived the later failure.
+    const count = await stack.db.query('SELECT count(*)::int AS n FROM crimes')
+    expect(count.rows[0].n).toBe(100)
+  })
+})

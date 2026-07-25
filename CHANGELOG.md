@@ -250,6 +250,17 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Changed
 
+- **Scrapers publish backfill data incrementally so a failed run resumes (#247).**
+  The long-running backfill jobs no longer discard a whole run when they fail
+  part-way through. **crimes-sync** now commits **per page** (instead of buffering
+  all history into one transaction), so a rate limit or crash mid-pagination keeps
+  every page already fetched. **member-stats** writes each backfilled `(member,
+  date)` snapshot **as it's fetched**, so an interruption during the ~30-day
+  first-run backfill keeps the days already captured and the next run only fetches
+  the still-missing ones. **attacks-sync** (already resumable) now treats a
+  Torn rate-limit (error 5 / 8) mid-backlog as a **soft stop** — the run ends as a
+  success with its partial rows, instead of a red failure; a genuine non-transient
+  error still surfaces as a failure.
 - **Competitions resolve at exact timestamp boundaries (#229).** Competition
   windows are now timestamps, not dates, and standings are computed from the
   intraday sample series (#227): each member's value is `(latest sample ≤

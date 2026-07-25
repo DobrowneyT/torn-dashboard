@@ -293,3 +293,44 @@ describe('on-demand sync triggers (HTTP seam)', () => {
     expect((await post('/api/sync/wars/500/revives', 'visitor')).status).toBe(403)
   })
 })
+
+// #247: attacks-sync soft-stops on a rate limit mid-backlog — the pages already
+// fetched stay committed and the run ends as a success, so the next run resumes
+// from the newest stored attack. A non-transient error still fails. Runs last so
+// its DELETE/handler churn can't disturb the earlier attacks fixtures.
+describe('attacks sync job — soft-stop on rate limit (#247)', () => {
+  const softAttack = (id: number, started: number) => ({
+    id, started, ended: started + 30,
+    attacker: { id: 1100, name: 'Scout', faction: { id: US, name: 'Us' } },
+    defender: { id: 9999, name: 'Enemy', faction: { id: 9100, name: 'Foes' } },
+    result: 'Attacked', respect_gain: 1, chain: 1, is_ranked_war: false,
+    modifiers: { fair_fight: 1, war: 1, chain: 1, warlord: 1 },
+  })
+
+  it('soft-stops on a rate-limit error, keeping the pages already fetched', async () => {
+    await stack.db.query('DELETE FROM faction_attacks')
+    stack.torn.setHandler('/v2/faction/attacks', (url) => {
+      const from = Number(url.searchParams.get('from') ?? 0)
+      if (from === 0) return { attacks: Array.from({ length: 100 }, (_, i) => softAttack(7000 + i, i + 1)) }
+      return { error: { code: 5, error: 'Too many requests' } }
+    })
+
+    const { attacksSyncJob } = await import('../src/scraper/jobs/attacksSync.js')
+    const result = await attacksSyncJob(deps()) // resolves — does not throw
+    expect(result.rows).toBe(100)
+    const count = await stack.db.query('SELECT count(*)::int AS n FROM faction_attacks')
+    expect(count.rows[0].n).toBe(100)
+  })
+
+  it('still surfaces a non-transient Torn error as a failure', async () => {
+    await stack.db.query('DELETE FROM faction_attacks')
+    stack.torn.setHandler('/v2/faction/attacks', (url) => {
+      const from = Number(url.searchParams.get('from') ?? 0)
+      if (from === 0) return { attacks: Array.from({ length: 100 }, (_, i) => softAttack(7000 + i, i + 1)) }
+      return { error: { code: 6, error: 'Incorrect ID' } }
+    })
+
+    const { attacksSyncJob } = await import('../src/scraper/jobs/attacksSync.js')
+    await expect(attacksSyncJob(deps())).rejects.toThrow()
+  })
+})

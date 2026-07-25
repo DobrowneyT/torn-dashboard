@@ -4,8 +4,13 @@
 // pages ASC until a page comes back under 100 rows.
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
+import { TornApiError } from '../tornClient.js'
 
 const PAGE_FULL = 100
+// Transient Torn errors (#247): too-many-requests (5) / IP-block (8). Hitting
+// one part-way through the backlog is a soft stop, not a failure — the rows
+// already upserted stay, and the next run resumes from the newest stored attack.
+const RATE_LIMIT_CODES = new Set([5, 8])
 
 export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<RunResult> {
   const claimed = await pool.claim()
@@ -19,8 +24,17 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
 
   let rows = 0
   let pages = 0
+  let rateLimited = false
   for (;;) {
-    const data = await client.fetch(`/v2/faction/attacks?limit=100&sort=ASC&from=${from}`, claimed.key)
+    let data: any
+    try {
+      data = await client.fetch(`/v2/faction/attacks?limit=100&sort=ASC&from=${from}`, claimed.key)
+    } catch (err) {
+      // A rate limit mid-backlog: stop here as a success — earlier pages are
+      // already committed and the next run continues from max(started).
+      if (err instanceof TornApiError && RATE_LIMIT_CODES.has(err.tornCode)) { rateLimited = true; break }
+      throw err
+    }
     const attacks: any[] = data.attacks ?? []
     pages += 1
     if (attacks.length === 0) break
@@ -56,5 +70,5 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
     from = attacks[attacks.length - 1].started ?? from
   }
 
-  return { rows, details: { pages } }
+  return { rows, details: { pages, rate_limited: rateLimited } }
 }
