@@ -61,39 +61,6 @@ from `VERSION` at runtime) both surface it automatically.
   immediately. Foundation for War Room push notifications (#198), which extend this
   same service worker (#206).
 
-### Changed
-
-- **Member notes open on hover; the pencil edits.** Hovering a roster row's note
-  icon now shows the note (read-only) for everyone; clicking the pencil opens the
-  editor (war leads / leadership / admin only). A click also pins it open for touch
-  devices (#199).
-- **War Room header/footer tidy-up.** The leader **headline composer** moved into
-  the filters card (the banner itself still shows above the roster); the **"?" help
-  button** moved to the top-right of the header card; and the **"last updated"**
-  readout moved into the roster footer — now members (left) · last updated (centre)
-  · refresh rates (right).
-
-### Changed
-
-- **Scheduled-push headline is now a live countdown.** The leader "Push at…"
-  headline preset posts a **live countdown** — "PUSH IN 4:37" ticking down to
-  "PUSH NOW" — instead of the old static "PUSH 2 HH:MM" text. It's driven by an
-  absolute target time, so every War Room tab counts down to the same instant
-  regardless of timezone.
-
-### Fixed
-
-- **Generic default branding.** Removed leftover "TNL"/"Forge" strings from
-  shared (non-per-tenant) surfaces: the revive-service **Nuke `app_info`** fallback
-  is now `War Room` (was `TNL War Room`), the faction-tag settings placeholder is a
-  neutral example, and the **default PWA app icon** is a generic "T" (Torn) tile
-  instead of the "TF" monogram. Per-tenant identity (name, logo, favicon) is
-  unaffected; a tenant's uploaded logo still overrides the default icon.
-- **Restored the headline "clear" (✕) button.** The header/footer reshuffle dropped
-  the clear control from the displayed headline banner; war leads / leadership /
-  admin can once again dismiss/clear a posted headline from the banner itself.
-
-### Added
 
 - **Per-member War Room notes + an overdose flag.** Each roster row has a pencil —
   war leads / leadership / admin can jot a note (armour, job, timezone, OD-prone…),
@@ -101,14 +68,6 @@ from `VERSION` at runtime) both surface it automatically.
   from an overdose also show an automatic **OD** flag (read live from Torn’s status
   reason). Works on desktop and the Mobile App overlay (#199).
 
-### Changed
-
-- **The War Room headline banner moved to a more in-flow spot.** On desktop it now
-  sits between the chain/quick-button status bar and the player roster (instead of
-  at the very top); in the Mobile App overlay it’s pinned to the top so it stays
-  visible as the roster scrolls (#197).
-
-### Added
 
 - **War Room help panel now covers the quick bar, alerts window, filters and farm
   mode.** New sections explain each quick-bar button (war page, medical, items,
@@ -121,13 +80,6 @@ from `VERSION` at runtime) both surface it automatically.
   inside it. (Replay it from the "?" panel if you’ve already seen the old tour —
   it only auto-runs once per browser.) (#153)
 
-### Fixed
-
-- **War Room tour highlight alignment.** The spotlight ring sat slightly below its
-  target because a smooth scroll ran after measuring; it now scrolls the target to
-  centre first and re-measures, so the highlight frames the control it’s pointing at.
-
-### Added
 
 - **War Room first-run tour.** On a member's first War Room visit, a dismissable
   spotlight tour highlights the key controls in place — targets/dibs, chain, roll
@@ -189,14 +141,6 @@ from `VERSION` at runtime) both surface it automatically.
   hover breakdown listing those stints, flagged red (#168, part 2). Only from when the
   log started — genuinely-old weeks have no data.
 
-### Fixed
-
-- CI: the `db` schema-drift test now knows about the new `crime_participation_v2`
-  and `faction_branding_assets` tables (it had gone red after those merged), and the
-  changelog gate no longer errors on a missing `pull-requests: read` token scope —
-  it degrades to a skip and stays advisory (never blocking).
-
-### Added
 
 - **Branding image uploads.** Leadership can upload a logo, favicon, and hero image in
   Settings (with preview + a URL fallback) instead of pasting a URL; images are stored
@@ -214,15 +158,6 @@ from `VERSION` at runtime) both surface it automatically.
   before it executed is no longer lost. Foundation for crediting that time in payouts
   and a per-crime breakdown (#168, part 1).
 
-### Fixed
-
-- **War Room roll-call overlay no longer reappears after you've submitted.** A
-  backgrounded/throttled tab's periodic refresh could transiently return empty and
-  wipe your submitted response, re-tripping the blocking gate; the refresh now keeps
-  known-good data on a failed read, and a submit/leader-bypass is persisted per war
-  so tab switches don't re-gate (#167).
-
-### Added
 
 - **Changelog CI gate** (warn-only for now): a PR touching `frontend/`, `server/`, or
   `db/` source without a `CHANGELOG.md` update gets a warning annotation, with a
@@ -250,6 +185,60 @@ from `VERSION` at runtime) both surface it automatically.
   `docs/agents/delivery-workflow.md` (branch off `dev`, TDD, changelog, `VERSION`
   bump, PR with auto-merge-on-green + a `hold-merge` opt-out) (#164).
 
+### Changed
+
+- **Member notes open on hover; the pencil edits.** Hovering a roster row's note
+  icon now shows the note (read-only) for everyone; clicking the pencil opens the
+  editor (war leads / leadership / admin only). A click also pins it open for touch
+  devices (#199).
+- **War Room header/footer tidy-up.** The leader **headline composer** moved into
+  the filters card (the banner itself still shows above the roster); the **"?" help
+  button** moved to the top-right of the header card; and the **"last updated"**
+  readout moved into the roster footer — now members (left) · last updated (centre)
+  · refresh rates (right).
+
+
+- **Scheduled-push headline is now a live countdown.** The leader "Push at…"
+  headline preset posts a **live countdown** — "PUSH IN 4:37" ticking down to
+  "PUSH NOW" — instead of the old static "PUSH 2 HH:MM" text. It's driven by an
+  absolute target time, so every War Room tab counts down to the same instant
+  regardless of timezone.
+
+
+- **The War Room headline banner moved to a more in-flow spot.** On desktop it now
+  sits between the chain/quick-button status bar and the player roster (instead of
+  at the very top); in the Mobile App overlay it’s pinned to the top so it stays
+  visible as the roster scrolls (#197).
+
+### Fixed
+
+- **Generic default branding.** Removed leftover "TNL"/"Forge" strings from
+  shared (non-per-tenant) surfaces: the revive-service **Nuke `app_info`** fallback
+  is now `War Room` (was `TNL War Room`), the faction-tag settings placeholder is a
+  neutral example, and the **default PWA app icon** is a generic "T" (Torn) tile
+  instead of the "TF" monogram. Per-tenant identity (name, logo, favicon) is
+  unaffected; a tenant's uploaded logo still overrides the default icon.
+- **Restored the headline "clear" (✕) button.** The header/footer reshuffle dropped
+  the clear control from the displayed headline banner; war leads / leadership /
+  admin can once again dismiss/clear a posted headline from the banner itself.
+
+
+- **War Room tour highlight alignment.** The spotlight ring sat slightly below its
+  target because a smooth scroll ran after measuring; it now scrolls the target to
+  centre first and re-measures, so the highlight frames the control it’s pointing at.
+
+
+- CI: the `db` schema-drift test now knows about the new `crime_participation_v2`
+  and `faction_branding_assets` tables (it had gone red after those merged), and the
+  changelog gate no longer errors on a missing `pull-requests: read` token scope —
+  it degrades to a skip and stays advisory (never blocking).
+
+
+- **War Room roll-call overlay no longer reappears after you've submitted.** A
+  backgrounded/throttled tab's periodic refresh could transiently return empty and
+  wipe your submitted response, re-tripping the blocking gate; the refresh now keeps
+  known-good data on a failed read, and a submit/leader-bypass is persisted per war
+  so tab switches don't re-gate (#167).
 
 ## [3.0.0] - 2026-07-23
 
