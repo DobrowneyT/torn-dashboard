@@ -2,8 +2,9 @@
 //   1. Backfill: for each current member, any of the last 30 days missing a
 //      snapshot gets a personalstats?cat=all call at that date's 01:00 UTC
 //      (no historical profile exists, so backfill rows carry stats only).
-//   2. Today: personalstats + profile per member, with the compliance
-//      denormalisations (is_donator, property_name, last_action_timestamp).
+//   2. Today: personalstats per member. Profile denorms (is_donator,
+//      property_name, last_action_timestamp) moved to the once-daily
+//      member-profile job (#226).
 //   3. Gym contributions: five faction-level calls, merged into today's rows
 //      (gym-only rows for anyone missing personalstats today).
 import type { JobDeps } from './itemsSync.js'
@@ -76,7 +77,9 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
     }
   }
 
-  // 2. Today: personalstats + profile.
+  // 2. Today: personalstats. Profile denorms (is_donator, property_name,
+  //    last_action_timestamp) are the separate once-daily member-profile job
+  //    (#226) — they change too slowly to re-fetch on every intraday run.
   for (const m of members.rows) {
     let personalstats: unknown = null
     try {
@@ -86,21 +89,7 @@ export async function memberStatsJob({ db, pool, client }: JobDeps): Promise<Run
       personalstats = null
     }
     if (!personalstats) continue
-
-    const record: StatsRecord = { member_id: m.member_id, snapshot_date: todayStr, personalstats }
-    try {
-      const data = await client.fetch(`/v2/user/${m.member_id}/profile?striptags=true`, claimed.key)
-      const profile = data.profile
-      if (profile) {
-        record.profile = profile
-        record.is_donator = profile.donator_status != null
-        record.property_name = profile.property?.name ?? null
-        record.last_action_timestamp = profile.last_action?.timestamp ?? null
-      }
-    } catch {
-      // Profile is enrichment only — stats row still lands.
-    }
-    records.push(record)
+    records.push({ member_id: m.member_id, snapshot_date: todayStr, personalstats })
   }
 
   // 3. Gym contributions (five faction-level calls).

@@ -19,6 +19,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Separate daily `member-profile` scraper (#226).** Donator status, property
+  name and last-action move out of `member-stats` into their own once-daily job,
+  so the upcoming intraday `member-stats` runs (#225) don't re-fetch slow-changing
+  profile data every few hours. Both jobs upsert the same day's row and compose
+  via COALESCE. Prep for the intraday-sampling epic.
+
 - **Default revive services in the War Room.** A never-configured faction now
   starts with **UHC, WTF and Nuke** preset (name/URL/source/payload shape) instead
   of an empty list, so leaders can pick one from the dropdown without re-entering

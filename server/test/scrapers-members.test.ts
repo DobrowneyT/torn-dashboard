@@ -80,8 +80,9 @@ describe('members sync job', () => {
 
 describe('member stats job', () => {
   const backfillTs: number[] = []
+  const profileCalls: number[] = []
 
-  it('backfills missing days, snapshots today with profile denorms, and merges gym columns', async () => {
+  it('backfills missing days, snapshots today personalstats + gym, and no longer fetches profile', async () => {
     // Bound the backfill: every target date already has a snapshot except
     // two known dates for member 1001; 1004 only misses today.
     const today = new Date()
@@ -108,14 +109,19 @@ describe('member stats job', () => {
         if (ts) backfillTs.push(Number(ts))
         return { personalstats: { drugs: { xantaken: ts ? 90 : 100 + mid } } }
       })
-      stack.torn.setHandler(`/v2/user/${mid}/profile`, () => ({
-        profile: {
-          id: mid,
-          donator_status: mid === 1001 ? 'Subscriber' : null,
-          property: { name: mid === 1001 ? 'Private Island' : null },
-          last_action: { status: 'Online', timestamp: 1751900000 + mid },
-        },
-      }))
+      // Tripwire: member-stats must NOT call profile anymore (it moved to the
+      // member-profile job, #226). Records any call so we can assert none happened.
+      stack.torn.setHandler(`/v2/user/${mid}/profile`, () => {
+        profileCalls.push(mid)
+        return {
+          profile: {
+            id: mid,
+            donator_status: mid === 1001 ? 'Subscriber' : null,
+            property: { name: mid === 1001 ? 'Private Island' : null },
+            last_action: { status: 'Online', timestamp: 1751900000 + mid },
+          },
+        }
+      })
     }
     stack.torn.setHandler('/v2/faction/contributors', (url) => {
       const stat = url.searchParams.get('stat')
@@ -128,6 +134,8 @@ describe('member stats job', () => {
 
     // 2 backfill rows (1001) + 3 today rows.
     expect(result.rows).toBe(5)
+    // Profile enrichment is the separate member-profile job now — no profile calls.
+    expect(profileCalls).toEqual([])
 
     // Backfill timestamps: date midnight UTC + 3600 (the 01:00 snapshot offset).
     const expectedTs = Math.floor(new Date(`${missing1}T00:00:00Z`).getTime() / 1000) + 3600
@@ -144,21 +152,68 @@ describe('member stats job', () => {
       `SELECT * FROM member_daily_stats WHERE member_id = '1001' AND snapshot_date = $1`,
       [iso(today)]
     )
+    // personalstats + gym land; profile denorms are left untouched (member-profile's job).
     expect(todayRow.rows[0]).toMatchObject({
-      is_donator: true,
-      property_name: 'Private Island',
-      last_action_timestamp: 1751901001,
       gym_strength: 1000, gym_speed: 2000, gym_dexterity: 3000, gym_defense: 4000, gym_energy: 5000,
     })
     expect(todayRow.rows[0].personalstats).toEqual({ drugs: { xantaken: 1101 } })
+    expect(todayRow.rows[0].is_donator).toBeNull()
+    expect(todayRow.rows[0].property_name).toBeNull()
 
-    // 1003 has no gym contributions and no donator status.
+    // 1003 has no gym contributions; member-stats still lands its personalstats.
     const other = await stack.db.query(
-      `SELECT is_donator, property_name, gym_strength FROM member_daily_stats
+      `SELECT personalstats, gym_strength FROM member_daily_stats
        WHERE member_id = '1003' AND snapshot_date = $1`,
       [iso(today)]
     )
-    expect(other.rows[0]).toMatchObject({ is_donator: false, property_name: null, gym_strength: null })
+    expect(other.rows[0]).toMatchObject({ gym_strength: null })
+    expect(other.rows[0].personalstats).toEqual({ drugs: { xantaken: 1103 } })
+  })
+})
+
+describe('member profile job (#226)', () => {
+  it('writes donator/property/last-action denorms onto today\'s row without fetching personalstats', async () => {
+    const personalstatsCalls: number[] = []
+    for (const mid of [1001, 1003, 1004]) {
+      stack.torn.setHandler(`/v2/user/${mid}/personalstats`, () => {
+        personalstatsCalls.push(mid)
+        return { personalstats: {} }
+      })
+      stack.torn.setHandler(`/v2/user/${mid}/profile`, () => ({
+        profile: {
+          id: mid,
+          donator_status: mid === 1001 ? 'Subscriber' : null,
+          property: { name: mid === 1001 ? 'Private Island' : null },
+          last_action: { status: 'Online', timestamp: 1751800000 + mid },
+        },
+      }))
+    }
+
+    const { memberProfileJob } = await import('../src/scraper/jobs/memberProfile.js')
+    const result = await memberProfileJob(deps())
+
+    // One row per current member (1001, 1003, 1004); profile only, no personalstats.
+    expect(result.rows).toBe(3)
+    expect(personalstatsCalls).toEqual([])
+
+    const today = new Date().toISOString().slice(0, 10)
+    const donator = await stack.db.query(
+      `SELECT is_donator, property_name, last_action_timestamp, personalstats
+       FROM member_daily_stats WHERE member_id = '1001' AND snapshot_date = $1`,
+      [today]
+    )
+    expect(donator.rows[0]).toMatchObject({
+      is_donator: true, property_name: 'Private Island', last_action_timestamp: 1751801001,
+    })
+    // Composes with member-stats: the personalstats written earlier survive the profile upsert.
+    expect(donator.rows[0].personalstats).toEqual({ drugs: { xantaken: 1101 } })
+
+    const nonDonator = await stack.db.query(
+      `SELECT is_donator, property_name FROM member_daily_stats
+       WHERE member_id = '1003' AND snapshot_date = $1`,
+      [today]
+    )
+    expect(nonDonator.rows[0]).toMatchObject({ is_donator: false, property_name: null })
   })
 })
 
