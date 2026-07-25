@@ -744,6 +744,30 @@ CREATE TABLE public.competition_results (
 CREATE INDEX competition_results_competition_idx
   ON public.competition_results (competition_id, resolution_seq);
 
+-- #227: append-only intraday sample series for competition-relevant stats. The
+-- frequent member-stats run (and #230's boundary captures) append one slim
+-- sample per member; competition resolution reads "latest sample <= boundary".
+-- `stats` holds only the competition-relevant personalstats categories
+-- (drugs/attacking/hospital/other); gym values (not in personalstats) ride
+-- alongside as numeric columns. Prunable — retention keeps recent samples plus
+-- any within a still-unresolved competition's window.
+CREATE TABLE public.member_stat_samples (
+  id            bigserial PRIMARY KEY,
+  member_id     text NOT NULL,
+  captured_at   timestamp with time zone NOT NULL DEFAULT now(),
+  stats         jsonb NOT NULL DEFAULT '{}'::jsonb,
+  gym_strength  bigint,
+  gym_speed     bigint,
+  gym_dexterity bigint,
+  gym_defense   bigint,
+  gym_energy    bigint
+);
+-- "latest sample <= T, per member" lookups (resolution boundaries + retention).
+CREATE INDEX member_stat_samples_member_time_idx
+  ON public.member_stat_samples (member_id, captured_at DESC);
+CREATE INDEX member_stat_samples_captured_idx
+  ON public.member_stat_samples (captured_at);
+
 -- Per-member war notes (#199): one global note per member, war-lead editable.
 CREATE TABLE public.member_notes (
   member_id  text PRIMARY KEY,
@@ -840,6 +864,7 @@ ALTER TABLE crimes ADD CONSTRAINT crimes_payout_week_id_fkey FOREIGN KEY (payout
 ALTER TABLE faction_revives ADD CONSTRAINT faction_revives_rw_id_fkey FOREIGN KEY (rw_id) REFERENCES ranked_wars(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE member_cpr_v2 ADD CONSTRAINT member_cpr_v2_member_id_fkey FOREIGN KEY (member_id) REFERENCES members(member_id) ON DELETE CASCADE;
 ALTER TABLE member_daily_stats ADD CONSTRAINT member_daily_stats_member_id_fkey FOREIGN KEY (member_id) REFERENCES members(member_id) ON DELETE CASCADE;
+ALTER TABLE member_stat_samples ADD CONSTRAINT member_stat_samples_member_id_fkey FOREIGN KEY (member_id) REFERENCES members(member_id) ON DELETE CASCADE;
 ALTER TABLE member_secrets ADD CONSTRAINT member_secrets_member_id_fkey FOREIGN KEY (member_id) REFERENCES members(member_id) ON DELETE CASCADE;
 ALTER TABLE oc_crime_positions ADD CONSTRAINT oc_crime_positions_crime_name_fkey FOREIGN KEY (crime_name) REFERENCES oc_crime_types(name);
 ALTER TABLE oc_payout_members ADD CONSTRAINT oc_payout_members_week_id_fkey FOREIGN KEY (week_id) REFERENCES oc_payout_weeks(id) ON DELETE CASCADE;

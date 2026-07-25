@@ -168,6 +168,47 @@ describe('member stats job', () => {
     )
     expect(other.rows[0]).toMatchObject({ gym_strength: null })
     expect(other.rows[0].personalstats).toEqual({ drugs: { xantaken: 1103 } })
+
+    // #227: the run also appends a slim sample per current member — the
+    // competition-relevant personalstats categories plus gym, with a captured_at.
+    const sample = await stack.db.query(
+      `SELECT stats, gym_energy, captured_at FROM member_stat_samples
+       WHERE member_id = '1001' ORDER BY id DESC LIMIT 1`
+    )
+    expect(sample.rows[0].stats).toEqual({ drugs: { xantaken: 1101 } })
+    expect(sample.rows[0].gym_energy).toBe(5000)
+    expect(sample.rows[0].captured_at).toBeTruthy()
+    // One sample per current member this run (1001, 1003, 1004).
+    const count = await stack.db.query(`SELECT count(*)::int AS n FROM member_stat_samples`)
+    expect(count.rows[0].n).toBe(3)
+  })
+})
+
+describe('member_stat_samples retention (#227)', () => {
+  it('prunes samples older than 90 days unless inside an unresolved competition window', async () => {
+    // An unresolved competition whose window brackets one old sample.
+    await stack.db.query(
+      `INSERT INTO competitions (name, metric_id, window_kind, window_start, window_end)
+       VALUES ('Old contest', 'xanax_taken', 'fixed',
+               (now() - interval '121 days')::date, (now() - interval '119 days')::date)`
+    )
+    await stack.db.query(`
+      INSERT INTO member_stat_samples (member_id, captured_at, stats) VALUES
+        ('1001', now() - interval '200 days', '{"tag":"orphan"}'),
+        ('1001', now() - interval '120 days', '{"tag":"boundary"}'),
+        ('1001', now() - interval '2 days',   '{"tag":"recent"}')
+    `)
+
+    const { statsSamplesPruneJob } = await import('../src/scraper/jobs/statsSamplesPrune.js')
+    const result = await statsSamplesPruneJob(deps())
+
+    // Only the 200-day sample outside any competition window is pruned.
+    expect(result.rows).toBe(1)
+    const tag = async (t: string) =>
+      (await stack.db.query(`SELECT count(*)::int AS n FROM member_stat_samples WHERE stats->>'tag' = $1`, [t])).rows[0].n
+    expect(await tag('orphan')).toBe(0)   // pruned
+    expect(await tag('boundary')).toBe(1) // kept — inside the unresolved competition's window
+    expect(await tag('recent')).toBe(1)   // kept — within 90 days
   })
 })
 
