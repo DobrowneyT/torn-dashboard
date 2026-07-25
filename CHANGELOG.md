@@ -70,6 +70,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **Generic default branding.** Removed leftover "TNL"/"Forge" strings from
+  shared (non-per-tenant) surfaces: the revive-service **Nuke `app_info`** fallback
+  is now `War Room` (was `TNL War Room`), the faction-tag settings placeholder is a
+  neutral example, and the **default PWA app icon** is a generic "T" (Torn) tile
+  instead of the "TF" monogram. Per-tenant identity (name, logo, favicon) is
+  unaffected; a tenant's uploaded logo still overrides the default icon.
 - **Restored the headline "clear" (✕) button.** The header/footer reshuffle dropped
   the clear control from the displayed headline banner; war leads / leadership /
   admin can once again dismiss/clear a posted headline from the banner itself.
