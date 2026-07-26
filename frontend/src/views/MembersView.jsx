@@ -406,7 +406,7 @@ export default function MembersView({ isLeadership }) {
                       >
                         {usesTiers
                           ? <TierBadge tier={member.tier} override={member.hasOverride} />
-                          : <CprBadge value={member.avgCpr} />}
+                          : <CprBadge />}
                       </button>
                     </td>
                     <td className="py-3 px-4">
@@ -487,13 +487,12 @@ export default function MembersView({ isLeadership }) {
   )
 }
 
-// Non-tiered factions (#251) show a member's average CPR here instead of a
-// tier. Clicking still opens the per-crime CPR drill-down.
-function CprBadge({ value }) {
-  const has = value != null && value !== ''
+// Non-tiered factions (#251) get a plain "CPR" badge here instead of a tier.
+// Clicking still opens the per-crime CPR drill-down.
+function CprBadge() {
   return (
     <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-600 text-white font-semibold text-xs">
-      {has ? `CPR ${Math.round(Number(value))}` : 'CPR'}
+      CPR
     </span>
   )
 }
