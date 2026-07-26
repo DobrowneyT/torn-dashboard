@@ -1,14 +1,27 @@
-import { availabilityLabel } from '../../utils/rollCall'
+import { availabilityLabel, rollCallTally } from '../../utils/rollCall'
 
 // Shared table of roll-call responses (sorted alphabetically by name). Edited
-// responses (revised=true) are highlighted. Used by the leadership notes panel
-// and the summary "responded" modal.
+// responses (revised=true) are highlighted. A yes/no tally of who'll be on at
+// the start sits above it. Used by the leadership notes panel and the summary
+// "responded" modal.
 export default function RollCallResultsTable({ rows = [] }) {
   const sorted = [...rows].sort((a, b) =>
     (a.member_name || '').localeCompare(b.member_name || '', undefined, { sensitivity: 'base' }))
+  const tally = rollCallTally(rows)
 
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-slate-600 overflow-hidden overflow-x-auto">
+    <div className="space-y-2">
+      <div className="flex items-center gap-3 text-xs">
+        <span className="text-gray-500 dark:text-gray-400">On at start:</span>
+        <span className="inline-flex items-center gap-1 font-medium text-green-600 dark:text-green-400">
+          {tally.yes} Yes
+        </span>
+        <span className="inline-flex items-center gap-1 font-medium text-red-600 dark:text-red-400">
+          {tally.no} No
+        </span>
+        <span className="text-gray-400 dark:text-gray-500">({tally.total} responded)</span>
+      </div>
+      <div className="rounded-lg border border-gray-200 dark:border-slate-600 overflow-hidden overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="bg-gray-50 dark:bg-slate-700/40 text-left text-gray-500 dark:text-gray-400">
@@ -34,6 +47,7 @@ export default function RollCallResultsTable({ rows = [] }) {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

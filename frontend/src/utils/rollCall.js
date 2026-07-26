@@ -17,6 +17,19 @@ export function availabilityLabel(v) {
   return AVAILABILITY_OPTIONS.find(o => o.value === v)?.label ?? '—'
 }
 
+// Tally roll-call responses by whether the member will be on at the war start,
+// so leadership can see at a glance how many are confirmed online. `total` is
+// the count of definite yes/no answers.
+export function rollCallTally(rows = []) {
+  let yes = 0
+  let no = 0
+  for (const r of rows) {
+    if (r?.on_at_start === true) yes += 1
+    else if (r?.on_at_start === false) no += 1
+  }
+  return { yes, no, total: yes + no }
+}
+
 // Torn City Time == UTC. Render a war start like "Fri 20:00 TCT (26/06)".
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 export function formatTct(unixSec) {

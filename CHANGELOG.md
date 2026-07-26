@@ -19,6 +19,9 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **War Room roll call shows a yes/no tally.** The roll-call results table now
+  shows a **"On at start: X Yes · Y No (Z responded)"** tally above it, so
+  leadership can see at a glance how many members will be online at kickoff.
 - **Global Admin: Key Pool Health shows missing keys, totals, and sortable columns.**
   The Key Pool Health table now also lists **current members with no key** as red
   **"Missing"** rows (blank level/consent/last-claimed), so leadership can see who
