@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
 import { useAuth } from '../contexts/AuthContext'
+import { useFactionConfig } from '../contexts/FactionConfigContext'
 import { API_MODE, apiGet } from '../utils/apiClient'
 import { filterItemsForMember } from '../utils/payoutDataLoader'
 import { formatCurrency } from '../utils/payoutCalculations'
@@ -10,6 +11,9 @@ import { config } from '../config'
 export default function MembersView({ isLeadership }) {
   const [persistedState, setPersistedState] = useViewState('members')
   const { user } = useAuth()
+  // Tiered factions get the tier badge/filter/distribution; non-tiered
+  // (flat-weighted / equal) factions get a CPR column instead (#251).
+  const { usesTiers } = useFactionConfig()
 
   const [searchTerm, setSearchTerm] = useState(persistedState.searchTerm || '')
   const [tierFilter, setTierFilter] = useState(persistedState.tierFilter || 'all')
@@ -119,27 +123,34 @@ export default function MembersView({ isLeadership }) {
       )
     }
 
-    if (tierFilter !== 'all') {
+    if (usesTiers && tierFilter !== 'all') {
       filtered = filtered.filter(m => m.tier === parseInt(tierFilter))
     }
 
-    return filtered.sort((a, b) => {
-      let aVal = a[sortConfig.key]
-      let bVal = b[sortConfig.key]
+    // In non-tiered mode the tier column becomes CPR, so a 'tier' sort is
+    // meaningless — sort by average CPR instead.
+    const sortKey = (!usesTiers && sortConfig.key === 'tier') ? 'avgCpr' : sortConfig.key
 
-      if (sortConfig.key === 'name') {
+    return filtered.sort((a, b) => {
+      let aVal = a[sortKey]
+      let bVal = b[sortKey]
+
+      if (sortKey === 'name') {
         aVal = (aVal || '').toLowerCase()
         bVal = (bVal || '').toLowerCase()
-      } else if (sortConfig.key === 'id') {
+      } else if (sortKey === 'id') {
         aVal = parseInt(aVal) || 0
         bVal = parseInt(bVal) || 0
+      } else if (sortKey === 'avgCpr') {
+        aVal = Number(aVal) || 0
+        bVal = Number(bVal) || 0
       }
 
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
       return 0
     })
-  }, [members, searchTerm, tierFilter, sortConfig])
+  }, [members, searchTerm, tierFilter, sortConfig, usesTiers])
 
   const handleSort = (key) => {
     setSortConfig(prev => ({
@@ -243,7 +254,7 @@ export default function MembersView({ isLeadership }) {
 
   return (
     <>
-      {!loading && members.length > 0 && (
+      {usesTiers && !loading && members.length > 0 && (
         <div className="card mb-4">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Tier Distribution</h3>
           <div className="flex flex-wrap gap-2">
@@ -301,20 +312,22 @@ export default function MembersView({ isLeadership }) {
             className="flex-1 px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
           />
 
-          <select
-            value={tierFilter}
-            onChange={(e) => setTierFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
-          >
-            <option value="all">All Tiers</option>
-            <option value="0">Tier 0 – Review</option>
-            <option value="1">Tier 1</option>
-            <option value="2">Tier 2</option>
-            <option value="3">Tier 3</option>
-            <option value="4">Tier 4</option>
-            <option value="5">Tier 5</option>
-            <option value="6">Tier 6</option>
-          </select>
+          {usesTiers && (
+            <select
+              value={tierFilter}
+              onChange={(e) => setTierFilter(e.target.value)}
+              className="px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
+            >
+              <option value="all">All Tiers</option>
+              <option value="0">Tier 0 – Review</option>
+              <option value="1">Tier 1</option>
+              <option value="2">Tier 2</option>
+              <option value="3">Tier 3</option>
+              <option value="4">Tier 4</option>
+              <option value="5">Tier 5</option>
+              <option value="6">Tier 6</option>
+            </select>
+          )}
 
           {isLeadership && (
             <button
@@ -350,11 +363,11 @@ export default function MembersView({ isLeadership }) {
                 </th>
                 <th
                   className="text-left py-3 px-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700"
-                  onClick={() => handleSort('tier')}
+                  onClick={() => handleSort(usesTiers ? 'tier' : 'avgCpr')}
                 >
                   <div className="flex items-center gap-2">
-                    Tier
-                    {sortConfig.key === 'tier' && (
+                    {usesTiers ? 'Tier' : 'CPR'}
+                    {sortConfig.key === (usesTiers ? 'tier' : 'avgCpr') && (
                       <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
                     )}
                   </div>
@@ -391,7 +404,9 @@ export default function MembersView({ isLeadership }) {
                         title="View CPR data"
                         className="cursor-pointer hover:opacity-80 transition-opacity"
                       >
-                        <TierBadge tier={member.tier} override={member.hasOverride} />
+                        {usesTiers
+                          ? <TierBadge tier={member.tier} override={member.hasOverride} />
+                          : <CprBadge value={member.avgCpr} />}
                       </button>
                     </td>
                     <td className="py-3 px-4">
@@ -469,6 +484,17 @@ export default function MembersView({ isLeadership }) {
         />
       )}
     </>
+  )
+}
+
+// Non-tiered factions (#251) show a member's average CPR here instead of a
+// tier. Clicking still opens the per-crime CPR drill-down.
+function CprBadge({ value }) {
+  const has = value != null && value !== ''
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-600 text-white font-semibold text-xs">
+      {has ? `CPR ${Math.round(Number(value))}` : 'CPR'}
+    </span>
   )
 }
 

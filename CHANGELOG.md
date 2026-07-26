@@ -19,6 +19,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Members page shows CPR instead of tiers for non-tiered factions (#251).**
+  A faction on a `flat-weighted` or `equal` payout mode no longer sees meaningless
+  tier UI on the Members page: the tier **filter dropdown** and **Tier Distribution**
+  panel are hidden, and the "Tier" column becomes a **"CPR"** column showing each
+  member's average CPR (sortable, still click-through to the per-crime CPR
+  breakdown). Tiered factions are unchanged. Gated on the existing
+  `useFactionConfig().usesTiers` signal.
 - **War Room roll call shows a yes/no tally.** The roll-call results table now
   shows a **"On at start: X Yes · Y No (Z responded)"** tally above it, so
   leadership can see at a glance how many members will be online at kickoff.
