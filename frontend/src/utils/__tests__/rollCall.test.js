@@ -6,6 +6,7 @@ import {
   formatTct,
   formatCountdown,
   availabilityLabel,
+  rollCallTally,
   warTypeBadge,
   canSeeWarNotes,
   notePointsFromText,
@@ -173,5 +174,20 @@ describe('labels', () => {
     expect(warTypeBadge({ war_type: 'termed', termed_score_us: 15500, termed_score_them: 7200 })).toBe('Termed 15.5k–7.2k')
     expect(warTypeBadge({ war_type: 'termed', termed_score_us: 5000 })).toBe('Termed 5k–?')
     expect(warTypeBadge({ war_type: 'race', race_target_score: 25000 })).toBe('Race → 25k')
+  })
+})
+
+describe('rollCallTally', () => {
+  it('counts yes / no / total by on_at_start', () => {
+    expect(rollCallTally([
+      { on_at_start: true }, { on_at_start: true }, { on_at_start: false },
+    ])).toEqual({ yes: 2, no: 1, total: 3 })
+  })
+  it('is all zero for no responses', () => {
+    expect(rollCallTally([])).toEqual({ yes: 0, no: 0, total: 0 })
+  })
+  it('ignores rows without a definite answer', () => {
+    expect(rollCallTally([{ on_at_start: true }, { on_at_start: undefined }, {}]))
+      .toEqual({ yes: 1, no: 0, total: 1 })
   })
 })
