@@ -292,6 +292,25 @@ describe('key-pool health', () => {
       expect(JSON.stringify(k)).not.toContain('KEYDONORKEY7600X')
     }
   })
+
+  it('lists current members with no key as missing rows', async () => {
+    // A current member who never logged in → no member_secrets row.
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('7601', 'NoKeyGuy', 3, true)
+       ON CONFLICT (member_id) DO NOTHING`
+    )
+    const res = await api('GET', '/api/admin/key-pool', adminToken)
+    const missing = res.body.keys.find((k: any) => k.member_id === '7601')
+    expect(missing).toBeTruthy()
+    expect(missing.missing).toBe(true)
+    expect(missing.member_name).toBe('NoKeyGuy')
+    expect(missing.key_level).toBeNull()
+    expect(missing.consent_version).toBeNull()
+    expect(missing.last_claimed_at).toBeNull()
+    // Enrolled members are marked not-missing.
+    const donor = res.body.keys.find((k: any) => k.member_id === '7600')
+    expect(donor.missing).toBe(false)
+  })
 })
 
 describe('branding & identity', () => {
