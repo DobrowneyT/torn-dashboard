@@ -47,7 +47,11 @@
  *    cutoffHours=0  → all score is post-cutoff → shares[i] = totalScore / threshold
  */
 
-const OUR_FACTION_ID = 10739
+import { getFactionId } from './factionIdentity'
+
+// Our faction id is resolved at runtime per tenant (#249) — the functions below
+// read getFactionId() at call time (safe once the auth loading gate has passed)
+// rather than baking in a single faction.
 
 // Torn chain milestones that inflate respect gain
 export const BONUS_HITS = new Set([10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000])
@@ -193,6 +197,7 @@ function distributeRemainder(members, pool, getSortValue) {
  * @returns {Map<number, object>} memberId → stats object
  */
 export function buildMemberAttackStats(attacks) {
+  const OUR_FACTION_ID = getFactionId()
   const stats = new Map()
 
   for (const attack of attacks) {
@@ -242,6 +247,7 @@ export function buildMemberAttackStats(attacks) {
  * @returns {Array<object>}
  */
 export function buildHitReport(attacks, factionFilter = null) {
+  const OUR_FACTION_ID = getFactionId()
   const rows = new Map() // memberId → row
 
   function ensure(memberId, memberName) {
@@ -298,6 +304,7 @@ export function buildHitReport(attacks, factionFilter = null) {
  * Collect unique opposing faction IDs from a set of attacks (from our faction's perspective).
  */
 export function collectOpposingFactionIds(attacks) {
+  const OUR_FACTION_ID = getFactionId()
   const ids = new Set()
   for (const a of attacks) {
     const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
@@ -321,6 +328,7 @@ export function collectOpposingFactionIds(attacks) {
  * @returns {Map<number, { preCutoffScore: number, postCutoffScore: number }>}
  */
 export function calculateCutoffScores(attacks, cutoffTimestamp) {
+  const OUR_FACTION_ID = getFactionId()
   const scores = new Map()
   for (const a of attacks) {
     if (a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1) continue
@@ -673,6 +681,7 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
  */
 export function detectRaceCutoff(attacks, targetScore) {
   if (!targetScore || targetScore <= 0) return null
+  const OUR_FACTION_ID = getFactionId()
 
   const sorted = [...attacks].sort((a, b) => (Number(a.started) || 0) - (Number(b.started) || 0))
   let ourScore = 0
@@ -720,6 +729,7 @@ export function detectRaceCutoff(attacks, targetScore) {
  * @returns {Map<number, number>} memberId → Σ raw respect_gain
  */
 export function deriveWarScoresByMember(attacks) {
+  const OUR_FACTION_ID = getFactionId()
   const m = new Map()
   for (const a of attacks) {
     const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
@@ -760,6 +770,7 @@ const windowedRespectByMember = deriveWarScoresByMember
  *             apiTotal: number, derivedTotal: number, totalDiff: number }}
  */
 export function compareContributionSources(apiContributions, attacks, opts = {}) {
+  const OUR_FACTION_ID = getFactionId()
   const { tolerancePct = 0.02, toleranceAbs = 10 } = opts
   const derived = deriveWarScoresByMember(attacks)
 

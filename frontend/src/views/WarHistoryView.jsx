@@ -7,6 +7,7 @@ import {
   loadLiveContributionsFromAttacks,
 } from '../utils/warDataLoader'
 import { apiPost } from '../utils/apiClient'
+import { getFactionId } from '../utils/factionIdentity'
 
 // Renders a sync run record ({ status, rows_written, error, details }) as
 // the one-line result message the fetch buttons show.
@@ -19,11 +20,12 @@ function runSummary(run, label) {
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, RefreshCw, Heart } from 'lucide-react'
 
-const OUR_FACTION_ID = 10739
 const PAGE_SIZE = 50
 
 export default function WarHistoryView({ isLeadership, isAdmin }) {
   const { user } = useAuth()
+  // Our faction id, resolved per tenant at runtime (#249) — not a hard-coded id.
+  const OUR_FACTION_ID = getFactionId()
 
   const [wars, setWars] = useState([])
   const [totalWars, setTotalWars] = useState(0)

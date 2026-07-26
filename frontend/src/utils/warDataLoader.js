@@ -6,8 +6,7 @@
 
 import { apiGet } from './apiClient'
 import { BONUS_HITS, WIN_RESULTS } from './warPayoutCalculations'
-
-const OUR_FACTION_ID = 10739
+import { getFactionId } from './factionIdentity'
 
 /**
  * Load faction lookup rows for a given set of IDs.
@@ -98,6 +97,7 @@ export async function loadWarContributions(warId) {
  */
 export async function loadLiveContributionsFromAttacks(war) {
   if (!war?.start_at) return []
+  const OUR_FACTION_ID = getFactionId() // tenant faction, resolved at runtime (#249)
 
   // Seed: every current faction member starts at 0. Fall back gracefully
   // if the roster read fails so the leaderboard still works in
