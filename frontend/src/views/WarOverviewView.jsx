@@ -29,8 +29,7 @@ import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar,
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { apiPost } from '../utils/apiClient'
 import { useAuth } from '../contexts/AuthContext'
-
-const OUR_FACTION_ID = 10739
+import { getFactionId } from '../utils/factionIdentity'
 
 // Faction_attacks.result classifier — mirrors the same buckets the payout
 // calculator uses so "attack / assist / loss" mean the same thing here as
@@ -315,6 +314,8 @@ function buildNameLookup(revives, dbNames) {
 
 export default function WarOverviewView() {
   const { user } = useAuth()
+  // Our faction id, resolved per tenant at runtime (#249) — not a hard-coded id.
+  const OUR_FACTION_ID = getFactionId()
   const [wars, setWars] = useState([])
   const [warsLoading, setWarsLoading] = useState(true)
   const [selectedWarId, setSelectedWarId] = useState(null)

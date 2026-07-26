@@ -296,6 +296,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **War pages no longer assume the Forge faction (#249).** Four war-related
+  frontend modules hard-coded the Forge faction id (`10739`), so on any other
+  tenant **every completed war showed "Loss"** (the winner check never matched)
+  and past wars showed **"No contribution data"** (the live leaderboard filtered
+  attacks to the wrong faction). RW History win/loss, the contribution leaderboard,
+  War Overview, and the payout math now resolve the tenant's own faction id at
+  runtime via `getFactionId()` — the same per-tenant source the rest of the app
+  already uses. No provisioning step is needed; contributions populate from the
+  attacks already scraped. Forge behaviour is unchanged.
 - **Manually-triggered scrapers no longer 502 the Global Admin page.** The "Run"
   button held the HTTP request open until the whole job finished, so a long job
   (member-stats runs for minutes) blew past the reverse-proxy read timeout and
