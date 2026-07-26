@@ -225,13 +225,22 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
   // Pool health is metadata only — the encrypted blob (cpr_api_key) must
   // never cross this boundary, and there is no endpoint that returns it.
   app.get('/api/admin/key-pool', ADMIN_GUARD, async () => {
+    // Every enrolled key, PLUS a synthetic row for each CURRENT member without a
+    // key (missing=true) so leadership can see who still needs to enrol. Missing
+    // rows carry no key metadata — the UI shows them with a red "Missing" status.
     const res = await db.query(
       `SELECT s.member_id, m.member_name, s.key_level, s.has_faction_access,
               s.consent_at, s.consent_version, s.disabled, s.last_error,
-              s.last_claimed_at, s.updated_at
+              s.last_claimed_at, s.updated_at, false AS missing
        FROM member_secrets s
        LEFT JOIN members m ON m.member_id = s.member_id
-       ORDER BY s.member_id`
+       UNION ALL
+       SELECT m.member_id, m.member_name, NULL, NULL, NULL, NULL, false, NULL,
+              NULL, NULL, true AS missing
+       FROM members m
+       WHERE m.is_current = true
+         AND NOT EXISTS (SELECT 1 FROM member_secrets s WHERE s.member_id = m.member_id)
+       ORDER BY member_id`
     )
     return { keys: res.rows }
   })

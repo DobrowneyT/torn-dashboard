@@ -1,9 +1,10 @@
 // Global Admin (slice #74): cross-faction oversight surface — scraper job
 // control (enable/disable, run now), run history, and key-pool health.
 // Admin-only (server-enforced); API mode only.
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { API_MODE, apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { fmtDbTime } from '../utils/time'
+import { keyPoolStatus, sortKeyPoolRows } from '../utils/keyPoolTable'
 import { CheckCircle2, AlertTriangle, Loader2, Play, RefreshCw } from 'lucide-react'
 
 function Card({ title, action, children }) {
@@ -66,13 +67,33 @@ function SecretRow({ secret, onSave, disabled }) {
 function StatusBadge({ status }) {
   const styles = {
     success: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+    active: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
     failure: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+    disabled: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+    missing: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
     running: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
   }
+  const labels = { missing: 'Missing' }
   return (
     <span className={`px-2 py-0.5 rounded text-xs font-medium ${styles[status] || 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-300'}`}>
-      {status}
+      {labels[status] || status}
     </span>
+  )
+}
+
+// A sortable table header cell: click to sort by `col`, click again to flip.
+function SortableTh({ label, col, sort, onSort, last }) {
+  const active = sort.key === col
+  return (
+    <th
+      className={`py-2 ${last ? '' : 'pr-4'} cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200`}
+      onClick={() => onSort(col)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <span className={active ? '' : 'opacity-0'}>{sort.dir === 'asc' ? '↑' : '↓'}</span>
+      </span>
+    </th>
   )
 }
 
@@ -87,6 +108,16 @@ export default function GlobalAdminView() {
   const [error, setError] = useState(null)
   const [busyJob, setBusyJob] = useState(null)
   const [notice, setNotice] = useState(null)
+  // Key Pool Health sort (all columns). Default: missing members surfaced first.
+  const [keySort, setKeySort] = useState({ key: 'status', dir: 'desc' })
+
+  const sortedKeys = useMemo(() => sortKeyPoolRows(keys, keySort.key, keySort.dir), [keys, keySort])
+  const keyTotals = useMemo(() => ({
+    total: keys.filter((k) => !k.missing).length,
+    missing: keys.filter((k) => k.missing).length,
+  }), [keys])
+  const toggleKeySort = (key) =>
+    setKeySort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
 
   const load = useCallback(async () => {
     try {
@@ -274,9 +305,9 @@ export default function GlobalAdminView() {
       </Card>
 
       <Card title="Recent Runs">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[26rem]">
           <table className="min-w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-white dark:bg-slate-800">
               <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
                 <th className="py-2 pr-4">Job</th>
                 <th className="py-2 pr-4">Started</th>
@@ -319,31 +350,39 @@ export default function GlobalAdminView() {
       </Card>
 
       <Card title="Key Pool Health">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Metadata only — key material never leaves the server. Members join the pool by logging in.
-        </p>
-        <div className="overflow-x-auto">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Metadata only — key material never leaves the server. Members join the pool by logging in.
+          </p>
+          <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+            <span className="font-semibold text-gray-900 dark:text-white">{keyTotals.total}</span> keys
+            {keyTotals.missing > 0 && (
+              <> · <span className="font-semibold text-red-600 dark:text-red-400">{keyTotals.missing}</span> missing</>
+            )}
+          </p>
+        </div>
+        <div className="overflow-auto max-h-[26rem]">
           <table className="min-w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-white dark:bg-slate-800">
               <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                <th className="py-2 pr-4">Member</th>
-                <th className="py-2 pr-4">Level</th>
-                <th className="py-2 pr-4">Consent</th>
-                <th className="py-2 pr-4">Status</th>
-                <th className="py-2 pr-4">Last claimed</th>
-                <th className="py-2">Last error</th>
+                <SortableTh label="Member"       col="member"       sort={keySort} onSort={toggleKeySort} />
+                <SortableTh label="Level"        col="level"        sort={keySort} onSort={toggleKeySort} />
+                <SortableTh label="Consent"      col="consent"      sort={keySort} onSort={toggleKeySort} />
+                <SortableTh label="Status"       col="status"       sort={keySort} onSort={toggleKeySort} />
+                <SortableTh label="Last claimed" col="last_claimed" sort={keySort} onSort={toggleKeySort} />
+                <SortableTh label="Last error"   col="last_error"   sort={keySort} onSort={toggleKeySort} last />
               </tr>
             </thead>
             <tbody>
-              {keys.map((k) => (
+              {sortedKeys.map((k) => (
                 <tr key={k.member_id} className="border-b border-gray-100 dark:border-slate-700/50">
                   <td className="py-2 pr-4 text-gray-900 dark:text-white">{k.member_name || k.member_id}</td>
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300">{k.key_level ?? '—'}</td>
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300">{k.consent_version || '—'}</td>
                   <td className="py-2 pr-4">
-                    <StatusBadge status={k.disabled ? 'failure' : 'success'} />
+                    <StatusBadge status={keyPoolStatus(k)} />
                   </td>
-                  <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtDbTime(k.last_claimed_at)}</td>
+                  <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{k.last_claimed_at ? fmtDbTime(k.last_claimed_at) : '—'}</td>
                   <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md truncate" title={k.last_error || ''}>{k.last_error || ''}</td>
                 </tr>
               ))}

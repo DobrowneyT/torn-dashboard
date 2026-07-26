@@ -19,6 +19,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Global Admin: Key Pool Health shows missing keys, totals, and sortable columns.**
+  The Key Pool Health table now also lists **current members with no key** as red
+  **"Missing"** rows (blank level/consent/last-claimed), so leadership can see who
+  still needs to enrol, and shows a **key count** (and how many are missing) in the
+  card header. Every column is **sortable** (missing members surface first by
+  default). Both the Recent Runs and Key Pool Health tables now **cap their height
+  (~10 rows) and scroll** with a sticky header instead of growing unbounded.
 - **Pinned competitions show your own position (#242).** The dashboard
   pinned-competition cards now tell a member **where they stand**, not just the
   top of the board. A **leaderboard** card shows the top 5 plus your own **rank +
