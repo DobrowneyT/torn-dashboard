@@ -5850,8 +5850,8 @@
       "end_at": null,
       "opponent_id": 89,
       "opponent_name": "Catalysis",
-      "our_score": 0,
-      "opponent_score": 0,
+      "our_score": 4453,
+      "opponent_score": 13261,
       "target": 17400,
       "winner_faction_id": null,
       "forfeit": false,
@@ -216745,6 +216745,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-07-25T04:11:21.146399"
+    "last_updated": "2026-07-26T04:26:49.155115"
   }
 }
