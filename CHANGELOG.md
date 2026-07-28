@@ -313,6 +313,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **RW payouts can be saved again — removed a stale API-key guard.** Saving a
+  ranked-war payout on the Payout Management page failed with *"Missing API key —
+  please log in again."* on the self-hosted stack. The save is authenticated by
+  the session JWT and never needs the raw Torn key — but a leftover guard required
+  `user.apiKey`, which API mode deliberately never stores client-side, so every
+  save was blocked. The guard now only checks there's a computed payout to save.
 - **War pages no longer assume the Forge faction (#249).** Four war-related
   frontend modules hard-coded the Forge faction id (`10739`), so on any other
   tenant **every completed war showed "Loss"** (the winner check never matched)
