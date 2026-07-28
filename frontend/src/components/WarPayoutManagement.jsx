@@ -332,7 +332,7 @@ function SplitCount({ pre = 0, post = 0, fmt = (n) => n }) {
 }
 
 export default function WarPayoutManagement() {
-  const { user, isVisitor } = useAuth()
+  const { isVisitor } = useAuth()
 
   // War list state
   const [wars, setWars] = useState([])
@@ -724,8 +724,11 @@ export default function WarPayoutManagement() {
   }
 
   async function handleSave() {
-    if (!selectedWar || !payoutResults || !user?.apiKey) {
-      setSaveError(!user?.apiKey ? 'Missing API key — please log in again.' : 'Nothing to save.')
+    // The save is authenticated by the session JWT (created_by is stamped
+    // server-side) — it does NOT need the raw Torn key, which in API mode the
+    // browser deliberately never holds. Only require something to save.
+    if (!selectedWar || !payoutResults) {
+      setSaveError('Nothing to save.')
       return
     }
     if (contributionSource === 'live') {
