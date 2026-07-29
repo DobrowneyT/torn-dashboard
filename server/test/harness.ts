@@ -37,6 +37,8 @@ export interface TornFixtureUser {
   factionId: string | null
   /** Torn key access level; defaults to 3 (Limited Access). */
   accessLevel?: number
+  /** Whether the key has faction API access (access.faction); defaults to true. */
+  factionAccess?: boolean
 }
 
 /** Key-pool at-rest secret used by the app under test (sync triggers). */
@@ -164,7 +166,7 @@ export async function startTestStack(
       res.end(JSON.stringify({
         info: {
           user: { id: Number(user.id), faction_id: user.factionId === null ? null : Number(user.factionId), company_id: 0 },
-          access: { level: user.accessLevel ?? 3, type: 'Limited Access', faction: true },
+          access: { level: user.accessLevel ?? 3, type: 'Limited Access', faction: user.factionAccess ?? true },
         },
       }))
       return

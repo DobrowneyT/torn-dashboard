@@ -85,8 +85,10 @@ export function createKeyPool({ db, encryptionKey }: KeyPoolOptions) {
     },
 
     /**
-     * Claim the least-recently-claimed enabled + consented key. Safe under
-     * parallel claimers (SKIP LOCKED); returns null when the pool is empty.
+     * Claim the least-recently-claimed enabled + consented key. Keys flagged
+     * without faction API access are skipped (they'd fail faction calls with
+     * Torn error 7). Safe under parallel claimers (SKIP LOCKED); returns null
+     * when the pool is empty.
      */
     async claim(): Promise<ClaimedKey | null> {
       const res = await db.query(
@@ -94,6 +96,7 @@ export function createKeyPool({ db, encryptionKey }: KeyPoolOptions) {
          WHERE member_id = (
            SELECT member_id FROM member_secrets
            WHERE disabled = false AND consent_at IS NOT NULL AND cpr_api_key IS NOT NULL
+             AND has_faction_access IS NOT FALSE
            ORDER BY last_claimed_at ASC NULLS FIRST
            LIMIT 1
            FOR UPDATE SKIP LOCKED
@@ -112,6 +115,7 @@ export function createKeyPool({ db, encryptionKey }: KeyPoolOptions) {
       const res = await db.query(
         `SELECT member_id, cpr_api_key FROM member_secrets
          WHERE disabled = false AND consent_at IS NOT NULL AND cpr_api_key IS NOT NULL
+           AND has_faction_access IS NOT FALSE
          ORDER BY member_id`
       )
       return res.rows.map((r) => ({ member_id: r.member_id, key: decrypt(r.cpr_api_key) }))

@@ -84,7 +84,7 @@ const REQUIRED_KEY_LEVEL = 3 // Limited Access
 /** Resolve a Torn API key to a user id: cache first, then the Torn API.
  *  Does NOT write the cache — the caller decides (visitors must leave no trace). */
 async function verifyTornKey(deps: AuthDeps, apiKey: string): Promise<
-  | { ok: true; userId: string; tornFactionId: string | null; accessLevel: number; keyHash: string; fromCache: boolean }
+  | { ok: true; userId: string; tornFactionId: string | null; accessLevel: number; hasFactionAccess: boolean; keyHash: string; fromCache: boolean }
   | { ok: false; status: number; error: string }
 > {
   const keyHash = sha256hex(apiKey)
@@ -94,8 +94,9 @@ async function verifyTornKey(deps: AuthDeps, apiKey: string): Promise<
   )
   if (cached.rows.length > 0) {
     // Cached hits skip the membership/level re-check until the 24h TTL lapses,
-    // mirroring the existing edge-function semantics.
-    return { ok: true, userId: cached.rows[0].user_id, tornFactionId: null, accessLevel: REQUIRED_KEY_LEVEL, keyHash, fromCache: true }
+    // mirroring the existing edge-function semantics. (A cache row only exists
+    // for a login that already passed the faction-access gate.)
+    return { ok: true, userId: cached.rows[0].user_id, tornFactionId: null, accessLevel: REQUIRED_KEY_LEVEL, hasFactionAccess: true, keyHash, fromCache: true }
   }
 
   let data: any
@@ -120,8 +121,12 @@ async function verifyTornKey(deps: AuthDeps, apiKey: string): Promise<
   // faction_id is a flat property on user in /v2/key/info (not nested).
   const tornFactionId = data.info.user.faction_id == null ? null : String(data.info.user.faction_id)
   const accessLevel = Number(data.info.access?.level ?? 0)
+  // access.faction is true when the key is permitted to make faction-scoped
+  // calls. A key without it passes the level check but returns Torn error 7 on
+  // every faction selection, so we gate + record it at login.
+  const hasFactionAccess = data.info.access?.faction === true
 
-  return { ok: true, userId, tornFactionId, accessLevel, keyHash, fromCache: false }
+  return { ok: true, userId, tornFactionId, accessLevel, hasFactionAccess, keyHash, fromCache: false }
 }
 
 export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<LoginResult> {
@@ -154,16 +159,33 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
     return { ok: false, status: 403, error: 'Not a faction member' }
   }
 
+  // A member's key joins the pool on login (visitors/out-of-faction never do).
+  // Cache-served logins still enroll — a login predating enrollment left only a
+  // cache row (see the cache-served enrollment test).
+  const enrollsKey = isMember && !roles.includes('visitor')
+
+  // Faction API access is required for a key we'd pool — a key without it
+  // poisons faction-scoped scrapers with Torn error 7. Only checkable on a
+  // live /v2/key/info hit; cache hits already passed this gate at first login.
+  if (enrollsKey && !verified.fromCache && !verified.hasFactionAccess) {
+    return {
+      ok: false,
+      status: 403,
+      error:
+        'Your key needs Faction API access. In Torn, edit your API key (Settings → API Keys) to allow faction data, then log in again.',
+    }
+  }
+
   // Key-pool enrollment: the login disclosure covers pool consent, so a
   // faction member's key joins the rotation on login (visitors never — their
   // logins persist no key material at all). Best-effort: a failure must
   // never block the login.
-  if (deps.keyEncryptionKey && isMember && !roles.includes('visitor')) {
+  if (deps.keyEncryptionKey && enrollsKey) {
     try {
       const pool = createKeyPool({ db: deps.db, encryptionKey: deps.keyEncryptionKey })
       const meta = {
         keyLevel: verified.accessLevel,
-        hasFactionAccess: true,
+        hasFactionAccess: verified.hasFactionAccess,
         consentVersion: 'login-v1',
       }
       try {
