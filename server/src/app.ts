@@ -27,6 +27,7 @@ import { createCompetitionTimers, type CompetitionTimers } from './competitions/
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
 import { registerMemberNotesRoutes } from './memberNotes.js'
+import { registerFeedbackRoutes, feedbackConfigured } from './feedback.js'
 import { registerPushRoutes, type PushService, type VapidConfig } from './push.js'
 import { createJobRunner } from './scraper/registerJobs.js'
 import { createSecretStore } from './secrets.js'
@@ -56,6 +57,14 @@ export interface ServerOptions {
   bspBaseUrl?: string
   /** VAPID keypair for Web Push (#207); optional — push is off when unset. */
   vapid?: VapidConfig | null
+  /** Feedback → GitHub issue integration (#253); disabled when the token is unset. */
+  feedbackGithubToken?: string
+  /** Target repo "owner/name" for feedback issues. */
+  feedbackGithubRepo?: string
+  /** GitHub API base URL (test override; defaults to the public API). */
+  feedbackGithubBaseUrl?: string
+  /** Triage label applied to feedback issues (default needs-triage). */
+  feedbackLabel?: string
 }
 
 export async function buildServer(
@@ -134,6 +143,10 @@ export async function buildServer(
       return { token: result.token, expires_at: result.expiresAt }
     })
 
+    const feedbackOn = feedbackConfigured({
+      githubToken: opts.feedbackGithubToken,
+      githubRepo: opts.feedbackGithubRepo,
+    })
     app.get('/api/bootstrap', async (req) => {
       const config = await factionIdentity(deps.db)
       const publicView = {
@@ -145,6 +158,8 @@ export async function buildServer(
           branding: config.branding,
         },
         features: config.features,
+        // The SPA hides the "Send feedback" nav entry when this is false (#253).
+        feedback_enabled: feedbackOn,
       }
       if (!req.session) return publicView
       // The header shows the roster name; visitors and not-yet-synced members
@@ -225,6 +240,15 @@ export async function buildServer(
     }
     registerCompetitionRoutes(app, opts.db, { competitionTimers: app.competitionTimers })
     registerMemberNotesRoutes(app, opts.db)
+    // In-app feedback → triaged GitHub issue (#253). Disabled (endpoint 501, nav
+    // hidden) when no PAT is configured.
+    registerFeedbackRoutes(app, {
+      db: opts.db,
+      githubToken: opts.feedbackGithubToken,
+      githubRepo: opts.feedbackGithubRepo,
+      githubBaseUrl: opts.feedbackGithubBaseUrl,
+      label: opts.feedbackLabel,
+    })
     // Web Push (#207): subscription storage + VAPID-signed delivery. The service
     // is kept on the app so background senders (#208/#209) can reuse it.
     app.pushService = registerPushRoutes(app, { db: opts.db, vapid: opts.vapid ?? null })

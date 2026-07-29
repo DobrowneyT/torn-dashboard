@@ -19,6 +19,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **In-app feedback form → triaged GitHub issue (#253).** A **"Send feedback"**
+  entry in the hamburger menu opens a form (Bug / Suggestion, title, details).
+  Submitting files a **GitHub issue** in the shared repo via a server-side PAT,
+  labelled `needs-triage` and stamped with the submitter's Torn **name + id**
+  (taken from the session, never the request body) and the **tenant slug** — so
+  members can report issues without a GitHub account and leaders know who to
+  follow up with. Read-only **visitors can't submit**; the entry and endpoint are
+  **hidden/disabled** until a PAT (`FEEDBACK_GITHUB_TOKEN`) is configured, and a
+  simple per-user rate limit guards against spam. (Attachments + cleanup land in
+  #254/#255.)
 - **Termed RW payouts: the first-24h shares are now editable too (#273).** In the
   two-section termed view, leaders can adjust a member's **first-window (blue)**
   shares independently of their **after (purple)** shares — each into its own

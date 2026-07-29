@@ -1,15 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { isAdmin, tornKeyGenUrl } from '../config'
-import { Menu, Key, Info, Eye, ChevronRight, Check, LogOut, X } from 'lucide-react'
+import { Menu, Key, Info, Eye, ChevronRight, Check, LogOut, X, MessageSquarePlus } from 'lucide-react'
 import ApiKeyDisclosure from './ApiKeyDisclosure'
 import InstallAppMenuItem from './InstallAppMenuItem'
+import FeedbackModal from './FeedbackModal'
 
 export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs }) {
   const { user, logout } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [showApiKeyModal, setShowApiKeyModal] = useState(false)
   const [showApiUsageModal, setShowApiUsageModal] = useState(false)
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [showViewAsMenu, setShowViewAsMenu] = useState(false)
   const dropdownRef = useRef(null)
 
@@ -150,6 +152,18 @@ export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs 
                 </div>
               )}
 
+              {/* Feedback (#253): any non-visitor member, only when the server
+                  has a PAT configured. */}
+              {user?.feedbackEnabled && !user?.isVisitor && (
+                <button
+                  onClick={() => { setShowFeedbackModal(true); setIsOpen(false) }}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                  Send feedback
+                </button>
+              )}
+
               <InstallAppMenuItem onAction={() => setIsOpen(false)} />
 
               <div className="border-t border-gray-200 dark:border-slate-700 my-1"></div>
@@ -172,6 +186,10 @@ export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs 
 
       {showApiUsageModal && (
         <ApiKeyUsageModal onClose={() => setShowApiUsageModal(false)} />
+      )}
+
+      {showFeedbackModal && (
+        <FeedbackModal onClose={() => setShowFeedbackModal(false)} />
       )}
     </>
   )
