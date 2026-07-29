@@ -58,6 +58,18 @@ describe('key pool', () => {
     expect(claims).toEqual(new Set(['100']))
   })
 
+  it('never claims a key flagged as lacking faction API access (defensive filter)', async () => {
+    const pool = createKeyPool({ db: stack.db, encryptionKey: ENCRYPTION_KEY })
+    // 100 has faction access; 101 explicitly does not — a stale/edge-case row
+    // that must never be claimed for a faction-scoped call (Torn error 7).
+    await pool.store('100', 'AAAAKEY100AAAAAA', { keyLevel: 3, hasFactionAccess: true, consentVersion: 'v2' })
+    await pool.store('101', 'BBBBKEY101BBBBBB', { keyLevel: 3, hasFactionAccess: false, consentVersion: 'v2' })
+
+    const claims = new Set<string>()
+    for (let i = 0; i < 4; i++) claims.add((await pool.claim())!.member_id)
+    expect(claims).toEqual(new Set(['100']))
+  })
+
   it('returns null when the pool is empty rather than throwing', async () => {
     await stack.db.query(`UPDATE member_secrets SET disabled = true`)
     const pool = createKeyPool({ db: stack.db, encryptionKey: ENCRYPTION_KEY })

@@ -75,6 +75,22 @@ describe('POST /api/auth/login', () => {
     expect(body.error).toContain('Limited Access')
   })
 
+  it('rejects a faction member whose key lacks faction API access with actionable guidance', async () => {
+    // A Limited key without faction API access poisons faction scrapers (Torn
+    // error 7), so login must refuse it rather than enroll it into the pool.
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('880', 'NoFaction', 3, true)`
+    )
+    stack.torn.addKey('NOFACTIONKEY8801', { id: '880', factionId: TEST_FACTION.tornFactionId, factionAccess: false })
+    const { status, body } = await login('NOFACTIONKEY8801')
+    expect(status).toBe(403)
+    expect(body.error).toMatch(/faction api access/i)
+
+    // It never enrolled into the pool.
+    const row = await stack.db.query(`SELECT 1 FROM member_secrets WHERE member_id = '880'`)
+    expect(row.rows).toHaveLength(0)
+  })
+
   it('rejects a stranger — valid key, wrong faction, no assigned roles', async () => {
     stack.torn.addKey('STRANGERKEY12345', { id: '999', factionId: '42' })
     const { status, body } = await login('STRANGERKEY12345')
@@ -149,11 +165,12 @@ describe('key-pool enrollment on login', () => {
     expect(status).toBe(200)
 
     const row = await stack.db.query(
-      `SELECT cpr_api_key, key_level, consent_at, consent_version, disabled
+      `SELECT cpr_api_key, key_level, has_faction_access, consent_at, consent_version, disabled
        FROM member_secrets WHERE member_id = '222'`
     )
     expect(row.rows).toHaveLength(1)
     expect(row.rows[0].disabled).toBe(false)
+    expect(row.rows[0].has_faction_access).toBe(true)
     expect(row.rows[0].consent_at).toBeTruthy()
     expect(row.rows[0].consent_version).toBe('login-v1')
     // Never the plaintext key at rest.

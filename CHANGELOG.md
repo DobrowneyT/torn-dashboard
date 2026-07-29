@@ -313,6 +313,17 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **Login now requires + verifies Faction API access (#263).** A Limited key
+  without faction API access passed login and joined the key pool, then poisoned
+  faction-scoped scrapers with Torn error 7 (*"Incorrect ID-entity relation"*) —
+  observed on a newly-provisioned faction, isolated to one member's key. Login
+  now reads `access.faction` from `/v2/key/info`: a faction member whose key
+  lacks it is refused with actionable guidance ("enable Faction API access in
+  Torn, then log in again") instead of silently enrolling, the real value is
+  stored on `member_secrets.has_faction_access`, and the key pool defensively
+  skips any key flagged without faction access so a stale row can never be
+  claimed for a faction call. Visitors (whose keys are never pooled) are
+  unaffected.
 - **RW payouts can be saved again — removed a stale API-key guard.** Saving a
   ranked-war payout on the Payout Management page failed with *"Missing API key —
   please log in again."* on the self-hosted stack. The save is authenticated by
