@@ -65,6 +65,8 @@ export interface ServerOptions {
   feedbackGithubBaseUrl?: string
   /** Triage label applied to feedback issues (default needs-triage). */
   feedbackLabel?: string
+  /** Public origin for embeddable feedback attachment URLs (#254). */
+  publicBaseUrl?: string
 }
 
 export async function buildServer(
@@ -248,6 +250,7 @@ export async function buildServer(
       githubRepo: opts.feedbackGithubRepo,
       githubBaseUrl: opts.feedbackGithubBaseUrl,
       label: opts.feedbackLabel,
+      publicBaseUrl: opts.publicBaseUrl,
     })
     // Web Push (#207): subscription storage + VAPID-signed delivery. The service
     // is kept on the app so background senders (#208/#209) can reuse it.

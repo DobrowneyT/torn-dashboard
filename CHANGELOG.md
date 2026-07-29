@@ -19,6 +19,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Feedback form now takes image + video attachments (#254).** The "Send
+  feedback" form gains a file picker (up to 5 images/videos, ≤10 MB each). Files
+  are validated and **stored server-side** (bytea, like branding assets — no
+  shared volume), served from an unguessable `/api/feedback/attachments/<uuid>`
+  URL, and **embedded in the GitHub issue** — images inline, video as a link
+  (GitHub only inline-plays its own uploads). Each file is recorded against its
+  issue number so a later prune can clean it up (#255). Text-only submissions are
+  unchanged. (Set `PUBLIC_BASE_URL` so the embedded links use the public origin.)
 - **In-app feedback form → triaged GitHub issue (#253).** A **"Send feedback"**
   entry in the hamburger menu opens a form (Bug / Suggestion, title, details).
   Submitting files a **GitHub issue** in the shared repo via a server-side PAT,

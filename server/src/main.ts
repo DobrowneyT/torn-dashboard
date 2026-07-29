@@ -65,6 +65,8 @@ const app = await buildServer({
   feedbackGithubToken: process.env.FEEDBACK_GITHUB_TOKEN || undefined,
   feedbackGithubRepo: process.env.FEEDBACK_GITHUB_REPO || 'DobrowneyT/torn-forge-oc-system',
   feedbackLabel: process.env.FEEDBACK_LABEL || 'needs-triage',
+  // Public origin so feedback attachment URLs embed correctly in GitHub issues.
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || undefined,
 })
 if (vapid) console.log(`[${factionSlug}] Web Push armed (VAPID configured)`)
 await app.listen({ port, host: '0.0.0.0' })

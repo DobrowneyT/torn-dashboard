@@ -672,6 +672,18 @@ CREATE TABLE public.faction_branding_assets (
   updated_at   timestamp with time zone NOT NULL DEFAULT now()
 );
 
+-- #254: feedback attachments (images/video) stored as bytea, keyed to the
+-- GitHub issue they were embedded in so the #255 prune can clean them up once
+-- that issue closes.
+CREATE TABLE public.feedback_attachments (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  issue_number integer NOT NULL,
+  content_type text NOT NULL,
+  bytes        bytea NOT NULL,
+  created_at   timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE INDEX feedback_attachments_issue_idx ON public.feedback_attachments (issue_number);
+
 -- Per-faction policy settings as whole JSON documents (tier requirements,
 -- CPR requirements, payout tickets, ...) — replaces hardcoded frontend config.
 -- The leader admin UI (slice #74) edits these; db/seed/03 provides defaults.
