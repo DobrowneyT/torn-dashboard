@@ -674,6 +674,9 @@ export default function WarPayoutManagement() {
         // Manual per-member share overrides for the flat post-cutoff window.
         postMemberShares,
         warStartAt: selectedWar.start_at || 0,
+        // #269: termed — display the flat-then-scale window as two sections
+        // (first 24h + after), reusing the pre/post column groups.
+        splitScaledPostWindow: warClass === 'termed',
       })
     }
   }
@@ -1103,7 +1106,11 @@ export default function WarPayoutManagement() {
                 post pool across everyone else. Amber border = manual override. */}
             <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{num(w.score)}</td>
             <td className="px-1 py-0.5 text-right border-r border-gray-200 dark:border-slate-700">
-              {viewMode === 'leader' ? (
+              {/* #269: the first-window (pre) share is the binary 0/1 base share —
+                  read-only. Only the after-window (post) flat shares are editable. */}
+              {winKey === 'pre' ? (
+                <span className="font-medium text-blue-700 dark:text-blue-400">{(w.shares ?? 0).toFixed(2)}</span>
+              ) : viewMode === 'leader' ? (
                 <input
                   type="number" min="0" step="0.1"
                   value={postMemberShares[m.memberId] ?? Number((w.shares ?? 0).toFixed(2))}
@@ -1940,20 +1947,20 @@ export default function WarPayoutManagement() {
                     Member
                     <span className="ml-1 text-gray-400 text-xs">{sortCol === 'name' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                   </th>
-                  {raceGroupHeaders('Pre-Cutoff')}
-                  {raceGroupHeaders('Post-Cutoff', postDistMode === 'flat')}
+                  {raceGroupHeaders(warClass === 'termed' ? `First ${postScaleHours || 0}h` : 'Pre-Cutoff', warClass === 'termed')}
+                  {raceGroupHeaders(warClass === 'termed' ? `After ${postScaleHours || 0}h` : 'Post-Cutoff', postDistMode === 'flat')}
                   <th className="px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300 text-center" colSpan={5}>
                     Pay Out
                   </th>
                 </tr>
                 {/* Row 2: Column headers */}
                 <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">
-                  {raceColHeaders('pre')}
+                  {raceColHeaders('pre', warClass === 'termed')}
                   {raceColHeaders('post', postDistMode === 'flat')}
                   {/* Pay Out columns: Effort, Pre-Cutoff, Post-Cutoff, Payout */}
                   <SortHeader col="effort"           label="Effort%"     className="text-right border-l border-gray-200 dark:border-slate-700" />
-                  <SortHeader col="preCutoffPayout"  label="Pre-Cutoff"  className="text-right" />
-                  <SortHeader col="postCutoffPayout" label="Post-Cutoff" className="text-right" />
+                  <SortHeader col="preCutoffPayout"  label={warClass === 'termed' ? `First ${postScaleHours || 0}h` : 'Pre-Cutoff'}  className="text-right" />
+                  <SortHeader col="postCutoffPayout" label={warClass === 'termed' ? `After ${postScaleHours || 0}h` : 'Post-Cutoff'} className="text-right" />
                   <SortHeader col="payout"   label="Payout"   className="text-right" />
                   <SortHeader col="eligible" label="Eligible" className="text-center" />
                 </tr>
@@ -1988,7 +1995,7 @@ export default function WarPayoutManagement() {
                     <td className="px-2 py-1.5 font-medium text-gray-900 dark:text-white whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">
                       {m.memberName}
                     </td>
-                    {raceWindowCells(m, 'pre',  preMults,  memberMultiplierOverrides,     setMemberMultiplierOverrides)}
+                    {raceWindowCells(m, 'pre',  preMults,  memberMultiplierOverrides,     setMemberMultiplierOverrides, warClass === 'termed')}
                     {raceWindowCells(m, 'post', postMults, postMemberMultiplierOverrides, setPostMemberMultiplierOverrides, postDistMode === 'flat')}
                     {/* ── Pay Out: Effort, Pre-Cutoff, Post-Cutoff ── */}
                     <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-l border-gray-200 dark:border-slate-700">
@@ -1996,22 +2003,10 @@ export default function WarPayoutManagement() {
                         ? ((m.payoutAmount / payoutResults.memberPayoutPool) * 100).toFixed(2)
                         : '0.00'}%
                     </td>
+                    {/* #269: for termed, these are the first-24h + after-cutoff
+                        section payouts (they sum to the member total). */}
                     <td className="px-2 py-1 text-right text-blue-600 dark:text-blue-400">{formatCurrency(m.preCutoffPayout ?? 0)}</td>
-                    <td className="px-2 py-1 text-right text-purple-600 dark:text-purple-400">
-                      {/* #267: when scaling, split the post payout into first-window
-                          (base share) + scaled amounts so leaders see how much was
-                          paid for the first Nh vs the remainder. */}
-                      {postDistMode === 'flat' && postScaleEnabled && m.post ? (
-                        <div className="leading-tight">
-                          <div>{formatCurrency(m.postCutoffPayout ?? 0)}</div>
-                          <div className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                            {postScaleHours || 0}h {m.post.baseShares ?? 0}sh {formatCurrency(m.post.withinPayout ?? 0)}
-                            {' · '}
-                            +{Number(m.post.additionalShares ?? 0).toFixed(2)}sh {formatCurrency(m.post.afterPayout ?? 0)}
-                          </div>
-                        </div>
-                      ) : formatCurrency(m.postCutoffPayout ?? 0)}
-                    </td>
+                    <td className="px-2 py-1 text-right text-purple-600 dark:text-purple-400">{formatCurrency(m.postCutoffPayout ?? 0)}</td>
                     <td className="px-3 py-1.5 text-right font-mono font-semibold text-gray-900 dark:text-white whitespace-nowrap">
                       {m.isEligible ? formatCurrency(m.payoutAmount) : '—'}
                     </td>

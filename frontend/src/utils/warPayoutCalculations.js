@@ -853,6 +853,26 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
   const cutoffScores = calculateCutoffScores(windowAttacks, innerCutoff)
   const thr = Number(threshold) || 0
 
+  // #269: per-member hit report split at the inner cutoff, so a termed war can
+  // show the first-window (base share) fighting separately from the after
+  // (scaled) fighting. Only meaningful when scaling; without it, "within" holds
+  // everything and "after" is empty (matching the score split above).
+  const statsWithin = scaleEnabled
+    ? buildMemberAttackStats(windowAttacks.filter(a => (Number(a.started) || 0) <= innerCutoff))
+    : stats
+  const statsAfter = scaleEnabled
+    ? buildMemberAttackStats(windowAttacks.filter(a => (Number(a.started) || 0) > innerCutoff))
+    : new Map()
+  const hitFields = (bucket) => {
+    const b = bucket || emptyHitBucket()
+    return {
+      leaves: b.leaves, mugs: b.mugs, hosp: b.hosp, warHits: b.warHits,
+      regularHits: b.regularHits, won: b.won, assists: b.assists, losses: b.losses,
+      totalHits: b.totalHits, warMugs: b.warMugs, warAssists: b.warAssists,
+      warLosses: b.warLosses, warNonMugHits: Math.max(0, b.warHits - b.warMugs),
+    }
+  }
+
   const memberList = contributions.map(m => {
     const id = m.member_id
     const s = stats.get(id) ?? { ...emptyHitBucket(), bonusRespect: 0 }
@@ -894,6 +914,11 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
       baseShares, additionalShares, shares, sharesOverridden: hasOverride,
       respectGained: Math.round(totalScore * 100) / 100,
       isEligible: !manuallyIneligible && shares > 0,
+      // #269: first-window (base share) and after (scaled) sections — hit report
+      // split at the inner cutoff, each with its own score + shares. Payout is
+      // attached below once the pool is divided.
+      within: { ...hitFields(statsWithin.get(id)), score: Math.round(within * 100) / 100, shares: baseShares },
+      after:  { ...hitFields(statsAfter.get(id)),  score: Math.round(after * 100) / 100,  shares: additionalShares },
     }
   })
 
@@ -912,7 +937,12 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
     const withinPayout = m.shares > 0
       ? Math.round(m.payoutAmount * (m.baseShares / m.shares))
       : 0
-    return { ...m, withinPayout, afterPayout: m.payoutAmount - withinPayout }
+    const afterPayout = m.payoutAmount - withinPayout
+    return {
+      ...m, withinPayout, afterPayout,
+      within: { ...m.within, payout: withinPayout },
+      after:  { ...m.after,  payout: afterPayout },
+    }
   })
   return { members: withInterval, totalShares }
 }
@@ -968,6 +998,10 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     postScaleHours    = 24,
     postMemberShares  = {},   // manual per-member share overrides (flat window)
     warStartAt        = 0,
+    // #269: termed mode — present the single flat-then-scale post window as two
+    // sections: pre ← first-window (base share), post ← after (scaled). The pool
+    // and share value are unchanged; this only remaps the display breakdown.
+    splitScaledPostWindow = false,
     // Manual eligibility overrides
     ineligibleMembers = new Set(),
   } = settings
@@ -1025,10 +1059,22 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
 
   const members = contributions.map(m => {
     const memberId = m.member_id
-    const pre  = preByMember.get(memberId)  || { payoutAmount: 0 }
-    const post = postByMember.get(memberId) || { payoutAmount: 0 }
-    const prePay = pre.payoutAmount || 0
-    const postPay = post.payoutAmount || 0
+    let pre, post, prePay, postPay
+    if (splitScaledPostWindow) {
+      // #269: termed — surface the single flat-then-scale post window as two
+      // sections (pre ← first-window base share, post ← after scaled). Same pool,
+      // same share value; pre+post payout still equals the member's total.
+      const w = postByMember.get(memberId)
+      pre  = w?.within || { payout: 0 }
+      post = w?.after  || { payout: 0 }
+      prePay  = pre.payout || 0
+      postPay = post.payout || 0
+    } else {
+      pre  = preByMember.get(memberId)  || { payoutAmount: 0 }
+      post = postByMember.get(memberId) || { payoutAmount: 0 }
+      prePay  = pre.payoutAmount || 0
+      postPay = post.payoutAmount || 0
+    }
 
     return {
       memberId,
