@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Termed RW payouts: the first-24h shares are now editable too (#273).** In the
+  two-section termed view, leaders can adjust a member's **first-window (blue)**
+  shares independently of their **after (purple)** shares — each into its own
+  override, re-splitting the one whole pool. Previously only the after shares
+  were editable and the first-24h share was read-only.
 - **Termed RW payouts split into a first-window + scaled breakdown (#267, #269).**
   Termed wars now default to **flat-then-scale** shares (previously everything
   landed in one flat post window): a **flat 1 share** for reaching the

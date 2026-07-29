@@ -366,6 +366,9 @@ export default function WarPayoutManagement() {
   // Same idea as OC ticket tweaks: reducing a member's shares returns their cut
   // to the pool, which the flat-shares split then spreads across everyone else.
   const [postMemberShares, setPostMemberShares] = useState({})
+  // #273: first-window (base) per-member share overrides — termed's first-24h
+  // section, editable independently of the after (post) shares.
+  const [preMemberShares, setPreMemberShares] = useState({})
   const [cutoffHours, setCutoffHours] = useState(24)
   const [notes, setNotes] = useState('')
   // Real war formula settings
@@ -515,6 +518,7 @@ export default function WarPayoutManagement() {
     setReviverCost('')
     setFactionTopUp('')
     setPostMemberShares({})
+    setPreMemberShares({})
     setCutoffHours(24)
     setMemberMultiplierOverrides({})
     setPostWarHitMult(1.00)
@@ -673,6 +677,7 @@ export default function WarPayoutManagement() {
         postScaleHours: Number(postScaleHours) || 0,
         // Manual per-member share overrides for the flat post-cutoff window.
         postMemberShares,
+        preMemberShares,
         warStartAt: selectedWar.start_at || 0,
         // #269: termed — display the flat-then-scale window as two sections
         // (first 24h + after), reusing the pre/post column groups.
@@ -702,14 +707,14 @@ export default function WarPayoutManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factionFilterPre, factionFilterPost])
 
-  // Auto-recalculate when a post-cutoff flat share is manually edited.
-  // Reducing one member's shares re-splits the post pool across the rest.
+  // Auto-recalculate when a flat share (after or first-window) is manually
+  // edited. Reducing one member's shares re-splits the pool across the rest.
   useEffect(() => {
     if (!hasCalculated) return
     const results = computeResults(factionFilter, eligibilityOverrides, factionFilterPre, factionFilterPost)
     if (results) setPayoutResults(results)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [postMemberShares])
+  }, [postMemberShares, preMemberShares])
 
   // Auto-recalculate when per-member multiplier overrides change
   // (pre-cutoff + post-cutoff override maps).
@@ -1103,27 +1108,31 @@ export default function WarPayoutManagement() {
           <>
             {/* Flat shares: windowed score + editable shares. Leaders can tweak
                 a member's shares (penalty / bonus); the split re-spreads the
-                post pool across everyone else. Amber border = manual override. */}
+                pool across everyone else. Amber border = manual override.
+                #273: both the first-window (pre, blue) and after (post, purple)
+                shares are editable, each into its own override map. */}
             <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">{num(w.score)}</td>
             <td className="px-1 py-0.5 text-right border-r border-gray-200 dark:border-slate-700">
-              {/* #269: the first-window (pre) share is the binary 0/1 base share —
-                  read-only. Only the after-window (post) flat shares are editable. */}
-              {winKey === 'pre' ? (
-                <span className="font-medium text-blue-700 dark:text-blue-400">{(w.shares ?? 0).toFixed(2)}</span>
-              ) : viewMode === 'leader' ? (
-                <input
-                  type="number" min="0" step="0.1"
-                  value={postMemberShares[m.memberId] ?? Number((w.shares ?? 0).toFixed(2))}
-                  onChange={e => {
-                    // Arrows step by 0.1; typed values keep 2-decimal precision (0.01, 0.25, …).
-                    const val = Math.max(0, Math.round((Number(e.target.value) || 0) * 100) / 100)
-                    setPostMemberShares(prev => ({ ...prev, [m.memberId]: val }))
-                  }}
-                  className={`w-14 px-1 py-0.5 text-xs text-right rounded bg-white dark:bg-slate-700 font-medium text-purple-700 dark:text-purple-400 ${w.sharesOverridden ? 'border border-amber-400 dark:border-amber-500' : 'border border-gray-300 dark:border-slate-600'}`}
-                />
-              ) : (
-                <span className="font-medium text-purple-700 dark:text-purple-400">{(w.shares ?? 0).toFixed(2)}</span>
-              )}
+              {(() => {
+                const isPre = winKey === 'pre'
+                const overrides = isPre ? preMemberShares : postMemberShares
+                const setOverridesFn = isPre ? setPreMemberShares : setPostMemberShares
+                const colour = isPre ? 'text-blue-700 dark:text-blue-400' : 'text-purple-700 dark:text-purple-400'
+                return viewMode === 'leader' ? (
+                  <input
+                    type="number" min="0" step="0.1"
+                    value={overrides[m.memberId] ?? Number((w.shares ?? 0).toFixed(2))}
+                    onChange={e => {
+                      // Arrows step by 0.1; typed values keep 2-decimal precision (0.01, 0.25, …).
+                      const val = Math.max(0, Math.round((Number(e.target.value) || 0) * 100) / 100)
+                      setOverridesFn(prev => ({ ...prev, [m.memberId]: val }))
+                    }}
+                    className={`w-14 px-1 py-0.5 text-xs text-right rounded bg-white dark:bg-slate-700 font-medium ${colour} ${w.sharesOverridden ? 'border border-amber-400 dark:border-amber-500' : 'border border-gray-300 dark:border-slate-600'}`}
+                  />
+                ) : (
+                  <span className={`font-medium ${colour}`}>{(w.shares ?? 0).toFixed(2)}</span>
+                )
+              })()}
             </td>
           </>
         ) : (

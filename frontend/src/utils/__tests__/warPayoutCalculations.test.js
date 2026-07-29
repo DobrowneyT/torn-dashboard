@@ -1143,6 +1143,33 @@ describe('calculateRaceWarPayouts', () => {
     expect(alice.warHits).toBe(5)
   })
 
+  it('lets a leader override the first-window and after shares independently for termed (#273)', () => {
+    const base = {
+      ...baseSettings,
+      raceCutoffTimestamp: 0, racePreCutoffPercent: 0,
+      postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 24, warStartAt: WAR_START,
+      splitScaledPostWindow: true,
+    }
+    // Bump Alice's first-24h (base) share 1 → 3; leave the after (scaled) shares.
+    const preOv = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, {
+      ...base, preMemberShares: { 100: 3 },
+    })
+    const a1 = preOv.members.find(m => m.memberId === 100)
+    expect(a1.pre.shares).toBe(3)             // overridden base share
+    expect(a1.post.shares).toBeCloseTo(2, 5)  // after unchanged
+    expect(a1.preCutoffPayout + a1.postCutoffPayout).toBe(a1.payoutAmount)
+
+    // Bump Alice's after (scaled) share 2 → 5; leave the base share.
+    const postOv = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, {
+      ...base, postMemberShares: { 100: 5 },
+    })
+    const a2 = postOv.members.find(m => m.memberId === 100)
+    expect(a2.pre.shares).toBe(1)             // base unchanged
+    expect(a2.post.shares).toBe(5)            // overridden after share
+    expect(a2.preCutoffPayout + a2.postCutoffPayout).toBe(a2.payoutAmount)
+  })
+
   it('pre and post multiplier sets are independent', () => {
     // Pre pays war hits only; post pays nothing (all post multipliers 0).
     const settings = {
