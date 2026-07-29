@@ -1067,6 +1067,51 @@ describe('calculateRaceWarPayouts', () => {
     expect(alice.postCutoffPayout + bob.postCutoffPayout).toBe(5_000_000)
   })
 
+  it('decomposes a termed flat-then-scale payout into first-window + scaled amounts (#267)', () => {
+    // Termed war: cutoff 0 → whole pool is the post window, scaled at 24h.
+    // Threshold (score-per-share) 25. within = score in first 24h, after = rest.
+    //   Alice: within 55 → 1 base share; after 50 → 50/25 = 2 scaled → 3 shares.
+    //   Bob:   within 50 → 1 base share; after 25 → 25/25 = 1 scaled → 2 shares.
+    // 5 shares over a 10M pool → $2M/share. Alice 6M (2M first-24h + 4M scaled),
+    // Bob 4M (2M + 2M).
+    const settings = {
+      ...baseSettings,
+      raceCutoffTimestamp: 0, racePreCutoffPercent: 0,
+      postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 24, warStartAt: WAR_START,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+
+    expect(alice.post.baseShares).toBe(1)
+    expect(alice.post.additionalShares).toBeCloseTo(2, 5)
+    // The two interval amounts always sum to the member's post payout (pool whole).
+    expect(alice.post.withinPayout + alice.post.afterPayout).toBe(alice.postCutoffPayout)
+    expect(bob.post.withinPayout + bob.post.afterPayout).toBe(bob.postCutoffPayout)
+    // First-24h portion = base-share fraction of their pay; the rest is scaled.
+    expect(alice.post.withinPayout).toBe(2_000_000) // 1/3 of 6M
+    expect(alice.post.afterPayout).toBe(4_000_000)  // 2/3 of 6M
+    expect(bob.post.withinPayout).toBe(2_000_000)   // 1/2 of 4M
+    expect(bob.post.afterPayout).toBe(2_000_000)
+  })
+
+  it('attributes the whole payout to the scaled window when no base share is earned (#267)', () => {
+    // postScaleHours 0 → nothing is "within", so baseShares 0 for everyone and
+    // every dollar is scaled (afterPayout), withinPayout 0.
+    const settings = {
+      ...baseSettings,
+      raceCutoffTimestamp: 0, racePreCutoffPercent: 0,
+      postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 0, warStartAt: WAR_START,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    expect(alice.post.baseShares).toBe(0)
+    expect(alice.post.withinPayout).toBe(0)
+    expect(alice.post.afterPayout).toBe(alice.postCutoffPayout)
+  })
+
   it('pre and post multiplier sets are independent', () => {
     // Pre pays war hits only; post pays nothing (all post multipliers 0).
     const settings = {

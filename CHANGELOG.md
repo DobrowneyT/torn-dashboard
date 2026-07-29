@@ -19,6 +19,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Termed RW payouts split into a first-window + scaled breakdown (#267).**
+  Termed wars now default to **flat-then-scale** shares (previously everything
+  landed in one flat post window): a **flat 1 share** for reaching the
+  minimum-score-per-share within the first **24h** of war start (adjustable), plus
+  **proportional shares** for respect earned after that mark, all paid from one
+  whole pool split by total shares. The Payout Management table now **decomposes
+  each member's payout** into `{Nh} {base}sh $X · +{scaled}sh $Y`, so leadership
+  can see how much was paid for the opening window vs the remainder instead of a
+  single lump sum. Race and real wars are unchanged.
 - **Members page shows CPR instead of tiers for non-tiered factions (#251).**
   A faction on a `flat-weighted` or `equal` payout mode no longer sees meaningless
   tier UI on the Members page: the tier **filter dropdown** and **Tier Distribution**

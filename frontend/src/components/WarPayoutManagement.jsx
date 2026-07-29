@@ -475,9 +475,16 @@ export default function WarPayoutManagement() {
   function applyClassPreset(cls, war) {
     setWarClass(cls)
     if (cls === 'termed') {
+      // Whole war is the post window (cutoff 0). Flat-then-scale splits it at
+      // warStart + postScaleHours (default 24h, adjustable): a flat 1 share for
+      // reaching the score-per-share threshold in that first window, plus
+      // proportional shares for score earned after — so leaders see how much was
+      // paid for the first 24h vs the remainder (#267).
       setRaceCutoffTimestamp(0)
       setRacePreCutoffPercent(0)
       setPostDistMode('flat')
+      setPostScaleEnabled(true)
+      setPostScaleHours(24)
     } else {
       // Completed war → cutoff at war end (keeps the real-war preset 100%
       // pre-cutoff: every attack is before the cutoff). Ongoing war (no end_at)
@@ -1990,7 +1997,21 @@ export default function WarPayoutManagement() {
                         : '0.00'}%
                     </td>
                     <td className="px-2 py-1 text-right text-blue-600 dark:text-blue-400">{formatCurrency(m.preCutoffPayout ?? 0)}</td>
-                    <td className="px-2 py-1 text-right text-purple-600 dark:text-purple-400">{formatCurrency(m.postCutoffPayout ?? 0)}</td>
+                    <td className="px-2 py-1 text-right text-purple-600 dark:text-purple-400">
+                      {/* #267: when scaling, split the post payout into first-window
+                          (base share) + scaled amounts so leaders see how much was
+                          paid for the first Nh vs the remainder. */}
+                      {postDistMode === 'flat' && postScaleEnabled && m.post ? (
+                        <div className="leading-tight">
+                          <div>{formatCurrency(m.postCutoffPayout ?? 0)}</div>
+                          <div className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                            {postScaleHours || 0}h {m.post.baseShares ?? 0}sh {formatCurrency(m.post.withinPayout ?? 0)}
+                            {' · '}
+                            +{Number(m.post.additionalShares ?? 0).toFixed(2)}sh {formatCurrency(m.post.afterPayout ?? 0)}
+                          </div>
+                        </div>
+                      ) : formatCurrency(m.postCutoffPayout ?? 0)}
+                    </td>
                     <td className="px-3 py-1.5 text-right font-mono font-semibold text-gray-900 dark:text-white whitespace-nowrap">
                       {m.isEligible ? formatCurrency(m.payoutAmount) : '—'}
                     </td>
