@@ -251,6 +251,14 @@ POSTGRES_HOST_PORT=5432
 KEY_ENCRYPTION_KEY=<YOUR_KEY_ENCRYPTION_KEY>
 TORNSTATS_API_KEY=
 BSP_API_KEY=
+# In-app feedback → GitHub issue (optional). A fine-grained PAT with issues:write
+# on the feedback repo turns the "Send feedback" menu entry on for every tenant.
+# PUBLIC_DOMAIN builds each tenant's PUBLIC_BASE_URL (https://<slug>.<domain>) so
+# attachment links resolve in the issue.
+FEEDBACK_GITHUB_TOKEN=
+FEEDBACK_GITHUB_REPO=DobrowneyT/torn-forge-oc-system
+FEEDBACK_LABEL=needs-triage
+PUBLIC_DOMAIN=monchoon.me
 ```
 
 `HTTP_BIND=127.0.0.1` is load-bearing: the stack binds to loopback, reachable

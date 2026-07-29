@@ -197,6 +197,14 @@ const serviceBlock = `
       VAPID_PUBLIC_KEY: \${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: \${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: \${VAPID_SUBJECT:-}
+      # In-app feedback → GitHub issue (#253–#255). Token/repo/label are shared
+      # across tenants (deploy/.env); feedback stays off until FEEDBACK_GITHUB_TOKEN
+      # is set. PUBLIC_BASE_URL is this tenant's own origin so attachment links
+      # embed correctly (PUBLIC_DOMAIN defaults to monchoon.me).
+      FEEDBACK_GITHUB_TOKEN: \${FEEDBACK_GITHUB_TOKEN:-}
+      FEEDBACK_GITHUB_REPO: \${FEEDBACK_GITHUB_REPO:-}
+      FEEDBACK_LABEL: \${FEEDBACK_LABEL:-}
+      PUBLIC_BASE_URL: https://${slug}.\${PUBLIC_DOMAIN:-monchoon.me}
     depends_on:
       postgres:
         condition: service_healthy
@@ -257,6 +265,12 @@ Bring it up:
 
 Then browse http://${slug}.localhost:<HTTP_PORT>/ and grant the leader a role:
   role_assignments via the Settings page, or SQL as a first bootstrap.
+
+Optional integrations (shared across tenants via deploy/.env; the api-${slug}
+service already imports them): set TORNSTATS_API_KEY / BSP_API_KEY for spies,
+VAPID_* for Web Push, and FEEDBACK_GITHUB_TOKEN (fine-grained PAT, issues:write)
+to turn on the in-app feedback form. PUBLIC_BASE_URL for this tenant defaults to
+https://${slug}.\${PUBLIC_DOMAIN:-monchoon.me}.
 
 Prod front door (if a host reverse proxy fronts the stack): point
 ${slug}.<your-domain> at it and issue/extend its TLS cert — this script does NOT

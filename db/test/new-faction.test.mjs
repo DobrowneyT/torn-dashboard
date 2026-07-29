@@ -185,6 +185,10 @@ describe('new-faction script', () => {
       expect(override).toContain('api-artifax:')
       expect(override).toContain('FACTION_SLUG: artifax')
       expect(override).toContain('postgres://app_artifax:${DB_PASSWORD_ARTIFAX}@postgres:5432/faction_artifax')
+      // Feedback (#253–#255): shared token imported from .env; per-tenant public
+      // origin built from the slug + PUBLIC_DOMAIN so attachment links embed.
+      expect(override).toContain('FEEDBACK_GITHUB_TOKEN: ${FEEDBACK_GITHUB_TOKEN:-}')
+      expect(override).toContain('PUBLIC_BASE_URL: https://artifax.${PUBLIC_DOMAIN:-monchoon.me}')
       // No scraper env switch: jobs register disabled in the faction DB and
       // are enabled per job in Global Admin (the bring-up step).
       expect(override).not.toContain('SCRAPERS_ENABLED')

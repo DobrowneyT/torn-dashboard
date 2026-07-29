@@ -313,6 +313,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Changed
 
+- **New factions get the feedback env wired automatically (#253 follow-up).**
+  `db/new-faction.mjs` now emits the `FEEDBACK_GITHUB_TOKEN`/`REPO`/`LABEL` imports
+  and a per-tenant `PUBLIC_BASE_URL` (`https://<slug>.${PUBLIC_DOMAIN:-monchoon.me}`)
+  into each generated `api-<slug>` service, so a newly-provisioned faction picks up
+  the in-app feedback form as soon as the shared PAT is set in `deploy/.env`.
+  Documented in `deploy/.env.example` and `deploy/LAUNCH.md`.
 - **Scrapers publish backfill data incrementally so a failed run resumes (#247).**
   The long-running backfill jobs no longer discard a whole run when they fail
   part-way through. **crimes-sync** now commits **per page** (instead of buffering
