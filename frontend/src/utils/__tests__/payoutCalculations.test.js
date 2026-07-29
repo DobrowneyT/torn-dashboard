@@ -16,6 +16,7 @@ import {
   DEFAULT_PAYOUT_MODE,
   factionUsesTiers,
   bankedTimeByMember,
+  mergeIntervalSeconds,
 } from '../payoutCalculations.js'
 
 // Suppress console.log in tests
@@ -119,6 +120,31 @@ describe('bankedTimeByMember (#168)', () => {
     expect(banked['8'].seconds).toBe(200)
     expect(bankedTimeByMember([], 1000, 2000)).toEqual({})
     expect(bankedTimeByMember(undefined, 1000, 2000)).toEqual({})
+  })
+})
+
+describe('mergeIntervalSeconds (#262)', () => {
+  it('sums disjoint intervals', () => {
+    expect(mergeIntervalSeconds([[0, 100], [200, 350]])).toBe(250)
+  })
+
+  it('collapses overlapping intervals so time is not double-counted', () => {
+    // Two intervals sharing wall-clock time: naive sum 100+80=180, real span 120.
+    expect(mergeIntervalSeconds([[0, 100], [80, 120]])).toBe(120)
+  })
+
+  it('absorbs a fully-nested interval', () => {
+    // A member can only be in one OC at a time — an inner stint adds nothing.
+    expect(mergeIntervalSeconds([[0, 300], [100, 200]])).toBe(300)
+  })
+
+  it('treats touching intervals as contiguous', () => {
+    expect(mergeIntervalSeconds([[0, 100], [100, 250]])).toBe(250)
+  })
+
+  it('ignores empty/invalid intervals and is order-independent', () => {
+    expect(mergeIntervalSeconds([[200, 350], [0, 100], [50, 50], [400, 390]])).toBe(250)
+    expect(mergeIntervalSeconds([])).toBe(0)
   })
 })
 
@@ -296,19 +322,51 @@ describe('calculatePayouts', () => {
     expect(result.members[0].sharePercent).toBe(1)
   })
 
-  it('adds banked left-early time on top of a member\'s completed-crime time (#168)', () => {
+  it('adds banked left-early time on top of a member\'s completed-crime time when disjoint (#168)', () => {
     const executedAt = FROM + 3 * DAY
     const crimes = makeCrimeFixture({ executedAt, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM - DAY, 'Mover')] })
-    // Same member also spent 2 days in a crime they LEFT before it executed.
+    // After finishing that crime the member joined another and LEFT it early —
+    // a disjoint stint (one OC at a time), so it's genuinely additive.
     crimes.participation = [
-      { member_id: '1', crime_id: '999', crime_name: 'Abandoned Job', joined_at: FROM, left_at: FROM + 2 * DAY },
+      { member_id: '1', crime_id: '999', crime_name: 'Abandoned Job', joined_at: FROM + 3 * DAY, left_at: FROM + 5 * DAY },
     ]
     const result = calculatePayouts(crimes, makeMembers([1], 6), FROM, TO, 0.20)
     const m = result.members.find(x => String(x.userId) === '1')
-    // completed = executedAt − FROM (joined before window) = 3 days; + 2 banked.
+    // completed = executedAt − FROM (joined before window) = 3 days; + 2 banked, disjoint.
     expect(m.timeSpent).toBe(3 * DAY + 2 * DAY)
     expect(m.bankedSeconds).toBe(2 * DAY)
     expect(m.bankedCrimes).toEqual([{ crime_id: '999', crime_name: 'Abandoned Job', seconds: 2 * DAY }])
+  })
+
+  it('does not double-count banked time that overlaps completed-crime time (#262)', () => {
+    const executedAt = FROM + 3 * DAY
+    const crimes = makeCrimeFixture({ executedAt, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM - DAY, 'Mover')] })
+    // A left-early stint whose wall-clock time falls INSIDE the completed crime's
+    // window (data artifact — a member can't really be in two OCs at once). The
+    // old additive code returned 5 days; the union is 3.
+    crimes.participation = [
+      { member_id: '1', crime_id: '999', crime_name: 'Overlap', joined_at: FROM + DAY, left_at: FROM + 2 * DAY },
+    ]
+    const result = calculatePayouts(crimes, makeMembers([1], 6), FROM, TO, 0.20)
+    const m = result.members.find(x => String(x.userId) === '1')
+    expect(m.timeSpent).toBe(3 * DAY)          // union, not 3+1 days
+    expect(m.bankedSeconds).toBe(0)            // already covered by completed time
+  })
+
+  it('never lets a member\'s total time exceed the payout window (#262)', () => {
+    // Pathological overlapping data whose naive per-crime/stint sum blows past a
+    // one-week window (the reported 211h/week bug). The corrected total is clamped.
+    const executedAt = FROM + 6 * DAY
+    const crimes = makeCrimeFixture({ executedAt, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM - DAY, 'Grinder')] })
+    crimes.participation = [
+      { member_id: '1', crime_id: 'a', crime_name: 'A', joined_at: FROM, left_at: FROM + 5 * DAY },
+      { member_id: '1', crime_id: 'b', crime_name: 'B', joined_at: FROM + DAY, left_at: FROM + 6 * DAY },
+      { member_id: '1', crime_id: 'c', crime_name: 'C', joined_at: FROM + 2 * DAY, left_at: FROM + 7 * DAY },
+    ]
+    const result = calculatePayouts(crimes, makeMembers([1], 6), FROM, TO, 0.20)
+    const m = result.members.find(x => String(x.userId) === '1')
+    expect(m.timeSpent).toBeLessThanOrEqual(TO - FROM) // ≤ 7 days
+    expect(m.timeSpent).toBe(7 * DAY)                   // union spans the whole window
   })
 
   it('credits a member whose ONLY window activity was a left-early stint (#168)', () => {

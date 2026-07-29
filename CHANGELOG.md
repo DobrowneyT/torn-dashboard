@@ -313,6 +313,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **OC payout time can no longer exceed the payout window (#262).** A member's
+  adjusted/total time could read impossibly high — e.g. **211.9h for a one-week
+  (168h) window** — because completed/current-crime time and left-early "banked"
+  time were summed independently, double-counting any wall-clock overlap. Since a
+  member can only be in one OC at a time, their real time is the **union** of
+  their crime/stint intervals: the total is now the merged, window-clipped span,
+  so it can never exceed the window, while left-early time is **still credited**
+  (a member whose only activity was a left-early stint is unchanged). The
+  "Completed / current" vs "left early" breakdown stays coherent.
 - **Login now requires + verifies Faction API access (#263).** A Limited key
   without faction API access passed login and joined the key pool, then poisoned
   faction-scoped scrapers with Torn error 7 (*"Incorrect ID-entity relation"*) —
