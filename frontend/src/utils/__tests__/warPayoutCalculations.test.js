@@ -1112,6 +1112,37 @@ describe('calculateRaceWarPayouts', () => {
     expect(alice.post.afterPayout).toBe(alice.postCutoffPayout)
   })
 
+  it('splits the scaled window into pre(first-window) + post(after) sections for termed (#269)', () => {
+    // Termed: whole war is the post window (cutoff 0), scaled at 24h.
+    //   Alice: within 55 (2 war hits before CUTOFF) → 1 base share; after 50
+    //          (3 war hits after CUTOFF) → 2 scaled shares.
+    //   Bob:   within 50 (2 hits) → 1 base; after 25 (1 hit) → 1 scaled.
+    const settings = {
+      ...baseSettings,
+      raceCutoffTimestamp: 0, racePreCutoffPercent: 0,
+      postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 24, warStartAt: WAR_START,
+      splitScaledPostWindow: true,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+
+    // Pre section = first 24h: hit report + score + the flat base share.
+    expect(alice.pre.warHits).toBe(2)
+    expect(alice.pre.score).toBe(55)
+    expect(alice.pre.shares).toBe(1)
+    // Post section = after 24h: hit report + score + the scaled shares.
+    expect(alice.post.warHits).toBe(3)
+    expect(alice.post.score).toBe(50)
+    expect(alice.post.shares).toBeCloseTo(2, 5)
+    // Per-section payouts sum to the member total (one pool, one share value).
+    expect(alice.preCutoffPayout + alice.postCutoffPayout).toBe(alice.payoutAmount)
+    expect(alice.preCutoffPayout).toBeGreaterThan(0)
+    expect(alice.postCutoffPayout).toBeGreaterThan(0)
+    // Whole-war aggregate is still pre + post.
+    expect(alice.warHits).toBe(5)
+  })
+
   it('pre and post multiplier sets are independent', () => {
     // Pre pays war hits only; post pays nothing (all post multipliers 0).
     const settings = {
