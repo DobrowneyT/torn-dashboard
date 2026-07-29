@@ -50,12 +50,41 @@ export function bankedTimeByMember(participation, fromTimestamp, toTimestamp) {
     const seconds = end - start
     if (seconds <= 0) continue
     const id = String(seg.member_id)
-    if (!byMember[id]) byMember[id] = { seconds: 0, crimes: [] }
+    if (!byMember[id]) byMember[id] = { seconds: 0, crimes: [], intervals: [] }
     byMember[id].seconds += seconds
     byMember[id].crimes.push({ crime_id: String(seg.crime_id), crime_name: seg.crime_name || null, seconds })
+    // #262: the clipped [start, end] bounds so the caller can UNION these with
+    // completed-crime time instead of summing (which double-counts overlaps).
+    byMember[id].intervals.push([start, end])
   }
   return byMember
 }
+// #262: total covered seconds across a member's time intervals, merging any
+// that overlap or touch. Each interval is [start, end] in unix seconds, already
+// clipped to the payout window. Because a member can only be in one OC at a
+// time, their real elapsed time is the UNION of their crime/stint intervals —
+// summing them independently double-counts overlaps (and could exceed the
+// window). The union is bounded by the window, so the total never can.
+export function mergeIntervalSeconds(intervals) {
+  const valid = (intervals || [])
+    .filter(([s, e]) => Number.isFinite(s) && Number.isFinite(e) && e > s)
+    .sort((a, b) => a[0] - b[0])
+  let total = 0
+  let curStart = null
+  let curEnd = null
+  for (const [s, e] of valid) {
+    if (curEnd === null || s > curEnd) {
+      if (curEnd !== null) total += curEnd - curStart
+      curStart = s
+      curEnd = e
+    } else if (e > curEnd) {
+      curEnd = e
+    }
+  }
+  if (curEnd !== null) total += curEnd - curStart
+  return total
+}
+
 // Uniform base for the non-tiered modes (Tier-1 value). In flat-weighted this
 // cancels out of the share math — it's only what shows in the Tickets column.
 const FLAT_BASE_TICKETS = TIER_TICKETS[1]
@@ -484,14 +513,20 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
           crimesCount: 0,
           timeSpent: 0,
           crimeIds: [],
-          positions: []
+          positions: [],
+          completedIntervals: [],
+          bankedIntervals: [],
         }
       }
 
-      // Calculate time spent in this crime within the payout window
-      const timeSpent = calculateTimeSpent(joinedAt, timeReference, fromTimestamp, toTimestamp)
-
-      participatingMembers[userId].timeSpent += timeSpent
+      // #262: record this crime's clipped [start, end] rather than summing its
+      // length — a member's total time is the UNION of their intervals (they can
+      // only be in one OC at a time), computed after all crimes are collected.
+      if (joinedAt && joinedAt <= toTimestamp) {
+        const effStart = Math.max(joinedAt, fromTimestamp)
+        const effEnd = Math.min(timeReference, toTimestamp)
+        if (effEnd > effStart) participatingMembers[userId].completedIntervals.push([effStart, effEnd])
+      }
       participatingMembers[userId].crimeIds.push(crimeId)
 
       // Only count as participated if crime is successful and in time window
@@ -514,11 +549,12 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     }
   }
 
-  // #168: add time banked in crimes a member LEFT before execution (which the
-  // slot loop above counts as zero — they've been refilled). Purely additive:
-  // left-early members aren't in the current/executed slots, so no double-count
-  // with completed/current time. A member whose ONLY window activity was a
-  // left-early stint is added here so they still get credit.
+  // #168/#262: time banked in crimes a member LEFT before execution (the slot
+  // loop above counts these as zero — they've been refilled). We UNION these
+  // stints with the member's completed/current intervals rather than adding
+  // them, so overlapping wall-clock time isn't double-counted. A member whose
+  // ONLY window activity was a left-early stint is added here so they still get
+  // credit.
   const banked = bankedTimeByMember(crimesData?.participation, fromTimestamp, toTimestamp)
   for (const [userId, info] of Object.entries(banked)) {
     if (info.seconds <= 0) continue
@@ -533,11 +569,25 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
         timeSpent: 0,
         crimeIds: [],
         positions: [],
+        completedIntervals: [],
+        bankedIntervals: [],
       }
     }
-    participatingMembers[userId].timeSpent += info.seconds
-    participatingMembers[userId].bankedSeconds = info.seconds
+    participatingMembers[userId].bankedIntervals.push(...info.intervals)
     participatingMembers[userId].bankedCrimes = info.crimes
+  }
+
+  // #262: collapse each member's intervals into actual elapsed time. timeSpent
+  // is the union of completed + banked intervals (clipped to the window, so it
+  // can never exceed the window duration); bankedSeconds is the *extra* credit
+  // left-early stints add beyond the completed/current time (0 when they fully
+  // overlap it) — this keeps the "Completed / current" breakdown coherent.
+  for (const member of Object.values(participatingMembers)) {
+    const completedSeconds = mergeIntervalSeconds(member.completedIntervals)
+    member.timeSpent = mergeIntervalSeconds([...member.completedIntervals, ...member.bankedIntervals])
+    member.bankedSeconds = Math.max(0, member.timeSpent - completedSeconds)
+    delete member.completedIntervals
+    delete member.bankedIntervals
   }
 
   console.log('Crimes processed (successful in window):', crimesProcessed)
