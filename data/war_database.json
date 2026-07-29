@@ -5886,6 +5886,23 @@
       "rank_before": "Diamond II",
       "rank_after": "Diamond I",
       "report_fetched": true
+    },
+    "46672": {
+      "id": 46672,
+      "start_at": 1785502800,
+      "end_at": null,
+      "opponent_id": 20465,
+      "opponent_name": "SMTH - Phoenix Nirvana",
+      "our_score": 0,
+      "opponent_score": 0,
+      "target": 17900,
+      "winner_faction_id": null,
+      "forfeit": false,
+      "is_termed": false,
+      "rewards_items": null,
+      "rank_before": null,
+      "rank_after": null,
+      "report_fetched": false
     }
   },
   "contributions": {
@@ -218465,6 +218482,6 @@
     ]
   },
   "metadata": {
-    "last_updated": "2026-07-28T04:02:36.097283"
+    "last_updated": "2026-07-29T04:13:20.230194"
   }
 }
