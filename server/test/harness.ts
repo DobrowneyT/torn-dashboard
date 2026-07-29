@@ -79,10 +79,12 @@ export interface TestStack {
   }
   /** GitHub fixture the feedback endpoint (#253) talks to. */
   github: {
+    /** Base URL of the GitHub fixture (for the #255 prune job seam). */
+    baseUrl: string
     /** Every issue the feedback endpoint has created, in order. */
     issuesCreated(): GithubIssueCapture[]
-    /** Set an issue's state (for the #255 prune tests). */
-    setIssueState(number: number, state: 'open' | 'closed'): void
+    /** Set an issue's state (for the #255 prune tests). 'error' → the fixture 500s. */
+    setIssueState(number: number, state: 'open' | 'closed' | 'error'): void
   }
   close(): Promise<void>
 }
@@ -210,7 +212,7 @@ export async function startTestStack(
   // second fake in the suite — feedback POSTs a real HTTP request to it.
   let issueCounter = 1000
   const createdIssues: GithubIssueCapture[] = []
-  const issueStates = new Map<number, 'open' | 'closed'>()
+  const issueStates = new Map<number, 'open' | 'closed' | 'error'>()
   const github: Server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://gh')
     res.setHeader('content-type', 'application/json')
@@ -233,7 +235,14 @@ export async function startTestStack(
     const stateMatch = req.method === 'GET' && url.pathname.match(/^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)$/)
     if (stateMatch) {
       const number = Number(stateMatch[1])
-      res.end(JSON.stringify({ number, state: issueStates.get(number) ?? 'open' }))
+      const state = issueStates.get(number) ?? 'open'
+      // 'error' simulates a GitHub API failure for the #255 prune resilience test.
+      if (state === 'error') {
+        res.statusCode = 500
+        res.end(JSON.stringify({ message: 'server error' }))
+        return
+      }
+      res.end(JSON.stringify({ number, state }))
       return
     }
     res.statusCode = 404
@@ -284,6 +293,7 @@ export async function startTestStack(
       comments: () => [...seenComments],
     },
     github: {
+      baseUrl: githubBaseUrl,
       issuesCreated: () => [...createdIssues],
       setIssueState: (number, state) => issueStates.set(number, state),
     },
