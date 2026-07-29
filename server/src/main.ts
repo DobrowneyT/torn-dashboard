@@ -61,6 +61,10 @@ const app = await buildServer({
   bspApiKey: process.env.BSP_API_KEY || undefined,
   // Web Push (#207) — optional; push is disabled until the operator sets it.
   vapid,
+  // In-app feedback → GitHub issue (#253) — optional; disabled without a PAT.
+  feedbackGithubToken: process.env.FEEDBACK_GITHUB_TOKEN || undefined,
+  feedbackGithubRepo: process.env.FEEDBACK_GITHUB_REPO || 'DobrowneyT/torn-forge-oc-system',
+  feedbackLabel: process.env.FEEDBACK_LABEL || 'needs-triage',
 })
 if (vapid) console.log(`[${factionSlug}] Web Push armed (VAPID configured)`)
 await app.listen({ port, host: '0.0.0.0' })

@@ -46,6 +46,9 @@ async function loginViaApi(apiKey) {
     isWarLead: roles.includes('warlead'),
     isOCManager: roles.includes('ocmanager'),
     isVisitor: roles.includes('visitor'),
+    // Whether the in-app feedback form is available (server has a PAT) — the
+    // hamburger "Send feedback" entry is hidden when false (#253).
+    feedbackEnabled: boot.feedback_enabled === true,
     apiMode: true,
     lastLogin: new Date().toISOString(),
   }

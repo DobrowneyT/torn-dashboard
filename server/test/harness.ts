@@ -44,6 +44,15 @@ export interface TornFixtureUser {
 /** Key-pool at-rest secret used by the app under test (sync triggers). */
 export const TEST_KEY_ENCRYPTION_KEY = 'e'.repeat(64)
 
+/** A GitHub issue the feedback endpoint created against the fixture (#253). */
+export interface GithubIssueCapture {
+  repo: string
+  title: string
+  body: string
+  labels: string[]
+  auth: string | null
+}
+
 export interface TestStack {
   baseUrl: string
   /** Base URL of the Torn fixture server (for components that take it directly). */
@@ -68,6 +77,13 @@ export interface TestStack {
     /** The `comment` param of every request so far (null where absent). */
     comments(): Array<string | null>
   }
+  /** GitHub fixture the feedback endpoint (#253) talks to. */
+  github: {
+    /** Every issue the feedback endpoint has created, in order. */
+    issuesCreated(): GithubIssueCapture[]
+    /** Set an issue's state (for the #255 prune tests). */
+    setIssueState(number: number, state: 'open' | 'closed'): void
+  }
   close(): Promise<void>
 }
 
@@ -83,9 +99,16 @@ export function freePort(): Promise<number> {
   })
 }
 
-/** Boot embedded Postgres + templated faction DB + Torn fixture + API. */
+/** Options for the feedback (#253) GitHub integration in the test stack. */
+export interface FeedbackTestOptions {
+  /** When false, no PAT is configured — the endpoint is disabled. Default true. */
+  enabled?: boolean
+}
+
+/** Boot embedded Postgres + templated faction DB + Torn fixture + GitHub fixture + API. */
 export async function startTestStack(
-  extendApp?: (app: FastifyInstance) => void
+  extendApp?: (app: FastifyInstance) => void,
+  feedbackOpts: FeedbackTestOptions = {}
 ): Promise<TestStack> {
   // Real templated Postgres
   const pgPort = await freePort()
@@ -183,6 +206,45 @@ export async function startTestStack(
   if (tornAddr === null || typeof tornAddr === 'string') throw new Error('fixture port')
   const tornBaseUrl = `http://127.0.0.1:${tornAddr.port}`
 
+  // GitHub fixture (#253): captures created issues and serves issue state. The
+  // second fake in the suite — feedback POSTs a real HTTP request to it.
+  let issueCounter = 1000
+  const createdIssues: GithubIssueCapture[] = []
+  const issueStates = new Map<number, 'open' | 'closed'>()
+  const github: Server = createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://gh')
+    res.setHeader('content-type', 'application/json')
+    const auth = req.headers.authorization ?? null
+    if (req.method === 'POST' && /^\/repos\/[^/]+\/[^/]+\/issues$/.test(url.pathname)) {
+      let raw = ''
+      req.on('data', (c) => { raw += c })
+      req.on('end', () => {
+        let body: any = {}
+        try { body = JSON.parse(raw || '{}') } catch { /* leave empty */ }
+        const number = issueCounter++
+        const repo = url.pathname.split('/').slice(2, 4).join('/')
+        createdIssues.push({ repo, title: body.title, body: body.body, labels: body.labels ?? [], auth })
+        issueStates.set(number, 'open')
+        res.statusCode = 201
+        res.end(JSON.stringify({ number, html_url: `https://github.com/${repo}/issues/${number}`, state: 'open' }))
+      })
+      return
+    }
+    const stateMatch = req.method === 'GET' && url.pathname.match(/^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)$/)
+    if (stateMatch) {
+      const number = Number(stateMatch[1])
+      res.end(JSON.stringify({ number, state: issueStates.get(number) ?? 'open' }))
+      return
+    }
+    res.statusCode = 404
+    res.end(JSON.stringify({ message: 'not found' }))
+  })
+  await new Promise<void>((resolve) => github.listen(0, '127.0.0.1', resolve))
+  const ghAddr = github.address()
+  if (ghAddr === null || typeof ghAddr === 'string') throw new Error('github fixture port')
+  const githubBaseUrl = `http://127.0.0.1:${ghAddr.port}`
+  const feedbackEnabled = feedbackOpts.enabled !== false
+
   // The API under test, over real HTTP
   const app = await buildServer({
     factionSlug: TEST_FACTION.slug,
@@ -195,6 +257,11 @@ export async function startTestStack(
     bspApiKey: 'BSPKEY99',
     tornStatsBaseUrl: tornBaseUrl,
     bspBaseUrl: tornBaseUrl,
+    // Feedback → GitHub fixture (#253). Disabled when the test opts out.
+    feedbackGithubToken: feedbackEnabled ? 'gh-test-token' : undefined,
+    feedbackGithubRepo: 'test-owner/test-repo',
+    feedbackGithubBaseUrl: githubBaseUrl,
+    feedbackLabel: 'needs-triage',
   })
   extendApp?.(app)
   await app.listen({ port: 0, host: '127.0.0.1' })
@@ -216,9 +283,14 @@ export async function startTestStack(
       hits: () => hitCount,
       comments: () => [...seenComments],
     },
+    github: {
+      issuesCreated: () => [...createdIssues],
+      setIssueState: (number, state) => issueStates.set(number, state),
+    },
     close: async () => {
       await app.close()
       await new Promise<void>((resolve, reject) => torn.close((e) => (e ? reject(e) : resolve())))
+      await new Promise<void>((resolve, reject) => github.close((e) => (e ? reject(e) : resolve())))
       await db.end()
       await embedded.stop()
       rmSync(dataDir, { recursive: true, force: true })

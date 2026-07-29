@@ -38,6 +38,8 @@ describe('GET /api/bootstrap', () => {
         branding: { primaryColor: '#f97316', logo: '/branding/logo.png' },
       },
       features: { warRoom: true },
+      // Feedback is configured in the test stack by default (#253).
+      feedback_enabled: true,
     })
   })
 
