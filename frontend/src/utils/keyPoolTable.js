@@ -6,6 +6,9 @@
 export function keyPoolStatus(row) {
   if (row?.missing) return 'missing'
   if (row?.disabled) return 'disabled'
+  // #271: enrolled but lacking faction API access (recruit / no faction
+  // position) — kept out of the faction pool rotation, shown yellow.
+  if (row?.has_faction_access === false) return 'no-faction-access'
   return 'active'
 }
 

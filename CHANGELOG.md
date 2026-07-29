@@ -334,17 +334,19 @@ from `VERSION` at runtime) both surface it automatically.
   so it can never exceed the window, while left-early time is **still credited**
   (a member whose only activity was a left-early stint is unchanged). The
   "Completed / current" vs "left early" breakdown stays coherent.
-- **Login now requires + verifies Faction API access (#263).** A Limited key
-  without faction API access passed login and joined the key pool, then poisoned
-  faction-scoped scrapers with Torn error 7 (*"Incorrect ID-entity relation"*) —
-  observed on a newly-provisioned faction, isolated to one member's key. Login
-  now reads `access.faction` from `/v2/key/info`: a faction member whose key
-  lacks it is refused with actionable guidance ("enable Faction API access in
-  Torn, then log in again") instead of silently enrolling, the real value is
-  stored on `member_secrets.has_faction_access`, and the key pool defensively
-  skips any key flagged without faction access so a stale row can never be
-  claimed for a faction call. Visitors (whose keys are never pooled) are
-  unaffected.
+- **Keys without Faction API access no longer poison faction scrapers — and no
+  longer bar login (#263, #271).** A Limited key without faction API access used
+  to join the key pool and poison faction-scoped scrapers with Torn error 7
+  (*"Incorrect ID-entity relation"*) — observed on a newly-provisioned faction,
+  isolated to one member's key. Login now reads `access.faction` from
+  `/v2/key/info` and stores the real value on `member_secrets.has_faction_access`,
+  and the key pool **excludes any key without faction access** from faction-scoped
+  claims so a no-access key can never be used for a faction call. Because faction
+  API access is **leader-granted** (a recruit in their first ~72h literally can't
+  enable it), such members **still log in normally** — their key is enrolled but
+  kept out of the pool rotation, and **Key Pool Health flags it with a yellow "No
+  faction access" badge** so leadership can see who needs a faction position.
+  Visitors (whose keys are never pooled) are unaffected.
 - **RW payouts can be saved again — removed a stale API-key guard.** Saving a
   ranked-war payout on the Payout Management page failed with *"Missing API key —
   please log in again."* on the self-hosted stack. The save is authenticated by

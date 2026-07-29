@@ -13,6 +13,21 @@ describe('keyPoolStatus', () => {
     expect(keyPoolStatus(rows[1])).toBe('disabled')
     expect(keyPoolStatus(rows[0])).toBe('active')
   })
+
+  it('flags an enrolled key without faction API access (#271)', () => {
+    // Recruit / no faction position: enrolled but never claimed for faction
+    // calls → its own yellow "No faction access" status, above plain active.
+    const row = { member_id: '9', disabled: false, missing: false, has_faction_access: false }
+    expect(keyPoolStatus(row)).toBe('no-faction-access')
+    // A key WITH faction access (or unknown/null legacy) stays active.
+    expect(keyPoolStatus({ ...row, has_faction_access: true })).toBe('active')
+    expect(keyPoolStatus({ ...row, has_faction_access: null })).toBe('active')
+  })
+
+  it('missing / disabled outrank the no-faction-access flag (#271)', () => {
+    expect(keyPoolStatus({ missing: true, has_faction_access: false })).toBe('missing')
+    expect(keyPoolStatus({ disabled: true, has_faction_access: false })).toBe('disabled')
+  })
 })
 
 describe('sortKeyPoolRows', () => {
