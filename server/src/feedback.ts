@@ -143,6 +143,80 @@ export async function createGithubIssue(
   return (await res.json()) as { number: number; html_url: string }
 }
 
+/** Fetch a GitHub issue's state ('open' | 'closed'); throws on a non-2xx. */
+export async function getGithubIssueState(
+  baseUrl: string, token: string, repo: string, issueNumber: number
+): Promise<string> {
+  const res = await fetch(`${baseUrl}/repos/${repo}/issues/${issueNumber}`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: 'application/vnd.github+json',
+      'user-agent': 'torn-forge-dashboard',
+    },
+  })
+  if (!res.ok) throw new Error(`GitHub issue fetch failed: ${res.status}`)
+  return ((await res.json()) as { state?: string }).state ?? 'open'
+}
+
+export interface FeedbackPruneDeps {
+  db: pg.Pool
+  githubToken: string
+  githubRepo: string
+  githubBaseUrl?: string
+  /** Hard cap: delete attachments older than this regardless of issue state. */
+  ttlDays?: number
+  /** Injectable clock for tests. */
+  now?: () => Date
+}
+
+export interface FeedbackPruneResult {
+  ttlDeleted: number
+  closedIssuesPruned: number
+  closedAttachmentsDeleted: number
+  errors: number
+}
+
+/**
+ * #255: delete stored feedback attachments once their linked issue is closed,
+ * plus a hard TTL fallback for issues that never close. Resilient — a GitHub
+ * error for one issue is counted and skipped, never aborting the run.
+ */
+export async function pruneFeedbackAttachments(deps: FeedbackPruneDeps): Promise<FeedbackPruneResult> {
+  const baseUrl = deps.githubBaseUrl || 'https://api.github.com'
+  const ttlDays = deps.ttlDays ?? 90
+  const now = deps.now ? deps.now() : new Date()
+  const cutoff = new Date(now.getTime() - ttlDays * 24 * 60 * 60 * 1000)
+
+  // 1. TTL sweep — anything past the cutoff goes regardless of issue state.
+  const ttl = await deps.db.query(
+    'DELETE FROM feedback_attachments WHERE created_at < $1', [cutoff.toISOString()]
+  )
+  const ttlDeleted = ttl.rowCount ?? 0
+
+  // 2. Per-issue state check for what remains.
+  const issues = await deps.db.query<{ issue_number: number }>(
+    'SELECT DISTINCT issue_number FROM feedback_attachments'
+  )
+  let closedIssuesPruned = 0
+  let closedAttachmentsDeleted = 0
+  let errors = 0
+  for (const { issue_number } of issues.rows) {
+    try {
+      const state = await getGithubIssueState(baseUrl, deps.githubToken, deps.githubRepo, issue_number)
+      if (state === 'closed') {
+        const del = await deps.db.query(
+          'DELETE FROM feedback_attachments WHERE issue_number = $1', [issue_number]
+        )
+        closedAttachmentsDeleted += del.rowCount ?? 0
+        closedIssuesPruned += 1
+      }
+    } catch {
+      errors += 1 // one issue's failure must not abort the whole run
+    }
+  }
+  return { ttlDeleted, closedIssuesPruned, closedAttachmentsDeleted, errors }
+}
+
 export function registerFeedbackRoutes(app: FastifyInstance, deps: FeedbackDeps) {
   const enabled = feedbackConfigured(deps)
   const baseUrl = deps.githubBaseUrl || 'https://api.github.com'

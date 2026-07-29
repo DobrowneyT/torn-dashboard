@@ -124,4 +124,30 @@ if (db) {
       )
     }
   }
+
+  // #255: daily prune of feedback attachments — delete stored files once their
+  // linked GitHub issue is closed, plus a hard TTL fallback. Only when feedback
+  // is configured.
+  if (db && process.env.FEEDBACK_GITHUB_TOKEN) {
+    const pruneDb = db
+    const { pruneFeedbackAttachments } = await import('./feedback.js')
+    const runPrune = () =>
+      pruneFeedbackAttachments({
+        db: pruneDb,
+        githubToken: process.env.FEEDBACK_GITHUB_TOKEN!,
+        githubRepo: process.env.FEEDBACK_GITHUB_REPO || 'DobrowneyT/torn-forge-oc-system',
+      })
+        .then((r) => {
+          if (r.closedAttachmentsDeleted || r.ttlDeleted) {
+            console.log(
+              `[${factionSlug}] feedback prune: removed ${r.closedAttachmentsDeleted} closed-issue + ` +
+              `${r.ttlDeleted} over-TTL attachment(s) (${r.errors} issue-check error(s))`
+            )
+          }
+        })
+        .catch((err) => console.error(`[${factionSlug}] feedback prune failed:`, err))
+    const pruneTimer = setInterval(runPrune, 24 * 60 * 60 * 1000)
+    pruneTimer.unref?.()
+    void runPrune() // once at startup
+  }
 }

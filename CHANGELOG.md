@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Feedback attachments are pruned once the issue closes (#255).** A daily job
+  deletes stored feedback attachments once their linked GitHub issue is **closed**,
+  with a hard **90-day TTL fallback** for issues that never close, so attachment
+  storage can't grow unbounded. The run is resilient — a GitHub API error for one
+  issue is skipped, not fatal — and only runs when feedback is configured.
 - **Feedback form now takes image + video attachments (#254).** The "Send
   feedback" form gains a file picker (up to 5 images/videos, ≤10 MB each). Files
   are validated and **stored server-side** (bytea, like branding assets — no
