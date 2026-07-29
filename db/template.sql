@@ -297,7 +297,10 @@ CREATE TABLE public.member_secrets (
   disabled boolean DEFAULT false NOT NULL,
   last_error text,
   -- Scraper key-pool rotation marker (claim = least-recently-claimed first).
-  last_claimed_at timestamp with time zone
+  last_claimed_at timestamp with time zone,
+  -- Last 4 chars of the key (#264) — shown to its owner as ••••<hint>, never the
+  -- full key.
+  key_hint text
 );
 
 CREATE TABLE public.members (

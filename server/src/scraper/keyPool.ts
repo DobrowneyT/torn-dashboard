@@ -68,19 +68,21 @@ export function createKeyPool({ db, encryptionKey }: KeyPoolOptions) {
     /** Store (or replace) a member's consented key. */
     async store(memberId: string, plainKey: string, meta: KeyMeta = {}): Promise<void> {
       const fingerprint = createHash('sha256').update(plainKey).digest('hex').slice(0, 16)
+      // Last-4 hint (#264): shown to the key's owner as ••••<hint>, never the full key.
+      const keyHint = plainKey.slice(-4)
       await db.query(
         `INSERT INTO member_secrets
            (member_id, cpr_api_key, key_level, has_faction_access, member_rank,
-            consent_at, consent_version, key_fingerprint, disabled, last_error, updated_at)
-         VALUES ($1, $2, $3, $4, $5, now(), $6, $7, false, NULL, now())
+            consent_at, consent_version, key_fingerprint, key_hint, disabled, last_error, updated_at)
+         VALUES ($1, $2, $3, $4, $5, now(), $6, $7, $8, false, NULL, now())
          ON CONFLICT (member_id) DO UPDATE SET
            cpr_api_key = EXCLUDED.cpr_api_key, key_level = EXCLUDED.key_level,
            has_faction_access = EXCLUDED.has_faction_access, member_rank = EXCLUDED.member_rank,
            consent_at = now(), consent_version = EXCLUDED.consent_version,
-           key_fingerprint = EXCLUDED.key_fingerprint, disabled = false,
-           last_error = NULL, updated_at = now()`,
+           key_fingerprint = EXCLUDED.key_fingerprint, key_hint = EXCLUDED.key_hint,
+           disabled = false, last_error = NULL, updated_at = now()`,
         [memberId, encrypt(plainKey), meta.keyLevel ?? null, meta.hasFactionAccess ?? null,
-         meta.memberRank ?? null, meta.consentVersion ?? null, fingerprint]
+         meta.memberRank ?? null, meta.consentVersion ?? null, fingerprint, keyHint]
       )
     },
 

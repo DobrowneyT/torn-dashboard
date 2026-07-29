@@ -165,17 +165,19 @@ export async function buildServer(
       }
       if (!req.session) return publicView
       // The header shows the roster name; visitors and not-yet-synced members
-      // simply have none.
-      const named = await deps.db.query(
-        'SELECT member_name FROM members WHERE member_id = $1',
-        [req.session.torn_user_id]
-      )
+      // simply have none. The api_key_hint (#264) is the caller's OWN key's last
+      // 4 chars — scoped to req.session, never anyone else's; null when no key.
+      const [named, secret] = await Promise.all([
+        deps.db.query('SELECT member_name FROM members WHERE member_id = $1', [req.session.torn_user_id]),
+        deps.db.query('SELECT key_hint FROM member_secrets WHERE member_id = $1', [req.session.torn_user_id]),
+      ])
       return {
         ...publicView,
         user: {
           torn_user_id: req.session.torn_user_id,
           roles: rolesFromClaims(req.session),
           member_name: named.rows[0]?.member_name ?? null,
+          api_key_hint: secret.rows[0]?.key_hint ?? null,
         },
       }
     })
