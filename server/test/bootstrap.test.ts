@@ -60,8 +60,24 @@ describe('GET /api/bootstrap', () => {
     const { status, body } = await bootstrap(token)
     expect(status).toBe(200)
     expect(body.faction.slug).toBe(TEST_FACTION.slug)
-    // member_name comes from the roster — the SPA header shows it.
-    expect(body.user).toEqual({ torn_user_id: '222', roles: ['warlead'], member_name: 'Warleader' })
+    // member_name comes from the roster; api_key_hint (#264) is this caller's own
+    // key's last 4 (WARLEADKEY123456 → 3456), stored at login enrolment.
+    expect(body.user).toEqual({
+      torn_user_id: '222', roles: ['warlead'], member_name: 'Warleader', api_key_hint: '3456',
+    })
+  })
+
+  it('never exposes another member’s key hint (#264 — own key only)', async () => {
+    // A member with no pooled key sees a null hint, not someone else's.
+    stack.torn.addKey('NOKEYHINT1234567', { id: '223', factionId: '42' })
+    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (223, 'visitor')`)
+    const loginRes = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'NOKEYHINT1234567' }),
+    })
+    const { token } = await loginRes.json() as any
+    const { body } = await bootstrap(token)
+    expect(body.user.api_key_hint).toBeNull() // visitor: no key on file
   })
 
   it('a garbage bearer token degrades to the public view, not an error', async () => {

@@ -19,6 +19,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Your own API key is shown (masked) in the hamburger menu (#264).** The
+  account dropdown now displays which key is on file for your session as
+  `••••<last 4>` — so you can confirm you logged in with the right key when
+  troubleshooting. The last-4 hint comes from the server for **your own key
+  only** (stored at login enrolment; the full/decrypted key is never exposed),
+  and sessions with no pooled key (e.g. visitors) see a clear "No key on file".
 - **Feedback attachments are pruned once the issue closes (#255).** A daily job
   deletes stored feedback attachments once their linked GitHub issue is **closed**,
   with a hard **90-day TTL fallback** for issues that never close, so attachment

@@ -5,6 +5,7 @@ import { Menu, Key, Info, Eye, ChevronRight, Check, LogOut, X, MessageSquarePlus
 import ApiKeyDisclosure from './ApiKeyDisclosure'
 import InstallAppMenuItem from './InstallAppMenuItem'
 import FeedbackModal from './FeedbackModal'
+import { maskKeyHint } from '../utils/keyMask'
 
 export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs }) {
   const { user, logout } = useAuth()
@@ -72,6 +73,13 @@ export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs 
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 ID: {user?.id}
+              </p>
+              {/* #264: which key is on file for this session (last 4 only). */}
+              <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-0.5">
+                <Key className="w-3 h-3 flex-shrink-0" />
+                {maskKeyHint(user?.apiKeyHint)
+                  ? <span className="font-mono">{maskKeyHint(user.apiKeyHint)}</span>
+                  : <span className="italic">No key on file</span>}
               </p>
               {userIsAdmin && (
                 <span className="inline-block mt-1 px-2 py-0.5 text-xs font-semibold bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 rounded">

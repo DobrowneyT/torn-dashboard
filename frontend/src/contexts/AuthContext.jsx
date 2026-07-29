@@ -49,6 +49,9 @@ async function loginViaApi(apiKey) {
     // Whether the in-app feedback form is available (server has a PAT) — the
     // hamburger "Send feedback" entry is hidden when false (#253).
     feedbackEnabled: boot.feedback_enabled === true,
+    // Last 4 chars of this user's own pooled key (#264) — shown masked in the
+    // hamburger menu; null when no key is on file (e.g. visitors).
+    apiKeyHint: boot.user.api_key_hint ?? null,
     apiMode: true,
     lastLogin: new Date().toISOString(),
   }
