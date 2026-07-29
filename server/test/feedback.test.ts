@@ -117,8 +117,80 @@ describe('POST /api/feedback', () => {
   })
 })
 
+describe('POST /api/feedback attachments (#254)', () => {
+  const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUg==' // arbitrary bytes tagged image/png
+  const MP4_B64 = 'AAAAIGZ0eXBpc29t'          // arbitrary bytes tagged video/mp4
+
+  it('stores files, embeds them in the issue (image inline, video as link), and serves them back', async () => {
+    const token = await loginMember('4200', 'Attacher', 'FEEDBACKKEY42000')
+    const { status, body } = await submit(token, {
+      category: 'bug', title: 'Screenshot attached', description: 'see below',
+      attachments: [
+        { content_type: 'image/png', data_base64: PNG_B64, filename: 'shot.png' },
+        { content_type: 'video/mp4', data_base64: MP4_B64, filename: 'clip.mp4' },
+      ],
+    })
+    expect(status).toBe(200)
+
+    // Two rows recorded against the issue number.
+    const rows = await stack.db.query(
+      'SELECT id, content_type FROM feedback_attachments WHERE issue_number = $1 ORDER BY content_type',
+      [body.number]
+    )
+    expect(rows.rows).toHaveLength(2)
+
+    // Issue body embeds the image inline and the video as a plain link.
+    const issue = stack.github.issuesCreated().at(-1)!
+    const imageRow = rows.rows.find((r) => r.content_type === 'image/png')!
+    const videoRow = rows.rows.find((r) => r.content_type === 'video/mp4')!
+    expect(issue.body).toContain(`![shot.png](`)
+    expect(issue.body).toContain(`/api/feedback/attachments/${imageRow.id}`)
+    expect(issue.body).toContain(`[clip.mp4](`)
+    expect(issue.body).not.toContain(`![clip.mp4]`) // video is a link, not an inline image
+
+    // The stored image round-trips through the public serve endpoint.
+    const served = await fetch(`${stack.baseUrl}/api/feedback/attachments/${imageRow.id}`)
+    expect(served.status).toBe(200)
+    expect(served.headers.get('content-type')).toBe('image/png')
+    const servedBytes = Buffer.from(await served.arrayBuffer())
+    expect(servedBytes.equals(Buffer.from(PNG_B64, 'base64'))).toBe(true)
+    void videoRow
+  })
+
+  it('rejects an unsupported file type (400) and files nothing', async () => {
+    const token = await loginMember('4201', 'BadType', 'FEEDBACKKEY42001')
+    const { status } = await submit(token, {
+      category: 'bug', title: 'x',
+      attachments: [{ content_type: 'application/pdf', data_base64: PNG_B64 }],
+    })
+    expect(status).toBe(400)
+  })
+
+  it('rejects an oversized file (>10 MB) with 413', async () => {
+    const token = await loginMember('4202', 'TooBig', 'FEEDBACKKEY42002')
+    const big = Buffer.alloc(10 * 1024 * 1024 + 16).toString('base64')
+    const { status } = await submit(token, {
+      category: 'bug', title: 'x', attachments: [{ content_type: 'image/png', data_base64: big }],
+    })
+    expect(status).toBe(413)
+  })
+
+  it('rejects more than five files (400)', async () => {
+    const token = await loginMember('4203', 'TooMany', 'FEEDBACKKEY42003')
+    const files = Array.from({ length: 6 }, () => ({ content_type: 'image/png', data_base64: PNG_B64 }))
+    const { status } = await submit(token, { category: 'bug', title: 'x', attachments: files })
+    expect(status).toBe(400)
+  })
+
+  it('serves 404 for an unknown attachment id', async () => {
+    const res = await fetch(`${stack.baseUrl}/api/feedback/attachments/00000000-0000-0000-0000-000000000000`)
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('POST /api/feedback when no PAT is configured', () => {
   it('is disabled (501) and reports feedback_enabled=false in bootstrap', async () => {
+    // Boots a second embedded-Postgres stack — give it room under full-suite load.
     const off = await startTestStack(undefined, { enabled: false })
     try {
       const boot = await (await fetch(`${off.baseUrl}/api/bootstrap`)).json() as any
@@ -140,5 +212,5 @@ describe('POST /api/feedback when no PAT is configured', () => {
     } finally {
       await off.close()
     }
-  })
+  }, 60000)
 })

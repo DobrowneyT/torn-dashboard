@@ -1,7 +1,35 @@
 import { useState } from 'react'
-import { X, MessageSquarePlus, ExternalLink } from 'lucide-react'
+import { X, MessageSquarePlus, ExternalLink, Paperclip, Trash2 } from 'lucide-react'
 import { apiPost } from '../utils/apiClient'
-import { buildFeedbackPayload, FEEDBACK_CATEGORIES, FEEDBACK_TITLE_MAX } from '../utils/feedback'
+import {
+  buildFeedbackPayload,
+  validateFeedbackFiles,
+  FEEDBACK_CATEGORIES,
+  FEEDBACK_TITLE_MAX,
+  FEEDBACK_ACCEPT,
+  FEEDBACK_MAX_FILES,
+} from '../utils/feedback'
+
+// Read a File to a bare base64 string (no data: prefix — the server strips it
+// anyway, but keeping the payload clean).
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result)
+      const comma = result.indexOf(',')
+      resolve(comma === -1 ? result : result.slice(comma + 1))
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+function humanSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 // In-app feedback form (#253): a member files a bug/suggestion that becomes a
 // triaged GitHub issue server-side. Presentational — validation + payload
@@ -10,17 +38,35 @@ export default function FeedbackModal({ onClose }) {
   const [category, setCategory] = useState('bug')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [files, setFiles] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [created, setCreated] = useState(null)
 
+  const addFiles = (fileList) => {
+    const next = [...files, ...Array.from(fileList)]
+    const check = validateFeedbackFiles(next)
+    if (!check.ok) { setError(check.error); return }
+    setError(null)
+    setFiles(next)
+  }
+
+  const removeFile = (idx) => setFiles(files.filter((_, i) => i !== idx))
+
   const handleSubmit = async () => {
     const built = buildFeedbackPayload({ category, title, description })
     if (!built.ok) { setError(built.error); return }
+    const fileCheck = validateFeedbackFiles(files)
+    if (!fileCheck.ok) { setError(fileCheck.error); return }
     try {
       setSubmitting(true)
       setError(null)
-      const res = await apiPost('/api/feedback', built.payload)
+      const attachments = await Promise.all(files.map(async (f) => ({
+        filename: f.name,
+        content_type: f.type,
+        data_base64: await fileToBase64(f),
+      })))
+      const res = await apiPost('/api/feedback', { ...built.payload, attachments })
       setCreated(res)
     } catch (err) {
       setError(err?.message || 'Could not send feedback — please try again.')
@@ -116,6 +162,40 @@ export default function FeedbackModal({ onClose }) {
                   className="input w-full text-sm"
                   placeholder="What happened, or what you'd like to see"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                  Attachments <span className="font-normal text-gray-500 dark:text-gray-400">(images or video, ≤10 MB, up to {FEEDBACK_MAX_FILES})</span>
+                </label>
+                {files.length > 0 && (
+                  <ul className="mb-2 space-y-1">
+                    {files.map((f, i) => (
+                      <li key={i} className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-slate-700/40">
+                        <span className="truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                        <span className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-gray-400">{humanSize(f.size)}</span>
+                          <button type="button" onClick={() => removeFile(i)} className="text-gray-400 hover:text-red-500" aria-label="Remove">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {files.length < FEEDBACK_MAX_FILES && (
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer">
+                    <Paperclip className="w-4 h-4" />
+                    Add files
+                    <input
+                      type="file"
+                      accept={FEEDBACK_ACCEPT}
+                      multiple
+                      className="hidden"
+                      onChange={(e) => { addFiles(e.target.files); e.target.value = '' }}
+                    />
+                  </label>
+                )}
               </div>
 
               {error && (

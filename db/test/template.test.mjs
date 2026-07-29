@@ -52,6 +52,8 @@ const NEW_TABLES = [
   'member_notes',
   // Web Push subscriptions (#207)
   'push_subscriptions',
+  // Feedback attachments (#254)
+  'feedback_attachments',
 ]
 
 let server

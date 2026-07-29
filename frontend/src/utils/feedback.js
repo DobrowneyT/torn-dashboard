@@ -9,6 +9,41 @@ export const FEEDBACK_CATEGORIES = [
 export const FEEDBACK_TITLE_MAX = 200
 export const FEEDBACK_DESC_MAX = 5000
 
+// #254: attachments. Mirrors the server's allow-list and limits.
+export const FEEDBACK_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+export const FEEDBACK_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime']
+export const FEEDBACK_MAX_FILES = 5
+export const FEEDBACK_MAX_FILE_BYTES = 10 * 1024 * 1024 // 10 MB
+/** `accept` attribute for the file input. */
+export const FEEDBACK_ACCEPT = [...FEEDBACK_IMAGE_TYPES, ...FEEDBACK_VIDEO_TYPES].join(',')
+
+export function isFeedbackImageType(type) {
+  return FEEDBACK_IMAGE_TYPES.includes(type)
+}
+export function isFeedbackVideoType(type) {
+  return FEEDBACK_VIDEO_TYPES.includes(type)
+}
+
+/**
+ * Validate a chosen set of files (count / type / size). Accepts anything with
+ * `{ type, size }` (a File or a plain object), so it's unit-testable.
+ * @returns {{ ok: true } | { ok: false, error: string }}
+ */
+export function validateFeedbackFiles(files = []) {
+  if (files.length > FEEDBACK_MAX_FILES) {
+    return { ok: false, error: `Too many files (max ${FEEDBACK_MAX_FILES}).` }
+  }
+  for (const f of files) {
+    if (!isFeedbackImageType(f.type) && !isFeedbackVideoType(f.type)) {
+      return { ok: false, error: `Unsupported file type: ${f.type || 'unknown'}.` }
+    }
+    if (f.size > FEEDBACK_MAX_FILE_BYTES) {
+      return { ok: false, error: `"${f.name || 'file'}" is over 10 MB.` }
+    }
+  }
+  return { ok: true }
+}
+
 /**
  * Validate the form fields and assemble the POST payload.
  * @returns {{ ok: true, payload: {category,title,description} } | { ok: false, error: string }}
