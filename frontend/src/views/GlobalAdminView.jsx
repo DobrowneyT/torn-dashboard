@@ -71,9 +71,10 @@ function StatusBadge({ status }) {
     failure: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
     disabled: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
     missing: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+    'no-faction-access': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300',
     running: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
   }
-  const labels = { missing: 'Missing' }
+  const labels = { missing: 'Missing', 'no-faction-access': 'No faction access' }
   return (
     <span className={`px-2 py-0.5 rounded text-xs font-medium ${styles[status] || 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-300'}`}>
       {labels[status] || status}

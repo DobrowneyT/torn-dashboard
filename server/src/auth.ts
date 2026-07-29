@@ -164,17 +164,12 @@ export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<
   // cache row (see the cache-served enrollment test).
   const enrollsKey = isMember && !roles.includes('visitor')
 
-  // Faction API access is required for a key we'd pool — a key without it
-  // poisons faction-scoped scrapers with Torn error 7. Only checkable on a
-  // live /v2/key/info hit; cache hits already passed this gate at first login.
-  if (enrollsKey && !verified.fromCache && !verified.hasFactionAccess) {
-    return {
-      ok: false,
-      status: 403,
-      error:
-        'Your key needs Faction API access. In Torn, edit your API key (Settings → API Keys) to allow faction data, then log in again.',
-    }
-  }
+  // Faction API access is leader-granted (a recruit in their first ~72h can't
+  // have it), so we never bar login over it. The key is still enrolled — but
+  // with its real has_faction_access value, and the pool excludes
+  // has_faction_access = false from faction-scoped claims (see keyPool), so a
+  // no-access key can never poison faction scrapers with Torn error 7. Key Pool
+  // Health surfaces those keys with a yellow badge (#271).
 
   // Key-pool enrollment: the login disclosure covers pool consent, so a
   // faction member's key joins the rotation on login (visitors never — their

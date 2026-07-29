@@ -75,20 +75,26 @@ describe('POST /api/auth/login', () => {
     expect(body.error).toContain('Limited Access')
   })
 
-  it('rejects a faction member whose key lacks faction API access with actionable guidance', async () => {
-    // A Limited key without faction API access poisons faction scrapers (Torn
-    // error 7), so login must refuse it rather than enroll it into the pool.
+  it('lets a member without faction API access log in, enrolling their key unpooled (#271)', async () => {
+    // Faction API access is leader-granted (a recruit in their first 72h can't
+    // have it), so we must NOT bar login. The key is enrolled with
+    // has_faction_access = false so it shows in the pool health view, but the
+    // pool never claims it for faction calls (that filter lives in keyPool).
     await stack.db.query(
-      `INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('880', 'NoFaction', 3, true)`
+      `INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('880', 'Recruit', 3, true)`
     )
     stack.torn.addKey('NOFACTIONKEY8801', { id: '880', factionId: TEST_FACTION.tornFactionId, factionAccess: false })
     const { status, body } = await login('NOFACTIONKEY8801')
-    expect(status).toBe(403)
-    expect(body.error).toMatch(/faction api access/i)
+    expect(status).toBe(200)
+    expect(body.token).toBeTruthy()
 
-    // It never enrolled into the pool.
-    const row = await stack.db.query(`SELECT 1 FROM member_secrets WHERE member_id = '880'`)
-    expect(row.rows).toHaveLength(0)
+    // Enrolled, but flagged as lacking faction access (so it's excluded from the
+    // pool rotation and surfaced with a yellow badge in Key Pool Health).
+    const row = await stack.db.query(
+      `SELECT has_faction_access FROM member_secrets WHERE member_id = '880'`
+    )
+    expect(row.rows).toHaveLength(1)
+    expect(row.rows[0].has_faction_access).toBe(false)
   })
 
   it('rejects a stranger — valid key, wrong faction, no assigned roles', async () => {
