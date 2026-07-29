@@ -902,7 +902,19 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
     ...m,
     payoutAmount: totalShares > 0 ? Math.floor((m.shares / totalShares) * pool) : 0,
   }))
-  return { members: distributeRemainder(withPay, pool, m => m.shares), totalShares }
+  const paid = distributeRemainder(withPay, pool, m => m.shares)
+  // #267: decompose each member's payout into the first-window (base share) and
+  // scaled (additional shares) portions, by their own base/additional split, so
+  // leaders see "first 24h: 1 share = $X" and "after: N shares = $Y". The two
+  // always sum to the member's total (afterPayout is the complement), so the
+  // pool stays whole regardless of remainder distribution.
+  const withInterval = paid.map(m => {
+    const withinPayout = m.shares > 0
+      ? Math.round(m.payoutAmount * (m.baseShares / m.shares))
+      : 0
+    return { ...m, withinPayout, afterPayout: m.payoutAmount - withinPayout }
+  })
+  return { members: withInterval, totalShares }
 }
 
 /**
