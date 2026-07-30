@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { API_MODE, apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { fmtDbTime } from '../utils/time'
 import { keyPoolStatus, sortKeyPoolRows } from '../utils/keyPoolTable'
+import { scraperJobSummary } from '../utils/scraperJobInfo'
 import { CheckCircle2, AlertTriangle, Loader2, Play, RefreshCw } from 'lucide-react'
 
 function Card({ title, action, children }) {
@@ -273,7 +274,12 @@ export default function GlobalAdminView() {
             <tbody>
               {jobs.map((job) => (
                 <tr key={job.job_name} className="border-b border-gray-100 dark:border-slate-700/50">
-                  <td className="py-2 pr-4 font-medium text-gray-900 dark:text-white">{job.job_name}</td>
+                  <td className="py-2 pr-4 font-medium text-gray-900 dark:text-white">
+                    <span className="cursor-help underline decoration-dotted decoration-gray-400 underline-offset-2"
+                      title={scraperJobSummary(job.job_name)}>
+                      {job.job_name}
+                    </span>
+                  </td>
                   <td className="py-2 pr-4">
                     <ScheduleCell job={job} disabled={busyJob !== null}
                       onSave={(v) => saveSchedule(job, v)} />

@@ -19,6 +19,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Faction armory now syncs automatically every hour (`inventory-sync`).** A new
+  scraper job snapshots the faction inventory across every category with a pooled
+  key and upserts `inventory_items` on the hour, so loaned-item tracking and payout
+  valuations stay fresh without a leader clicking "Sync". The manual Leadership sync
+  still works and writes the same `sync_metadata` row. Registered disabled — enable
+  it per tenant in Global Admin like every other job.
+- **Scraper job names in Global Admin now explain themselves on hover.** Each job in
+  the Scraper Jobs table shows a tooltip summarizing what it does, which Torn API
+  calls it makes, and what it feeds — sourced from the job-by-job reference.
 - **Your own API key is shown (masked) in the hamburger menu (#264).** The
   account dropdown now displays which key is on file for your session as
   `••••<last 4>` — so you can confirm you logged in with the right key when

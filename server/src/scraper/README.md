@@ -156,6 +156,19 @@ payout enrichment values crime reward/requirement items correctly.
 - **Feeds:** payout item valuations, OC economics
 - **API calls:** 1
 
+### inventory-sync — `0 0 * * * *` (hourly, top of the hour)
+
+Faction armory snapshot: one v1 `/faction/{id}` call across every tracked
+category (temporary, medical, utilities, drugs, armor, weapons, caches,
+cesium) with a pooled key. The cron counterpart of the manual Leadership
+"Sync" button — both upsert `inventory_items` and write the same
+`sync_metadata` row (`data_type='inventory'`; cron runs attribute it to
+`scraper`).
+
+- **Writes:** `inventory_items`, `sync_metadata`
+- **Feeds:** Leadership inventory/loaned-item tracking, payout item valuations
+- **API calls:** 1
+
 ### revives-sync — no schedule (on demand)
 
 Not on cron. Triggered from the war-room/RW fetch flow for a specific ranked
