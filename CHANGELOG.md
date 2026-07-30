@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Days in faction in the Member Overview (#287).** Two new sortable, pickable
+  columns: **Total Days** (lifetime, across every stint) and **Streak** (current
+  continuous stint). Plus a **minimum-tenure threshold** ("Min Days in Faction")
+  in threshold sets and a **Tenure ≥ days** filter to isolate recent joiners or
+  veterans. Completes the member-metrics epic.
 - **Member Overview now flags members it can't assess (#286).** When a member
   lacks the data to evaluate a threshold, they're marked amber **"inconclusive"**
   instead of silently counted as passing — with its own summary count and a

@@ -46,10 +46,15 @@ export default function ThresholdModal({
 
   const filteredCategories = useMemo(() => {
     // Hide stats marked noPerDay — daily-min thresholds don't make sense for ELO etc.
-    const eligible = STAT_PATHS_BY_CATEGORY.map(cat => ({
+    const statCats = STAT_PATHS_BY_CATEGORY.map(cat => ({
       ...cat,
       stats: cat.stats.filter(s => !s.noPerDay),
     })).filter(cat => cat.stats.length > 0)
+    // Membership tenure (#287): a point-in-time minimum, not a daily rate.
+    const eligible = [
+      { id: 'membership', label: 'Membership', stats: [{ key: 'days_in_faction', label: 'Min Days in Faction', placeholder: 'min days' }] },
+      ...statCats,
+    ]
     const needle = search.trim().toLowerCase()
     if (!needle) return eligible
     return eligible
@@ -189,7 +194,7 @@ export default function ThresholdModal({
                       step="any"
                       value={thresholds[s.key] ?? ''}
                       onChange={e => handleChange(s.key, e.target.value)}
-                      placeholder="min/day"
+                      placeholder={s.placeholder ?? 'min/day'}
                       className="w-24 px-2 py-1 text-xs border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>

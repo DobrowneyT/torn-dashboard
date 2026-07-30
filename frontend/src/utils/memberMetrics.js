@@ -107,9 +107,19 @@ export function buildMemberRow(member, snaps = [], windowDays) {
   return row
 }
 
-// The per-day value a threshold is checked against (gym is its own column).
+// Threshold keys that check a point-in-time value rather than a per-day rate
+// (#287 tenure). Mapped to the row field holding that value.
+const POINT_IN_TIME_THRESHOLDS = {
+  days_in_faction: 'total_days_in_faction',
+  streak: 'streak_days',
+}
+
+// The value a threshold is checked against. Gym and the tenure thresholds are
+// their own row fields; every other stat is a per-day rate.
 function thresholdValue(row, statKey) {
-  return statKey === 'gym_energy' ? row.gym_energy_perday : row[statKey + '_perday']
+  if (statKey === 'gym_energy') return row.gym_energy_perday
+  if (POINT_IN_TIME_THRESHOLDS[statKey]) return row[POINT_IN_TIME_THRESHOLDS[statKey]]
+  return row[statKey + '_perday']
 }
 
 // Classify a built row against a threshold set (statKey → min, or null for no

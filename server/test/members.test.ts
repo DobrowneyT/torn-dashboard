@@ -13,10 +13,15 @@ beforeAll(async () => {
 
   // Shared fixtures for every endpoint test in this file.
   await stack.db.query(`
-    INSERT INTO members (member_id, member_name, tier, tier_override, is_current, last_scraped) VALUES
-      ('300', 'Trout',  3, NULL, true,  '2026-07-01T00:00:00'),
-      ('301', 'Salmon', 5, 2,    true,  '2026-07-02T00:00:00'),
-      ('302', 'Gone',   6, NULL, false, NULL)
+    INSERT INTO members (member_id, member_name, tier, tier_override, is_current, last_scraped, total_days_in_faction) VALUES
+      ('300', 'Trout',  3, NULL, true,  '2026-07-01T00:00:00', 589),
+      ('301', 'Salmon', 5, 2,    true,  '2026-07-02T00:00:00', NULL),
+      ('302', 'Gone',   6, NULL, false, NULL, NULL)
+  `)
+  // 300 has an open stint that began 10 days ago → streak 10; 301 has none.
+  await stack.db.query(`
+    INSERT INTO member_faction_stints (member_id, joined_at, left_at) VALUES
+      ('300', now() - interval '10 days', NULL)
   `)
   await stack.db.query(`
     INSERT INTO member_cpr_v2 (member_id, crime_name, position_label, cpr_value) VALUES
@@ -60,6 +65,8 @@ describe('GET /api/members', () => {
         tier: 3,
         tier_override: null,
         last_scraped: '2026-07-01T00:00:00',
+        total_days_in_faction: 589,
+        streak_days: 10,
         avg_cpr: 70,
         role_count: 2,
       },
@@ -69,6 +76,8 @@ describe('GET /api/members', () => {
         tier: 5,
         tier_override: 2,
         last_scraped: '2026-07-02T00:00:00',
+        total_days_in_faction: null,
+        streak_days: null, // no open stint
         avg_cpr: 55,
         role_count: 1,
       },
