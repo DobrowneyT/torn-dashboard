@@ -8,6 +8,7 @@ import { createTornClient } from './tornClient.js'
 import { createRunLogger } from './runLog.js'
 import { createScheduler } from './scheduler.js'
 import { itemsSyncJob, type JobDeps } from './jobs/itemsSync.js'
+import { inventorySyncJob } from './jobs/inventorySync.js'
 import { crimesSyncJob } from './jobs/crimesSync.js'
 import { cprScanJob } from './jobs/cprScan.js'
 import { membersSyncJob } from './jobs/membersSync.js'
@@ -42,6 +43,10 @@ export interface ScraperWiringOptions {
 // pg_cron cadence): auto-setup, T-1h enable, war-end disable.
 const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => Promise<{ rows: number; details?: Record<string, unknown> }>]> = [
   ['items-sync', '0 15 4 * * *', itemsSyncJob],
+  // Faction armory snapshot hourly (top of the hour) — keeps loaned-item
+  // tracking and payout valuations fresh; the manual Leadership "Sync" button
+  // still works and writes the same sync_metadata row.
+  ['inventory-sync', '0 0 * * * *', inventorySyncJob],
   ['crimes-sync', '0 */30 * * * *', crimesSyncJob],
   ['cpr-scan', '0 30 5,17 * * *', cprScanJob],
   ['members-sync', '0 5 * * * *', membersSyncJob],

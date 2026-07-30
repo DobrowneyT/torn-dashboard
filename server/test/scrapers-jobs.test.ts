@@ -338,6 +338,43 @@ describe('CPR scan job', () => {
   })
 })
 
+describe('inventory sync job', () => {
+  it('fetches the faction inventory with a pooled key and upserts inventory_items + sync_metadata', async () => {
+    // v1 faction endpoint keyed by the seeded faction id, one category per key.
+    stack.torn.setHandler(`/faction/${TEST_FACTION.tornFactionId}`, () => ({
+      drugs: [
+        { ID: 206, name: 'Xanax', quantity: 40, available: 38, loaned: 2, loaned_to: '801', type: 'Drug' },
+        // Missing name/quantity → defaults ("Item {ID}", 0).
+        { ID: 197 },
+      ],
+      armor: [
+        { ID: 640, name: 'Riot Helmet', quantity: 5, available: 5, loaned: 0, loaned_to: null, type: 'Defensive' },
+      ],
+    }))
+
+    const { inventorySyncJob } = await import('../src/scraper/jobs/inventorySync.js')
+    const result = await inventorySyncJob(deps())
+    expect(result.rows).toBe(3)
+
+    const rows = await stack.db.query(`SELECT * FROM inventory_items ORDER BY id`)
+    expect(rows.rows).toHaveLength(3)
+    expect(rows.rows.find((r) => r.id === '206')).toMatchObject({
+      name: 'Xanax', quantity: 40, available: 38, loaned: 2, loaned_to: '801',
+      api_type: 'Drug', category: 'drugs',
+    })
+    // Missing fields default the Python/manual-sync way.
+    expect(rows.rows.find((r) => r.id === '197')).toMatchObject({
+      name: 'Item 197', quantity: 0, available: 0, loaned: 0, category: 'drugs',
+    })
+
+    // sync_metadata records the inventory sync so the Leadership page's
+    // "last synced" reads the same whether cron or a manual sync wrote it.
+    const meta = await stack.db.query(`SELECT synced_by FROM sync_metadata WHERE data_type = 'inventory'`)
+    expect(meta.rows).toHaveLength(1)
+    expect(meta.rows[0].synced_by).toBe('scraper')
+  })
+})
+
 // #247: a failure part-way through the crimes backlog must not throw away the
 // pages already fetched — crimes-sync commits per page, so an error on a later
 // page leaves the earlier pages persisted for the next run to resume from.
