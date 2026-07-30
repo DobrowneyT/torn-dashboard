@@ -6,6 +6,10 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireNotVisitor, requireRole } from './authz.js'
 import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
+import { projectPersonalstats } from './overviewStatPaths.js'
+
+// Overview time windows (days). 'all' imposes no lower bound.
+const OVERVIEW_WINDOW_DAYS: Record<string, number> = { '7': 7, '30': 30, '90': 90, '365': 365 }
 
 export interface LeadershipDeps {
   db: pg.Pool
@@ -117,20 +121,44 @@ export function registerLeadershipRoutes(app: FastifyInstance, deps: LeadershipD
     return { deleted: true }
   })
 
-  // The overview grid's input: every member's snapshots since a date, in one
-  // response (no client paging against a row cap).
+  // The overview grid's input: every member's snapshots over a window, in one
+  // response (no client paging against a row cap). Accepts either `window`
+  // (7/30/90/365/all) or a legacy `since` (YYYY-MM-DD). personalstats is
+  // projected down to the catalog paths the grid can display (#285), keeping
+  // the same nested shape so long/`all` windows stay small on the wire.
   app.get('/api/overview/daily-stats', READ, async (req, reply) => {
-    const since = (req.query as { since?: string }).since
-    if (!since || !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
-      return reply.status(400).send({ error: 'since (YYYY-MM-DD) is required' })
+    const { window, since } = req.query as { window?: string; since?: string }
+
+    let lowerBound: string | null = null
+    if (window != null) {
+      if (window === 'all') {
+        lowerBound = null
+      } else if (OVERVIEW_WINDOW_DAYS[window] != null) {
+        lowerBound = new Date(Date.now() - OVERVIEW_WINDOW_DAYS[window] * 86400_000)
+          .toISOString().slice(0, 10)
+      } else {
+        return reply.status(400).send({ error: 'window must be one of 7, 30, 90, 365, all' })
+      }
+    } else if (since != null) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+        return reply.status(400).send({ error: 'since must be YYYY-MM-DD' })
+      }
+      lowerBound = since
+    } else {
+      return reply.status(400).send({ error: 'window (7/30/90/365/all) or since (YYYY-MM-DD) is required' })
     }
+
     const res = await db.query(
       `SELECT member_id, snapshot_date, personalstats, profile, is_donator, property_name,
               last_action_timestamp, gym_strength, gym_speed, gym_dexterity, gym_defense, gym_energy
-       FROM member_daily_stats WHERE snapshot_date >= $1
+       FROM member_daily_stats
+       ${lowerBound ? 'WHERE snapshot_date >= $1' : ''}
        ORDER BY member_id ASC, snapshot_date DESC`,
-      [since]
+      lowerBound ? [lowerBound] : []
     )
+    for (const row of res.rows) {
+      if (row.personalstats != null) row.personalstats = projectPersonalstats(row.personalstats)
+    }
     return { snapshots: res.rows }
   })
 
