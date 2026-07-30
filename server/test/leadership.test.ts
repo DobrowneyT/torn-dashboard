@@ -128,16 +128,17 @@ describe('member-overview threshold sets', () => {
 })
 
 describe('GET /api/overview/daily-stats', () => {
-  it('returns every member’s snapshots since a date, newest snapshot first per member', async () => {
+  it('returns snapshots since a date (legacy param), newest first, projected to catalog stats', async () => {
     await stack.db.query(`
       INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('702', 'Grinder', 4, true)
     `)
+    // Real nested catalog shape + a non-catalog branch that projection must strip.
     await stack.db.query(`
       INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats, gym_strength) VALUES
-        ('700', '2026-07-01', '{"xantaken": 100}', 1000000),
-        ('700', '2026-07-05', '{"xantaken": 104}', 1050000),
-        ('702', '2026-07-05', '{"xantaken": 3}',   900000),
-        ('702', '2026-06-01', '{"xantaken": 1}',   800000)
+        ('700', '2026-07-01', '{"drugs": {"xanax": 100}, "secret": {"internal": 9}}', 1000000),
+        ('700', '2026-07-05', '{"drugs": {"xanax": 104}, "secret": {"internal": 9}}', 1050000),
+        ('702', '2026-07-05', '{"drugs": {"xanax": 3}}',   900000),
+        ('702', '2026-06-01', '{"drugs": {"xanax": 1}}',   800000)
     `)
     const { status, body } = await get('/api/overview/daily-stats?since=2026-06-15', 'visitor')
     expect(status).toBe(200)
@@ -148,9 +149,36 @@ describe('GET /api/overview/daily-stats', () => {
       ['700', '2026-07-01'],
       ['702', '2026-07-05'],
     ])
-    expect(body.snapshots[0].personalstats).toEqual({ xantaken: 104 })
+    // Catalog path kept; the non-catalog "secret" branch is stripped.
+    expect(body.snapshots[0].personalstats).toEqual({ drugs: { xanax: 104 } })
 
+    // No window and no since → 400.
     expect((await get('/api/overview/daily-stats')).status).toBe(400)
+    // Unknown window → 400.
+    expect((await get('/api/overview/daily-stats?window=nonsense')).status).toBe(400)
+  })
+
+  it('window=all returns the full history; window=30 bounds it to the last 30 days', async () => {
+    // Existing fixture: 702 has snapshots on 2026-07-05 and 2026-06-01.
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const recent = iso(new Date())
+    const old = iso(new Date(Date.now() - 200 * 86400_000))
+    await stack.db.query(
+      `INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats)
+       VALUES ('702', $1, '{"drugs":{"xanax":9}}'), ('702', $2, '{"drugs":{"xanax":2}}')
+       ON CONFLICT (member_id, snapshot_date) DO NOTHING`,
+      [recent, old]
+    )
+
+    const all = await get('/api/overview/daily-stats?window=all', 'visitor')
+    const dates702all = all.body.snapshots.filter((s: any) => s.member_id === '702').map((s: any) => s.snapshot_date)
+    expect(dates702all).toContain(old)         // 200 days back — only "all" reaches it
+    expect(dates702all).toContain('2026-06-01')
+
+    const w30 = await get('/api/overview/daily-stats?window=30', 'visitor')
+    const dates702w30 = w30.body.snapshots.filter((s: any) => s.member_id === '702').map((s: any) => s.snapshot_date)
+    expect(dates702w30).toContain(recent)      // within 30 days
+    expect(dates702w30).not.toContain(old)     // 200 days back — excluded
   })
 })
 

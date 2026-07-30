@@ -19,6 +19,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Member Overview windows now go the distance (#285).** The overview can look
+  back over 7 / 30 / 90 / 365 days or **All** — and "All" finally spans a
+  member's whole stored history instead of silently capping at ~30 days. The
+  daily-stats endpoint projects each day-row down to just the stats the grid can
+  display, so the longer windows stay small on the wire.
 - **Faction tenure is now tracked (#284).** `members-sync` captures each member's
   lifetime `days_in_faction` from the roster (no extra API calls) and maintains a
   new `member_faction_stints` history — opening a stint when a member appears,

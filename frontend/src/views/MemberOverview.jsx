@@ -16,15 +16,19 @@ import ThresholdModal from '../components/ThresholdModal'
 // Constants & built-in views
 // ────────────────────────────────────────────────────────────────────────────
 
-const SNAPSHOT_DAYS = 30                // how much history we pull at once
 const ACTIVE_THRESHOLD_HOURS = 48       // > this → flagged inactive
 const PI_NAME = 'Private Island'        // exact property name we require
 
+// We pull the member's full stored history once (projected to catalog stats
+// server-side, so it stays small) and window it client-side — no refetch on
+// window change. "All" now genuinely spans everything, not a 30-day cap.
 const TIME_WINDOWS = [
-  { id: '1d',  label: '1d',  days: 1 },
-  { id: '7d',  label: '7d',  days: 7 },
-  { id: '30d', label: '30d', days: 30 },
-  { id: 'all', label: 'All', days: null },
+  { id: '1d',   label: '1d',   days: 1 },
+  { id: '7d',   label: '7d',   days: 7 },
+  { id: '30d',  label: '30d',  days: 30 },
+  { id: '90d',  label: '90d',  days: 90 },
+  { id: '365d', label: '1y',   days: 365 },
+  { id: 'all',  label: 'All',  days: null },
 ]
 
 // Built-in presets — always available, can't be edited or deleted.
@@ -169,13 +173,11 @@ export default function MemberOverview() {
     ;(async () => {
       try {
         setLoading(true)
-        const since = new Date(Date.now() - (SNAPSHOT_DAYS + 1) * 24 * 60 * 60 * 1000)
-          .toISOString().slice(0, 10)
 
-        // The overview endpoint returns every member's snapshots since the
-        // window start in one response (no PostgREST row cap to page around).
+        // Pull the full history once (server projects it to catalog stats), then
+        // window it client-side — so every window incl. "All" works instantly.
         const [snapshotsResp, membersResp, viewsResp, threshResp] = await Promise.all([
-          apiGet(`/api/overview/daily-stats?since=${since}`),
+          apiGet(`/api/overview/daily-stats?window=all`),
           apiGet('/api/members'),
           fetchSavedViews().catch(e => { console.warn('saved views fetch failed', e); return [] }),
           fetchThresholdSets().catch(e => { console.warn('threshold sets fetch failed', e); return [] }),
