@@ -106,6 +106,20 @@ const IDENTITY_COLUMNS = {
     sortValue: r => r.tier ?? 0,
     render: r => r.tier ?? '—',
   },
+  days_in_faction: {
+    label: 'Total Days',
+    sortValue: r => r.total_days_in_faction ?? -1,
+    render: r => r.total_days_in_faction == null
+      ? <span className="text-gray-400">—</span>
+      : <span className="font-mono">{r.total_days_in_faction.toLocaleString()}</span>,
+  },
+  streak: {
+    label: 'Streak',
+    sortValue: r => r.streak_days ?? -1,
+    render: r => r.streak_days == null
+      ? <span className="text-gray-400">—</span>
+      : <span className="font-mono">{r.streak_days.toLocaleString()}d</span>,
+  },
   gym_energy: {
     label: 'Gym Energy/d',
     sortValue: r => r.gym_energy_perday ?? -1,
@@ -153,6 +167,7 @@ export default function MemberOverview() {
   const [donatorFilter, setDonatorFilter]     = useState('any')
   const [piFilter, setPiFilter]               = useState('any')
   const [activeFilter, setActiveFilter]       = useState('any')
+  const [minTenure, setMinTenure]             = useState('')   // '' = no tenure filter
   const [sortCol, setSortCol]                 = useState('name')
   const [sortDir, setSortDir]                 = useState('asc')
   const [showWarningsOnly, setShowWarningsOnly] = useState(false)
@@ -237,11 +252,15 @@ export default function MemberOverview() {
       if (piFilter === 'no'  && (r.property_name == null || r.property_name === PI_NAME)) return false
       if (activeFilter === 'active'   && isInactive(r.last_action_timestamp)) return false
       if (activeFilter === 'inactive' && !isInactive(r.last_action_timestamp)) return false
+      if (minTenure !== '' && Number.isFinite(Number(minTenure))) {
+        // A member with unknown total days can't clear a tenure floor.
+        if (r.total_days_in_faction == null || r.total_days_in_faction < Number(minTenure)) return false
+      }
       if (showWarningsOnly && r.compliance_status !== 'flagged') return false
       if (showInconclusiveOnly && r.compliance_status !== 'inconclusive') return false
       return true
     })
-  }, [rowsWithFlags, search, donatorFilter, piFilter, activeFilter, showWarningsOnly, showInconclusiveOnly])
+  }, [rowsWithFlags, search, donatorFilter, piFilter, activeFilter, minTenure, showWarningsOnly, showInconclusiveOnly])
 
   // ── Resolve active view → ordered list of column ids ──
   const allViews = useMemo(() => [...BUILT_IN_VIEWS, ...savedViews], [savedViews])
@@ -497,6 +516,15 @@ export default function MemberOverview() {
           <FilterTri label="Donator"  value={donatorFilter} onChange={setDonatorFilter} yesLabel="Yes" noLabel="No" />
           <FilterTri label="PI"       value={piFilter}      onChange={setPiFilter}      yesLabel="Yes" noLabel="No" />
           <FilterTri label="Active"   value={activeFilter}  onChange={setActiveFilter}  yesLabel="Active" noLabel="Inactive" />
+          <div className="flex items-center gap-1">
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Tenure ≥</span>
+            <input
+              type="number" min="0" placeholder="days"
+              value={minTenure}
+              onChange={e => setMinTenure(e.target.value)}
+              className="w-20 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
         </div>
       </div>
 

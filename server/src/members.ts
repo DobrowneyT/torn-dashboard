@@ -8,6 +8,12 @@ export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
   app.get('/api/members', { preHandler: requireAuth() }, async () => {
     const res = await db.query(`
       SELECT m.member_id, m.member_name, m.tier, m.tier_override, m.last_scraped,
+             m.total_days_in_faction,
+             -- Streak: whole days since the current (open) faction stint began (#287).
+             (SELECT floor(extract(epoch FROM (now() - s.joined_at)) / 86400)::int
+              FROM member_faction_stints s
+              WHERE s.member_id = m.member_id AND s.left_at IS NULL
+              ORDER BY s.joined_at DESC LIMIT 1) AS streak_days,
              COALESCE(avg(c.cpr_value), 0)::float8 AS avg_cpr,
              count(c.cpr_value)::int AS role_count
       FROM members m

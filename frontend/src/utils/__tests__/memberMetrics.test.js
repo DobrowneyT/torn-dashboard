@@ -97,6 +97,35 @@ describe('classifyRow — inconclusive is never a silent pass', () => {
   })
 })
 
+describe('days-in-faction (#287)', () => {
+  const opts = { nowMs: Date.now() }
+
+  it('carries total days + streak from the member onto the row', () => {
+    const m = { ...member, total_days_in_faction: 589, streak_days: 10 }
+    const row = buildMemberRow(m, [snap(daysAgo(0), 5)], 30)
+    expect(row.total_days_in_faction).toBe(589)
+    expect(row.streak_days).toBe(10)
+  })
+
+  it('flags a member below the minimum-tenure threshold (point-in-time, not a rate)', () => {
+    const m = { ...member, total_days_in_faction: 3, streak_days: 3 }
+    const row = buildMemberRow(m, [snap(daysAgo(0), 5), snap(daysAgo(7), 1)], 7)
+    const c = classifyRow(row, { days_in_faction: 30 }, opts) // 3 < 30
+    expect(c.threshold_failures).toEqual(new Set(['days_in_faction']))
+    expect(c.compliance_status).toBe('flagged')
+  })
+
+  it('passes a veteran and marks unknown tenure inconclusive', () => {
+    const vet = buildMemberRow({ ...member, total_days_in_faction: 589 }, [snap(daysAgo(0), 5)], 30)
+    expect(classifyRow(vet, { days_in_faction: 30 }, opts).compliance_status).toBe('ok')
+
+    const unknown = buildMemberRow({ ...member, total_days_in_faction: null }, [snap(daysAgo(0), 5)], 30)
+    const c = classifyRow(unknown, { days_in_faction: 30 }, opts)
+    expect(c.threshold_inconclusive).toEqual(new Set(['days_in_faction']))
+    expect(c.compliance_status).toBe('inconclusive')
+  })
+})
+
 describe('summarizeCompliance — flagged and inconclusive are separate buckets', () => {
   it('counts confirmed problems apart from cannot-assess', () => {
     const ok = buildMemberRow(member, [snap(daysAgo(0), 130), snap(daysAgo(7), 100)], 7)
