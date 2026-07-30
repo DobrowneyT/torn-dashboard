@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { apiGet } from '../utils/apiClient'
+import { STAT_PATHS_BY_KEY } from '../utils/statPaths'
 import {
-  STAT_PATHS, STAT_PATHS_BY_KEY, getByPath,
-} from '../utils/statPaths'
+  buildMemberRow, classifyRow, summarizeCompliance, isInactive, PI_NAME,
+} from '../utils/memberMetrics'
 import { formatCurrency } from '../utils/payoutCalculations'
 import {
   fetchSavedViews, createSavedView, updateSavedView, deleteSavedView,
@@ -15,9 +16,6 @@ import ThresholdModal from '../components/ThresholdModal'
 // ────────────────────────────────────────────────────────────────────────────
 // Constants & built-in views
 // ────────────────────────────────────────────────────────────────────────────
-
-const ACTIVE_THRESHOLD_HOURS = 48       // > this → flagged inactive
-const PI_NAME = 'Private Island'        // exact property name we require
 
 // We pull the member's full stored history once (projected to catalog stats
 // server-side, so it stays small) and window it client-side — no refetch on
@@ -158,6 +156,7 @@ export default function MemberOverview() {
   const [sortCol, setSortCol]                 = useState('name')
   const [sortDir, setSortDir]                 = useState('asc')
   const [showWarningsOnly, setShowWarningsOnly] = useState(false)
+  const [showInconclusiveOnly, setShowInconclusiveOnly] = useState(false)
 
   // ── Shared (DB-backed) views & thresholds ──
   const [savedViews, setSavedViews]         = useState([])
@@ -208,75 +207,9 @@ export default function MemberOverview() {
   // ── Compute per-member row (identity + per-stat deltas / daily averages) ──
   const memberRows = useMemo(() => {
     const window = TIME_WINDOWS.find(w => w.id === timeWindow) ?? TIME_WINDOWS[2]
-    return members.map(m => {
-      const snaps = snapshotsByMember.get(String(m.member_id)) ?? []
-      const newest = snaps[0]
-      const oldest = pickOldestInWindow(snaps, window.days)
-      const haveTwoSnaps = newest && oldest && newest !== oldest
-      const daysCovered = haveTwoSnaps
-        ? daysBetween(oldest.snapshot_date, newest.snapshot_date)
-        : 0
-
-      // A row is "data complete" if we have a delta over the full requested
-      // window. The "All" window is always complete by definition.
-      const dataComplete = window.days == null
-        ? haveTwoSnaps
-        : daysCovered >= window.days
-      const dataPartial = !dataComplete && haveTwoSnaps
-      const dataMissing = !haveTwoSnaps
-      const dataPartialReason = dataMissing
-        ? 'Only one snapshot — need at least two days of data to compute a delta.'
-        : dataPartial
-          ? `Only ${daysCovered}d of ${window.days}d of data.`
-          : null
-
-      const row = {
-        member_id: m.member_id,
-        member_name: m.member_name,
-        tier: m.tier,
-        level: getByPath(newest?.profile, 'level'),
-        last_action_timestamp: newest?.last_action_timestamp ?? getByPath(newest?.profile, 'last_action.timestamp'),
-        is_donator: newest?.is_donator,
-        donator_label: getByPath(newest?.profile, 'donator_status'),
-        property_name: newest?.property_name,
-        snapshot_count: snaps.length,
-        days_covered: daysCovered,
-        data_complete: dataComplete,
-        data_partial: !dataComplete,
-        data_partial_reason: dataPartialReason,
-      }
-
-      // Per-stat deltas. We divide by daysCovered (which pickOldestInWindow
-      // already caps at window.days), never by raw window length, so a 4-day
-      // delta on a 7-day window correctly reports the daily rate over 4 days.
-      const newestPs = newest?.personalstats
-      const oldestPs = oldest?.personalstats
-      for (const def of STAT_PATHS) {
-        let cur = getByPath(newestPs, def.path)
-        let old = oldestPs ? getByPath(oldestPs, def.path) : null
-        if (def.isSeconds) {
-          if (cur != null) cur = cur / 3600
-          if (old != null) old = old / 3600
-        }
-        const delta = (cur != null && old != null && haveTwoSnaps) ? cur - old : null
-        const perDay = (delta != null && daysCovered > 0) ? delta / daysCovered : null
-        row[def.key + '_current'] = cur
-        row[def.key + '_delta']   = delta
-        row[def.key + '_perday']  = perDay
-      }
-
-      // Gym energy: same delta-or-nothing rule (no cumulative fallback).
-      const gymEnergyNew = newest?.gym_energy
-      const gymEnergyOld = oldest?.gym_energy
-      const gymDelta = (gymEnergyNew != null && gymEnergyOld != null && haveTwoSnaps)
-        ? gymEnergyNew - gymEnergyOld
-        : null
-      row.gym_energy        = gymEnergyNew
-      row.gym_energy_delta  = gymDelta
-      row.gym_energy_perday = (gymDelta != null && daysCovered > 0) ? gymDelta / daysCovered : null
-
-      return row
-    })
+    return members.map(m =>
+      buildMemberRow(m, snapshotsByMember.get(String(m.member_id)) ?? [], window.days)
+    )
   }, [members, snapshotsByMember, timeWindow])
 
   // ── Resolve active threshold set ──
@@ -285,38 +218,13 @@ export default function MemberOverview() {
     return thresholdSets.find(t => t.id === activeThresholdId) ?? null
   }, [activeThresholdId, thresholdSets])
 
-  // ── Annotate rows with threshold failures ──
-  const rowsWithFlags = useMemo(() => {
-    if (!activeThresholds) {
-      return memberRows.map(r => ({ ...r, threshold_failures: null }))
-    }
-    return memberRows.map(r => {
-      const failures = new Set()
-      for (const [statKey, min] of Object.entries(activeThresholds.thresholds)) {
-        if (min == null || !Number.isFinite(Number(min))) continue
-        const value = (statKey === 'gym_energy')
-          ? r.gym_energy_perday
-          : r[statKey + '_perday']
-        if (value == null) continue  // no data — don't flag
-        if (value < Number(min)) failures.add(statKey)
-      }
-      return { ...r, threshold_failures: failures.size > 0 ? failures : null }
-    })
-  }, [memberRows, activeThresholds])
+  // ── Annotate rows with threshold failures + inconclusive (amber) flags ──
+  const rowsWithFlags = useMemo(() =>
+    memberRows.map(r => ({ ...r, ...classifyRow(r, activeThresholds?.thresholds ?? null) })),
+    [memberRows, activeThresholds])
 
-  // ── Compliance summary ──
-  const compliance = useMemo(() => {
-    let inactive = 0, nonDonator = 0, nonPI = 0, warning = 0, thresholdFail = 0
-    for (const r of rowsWithFlags) {
-      let hasIssue = false
-      if (isInactive(r.last_action_timestamp))            { inactive++;      hasIssue = true }
-      if (r.is_donator === false)                          { nonDonator++;    hasIssue = true }
-      if (r.property_name && r.property_name !== PI_NAME)  { nonPI++;         hasIssue = true }
-      if (r.threshold_failures && r.threshold_failures.size > 0) { thresholdFail++; hasIssue = true }
-      if (hasIssue) warning++
-    }
-    return { total: rowsWithFlags.length, warning, inactive, nonDonator, nonPI, thresholdFail }
-  }, [rowsWithFlags])
+  // ── Compliance summary (flagged vs inconclusive are separate buckets) ──
+  const compliance = useMemo(() => summarizeCompliance(rowsWithFlags), [rowsWithFlags])
 
   // ── Filtered rows ──
   const filteredRows = useMemo(() => {
@@ -329,17 +237,11 @@ export default function MemberOverview() {
       if (piFilter === 'no'  && (r.property_name == null || r.property_name === PI_NAME)) return false
       if (activeFilter === 'active'   && isInactive(r.last_action_timestamp)) return false
       if (activeFilter === 'inactive' && !isInactive(r.last_action_timestamp)) return false
-      if (showWarningsOnly) {
-        const hasWarning =
-             isInactive(r.last_action_timestamp)
-          || r.is_donator === false
-          || (r.property_name && r.property_name !== PI_NAME)
-          || (r.threshold_failures && r.threshold_failures.size > 0)
-        if (!hasWarning) return false
-      }
+      if (showWarningsOnly && r.compliance_status !== 'flagged') return false
+      if (showInconclusiveOnly && r.compliance_status !== 'inconclusive') return false
       return true
     })
-  }, [rowsWithFlags, search, donatorFilter, piFilter, activeFilter, showWarningsOnly])
+  }, [rowsWithFlags, search, donatorFilter, piFilter, activeFilter, showWarningsOnly, showInconclusiveOnly])
 
   // ── Resolve active view → ordered list of column ids ──
   const allViews = useMemo(() => [...BUILT_IN_VIEWS, ...savedViews], [savedViews])
@@ -448,18 +350,33 @@ export default function MemberOverview() {
               {compliance.total} members · {sortedRows.length} shown · daily averages over {timeWindow === 'all' ? 'all available data' : timeWindow}
             </p>
           </div>
-          <button
-            onClick={() => setShowWarningsOnly(v => !v)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              showWarningsOnly
-                ? 'bg-red-600 text-white'
-                : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30'
-            }`}
-            title="Toggle filter to only show members failing one or more requirements"
-          >
-            ⚠ {compliance.warning} / {compliance.total} flagged
-            {showWarningsOnly ? ' · showing' : ' · click to filter'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setShowWarningsOnly(v => !v); setShowInconclusiveOnly(false) }}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                showWarningsOnly
+                  ? 'bg-red-600 text-white'
+                  : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30'
+              }`}
+              title="Show only members failing one or more requirements"
+            >
+              ⚠ {compliance.flagged} / {compliance.total} flagged
+              {showWarningsOnly ? ' · showing' : ''}
+            </button>
+            <button
+              onClick={() => { setShowInconclusiveOnly(v => !v); setShowWarningsOnly(false) }}
+              disabled={compliance.inconclusive === 0}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                showInconclusiveOnly
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30'
+              }`}
+              title="Show only members we can't fully assess (missing data)"
+            >
+              🟡 {compliance.inconclusive} inconclusive
+              {showInconclusiveOnly ? ' · showing' : ''}
+            </button>
+          </div>
         </div>
 
         {/* View row */}
@@ -619,15 +536,16 @@ export default function MemberOverview() {
                 </tr>
               )}
               {sortedRows.map((r, idx) => {
-                const rowFails = r.threshold_failures && r.threshold_failures.size > 0
                 const baseBg = idx % 2 === 0
                   ? 'bg-white dark:bg-slate-900'
                   : 'bg-gray-50/50 dark:bg-slate-800/40'
-                const rowClass = rowFails
+                const rowClass = r.compliance_status === 'flagged'
                   ? 'bg-red-50 dark:bg-red-900/15'
-                  : r.data_partial
-                    ? `${baseBg} ring-1 ring-amber-200 dark:ring-amber-900/40`
-                    : baseBg
+                  : r.compliance_status === 'inconclusive'
+                    ? 'bg-amber-50/60 dark:bg-amber-900/10'
+                    : r.data_partial
+                      ? `${baseBg} ring-1 ring-amber-200 dark:ring-amber-900/40`
+                      : baseBg
                 return (
                   <tr key={r.member_id} className={rowClass}>
                     {activeView.columns.map(colId => {
@@ -635,8 +553,10 @@ export default function MemberOverview() {
                       if (!col) return null
                       // Compliance-driven flag (identity columns)
                       let flag = col.compliance ? col.compliance(r) : null
-                      // Threshold-driven flag (stat columns)
+                      // Threshold-driven flags (stat columns): red = below the
+                      // bar, amber = thresholded but no data to assess.
                       if (r.threshold_failures && r.threshold_failures.has(colId)) flag = 'red'
+                      else if (r.threshold_inconclusive && r.threshold_inconclusive.has(colId)) flag = 'yellow'
                       return (
                         <td
                           key={colId}
@@ -664,6 +584,10 @@ export default function MemberOverview() {
               below threshold
             </span>
           )}
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+            inconclusive (missing data)
+          </span>
         </div>
       </div>
 
@@ -700,32 +624,6 @@ export default function MemberOverview() {
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
-
-function pickOldestInWindow(snapshots, days) {
-  if (!snapshots || snapshots.length === 0) return null
-  if (snapshots.length === 1) return snapshots[0]
-  if (days == null) return snapshots[snapshots.length - 1]
-  // snapshots are newest-first. Pick the newest one whose date is <= target.
-  const target = new Date()
-  target.setDate(target.getDate() - days)
-  const targetStr = target.toISOString().slice(0, 10)
-  for (const s of snapshots) {
-    if (s.snapshot_date <= targetStr) return s
-  }
-  return snapshots[snapshots.length - 1]
-}
-
-function daysBetween(olderDate, newerDate) {
-  const a = new Date(olderDate)
-  const b = new Date(newerDate)
-  return Math.max(1, Math.round((b - a) / 86_400_000))
-}
-
-function isInactive(unixTs) {
-  if (!unixTs) return false
-  const ageHours = (Date.now() / 1000 - unixTs) / 3600
-  return ageHours > ACTIVE_THRESHOLD_HOURS
-}
 
 function formatRelativeTime(unixTs) {
   if (!unixTs) return '—'

@@ -19,6 +19,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Member Overview now flags members it can't assess (#286).** When a member
+  lacks the data to evaluate a threshold, they're marked amber **"inconclusive"**
+  instead of silently counted as passing — with its own summary count and a
+  "needs data" filter, kept separate from the red "flagged" (confirmed problem)
+  bucket. Individual missing-data cells show amber too. (Row math extracted to a
+  unit-tested `memberMetrics` util.)
 - **Member Overview windows now go the distance (#285).** The overview can look
   back over 7 / 30 / 90 / 365 days or **All** — and "All" finally spans a
   member's whole stored history instead of silently capping at ~30 days. The
