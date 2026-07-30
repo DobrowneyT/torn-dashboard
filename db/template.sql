@@ -313,7 +313,8 @@ CREATE TABLE public.members (
   is_current boolean DEFAULT true,
   last_seen timestamp without time zone DEFAULT now(),
   first_seen timestamp without time zone DEFAULT now(),
-  has_cpr_key boolean DEFAULT false NOT NULL
+  has_cpr_key boolean DEFAULT false NOT NULL,
+  total_days_in_faction integer
 );
 
 CREATE TABLE public.oc_crime_positions (
@@ -791,6 +792,20 @@ CREATE INDEX member_stat_samples_member_time_idx
   ON public.member_stat_samples (member_id, captured_at DESC);
 CREATE INDEX member_stat_samples_captured_idx
   ON public.member_stat_samples (captured_at);
+
+-- #284 Observed faction-membership stints: one row per continuous stint
+-- (left_at IS NULL = the open/current one). Maintained by members-sync; powers
+-- the days-in-faction streak. Lifetime total lives on members.total_days_in_faction.
+CREATE TABLE public.member_faction_stints (
+  id        bigserial PRIMARY KEY,
+  member_id text NOT NULL,
+  joined_at timestamptz NOT NULL DEFAULT now(),
+  left_at   timestamptz
+);
+CREATE UNIQUE INDEX member_faction_stints_one_open_idx
+  ON public.member_faction_stints (member_id) WHERE left_at IS NULL;
+CREATE INDEX member_faction_stints_member_idx
+  ON public.member_faction_stints (member_id, joined_at);
 
 -- Per-member war notes (#199): one global note per member, war-lead editable.
 CREATE TABLE public.member_notes (

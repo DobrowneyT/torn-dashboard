@@ -48,6 +48,8 @@ const NEW_TABLES = [
   'competitions', 'competition_results',
   // Intraday competition-stat sample series (#227)
   'member_stat_samples',
+  // Observed faction-membership stints (#284)
+  'member_faction_stints',
   // Per-member war notes (#199)
   'member_notes',
   // Web Push subscriptions (#207)

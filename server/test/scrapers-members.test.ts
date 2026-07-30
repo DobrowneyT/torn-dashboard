@@ -43,9 +43,9 @@ describe('members sync job', () => {
   it('applies current/left transitions and reconciles the key pool', async () => {
     stack.torn.setPath('/v2/faction/members', {
       members: [
-        { id: 1001, name: 'Stayer' },
-        { id: 1003, name: 'Boomerang' },
-        { id: 1004, name: 'FreshRecruit' },
+        { id: 1001, name: 'Stayer', days_in_faction: 589 },
+        { id: 1003, name: 'Boomerang', days_in_faction: 12 },
+        { id: 1004, name: 'FreshRecruit', days_in_faction: 1 },
       ],
     })
 
@@ -54,16 +54,29 @@ describe('members sync job', () => {
     expect(result.rows).toBe(3)
 
     const members = await stack.db.query(
-      'SELECT member_id, member_name, is_current, tier FROM members ORDER BY member_id'
+      'SELECT member_id, member_name, is_current, tier, total_days_in_faction FROM members ORDER BY member_id'
     )
     expect(members.rows).toEqual([
-      { member_id: '1001', member_name: 'Stayer', is_current: true, tier: 3 },
+      // Torn's lifetime days_in_faction is captured verbatim (#284).
+      { member_id: '1001', member_name: 'Stayer', is_current: true, tier: 3, total_days_in_faction: 589 },
       // The leaver keeps their row (history) but drops out of the roster.
-      { member_id: '1002', member_name: 'Leaver', is_current: false, tier: 4 },
-      { member_id: '1003', member_name: 'Boomerang', is_current: true, tier: 5 },
+      { member_id: '1002', member_name: 'Leaver', is_current: false, tier: 4, total_days_in_faction: null },
+      { member_id: '1003', member_name: 'Boomerang', is_current: true, tier: 5, total_days_in_faction: 12 },
       // Brand-new member gets the tier default (6).
-      { member_id: '1004', member_name: 'FreshRecruit', is_current: true, tier: 6 },
+      { member_id: '1004', member_name: 'FreshRecruit', is_current: true, tier: 6, total_days_in_faction: 1 },
     ])
+
+    // Stints (#284): every roster member has exactly one open stint; the leaver
+    // has none open. No prior snapshot history here, so joined_at seeds to ~now.
+    const stints = await stack.db.query(
+      `SELECT member_id, left_at IS NULL AS open FROM member_faction_stints
+       WHERE left_at IS NULL ORDER BY member_id`
+    )
+    expect(stints.rows.map((r) => r.member_id)).toEqual(['1001', '1003', '1004'])
+    const leaverOpen = await stack.db.query(
+      `SELECT count(*)::int AS n FROM member_faction_stints WHERE member_id = '1002' AND left_at IS NULL`
+    )
+    expect(leaverOpen.rows[0].n).toBe(0)
 
     // Pool reconcile: the leaver's key leaves the rotation with the reason;
     // the rejoiner's disabled key is let back in.
@@ -255,6 +268,110 @@ describe('member profile job (#226)', () => {
       [today]
     )
     expect(nonDonator.rows[0]).toMatchObject({ is_donator: false, property_name: null })
+  })
+})
+
+// #284 — stint maintenance + rollout seeding. Runs last so it can drive its own
+// rosters without disturbing the earlier shared-stack tests.
+describe('faction stints (#284)', () => {
+  const iso = (d: Date) => d.toISOString().slice(0, 10)
+  const daysAgo = (n: number) => iso(new Date(Date.now() - n * 86400_000))
+  const roster = (extra: Array<{ id: number; name: string; days_in_faction?: number }>) => ({
+    members: [
+      { id: 1001, name: 'Stayer', days_in_faction: 589 },
+      { id: 1003, name: 'Boomerang', days_in_faction: 12 },
+      { id: 1004, name: 'FreshRecruit', days_in_faction: 1 },
+      ...extra,
+    ],
+  })
+
+  // Remove the synthetic members so the later cpr-scan test still sees exactly
+  // the shared-stack roster (1001/1003/1004).
+  afterAll(async () => {
+    const ids = ['3001', '3002', '3003']
+    await stack.db.query(`DELETE FROM member_faction_stints WHERE member_id = ANY($1)`, [ids])
+    await stack.db.query(`DELETE FROM member_daily_stats WHERE member_id = ANY($1)`, [ids])
+    await stack.db.query(`DELETE FROM members WHERE member_id = ANY($1)`, [ids])
+  })
+
+  it('seeds a new stint from the most recent contiguous snapshot run (gap = absence)', async () => {
+    await stack.db.query(`
+      INSERT INTO members (member_id, member_name, is_current) VALUES
+        ('3001', 'Veteran', false), ('3002', 'Returner', false)
+      ON CONFLICT (member_id) DO NOTHING
+    `)
+    // 3001: unbroken run for the last 6 days, then an old orphan 30 days back.
+    for (const n of [1, 2, 3, 4, 5, 6, 30]) {
+      await stack.db.query(
+        `INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats)
+         VALUES ('3001', $1, '{}') ON CONFLICT DO NOTHING`, [daysAgo(n)]
+      )
+    }
+    // 3002: only stale snapshots (40–45 days back) — newest is well past the gap.
+    for (const n of [40, 41, 42, 43, 44, 45]) {
+      await stack.db.query(
+        `INSERT INTO member_daily_stats (member_id, snapshot_date, personalstats)
+         VALUES ('3002', $1, '{}') ON CONFLICT DO NOTHING`, [daysAgo(n)]
+      )
+    }
+
+    stack.torn.setPath('/v2/faction/members', roster([
+      { id: 3001, name: 'Veteran' }, { id: 3002, name: 'Returner' },
+    ]))
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    await membersSyncJob(deps())
+
+    const v = await stack.db.query(
+      `SELECT (joined_at AT TIME ZONE 'UTC')::date::text AS d FROM member_faction_stints
+       WHERE member_id = '3001' AND left_at IS NULL`
+    )
+    // Start of the contiguous run — 6 days ago, not the 30-day-old orphan.
+    expect(v.rows[0].d).toBe(daysAgo(6))
+
+    const r = await stack.db.query(
+      `SELECT (joined_at AT TIME ZONE 'UTC')::date::text AS d FROM member_faction_stints
+       WHERE member_id = '3002' AND left_at IS NULL`
+    )
+    // Newest snapshot is stale → treated as a fresh join at ~now.
+    expect(r.rows[0].d).toBe(daysAgo(0))
+  })
+
+  it('closes the open stint on leave and opens a fresh one on rejoin', async () => {
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, is_current) VALUES ('3003', 'Yoyo', false)
+       ON CONFLICT (member_id) DO NOTHING`
+    )
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+
+    // Present → one open stint (no snapshots ⇒ joined ~now).
+    stack.torn.setPath('/v2/faction/members', roster([{ id: 3003, name: 'Yoyo' }]))
+    await membersSyncJob(deps())
+    let s = await stack.db.query(
+      `SELECT count(*)::int AS n FROM member_faction_stints WHERE member_id = '3003' AND left_at IS NULL`
+    )
+    expect(s.rows[0].n).toBe(1)
+
+    // Absent → the open stint is closed.
+    stack.torn.setPath('/v2/faction/members', roster([]))
+    await membersSyncJob(deps())
+    s = await stack.db.query(
+      `SELECT
+         count(*) FILTER (WHERE left_at IS NULL)::int AS open,
+         count(*) FILTER (WHERE left_at IS NOT NULL)::int AS closed
+       FROM member_faction_stints WHERE member_id = '3003'`
+    )
+    expect(s.rows[0]).toMatchObject({ open: 0, closed: 1 })
+
+    // Rejoin → a second, fresh stint opens; the prior one stays closed.
+    stack.torn.setPath('/v2/faction/members', roster([{ id: 3003, name: 'Yoyo' }]))
+    await membersSyncJob(deps())
+    s = await stack.db.query(
+      `SELECT
+         count(*)::int AS total,
+         count(*) FILTER (WHERE left_at IS NULL)::int AS open
+       FROM member_faction_stints WHERE member_id = '3003'`
+    )
+    expect(s.rows[0]).toMatchObject({ total: 2, open: 1 })
   })
 })
 

@@ -19,6 +19,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Faction tenure is now tracked (#284).** `members-sync` captures each member's
+  lifetime `days_in_faction` from the roster (no extra API calls) and maintains a
+  new `member_faction_stints` history — opening a stint when a member appears,
+  closing it when they leave, and opening a fresh one on rejoin — so a current
+  membership **streak** can be derived. On rollout, existing members' current
+  stint start is inferred from the gap in their daily-stats snapshot history.
+  (Groundwork for the Member Overview days-in-faction columns.)
 - **Faction armory now syncs automatically every hour (`inventory-sync`).** A new
   scraper job snapshots the faction inventory across every category with a pooled
   key and upserts `inventory_items` on the hour, so loaned-item tracking and payout
