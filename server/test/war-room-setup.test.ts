@@ -167,12 +167,22 @@ describe('war-room manual setup', () => {
     await stack.db.query(`DELETE FROM faction_secrets WHERE name = 'tornstats_api_key'`)
   })
 
-  it('fetch-chains seeds both sides of the chain singleton', async () => {
+  it('fetch-chains seeds both sides, converting relative timeout/cooldown to absolute epochs', async () => {
+    const nowEpoch = Math.floor(Date.now() / 1000)
     const { status } = await call('POST', '/api/war-room/fetch-chains', { enemy_faction_id: ENEMY })
     expect(status).toBe(200)
     const chain = await stack.db.query('SELECT * FROM war_room_chain_v2 WHERE id = 1')
-    expect(chain.rows[0]).toMatchObject({ current: 42, max: 100, timeout: 240 })
+    expect(chain.rows[0]).toMatchObject({ current: 42, max: 100 })
+    // Torn returns timeout as RELATIVE seconds (240); we store the absolute
+    // epoch it expires at so the UI can count down against it.
+    expect(Number(chain.rows[0].timeout)).toBeGreaterThanOrEqual(nowEpoch + 240 - 5)
+    expect(Number(chain.rows[0].timeout)).toBeLessThanOrEqual(nowEpoch + 240 + 5)
+    // cooldown 0 (relative) ⇒ no active cooldown ⇒ null.
+    expect(chain.rows[0].cooldown).toBeNull()
+    // Enemy's relative timeout (90s) is converted the same way inside the jsonb.
     expect(chain.rows[0].enemy).toMatchObject({ current: 3, max: 10 })
+    expect(Number(chain.rows[0].enemy.timeout)).toBeGreaterThanOrEqual(nowEpoch + 90 - 5)
+    expect(chain.rows[0].enemy.cooldown).toBeNull()
     expect(chain.rows[0].our_last_fetched_at).toBeTruthy()
 
     expect((await call('POST', '/api/war-room/fetch-chains', { enemy_faction_id: ENEMY }, 'visitor')).status).toBe(403)

@@ -17,6 +17,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+
+- **War Room chain timer showed "no chain" even during a live chain.** Torn's
+  chain API returns `timeout`/`cooldown` as *relative* seconds, but the war-room
+  code stored them verbatim while the UI counts down against *absolute* epochs —
+  so the chain always read as idle. `fetch-chains` now converts both to absolute
+  epochs (for our side and the enemy) on store; `start`/`end` were already
+  absolute and are unchanged.
+
 ### Added
 
 - **Days in faction in the Member Overview (#287).** Two new sortable, pickable
