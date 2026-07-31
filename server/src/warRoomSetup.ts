@@ -177,6 +177,18 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
       client.fetch(`/v2/faction/${enemyId}/chain`, claimed.key).catch(() => null),
     ])
     const oc = ours.chain ?? {}
+    // Torn returns `timeout` and `cooldown` as RELATIVE seconds (e.g. timeout
+    // 184 = "184s until the chain drops"), while the war-room UI counts down
+    // against absolute epochs (`start`/`end` already are). Convert at store time
+    // so the timer card renders live; 0/absent ⇒ no active timer ⇒ null.
+    const nowEpoch = Math.floor(Date.now() / 1000)
+    const absTimer = (rel: unknown): number | null => {
+      const n = Number(rel)
+      return Number.isFinite(n) && n > 0 ? nowEpoch + n : null
+    }
+    const enemyChain = enemy?.chain
+      ? { ...enemy.chain, timeout: absTimer(enemy.chain.timeout), cooldown: absTimer(enemy.chain.cooldown) }
+      : null
     const res = await db.query(
       `INSERT INTO war_room_chain_v2 (id, current, max, modifier, timeout, start_ts, cooldown, end_ts,
          enemy, our_last_fetched_at, enemy_last_fetched_at, updated_at)
@@ -189,10 +201,10 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
          enemy_last_fetched_at = COALESCE(EXCLUDED.enemy_last_fetched_at, war_room_chain_v2.enemy_last_fetched_at),
          updated_at = now()
        RETURNING *`,
-      [oc.current ?? null, oc.max ?? null, oc.modifier ?? null, oc.timeout ?? null,
-       oc.start ?? null, oc.cooldown ?? null, oc.end ?? null,
-       enemy?.chain ? JSON.stringify(enemy.chain) : null,
-       enemy?.chain ? new Date().toISOString() : null]
+      [oc.current ?? null, oc.max ?? null, oc.modifier ?? null, absTimer(oc.timeout),
+       oc.start ?? null, absTimer(oc.cooldown), oc.end ?? null,
+       enemyChain ? JSON.stringify(enemyChain) : null,
+       enemyChain ? new Date().toISOString() : null]
     )
     void res
     const fresh = await db.query('SELECT * FROM war_room_chain_v2 WHERE id = 1')
