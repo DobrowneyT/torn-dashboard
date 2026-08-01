@@ -18,6 +18,11 @@ export const SCRAPER_JOB_INFO = {
     'Faction attacks, incremental forward sync (GET /v2/faction/attacks, ' +
     'pages of 100). Feeds War Room, RW payouts, and war overview. ' +
     '1 call per 100 new attacks.',
+  'factions-sync':
+    'Faction-name backfill: resolves names for faction ids seen in attacks that ' +
+    'we don\'t have yet (GET /v2/faction/{id}/basic), so the payout opposing-' +
+    'faction filter shows real names instead of "Faction #id". 1 call per ' +
+    'unknown faction, capped at 40 per run.',
   'members-sync':
     'Faction roster (GET /v2/faction/members): marks leavers, upserts current ' +
     'members, and reconciles the key pool. Feeds the Members page and every ' +
