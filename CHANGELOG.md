@@ -37,14 +37,20 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
-- **Faction-name backfill scraper (`factions-sync`).** The old sync's faction-
-  name lookup (`_backfill_factions`) wasn't ported in the server migration, so
-  the `factions` table stopped growing and the payout opposing-faction filter
-  showed "Faction #45672" for any opponent seen only after the cutover. A new
-  hourly job resolves names for faction ids referenced by attacks that we don't
-  have yet (`GET /v2/faction/{id}/basic`, capped at 40 per run) and upserts the
-  lookup table. Registered disabled by default — enable it in Global Admin (or
-  hit "Run now" once to clear the current backlog).
+- **Faction names captured inline by `attacks-sync`.** The v2 attack payload
+  carries each side's faction `{id, name}`, which we were discarding. The attacks
+  sync now upserts those names into the `factions` lookup as it pages — so the
+  payout opposing-faction filter fills in names for **free** (no extra API
+  calls), and a fresh re-pull of the attacks table rebuilds the lookup for every
+  faction ever fought.
+- **Faction lookup completion scraper (`factions-sync`).** The old sync's
+  faction lookup (`_backfill_factions`) wasn't ported in the server migration.
+  Restored as an hourly job that fills the **tags** (and any names attacks
+  didn't cover) via `GET /v2/faction/{id}/basic` — the attack payload has no
+  tag — so the filter shows "SMTH - Phoenix Nirvana [PN]" rather than a bare
+  name or "Faction #20465". Tagless factions are stored with an empty tag so
+  they aren't re-fetched forever; capped at 40 lookups per run. Registered
+  disabled by default — enable it in Global Admin (or "Run now" once).
 - **War Room chain watch is now live.** While the war room is enabled, the
   server ticker polls our and the enemy's chain at their configured cadences
   (`chain_poll_interval_ours_sec` / `_enemy_sec`), plus a forced poll when our

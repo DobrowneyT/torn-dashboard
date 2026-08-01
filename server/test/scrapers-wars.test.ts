@@ -185,6 +185,15 @@ describe('attacks sync job', () => {
     // Factionless attacker survives normalization.
     expect(rows.rows[2]).toMatchObject({ attack_id: 9003, attacker_faction_id: null })
 
+    // Faction names are captured inline from the attack payload into the
+    // `factions` lookup (both sides), so the payout filter shows names without a
+    // separate API lookup. A factionless side contributes nothing.
+    const facs = await stack.db.query('SELECT id, name FROM factions WHERE id = ANY($1::int[]) ORDER BY id', [[US, 9100]])
+    expect(facs.rows).toEqual([
+      { id: 9100, name: 'Old Foes' },
+      { id: US, name: 'Us' },
+    ])
+
     // Second run resumes from the newest stored `started` (inclusive
     // overlap; existing rows are upserts, not duplicates).
     const second = await attacksSyncJob(deps())
