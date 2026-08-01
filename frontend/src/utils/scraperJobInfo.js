@@ -16,13 +16,15 @@ export const SCRAPER_JOB_INFO = {
     'and weekly OC payouts. 1–few API calls.',
   'attacks-sync':
     'Faction attacks, incremental forward sync (GET /v2/faction/attacks, ' +
-    'pages of 100). Feeds War Room, RW payouts, and war overview. ' +
-    '1 call per 100 new attacks.',
+    'pages of 100). Feeds War Room, RW payouts, and war overview, and captures ' +
+    'each side\'s faction name into the factions lookup for free (no extra ' +
+    'calls). 1 call per 100 new attacks.',
   'factions-sync':
-    'Faction-name backfill: resolves names for faction ids seen in attacks that ' +
-    'we don\'t have yet (GET /v2/faction/{id}/basic), so the payout opposing-' +
-    'faction filter shows real names instead of "Faction #id". 1 call per ' +
-    'unknown faction, capped at 40 per run.',
+    'Faction lookup completion: fills tags (and any missing names) for faction ' +
+    'ids seen in attacks via GET /v2/faction/{id}/basic — attacks-sync captures ' +
+    'names inline but the attack payload has no tag. Gives the payout opposing-' +
+    'faction filter its "[TAG]" labels. 1 call per unresolved faction, capped ' +
+    'at 40 per run.',
   'members-sync':
     'Faction roster (GET /v2/faction/members): marks leavers, upserts current ' +
     'members, and reconciles the key pool. Feeds the Members page and every ' +

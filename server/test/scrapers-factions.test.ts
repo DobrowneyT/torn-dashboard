@@ -59,9 +59,33 @@ describe('factions sync job', () => {
   })
 
   it('is a no-op once every referenced faction is known', async () => {
-    // 333/444 stay unresolved but are not retried into a name; only 222 was
-    // resolvable, and it's now known — so a second run resolves nothing new.
+    // 333/444 stay unresolved but are not retried into a name; 222 is now known
+    // (name + tag) — so a second run resolves nothing new.
     const result = await factionsSyncJob(deps())
     expect(result.rows).toBe(0)
+  })
+
+  it('fills the tag for a name-only faction and marks a genuinely tagless one resolved', async () => {
+    // attacks-sync leaves referenced factions present-by-name with a NULL tag;
+    // factions-sync completes them. 555 has a tag; 666 genuinely has none.
+    await stack.db.query(`INSERT INTO factions (id, name) VALUES (555, 'Named Only'), (666, 'Tagless')`)
+    await stack.db.query(`
+      INSERT INTO faction_attacks (attack_id, started, attacker_id, attacker_faction_id, defender_id, defender_faction_id, result, is_incoming) VALUES
+        (4, 1003, 13, 555, 23, 666, 'Attacked', false)
+    `)
+    stack.torn.setPath('/v2/faction/555/basic', { basic: { id: 555, name: 'Named Only', tag: 'NOU' } })
+    stack.torn.setPath('/v2/faction/666/basic', { basic: { id: 666, name: 'Tagless' } }) // no tag in response
+
+    const result = await factionsSyncJob(deps())
+    expect(result.rows).toBe(2)
+    const rows = await stack.db.query('SELECT id, name, tag FROM factions WHERE id IN (555, 666) ORDER BY id')
+    expect(rows.rows).toEqual([
+      { id: 555, name: 'Named Only', tag: 'NOU' },
+      { id: 666, name: 'Tagless', tag: '' },  // resolved to empty-string, not NULL
+    ])
+
+    // Second run: 666's '' tag reads as resolved, so it isn't re-fetched.
+    const again = await factionsSyncJob(deps())
+    expect(again.rows).toBe(0)
   })
 })

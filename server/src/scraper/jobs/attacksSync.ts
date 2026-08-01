@@ -25,6 +25,20 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
   let rows = 0
   let pages = 0
   let rateLimited = false
+  // The v2 attack payload carries each side's faction {id, name} inline. We
+  // collect the distinct names across the run and upsert the `factions` lookup
+  // at the end, so opposing-faction labels populate for free — no per-faction
+  // /basic call. Iterating ASC means the newest name wins on a rename. The
+  // hourly factions-sync still fills tags (absent from this payload) and any
+  // faction we've never fought.
+  const factionNames = new Map<number, string>()
+  const noteFaction = (f: unknown) => {
+    const faction = (f ?? {}) as { id?: unknown; name?: unknown }
+    const id = Number(faction.id)
+    if (Number.isFinite(id) && id > 0 && typeof faction.name === 'string' && faction.name) {
+      factionNames.set(id, faction.name)
+    }
+  }
   for (;;) {
     let data: any
     try {
@@ -45,6 +59,8 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
       const mods = raw.modifiers ?? {}
       const attackerFactionId = attacker.faction?.id ?? null
       const defenderFactionId = defender.faction?.id ?? null
+      noteFaction(attacker.faction)
+      noteFaction(defender.faction)
       await db.query(
         `INSERT INTO faction_attacks (attack_id, started, ended, attacker_id, attacker_name,
            attacker_faction_id, defender_id, defender_name, defender_faction_id, result,
@@ -70,5 +86,15 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
     from = attacks[attacks.length - 1].started ?? from
   }
 
-  return { rows, details: { pages, rate_limited: rateLimited } }
+  // Upsert the collected faction names. Name only — tag isn't in this payload,
+  // so ON CONFLICT leaves any tag that factions-sync already resolved intact.
+  for (const [id, name] of factionNames) {
+    await db.query(
+      `INSERT INTO factions (id, name, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = now()`,
+      [id, name]
+    )
+  }
+
+  return { rows, details: { pages, rate_limited: rateLimited, factions: factionNames.size } }
 }
