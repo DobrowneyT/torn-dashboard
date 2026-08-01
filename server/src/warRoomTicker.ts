@@ -12,6 +12,7 @@ import type { WarRoomHub } from './warRoom.js'
 import type { PushService } from './push.js'
 import { createSurgeDetector, type SurgeConfig, type SurgeEvent } from './warRoomSurge.js'
 import { snapshotDibbedStatus, sweepDibsExpiry, DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
+import { storeOurChain, storeEnemyChain, chainPollDue, chainNearExpiry, CHAIN_FORCE_POLL_SEC } from './warRoomChain.js'
 
 export interface WarRoomTickerDeps {
   db: pg.Pool
@@ -178,8 +179,49 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
         // Subscribers: a background web-push, even with the tab closed.
         void deps.pushService?.sendToAll({ ...msg, url: '/war-room', tag: `surge-${ev.direction}` }).catch(() => {})
       }
+
+      // Live chain watch: poll our + enemy chains at their configured cadences
+      // (or force a poll when our chain is within seconds of dropping), convert
+      // Torn's relative timers to absolute, and broadcast the refreshed row.
+      await pollChains(cfg, claimed.key, ourId, enemyId)
     } finally {
       ticking = false
+    }
+  }
+
+  // Cadence-gated chain polling, sharing the tick's claimed key. Our-side and
+  // enemy-side each have their own interval; our side also force-polls near
+  // expiry. One broadcast carries the full (both-sides) singleton row.
+  async function pollChains(cfg: any, key: string, ourId: number, enemyId: number): Promise<void> {
+    const nowMs = Date.now()
+    const nowEpoch = Math.floor(nowMs / 1000)
+    const cur = await db.query(
+      `SELECT timeout,
+              extract(epoch from our_last_fetched_at)   AS our_fetched,
+              extract(epoch from enemy_last_fetched_at) AS enemy_fetched
+       FROM war_room_chain_v2 WHERE id = 1`
+    )
+    const row = cur.rows[0]
+    const ourInterval = Number(cfg.chain_poll_interval_ours_sec ?? 5)
+    const enemyInterval = Number(cfg.chain_poll_interval_enemy_sec ?? 30)
+    const forceOurs = chainNearExpiry(row?.timeout != null ? Number(row.timeout) : null, nowEpoch, CHAIN_FORCE_POLL_SEC)
+
+    let latest: any = null
+    if (forceOurs || chainPollDue(row?.our_fetched, ourInterval, nowMs)) {
+      try {
+        const data = await client.fetch(`/v2/faction/${ourId}/chain`, key)
+        latest = await storeOurChain(db, data.chain, nowEpoch)
+      } catch { /* transient — the next cadence retries */ }
+    }
+    if (enemyId && chainPollDue(row?.enemy_fetched, enemyInterval, nowMs)) {
+      try {
+        const data = await client.fetch(`/v2/faction/${enemyId}/chain`, key)
+        latest = await storeEnemyChain(db, data.chain, nowEpoch)
+      } catch { /* enemy chain is best-effort */ }
+    }
+    if (latest) {
+      const sn = await db.query('SELECT now() AS server_now')
+      hub.broadcast('chain', [latest], sn.rows[0].server_now)
     }
   }
 
