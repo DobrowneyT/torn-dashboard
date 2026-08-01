@@ -10,6 +10,7 @@ import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
 import { resolveSpyProviders, fetchSpiesForMembers } from './spyFetch.js'
 import { syncWarRoomMemberStates } from './warRoomTicker.js'
+import { storeOurChain, storeEnemyChain } from './warRoomChain.js'
 import type { WarRoomHub } from './warRoom.js'
 
 export interface WarRoomSetupDeps {
@@ -176,37 +177,11 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
       client.fetch(`/v2/faction/${ourId}/chain`, claimed.key),
       client.fetch(`/v2/faction/${enemyId}/chain`, claimed.key).catch(() => null),
     ])
-    const oc = ours.chain ?? {}
-    // Torn returns `timeout` and `cooldown` as RELATIVE seconds (e.g. timeout
-    // 184 = "184s until the chain drops"), while the war-room UI counts down
-    // against absolute epochs (`start`/`end` already are). Convert at store time
-    // so the timer card renders live; 0/absent ⇒ no active timer ⇒ null.
+    // Store both sides via the shared helpers (relative→absolute conversion,
+    // per-side upsert). A failed enemy fetch leaves the last good enemy value.
     const nowEpoch = Math.floor(Date.now() / 1000)
-    const absTimer = (rel: unknown): number | null => {
-      const n = Number(rel)
-      return Number.isFinite(n) && n > 0 ? nowEpoch + n : null
-    }
-    const enemyChain = enemy?.chain
-      ? { ...enemy.chain, timeout: absTimer(enemy.chain.timeout), cooldown: absTimer(enemy.chain.cooldown) }
-      : null
-    const res = await db.query(
-      `INSERT INTO war_room_chain_v2 (id, current, max, modifier, timeout, start_ts, cooldown, end_ts,
-         enemy, our_last_fetched_at, enemy_last_fetched_at, updated_at)
-       VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, now(), $9, now())
-       ON CONFLICT (id) DO UPDATE SET
-         current = EXCLUDED.current, max = EXCLUDED.max, modifier = EXCLUDED.modifier,
-         timeout = EXCLUDED.timeout, start_ts = EXCLUDED.start_ts, cooldown = EXCLUDED.cooldown,
-         end_ts = EXCLUDED.end_ts, enemy = EXCLUDED.enemy,
-         our_last_fetched_at = now(),
-         enemy_last_fetched_at = COALESCE(EXCLUDED.enemy_last_fetched_at, war_room_chain_v2.enemy_last_fetched_at),
-         updated_at = now()
-       RETURNING *`,
-      [oc.current ?? null, oc.max ?? null, oc.modifier ?? null, absTimer(oc.timeout),
-       oc.start ?? null, absTimer(oc.cooldown), oc.end ?? null,
-       enemyChain ? JSON.stringify(enemyChain) : null,
-       enemyChain ? new Date().toISOString() : null]
-    )
-    void res
+    await storeOurChain(db, ours.chain, nowEpoch)
+    if (enemy?.chain) await storeEnemyChain(db, enemy.chain, nowEpoch)
     const fresh = await db.query('SELECT * FROM war_room_chain_v2 WHERE id = 1')
     hub.broadcast('chain', fresh.rows, await now())
     return { ok: true }

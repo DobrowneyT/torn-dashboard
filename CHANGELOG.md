@@ -28,6 +28,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **War Room chain watch is now live.** While the war room is enabled, the
+  server ticker polls our and the enemy's chain at their configured cadences
+  (`chain_poll_interval_ours_sec` / `_enemy_sec`), plus a forced poll when our
+  chain is within ~6s of dropping, and broadcasts the refreshed timer to every
+  open tab. Previously the chain was only seeded once at setup and never
+  refreshed. (Chain fetch/convert/store logic extracted to a shared module and
+  reused by the manual seed.)
 - **Days in faction in the Member Overview (#287).** Two new sortable, pickable
   columns: **Total Days** (lifetime, across every stint) and **Streak** (current
   continuous stint). Plus a **minimum-tenure threshold** ("Min Days in Faction")
