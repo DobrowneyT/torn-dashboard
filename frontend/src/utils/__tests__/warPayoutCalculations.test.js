@@ -742,6 +742,33 @@ describe('calculateRealWarPayouts — per-member overrides', () => {
     expect(carol.participationScore).toBe(1.75)
   })
 
+  it('counts assists/losses against the war opponent even when Torn flags is_ranked_war=false', () => {
+    // Real Torn data: only scoring WINS carry is_ranked_war=true. Assists and
+    // losses against the war opponent come back is_ranked_war=false, so the
+    // opponent-faction membership — not the flag — must decide "war" scope.
+    const OPPONENT = 41929
+    const attacks = [
+      // Carol: 1 war win (flagged) + 1 assist + 1 loss vs the opponent, both UNflagged.
+      { id: 70, attacker_id: 300, attacker_faction_id: 10739, defender_faction_id: OPPONENT, result: 'Attacked', is_ranked_war: true,  is_incoming: false, chain: 1, respect_gain: 5 },
+      { id: 71, attacker_id: 300, attacker_faction_id: 10739, defender_faction_id: OPPONENT, result: 'Assist',   is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+      { id: 72, attacker_id: 300, attacker_faction_id: 10739, defender_faction_id: OPPONENT, result: 'Lost',     is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+      // …and an assist against a RANDOM faction — still excluded.
+      { id: 73, attacker_id: 300, attacker_faction_id: 10739, defender_faction_id: 99999,    result: 'Assist',   is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+    ]
+    const contribs = [{ member_id: 300, member_name: 'Carol', score: 0, attacks: 3 }]
+    const settings = { ...baseSettings, opponentFactionIds: new Set([OPPONENT]) }
+    const { members } = calculateRealWarPayouts(contribs, attacks, settings)
+    const carol = members.find(m => m.memberId === 300)
+    // Raw Hit Report counts every assist/loss…
+    expect(carol.assists).toBe(2)
+    expect(carol.losses).toBe(1)
+    // …war-scoped slices now credit the opponent-directed ones (not the random assist).
+    expect(carol.warAssists).toBe(1)
+    expect(carol.warLosses).toBe(1)
+    // Score = 1 war hit × 1.25 + 1 assist × 0.5 + 1 loss × 0.5 = 2.25.
+    expect(carol.participationScore).toBe(2.25)
+  })
+
   it('non-war mugs are not penalised by mug multiplier', () => {
     // 1 non-war Mugged + nothing else. Pre-fix scored it as a non-war regular
     // hit (regularHits=1, score 0 with default regMult) AND applied the mug

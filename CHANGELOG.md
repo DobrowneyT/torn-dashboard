@@ -19,6 +19,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **War payouts scored only war hits — assists, losses and mugs came through as
+  0.** Since the June "exclude non-war assists/losses" change, the participation
+  calculator required Torn's `is_ranked_war` flag to credit an assist/loss/mug as
+  war-scoped, but Torn only sets that flag on scoring *wins* — assists and losses
+  against the war opponent come back `is_ranked_war=false`, so every one was
+  dropped from the score (they still showed in the raw Hit Report). War scope is
+  now decided by whether the attack was against the war opponent faction
+  (`war.opponent_id`), with the flag kept as a fallback; genuinely non-war
+  assists against other factions during the window are still excluded.
 - **War Room chain timer showed "no chain" even during a live chain.** Torn's
   chain API returns `timeout`/`cooldown` as *relative* seconds, but the war-room
   code stored them verbatim while the UI counts down against *absolute* epochs —
