@@ -628,6 +628,11 @@ export default function WarPayoutManagement() {
     )
 
     const pw = Math.min(100, Math.max(0, Number(partWeight))) / 100
+    // War opponent faction — lets the calc credit assists/losses against them as
+    // war-scoped, since Torn only flags scoring wins with is_ranked_war (#…).
+    const opponentFactionIds = selectedWar.opponent_id
+      ? new Set([Number(selectedWar.opponent_id)])
+      : null
     const settings = {
       totalReward:         Number(totalReward) || 0,
       factionCutPercent:   Number(factionCutPercent),
@@ -648,6 +653,7 @@ export default function WarPayoutManagement() {
       cutoffHours:     cutoffHours === '' ? 24 : Number(cutoffHours),
       ineligibleMembers,
       forceEligibleMembers,
+      opponentFactionIds,
     }
 
     {

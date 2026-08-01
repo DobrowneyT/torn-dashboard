@@ -125,16 +125,38 @@ function emptyHitBucket() {
 }
 
 /**
+ * Decide whether an attack is part of THE war (drives the war-scoped slices).
+ *
+ * Torn's `is_ranked_war` flag is only set on scoring WINS — assists and losses
+ * against the war opponent come back `is_ranked_war=false`, so trusting the flag
+ * alone silently drops every war assist/loss. When the opponent faction(s) are
+ * known we treat any outgoing/incoming attack against them as war-scoped; the
+ * flag remains a fallback for callers that don't pass the opponent set (older
+ * tests, contexts without a resolved opponent).
+ */
+function isWarAttack(attack, opponentFactionIds) {
+  if (attack.is_ranked_war === true || attack.is_ranked_war === 'true' || attack.is_ranked_war === 1) return true
+  if (opponentFactionIds && opponentFactionIds.size > 0) {
+    const isIncoming = attack.is_incoming === true || attack.is_incoming === 'true' || attack.is_incoming === 1
+    const opposing = isIncoming ? attack.attacker_faction_id : attack.defender_faction_id
+    return opponentFactionIds.has(Number(opposing) || 0)
+  }
+  return false
+}
+
+/**
  * Apply a single attack's result to a bucket.  Shared by `buildMemberAttackStats`
  * and `buildHitReport` so both views agree on what counts as a win, loss, etc.
  *
  * See `emptyHitBucket` for the meaning of each field. The war-scoped slices
  * (warMugs / warAssists / warLosses) are populated here so the Participation
- * calculator can score non-overlapping columns.
+ * calculator can score non-overlapping columns. `opponentFactionIds` (optional)
+ * lets war scope be decided by who was attacked rather than Torn's flag — see
+ * `isWarAttack`.
  */
-function applyAttackToBucket(bucket, attack) {
+function applyAttackToBucket(bucket, attack, opponentFactionIds = null) {
   const result = attack.result || ''
-  const isRankedWar = attack.is_ranked_war === true || attack.is_ranked_war === 'true' || attack.is_ranked_war === 1
+  const isRankedWar = isWarAttack(attack, opponentFactionIds)
 
   if (result === 'Assist') {
     bucket.assists += 1
@@ -196,7 +218,7 @@ function distributeRemainder(members, pool, getSortValue) {
  * @param {Array} attacks - faction_attacks rows (pre-filtered to war window)
  * @returns {Map<number, object>} memberId → stats object
  */
-export function buildMemberAttackStats(attacks) {
+export function buildMemberAttackStats(attacks, opponentFactionIds = null) {
   const OUR_FACTION_ID = getFactionId()
   const stats = new Map()
 
@@ -211,11 +233,11 @@ export function buildMemberAttackStats(attacks) {
     }
 
     const s = stats.get(memberId)
-    applyAttackToBucket(s, attack)
+    applyAttackToBucket(s, attack, opponentFactionIds)
 
     // Bonus respect tracking (payout-specific): only for ranked-war wins at bonus chain counts
     const result = attack.result || ''
-    const isRankedWar = attack.is_ranked_war === true || attack.is_ranked_war === 'true' || attack.is_ranked_war === 1
+    const isRankedWar = isWarAttack(attack, opponentFactionIds)
     if (isRankedWar && (WIN_RESULTS.has(result) || result === 'Special')) {
       const chain = Number(attack.chain) || 0
       if (BONUS_HITS.has(chain)) {
@@ -246,7 +268,7 @@ export function buildMemberAttackStats(attacks) {
  * @param {Set<number>|null} factionFilter - set of opposing faction IDs to include; pass `null` to include all
  * @returns {Array<object>}
  */
-export function buildHitReport(attacks, factionFilter = null) {
+export function buildHitReport(attacks, factionFilter = null, opponentFactionIds = null) {
   const OUR_FACTION_ID = getFactionId()
   const rows = new Map() // memberId → row
 
@@ -292,7 +314,7 @@ export function buildHitReport(attacks, factionFilter = null) {
     if (!inFilter(opposingFactionId)) continue
 
     const row = ensure(memberId, memberName)
-    applyAttackToBucket(row[direction], a)
+    applyAttackToBucket(row[direction], a, opponentFactionIds)
   }
 
   return Array.from(rows.values()).sort((a, b) =>
@@ -381,6 +403,8 @@ export function calculateTermedWarPayouts(contributions, settings) {
     // Manual eligibility overrides
     ineligibleMembers = new Set(),    // members forced to 0 shares/payout
     forceEligibleMembers = new Set(), // members eligible regardless of threshold
+    // War opponent faction id(s) — see isWarAttack.
+    opponentFactionIds = null,
   } = settings
 
   const totalCacheValue = Number(totalReward) || 0
@@ -449,7 +473,7 @@ export function calculateTermedWarPayouts(contributions, settings) {
   }
 
   // ── Flat shares mode (default) ────────────────────────────────────
-  const flatAttackStats = buildMemberAttackStats(attacks)
+  const flatAttackStats = buildMemberAttackStats(attacks, opponentFactionIds)
 
   const members = contributions.map(m => {
     const score = Number(m.score) || 0
@@ -521,6 +545,9 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
     factionTopUp = 0,
     // Manual eligibility overrides — members in this set get 0 effort/payout
     ineligibleMembers = new Set(),
+    // War opponent faction id(s) — lets assists/losses against the opponent count
+    // as war-scoped even though Torn only flags scoring wins (see isWarAttack).
+    opponentFactionIds = null,
   } = settings
 
   const totalCacheValue = Number(totalReward) || 0
@@ -533,7 +560,7 @@ export function calculateRealWarPayouts(contributions, attacks, settings) {
   // 4. Add faction top-up to member pool (after faction cut)
   const memberPool = basePool + Number(factionTopUp)
 
-  const attackStats = buildMemberAttackStats(attacks)
+  const attackStats = buildMemberAttackStats(attacks, opponentFactionIds)
 
   // ── Step 1: raw per-member data ────────────────────────────────────
   const memberData = contributions.map(m => {
@@ -846,8 +873,9 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
     warStartAt = 0, ineligibleMembers = new Set(),
     memberShares = {},        // after/total per-member share overrides (leader tweaks)
     baseShareOverrides = {},  // #273: first-window (base) share overrides (scale mode)
+    opponentFactionIds = null, // war opponent faction id(s) — see isWarAttack
   } = opts
-  const stats = buildMemberAttackStats(windowAttacks)
+  const stats = buildMemberAttackStats(windowAttacks, opponentFactionIds)
   // When scaling, split the window at warStart + scaleHours; otherwise everything
   // counts as "within" so total score = within.
   const innerCutoff = scaleEnabled ? (Number(warStartAt) + Number(scaleHours) * 3600) : Number.MAX_SAFE_INTEGER
@@ -859,10 +887,10 @@ function flatWindowResult(contributions, windowAttacks, pool, opts = {}) {
   // (scaled) fighting. Only meaningful when scaling; without it, "within" holds
   // everything and "after" is empty (matching the score split above).
   const statsWithin = scaleEnabled
-    ? buildMemberAttackStats(windowAttacks.filter(a => (Number(a.started) || 0) <= innerCutoff))
+    ? buildMemberAttackStats(windowAttacks.filter(a => (Number(a.started) || 0) <= innerCutoff), opponentFactionIds)
     : stats
   const statsAfter = scaleEnabled
-    ? buildMemberAttackStats(windowAttacks.filter(a => (Number(a.started) || 0) > innerCutoff))
+    ? buildMemberAttackStats(windowAttacks.filter(a => (Number(a.started) || 0) > innerCutoff), opponentFactionIds)
     : new Map()
   const hitFields = (bucket) => {
     const b = bucket || emptyHitBucket()
@@ -1021,6 +1049,8 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     splitScaledPostWindow = false,
     // Manual eligibility overrides
     ineligibleMembers = new Set(),
+    // War opponent faction id(s) — see isWarAttack.
+    opponentFactionIds = null,
   } = settings
 
   const totalCacheValue = Number(totalReward) || 0
@@ -1049,6 +1079,7 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     totalReward: preCutoffPool, factionCutPercent: 0, mercCost: 0, reviverCost: 0, factionTopUp: 0,
     warHitMultiplier, assistMultiplier, lossMultiplier, mugMultiplier, regularHitMultiplier,
     memberMultiplierOverrides, participationWeight, contributionWeight, ineligibleMembers,
+    opponentFactionIds,
   })
 
   // ── Post-cutoff: either the real-war formula or flat-shares distribution ──
@@ -1056,7 +1087,7 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
     ? flatWindowResult(contributions, postAttacks, postCutoffPool, {
         threshold: postFlatThreshold, scaleEnabled: postScaleEnabled, scaleHours: postScaleHours,
         warStartAt, ineligibleMembers, memberShares: postMemberShares,
-        baseShareOverrides: preMemberShares,
+        baseShareOverrides: preMemberShares, opponentFactionIds,
       })
     : calculateRealWarPayouts(postContribs, postAttacks, {
         totalReward: postCutoffPool, factionCutPercent: 0, mercCost: 0, reviverCost: 0, factionTopUp: 0,
@@ -1069,6 +1100,7 @@ export function calculateRaceWarPayouts(contributions, attacks, settings) {
         participationWeight: postParticipationWeight,
         contributionWeight: postContributionWeight,
         ineligibleMembers,
+        opponentFactionIds,
       })
 
   // ── Combine per-member results ────────────────────────────────────
