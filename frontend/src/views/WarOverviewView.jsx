@@ -298,14 +298,20 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
 
 /**
  * Build id → name lookup. DB names (from the factions table) are canonical;
- * inline names scraped from revive rows fill any gaps.
+ * inline names scraped from revive AND attack rows fill any gaps, so names
+ * still resolve for factions the lookup table hasn't caught up on.
  */
-function buildNameLookup(revives, dbNames) {
+function buildNameLookup(revives, attacks, dbNames) {
   const lookup = {}
-  // Inline names from revives rows (fallback when not in DB)
+  // Inline names from revive rows (fallback when not in DB)
   for (const r of revives) {
     if (r.reviver_faction_id && r.reviver_faction_name) lookup[r.reviver_faction_id] = r.reviver_faction_name
     if (r.target_faction_id  && r.target_faction_name)  lookup[r.target_faction_id]  = r.target_faction_name
+  }
+  // Inline names from attack rows (#0025) — same fallback role as revives.
+  for (const a of attacks) {
+    if (a.attacker_faction_id && a.attacker_faction_name) lookup[a.attacker_faction_id] = a.attacker_faction_name
+    if (a.defender_faction_id && a.defender_faction_name) lookup[a.defender_faction_id] = a.defender_faction_name
   }
   // DB names win over inline (more canonical)
   Object.assign(lookup, dbNames)
@@ -397,9 +403,11 @@ export default function WarOverviewView() {
       const fmap = await loadFactionsByIds(factionIds)
       setRevives(revs)
       setAttacks(atks)
-      const names = {}
-      for (const [id, row] of fmap.entries()) names[id] = row.name
-      setFactionNames(names)
+      const dbNames = {}
+      for (const [id, row] of fmap.entries()) dbNames[id] = row.name
+      // Merge inline row names (revives + attacks) under the canonical DB names,
+      // so the faction filter shows names even for ids the lookup table misses.
+      setFactionNames(buildNameLookup(revs, atks, dbNames))
     } catch (e) {
       setDataError(e.message || String(e))
     } finally {
@@ -586,7 +594,7 @@ export default function WarOverviewView() {
     const [autoSeconds] = pickBinSeconds(toTs - fromTs)
     const binSeconds = binSizeSeconds ?? autoSeconds
 
-    const nameLookup = buildNameLookup(revives, factionNames)
+    const nameLookup = buildNameLookup(revives, attacks, factionNames)
     const isScatter = displayMode === 'scatter'
 
     // Shared y-axis builder. `automargin` guarantees the rotated title always
