@@ -37,6 +37,14 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Faction names stored on each attack row.** `faction_attacks` now carries
+  `attacker_faction_name` / `defender_faction_name` (mirroring how
+  `faction_revives` already stores faction names), so an attack row is
+  self-describing. `attacks-sync` populates them from the payload; a migration
+  backfills existing rows in-place from the `factions` table (no re-pull, so no
+  risk of losing attacks beyond Torn's API retention). The RW payout filter and
+  war-overview now resolve names from the rows themselves, with the `factions`
+  table still canonical for names and authoritative for the `[TAG]` suffix.
 - **Faction names captured inline by `attacks-sync`.** The v2 attack payload
   carries each side's faction `{id, name}`, which we were discarding. The attacks
   sync now upserts those names into the `factions` lookup as it pages — so the

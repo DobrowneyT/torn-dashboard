@@ -63,18 +63,22 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
       noteFaction(defender.faction)
       await db.query(
         `INSERT INTO faction_attacks (attack_id, started, ended, attacker_id, attacker_name,
-           attacker_faction_id, defender_id, defender_name, defender_faction_id, result,
+           attacker_faction_id, attacker_faction_name, defender_id, defender_name,
+           defender_faction_id, defender_faction_name, result,
            respect_gain, chain, is_ranked_war, fair_fight, war_modifier, chain_modifier,
            warlord_modifier, is_incoming)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
          ON CONFLICT (attack_id) DO UPDATE SET
            ended = EXCLUDED.ended, result = EXCLUDED.result,
+           attacker_faction_name = EXCLUDED.attacker_faction_name,
+           defender_faction_name = EXCLUDED.defender_faction_name,
            respect_gain = EXCLUDED.respect_gain, chain = EXCLUDED.chain,
            is_ranked_war = EXCLUDED.is_ranked_war, fair_fight = EXCLUDED.fair_fight,
            war_modifier = EXCLUDED.war_modifier, chain_modifier = EXCLUDED.chain_modifier,
            warlord_modifier = EXCLUDED.warlord_modifier, is_incoming = EXCLUDED.is_incoming`,
         [raw.id, raw.started ?? null, raw.ended ?? null, attacker.id ?? null, attacker.name ?? null,
-         attackerFactionId, defender.id ?? null, defender.name ?? null, defenderFactionId,
+         attackerFactionId, attacker.faction?.name ?? null, defender.id ?? null, defender.name ?? null,
+         defenderFactionId, defender.faction?.name ?? null,
          raw.result ?? null, raw.respect_gain ?? 0, raw.chain ?? 0, raw.is_ranked_war ?? false,
          mods.fair_fight ?? 1, mods.war ?? 1, mods.chain ?? 1, mods.warlord ?? 1,
          defenderFactionId === us]

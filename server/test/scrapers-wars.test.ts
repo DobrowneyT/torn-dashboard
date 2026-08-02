@@ -176,6 +176,8 @@ describe('attacks sync job', () => {
       attack_id: 9001, started: 1748001000, attacker_id: 1100, attacker_name: 'Scout',
       attacker_faction_id: US, defender_id: 9999, defender_faction_id: 9100,
       result: 'Attacked', chain: 12, is_ranked_war: true, is_incoming: false,
+      // Faction names stored inline on the row (like faction_revives).
+      attacker_faction_name: 'Us', defender_faction_name: 'Old Foes',
     })
     expect(parseFloat(rows.rows[0].respect_gain)).toBe(7.5)
     expect(parseFloat(rows.rows[0].fair_fight)).toBe(1.5)

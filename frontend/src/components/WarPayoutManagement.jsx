@@ -572,15 +572,29 @@ export default function WarPayoutManagement() {
         setDiscrepancy(compareContributionSources(ourContribs, warAttacks))
       }
 
-      // Resolve opposing faction names for the Hit Report filter
+      // Resolve opposing faction names for the Hit Report filter. Names come
+      // from the attack rows themselves (#0025, stored inline like revives);
+      // the factions table supplies the [TAG] suffix and stays canonical for
+      // names. Inline fills any id the table hasn't caught up on.
       const opposingIds = collectOpposingFactionIds(warAttacks)
       if (opposingIds.size > 0) {
+        const lookup = new Map()
+        for (const a of warAttacks) {
+          if (a.attacker_faction_id && a.attacker_faction_name && !lookup.has(Number(a.attacker_faction_id))) {
+            lookup.set(Number(a.attacker_faction_id), { id: Number(a.attacker_faction_id), name: a.attacker_faction_name, tag: null })
+          }
+          if (a.defender_faction_id && a.defender_faction_name && !lookup.has(Number(a.defender_faction_id))) {
+            lookup.set(Number(a.defender_faction_id), { id: Number(a.defender_faction_id), name: a.defender_faction_name, tag: null })
+          }
+        }
         try {
-          const lookup = await loadFactionsByIds(opposingIds)
-          setFactionLookup(lookup)
+          // DB rows (name + tag) win over inline names.
+          const dbLookup = await loadFactionsByIds(opposingIds)
+          for (const [id, row] of dbLookup.entries()) lookup.set(id, row)
         } catch (lookupErr) {
           console.warn('Faction lookup failed:', lookupErr)
         }
+        setFactionLookup(lookup)
       }
     } catch (err) {
       console.error('Error loading war data:', err)
