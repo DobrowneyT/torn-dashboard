@@ -54,6 +54,33 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
     return { week: res.rows[0] }
   })
 
+  // Delete a saved OC payout week: unlink its crimes (the FK forbids dropping
+  // the week while they point at it), then remove its member rows and the week.
+  // The self-hosted replacement for the old DataManagement single-delete tool.
+  app.delete('/api/payouts/weeks/:id', { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'valid payout week id required' })
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const existing = await client.query('SELECT id FROM oc_payout_weeks WHERE id = $1', [id])
+      if (existing.rows.length === 0) {
+        await client.query('ROLLBACK')
+        return reply.status(404).send({ error: 'Payout week not found' })
+      }
+      await client.query('UPDATE crimes SET payout_week_id = NULL WHERE payout_week_id = $1', [id])
+      await client.query('DELETE FROM oc_payout_members WHERE week_id = $1', [id])
+      await client.query('DELETE FROM oc_payout_weeks WHERE id = $1', [id])
+      await client.query('COMMIT')
+      return { ok: true, deleted_week_id: Number(id) }
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  })
+
   app.get('/api/payouts/members', { preHandler: requireAuth() }, async () => {
     const res = await db.query(
       'SELECT * FROM oc_payout_members ORDER BY week_end DESC, payout DESC'

@@ -41,6 +41,14 @@ async function post(path: string, payload: unknown, as = 'leader') {
   return { status: res.status, body: (await res.json()) as any }
 }
 
+async function del(path: string, as = 'leader') {
+  const res = await fetch(`${stack.baseUrl}${path}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${tokens[as]}` },
+  })
+  return { status: res.status, body: (await res.json()) as any }
+}
+
 beforeAll(async () => {
   stack = await startTestStack()
   await loginAs('leader', '400', ['leadership'])
@@ -263,5 +271,42 @@ describe('GET /api/members/with-cpr', () => {
     expect(body.cpr).toEqual([
       { member_id: '400', crime_name: 'Break the Bank', position_label: 'Robber', difficulty: 8, cpr_value: 77 },
     ])
+  })
+})
+
+describe('DELETE /api/payouts/weeks/:id', () => {
+  async function saveWeek(crimeIds: string[]) {
+    const { body } = await post('/api/payouts/weeks', {
+      week: {
+        week_start: '2026-06-29', week_end: '2026-07-05',
+        week_start_timestamp: FROM, week_end_timestamp: TO,
+        total_money_reward: 1000, faction_cut_percent: 20,
+        faction_cut_amount: 200, member_payout_total: 800, crimes_processed: crimeIds.length,
+      },
+      members: [{ member_id: '400', member_name: 'Leader', tier: 2, base_tickets: 1, payout: 800, crimes_count: 1 }],
+      crime_ids: crimeIds,
+    })
+    return body.week_id as number
+  }
+
+  it('leadership deletes a week: members removed, crimes unlinked, week gone', async () => {
+    const weekId = await saveWeek(['lookback'])
+    expect(Number((await stack.db.query(`SELECT payout_week_id FROM crimes WHERE crime_id = 'lookback'`)).rows[0].payout_week_id)).toBe(weekId)
+
+    // Non-leadership is refused; the week survives.
+    expect((await del(`/api/payouts/weeks/${weekId}`, 'member')).status).toBe(403)
+    expect((await del(`/api/payouts/weeks/${weekId}`, 'visitor')).status).toBe(403)
+
+    const res = await del(`/api/payouts/weeks/${weekId}`)
+    expect(res.status).toBe(200)
+    expect(res.body.deleted_week_id).toBe(weekId)
+    expect((await get(`/api/payouts/weeks/${weekId}`)).status).toBe(404)
+    expect((await stack.db.query('SELECT count(*)::int AS n FROM oc_payout_members WHERE week_id = $1', [weekId])).rows[0].n).toBe(0)
+    // The FK-linked crime is unlinked, not deleted.
+    expect((await stack.db.query(`SELECT payout_week_id FROM crimes WHERE crime_id = 'lookback'`)).rows[0].payout_week_id).toBeNull()
+  })
+
+  it('404 for a missing week', async () => {
+    expect((await del('/api/payouts/weeks/999999')).status).toBe(404)
   })
 })
