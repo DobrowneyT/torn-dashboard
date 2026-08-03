@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Static pre-JS default; Header.jsx applies the tenant's own
+         branding.favicon at runtime once identity loads (#131). -->
+    <link rel="icon" type="image/x-icon" href="/torn-dashboard-favicon.ico" />
+    <!-- PWA (#206): manifest + iOS home-screen icon + install theming. iOS has
+         no manifest install prompt, so apple-touch-icon / status-bar meta drive
+         its "Add to Home Screen" experience. -->
+    <!-- Per-tenant manifest served by the faction API (name/icons from each
+         tenant's identity); nginx Host-routes it. iOS reads the page <title>
+         (set per-tenant by Header.jsx) for the home-screen name. -->
+    <link rel="manifest" href="/api/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Static pre-JS fallback; Header.jsx overwrites with the tenant's own
+         faction name once identity loads (#97, #131). -->
+    <title>Torn Dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

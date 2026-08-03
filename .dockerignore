@@ -1,0 +1,16 @@
+# Keep secrets and bulk out of every docker build context.
+.env
+**/.env
+.git
+node_modules
+**/node_modules
+dist
+**/dist
+venv
+__pycache__
+**/__pycache__
+discord
+mug-bot
+export
+data
+supabase.tar.gz

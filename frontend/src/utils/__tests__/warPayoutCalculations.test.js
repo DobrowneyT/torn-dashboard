@@ -1,0 +1,1398 @@
+import { describe, it, expect } from 'vitest'
+import {
+  calculateCacheValue,
+  calculateTermedWarPayouts,
+  calculateRealWarPayouts,
+  buildMemberAttackStats,
+  calculateCutoffScores,
+  detectRaceCutoff,
+  calculateRaceWarPayouts,
+  generateWarBatchPayoutURL,
+  deriveWarScoresByMember,
+  compareContributionSources,
+} from '../warPayoutCalculations.js'
+
+// Note: attacks come from faction_attacks table (daily scrape, no war_id).
+// Callers pre-filter by war timestamp window before passing to these functions.
+
+// ---------------------------------------------------------------------------
+// Shared fixtures
+// ---------------------------------------------------------------------------
+
+const CACHE_PRICES = {
+  price_melee_cache:       1_000_000,
+  price_armor_cache:       2_000_000,
+  price_small_arms_cache:  500_000,
+  price_medium_arms_cache: 1_500_000,
+  price_heavy_arms_cache:  5_000_000,
+}
+
+const SAMPLE_REWARDS = [
+  { id: 1119, name: 'Melee Cache',       quantity: 3 },
+  { id: 1118, name: 'Armor Cache',       quantity: 2 },
+  { id: 1120, name: 'Small Arms Cache',  quantity: 1 },
+  { id: 1121, name: 'Medium Arms Cache', quantity: 4 },
+  { id: 1122, name: 'Heavy Arms Cache',  quantity: 0 },
+]
+// Expected: 3*1M + 2*2M + 1*0.5M + 4*1.5M + 0*5M = 3M + 4M + 0.5M + 6M = 13.5M
+
+const SAMPLE_CONTRIBUTIONS = [
+  { member_id: 100, member_name: 'Alice', score: 500, attacks: 10 },
+  { member_id: 200, member_name: 'Bob',   score: 300, attacks:  6 },
+  { member_id: 300, member_name: 'Carol', score: 200, attacks:  4 },
+]
+
+// All attacks are outgoing (is_incoming: false) ranked-war attacks.
+// Alice: 4 hosp war hits + 1 loss
+// Bob:   2 mug war hits + 1 assist
+// Carol: 1 leaf (Attacked) war hit + 1 assist
+// Member 999: different faction — should be ignored
+const SAMPLE_ATTACKS = [
+  // Alice — 4 ranked-war hosp hits
+  { id: 1, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5, is_ranked_war: true,  is_incoming: false, chain: 1 },
+  { id: 2, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5, is_ranked_war: true,  is_incoming: false, chain: 2 },
+  { id: 3, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5, is_ranked_war: true,  is_incoming: false, chain: 3 },
+  { id: 4, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', fair_fight: 2.0, respect_gain: 5, is_ranked_war: true,  is_incoming: false, chain: 4 },
+  // Bob — 2 ranked-war mugs + 1 assist
+  { id: 5, attacker_id: 200, attacker_faction_id: 10739, result: 'Mugged',       fair_fight: 1.5, respect_gain: 3, is_ranked_war: true,  is_incoming: false, chain: 1 },
+  { id: 6, attacker_id: 200, attacker_faction_id: 10739, result: 'Mugged',       fair_fight: 1.5, respect_gain: 3, is_ranked_war: true,  is_incoming: false, chain: 2 },
+  // Carol — 1 ranked-war attack + 1 assist
+  { id: 7, attacker_id: 300, attacker_faction_id: 10739, result: 'Attacked',     fair_fight: 1.0, respect_gain: 2, is_ranked_war: true,  is_incoming: false, chain: 1 },
+  // Non-our-faction attack (should be ignored)
+  { id: 8, attacker_id: 999, attacker_faction_id: 41929, result: 'Hospitalized', fair_fight: 3.0, respect_gain: 10, is_ranked_war: true, is_incoming: false, chain: 1 },
+  // Alice — 1 loss
+  { id: 9, attacker_id: 100, attacker_faction_id: 10739, result: 'Lost',         fair_fight: 1.0, respect_gain: 0, is_ranked_war: false, is_incoming: false, chain: 0 },
+  // Bob + Carol — assists
+  { id: 10, attacker_id: 200, attacker_faction_id: 10739, result: 'Assist',      fair_fight: 2.0, respect_gain: 1, is_ranked_war: true,  is_incoming: false, chain: 1 },
+  { id: 11, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist',      fair_fight: 2.0, respect_gain: 1, is_ranked_war: true,  is_incoming: false, chain: 1 },
+]
+
+// Attacks with timestamps for scaling mode tests
+const WAR_START = 1000000
+const CUTOFF = WAR_START + 24 * 3600  // 24h after start
+
+const TIMED_ATTACKS = [
+  // Alice (100): 2 ranked-war wins BEFORE cutoff → pre-cutoff score = 30 + 25 = 55
+  { id: 20, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: WAR_START + 3600, respect_gain: 30 },
+  { id: 21, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: WAR_START + 7200, respect_gain: 25 },
+  // Alice: 3 ranked-war wins AFTER cutoff → post-cutoff score = 10 + 15 + 25 = 50
+  { id: 22, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: CUTOFF + 100, respect_gain: 10 },
+  { id: 23, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: CUTOFF + 200, respect_gain: 15 },
+  { id: 24, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: CUTOFF + 300, respect_gain: 25 },
+  // Bob (200): 2 ranked-war wins BEFORE cutoff → pre-cutoff score = 20 + 30 = 50
+  { id: 30, attacker_id: 200, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: WAR_START + 5000, respect_gain: 20 },
+  { id: 31, attacker_id: 200, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: WAR_START + 9000, respect_gain: 30 },
+  // Bob: 1 ranked-war win AFTER cutoff → post-cutoff score = 25
+  { id: 25, attacker_id: 200, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: CUTOFF + 150, respect_gain: 25 },
+  // Carol (300): 0 wins (1 assist after cutoff — should not count as score)
+  { id: 26, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist',       is_ranked_war: true, is_incoming: false, started: CUTOFF + 250, respect_gain: 0 },
+  // Carol: 1 loss after cutoff — should not count
+  { id: 27, attacker_id: 300, attacker_faction_id: 10739, result: 'Lost',         is_ranked_war: true, is_incoming: false, started: CUTOFF + 350, respect_gain: 0 },
+  // Incoming attack after cutoff — should be ignored
+  { id: 28, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: true,  started: CUTOFF + 400, respect_gain: 10 },
+  // Non-ranked win after cutoff — should be ignored
+  { id: 29, attacker_id: 200, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: false, is_incoming: false, started: CUTOFF + 500, respect_gain: 10 },
+]
+
+
+// ---------------------------------------------------------------------------
+// calculateCacheValue
+// ---------------------------------------------------------------------------
+
+describe('calculateCacheValue', () => {
+  it('calculates correct total from mixed cache types', () => {
+    const { totalCacheValue } = calculateCacheValue(SAMPLE_REWARDS, CACHE_PRICES)
+    expect(totalCacheValue).toBe(13_500_000)
+  })
+
+  it('produces correct per-item breakdown', () => {
+    const { breakdown } = calculateCacheValue(SAMPLE_REWARDS, CACHE_PRICES)
+    const melee = breakdown.find(b => b.name === 'Melee Cache')
+    expect(melee.totalValue).toBe(3_000_000)
+    expect(melee.quantity).toBe(3)
+  })
+
+  it('returns 0 for a cache type with quantity 0', () => {
+    const { breakdown } = calculateCacheValue(SAMPLE_REWARDS, CACHE_PRICES)
+    const heavy = breakdown.find(b => b.name === 'Heavy Arms Cache')
+    expect(heavy).toBeDefined()
+    expect(heavy.totalValue).toBe(0)
+  })
+
+  it('returns 0 for unknown cache name', () => {
+    const rewards = [{ id: 999, name: 'Unknown Cache', quantity: 5 }]
+    const { totalCacheValue, breakdown } = calculateCacheValue(rewards, CACHE_PRICES)
+    expect(totalCacheValue).toBe(0)
+    expect(breakdown).toHaveLength(0)
+  })
+
+  it('returns 0 when rewards is empty', () => {
+    const { totalCacheValue } = calculateCacheValue([], CACHE_PRICES)
+    expect(totalCacheValue).toBe(0)
+  })
+
+  it('returns 0 when rewards is null', () => {
+    const { totalCacheValue } = calculateCacheValue(null, CACHE_PRICES)
+    expect(totalCacheValue).toBe(0)
+  })
+
+  it('uses 0 when cache price is not set', () => {
+    const { totalCacheValue } = calculateCacheValue(
+      [{ id: 1119, name: 'Melee Cache', quantity: 5 }],
+      {}  // no prices set
+    )
+    expect(totalCacheValue).toBe(0)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// calculateTermedWarPayouts — flat shares mode
+// ---------------------------------------------------------------------------
+
+describe('calculateTermedWarPayouts — flat shares', () => {
+  // 13.5M total, 20% cut → pool = 10.8M
+  const baseSettings = {
+    totalReward: 13_500_000,
+    factionCutPercent: 20,
+    minScoreThreshold: 100,
+    termedMode: 'flat',
+  }
+
+  it('splits pool equally when all members have 1 share', () => {
+    const { members, memberPayoutPool, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    expect(memberPayoutPool).toBe(10_800_000)
+    expect(totalShares).toBe(3)
+    // floor(10.8M / 3) = 3,600,000
+    expect(members.every(m => m.isEligible)).toBe(true)
+    expect(members.every(m => m.payoutAmount === 3_600_000)).toBe(true)
+  })
+
+  it('member with 2 shares gets double', () => {
+    const settings = { ...baseSettings, memberShares: { 100: 2 } }
+    const { members, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    expect(totalShares).toBe(4) // Alice=2, Bob=1, Carol=1
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
+    expect(alice.payoutAmount).toBe(Math.floor(2 / 4 * 10_800_000)) // 5,400,000
+    expect(bob.payoutAmount).toBe(Math.floor(1 / 4 * 10_800_000))   // 2,700,000
+  })
+
+  it('marks members below threshold as ineligible with 0 shares and 0 payout', () => {
+    const settings = { ...baseSettings, minScoreThreshold: 400 }
+    const { members, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
+    expect(alice.isEligible).toBe(true)
+    expect(bob.isEligible).toBe(false)
+    expect(bob.shares).toBe(0)
+    expect(bob.payoutAmount).toBe(0)
+    expect(totalShares).toBe(1)
+    // Alice gets full pool
+    expect(alice.payoutAmount).toBe(10_800_000)
+  })
+
+  it('exactly at threshold is eligible', () => {
+    const settings = { ...baseSettings, minScoreThreshold: 300 }
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const bob = members.find(m => m.memberId === 200)
+    expect(bob.isEligible).toBe(true)
+  })
+
+  it('none eligible when threshold is very high', () => {
+    const settings = { ...baseSettings, minScoreThreshold: 9999 }
+    const { members, totalPayout, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    expect(members.every(m => !m.isEligible)).toBe(true)
+    expect(totalShares).toBe(0)
+    expect(totalPayout).toBe(0)
+  })
+
+  it('overBudgetWarning is always false', () => {
+    const { overBudgetWarning } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    expect(overBudgetWarning).toBe(false)
+  })
+
+  it('applies faction cut correctly', () => {
+    const { memberPayoutPool, cacheValue } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    expect(cacheValue).toBe(13_500_000)
+    expect(memberPayoutPool).toBe(10_800_000) // 13.5M * 0.8
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// calculateTermedWarPayouts — scaling mode
+// ---------------------------------------------------------------------------
+
+describe('calculateTermedWarPayouts — scaling mode', () => {
+  // 10M total, 20% cut → pool = 8M
+  // Threshold = 50
+  // Alice (100): pre=55 (≥50 → 1 base share), post=50 → 50/50 = 1 additional → shares = 2.0
+  // Bob (200):   pre=50 (≥50 → 1 base share), post=25 → 25/50 = 0.5 additional → shares = 1.5
+  // Carol (300): pre=0, post=0 → shares = 0 (no pre-cutoff qualification)
+  // Dave (400):  score=50 but pre=0 from attacks (no wins) → shares = 0
+  // Total shares = 3.5, pool = 8M
+  const baseSettings = {
+    totalReward: 10_000_000,
+    factionCutPercent: 20,
+    minScoreThreshold: 50,
+    termedMode: 'scaling',
+    attacks: TIMED_ATTACKS,
+    warStartAt: WAR_START,
+    cutoffHours: 24,
+  }
+
+  it('calculates shares from pre/post cutoff scores', () => {
+    const { members, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
+    const carol = members.find(m => m.memberId === 300)
+
+    expect(alice.preCutoffScore).toBe(55)
+    expect(alice.postCutoffScore).toBe(50)
+    expect(alice.shares).toBe(2.0)  // 1 + 50/50
+
+    expect(bob.preCutoffScore).toBe(50)
+    expect(bob.postCutoffScore).toBe(25)
+    expect(bob.shares).toBe(1.5)    // 1 + 25/50
+
+    // Carol has no ranked-war wins → 0 pre-cutoff score → no base share
+    expect(carol.shares).toBe(0)
+
+    expect(totalShares).toBe(3.5)
+  })
+
+  it('distributes pool proportionally by shares', () => {
+    const { members, memberPayoutPool } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    expect(memberPayoutPool).toBe(8_000_000)
+
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
+
+    // Alice: floor(2.0 / 3.5 * 8M) = 4,571,428 + 1 remainder bump (most shares) = 4,571,429
+    expect(alice.payoutAmount).toBe(Math.floor(2.0 / 3.5 * 8_000_000) + 1)
+    // Bob: floor(1.5 / 3.5 * 8M) = 3,428,571 (no bump)
+    expect(bob.payoutAmount).toBe(Math.floor(1.5 / 3.5 * 8_000_000))
+    // Total equals pool exactly
+    expect(alice.payoutAmount + bob.payoutAmount).toBe(8_000_000)
+  })
+
+  it('member who does not qualify pre-cutoff gets 0 shares', () => {
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    const carol = members.find(m => m.memberId === 300)
+    expect(carol.shares).toBe(0)
+    expect(carol.payoutAmount).toBe(0)
+  })
+
+  it('manually ineligible members get nothing regardless of attack score', () => {
+    // Bob is explicitly removed from the pool via ineligibleMembers
+    const settings = { ...baseSettings, ineligibleMembers: new Set([200]) }
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const bob = members.find(m => m.memberId === 200)
+    expect(bob.isEligible).toBe(false)
+    expect(bob.shares).toBe(0)
+    expect(bob.payoutAmount).toBe(0)
+  })
+
+  it('member who misses pre-cutoff threshold still earns post-cutoff shares', () => {
+    // Threshold = 100: Alice's pre-cutoff score (55) is below 100 → no base share,
+    // but her post-cutoff score (50) earns 50/100 = 0.5 additional shares.
+    // Bob's pre-cutoff (50) also misses → additionalShares = 25/100 = 0.25.
+    // Total shares = 0.75
+    const settings = { ...baseSettings, minScoreThreshold: 100 }
+    const { members, totalShares } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
+    expect(alice.preCutoffScore).toBe(55)
+    expect(alice.shares).toBe(0.5)  // 0 base + 50/100 post
+    expect(alice.isEligible).toBe(true)
+    // floor(0.5 / 0.75 * 8M) = 5,333,333 + 1 remainder bump (most shares) = 5,333,334
+    expect(alice.payoutAmount).toBe(Math.floor(0.5 / 0.75 * 8_000_000) + 1)
+    expect(bob.shares).toBe(0.25)   // 0 base + 25/100 post
+    expect(totalShares).toBe(0.75)
+  })
+
+  it('member with pre-cutoff score exactly at threshold qualifies', () => {
+    // Bob has pre-cutoff = 50, threshold = 50 → should qualify
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, baseSettings)
+    const bob = members.find(m => m.memberId === 200)
+    expect(bob.shares).toBeGreaterThan(0)
+    expect(bob.payoutAmount).toBeGreaterThan(0)
+  })
+
+  it('no post-cutoff score means 1 share only', () => {
+    // Use attacks with only pre-cutoff hits
+    const preCutoffOnly = TIMED_ATTACKS.filter(a => (Number(a.started) || 0) <= CUTOFF)
+    const settings = { ...baseSettings, attacks: preCutoffOnly }
+    const { members } = calculateTermedWarPayouts(SAMPLE_CONTRIBUTIONS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.shares).toBe(1) // base share only, no post-cutoff
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// calculateCutoffScores
+// ---------------------------------------------------------------------------
+
+describe('calculateCutoffScores', () => {
+  it('sums respect for ranked-war wins before and after cutoff', () => {
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    const alice = scores.get(100)
+    expect(alice.preCutoffScore).toBe(55)   // 30 + 25
+    expect(alice.postCutoffScore).toBe(50)  // 10 + 15 + 25
+  })
+
+  it('tracks multiple members independently', () => {
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    const bob = scores.get(200)
+    expect(bob.preCutoffScore).toBe(50)    // 20 + 30
+    expect(bob.postCutoffScore).toBe(25)   // 25
+  })
+
+  it('ignores incoming attacks', () => {
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    // id=28 is incoming with respect=10 — should not count
+    expect(scores.get(100).postCutoffScore).toBe(50)
+  })
+
+  it('ignores non-ranked wins', () => {
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    // id=29 is non-ranked — should not count for Bob
+    expect(scores.get(200).postCutoffScore).toBe(25)
+  })
+
+  it('ignores assists and losses', () => {
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF)
+    expect(scores.has(300)).toBe(false)
+  })
+
+  it('returns empty map for empty attacks', () => {
+    const scores = calculateCutoffScores([], CUTOFF)
+    expect(scores.size).toBe(0)
+  })
+
+  it('returns all as pre-cutoff when cutoff is far in the future', () => {
+    const scores = calculateCutoffScores(TIMED_ATTACKS, CUTOFF + 99999)
+    const alice = scores.get(100)
+    expect(alice.preCutoffScore).toBe(105)  // 30 + 25 + 10 + 15 + 25
+    expect(alice.postCutoffScore).toBe(0)
+  })
+
+  it('caps bonus chain hits at 10 respect', () => {
+    const attacksWithBonus = [
+      // Normal hit: 30 respect, chain 15 → counted as 30
+      { id: 40, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: WAR_START + 1000, respect_gain: 30, chain: 15 },
+      // Bonus hit at chain 100: 80 respect → capped to 10
+      { id: 41, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: WAR_START + 2000, respect_gain: 80, chain: 100 },
+      // Bonus hit at chain 250: 160 respect → capped to 10 (post-cutoff)
+      { id: 42, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: CUTOFF + 100, respect_gain: 160, chain: 250 },
+      // Normal post-cutoff hit: 20 respect, chain 251 → counted as 20
+      { id: 43, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: CUTOFF + 200, respect_gain: 20, chain: 251 },
+    ]
+    const scores = calculateCutoffScores(attacksWithBonus, CUTOFF)
+    const alice = scores.get(100)
+    expect(alice.preCutoffScore).toBe(40)   // 30 + 10 (80 capped)
+    expect(alice.postCutoffScore).toBe(30)  // 10 (160 capped) + 20
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// buildMemberAttackStats
+// ---------------------------------------------------------------------------
+
+describe('buildMemberAttackStats', () => {
+  it('only counts our faction attacks', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    expect(stats.has(999)).toBe(false)  // opponent attacker ignored
+  })
+
+  it('counts won attacks correctly', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    // Alice: 4 Hospitalized wins; Bob: 2 Mugged wins; Carol: 1 Attacked win
+    expect(stats.get(100).won).toBe(4)
+    expect(stats.get(200).won).toBe(2)
+    expect(stats.get(300).won).toBe(1)
+  })
+
+  it('does not count Lost as a win', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    // Alice: 4 wins + 1 loss
+    expect(stats.get(100).won).toBe(4)
+    expect(stats.get(100).losses).toBe(1)
+  })
+
+  it('counts assists separately', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    expect(stats.get(100).assists).toBe(0)
+    expect(stats.get(200).assists).toBe(1)
+    expect(stats.get(300).assists).toBe(1)
+  })
+
+  it('counts ranked-war hits (warHits)', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    // Alice: 4 ranked-war hosp hits; Bob: 2 ranked-war mugs; Carol: 1 ranked-war attack
+    expect(stats.get(100).warHits).toBe(4)
+    expect(stats.get(200).warHits).toBe(2)
+    expect(stats.get(300).warHits).toBe(1)
+  })
+
+  it('counts mugs separately from other wins', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    expect(stats.get(200).mugs).toBe(2)
+    expect(stats.get(100).mugs).toBe(0)
+    expect(stats.get(300).mugs).toBe(0)
+  })
+
+  it('counts hosp and leaves separately', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    expect(stats.get(100).hosp).toBe(4)
+    expect(stats.get(100).leaves).toBe(0)
+    expect(stats.get(300).leaves).toBe(1)
+    expect(stats.get(300).hosp).toBe(0)
+  })
+
+  it('counts totalHits as won + assists + losses', () => {
+    const stats = buildMemberAttackStats(SAMPLE_ATTACKS)
+    // Alice: 4 won + 0 assists + 1 loss = 5
+    const a = stats.get(100)
+    expect(a.won + a.assists + a.losses).toBe(5)
+    // Bob: 2 won + 1 assist + 0 losses = 3
+    const b = stats.get(200)
+    expect(b.won + b.assists + b.losses).toBe(3)
+  })
+
+  it('does not count Timeout and Interrupted as wins', () => {
+    const extra = [
+      { id: 20, attacker_id: 100, attacker_faction_id: 10739, result: 'Timeout',     is_incoming: false, is_ranked_war: false, chain: 0, respect_gain: 0 },
+      { id: 21, attacker_id: 100, attacker_faction_id: 10739, result: 'Interrupted', is_incoming: false, is_ranked_war: false, chain: 0, respect_gain: 0 },
+    ]
+    const stats = buildMemberAttackStats(extra)
+    expect(stats.get(100).won).toBe(0)
+    expect(stats.get(100).losses).toBe(2)
+  })
+
+  it('ignores incoming attacks', () => {
+    const incoming = [
+      { id: 30, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_incoming: true, is_ranked_war: true, chain: 1, respect_gain: 5 },
+    ]
+    const stats = buildMemberAttackStats(incoming)
+    expect(stats.size).toBe(0)
+  })
+
+  it('returns empty map for empty attacks array', () => {
+    const stats = buildMemberAttackStats([])
+    expect(stats.size).toBe(0)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// calculateRealWarPayouts
+// ---------------------------------------------------------------------------
+
+describe('calculateRealWarPayouts', () => {
+  const baseSettings = {
+    totalReward: 13_500_000,
+    factionCutPercent: 20,
+    warHitMultiplier:    1.25,
+    assistMultiplier:    0.50,
+    lossMultiplier:      0.50,
+    mugMultiplier:      -1.00,
+    participationWeight: 0.50,
+    contributionWeight:  0.50,
+  }
+
+  it('payouts sum to approximately the member payout pool', () => {
+    const { members, memberPayoutPool } = calculateRealWarPayouts(
+      SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
+    )
+    const totalPaid = members.reduce((s, m) => s + m.payoutAmount, 0)
+    // Due to floor() rounding, total may be slightly less than pool
+    expect(totalPaid).toBeLessThanOrEqual(memberPayoutPool)
+    expect(totalPaid).toBeGreaterThan(memberPayoutPool * 0.99)
+  })
+
+  it('effort shares sum to 1.0', () => {
+    const { members } = calculateRealWarPayouts(
+      SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
+    )
+    const totalEffort = members.reduce((s, m) => s + m.effortShare, 0)
+    expect(totalEffort).toBeCloseTo(1.0, 5)
+  })
+
+  it('member with zero score and zero attacks still gets a result (0 payout)', () => {
+    const contributions = [
+      ...SAMPLE_CONTRIBUTIONS,
+      { member_id: 999, member_name: 'Zero', score: 0, attacks: 0 }
+    ]
+    const { members } = calculateRealWarPayouts(contributions, SAMPLE_ATTACKS, baseSettings)
+    const zero = members.find(m => m.memberId === 999)
+    expect(zero).toBeDefined()
+    expect(zero.payoutAmount).toBe(0)
+  })
+
+  it('single member receives full pool', () => {
+    const contributions = [{ member_id: 100, member_name: 'Solo', score: 1000, attacks: 10 }]
+    const { members, memberPayoutPool } = calculateRealWarPayouts(
+      contributions, SAMPLE_ATTACKS, baseSettings
+    )
+    expect(members[0].payoutAmount).toBeLessThanOrEqual(memberPayoutPool)
+    expect(members[0].payoutAmount).toBeGreaterThan(memberPayoutPool * 0.99)
+  })
+
+  it('applies faction cut correctly to pool', () => {
+    const { cacheValue, memberPayoutPool } = calculateRealWarPayouts(
+      SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
+    )
+    expect(cacheValue).toBe(13_500_000)
+    expect(memberPayoutPool).toBe(10_800_000)
+  })
+
+  it('higher score member earns more than lower score member (all else equal)', () => {
+    // Alice (score=500) should earn more than Carol (score=200)
+    const { members } = calculateRealWarPayouts(
+      SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
+    )
+    const alice = members.find(m => m.memberId === 100)
+    const carol = members.find(m => m.memberId === 300)
+    expect(alice.payoutAmount).toBeGreaterThan(carol.payoutAmount)
+  })
+
+  it('mug penalty reduces participation share', () => {
+    // Bob has 2 mugs (×−1) which reduces his participation score vs Carol who has 1 war hit + 1 assist
+    const { members } = calculateRealWarPayouts(
+      SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
+    )
+    const bob   = members.find(m => m.memberId === 200)
+    const carol = members.find(m => m.memberId === 300)
+    // Bob: participationScore = 2*1.25 + 2*-1 + 1*0.5 = 2.5 - 2 + 0.5 = 1.0
+    // Carol: participationScore = 1*1.25 + 1*0.5 = 1.75
+    expect(carol.participationScore).toBeGreaterThan(bob.participationScore)
+  })
+
+  it('participationWeight and contributionWeight shift payout distribution', () => {
+    // Pure contribution weighting (100% contribution)
+    const contribOnly = { ...baseSettings, participationWeight: 0, contributionWeight: 1 }
+    const { members: cm } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, contribOnly)
+    // Alice (score=500) should have the largest contribution share
+    const sorted = cm.slice().sort((a, b) => b.payoutAmount - a.payoutAmount)
+    expect(sorted[0].memberId).toBe(100) // Alice has highest score
+  })
+
+  it('overBudgetWarning is always false (formula distributes exactly the pool)', () => {
+    const { overBudgetWarning } = calculateRealWarPayouts(
+      SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings
+    )
+    expect(overBudgetWarning).toBe(false)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// buildMemberAttackStats — regularHits
+// ---------------------------------------------------------------------------
+
+describe('buildMemberAttackStats — regularHits', () => {
+  it('counts non-ranked wins as regularHits', () => {
+    const attacks = [
+      { id: 50, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: false, is_incoming: false, chain: 1, respect_gain: 5 },
+      { id: 51, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: false, is_incoming: false, chain: 2, respect_gain: 3 },
+    ]
+    const stats = buildMemberAttackStats(attacks)
+    expect(stats.get(100).regularHits).toBe(2)
+    expect(stats.get(100).warHits).toBe(0)
+  })
+
+  it('ranked war wins do not count as regularHits', () => {
+    const attacks = [
+      { id: 52, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, chain: 1, respect_gain: 5 },
+    ]
+    const stats = buildMemberAttackStats(attacks)
+    expect(stats.get(100).warHits).toBe(1)
+    expect(stats.get(100).regularHits).toBe(0)
+  })
+
+  it('mixed ranked and non-ranked wins tracked separately', () => {
+    const attacks = [
+      { id: 53, attacker_id: 100, attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true,  is_incoming: false, chain: 1, respect_gain: 5 },
+      { id: 54, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked',     is_ranked_war: false, is_incoming: false, chain: 2, respect_gain: 3 },
+      { id: 55, attacker_id: 100, attacker_faction_id: 10739, result: 'Mugged',       is_ranked_war: false, is_incoming: false, chain: 3, respect_gain: 2 },
+    ]
+    const stats = buildMemberAttackStats(attacks)
+    expect(stats.get(100).warHits).toBe(1)
+    expect(stats.get(100).regularHits).toBe(2)
+    expect(stats.get(100).won).toBe(3)
+  })
+
+  it('assists and losses do not count as regularHits', () => {
+    const attacks = [
+      { id: 56, attacker_id: 100, attacker_faction_id: 10739, result: 'Assist', is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+      { id: 57, attacker_id: 100, attacker_faction_id: 10739, result: 'Lost',   is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+    ]
+    const stats = buildMemberAttackStats(attacks)
+    expect(stats.get(100).regularHits).toBe(0)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// calculateRealWarPayouts — per-member overrides & regularHitMultiplier
+// ---------------------------------------------------------------------------
+
+describe('calculateRealWarPayouts — per-member overrides', () => {
+  // Alice has 4 ranked-war hits, Bob has 2 mugs + 1 assist, Carol has 1 war hit + 1 assist
+  const baseSettings = {
+    totalReward: 10_000_000,
+    factionCutPercent: 0,
+    warHitMultiplier:    1.25,
+    assistMultiplier:    0.50,
+    lossMultiplier:      0.50,
+    mugMultiplier:      -1.00,
+    regularHitMultiplier: 0.00,
+    participationWeight: 1.0,
+    contributionWeight:  0.0,
+  }
+
+  it('regularHitMultiplier of 0 gives regularHits no score', () => {
+    const attacks = [
+      ...SAMPLE_ATTACKS,
+      { id: 60, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: false, is_incoming: false, chain: 5, respect_gain: 3 },
+    ]
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, attacks, baseSettings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.regularHits).toBe(1)
+    expect(alice.regularHitScore).toBe(0)
+  })
+
+  it('regularHitMultiplier > 0 adds to participation score', () => {
+    const attacks = [
+      ...SAMPLE_ATTACKS,
+      { id: 60, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: false, is_incoming: false, chain: 5, respect_gain: 3 },
+    ]
+    const settings = { ...baseSettings, regularHitMultiplier: 0.25 }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, attacks, settings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.regularHitScore).toBe(0.25) // 1 * 0.25
+    // participationScore — non-war loss no longer scored (warLosses=0 since
+    // Alice's only Lost is is_ranked_war=false). 4 war hosps × 1.25 + 1
+    // non-war Attacked × 0.25 = 5.25.
+    expect(alice.participationScore).toBe(
+      Math.round((4 * 1.25 + 1 * 0.25 + 0 * 0.50 + 0 * 0.50 + 0 * -1.00) * 100) / 100
+    )
+  })
+
+  it('per-member override replaces global multiplier for that member', () => {
+    const settings = {
+      ...baseSettings,
+      memberMultiplierOverrides: {
+        100: { warHitMultiplier: 2.00 },  // Alice gets 2× per war hit instead of 1.25
+      },
+    }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    const bob   = members.find(m => m.memberId === 200)
+    // Alice: 4 * 2.00 = 8.0 war hit score
+    expect(alice.warHitScore).toBe(8.0)
+    expect(alice.effWarHitMult).toBe(2.00)
+    // Bob still uses global 1.25
+    expect(bob.effWarHitMult).toBe(1.25)
+  })
+
+  it('per-member override only affects specified multiplier type', () => {
+    const settings = {
+      ...baseSettings,
+      memberMultiplierOverrides: {
+        200: { mugMultiplier: 0 },  // Bob's mug penalty removed
+      },
+    }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
+    const bob = members.find(m => m.memberId === 200)
+    // Bob: 2 war wins, both Mugged → warMugs=2, warNonMugHits=0. Score with
+    // warHitMult=1.25, mugMult=0 (override), assistMult=0.5 = 0*1.25 + 2*0 +
+    // 1*0.5 = 0.5. (Before the fix, war hits included mugs and mug penalty
+    // stacked — 2*1.25 + 2*0 + 0.5 = 3.0. Now the war-hit count excludes
+    // mugs, so removing the mug penalty leaves only the assist.)
+    expect(bob.mugScore).toBe(0)
+    expect(bob.participationScore).toBe(0.5)
+    expect(bob.effMugMult).toBe(0)
+    expect(bob.effWarHitMult).toBe(1.25)  // unchanged
+  })
+
+  it('non-war assists/losses do not contribute to participation score', () => {
+    // Carol has 1 war attack (warHits=1) + 1 war assist (warAssists=1, assists=1).
+    // Add 1 non-war assist + 1 non-war loss — both must be ignored by scoring
+    // even though they show in the Hit Report totals (assists=2, losses=1).
+    const attacks = [
+      ...SAMPLE_ATTACKS,
+      { id: 80, attacker_id: 300, attacker_faction_id: 10739, result: 'Assist', is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+      { id: 81, attacker_id: 300, attacker_faction_id: 10739, result: 'Lost',   is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+    ]
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, attacks, baseSettings)
+    const carol = members.find(m => m.memberId === 300)
+    // Hit Report totals reflect all assists/losses (war + non-war)…
+    expect(carol.assists).toBe(2)
+    expect(carol.losses).toBe(1)
+    // …but war-scoped slices only count the ones that were war hits.
+    expect(carol.warAssists).toBe(1)
+    expect(carol.warLosses).toBe(0)
+    // Score = 1 war hit × 1.25 + 1 war assist × 0.5 + 0 war loss × 0.5 = 1.75.
+    // Pre-fix this would have been 1.25 + 2*0.5 + 1*0.5 = 2.75.
+    expect(carol.participationScore).toBe(1.75)
+  })
+
+  it('counts assists/losses against the war opponent even when Torn flags is_ranked_war=false', () => {
+    // Real Torn data: only scoring WINS carry is_ranked_war=true. Assists and
+    // losses against the war opponent come back is_ranked_war=false, so the
+    // opponent-faction membership — not the flag — must decide "war" scope.
+    const OPPONENT = 41929
+    const attacks = [
+      // Carol: 1 war win (flagged) + 1 assist + 1 loss vs the opponent, both UNflagged.
+      { id: 70, attacker_id: 300, attacker_faction_id: 10739, defender_faction_id: OPPONENT, result: 'Attacked', is_ranked_war: true,  is_incoming: false, chain: 1, respect_gain: 5 },
+      { id: 71, attacker_id: 300, attacker_faction_id: 10739, defender_faction_id: OPPONENT, result: 'Assist',   is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+      { id: 72, attacker_id: 300, attacker_faction_id: 10739, defender_faction_id: OPPONENT, result: 'Lost',     is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+      // …and an assist against a RANDOM faction — still excluded.
+      { id: 73, attacker_id: 300, attacker_faction_id: 10739, defender_faction_id: 99999,    result: 'Assist',   is_ranked_war: false, is_incoming: false, chain: 0, respect_gain: 0 },
+    ]
+    const contribs = [{ member_id: 300, member_name: 'Carol', score: 0, attacks: 3 }]
+    const settings = { ...baseSettings, opponentFactionIds: new Set([OPPONENT]) }
+    const { members } = calculateRealWarPayouts(contribs, attacks, settings)
+    const carol = members.find(m => m.memberId === 300)
+    // Raw Hit Report counts every assist/loss…
+    expect(carol.assists).toBe(2)
+    expect(carol.losses).toBe(1)
+    // …war-scoped slices now credit the opponent-directed ones (not the random assist).
+    expect(carol.warAssists).toBe(1)
+    expect(carol.warLosses).toBe(1)
+    // Score = 1 war hit × 1.25 + 1 assist × 0.5 + 1 loss × 0.5 = 2.25.
+    expect(carol.participationScore).toBe(2.25)
+  })
+
+  it('non-war mugs are not penalised by mug multiplier', () => {
+    // 1 non-war Mugged + nothing else. Pre-fix scored it as a non-war regular
+    // hit (regularHits=1, score 0 with default regMult) AND applied the mug
+    // penalty (mugs=1, -1.00). Now it only counts as an outside hit; war-mug
+    // penalty doesn't apply because warMugs=0.
+    const attacks = [
+      { id: 90, attacker_id: 100, attacker_faction_id: 10739, result: 'Mugged', is_ranked_war: false, is_incoming: false, chain: 1, respect_gain: 2 },
+    ]
+    const contribs = [{ member_id: 100, member_name: 'Alice', score: 0, attacks: 1 }]
+    const settings = { ...baseSettings, regularHitMultiplier: 1.0 }
+    const { members } = calculateRealWarPayouts(contribs, attacks, settings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.mugs).toBe(1)             // raw count for Hit Report
+    expect(alice.warMugs).toBe(0)          // not a war mug
+    expect(alice.regularHits).toBe(1)      // counted under Outside
+    expect(alice.mugScore).toBeCloseTo(0)  // no war-mug penalty applies (0 × -1 → -0)
+    expect(alice.regularHitScore).toBe(1)  // 1 outside hit × 1.0
+    expect(alice.participationScore).toBe(1)
+  })
+
+  it('war mugs are excluded from the war-hit count and penalised separately', () => {
+    // Bob: 2 war mugs (from SAMPLE_ATTACKS) — warHits=2, warMugs=2, so the
+    // War Hit column scores 0 and the War Mug column carries the full penalty.
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, baseSettings)
+    const bob = members.find(m => m.memberId === 200)
+    expect(bob.warHits).toBe(2)
+    expect(bob.warMugs).toBe(2)
+    expect(bob.warNonMugHits).toBe(0)
+    expect(bob.warHitScore).toBe(0)    // 0 non-mug war wins × 1.25
+    expect(bob.mugScore).toBe(-2)      // 2 war mugs × -1.00 (standalone)
+    // Plus 1 war assist × 0.5 → participation = -1.5
+    expect(bob.participationScore).toBe(-1.5)
+  })
+
+  it('effective multipliers are returned per member', () => {
+    const settings = {
+      ...baseSettings,
+      memberMultiplierOverrides: {
+        100: { assistMultiplier: 0.75, regularHitMultiplier: 0.10 },
+      },
+    }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    const carol = members.find(m => m.memberId === 300)
+    expect(alice.effAssistMult).toBe(0.75)
+    expect(alice.effRegularMult).toBe(0.10)
+    expect(carol.effAssistMult).toBe(0.50)  // global default
+    expect(carol.effRegularMult).toBe(0.00) // global default
+  })
+
+  it('empty overrides object uses all globals', () => {
+    const settings = { ...baseSettings, memberMultiplierOverrides: {} }
+    const { members } = calculateRealWarPayouts(SAMPLE_CONTRIBUTIONS, SAMPLE_ATTACKS, settings)
+    const alice = members.find(m => m.memberId === 100)
+    expect(alice.effWarHitMult).toBe(1.25)
+    expect(alice.effAssistMult).toBe(0.50)
+    expect(alice.effLossMult).toBe(0.50)
+    expect(alice.effMugMult).toBe(-1.00)
+    expect(alice.effRegularMult).toBe(0.00)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// detectRaceCutoff
+// ---------------------------------------------------------------------------
+
+describe('detectRaceCutoff', () => {
+  // Attacks for race detection: outgoing our hits + incoming opponent hits
+  const RACE_ATTACKS = [
+    // Our faction outgoing wins (respect adds to our tally)
+    { id: 70, attacker_id: 100, attacker_faction_id: 10739, defender_faction_id: 99999, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: 1000, respect_gain: 30 },
+    { id: 71, attacker_id: 200, attacker_faction_id: 10739, defender_faction_id: 99999, result: 'Attacked',     is_ranked_war: true, is_incoming: false, started: 2000, respect_gain: 25 },
+    // Incoming opponent wins (respect adds to opposing tally)
+    { id: 72, attacker_id: 500, attacker_faction_id: 99999, defender_id: 100, defender_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: true, started: 1500, respect_gain: 20 },
+    { id: 73, attacker_id: 501, attacker_faction_id: 99999, defender_id: 200, defender_faction_id: 10739, result: 'Attacked',     is_ranked_war: true, is_incoming: true, started: 2500, respect_gain: 35 },
+    // More of our hits
+    { id: 74, attacker_id: 100, attacker_faction_id: 10739, defender_faction_id: 99999, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, started: 3000, respect_gain: 50 },
+  ]
+
+  it('returns timestamp when our faction reaches target first', () => {
+    // Target = 100. Our tally: 30 (t=1000) + 25 (t=2000) = 55 ... + 50 (t=3000) = 105 → crosses at t=3000
+    // Opposing tally: 20 (t=1500) + 35 (t=2500) = 55, never reaches 100
+    const ts = detectRaceCutoff(RACE_ATTACKS, 100)
+    expect(ts).toBe(3000)
+  })
+
+  it('returns timestamp when opposing faction reaches target first', () => {
+    // Target = 50. Sorted by started: t=1000(us+30), t=1500(them+20), t=2000(us+25), t=2500(them+35)
+    // Our: 30, then 55 at t=2000
+    // Opposing: 20, then 55 at t=2500
+    // Our crosses 50 first at t=2000
+    const ts = detectRaceCutoff(RACE_ATTACKS, 50)
+    expect(ts).toBe(2000)  // our faction hits 55 at t=2000
+  })
+
+  it('returns timestamp when opposing faction crosses first', () => {
+    // Target = 40. Sorted: t=1000(us=30), t=1500(them=20), t=2000(us=55), t=2500(them=55)
+    // Us at t=2000: 30+25=55 ≥ 40 → crosses at t=2000
+    // But them at t=1500: only 20 <40
+    // So us crosses first at t=2000
+    // Let's make a scenario where opponent crosses first:
+    const attacks = [
+      { id: 80, attacker_id: 100, attacker_faction_id: 10739, defender_faction_id: 99999, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: 5000, respect_gain: 10 },
+      { id: 81, attacker_id: 500, attacker_faction_id: 99999, defender_id: 100, defender_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: true, started: 3000, respect_gain: 50 },
+    ]
+    const ts = detectRaceCutoff(attacks, 40)
+    expect(ts).toBe(3000)  // opponent crosses 40 at t=3000, we don't until t=5000
+  })
+
+  it('returns null when neither faction reaches target', () => {
+    const ts = detectRaceCutoff(RACE_ATTACKS, 999)
+    expect(ts).toBeNull()
+  })
+
+  it('returns null for empty attacks', () => {
+    expect(detectRaceCutoff([], 100)).toBeNull()
+  })
+
+  it('returns null for zero or negative target', () => {
+    expect(detectRaceCutoff(RACE_ATTACKS, 0)).toBeNull()
+    expect(detectRaceCutoff(RACE_ATTACKS, -10)).toBeNull()
+  })
+
+  it('ignores non-ranked attacks', () => {
+    const attacks = [
+      { id: 90, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: false, is_incoming: false, started: 1000, respect_gain: 999 },
+    ]
+    expect(detectRaceCutoff(attacks, 50)).toBeNull()
+  })
+
+  it('ignores non-win results (assists, losses)', () => {
+    const attacks = [
+      { id: 91, attacker_id: 100, attacker_faction_id: 10739, result: 'Assist', is_ranked_war: true, is_incoming: false, started: 1000, respect_gain: 50 },
+      { id: 92, attacker_id: 100, attacker_faction_id: 10739, result: 'Lost',   is_ranked_war: true, is_incoming: false, started: 2000, respect_gain: 50 },
+    ]
+    expect(detectRaceCutoff(attacks, 50)).toBeNull()
+  })
+
+  it('uses full respect (no bonus normalization) for detection', () => {
+    // A bonus chain hit at chain=100 with 80 respect should count as 80 (not capped to 10)
+    const attacks = [
+      { id: 93, attacker_id: 100, attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true, is_incoming: false, started: 1000, respect_gain: 80, chain: 100 },
+    ]
+    const ts = detectRaceCutoff(attacks, 50)
+    expect(ts).toBe(1000)  // 80 ≥ 50
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// calculateRaceWarPayouts
+// ---------------------------------------------------------------------------
+
+describe('calculateRaceWarPayouts', () => {
+  // Use TIMED_ATTACKS which have pre/post cutoff timestamps
+  // Alice: pre-cutoff respect 55, post-cutoff 50
+  // Bob: pre-cutoff respect 50, post-cutoff 25
+  // Carol: no wins
+  const baseSettings = {
+    totalReward: 10_000_000,
+    factionCutPercent: 0,
+    mercCost: 0,
+    reviverCost: 0,
+    factionTopUp: 0,
+    raceCutoffTimestamp: CUTOFF,
+    racePreCutoffPercent: 50,
+    racePostCutoffMode: 'flat',
+    warHitMultiplier: 1.25,
+    assistMultiplier: 0.50,
+    lossMultiplier: 0.50,
+    mugMultiplier: -1.00,
+    regularHitMultiplier: 0.00,
+    participationWeight: 1.0,
+    contributionWeight: 0.0,
+    minScoreThreshold: 0,
+  }
+
+  it('splits pool into pre and post cutoff pools', () => {
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    expect(result.preCutoffPool).toBe(5_000_000)   // 50% of 10M
+    expect(result.postCutoffPool).toBe(5_000_000)
+    expect(result.memberPayoutPool).toBe(10_000_000)
+  })
+
+  it('applies different pool split percentages', () => {
+    const settings = { ...baseSettings, racePreCutoffPercent: 70 }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    expect(result.preCutoffPool).toBe(7_000_000)
+    expect(result.postCutoffPool).toBe(3_000_000)
+  })
+
+  it('combines pre and post cutoff payouts per member', () => {
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    const alice = result.members.find(m => m.memberId === 100)
+    expect(alice.preCutoffPayout).toBeGreaterThanOrEqual(0)
+    expect(alice.postCutoffPayout).toBeGreaterThanOrEqual(0)
+    expect(alice.payoutAmount).toBe(alice.preCutoffPayout + alice.postCutoffPayout)
+  })
+
+  it('pre-cutoff portion uses real war formula', () => {
+    // With participationWeight=1, only attack stats matter for pre-cutoff
+    // Alice has pre-cutoff ranked war wins, Bob has pre-cutoff ranked war wins
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    // Both should have pre-cutoff payouts since they have war hits before cutoff
+    expect(alice.preCutoffPayout).toBeGreaterThan(0)
+    expect(bob.preCutoffPayout).toBeGreaterThan(0)
+  })
+
+  it('post-cutoff uses its own real-war formula (participation by post war hits)', () => {
+    // Post window: Alice 3 war wins, Bob 1 war win + 1 non-ranked (regular) hit, Carol 0.
+    // Post multipliers: war=1, regular=0, others=0, participation-only → participation
+    // shares Alice 3 / Bob 1 / Carol 0 of the 5M post pool.
+    const settings = {
+      ...baseSettings,
+      postWarHitMultiplier: 1, postRegularHitMultiplier: 0, postAssistMultiplier: 0,
+      postLossMultiplier: 0, postMugMultiplier: 0,
+      postParticipationWeight: 1, postContributionWeight: 0,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    const carol = result.members.find(m => m.memberId === 300)
+    expect(alice.postCutoffPayout).toBe(3_750_000) // 3/4 × 5M
+    expect(bob.postCutoffPayout).toBe(1_250_000)   // 1/4 × 5M
+    expect(carol.postCutoffPayout).toBe(0)
+    expect(alice.postCutoffPayout + bob.postCutoffPayout + carol.postCutoffPayout).toBe(5_000_000)
+  })
+
+  it('post-cutoff regular-hit multiplier is independent of pre-cutoff', () => {
+    // Only regular (non-ranked) post hits count: Bob has 1 (id29), Alice/Carol have none.
+    // So Bob takes the entire post pool regardless of his war hits.
+    const settings = {
+      ...baseSettings,
+      postWarHitMultiplier: 0, postRegularHitMultiplier: 1, postAssistMultiplier: 0,
+      postLossMultiplier: 0, postMugMultiplier: 0,
+      postParticipationWeight: 1, postContributionWeight: 0,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    expect(bob.postCutoffPayout).toBe(5_000_000)
+    expect(alice.postCutoffPayout).toBe(0)
+  })
+
+  it('exposes full pre and post breakdowns per member', () => {
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    const alice = result.members.find(m => m.memberId === 100)
+    // Pre window: 2 war wins; Post window: 3 war wins.
+    expect(alice.pre.warHits).toBe(2)
+    expect(alice.post.warHits).toBe(3)
+    expect(alice.warHits).toBe(5) // top-level = pre + post
+    // Combined payout is the sum of the two windows.
+    expect(alice.payoutAmount).toBe(alice.preCutoffPayout + alice.postCutoffPayout)
+  })
+
+  it('applies faction cut before splitting pools', () => {
+    const settings = { ...baseSettings, factionCutPercent: 20 }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    // 10M - 20% cut = 8M pool, 50/50 = 4M each
+    expect(result.factionCutAmount).toBe(2_000_000)
+    expect(result.memberPayoutPool).toBe(8_000_000)
+    expect(result.preCutoffPool).toBe(4_000_000)
+    expect(result.postCutoffPool).toBe(4_000_000)
+  })
+
+  it('total payout does not exceed member pool', () => {
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, baseSettings)
+    expect(result.totalPayout).toBeLessThanOrEqual(result.memberPayoutPool)
+  })
+
+  it('post-cutoff flat mode splits the pool equally among members above threshold', () => {
+    // Post window scorers: Alice 50, Bob 25, Carol 0. Threshold 10 → Alice & Bob
+    // each get 1 equal share of the 5M post pool; Carol gets nothing.
+    const settings = { ...baseSettings, postDistMode: 'flat', postFlatThreshold: 10 }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    const carol = result.members.find(m => m.memberId === 300)
+    expect(alice.postCutoffPayout).toBe(2_500_000)
+    expect(bob.postCutoffPayout).toBe(2_500_000)
+    expect(carol.postCutoffPayout).toBe(0)
+    expect(alice.post.shares).toBe(1)
+  })
+
+  it('post-cutoff flat mode honors manual share overrides, reallocating the pool', () => {
+    // Base: Alice & Bob each 1 share of the 5M post pool. Zero out Alice → her
+    // cut returns to the pool and Bob (now the only share) takes all 5M.
+    const zeroed = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, {
+      ...baseSettings, postDistMode: 'flat', postFlatThreshold: 10,
+      postMemberShares: { 100: 0 },
+    })
+    expect(zeroed.members.find(m => m.memberId === 100).postCutoffPayout).toBe(0)
+    expect(zeroed.members.find(m => m.memberId === 100).post.sharesOverridden).toBe(true)
+    expect(zeroed.members.find(m => m.memberId === 200).postCutoffPayout).toBe(5_000_000)
+
+    // Opt below-threshold Carol back in with 1 share → equal 3-way split, pool fully paid.
+    const optedIn = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, {
+      ...baseSettings, postDistMode: 'flat', postFlatThreshold: 10,
+      postMemberShares: { 300: 1 },
+    })
+    expect(optedIn.members.find(m => m.memberId === 300).post.shares).toBe(1)
+    expect(optedIn.members.find(m => m.memberId === 300).postCutoffPayout).toBeGreaterThan(0)
+    expect(optedIn.members.reduce((s, m) => s + m.postCutoffPayout, 0)).toBe(5_000_000)
+  })
+
+  it('post-cutoff flat-then-scale grants a base share plus scaled shares after N hours', () => {
+    // Scale split at war start + 0h → ALL post-window score counts as "after".
+    // baseShares = 0 (nothing within 0h window), additional = score/threshold.
+    // Alice after=50, Bob after=25, threshold 25 → shares 2 vs 1 → 2:1 split of 5M.
+    const settings = {
+      ...baseSettings, postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 0, warStartAt: WAR_START,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+    expect(alice.post.additionalShares).toBeCloseTo(2, 5) // 50 / 25
+    expect(bob.post.additionalShares).toBeCloseTo(1, 5)   // 25 / 25
+    expect(alice.postCutoffPayout).toBeGreaterThan(bob.postCutoffPayout)
+    expect(alice.postCutoffPayout + bob.postCutoffPayout).toBe(5_000_000)
+  })
+
+  it('decomposes a termed flat-then-scale payout into first-window + scaled amounts (#267)', () => {
+    // Termed war: cutoff 0 → whole pool is the post window, scaled at 24h.
+    // Threshold (score-per-share) 25. within = score in first 24h, after = rest.
+    //   Alice: within 55 → 1 base share; after 50 → 50/25 = 2 scaled → 3 shares.
+    //   Bob:   within 50 → 1 base share; after 25 → 25/25 = 1 scaled → 2 shares.
+    // 5 shares over a 10M pool → $2M/share. Alice 6M (2M first-24h + 4M scaled),
+    // Bob 4M (2M + 2M).
+    const settings = {
+      ...baseSettings,
+      raceCutoffTimestamp: 0, racePreCutoffPercent: 0,
+      postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 24, warStartAt: WAR_START,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    const bob   = result.members.find(m => m.memberId === 200)
+
+    expect(alice.post.baseShares).toBe(1)
+    expect(alice.post.additionalShares).toBeCloseTo(2, 5)
+    // The two interval amounts always sum to the member's post payout (pool whole).
+    expect(alice.post.withinPayout + alice.post.afterPayout).toBe(alice.postCutoffPayout)
+    expect(bob.post.withinPayout + bob.post.afterPayout).toBe(bob.postCutoffPayout)
+    // First-24h portion = base-share fraction of their pay; the rest is scaled.
+    expect(alice.post.withinPayout).toBe(2_000_000) // 1/3 of 6M
+    expect(alice.post.afterPayout).toBe(4_000_000)  // 2/3 of 6M
+    expect(bob.post.withinPayout).toBe(2_000_000)   // 1/2 of 4M
+    expect(bob.post.afterPayout).toBe(2_000_000)
+  })
+
+  it('attributes the whole payout to the scaled window when no base share is earned (#267)', () => {
+    // postScaleHours 0 → nothing is "within", so baseShares 0 for everyone and
+    // every dollar is scaled (afterPayout), withinPayout 0.
+    const settings = {
+      ...baseSettings,
+      raceCutoffTimestamp: 0, racePreCutoffPercent: 0,
+      postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 0, warStartAt: WAR_START,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+    expect(alice.post.baseShares).toBe(0)
+    expect(alice.post.withinPayout).toBe(0)
+    expect(alice.post.afterPayout).toBe(alice.postCutoffPayout)
+  })
+
+  it('splits the scaled window into pre(first-window) + post(after) sections for termed (#269)', () => {
+    // Termed: whole war is the post window (cutoff 0), scaled at 24h.
+    //   Alice: within 55 (2 war hits before CUTOFF) → 1 base share; after 50
+    //          (3 war hits after CUTOFF) → 2 scaled shares.
+    //   Bob:   within 50 (2 hits) → 1 base; after 25 (1 hit) → 1 scaled.
+    const settings = {
+      ...baseSettings,
+      raceCutoffTimestamp: 0, racePreCutoffPercent: 0,
+      postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 24, warStartAt: WAR_START,
+      splitScaledPostWindow: true,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const alice = result.members.find(m => m.memberId === 100)
+
+    // Pre section = first 24h: hit report + score + the flat base share.
+    expect(alice.pre.warHits).toBe(2)
+    expect(alice.pre.score).toBe(55)
+    expect(alice.pre.shares).toBe(1)
+    // Post section = after 24h: hit report + score + the scaled shares.
+    expect(alice.post.warHits).toBe(3)
+    expect(alice.post.score).toBe(50)
+    expect(alice.post.shares).toBeCloseTo(2, 5)
+    // Per-section payouts sum to the member total (one pool, one share value).
+    expect(alice.preCutoffPayout + alice.postCutoffPayout).toBe(alice.payoutAmount)
+    expect(alice.preCutoffPayout).toBeGreaterThan(0)
+    expect(alice.postCutoffPayout).toBeGreaterThan(0)
+    // Whole-war aggregate is still pre + post.
+    expect(alice.warHits).toBe(5)
+  })
+
+  it('lets a leader override the first-window and after shares independently for termed (#273)', () => {
+    const base = {
+      ...baseSettings,
+      raceCutoffTimestamp: 0, racePreCutoffPercent: 0,
+      postDistMode: 'flat', postFlatThreshold: 25,
+      postScaleEnabled: true, postScaleHours: 24, warStartAt: WAR_START,
+      splitScaledPostWindow: true,
+    }
+    // Bump Alice's first-24h (base) share 1 → 3; leave the after (scaled) shares.
+    const preOv = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, {
+      ...base, preMemberShares: { 100: 3 },
+    })
+    const a1 = preOv.members.find(m => m.memberId === 100)
+    expect(a1.pre.shares).toBe(3)             // overridden base share
+    expect(a1.post.shares).toBeCloseTo(2, 5)  // after unchanged
+    expect(a1.preCutoffPayout + a1.postCutoffPayout).toBe(a1.payoutAmount)
+
+    // Bump Alice's after (scaled) share 2 → 5; leave the base share.
+    const postOv = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, {
+      ...base, postMemberShares: { 100: 5 },
+    })
+    const a2 = postOv.members.find(m => m.memberId === 100)
+    expect(a2.pre.shares).toBe(1)             // base unchanged
+    expect(a2.post.shares).toBe(5)            // overridden after share
+    expect(a2.preCutoffPayout + a2.postCutoffPayout).toBe(a2.payoutAmount)
+  })
+
+  it('pre and post multiplier sets are independent', () => {
+    // Pre pays war hits only; post pays nothing (all post multipliers 0).
+    const settings = {
+      ...baseSettings,
+      participationWeight: 1, contributionWeight: 0,
+      warHitMultiplier: 1, regularHitMultiplier: 0, assistMultiplier: 0, lossMultiplier: 0, mugMultiplier: 0,
+      postParticipationWeight: 1, postContributionWeight: 0,
+      postWarHitMultiplier: 0, postRegularHitMultiplier: 0, postAssistMultiplier: 0,
+      postLossMultiplier: 0, postMugMultiplier: 0,
+    }
+    const result = calculateRaceWarPayouts(SAMPLE_CONTRIBUTIONS, TIMED_ATTACKS, settings)
+    const totalPost = result.members.reduce((s, m) => s + m.postCutoffPayout, 0)
+    const totalPre  = result.members.reduce((s, m) => s + m.preCutoffPayout, 0)
+    expect(totalPost).toBe(0)          // post participation all zero, no contribution weight → no post pay
+    expect(totalPre).toBeGreaterThan(0)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// generateWarBatchPayoutURL
+// ---------------------------------------------------------------------------
+
+describe('generateWarBatchPayoutURL', () => {
+  const eligibleMembers = [
+    { memberId: 100, memberName: 'Alice', isEligible: true,  payoutAmount: 500_000 },
+    { memberId: 200, memberName: 'Bob',   isEligible: true,  payoutAmount: 300_000 },
+    { memberId: 300, memberName: 'Carol', isEligible: false, payoutAmount: 200_000 },
+    { memberId: 400, memberName: 'Dave',  isEligible: true,  payoutAmount: 0 },
+  ]
+
+  it('generates correct Torn URL format', () => {
+    const url = generateWarBatchPayoutURL(eligibleMembers)
+    expect(url).toContain('https://www.torn.com/factions.php?step=your')
+    expect(url).toContain('#/tab=controls')
+    expect(url).toContain('batbal_uids=')
+    expect(url).toContain('batbal_amounts=')
+  })
+
+  it('excludes ineligible members', () => {
+    const url = generateWarBatchPayoutURL(eligibleMembers)
+    // Carol (id=300) is ineligible — check UIDs param specifically.
+    // Cannot use toContain('300') on full URL: Bob's payout 300000 also contains '300'.
+    const uidsParam = url.match(/batbal_uids=([^&]+)/)?.[1] ?? ''
+    const uids = uidsParam.split(',').map(Number)
+    expect(uids).not.toContain(300)
+  })
+
+  it('excludes zero-payout members', () => {
+    const url = generateWarBatchPayoutURL(eligibleMembers)
+    expect(url).not.toContain('400')  // Dave has 0 payout
+  })
+
+  it('includes eligible members with payout > 0', () => {
+    const url = generateWarBatchPayoutURL(eligibleMembers)
+    expect(url).toContain('100')
+    expect(url).toContain('200')
+    expect(url).toContain('500000')
+    expect(url).toContain('300000')
+  })
+
+  it('returns empty string when no eligible members', () => {
+    const noEligible = eligibleMembers.map(m => ({ ...m, isEligible: false }))
+    expect(generateWarBatchPayoutURL(noEligible)).toBe('')
+  })
+
+  it('returns empty string for empty array', () => {
+    expect(generateWarBatchPayoutURL([])).toBe('')
+  })
+
+  it('floors payout amounts', () => {
+    const members = [{ memberId: 1, memberName: 'A', isEligible: true, payoutAmount: 999.99 }]
+    const url = generateWarBatchPayoutURL(members)
+    expect(url).toContain('batbal_amounts=999')
+    expect(url).not.toContain('999.99')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// deriveWarScoresByMember — raw outgoing ranked-war respect per member
+// (mirrors Torn's official per-member war contribution score; NOT bonus-capped)
+// ---------------------------------------------------------------------------
+
+const DERIVE_ATTACKS = [
+  // Alice (100): two ranked-war wins → 30 + 50 = 80 (uncapped, incl. chain bonus)
+  { id: 1, attacker_id: 100, attacker_name: 'Alice', attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: true,  is_incoming: false, respect_gain: 30, chain: 5 },
+  { id: 2, attacker_id: 100, attacker_name: 'Alice', attacker_faction_id: 10739, result: 'Hospitalized', is_ranked_war: true, is_incoming: false, respect_gain: 50, chain: 100 },
+  // Bob (200): one ranked-war win → 40
+  { id: 3, attacker_id: 200, attacker_name: 'Bob', attacker_faction_id: 10739, result: 'Mugged', is_ranked_war: true, is_incoming: false, respect_gain: 40, chain: 7 },
+  // Non-war win — ignored
+  { id: 4, attacker_id: 200, attacker_name: 'Bob', attacker_faction_id: 10739, result: 'Attacked', is_ranked_war: false, is_incoming: false, respect_gain: 99, chain: 8 },
+  // Loss — ignored
+  { id: 5, attacker_id: 100, attacker_name: 'Alice', attacker_faction_id: 10739, result: 'Lost', is_ranked_war: true, is_incoming: false, respect_gain: 0, chain: 0 },
+  // Assist — ignored
+  { id: 6, attacker_id: 300, attacker_name: 'Carol', attacker_faction_id: 10739, result: 'Assist', is_ranked_war: true, is_incoming: false, respect_gain: 5, chain: 0 },
+  // Incoming — ignored
+  { id: 7, attacker_id: 999, defender_id: 100, defender_faction_id: 10739, attacker_faction_id: 555, result: 'Attacked', is_ranked_war: true, is_incoming: true, respect_gain: 70, chain: 1 },
+  // Other faction outgoing — ignored
+  { id: 8, attacker_id: 888, attacker_faction_id: 555, result: 'Attacked', is_ranked_war: true, is_incoming: false, respect_gain: 25, chain: 1 },
+]
+
+describe('deriveWarScoresByMember', () => {
+  it('sums raw respect for outgoing ranked-war wins, uncapped', () => {
+    const m = deriveWarScoresByMember(DERIVE_ATTACKS)
+    expect(m.get(100)).toBe(80)   // 30 + 50 (bonus NOT capped)
+    expect(m.get(200)).toBe(40)
+  })
+
+  it('ignores non-war wins, losses, assists, incoming, and other factions', () => {
+    const m = deriveWarScoresByMember(DERIVE_ATTACKS)
+    expect(m.has(300)).toBe(false) // assist only
+    expect(m.has(999)).toBe(false) // incoming
+    expect(m.has(888)).toBe(false) // other faction
+    expect(m.get(200)).toBe(40)    // non-war win not added
+  })
+
+  it('returns an empty map for no attacks', () => {
+    expect(deriveWarScoresByMember([]).size).toBe(0)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// compareContributionSources — derived vs official report cross-check
+// ---------------------------------------------------------------------------
+
+describe('compareContributionSources', () => {
+  it('flags no discrepancies when derived matches the official report', () => {
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      { member_id: 200, member_name: 'Bob',   score: 40 },
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    expect(res.hasDiscrepancies).toBe(false)
+    expect(res.flaggedRows).toHaveLength(0)
+    expect(res.apiTotal).toBe(120)
+    expect(res.derivedTotal).toBe(120)
+    expect(res.totalDiff).toBe(0)
+  })
+
+  it('flags a member whose attacks are missing (derived far below official)', () => {
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      { member_id: 200, member_name: 'Bob',   score: 400 }, // derived only 40 → big gap
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    expect(res.hasDiscrepancies).toBe(true)
+    const bob = res.flaggedRows.find(r => r.memberId === 200)
+    expect(bob).toBeTruthy()
+    expect(bob.diff).toBe(-360) // 40 - 400
+  })
+
+  it('does not flag a gap within tolerance', () => {
+    // Bob official 41 vs derived 40 → 1 absolute / ~2.4% — under the 10 abs floor
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      { member_id: 200, member_name: 'Bob',   score: 41 },
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    expect(res.hasDiscrepancies).toBe(false)
+  })
+
+  it('flags a member present in the official report but with no derived attacks', () => {
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      { member_id: 200, member_name: 'Bob',   score: 40 },
+      { member_id: 700, member_name: 'Ghost', score: 500 }, // no attacks at all
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    const ghost = res.flaggedRows.find(r => r.memberId === 700)
+    expect(ghost).toBeTruthy()
+    expect(ghost.derivedScore).toBe(0)
+    expect(ghost.diff).toBe(-500)
+  })
+
+  it('flags a member present in attacks but missing from the official report', () => {
+    const api = [
+      { member_id: 100, member_name: 'Alice', score: 80 },
+      // Bob omitted entirely from the report
+    ]
+    const res = compareContributionSources(api, DERIVE_ATTACKS)
+    const bob = res.flaggedRows.find(r => r.memberId === 200)
+    expect(bob).toBeTruthy()
+    expect(bob.apiScore).toBe(0)
+    expect(bob.derivedScore).toBe(40)
+    expect(bob.memberName).toBe('Bob') // name resolved from attack data
+  })
+
+  it('respects custom tolerances', () => {
+    // Isolate a single member (Bob, derived 40) vs official 50 → diff -10, -20%.
+    const bobOnly = DERIVE_ATTACKS.filter(a => a.attacker_id === 200 && a.is_ranked_war && !a.is_incoming)
+    const api = [{ member_id: 200, member_name: 'Bob', score: 50 }]
+    const lenient = compareContributionSources(api, bobOnly, { toleranceAbs: 25 })
+    expect(lenient.hasDiscrepancies).toBe(false) // 10 < 25 abs floor
+    const strict = compareContributionSources(api, bobOnly, { toleranceAbs: 5, tolerancePct: 0.01 })
+    expect(strict.hasDiscrepancies).toBe(true)
+  })
+})

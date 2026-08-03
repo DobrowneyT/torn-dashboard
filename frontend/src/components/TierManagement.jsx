@@ -1,0 +1,405 @@
+import { useState, useMemo, useEffect } from 'react'
+import { apiGet, apiPut } from '../utils/apiClient'
+import { useAuth } from '../contexts/AuthContext'
+import { config } from '../config'
+import { CheckCircle2, AlertTriangle } from 'lucide-react'
+
+export default function TierManagement() {
+  const { user } = useAuth()
+  const [searchTerm, setSearchTerm] = useState('')
+  const [editingMember, setEditingMember] = useState(null)
+  const [newTier, setNewTier] = useState(null)
+  const [saveSuccess, setSaveSuccess] = useState(null)
+
+  const [members, setMembers] = useState([])
+  const [sortColumn, setSortColumn] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  async function loadData() {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // One call: full member rows + every CPR row (no row-cap paging).
+      const data = await apiGet('/api/members/with-cpr')
+      const membersData = (data.members || []).filter(m => m.is_current)
+      const memberIdSet = new Set(membersData.map(m => String(m.member_id)))
+      const allCprData = (data.cpr || []).filter(r => memberIdSet.has(String(r.member_id)))
+
+      // Index CPR records by member_id string for O(1) lookup
+      const cprByMember = {}
+      for (const record of allCprData) {
+        const mid = String(record.member_id)
+        if (!cprByMember[mid]) cprByMember[mid] = []
+        cprByMember[mid].push(record)
+      }
+
+      const membersWithCpr = membersData.map(member => {
+        const memberCprRecords = cprByMember[String(member.member_id)] || []
+
+        // Build { crime_name: { position_label: cpr_value } } for tier matching
+        const cprByCrime = {}
+        // Build { difficulty: [cpr_values] } for average calculations
+        const cprByLevel = {}
+        memberCprRecords.forEach(record => {
+          const val = parseFloat(record.cpr_value)
+          if (!cprByCrime[record.crime_name]) cprByCrime[record.crime_name] = {}
+          cprByCrime[record.crime_name][record.position_label] = val
+          if (!cprByLevel[record.difficulty]) cprByLevel[record.difficulty] = []
+          cprByLevel[record.difficulty].push(val)
+        })
+
+        return {
+          id: member.member_id,
+          name: member.member_name,
+          tier: member.tier_override ?? member.tier,
+          hasOverride: member.tier_override !== null,
+          cprByCrime,
+          cprByLevel,
+          last_scraped: member.last_scraped
+        }
+      })
+
+      setMembers(membersWithCpr)
+
+    } catch (err) {
+      console.error('Error loading data:', err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const filteredMembers = useMemo(() => {
+    let list = members
+    if (searchTerm) {
+      list = list.filter(m =>
+        m.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        m.id.toString().includes(searchTerm)
+      )
+    }
+    return [...list].sort((a, b) => {
+      let aVal, bVal
+      if (sortColumn === 'tier') {
+        // Use ?? to preserve tier 0 (Review) — || would coalesce it to 6.
+        aVal = a.tier ?? 6
+        bVal = b.tier ?? 6
+      } else {
+        aVal = (a.name || '').toLowerCase()
+        bVal = (b.name || '').toLowerCase()
+      }
+      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [members, searchTerm, sortColumn, sortDir])
+
+  function handleSort(column) {
+    if (sortColumn === column) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortDir('asc')
+    }
+  }
+
+  function SortIcon({ column }) {
+    if (sortColumn !== column) return <span className="ml-1 text-gray-300 dark:text-gray-600">↕</span>
+    return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
+  }
+
+  function handleEditTier(member) {
+    setEditingMember(member)
+    setNewTier(member.tier ?? 6)
+    setSaveSuccess(null)
+  }
+
+  function handleCancelEdit() {
+    setEditingMember(null)
+    setNewTier(null)
+  }
+
+  async function handleSaveTier() {
+    try {
+      // Purpose-built, leadership-gated; throws with the server's message.
+      await apiPut(`/api/members/${editingMember.id}/tier-override`, { tier_override: newTier })
+
+      setMembers(prev => prev.map(m =>
+        m.id === editingMember.id
+          ? { ...m, tier: newTier, hasOverride: true }
+          : m
+      ))
+
+      setSaveSuccess(`${editingMember.name} tier updated to ${newTier}`)
+      setEditingMember(null)
+      setNewTier(null)
+
+      setTimeout(() => setSaveSuccess(null), 5000)
+
+    } catch (err) {
+      console.error('Error saving tier:', err)
+      alert(`Failed to save tier: ${err.message}`)
+    }
+  }
+
+  function getMeetsRequirements(member, tier) {
+    // Use config.tierRequirements (has crime field) for matching
+    const requirements = config.tierRequirements[tier] || []
+    const cprByCrime = member.cprByCrime || {}
+    const cprByLevel = member.cprByLevel || {}
+
+    let metCount = 0
+    requirements.forEach(req => {
+      if (req.isAverage) {
+        const values = cprByLevel[req.level] || []
+        const avg = values.length > 0
+          ? values.reduce((sum, v) => sum + v, 0) / values.length
+          : 0
+        if (avg >= req.minCpr) metCount++
+      } else {
+        const cpr = cprByCrime[req.crime]?.[req.role]
+        if (cpr != null && cpr >= req.minCpr) metCount++
+      }
+    })
+
+    const requiredCount = Math.ceil(requirements.length * (2 / 3))
+    return { metCount, requiredCount, totalCount: requirements.length, meetsRequirement: metCount >= requiredCount }
+  }
+
+  if (loading) {
+    return (
+      <div className="card">
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading members...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="card">
+        <div className="text-center py-8">
+          <h3 className="text-lg font-semibold text-red-600 mb-2">Error Loading Data</h3>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
+          <button onClick={loadData} className="btn-primary">
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="card">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold">Tier Management</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              Manage member tier assignments
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Search members..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="input w-64"
+            />
+            <button
+              onClick={loadData}
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              title="Refresh data"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {saveSuccess && (
+          <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5" />
+              <p className="text-sm text-green-600 dark:text-green-400">{saveSuccess}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="border-b-2 border-gray-200 dark:border-slate-700">
+              <tr className="text-left">
+                <th className="py-3 px-4 font-semibold text-sm cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-slate-700/50" onClick={() => handleSort('name')}>
+                  Member <SortIcon column="name" />
+                </th>
+                <th className="py-3 px-4 font-semibold text-sm cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-slate-700/50" onClick={() => handleSort('tier')}>
+                  Current Tier <SortIcon column="tier" />
+                </th>
+                <th className="py-3 px-4 font-semibold text-sm">Qualification</th>
+                <th className="py-3 px-4 font-semibold text-sm">Next Tier</th>
+                <th className="py-3 px-4 font-semibold text-sm">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredMembers.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="py-8 text-center text-gray-500">
+                    No members found
+                  </td>
+                </tr>
+              ) : (
+                filteredMembers.map(member => {
+                  const currentTier = member.tier ?? 6
+                  const qualification = getMeetsRequirements(member, currentTier)
+                  const nextTier = currentTier > 1 ? currentTier - 1 : null
+                  const nextQualification = nextTier ? getMeetsRequirements(member, nextTier) : null
+                  const isEditing = editingMember?.id === member.id
+
+                  return (
+                    <tr key={member.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                      <td className="py-3 px-4">
+                        <div>
+                          <div className="font-medium">{member.name || `Member ${member.id}`}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            ID: {member.id}
+                            {member.hasOverride && (
+                              <span className="ml-2 px-2 py-0.5 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 rounded text-xs">
+                                Override
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        {isEditing ? (
+                          <select
+                            value={newTier}
+                            onChange={(e) => setNewTier(parseInt(e.target.value))}
+                            className="input py-1 px-2"
+                          >
+                            {[1, 2, 3, 4, 5, 6].map(t => (
+                              <option key={t} value={t}>Tier {t}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <TierBadge tier={currentTier} />
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <QualificationBadge
+                          metCount={qualification.metCount}
+                          requiredCount={qualification.requiredCount}
+                          totalCount={qualification.totalCount}
+                          meetsRequirement={qualification.meetsRequirement}
+                        />
+                      </td>
+                      <td className="py-3 px-4">
+                        {nextQualification ? (
+                          <QualificationBadge
+                            metCount={nextQualification.metCount}
+                            requiredCount={nextQualification.requiredCount}
+                            totalCount={nextQualification.totalCount}
+                            meetsRequirement={nextQualification.meetsRequirement}
+                          />
+                        ) : (
+                          <span className="text-sm text-gray-400 dark:text-gray-600">N/A</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {isEditing ? (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleSaveTier}
+                              className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={handleCancelEdit}
+                              className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleEditTier(member)}
+                            className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                          >
+                            Edit Tier
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 className="text-lg font-semibold mb-4">Tier Requirements Reference</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Object.entries(config.tierRequirements).map(([tier, requirements]) => (
+            <div key={tier} className="border border-gray-200 dark:border-slate-700 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <TierBadge tier={parseInt(tier)} />
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {config.payoutTickets[parseInt(tier)]} tickets
+                </span>
+              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                Must meet {Math.ceil(requirements.length * (2 / 3))} of {requirements.length} requirements
+              </div>
+              <div className="space-y-1">
+                {requirements.map((req, idx) => (
+                  <div key={idx} className="text-xs text-gray-500 dark:text-gray-500">
+                    {req.isAverage
+                      ? `Difficulty ${req.level} Average: ${req.minCpr}+ CPR`
+                      : `${req.crime} — ${req.role}: ${req.minCpr}+ CPR`}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TierBadge({ tier }) {
+  const colors = { 0: 'bg-tier-review', 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3', 4: 'bg-tier-4', 5: 'bg-tier-5', 6: 'bg-tier-6' }
+  const label = tier === 0 ? 'Review' : `Tier ${tier}`
+  return <span className={`inline-block px-3 py-1 rounded-lg text-white font-semibold text-sm ${colors[tier] ?? 'bg-tier-review'}`}>{label}</span>
+}
+
+function QualificationBadge({ metCount, requiredCount, totalCount, meetsRequirement }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`text-sm ${meetsRequirement ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+        {metCount}/{totalCount}
+      </span>
+      <span className="text-xs text-gray-400">(need {requiredCount})</span>
+      {meetsRequirement ? (
+        <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+      ) : (
+        <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
+      )}
+    </div>
+  )
+}
+

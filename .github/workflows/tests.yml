@@ -7,10 +7,10 @@ on:
     branches: [dev, main]
 
 jobs:
-  frontend-tests:
-    name: Frontend Tests (Vitest)
+  node-tests:
+    name: Node Tests (Vitest — frontend, server, db)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
     - name: Checkout repository
@@ -25,14 +25,122 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    - name: Run Vitest
+    - name: Run Vitest across workspaces
       # Fake Supabase env vars are required so supabase.js doesn't throw at import time.
-      # These are never used for real calls during unit tests.
+      # These are never used for real calls during unit tests. The db workspace
+      # runs against an embedded Postgres — no service container needed.
       env:
         VITE_SUPABASE_URL: https://placeholder.supabase.co
         VITE_SUPABASE_ANON_KEY: placeholder-anon-key
         VITE_SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key
       run: npm run test:run
+
+  compose-check:
+    name: Compose build + boot check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Configure compose environment
+      run: |
+        cp deploy/.env.example deploy/.env
+        # Avoid colliding with anything on the runner's default ports.
+        echo "POSTGRES_HOST_PORT=55432" >> deploy/.env
+        echo "HTTP_PORT=8088" >> deploy/.env
+
+    - name: Build images
+      run: docker compose -f deploy/docker-compose.yml --project-directory deploy build
+
+    - name: Boot the shared services
+      run: docker compose -f deploy/docker-compose.yml --project-directory deploy up -d --wait postgres nginx
+
+    # Every faction (forge included) is a module: this IS the production
+    # runbook, exercised end-to-end on every PR.
+    - name: Provision the forge faction via the runbook
+      run: |
+        npm ci --workspaces --include-workspace-root
+        node db/new-faction.mjs --slug forge --name "CI Forge" --faction-id 53100
+
+    - name: Bring up the faction module
+      run: >
+        docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml
+        --project-directory deploy up -d --build --wait api-forge nginx
+
+    - name: Probe API health through nginx
+      run: |
+        curl -fsS --retry 10 --retry-delay 2 --retry-all-errors http://localhost:8088/api/health | tee /tmp/health.json
+        grep -q '"status":"ok"' /tmp/health.json
+        grep -q '"faction":"forge"' /tmp/health.json
+        # Host-header routing answers for the faction's own hostname too.
+        curl -fsS -H 'Host: forge.localhost' http://localhost:8088/api/health | grep -q '"faction":"forge"'
+
+    - name: Probe SPA through nginx
+      run: |
+        curl -fsS http://localhost:8088/ | grep -qi '<div id="root"'
+
+    # Readiness reports live DB connectivity per faction (slice #76).
+    - name: Probe readiness through nginx
+      run: |
+        curl -fsS -H 'Host: forge.localhost' http://localhost:8088/api/health/ready | tee /tmp/ready.json
+        grep -q '"status":"ok"' /tmp/ready.json
+        grep -q '"db":"up"' /tmp/ready.json
+
+    # The nightly backup job and the restore drill, end-to-end through the
+    # sidecar image against the real postgres:17 (slice #76).
+    - name: Backup + restore drill
+      run: |
+        cd deploy
+        docker compose -f docker-compose.yml -f docker-compose.override.yml --project-directory . \
+          run --build --rm backup node db/backup.mjs --out /backups
+        # --role app_forge: the scratch name would derive a non-existent
+        # app_forge_restore. restore.mjs re-applies the grants and FAILS if the
+        # app role still can't read — a dump carries no privileges, so without
+        # this a "successful" restore is a DB the API cannot boot against (#115).
+        docker compose -f docker-compose.yml -f docker-compose.override.yml --project-directory . \
+          run --rm backup sh -c \
+          'node db/restore.mjs --create --db faction_forge_restore --role app_forge --archive $(ls -1t /backups/faction_forge_*.sql.gz | head -1)' \
+          | tee /tmp/restore.log
+        grep -q 'app_forge can read: true' /tmp/restore.log
+
+    # Off-site leg (#117): the same job against an rclone remote (a local dir
+    # standing in for B2 — identical rclone semantics, no credentials in CI).
+    # Proves upload, the SCOPED retention sweep (foreign files survive), and
+    # that an archive pulled back FROM the remote restores bootable.
+    - name: Off-site backup drill (rclone remote)
+      run: |
+        cd deploy
+        mkdir -p /tmp/fake-b2
+        echo "someone else's data" > /tmp/fake-b2/keep-me.txt
+        echo "old dump" | gzip > /tmp/fake-b2/faction_forge_20200101T000000Z.sql.gz
+        touch -d '20 days ago' /tmp/fake-b2/keep-me.txt /tmp/fake-b2/faction_forge_20200101T000000Z.sql.gz
+
+        docker compose -f docker-compose.yml -f docker-compose.override.yml --project-directory . \
+          run --rm -e RCLONE_REMOTE=/b2 -v /tmp/fake-b2:/b2 backup \
+          node db/backup.mjs --out /backups --db faction_forge
+
+        ls -1 /tmp/fake-b2 | tee /tmp/b2.txt
+        grep -qE 'faction_forge_2[0-9]{7}T[0-9]{6}Z\.sql\.gz' /tmp/b2.txt   # upload landed
+        grep -q  'keep-me.txt' /tmp/b2.txt                                  # foreign file survived the prune
+        ! grep -q 'faction_forge_20200101T000000Z' /tmp/b2.txt              # expired archive swept
+
+        docker compose -f docker-compose.yml -f docker-compose.override.yml --project-directory . \
+          run --rm -e RCLONE_REMOTE=/b2 -v /tmp/fake-b2:/b2 backup sh -c '
+            NAME=$(rclone lsf /b2 --include "faction_forge_*.sql.gz" | sort | tail -1)
+            rclone copy "/b2/$NAME" /tmp/from-b2/
+            node db/restore.mjs --create --db faction_forge_b2drill --role app_forge --archive "/tmp/from-b2/$NAME"
+          ' | tee /tmp/b2restore.log
+        grep -q 'app_forge can read: true' /tmp/b2restore.log
+
+    - name: Show logs on failure
+      if: failure()
+      run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy logs
+
+    - name: Tear down
+      if: always()
+      run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy down -v
 
   python-tests:
     name: Python Tests (pytest)
