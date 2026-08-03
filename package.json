@@ -12,14 +12,10 @@
     "dev": "npm run dev -w frontend",
     "build": "npm run build -w frontend",
     "preview": "npm run preview -w frontend",
-    "sync:items": "node scripts/sync-items.mjs",
     "test": "npm run test:run --workspaces --if-present",
     "test:run": "npm run test:run --workspaces --if-present"
   },
   "dependencies": {
     "dotenv": "^17.2.3"
-  },
-  "devDependencies": {
-    "supabase": "^2.72.7"
   }
 }

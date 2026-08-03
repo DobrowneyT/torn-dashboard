@@ -4,7 +4,7 @@ This repository is a single context: the **Dashboard**. It has (or will lazily g
 
 | Context | Scope | Glossary | ADRs |
 |---|---|---|---|
-| **Dashboard** | The TNL faction management website: `src/`, `frontend/`, `server/`, `db/`, `deploy/`, `supabase/`, `scripts/`, `docs/`, CI workflows | [CONTEXT.md](CONTEXT.md) | [docs/adr/](docs/adr/) |
+| **Dashboard** | The TNL faction management website (self-hosted stack): `frontend/`, `server/`, `db/`, `deploy/`, `docs/`, CI workflows | [CONTEXT.md](CONTEXT.md) | [docs/adr/](docs/adr/) |
 
 The `CONTEXT.md` file and ADR directory are created lazily by `/domain-modeling` when terms or decisions actually get resolved — absence is expected, not an error.
 
