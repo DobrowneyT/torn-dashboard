@@ -17,6 +17,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **Server endpoints to delete a saved payout (#135 part 2, slice 1).**
+  `DELETE /api/payouts/weeks/:id` (OC — unlinks the week's crimes, then removes
+  its member rows and the week) and `DELETE /api/war-payouts/:id` (RW — removes
+  its member rows and the payout), both leadership/admin-gated. Restores the
+  "delete a bad payout" capability that the retired DataManagement view ran
+  through the now-dead Supabase admin-db function; the frontend delete UI is
+  rewired to these when DataManagement is removed.
+
 ### Removed
 
 - **Legacy superset deleted post-cutover (#135, part 1).** With production on the

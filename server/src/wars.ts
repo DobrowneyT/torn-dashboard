@@ -112,6 +112,31 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
     return { members: res.rows }
   })
 
+  // Delete a saved RW payout: remove its member rows, then the payout. The
+  // self-hosted replacement for the old DataManagement single-delete tool.
+  app.delete('/api/war-payouts/:id', { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'valid payout id required' })
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const existing = await client.query('SELECT id FROM war_payouts WHERE id = $1', [id])
+      if (existing.rows.length === 0) {
+        await client.query('ROLLBACK')
+        return reply.status(404).send({ error: 'War payout not found' })
+      }
+      await client.query('DELETE FROM war_payout_members WHERE payout_id = $1', [id])
+      await client.query('DELETE FROM war_payouts WHERE id = $1', [id])
+      await client.query('COMMIT')
+      return { ok: true, deleted_payout_id: Number(id) }
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  })
+
   // Save a computed war payout: overwrite the war's latest payout (or create
   // the first), replacing its member rows — the same semantics the admin-db
   // edge function had. Visitors get the explicit read-only message; everyone
