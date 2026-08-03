@@ -1,10 +1,10 @@
 # torn-forge-oc-system
 
-TNL faction management dashboard for Torn (React SPA + Supabase, migrating to a self-hosted multi-faction stack — see `dashboard-migration.md` for the roadmap of record). Two sibling projects that used to live here have been extracted to their own repos — the Discord bot (`DobrowneyT/torn-discord-bot`) and mug-bot (`DobrowneyT/torn-mug-bot`); this repo is now just the dashboard.
+TNL faction management dashboard for Torn — a self-hosted multi-faction stack (React SPA + Node/Fastify + Postgres, deployed via Docker Compose on a VPS). The legacy single-tenant Supabase + GitHub Pages app was retired at the production cutover (#195); `dashboard-migration.md` remains the roadmap of record for the migration's history and the remaining cleanup (#132 repo rename, #135 legacy-superset deletion). Two sibling projects that used to live here have been extracted to their own repos — the Discord bot (`DobrowneyT/torn-discord-bot`) and mug-bot (`DobrowneyT/torn-mug-bot`); this repo is now just the dashboard.
 
 ## Branch policy
 
-`main` is the live production site (GitHub Pages deploys from it) and must stay intact throughout the multi-faction migration. All work on the migration issues (#59–#76, parent PRD #58) branches from and merges into **`dev`** — never commit migration work directly to `main`. `main` only receives urgent fixes for the live site.
+`main` is **live production** — the self-hosted stack serving all tenants. `dev` is the **permanent staging ground**. Features branch off `dev`, merge into `dev` (each PR green on CI), and an approved **`dev → main`** merge is what promotes to production. Never force-push `main`.
 
 ## Agent skills
 
