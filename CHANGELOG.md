@@ -17,6 +17,19 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Removed
+
+- **Legacy superset deleted post-cutover (#135, part 1).** With production on the
+  self-hosted stack, the retired Supabase + GitHub Pages pipeline is dead weight
+  and is gone: the Python scrapers (`scripts/`) and their pytest suite (`tests/`),
+  the Actions-committed data store (`data/`), the Supabase project (`supabase/`,
+  `supabase.tar.gz`), the legacy Pages/scraper workflows (`deploy-pages.yml`,
+  `daily-scrapers.yml`, `scrape-*.yml`), `requirements.txt`, the root
+  `items.json` (the stack seeds from `db/seed/items.json`), and `export/`.
+  `tests.yml` drops the Python job (Node stack only); the root `sync:items`
+  script and `supabase` CLI devDependency are removed. The frontend's legacy
+  Supabase/`API_MODE` client paths are a separate follow-up (#135 part 2).
+
 ### Fixed
 
 - **War payouts scored only war hits — assists, losses and mugs came through as
