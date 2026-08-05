@@ -3,7 +3,7 @@
 // (_sync_members_to_supabase + _reconcile_key_pool), scrape_member_stats.py,
 // assign_tiers.py.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { startTestStack, type TestStack } from './harness.js'
+import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
 import { createKeyPool } from '../src/scraper/keyPool.js'
 import { createTornClient } from '../src/scraper/tornClient.js'
 
@@ -15,6 +15,8 @@ function deps() {
     db: stack.db,
     pool: createKeyPool({ db: stack.db, encryptionKey: ENCRYPTION_KEY }),
     client: createTornClient({ baseUrl: stack.tornBaseUrl, budget: { requests: 200, perMs: 1000 } }),
+    // Presence of the at-rest secret arms the key re-verification pass (#309).
+    encryptionKey: ENCRYPTION_KEY,
   }
 }
 
@@ -33,6 +35,10 @@ beforeAll(async () => {
   await pool.store('1002', 'LEAVERKEY1002BBB', { consentVersion: 'v2' })
   await pool.store('1003', 'BOOMKEY01003CCCC', { consentVersion: 'v2' })
   await pool.disable('1003', 'not in faction as of 2026-06-01')
+  // members-sync re-verifies every pooled key against /v2/key/info (#309), so
+  // the shared-stack keys have to exist in the Torn fixture.
+  stack.torn.addKey('STAYERKEY1001AAA', { id: '1001', factionId: TEST_FACTION.tornFactionId })
+  stack.torn.addKey('BOOMKEY01003CCCC', { id: '1003', factionId: TEST_FACTION.tornFactionId })
 }, 30000)
 
 afterAll(async () => {
@@ -88,6 +94,119 @@ describe('members sync job', () => {
     expect(secrets.rows[1].disabled).toBe(true)
     expect(secrets.rows[1].last_error).toContain('not in faction')
     expect(secrets.rows[2]).toMatchObject({ member_id: '1003', disabled: false, last_error: null })
+  })
+})
+
+// #309 — every members-sync re-verifies the enrolled keys against /v2/key/info
+// so a recruit promoted to full member joins the pool without re-logging in.
+describe('key-pool re-verification (#309)', () => {
+  const REVERIFY_ROSTER = {
+    members: [
+      { id: 1001, name: 'Stayer', days_in_faction: 589 },
+      { id: 1003, name: 'Boomerang', days_in_faction: 12 },
+      { id: 1004, name: 'FreshRecruit', days_in_faction: 1 },
+      { id: 2001, name: 'Promoted', days_in_faction: 3 },
+      { id: 2002, name: 'StillRecruit', days_in_faction: 1 },
+      { id: 2003, name: 'Revoked', days_in_faction: 400 },
+      { id: 2004, name: 'FatalError', days_in_faction: 200 },
+      { id: 2005, name: 'Hiccup', days_in_faction: 300 },
+      { id: 2006, name: 'WrongAccount', days_in_faction: 50 },
+    ],
+  }
+  const ids = ['2001', '2002', '2003', '2004', '2005', '2006']
+  const secret = async (memberId: string) =>
+    (await stack.db.query(
+      `SELECT has_faction_access, key_level, disabled, last_error FROM member_secrets WHERE member_id = $1`,
+      [memberId]
+    )).rows[0]
+
+  beforeAll(async () => {
+    for (const id of ids) {
+      await stack.db.query(
+        `INSERT INTO members (member_id, member_name, is_current) VALUES ($1, $2, true)
+         ON CONFLICT (member_id) DO NOTHING`,
+        [id, `Member ${id}`]
+      )
+    }
+    const pool = createKeyPool({ db: stack.db, encryptionKey: ENCRYPTION_KEY })
+    // Enrolled at login as a recruit (no faction access) — Torn has since promoted them.
+    await pool.store('2001', 'RECRUITKEY2001AA', { hasFactionAccess: false, keyLevel: 3 })
+    stack.torn.addKey('RECRUITKEY2001AA', { id: '2001', factionId: TEST_FACTION.tornFactionId, accessLevel: 4 })
+    // Still inside Torn's recruit window — nothing changes.
+    await pool.store('2002', 'RECRUITKEY2002BB', { hasFactionAccess: false, keyLevel: 3 })
+    stack.torn.addKey('RECRUITKEY2002BB', { id: '2002', factionId: TEST_FACTION.tornFactionId, factionAccess: false })
+    // Had faction access at login; the owner has since narrowed the key's scopes.
+    await pool.store('2003', 'FULLKEY002003CCC', { hasFactionAccess: true, keyLevel: 3 })
+    stack.torn.addKey('FULLKEY002003CCC', { id: '2003', factionId: TEST_FACTION.tornFactionId, factionAccess: false })
+    // Fatal key error (13 = disabled for owner inactivity) ⇒ out of the pool.
+    await pool.store('2004', 'DEADKEY002004DDD', { hasFactionAccess: true, keyLevel: 3 })
+    stack.torn.addBadKey('DEADKEY002004DDD', 13, 'Key temporarily disabled due to owner inactivity')
+    // Transient error (5 = too many requests) ⇒ untouched, retried next run.
+    await pool.store('2005', 'BUSYKEY002005EEE', { hasFactionAccess: true, keyLevel: 3 })
+    stack.torn.addBadKey('BUSYKEY002005EEE', 5, 'Too many requests')
+    // The key now resolves to a different Torn account than the row it's stored on.
+    await pool.store('2006', 'SWAPKEY002006FFF', { hasFactionAccess: true, keyLevel: 3 })
+    stack.torn.addKey('SWAPKEY002006FFF', { id: '9999', factionId: TEST_FACTION.tornFactionId })
+  })
+
+  afterAll(async () => {
+    await stack.db.query(`DELETE FROM member_secrets WHERE member_id = ANY($1)`, [ids])
+    await stack.db.query(`DELETE FROM member_faction_stints WHERE member_id = ANY($1)`, [ids])
+    await stack.db.query(`DELETE FROM member_daily_stats WHERE member_id = ANY($1)`, [ids])
+    await stack.db.query(`DELETE FROM members WHERE member_id = ANY($1)`, [ids])
+  })
+
+  it('promotes, revokes, refreshes and disables enrolled keys off /v2/key/info', async () => {
+    stack.torn.setPath('/v2/faction/members', REVERIFY_ROSTER)
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    const result = await membersSyncJob(deps())
+
+    // One key's failure aborts neither the roster reconcile nor the other keys.
+    expect(result.rows).toBe(REVERIFY_ROSTER.members.length)
+
+    // Promoted recruit: flipped true, key_level refreshed from access.level.
+    expect(await secret('2001')).toMatchObject({
+      has_faction_access: true, key_level: 4, disabled: false, last_error: null,
+    })
+    // Still a recruit: stays false (and stays out of the pool).
+    expect(await secret('2002')).toMatchObject({ has_faction_access: false, disabled: false })
+    // Lost faction access: flipped back to false.
+    expect(await secret('2003')).toMatchObject({ has_faction_access: false, disabled: false })
+    // Fatal Torn key error: disabled with the reason for Key Pool Health.
+    const fatal = await secret('2004')
+    expect(fatal.disabled).toBe(true)
+    expect(fatal.last_error).toContain('13')
+    // Transient error: untouched, retried next run.
+    expect(await secret('2005')).toMatchObject({
+      has_faction_access: true, key_level: 3, disabled: false, last_error: null,
+    })
+    // Wrong account: disabled, like the login-time wrong-account check.
+    const swapped = await secret('2006')
+    expect(swapped.disabled).toBe(true)
+    expect(swapped.last_error).toContain('9999')
+
+    // The promoted recruit is now claimable; the two false rows are not.
+    const pool = createKeyPool({ db: stack.db, encryptionKey: ENCRYPTION_KEY })
+    const claimable = (await pool.listKeys()).map((k) => k.member_id)
+    expect(claimable).toContain('2001')
+    expect(claimable).not.toContain('2002')
+    expect(claimable).not.toContain('2003')
+    expect(claimable).not.toContain('2004')
+    expect(claimable).not.toContain('2006')
+  })
+
+  it('skips the re-verify pass when KEY_ENCRYPTION_KEY is unset', async () => {
+    // Torn would now report faction access for 2002 — but with no at-rest secret
+    // configured the job must not touch the pool at all.
+    stack.torn.addKey('RECRUITKEY2002BB', { id: '2002', factionId: TEST_FACTION.tornFactionId })
+    stack.torn.setPath('/v2/faction/members', REVERIFY_ROSTER)
+
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    const { encryptionKey: _omitted, ...unconfigured } = deps()
+    const result = await membersSyncJob(unconfigured)
+
+    expect(result.rows).toBe(REVERIFY_ROSTER.members.length)
+    expect(await secret('2002')).toMatchObject({ has_faction_access: false })
   })
 })
 
