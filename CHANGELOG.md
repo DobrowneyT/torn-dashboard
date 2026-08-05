@@ -17,6 +17,8 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-08-05
+
 ### Added
 
 - **Pooled Torn keys are re-verified on every members-sync (#309).** After the
