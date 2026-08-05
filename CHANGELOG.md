@@ -17,6 +17,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Changed
+
+- **Repo renamed `torn-forge-oc-system` → `torn-dashboard` (#132).** Updated the
+  in-repo references to the old slug: the feedback issue-target default
+  (`server/src/main.ts`, `deploy/.env.example`), the deploy runbook + helper
+  script paths (`deploy/LAUNCH.md`, `deploy/pull-live-db.sh`), the root package
+  name, the CLAUDE.md heading, and the delivery-agent doc. The GitHub rename
+  auto-redirects git/API from the old path; live servers' git remotes + checkout
+  dirs + cron paths are updated out-of-band by the operator.
+
 ## [3.1.0] - 2026-08-05
 
 ### Changed

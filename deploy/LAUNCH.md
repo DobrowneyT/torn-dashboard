@@ -168,8 +168,8 @@ free -h                          # swap now shows 4.0Gi
 
 ```bash
 sudo apt-get install -y git
-git clone git@github.com:DobrowneyT/torn-forge-oc-system.git   # or https://
-cd torn-forge-oc-system
+git clone git@github.com:DobrowneyT/torn-dashboard.git   # or https://
+cd torn-dashboard
 git checkout docs/hetzner-launch   # carries HTTP_BIND + this runbook (merges to dev later)
 ```
 
@@ -211,7 +211,7 @@ going to torn-armory. We add a file and touch neither of theirs.
 
 ## Phase 3 — Bring up the stack + provision the factions
 
-Repo lives at `~/torn/torn-forge-oc-system` on Duby.
+Repo lives at `~/torn/torn-dashboard` on Duby.
 
 ### 3.1 — Secrets and `.env`
 
@@ -235,7 +235,7 @@ undecryptable (every member has to re-enrol). Losing `JWT_SECRET` only forces a
 re-login; losing `POSTGRES_PASSWORD` is resettable.
 
 ```bash
-cd ~/torn/torn-forge-oc-system/deploy
+cd ~/torn/torn-dashboard/deploy
 cp .env.example .env
 nano .env          # fill in the values below
 chmod 600 .env
@@ -256,7 +256,7 @@ BSP_API_KEY=
 # PUBLIC_DOMAIN builds each tenant's PUBLIC_BASE_URL (https://<slug>.<domain>) so
 # attachment links resolve in the issue.
 FEEDBACK_GITHUB_TOKEN=
-FEEDBACK_GITHUB_REPO=DobrowneyT/torn-forge-oc-system
+FEEDBACK_GITHUB_REPO=DobrowneyT/torn-dashboard
 FEEDBACK_LABEL=needs-triage
 PUBLIC_DOMAIN=monchoon.me
 ```
@@ -278,7 +278,7 @@ an auto-generated `DB_PASSWORD_<SLUG>` per faction, so back up the whole file.
 ### 3.2 — Boot the shared services
 
 ```bash
-cd ~/torn/torn-forge-oc-system/deploy
+cd ~/torn/torn-dashboard/deploy
 docker compose up -d --build postgres nginx
 docker compose ps
 ```
@@ -289,7 +289,7 @@ docker compose ps
 override, and the nginx vhost), which is why Phase 1 installs Node.
 
 ```bash
-cd ~/torn/torn-forge-oc-system
+cd ~/torn/torn-dashboard
 npm ci --omit=dev --workspace @tnl/db     # pg + dotenv for the CLI
 
 node db/new-faction.mjs --slug forge  --name "TNL Forge"  --faction-id 10739 \
@@ -309,7 +309,7 @@ admin on every tenant.
 ### 3.4 — Bring up the faction APIs + rebuild nginx (bakes in the new vhosts)
 
 ```bash
-cd ~/torn/torn-forge-oc-system/deploy
+cd ~/torn/torn-dashboard/deploy
 docker compose up -d --build api-forge api-tnl api-mayhem nginx
 docker compose ps
 ```
@@ -471,7 +471,7 @@ can't do for you. Worked example: `capacityx` (Torn faction 9357), added
 
 ```bash
 # 1. Provision (on the host, from the repo root). --admin-id keeps you a global admin.
-cd ~/torn/torn-forge-oc-system && git pull
+cd ~/torn/torn-dashboard && git pull
 node db/new-faction.mjs --slug capacityx --name "Capacity X Dashboard" \
   --faction-id 9357 --leader-id <leader Torn ID> --admin-id 2250591
 
@@ -543,10 +543,10 @@ docker exec tnl-dashboard-postgres-1 pg_dump -U postgres --no-owner --no-privile
 
 ```bash
 # on Duby: make sure the (gitignored) dir exists
-mkdir -p ~/torn/torn-forge-oc-system/deploy/backups
+mkdir -p ~/torn/torn-dashboard/deploy/backups
 # from the source machine:
 scp deploy/backups/forge-seed-<TS>.sql.gz \
-    monchoon@5.161.91.183:~/torn/torn-forge-oc-system/deploy/backups/
+    monchoon@5.161.91.183:~/torn/torn-dashboard/deploy/backups/
 ```
 
 ### 5.3 — Restore into the live faction_forge
@@ -557,7 +557,7 @@ blocks on its open connections. `--role app_forge` re-applies the scoped grants
 can't read**. The role's password in `deploy/.env` is left untouched.
 
 ```bash
-cd ~/torn/torn-forge-oc-system/deploy
+cd ~/torn/torn-dashboard/deploy
 docker compose stop api-forge
 
 docker compose run --rm -v "$(pwd)/backups:/seed" backup \
@@ -623,7 +623,7 @@ A `flock` guard means overlapping runs are impossible, and operator state
 a pull can never clobber it.
 
 ```bash
-cd ~/torn/torn-forge-oc-system && ./deploy/update.sh     # manual deploy
+cd ~/torn/torn-dashboard && ./deploy/update.sh     # manual deploy
 ```
 
 ### 6.2 — Auto-deploy on merge
@@ -637,7 +637,7 @@ ever wanted.)
 
 ```bash
 crontab -e     # on Duby, add:
-*/5 * * * * cd $HOME/torn/torn-forge-oc-system && ./deploy/update.sh --if-changed >> $HOME/torn/deploy.log 2>&1
+*/5 * * * * cd $HOME/torn/torn-dashboard && ./deploy/update.sh --if-changed >> $HOME/torn/deploy.log 2>&1
 ```
 
 `--if-changed` exits silently when origin hasn't moved, so the log only grows
@@ -734,7 +734,7 @@ under default discovery), so the per-faction api services would never start
 and every tenant would 502. Set an alias once per shell:
 
 ```bash
-cd ~/torn/torn-forge-oc-system
+cd ~/torn/torn-dashboard
 DC() { docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy "$@"; }
 ```
 
@@ -756,7 +756,7 @@ inside the mock). The leader id must be stress member index 0, which is
 `<faction_id % 1000000> * 1000` — e.g. faction `990001` → leader `990001000`.
 
 ```bash
-cd ~/torn/torn-forge-oc-system
+cd ~/torn/torn-dashboard
 for n in 1 2 3 4; do
   node db/new-faction.mjs --slug stress$n --faction-id 99000$n \
     --name "Stress $n" --leader-id 99000${n}000
@@ -898,7 +898,7 @@ on that run (swarm parsing bug, fixed since) — capture it on the re-run.
 ### 7.6 Teardown
 
 ```bash
-cd ~/torn/torn-forge-oc-system   # DC() alias from §7.1
+cd ~/torn/torn-dashboard   # DC() alias from §7.1
 DC --profile stress stop mock-torn
 DC rm -f mock-torn
 for n in 1 2 3 4; do DC stop api-stress$n; done
@@ -941,7 +941,7 @@ RCLONE_CONFIG_B2_KEY=<applicationKey>
 4. Recreate the sidecar and watch a run upload:
 
 ```bash
-cd ~/torn/torn-forge-oc-system/deploy
+cd ~/torn/torn-dashboard/deploy
 docker compose --profile backup up -d --build backup
 docker compose run --rm backup node db/backup.mjs --out /backups   # on-demand run
 # single quotes matter: RCLONE_REMOTE lives in the CONTAINER's env (via .env),
@@ -959,7 +959,7 @@ An untested backup is not a backup. Quarterly (or after any infra change),
 prove the OFF-SITE copy restores — not just the local one:
 
 ```bash
-cd ~/torn/torn-forge-oc-system/deploy
+cd ~/torn/torn-dashboard/deploy
 docker compose run --rm backup sh -c '
   NAME=$(rclone lsf "$RCLONE_REMOTE" --include "faction_forge_*.sql.gz" | sort | tail -1)
   rclone copy "$RCLONE_REMOTE/$NAME" /tmp/from-b2/

@@ -24,7 +24,6 @@ function appVersion() {
 export default defineConfig({
   plugins: [react()],
   // Self-hosted stack serves the SPA at the domain root behind nginx.
-  // (GitHub Pages needed base '/torn-forge-oc-system/'; that stays on main.)
   base: '/',
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion()),
