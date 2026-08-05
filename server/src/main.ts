@@ -63,7 +63,7 @@ const app = await buildServer({
   vapid,
   // In-app feedback → GitHub issue (#253) — optional; disabled without a PAT.
   feedbackGithubToken: process.env.FEEDBACK_GITHUB_TOKEN || undefined,
-  feedbackGithubRepo: process.env.FEEDBACK_GITHUB_REPO || 'DobrowneyT/torn-forge-oc-system',
+  feedbackGithubRepo: process.env.FEEDBACK_GITHUB_REPO || 'DobrowneyT/torn-dashboard',
   feedbackLabel: process.env.FEEDBACK_LABEL || 'needs-triage',
   // Public origin so feedback attachment URLs embed correctly in GitHub issues.
   publicBaseUrl: process.env.PUBLIC_BASE_URL || undefined,
@@ -135,7 +135,7 @@ if (db) {
       pruneFeedbackAttachments({
         db: pruneDb,
         githubToken: process.env.FEEDBACK_GITHUB_TOKEN!,
-        githubRepo: process.env.FEEDBACK_GITHUB_REPO || 'DobrowneyT/torn-forge-oc-system',
+        githubRepo: process.env.FEEDBACK_GITHUB_REPO || 'DobrowneyT/torn-dashboard',
       })
         .then((r) => {
           if (r.closedAttachmentsDeleted || r.ttlDeleted) {
