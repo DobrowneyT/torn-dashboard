@@ -31,7 +31,7 @@ export async function loadFactionIdentity() {
           displayName: boot.faction.display_name,
           branding: boot.faction.branding || {},
           // Distinguishes a genuine per-tenant bootstrap from `fallback`
-          // (legacy Supabase-mode / not-yet-loaded) — see apiKeyTitleFor.
+          // (not-yet-loaded / bootstrap failure) — see apiKeyTitleFor.
           resolved: true,
         }
       } else {
@@ -54,9 +54,8 @@ export function getFactionId() {
 }
 
 // Torn API key title/comment (#131): brand it with the tenant's own faction
-// once identity has genuinely resolved from the API-mode bootstrap; the
-// static config.apiKey.title is only correct as a legacy-mode / pre-load
-// fallback (main's Forge-only Supabase site).
+// once identity has genuinely resolved from the bootstrap; the static
+// config.apiKey.title is only correct as a pre-load fallback.
 export function apiKeyTitleFor(identity) {
   return identity.resolved ? `${identity.displayName}-Dashboard` : config.apiKey.title
 }

@@ -80,6 +80,15 @@ from `VERSION` at runtime) both surface it automatically.
   show a clear "needs a self-hosted revive endpoint" message instead of failing
   silently — a server `/api/war-room/revive` endpoint is the follow-up; the Nuke
   preset (direct-from-browser) is unaffected.
+- **Purged remaining Supabase references (#135 part 2).** Deleted the dead
+  `db/snapshot-from-supabase.mjs` restore script and the orphaned
+  `.github/actions/scraper-setup` action (no workflow used it after the legacy
+  scrapers were removed), cleared the retired Supabase server from `.mcp.json`,
+  and corrected stale wording across agent docs (`main` is live production, not
+  "the live Supabase site"), deploy docs, and user-facing help text (payouts /
+  inventory no longer say "stored in Supabase"). `db/template.sql` keeps its
+  provenance note and `docs/security-model.md` / `docs/war-room-v2-*.md` remain
+  as historical design records.
 
 ### Fixed
 
