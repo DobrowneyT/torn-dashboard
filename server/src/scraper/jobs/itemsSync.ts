@@ -10,6 +10,9 @@ export interface JobDeps {
   db: pg.Pool
   pool: ReturnType<typeof createKeyPool>
   client: ReturnType<typeof createTornClient>
+  /** KEY_ENCRYPTION_KEY, when configured (#309). Jobs that maintain the key
+   *  pool itself skip that work when it's absent, like the other pool ops. */
+  encryptionKey?: string
   /** Spy-stat provider config (#139) — lets war-lifecycle auto-fetch spies
    *  on the weekly setup. Optional: absent ⇒ the spy step no-ops. */
   spy?: {

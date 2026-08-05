@@ -29,6 +29,7 @@ export function registerSyncRoutes(app: FastifyInstance, deps: SyncDeps) {
     return {
       db: deps.db,
       pool: createKeyPool({ db: deps.db, encryptionKey: deps.encryptionKey! }),
+      encryptionKey: deps.encryptionKey,
       // On-demand triggers share Torn's per-key budget headroom.
       client: createTornClient({ baseUrl: deps.tornBaseUrl, budget: { requests: 60, perMs: 60_000 } }),
     }

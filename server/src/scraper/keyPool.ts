@@ -16,6 +16,12 @@ export interface ClaimedKey {
   key: string
 }
 
+/** A pooled key with the access facts we last recorded for it (#309). */
+export interface PooledKey extends ClaimedKey {
+  has_faction_access: boolean | null
+  key_level: number | null
+}
+
 export interface KeyMeta {
   keyLevel?: number
   consentVersion?: string
@@ -121,6 +127,44 @@ export function createKeyPool({ db, encryptionKey }: KeyPoolOptions) {
          ORDER BY member_id`
       )
       return res.rows.map((r) => ({ member_id: r.member_id, key: decrypt(r.cpr_api_key) }))
+    },
+
+    /**
+     * Every enabled + consented key, INCLUDING the ones currently flagged
+     * without faction access. `listKeys()` filters those out (they'd fail
+     * faction calls), so it can't drive the hourly re-verification (#309),
+     * which exists precisely to notice a recruit's key gaining faction access.
+     */
+    async listAllKeys(): Promise<PooledKey[]> {
+      const res = await db.query(
+        `SELECT member_id, cpr_api_key, has_faction_access, key_level FROM member_secrets
+         WHERE disabled = false AND consent_at IS NOT NULL AND cpr_api_key IS NOT NULL
+         ORDER BY member_id`
+      )
+      return res.rows.map((r) => ({
+        member_id: r.member_id,
+        key: decrypt(r.cpr_api_key),
+        has_faction_access: r.has_faction_access,
+        key_level: r.key_level,
+      }))
+    },
+
+    /**
+     * Refresh the access facts a key was enrolled with (#309): login records
+     * them once, this keeps them honest between logins. A key that verifies
+     * cleanly also clears any stale error text.
+     */
+    async setAccess(
+      memberId: string,
+      access: { hasFactionAccess: boolean; keyLevel?: number | null }
+    ): Promise<void> {
+      await db.query(
+        `UPDATE member_secrets
+         SET has_faction_access = $2, key_level = COALESCE($3, key_level),
+             last_error = NULL, updated_at = now()
+         WHERE member_id = $1`,
+        [memberId, access.hasFactionAccess, access.keyLevel ?? null]
+      )
     },
 
     /** Take a key out of rotation (bad key, revoked consent, Torn error). */
