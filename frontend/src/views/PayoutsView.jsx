@@ -158,15 +158,11 @@ export default function PayoutsView({ isLeadership }) {
 
     setLoadingCompare(true)
     try {
-      const { data, error } = await supabase
-        .from('oc_payout_members')
-        .select('*')
-        .eq('week_id', weekId)
-        .order('payout', { ascending: false })
-
-      if (error) throw error
+      // Was an ungated Supabase read (broken in API mode — `supabase` isn't even
+      // imported here). The server returns members already ordered by payout desc.
+      const { members } = await apiGet(`/api/payouts/weeks/${weekId}/members`)
       const newData = [...compareData]
-      newData[index] = data || []
+      newData[index] = members || []
       setCompareData(newData)
     } catch (err) {
       console.error('Error loading compare week:', err)

@@ -42,6 +42,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 
+- **OC Payouts "Compare Weeks" was broken in production.** `loadCompareWeek`
+  still read from Supabase (`supabase.from('oc_payout_members')`) — ungated and
+  not even imported in that file — so comparing two payout weeks threw a
+  `ReferenceError` on the self-hosted stack. Rerouted to
+  `GET /api/payouts/weeks/:id/members` (the same endpoint the page already uses
+  to load a week). Found during a full audit of remaining legacy Supabase call
+  sites (#135 part 2).
 - **War payouts scored only war hits — assists, losses and mugs came through as
   0.** Since the June "exclude non-war assists/losses" change, the participation
   calculator required Torn's `is_ranked_war` flag to credit an assist/loss/mug as
