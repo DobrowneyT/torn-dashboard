@@ -1,12 +1,12 @@
-// Faction identity for the SPA. In API mode it comes from /api/bootstrap
-// (faction_config — per tenant, editable in Leadership → Settings); the
-// config.js strings are the legacy Supabase-mode fallback only.
+// Faction identity for the SPA. It comes from /api/bootstrap (faction_config —
+// per tenant, editable in Leadership → Settings); the config.js strings are the
+// pre-bootstrap fallback only.
 //
 // AuthContext awaits loadFactionIdentity() during its initial loading gate,
 // so by the time any view renders the synchronous getters are safe.
 import { useEffect, useState } from 'react'
 import { config } from '../config'
-import { API_MODE, apiBootstrap } from './apiClient'
+import { apiBootstrap } from './apiClient'
 
 const fallback = {
   id: String(config.faction.id),
@@ -20,7 +20,6 @@ let cached = null
 let inflight = null
 
 export async function loadFactionIdentity() {
-  if (!API_MODE) return fallback
   if (cached) return cached
   inflight ??= apiBootstrap(null)
     .then((boot) => {
@@ -32,7 +31,7 @@ export async function loadFactionIdentity() {
           displayName: boot.faction.display_name,
           branding: boot.faction.branding || {},
           // Distinguishes a genuine per-tenant bootstrap from `fallback`
-          // (legacy Supabase-mode / not-yet-loaded) — see apiKeyTitleFor.
+          // (not-yet-loaded / bootstrap failure) — see apiKeyTitleFor.
           resolved: true,
         }
       } else {
@@ -55,9 +54,8 @@ export function getFactionId() {
 }
 
 // Torn API key title/comment (#131): brand it with the tenant's own faction
-// once identity has genuinely resolved from the API-mode bootstrap; the
-// static config.apiKey.title is only correct as a legacy-mode / pre-load
-// fallback (main's Forge-only Supabase site).
+// once identity has genuinely resolved from the bootstrap; the static
+// config.apiKey.title is only correct as a pre-load fallback.
 export function apiKeyTitleFor(identity) {
   return identity.resolved ? `${identity.displayName}-Dashboard` : config.apiKey.title
 }

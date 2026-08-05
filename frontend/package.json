@@ -1,6 +1,6 @@
 {
   "name": "@tnl/frontend",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,6 @@
     "test:run": "vitest run"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.90.1",
     "date-fns": "^3.0.0",
     "lucide-react": "^1.16.0",
     "plotly.js-dist-min": "^3.5.1",

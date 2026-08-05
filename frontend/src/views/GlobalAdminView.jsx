@@ -2,7 +2,7 @@
 // control (enable/disable, run now), run history, and key-pool health.
 // Admin-only (server-enforced); API mode only.
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { API_MODE, apiGet, apiPost, apiPut } from '../utils/apiClient'
+import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { fmtDbTime } from '../utils/time'
 import { keyPoolStatus, sortKeyPoolRows } from '../utils/keyPoolTable'
 import { scraperJobSummary } from '../utils/scraperJobInfo'
@@ -225,13 +225,6 @@ export default function GlobalAdminView() {
     }
   }
 
-  if (!API_MODE) {
-    return (
-      <div className="text-gray-600 dark:text-gray-400 text-sm">
-        The global-admin surface lives on the new API stack — not available on this deployment.
-      </div>
-    )
-  }
   if (loading) return <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
   if (error) {
     return (

@@ -16,7 +16,7 @@ This is a **single-context repo**: the dashboard owns the repo root. (Two former
 ```
 /
 ├── CONTEXT-MAP.md            ← points at the dashboard context
-├── CONTEXT.md                ← Dashboard context (src/, frontend/, server/, db/, deploy/, supabase/, scripts/, docs/)
+├── CONTEXT.md                ← Dashboard context (frontend/, server/, db/, deploy/, docs/)
 └── docs/adr/                 ← dashboard + system-wide decisions
 ```
 

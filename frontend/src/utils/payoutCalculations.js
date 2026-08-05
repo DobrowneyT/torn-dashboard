@@ -1,9 +1,9 @@
 /**
- * Payout Calculation Utilities - Supabase Version
- * 
+ * Payout Calculation Utilities
+ *
  * Calculates member payouts based on tier, time spent, and crime participation.
- * Works directly with data loaded from Supabase.
- * 
+ * Works directly with data loaded via payoutDataLoader.js.
+ *
  * All times use TCT (Torn City Time) which is UTC/GMT.
  */
 
@@ -309,7 +309,7 @@ export function validateNoOverlappingCrimes(crimesData) {
 
 /**
  * Main payout calculation function
- * Works with data loaded from Supabase via payoutDataLoader.js
+ * Works with data loaded via payoutDataLoader.js
  * 
  * IMPORTANT: Uses >= fromTimestamp and < toTimestamp to avoid overlaps
  * 
@@ -322,7 +322,7 @@ export function validateNoOverlappingCrimes(crimesData) {
  */
 export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent = 0.20, mode = 'tiered') {
   console.log('\n===========================================')
-  console.log('PAYOUT CALCULATION START (Supabase)')
+  console.log('PAYOUT CALCULATION START')
   console.log('===========================================')
   console.log('Time range:', new Date(fromTimestamp * 1000).toISOString(), 'to', new Date(toTimestamp * 1000).toISOString())
   console.log('Faction cut:', (factionCutPercent * 100).toFixed(1) + '%')
@@ -1424,43 +1424,3 @@ export function parsePayoutXLSX(payoutRows, itemRows, weekStart, weekEnd) {
   }
 }
 
-/**
- * Fetch market prices for items from Torn API
- * @param {Array} itemIds - Array of item IDs to fetch
- * @param {string} apiKey - Torn API key
- * @returns {Promise<Object>} Map of itemId -> market_price
- */
-export async function fetchItemMarketPrices(itemIds, apiKey) {
-  if (!itemIds || itemIds.length === 0) return {}
-
-  const uniqueIds = [...new Set(itemIds)]
-  const idsString = uniqueIds.join(',')
-
-  try {
-    const response = await fetch(
-      `https://api.torn.com/v2/torn/${idsString}/items?sort=ASC&key=${apiKey}`
-    )
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch item prices from Torn API')
-    }
-
-    const data = await response.json()
-
-    if (data.error) {
-      throw new Error(data.error.error || 'Unknown API error')
-    }
-
-    const priceMap = {}
-    if (data.items) {
-      data.items.forEach(item => {
-        priceMap[item.id.toString()] = item.value?.market_price || 0
-      })
-    }
-
-    return priceMap
-  } catch (error) {
-    console.error('Error fetching item market prices:', error)
-    return {}
-  }
-}

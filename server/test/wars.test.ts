@@ -42,6 +42,14 @@ async function post(path: string, payload: unknown, as = 'leader') {
   return { status: res.status, body: (await res.json()) as any }
 }
 
+async function del(path: string, as = 'leader') {
+  const res = await fetch(`${stack.baseUrl}${path}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${tokens[as]}` },
+  })
+  return { status: res.status, body: (await res.json()) as any }
+}
+
 beforeAll(async () => {
   stack = await startTestStack()
   await loginAs('member', '500', [])
@@ -197,6 +205,31 @@ describe('war payout history', () => {
     expect(body.payouts.map((p: any) => p.war_id)).toEqual([200, 200])
     expect(body.payouts[0].notes).toBe('final')
     expect(body.payouts[0].war_payout_members).toHaveLength(2)
+  })
+
+  it('DELETE /api/war-payouts/:id removes the payout and its members (leadership only)', async () => {
+    const p = await stack.db.query(
+      `INSERT INTO war_payouts (war_id, war_type, faction_cut_percent, notes, created_at)
+       VALUES (300, 'real', 20, 'to delete', '2026-06-10T10:00:00Z') RETURNING id`
+    )
+    const id = p.rows[0].id
+    await stack.db.query(
+      `INSERT INTO war_payout_members (payout_id, member_id, member_name, score, payout_amount, is_eligible, war_hits)
+       VALUES (${id}, 500, 'Member', 10, 1000, true, 5)`
+    )
+
+    // Non-leadership is refused, and nothing is removed.
+    expect((await del(`/api/war-payouts/${id}`, 'member')).status).toBe(403)
+    expect((await del(`/api/war-payouts/${id}`, 'visitor')).status).toBe(403)
+
+    const res = await del(`/api/war-payouts/${id}`)
+    expect(res.status).toBe(200)
+    expect(res.body.deleted_payout_id).toBe(id)
+    expect((await stack.db.query('SELECT count(*)::int n FROM war_payouts WHERE id = $1', [id])).rows[0].n).toBe(0)
+    expect((await stack.db.query('SELECT count(*)::int n FROM war_payout_members WHERE payout_id = $1', [id])).rows[0].n).toBe(0)
+
+    // Deleting a non-existent payout is a clean 404.
+    expect((await del('/api/war-payouts/999999')).status).toBe(404)
   })
 
   it('GET /api/war-payouts/:id/members returns the payout sheet ordered by amount', async () => {

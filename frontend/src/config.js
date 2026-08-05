@@ -1,18 +1,11 @@
 export const config = {
-  supabase: {
-    url: import.meta.env.VITE_SUPABASE_URL,
-    anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-    // SECURITY: never reference the service_role key here. Everything under
-    // `config` is imported by the browser bundle, so any VITE_ var read in this
-    // file is inlined by `vite build` and shipped to every visitor. The
-    // service_role key bypasses RLS entirely — it lives ONLY in server-side env
-    // (Edge Function secrets + the sync-items maintenance script), never on the
-    // client. See scripts/sync-items.mjs.
-  },
-  // SECURITY: no shared/personal Torn API key on the client. The only Torn key
-  // the browser should ever hold is the logged-in user's own Limited key,
-  // captured at login as `user.apiKey`. Server-side jobs read TORN_API_KEY from
-  // env (a non-VITE name so it can't be inlined into the bundle).
+  // SECURITY: no shared/personal Torn API key on the client. In the self-hosted
+  // stack the browser holds only the logged-in user's session token — raw Torn
+  // keys live server-side (pooled, encrypted). Server jobs read TORN_API_KEY
+  // from env (a non-VITE name so it can't be inlined into the bundle).
+  //
+  // faction: pre-bootstrap fallback only. Real per-tenant identity comes from
+  // /api/bootstrap (factionIdentity.js), resolved before any view renders.
   faction: {
     name: "The Next Level - Forge",
     tag: "TNL-F",
@@ -37,9 +30,7 @@ export const config = {
   // Visitors bypass the faction-membership check at login, see everything
   // leadership sees (Data Management excluded), and can run the full OC/RW
   // payout flows — but every save/write is disabled. Their API key is used
-  // for identity + session-token minting ONLY and is never stored in
-  // member_secrets or the rotation pool. IDs here must also be mirrored in
-  // VISITOR_IDS inside supabase/functions/war-room-fetch (JWT mint + RLS).
+  // for identity ONLY and is never stored in the rotation pool.
   // Cleared for the multi-faction distribution: visitors are granted per
   // faction via role_assignments (Settings page), not a shipped list.
   visitorUserIds: [],

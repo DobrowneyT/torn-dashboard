@@ -28,7 +28,6 @@ import Plot from 'react-plotly.js'
 import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds } from '../utils/warDataLoader'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { apiPost } from '../utils/apiClient'
-import { useAuth } from '../contexts/AuthContext'
 import { getFactionId } from '../utils/factionIdentity'
 
 // Faction_attacks.result classifier — mirrors the same buckets the payout
@@ -319,7 +318,6 @@ function buildNameLookup(revives, attacks, dbNames) {
 }
 
 export default function WarOverviewView() {
-  const { user } = useAuth()
   // Our faction id, resolved per tenant at runtime (#249) — not a hard-coded id.
   const OUR_FACTION_ID = getFactionId()
   const [wars, setWars] = useState([])
@@ -942,7 +940,7 @@ export default function WarOverviewView() {
                     </span>
                     <button
                       onClick={handleFetchAttacks}
-                      disabled={!!fetching || !user?.apiKey}
+                      disabled={!!fetching}
                       className="px-2 py-0.5 rounded bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {fetching === 'attacks' ? 'Fetching…' : 'Fetch Attacks'}
@@ -963,7 +961,7 @@ export default function WarOverviewView() {
                     </span>
                     <button
                       onClick={handleFetchRevives}
-                      disabled={!!fetching || !user?.apiKey}
+                      disabled={!!fetching}
                       className="px-2 py-0.5 rounded bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {fetching === 'revives' ? 'Fetching…' : 'Fetch Revives'}

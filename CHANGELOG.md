@@ -17,6 +17,41 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-05
+
+### Changed
+
+- **"Sync Crimes" and "Sync Members" now trigger their scraper job (#135 part 2,
+  slice 3a).** Both buttons ran through the retired Supabase admin-db function
+  with the browser's raw key (they'd already been stubbed to "not available yet"
+  in API mode). They now POST to new leadership-gated `/api/sync/crimes` and
+  `/api/sync/members` endpoints — the same on-demand trigger family the war
+  pages use (`/api/sync/wars`, `/api/sync/attacks`) — which run the crimes-sync
+  / members-sync jobs under the run logger. No raw key in the browser.
+- **Payout item valuation reads market prices from the catalogue, not a raw key
+  (#135 part 2, slice 2).** `enrichItemBreakdown` used to fetch live market
+  prices straight from Torn with the browser's API key (skipped entirely in API
+  mode, so reward items fell back to sell price). `/api/items/lookup` now also
+  returns each item's `market_price` (kept fresh by the items-sync scraper), and
+  the enrichment uses it — no raw key needed. Removes the last raw-key
+  `api.torn.com/.../items` calls from the frontend (two dead copies deleted).
+
+### Added
+
+- **Delete buttons for saved payouts (#135 part 2, slice 3b).** The OC payout
+  history (Payout Management → Historical Payouts) and the RW payout history
+  (RW Payout Management → View History) each get a per-row **Delete** button,
+  wired to the slice-1 endpoints (`DELETE /api/payouts/weeks/:id` /
+  `DELETE /api/war-payouts/:id`) with a confirm + list refresh. Restores the
+  "remove a bad payout" capability the retired DataManagement view had.
+- **Server endpoints to delete a saved payout (#135 part 2, slice 1).**
+  `DELETE /api/payouts/weeks/:id` (OC — unlinks the week's crimes, then removes
+  its member rows and the week) and `DELETE /api/war-payouts/:id` (RW — removes
+  its member rows and the payout), both leadership/admin-gated. Restores the
+  "delete a bad payout" capability that the retired DataManagement view ran
+  through the now-dead Supabase admin-db function; the frontend delete UI is
+  rewired to these when DataManagement is removed.
+
 ### Removed
 
 - **Legacy superset deleted post-cutover (#135, part 1).** With production on the
@@ -29,9 +64,43 @@ from `VERSION` at runtime) both surface it automatically.
   `tests.yml` drops the Python job (Node stack only); the root `sync:items`
   script and `supabase` CLI devDependency are removed. The frontend's legacy
   Supabase/`API_MODE` client paths are a separate follow-up (#135 part 2).
+- **Frontend `API_MODE`/Supabase fallback removed entirely (#135 part 2, slice
+  3c).** Production has been API-only since the cutover, so the build-time
+  `API_MODE` flag was always `true` and every Supabase branch behind it was dead
+  code. Deleted the dead files — the `DataManagement` admin view (its ops ran
+  through the retired admin-db function) and its route, the `adminApi` admin-db
+  client, the Supabase browser client (`utils/supabase`) and its session-token
+  minter (`utils/sessionToken`), the legacy war-room polling hook
+  (`useWarRoomPoll`), the orphan `StatsOverview`, and the unused
+  CPR/crimes/members/items import utilities. Collapsed every `API_MODE`
+  conditional (~70 across 18 files — auth, faction identity, contexts, the
+  war-room socket + API client, and the routed views) to its API-only arm, and
+  removed the `@supabase/supabase-js` dependency plus the fake `VITE_SUPABASE_*`
+  test env. No behavior change in production; the browser no longer references a
+  raw Torn key anywhere. **Note:** JSON-preset revive requests (the non-Nuke war
+  room revive services) relied on the retired Supabase edge function and now
+  show a clear "needs a self-hosted revive endpoint" message instead of failing
+  silently — a server `/api/war-room/revive` endpoint is the follow-up; the Nuke
+  preset (direct-from-browser) is unaffected.
+- **Purged remaining Supabase references (#135 part 2).** Deleted the dead
+  `db/snapshot-from-supabase.mjs` restore script and the orphaned
+  `.github/actions/scraper-setup` action (no workflow used it after the legacy
+  scrapers were removed), cleared the retired Supabase server from `.mcp.json`,
+  and corrected stale wording across agent docs (`main` is live production, not
+  "the live Supabase site"), deploy docs, and user-facing help text (payouts /
+  inventory no longer say "stored in Supabase"). `db/template.sql` keeps its
+  provenance note and `docs/security-model.md` / `docs/war-room-v2-*.md` remain
+  as historical design records.
 
 ### Fixed
 
+- **OC Payouts "Compare Weeks" was broken in production.** `loadCompareWeek`
+  still read from Supabase (`supabase.from('oc_payout_members')`) — ungated and
+  not even imported in that file — so comparing two payout weeks threw a
+  `ReferenceError` on the self-hosted stack. Rerouted to
+  `GET /api/payouts/weeks/:id/members` (the same endpoint the page already uses
+  to load a week). Found during a full audit of remaining legacy Supabase call
+  sites (#135 part 2).
 - **War payouts scored only war hits — assists, losses and mugs came through as
   0.** Since the June "exclude non-war assists/losses" change, the participation
   calculator required Torn's `is_ranked_war` flag to credit an assist/loss/mug as
@@ -47,6 +116,14 @@ from `VERSION` at runtime) both surface it automatically.
   so the chain always read as idle. `fetch-chains` now converts both to absolute
   epochs (for our side and the enemy) on store; `start`/`end` were already
   absolute and are unchanged.
+- **War Overview "Fetch Attacks"/"Fetch Revives" and War Room BSP auto-fetch /
+  private-notes were silently disabled in production (#135 part 2, slice 3c).**
+  Several war-room and war-overview actions were gated on the browser holding a
+  raw Torn API key (`user.apiKey`), which the self-hosted stack deliberately
+  never stores — so the stale-data "Fetch" buttons sat permanently disabled and
+  the auto BSP spy fetch never fired. These paths already call session-authed
+  `/api/*` endpoints, so the raw-key guards were removed and they work off the
+  session token.
 
 ### Added
 

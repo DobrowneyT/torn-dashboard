@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { getFactionId } from '../utils/factionIdentity'
 import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions, loadLiveContributionsFromAttacks, loadFactionAttacksByWindow, loadWarPayouts, loadRecentWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
-import { apiPost } from '../utils/apiClient'
+import { apiPost, apiDelete } from '../utils/apiClient'
 import {
   calculateRaceWarPayouts,
   detectRaceCutoff,
@@ -600,6 +600,17 @@ export default function WarPayoutManagement() {
       console.error('Error loading war data:', err)
     } finally {
       setLoadingWarData(false)
+    }
+  }
+
+  async function handleDeleteWarPayout(payout) {
+    if (!confirm(`Delete this saved ${payout.war_type} payout for War #${payout.war_id}? This removes all member records for it and cannot be undone.`)) return
+    try {
+      await apiDelete(`/api/war-payouts/${payout.id}`)
+      setHistoricalPayouts(await loadRecentWarPayouts(20))
+    } catch (err) {
+      console.error('Error deleting war payout:', err)
+      alert(err.message || 'Failed to delete payout')
     }
   }
 
@@ -2174,13 +2185,21 @@ export default function WarPayoutManagement() {
                           {new Date(payout.created_at).toLocaleDateString()} by {payout.created_by}
                         </span>
                       </div>
-                      <div className="text-right">
-                        <div className="font-semibold text-green-700 dark:text-green-400">
-                          {formatCurrency(total)}
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <div className="font-semibold text-green-700 dark:text-green-400">
+                            {formatCurrency(total)}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {eligCount}/{memberCount} members
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {eligCount}/{memberCount} members
-                        </div>
+                        <button
+                          onClick={() => handleDeleteWarPayout(payout)}
+                          className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                     {payout.notes && (

@@ -2,7 +2,7 @@
 // pinned competition — a leaderboard shows its top few plus the viewing member's
 // own position (#242), a lottery shows the qualified count plus the member's own
 // score + qualified status. Links through to the Members → Competitions tab.
-// Renders nothing when nothing is pinned. API-only, so the caller gates on API_MODE.
+// Renders nothing when nothing is pinned.
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { apiGet } from '../utils/apiClient'

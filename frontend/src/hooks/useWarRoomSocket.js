@@ -8,16 +8,12 @@
  * reconnect (with backoff) is attempted — the merge logic is identical for
  * both transports.
  *
- * In legacy (Supabase) builds this module delegates to useWarRoomPoll so
- * call sites need only swap the import.
- *
- * Returns exactly the useWarRoomPoll shape:
+ * Returns:
  *   { members, ourMembers, dibs, config, chain,
  *     isInitialLoading, lastTick, pollError, pollNow }
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { API_MODE, getApiSession, apiGet, apiRefresh } from '../utils/apiClient'
-import { useWarRoomPoll } from './useWarRoomPoll'
+import { getApiSession, apiGet, apiRefresh } from '../utils/apiClient'
 
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15_000
@@ -43,7 +39,7 @@ function flattenStateRow(row) {
   }
 }
 
-function useWarRoomSocketImpl({ enabled = true, ourFactionId, onAlert }) {
+export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
   const stateMapRef = useRef(new Map())
   const dibsMapRef = useRef(new Map())
   const watermarkRef = useRef(null)
@@ -211,15 +207,4 @@ function useWarRoomSocketImpl({ enabled = true, ourFactionId, onAlert }) {
   const pollNow = useCallback(() => restTick(), [restTick])
 
   return { members, ourMembers, dibs, config, chain, isInitialLoading, lastTick, pollError, pollNow }
-}
-
-export function useWarRoomSocket(options) {
-  // Hooks must be called unconditionally in the same order; API_MODE is a
-  // build-time constant, so this branch never changes within a session.
-  if (API_MODE) {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    return useWarRoomSocketImpl(options)
-  }
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  return useWarRoomPoll(options)
 }

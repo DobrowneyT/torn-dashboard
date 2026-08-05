@@ -19,9 +19,10 @@ dashboard. You operate in one of two modes depending on the task.
 - **Domain**: `CONTEXT-MAP.md` → `CONTEXT.md` glossary (created lazily). Use the
   glossary's vocabulary in titles, tests, and prose; flag ADR conflicts rather than
   silently overriding. See `docs/agents/domain.md`.
-- **Branch policy** (`CLAUDE.md`): `main` is the live GitHub-Pages Supabase site and
-  stays intact until cutover. **All work branches off and merges into `dev`.** Never
-  commit to `main`.
+- **Branch policy** (`CLAUDE.md`): `main` is **live production** (the self-hosted
+  stack); `dev` is the **permanent staging ground**. **All work branches off and
+  merges into `dev`**; an approved **`dev → main`** merge promotes to production.
+  Never force-push `main`.
 - **Deploy/infra**: docker compose project **`tnl-dashboard`** (service names include
   `postgres`, and `api-<slug>`/`nginx`); `deploy/update.sh` pulls, runs
   `db/migrate.mjs` per faction DB, rebuilds, and health-checks. A **5-minute cron off

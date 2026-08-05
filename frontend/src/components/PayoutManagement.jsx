@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useFactionConfig } from '../contexts/FactionConfigContext'
-import { apiGet } from '../utils/apiClient'
+import { apiGet, apiDelete } from '../utils/apiClient'
 import {
   loadCrimesForPayout,
   loadMembers,
@@ -207,6 +207,17 @@ export default function PayoutManagement() {
     }
   }
 
+  async function handleDeleteHistoricalWeek(payout) {
+    if (!confirm(`Delete the payout for ${payout.week_start} to ${payout.week_end}? This removes its member records and unlinks its crimes. This cannot be undone.`)) return
+    try {
+      await apiDelete(`/api/payouts/weeks/${payout.id}`)
+      await loadHistoricalPayouts()
+    } catch (err) {
+      console.error('Error deleting payout week:', err)
+      alert(err.message || 'Failed to delete payout')
+    }
+  }
+
   async function loadPayoutData() {
     if (!fromTimestamp || !toTimestamp) return
 
@@ -214,7 +225,7 @@ export default function PayoutManagement() {
       setLoadingData(true)
       setDataError(null)
 
-      // Load crimes and members from Supabase
+      // Load crimes and members from the faction API
       const [crimes, members] = await Promise.all([
         loadCrimesForPayout(fromTimestamp, toTimestamp),
         loadMembers()
@@ -453,7 +464,7 @@ export default function PayoutManagement() {
       }
 
       // Enrich item breakdown and recalculate totals
-      enrichItemBreakdown(results.itemBreakdown, user.apiKey).then(enriched => {
+      enrichItemBreakdown(results.itemBreakdown).then(enriched => {
         // Build enriched price maps (itemId -> unit price)
         const rewardPrices = {}
         Object.entries(enriched.rewards || {}).forEach(([itemId, data]) => {
@@ -946,7 +957,7 @@ export default function PayoutManagement() {
       // from the stored snapshot — do NOT overwrite with current market prices,
       // as item prices are volatile and the snapshot is the source of truth.
       if (Object.keys(itemBreakdown.rewards).length > 0 || Object.keys(itemBreakdown.costs).length > 0) {
-        enrichItemBreakdown(itemBreakdown, user.apiKey).then(enriched => {
+        enrichItemBreakdown(itemBreakdown).then(enriched => {
           setPayoutResults(prev => ({
             ...prev,
             itemBreakdown: enriched,
@@ -1175,6 +1186,7 @@ export default function PayoutManagement() {
           loading={loadingHistory}
           onRefresh={loadHistoricalPayouts}
           onLoadWeek={handleLoadHistoricalWeek}
+          onDelete={handleDeleteHistoricalWeek}
         />
       )}
 
@@ -1575,10 +1587,10 @@ export default function PayoutManagement() {
           <ol className="text-sm text-blue-800 dark:text-blue-200 space-y-2 list-decimal list-inside">
             <li>Select date range (or use Current/Previous Week buttons)</li>
             <li>Adjust Faction Cut % if needed (default: 20%)</li>
-            <li>Click "Run Payout" to load data from Supabase and calculate</li>
+            <li>Click "Run Payout" to load data and calculate</li>
             <li>Review the Payout Summary and Member Payouts table</li>
             <li>Compare Actual Payout vs Theoretical Payout per member</li>
-            <li>Click "Save to Database" to store in Supabase with crime links</li>
+            <li>Click "Save to Database" to store the payout with crime links</li>
             <li>Use "Import CSV" to import historical payout sheets</li>
           </ol>
         </div>
@@ -1677,7 +1689,7 @@ function TimeCell({ member }) {
   )
 }
 
-function HistoricalPayoutsView({ payouts, loading, onRefresh, onLoadWeek }) {
+function HistoricalPayoutsView({ payouts, loading, onRefresh, onLoadWeek, onDelete }) {
   if (loading) {
     return (
       <div className="card">
@@ -1738,12 +1750,20 @@ function HistoricalPayoutsView({ payouts, loading, onRefresh, onLoadWeek }) {
                   <td className="py-2 px-2 text-xs">{payout.faction_cut_percent?.toFixed(0) || 20}%</td>
                   <td className="py-2 px-2 text-xs text-gray-500">{payout.saved_by}</td>
                   <td className="py-2 px-2 text-xs">
-                    <button
-                      onClick={() => onLoadWeek(payout.id)}
-                      className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
-                    >
-                      Load
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onLoadWeek(payout.id)}
+                        className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                      >
+                        Load
+                      </button>
+                      <button
+                        onClick={() => onDelete(payout)}
+                        className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

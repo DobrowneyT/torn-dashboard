@@ -179,4 +179,4 @@ done:
 - Existing DBs created before the current migrations should run
   `node db/migrate.mjs`.
 - Docker build contexts exclude `.env` files (see `.dockerignore`); the SPA
-  currently bakes Supabase config at build time only for local non-docker dev.
+  talks to `/api/*` on its own origin (`VITE_API_MODE=true`, baked at build).

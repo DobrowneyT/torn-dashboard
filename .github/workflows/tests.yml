@@ -26,13 +26,7 @@ jobs:
       run: npm install
 
     - name: Run Vitest across workspaces
-      # Fake Supabase env vars are required so supabase.js doesn't throw at import time.
-      # These are never used for real calls during unit tests. The db workspace
-      # runs against an embedded Postgres — no service container needed.
-      env:
-        VITE_SUPABASE_URL: https://placeholder.supabase.co
-        VITE_SUPABASE_ANON_KEY: placeholder-anon-key
-        VITE_SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key
+      # The db workspace runs against an embedded Postgres — no service container needed.
       run: npm run test:run
 
   compose-check:

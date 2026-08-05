@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Mock the faction API client before importing the module
 vi.mock('../apiClient', () => ({
-  API_MODE: true,
   apiGet: vi.fn(),
   apiPost: vi.fn(),
 }))

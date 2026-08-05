@@ -5,8 +5,9 @@ follows in **implement mode**, and the checklist any contributor (human or agent
 should use when landing a change on `dev`. This is the canonical reference; the agent
 definition summarizes it.
 
-> Applies to migration/feature work, which branches off and merges into **`dev`**.
-> `main` is the live Supabase site and only takes urgent live-site fixes.
+> Applies to feature work, which branches off and merges into **`dev`**.
+> `main` is **live production** (the self-hosted stack); an approved **`dev → main`**
+> merge is what promotes to production.
 
 ## The loop, per issue
 
