@@ -1,11 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { config } from '../config'
 import { loadFactionIdentity } from '../utils/factionIdentity'
-import { getTornErrorMessage } from '../utils/apiUtils'
-import { setVisitorReadOnly } from '../utils/adminApi'
-import * as sessionToken from '../utils/sessionToken'
 import {
-  API_MODE,
   apiLogin,
   apiBootstrap,
   apiRefresh,
@@ -60,99 +56,26 @@ async function loginViaApi(apiKey) {
 
 const AuthContext = createContext(null)
 
-// Torn /v2/key/info error codes that mean the saved key is fundamentally
-// no longer usable for this site. Hitting any of these on revalidation
-// forces a logout with a friendly reason; transient codes (5/8/9/14/15/17)
-// are ignored so a rate-limit blip doesn't kick everyone out.
-const FATAL_REVAL_CODES = new Set([
-  2,   // Incorrect API key format
-  7,   // Access denied (private)
-  13,  // Key disabled due to inactivity
-  16,  // Insufficient permissions
-  18,  // Key paused
-])
-
-// Re-verify the saved API key against Torn. Returns { ok: true } when the
-// session can stay live, or { ok: false, reason } when the user must be
-// kicked back to the login modal. Network/HTTP failures default to ok=true
-// so transient outages don't log everyone out — a fatal verdict only
-// comes from an unambiguous "this key is invalid" response.
-async function revalidateSession(savedUser) {
-  if (API_MODE) {
-    // Remember-me sessions (#119): tokens live 30 days but only act for 24h
-    // from their last verification, so on load we silently REFRESH rather
-    // than merely check expiry — the server re-verifies roster membership +
-    // roles and mints a fresh token. Only an unambiguous server verdict
-    // (401 expired / 403 kicked) tears the session down; network failures
-    // are transient and must not log anyone out.
-    if (!getApiSession()) {
-      return { ok: false, reason: 'Your session expired. Please log in again.' }
-    }
-    const refreshed = await apiRefresh()
-    if (refreshed.ok || refreshed.transient) return { ok: true }
-    return {
-      ok: false,
-      reason: refreshed.status === 403
-        ? 'Your faction access was removed. Contact your leadership if this is unexpected.'
-        : 'Your session expired. Please log in again.',
-    }
+// Re-verify the saved session against the server on load. Returns { ok: true }
+// when the session can stay live, or { ok: false, reason } when the user must be
+// kicked back to the login modal. Remember-me sessions (#119): tokens live 30
+// days but only act for 24h from their last verification, so on load we silently
+// REFRESH rather than merely check expiry — the server re-verifies roster
+// membership + roles and mints a fresh token. Only an unambiguous server verdict
+// (401 expired / 403 kicked) tears the session down; network failures are
+// transient and must not log anyone out.
+async function revalidateSession() {
+  if (!getApiSession()) {
+    return { ok: false, reason: 'Your session expired. Please log in again.' }
   }
-  if (!savedUser?.apiKey) {
-    return { ok: false, reason: 'Saved session is missing its API key. Please log in again.' }
+  const refreshed = await apiRefresh()
+  if (refreshed.ok || refreshed.transient) return { ok: true }
+  return {
+    ok: false,
+    reason: refreshed.status === 403
+      ? 'Your faction access was removed. Contact your leadership if this is unexpected.'
+      : 'Your session expired. Please log in again.',
   }
-  let data
-  try {
-    const resp = await fetch(`https://api.torn.com/v2/key/info?key=${savedUser.apiKey}`)
-    if (!resp.ok) return { ok: true }   // Network / 5xx — treat as transient
-    data = await resp.json()
-  } catch (e) {
-    console.warn('Session revalidation failed (transient):', e)
-    return { ok: true }
-  }
-
-  if (data.error) {
-    if (FATAL_REVAL_CODES.has(data.error.code)) {
-      return {
-        ok: false,
-        reason: `Your saved API key is no longer valid: ${getTornErrorMessage(data.error)} Please log in again.`,
-      }
-    }
-    return { ok: true }   // Transient Torn error — keep session
-  }
-
-  const liveUserId = data.info?.user?.id
-  if (liveUserId && String(liveUserId) !== String(savedUser.id)) {
-    return {
-      ok: false,
-      reason: 'Your API key now belongs to a different Torn account. Please log in again with your own key.',
-    }
-  }
-
-  // Leadership + admin + visitor users bypass faction/access checks at login
-  // (see login() below); mirror that here so the revalidator doesn't kick out
-  // a leader (or read-only visitor from another faction) whose key still works.
-  const idStr = String(savedUser.id)
-  const isLeader = config.leadershipUserIds.includes(idStr)
-  const isAdminUser = config.adminsUserIds.includes(idStr)
-  const isVisitorUser = config.visitorUserIds.includes(idStr)
-  if (isLeader || isAdminUser || isVisitorUser) return { ok: true }
-
-  const requiredFactionId = parseInt(config.faction.id)
-  const liveFactionId = data.info?.user?.faction_id
-  if (!liveFactionId || liveFactionId !== requiredFactionId) {
-    return {
-      ok: false,
-      reason: `You're no longer a member of ${config.faction.name}. Please log in again with a faction-member key.`,
-    }
-  }
-  const liveAccessLevel = data.info?.access?.level ?? 0
-  if (liveAccessLevel < config.apiKey.requiredLevel) {
-    return {
-      ok: false,
-      reason: 'Your API key no longer has Limited Access. Please generate a new Limited key in Torn Preferences and log in again.',
-    }
-  }
-  return { ok: true }
 }
 
 export function AuthProvider({ children }) {
@@ -178,10 +101,10 @@ export function AuthProvider({ children }) {
         // Background re-validation — non-blocking so cached UI renders
         // immediately. On a fatal verdict (key invalid / wrong faction /
         // role removed) we tear the session down and surface the reason.
-        revalidateSession(userData).then(result => {
+        revalidateSession().then(result => {
           if (!result.ok) {
             console.warn('Session revalidation: forcing logout —', result.reason)
-            sessionToken.clear()
+            clearApiSession()
             setUser(null)
             localStorage.removeItem('tornUser')
             setAuthError(result.reason)
@@ -195,26 +118,10 @@ export function AuthProvider({ children }) {
     identityReady.finally(() => setLoading(false))
   }, [])
 
-  // Keep the session-token module in sync with whoever is logged in.
-  // configure() is non-blocking — login completes regardless of whether the
-  // mint succeeds. Until tokenReady flips true, supabase calls fall back to
-  // the anon key (graceful degradation, see src/utils/supabase.js).
+  // The API session token is the only credential; it's ready as soon as a user
+  // is logged in. (tokenReady gates the RLS-era faction-scoped reads.)
   useEffect(() => {
-    // Flip the adminApi read-only latch for visitors so every write path
-    // fails fast with a friendly message instead of a server 403.
-    setVisitorReadOnly(
-      !!user && (user.isVisitor || config.visitorUserIds.includes(String(user.id)))
-    )
-    if (API_MODE) {
-      // No Supabase session token to mint — the API session token is the
-      // only credential. (Minting here caused POSTs to
-      // {undefined}/functions/v1/war-room-fetch on every page.)
-      setTokenReady(!!user)
-      return
-    }
-    sessionToken.configure(user)
-    const unsubscribe = sessionToken.subscribeToReady(setTokenReady)
-    return unsubscribe
+    setTokenReady(!!user)
   }, [user])
 
   // Keep a long-lived tab's session fresh (#119): tokens only act for 24h from
@@ -223,7 +130,7 @@ export function AuthProvider({ children }) {
   // this just keeps the WebSocket connect (which can't retry a handshake as
   // gracefully) working across day-spanning war-room sessions.
   useEffect(() => {
-    if (!API_MODE || !user) return
+    if (!user) return
     const timer = setInterval(() => { apiRefresh() }, 4 * 60 * 60 * 1000)
     return () => clearInterval(timer)
   }, [user])
@@ -238,24 +145,14 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // Self-hosted stack: the API owns the whole login flow.
-      if (API_MODE) {
-        const result = await loginViaApi(apiKey)
-        if (result.success) {
-          setUser(result.user)
-          localStorage.setItem('tornUser', JSON.stringify(result.user))
-        }
-        return result
+      // Self-hosted stack: the API owns the whole login flow (Torn
+      // verification, role resolution, and JWT minting server-side).
+      const result = await loginViaApi(apiKey)
+      if (result.success) {
+        setUser(result.user)
+        localStorage.setItem('tornUser', JSON.stringify(result.user))
       }
-
-      // API_MODE is always true for this stack (self-hosted, VITE_API_MODE=true
-      // at build time) — nothing reaches past here in production. Kept as a
-      // defensive fallback rather than throwing, matching login()'s existing
-      // error-result contract.
-      return {
-        success: false,
-        error: 'This dashboard is API-mode only. Please contact an admin.'
-      }
+      return result
 
     } catch (err) {
       console.error('Login error:', err)
@@ -267,7 +164,6 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
-    sessionToken.clear()
     clearApiSession()
     setUser(null)
     localStorage.removeItem('tornUser')
