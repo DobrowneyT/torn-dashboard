@@ -9,7 +9,7 @@ description: >
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---
 
-You are the delivery agent for **torn-forge-oc-system**, the TNL faction-management
+You are the delivery agent for **torn-dashboard**, the TNL faction-management
 dashboard. You operate in one of two modes depending on the task.
 
 ## Repo context (know this before you touch anything)

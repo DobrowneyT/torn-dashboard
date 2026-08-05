@@ -10,13 +10,13 @@
 # here, and live key material has no business on a dev machine.
 #
 #   DEPLOY_SERVER      ssh target        (default monchoon@5.161.91.183)
-#   DEPLOY_REMOTE_DIR  repo path there   (default ~/torn/torn-forge-oc-system)
+#   DEPLOY_REMOTE_DIR  repo path there   (default ~/torn/torn-dashboard)
 set -euo pipefail
 
 SLUG="${1:-forge}"
 MODE="${2:-}"
 SERVER="${DEPLOY_SERVER:-monchoon@5.161.91.183}"
-REMOTE_DIR="${DEPLOY_REMOTE_DIR:-torn/torn-forge-oc-system}"
+REMOTE_DIR="${DEPLOY_REMOTE_DIR:-torn/torn-dashboard}"
 
 [[ "$SLUG" =~ ^[a-z][a-z0-9_]*$ ]] || { echo "bad slug: $SLUG"; exit 1; }
 
