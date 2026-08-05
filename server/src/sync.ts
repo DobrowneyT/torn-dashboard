@@ -13,6 +13,8 @@ import type { JobDeps } from './scraper/jobs/itemsSync.js'
 import { warsSyncJob } from './scraper/jobs/warsSync.js'
 import { attacksSyncJob } from './scraper/jobs/attacksSync.js'
 import { revivesSyncJob } from './scraper/jobs/revivesSync.js'
+import { crimesSyncJob } from './scraper/jobs/crimesSync.js'
+import { membersSyncJob } from './scraper/jobs/membersSync.js'
 
 export interface SyncDeps {
   db: pg.Pool
@@ -57,6 +59,18 @@ export function registerSyncRoutes(app: FastifyInstance, deps: SyncDeps) {
     const { id } = req.params as { id: string }
     if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'War not found' })
     const run = await createRunLogger(deps.db).withRun('revives-sync', () => revivesSyncJob(jobDeps(), Number(id)))
+    return { run }
+  })
+
+  app.post('/api/sync/crimes', GUARD, async (_req, reply) => {
+    if (!guardConfigured(reply)) return
+    const run = await createRunLogger(deps.db).withRun('crimes-sync', () => crimesSyncJob(jobDeps()))
+    return { run }
+  })
+
+  app.post('/api/sync/members', GUARD, async (_req, reply) => {
+    if (!guardConfigured(reply)) return
+    const run = await createRunLogger(deps.db).withRun('members-sync', () => membersSyncJob(jobDeps()))
     return { run }
   })
 }

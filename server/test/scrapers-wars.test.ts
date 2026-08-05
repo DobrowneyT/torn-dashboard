@@ -303,6 +303,22 @@ describe('on-demand sync triggers (HTTP seam)', () => {
     expect((await post('/api/sync/wars', 'visitor')).status).toBe(403)
     expect((await post('/api/sync/wars/500/revives', 'visitor')).status).toBe(403)
   })
+
+  it('leadership can trigger crimes-sync and members-sync; visitors cannot', async () => {
+    // The trigger + run-log wiring is what matters here (job success depends on
+    // fixture data the other suites set up); assert the endpoint runs the right
+    // job under the run logger and is leadership-gated.
+    const crimes = await post('/api/sync/crimes', 'leader')
+    expect(crimes.status).toBe(200)
+    expect(crimes.body.run.job_name).toBe('crimes-sync')
+
+    const members = await post('/api/sync/members', 'leader')
+    expect(members.status).toBe(200)
+    expect(members.body.run.job_name).toBe('members-sync')
+
+    expect((await post('/api/sync/crimes', 'visitor')).status).toBe(403)
+    expect((await post('/api/sync/members', 'visitor')).status).toBe(403)
+  })
 })
 
 // #247: attacks-sync soft-stops on a rate limit mid-backlog — the pages already

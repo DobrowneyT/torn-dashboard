@@ -19,6 +19,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Changed
 
+- **"Sync Crimes" and "Sync Members" now trigger their scraper job (#135 part 2,
+  slice 3a).** Both buttons ran through the retired Supabase admin-db function
+  with the browser's raw key (they'd already been stubbed to "not available yet"
+  in API mode). They now POST to new leadership-gated `/api/sync/crimes` and
+  `/api/sync/members` endpoints — the same on-demand trigger family the war
+  pages use (`/api/sync/wars`, `/api/sync/attacks`) — which run the crimes-sync
+  / members-sync jobs under the run logger. No raw key in the browser.
 - **Payout item valuation reads market prices from the catalogue, not a raw key
   (#135 part 2, slice 2).** `enrichItemBreakdown` used to fetch live market
   prices straight from Torn with the browser's API key (skipped entirely in API

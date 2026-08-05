@@ -1,16 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
-import { useAuth } from '../contexts/AuthContext'
 import { useFactionConfig } from '../contexts/FactionConfigContext'
-import { API_MODE, apiGet } from '../utils/apiClient'
+import { apiGet, apiPost } from '../utils/apiClient'
 import { filterItemsForMember } from '../utils/payoutDataLoader'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { X } from 'lucide-react'
-import { syncMembersFromAPI } from '../utils/syncMembersFromAPI'
 import { config } from '../config'
 export default function MembersView({ isLeadership }) {
   const [persistedState, setPersistedState] = useViewState('members')
-  const { user } = useAuth()
   // Tiered factions get the tier badge/filter/distribution; non-tiered
   // (flat-weighted / equal) factions get a CPR column instead (#251).
   const { usesTiers } = useFactionConfig()
@@ -74,27 +71,18 @@ export default function MembersView({ isLeadership }) {
   }
 
   async function handleSyncMembers() {
-    if (API_MODE) {
-      // Member syncing moves into the API's scraper core (migration slice #69).
-      setSyncMessage({ type: 'error', text: 'Member sync is not available yet on the new stack — it arrives with the server-side scrapers.' })
-      return
-    }
-    if (!user?.apiKey) {
-      setSyncMessage({ type: 'error', text: 'No API key available. Please log in again.' })
-      return
-    }
-
     setSyncing(true)
     setSyncMessage(null)
 
     try {
-      const result = await syncMembersFromAPI(user.apiKey)
-      if (result.success) {
-        setSyncMessage({ type: 'success', text: `Synced ${result.totalMembers} current faction members.` })
-        // Reload members after sync
+      // Triggers the members-sync scraper job server-side (leadership-gated) —
+      // the same job the scheduler runs, no raw key in the browser.
+      const { run } = await apiPost('/api/sync/members', {})
+      if (run?.status === 'success') {
+        setSyncMessage({ type: 'success', text: `Synced current faction members${run.rows != null ? ` — ${run.rows} rows` : ''}.` })
         await fetchMembers()
       } else {
-        setSyncMessage({ type: 'error', text: result.error || 'Sync failed' })
+        setSyncMessage({ type: 'error', text: run?.error || 'Member sync failed' })
       }
     } catch (error) {
       setSyncMessage({ type: 'error', text: error.message })
