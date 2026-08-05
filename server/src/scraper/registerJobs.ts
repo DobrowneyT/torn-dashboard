@@ -77,6 +77,7 @@ function buildDeps(opts: ScraperWiringOptions): JobDeps {
   return {
     db,
     pool: createKeyPool({ db, encryptionKey }),
+    encryptionKey,
     // Torn allows 100 req/min per key; stay well inside it pool-wide.
     client: createTornClient({ baseUrl: tornBaseUrl, budget: { requests: 60, perMs: 60_000 } }),
     spy: {

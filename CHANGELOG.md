@@ -17,6 +17,19 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-08-05
+
+### Added
+
+- **Pooled Torn keys are re-verified on every members-sync (#309).** After the
+  roster reconcile, the hourly job checks each enrolled, non-disabled key against
+  `/v2/key/info` using that member's own key: a Recruit's key gains
+  `has_faction_access` (and joins the pool) within an hour of Torn promoting them
+  — no re-login — a key that lost faction access is dropped back out, `key_level`
+  is refreshed, and a key with a fatal Torn error or a changed owner account is
+  disabled with the reason. Transient errors leave the key untouched for the next
+  run, and one key's failure never aborts the rest.
+
 ### Changed
 
 - **Repo renamed `torn-forge-oc-system` → `torn-dashboard` (#132).** Updated the
