@@ -230,7 +230,8 @@ describe('GET /api/payouts/members', () => {
 describe('GET /api/items/lookup', () => {
   it('returns names/sell prices and inventory weighted prices for the requested ids', async () => {
     await stack.db.query(`
-      INSERT INTO items (id, name, sell_price) VALUES (66, 'Morphine', 45000), (206, 'Xanax', 745000)
+      INSERT INTO items (id, name, sell_price, market_price) VALUES
+        (66, 'Morphine', 45000, 48000), (206, 'Xanax', 745000, 830000)
       ON CONFLICT (id) DO NOTHING
     `)
     await stack.db.query(`
@@ -242,9 +243,11 @@ describe('GET /api/items/lookup', () => {
     `)
     const { status, body } = await get('/api/items/lookup?ids=66,206')
     expect(status).toBe(200)
+    // market_price (from items-sync) is included so the payout item-breakdown
+    // can value reward items without a raw Torn key (#135 part 2, slice 2).
     expect(body.items).toEqual([
-      { id: 66, name: 'Morphine', sell_price: 45000 },
-      { id: 206, name: 'Xanax', sell_price: 745000 },
+      { id: 66, name: 'Morphine', sell_price: 45000, market_price: 48000 },
+      { id: 206, name: 'Xanax', sell_price: 745000, market_price: 830000 },
     ])
     expect(body.inventory_prices).toEqual([
       { item_id: '206', weighted_avg_price: 800000 },

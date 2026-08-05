@@ -17,6 +17,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Changed
+
+- **Payout item valuation reads market prices from the catalogue, not a raw key
+  (#135 part 2, slice 2).** `enrichItemBreakdown` used to fetch live market
+  prices straight from Torn with the browser's API key (skipped entirely in API
+  mode, so reward items fell back to sell price). `/api/items/lookup` now also
+  returns each item's `market_price` (kept fresh by the items-sync scraper), and
+  the enrichment uses it — no raw key needed. Removes the last raw-key
+  `api.torn.com/.../items` calls from the frontend (two dead copies deleted).
+
 ### Added
 
 - **Server endpoints to delete a saved payout (#135 part 2, slice 1).**
