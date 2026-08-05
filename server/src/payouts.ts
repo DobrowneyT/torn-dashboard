@@ -173,7 +173,7 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
     const ids = raw.split(',').map((s) => s.trim()).filter((s) => /^\d+$/.test(s))
     if (ids.length === 0) return reply.status(400).send({ error: 'ids (comma-separated item ids) is required' })
     const [items, inventoryPrices] = await Promise.all([
-      db.query('SELECT id, name, sell_price FROM items WHERE id = ANY($1::int[]) ORDER BY id', [ids]),
+      db.query('SELECT id, name, sell_price, market_price FROM items WHERE id = ANY($1::int[]) ORDER BY id', [ids]),
       db.query(
         'SELECT item_id, weighted_avg_price FROM inventory_items_with_prices WHERE item_id = ANY($1) ORDER BY item_id',
         [ids]

@@ -453,7 +453,7 @@ export default function PayoutManagement() {
       }
 
       // Enrich item breakdown and recalculate totals
-      enrichItemBreakdown(results.itemBreakdown, user.apiKey).then(enriched => {
+      enrichItemBreakdown(results.itemBreakdown).then(enriched => {
         // Build enriched price maps (itemId -> unit price)
         const rewardPrices = {}
         Object.entries(enriched.rewards || {}).forEach(([itemId, data]) => {
@@ -946,7 +946,7 @@ export default function PayoutManagement() {
       // from the stored snapshot — do NOT overwrite with current market prices,
       // as item prices are volatile and the snapshot is the source of truth.
       if (Object.keys(itemBreakdown.rewards).length > 0 || Object.keys(itemBreakdown.costs).length > 0) {
-        enrichItemBreakdown(itemBreakdown, user.apiKey).then(enriched => {
+        enrichItemBreakdown(itemBreakdown).then(enriched => {
           setPayoutResults(prev => ({
             ...prev,
             itemBreakdown: enriched,
