@@ -1,9 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
-import { getFactionIdentity } from '../utils/factionIdentity'
 import { useViewState } from '../contexts/ViewStateContext'
 import { useAuth } from '../contexts/AuthContext'
-import { API_MODE, apiGet } from '../utils/apiClient'
-import { syncCrimesFromAPI, getSyncStatusMessage } from '../utils/syncCrimesFromAPI'
+import { apiGet, apiPost } from '../utils/apiClient'
 import { RefreshCw, ChevronRight } from 'lucide-react'
 import { 
   getCrimeStatusLabel, 
@@ -103,34 +101,17 @@ export default function CrimesView({ crimesData, isLeadership }) {
       setSyncMessage(null)
       setSyncError(null)
 
-      if (API_MODE) {
-        // Crime syncing moves into the API's scraper core (migration slice #68).
-        throw new Error('Crime sync is not available yet on the new stack — it arrives with the server-side scrapers.')
-      }
-
-      // SECURITY: use only the logged-in user's own key. The old
-      // `|| import.meta.env.VITE_TORN_API_KEY` fallback shipped a shared Torn
-      // key in the browser bundle — removed. Login guarantees user.apiKey.
-      const apiKey = user.apiKey
-      const factionId = getFactionIdentity().id
-
-      if (!apiKey) {
-        throw new Error('No API key available')
-      }
-      
-      const result = await syncCrimesFromAPI(apiKey, factionId)
-      
-      if (result.success) {
-        setSyncMessage(getSyncStatusMessage(result))
-        // Reload crimes from database
+      // Triggers the crimes-sync scraper job server-side (leadership-gated) —
+      // the same job the scheduler runs, no raw key in the browser.
+      const { run } = await apiPost('/api/sync/crimes', {})
+      if (run?.status === 'success') {
+        setSyncMessage(`Synced crimes from Torn${run.rows != null ? ` — ${run.rows} rows` : ''}.`)
         await loadCrimesFromDatabase()
-        // Auto-dismiss success message
         setTimeout(() => setSyncMessage(null), 5000)
       } else {
-        setSyncError(result.error)
+        setSyncError(run?.error || 'Crime sync failed')
         setTimeout(() => setSyncError(null), 10000)
       }
-      
     } catch (err) {
       setSyncError(err.message)
       setTimeout(() => setSyncError(null), 10000)
