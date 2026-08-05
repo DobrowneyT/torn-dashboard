@@ -17,6 +17,8 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-05
+
 ### Changed
 
 - **"Sync Crimes" and "Sync Members" now trigger their scraper job (#135 part 2,
