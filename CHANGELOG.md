@@ -36,6 +36,12 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Delete buttons for saved payouts (#135 part 2, slice 3b).** The OC payout
+  history (Payout Management → Historical Payouts) and the RW payout history
+  (RW Payout Management → View History) each get a per-row **Delete** button,
+  wired to the slice-1 endpoints (`DELETE /api/payouts/weeks/:id` /
+  `DELETE /api/war-payouts/:id`) with a confirm + list refresh. Restores the
+  "remove a bad payout" capability the retired DataManagement view had.
 - **Server endpoints to delete a saved payout (#135 part 2, slice 1).**
   `DELETE /api/payouts/weeks/:id` (OC — unlinks the week's crimes, then removes
   its member rows and the week) and `DELETE /api/war-payouts/:id` (RW — removes

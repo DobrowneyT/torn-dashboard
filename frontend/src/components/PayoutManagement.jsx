@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useFactionConfig } from '../contexts/FactionConfigContext'
-import { apiGet } from '../utils/apiClient'
+import { apiGet, apiDelete } from '../utils/apiClient'
 import {
   loadCrimesForPayout,
   loadMembers,
@@ -204,6 +204,17 @@ export default function PayoutManagement() {
       console.error('Error loading historical payouts:', err)
     } finally {
       setLoadingHistory(false)
+    }
+  }
+
+  async function handleDeleteHistoricalWeek(payout) {
+    if (!confirm(`Delete the payout for ${payout.week_start} to ${payout.week_end}? This removes its member records and unlinks its crimes. This cannot be undone.`)) return
+    try {
+      await apiDelete(`/api/payouts/weeks/${payout.id}`)
+      await loadHistoricalPayouts()
+    } catch (err) {
+      console.error('Error deleting payout week:', err)
+      alert(err.message || 'Failed to delete payout')
     }
   }
 
@@ -1175,6 +1186,7 @@ export default function PayoutManagement() {
           loading={loadingHistory}
           onRefresh={loadHistoricalPayouts}
           onLoadWeek={handleLoadHistoricalWeek}
+          onDelete={handleDeleteHistoricalWeek}
         />
       )}
 
@@ -1677,7 +1689,7 @@ function TimeCell({ member }) {
   )
 }
 
-function HistoricalPayoutsView({ payouts, loading, onRefresh, onLoadWeek }) {
+function HistoricalPayoutsView({ payouts, loading, onRefresh, onLoadWeek, onDelete }) {
   if (loading) {
     return (
       <div className="card">
@@ -1738,12 +1750,20 @@ function HistoricalPayoutsView({ payouts, loading, onRefresh, onLoadWeek }) {
                   <td className="py-2 px-2 text-xs">{payout.faction_cut_percent?.toFixed(0) || 20}%</td>
                   <td className="py-2 px-2 text-xs text-gray-500">{payout.saved_by}</td>
                   <td className="py-2 px-2 text-xs">
-                    <button
-                      onClick={() => onLoadWeek(payout.id)}
-                      className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
-                    >
-                      Load
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onLoadWeek(payout.id)}
+                        className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                      >
+                        Load
+                      </button>
+                      <button
+                        onClick={() => onDelete(payout)}
+                        className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
