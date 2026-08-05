@@ -1,7 +1,6 @@
 // Faction Settings (slice #74): leadership self-serve — role assignments,
 // faction identity/branding, and the whole-document policy settings
-// (tier/CPR requirements, payout tickets, war-room defaults). API mode only;
-// the Supabase stack keeps its config.js-driven behavior until cutover.
+// (tier/CPR requirements, payout tickets, war-room defaults).
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useFactionConfig } from '../contexts/FactionConfigContext'

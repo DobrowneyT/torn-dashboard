@@ -225,7 +225,7 @@ export default function PayoutManagement() {
       setLoadingData(true)
       setDataError(null)
 
-      // Load crimes and members from Supabase
+      // Load crimes and members from the faction API
       const [crimes, members] = await Promise.all([
         loadCrimesForPayout(fromTimestamp, toTimestamp),
         loadMembers()
@@ -1587,10 +1587,10 @@ export default function PayoutManagement() {
           <ol className="text-sm text-blue-800 dark:text-blue-200 space-y-2 list-decimal list-inside">
             <li>Select date range (or use Current/Previous Week buttons)</li>
             <li>Adjust Faction Cut % if needed (default: 20%)</li>
-            <li>Click "Run Payout" to load data from Supabase and calculate</li>
+            <li>Click "Run Payout" to load data and calculate</li>
             <li>Review the Payout Summary and Member Payouts table</li>
             <li>Compare Actual Payout vs Theoretical Payout per member</li>
-            <li>Click "Save to Database" to store in Supabase with crime links</li>
+            <li>Click "Save to Database" to store the payout with crime links</li>
             <li>Use "Import CSV" to import historical payout sheets</li>
           </ol>
         </div>

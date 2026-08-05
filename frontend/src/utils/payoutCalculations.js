@@ -1,9 +1,9 @@
 /**
- * Payout Calculation Utilities - Supabase Version
- * 
+ * Payout Calculation Utilities
+ *
  * Calculates member payouts based on tier, time spent, and crime participation.
- * Works directly with data loaded from Supabase.
- * 
+ * Works directly with data loaded via payoutDataLoader.js.
+ *
  * All times use TCT (Torn City Time) which is UTC/GMT.
  */
 
@@ -309,7 +309,7 @@ export function validateNoOverlappingCrimes(crimesData) {
 
 /**
  * Main payout calculation function
- * Works with data loaded from Supabase via payoutDataLoader.js
+ * Works with data loaded via payoutDataLoader.js
  * 
  * IMPORTANT: Uses >= fromTimestamp and < toTimestamp to avoid overlaps
  * 
@@ -322,7 +322,7 @@ export function validateNoOverlappingCrimes(crimesData) {
  */
 export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent = 0.20, mode = 'tiered') {
   console.log('\n===========================================')
-  console.log('PAYOUT CALCULATION START (Supabase)')
+  console.log('PAYOUT CALCULATION START')
   console.log('===========================================')
   console.log('Time range:', new Date(fromTimestamp * 1000).toISOString(), 'to', new Date(toTimestamp * 1000).toISOString())
   console.log('Faction cut:', (factionCutPercent * 100).toFixed(1) + '%')

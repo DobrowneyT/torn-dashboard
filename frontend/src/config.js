@@ -30,9 +30,7 @@ export const config = {
   // Visitors bypass the faction-membership check at login, see everything
   // leadership sees (Data Management excluded), and can run the full OC/RW
   // payout flows — but every save/write is disabled. Their API key is used
-  // for identity + session-token minting ONLY and is never stored in
-  // member_secrets or the rotation pool. IDs here must also be mirrored in
-  // VISITOR_IDS inside supabase/functions/war-room-fetch (JWT mint + RLS).
+  // for identity ONLY and is never stored in the rotation pool.
   // Cleared for the multi-faction distribution: visitors are granted per
   // faction via role_assignments (Settings page), not a shipped list.
   visitorUserIds: [],

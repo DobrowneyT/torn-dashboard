@@ -27,10 +27,10 @@ export default function InventoryManagement() {
   const [newBatchQuantity, setNewBatchQuantity] = useState(0)
   
   useEffect(() => {
-    loadInventoryFromSupabase()
+    loadInventory()
   }, [])
 
-  async function loadInventoryFromSupabase() {
+  async function loadInventory() {
     try {
       setLoading(true)
       setError(null)
@@ -54,7 +54,7 @@ export default function InventoryManagement() {
       setFactionMembers(members)
 
     } catch (err) {
-      console.error('Error loading from Supabase:', err)
+      console.error('Error loading inventory:', err)
       setError(err.message)
     } finally {
       setLoading(false)
@@ -69,7 +69,7 @@ export default function InventoryManagement() {
       // The server pulls the faction inventory from Torn with its own key
       // and replaces the stored quantities; throws with the server message.
       await apiPost('/api/inventory/sync', {})
-      await loadInventoryFromSupabase()
+      await loadInventory()
 
     } catch (err) {
       console.error('Error syncing inventory:', err)
@@ -101,7 +101,7 @@ export default function InventoryManagement() {
         quantity: quantity,
       })
 
-      await loadInventoryFromSupabase()
+      await loadInventory()
       
       setEditingItem(null)
       setNewBatchPrice('')
@@ -147,7 +147,7 @@ export default function InventoryManagement() {
       // item's full quantity, in a single transaction.
       await apiPut(`/api/inventory/items/${itemId}/price`, { price: Math.floor(price) })
 
-      await loadInventoryFromSupabase()
+      await loadInventory()
     } catch (err) {
       console.error('Error setting price:', err)
       alert(err.message)
@@ -352,7 +352,7 @@ export default function InventoryManagement() {
           <h3 className="text-lg font-semibold text-red-600 mb-2">Error Loading Inventory</h3>
           <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
           <button
-            onClick={loadInventoryFromSupabase}
+            onClick={loadInventory}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             Retry
@@ -681,7 +681,7 @@ export default function InventoryManagement() {
           Batch Pricing System
         </h3>
         <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1 list-disc list-inside">
-          <li>All data stored in Supabase PostgreSQL database with automatic calculations</li>
+          <li>All data stored in the faction's PostgreSQL database with automatic calculations</li>
           <li>Click "Sync with Torn API" to update inventory from game</li>
           <li>Set prices in batches (e.g., 20 items at $50k, 30 at $60k)</li>
           <li>Weighted averages calculated automatically by database views</li>

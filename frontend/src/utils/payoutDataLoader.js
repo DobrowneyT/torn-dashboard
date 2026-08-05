@@ -175,7 +175,7 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
 }
 
 /**
- * Load member data from Supabase
+ * Load member data from the faction API
  * @returns {Promise<Object>} Members keyed by member_id
  */
 export async function loadMembers() {

@@ -26,9 +26,8 @@ function DashboardLayout() {
 
   const [viewAsRole, setViewAsRole] = useState(null)
 
-  // API mode: role flags come from the session claims (role_assignments,
-  // managed per faction in Settings). config.js lists are the legacy
-  // Supabase-mode fallback only.
+  // Role flags come from the session claims (role_assignments, managed per
+  // faction in Settings); the config.js lists are a fallback only.
   const userIsAdmin = user?.isAdmin ?? isAdmin(user?.id)
   const userIsOCManager = user?.isOCManager ?? isOCManager(user?.id)
 
