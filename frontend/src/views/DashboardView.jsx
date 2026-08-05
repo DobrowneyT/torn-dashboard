@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { apiGet, API_MODE } from '../utils/apiClient'
+import { apiGet } from '../utils/apiClient'
 import CompetitionPins from '../components/CompetitionPins'
 import { filterItemsForMember } from '../utils/payoutDataLoader'
 import { calculateTierProgress, getTierInfo } from '../utils/tierProgressUtils'
@@ -121,7 +121,7 @@ export default function DashboardView() {
 
   return (
     <div className="space-y-6">
-      {API_MODE && <CompetitionPins />}
+      <CompetitionPins />
 
       {/* Welcome Header */}
       <div className="card">

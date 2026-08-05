@@ -62,6 +62,24 @@ from `VERSION` at runtime) both surface it automatically.
   `tests.yml` drops the Python job (Node stack only); the root `sync:items`
   script and `supabase` CLI devDependency are removed. The frontend's legacy
   Supabase/`API_MODE` client paths are a separate follow-up (#135 part 2).
+- **Frontend `API_MODE`/Supabase fallback removed entirely (#135 part 2, slice
+  3c).** Production has been API-only since the cutover, so the build-time
+  `API_MODE` flag was always `true` and every Supabase branch behind it was dead
+  code. Deleted the dead files — the `DataManagement` admin view (its ops ran
+  through the retired admin-db function) and its route, the `adminApi` admin-db
+  client, the Supabase browser client (`utils/supabase`) and its session-token
+  minter (`utils/sessionToken`), the legacy war-room polling hook
+  (`useWarRoomPoll`), the orphan `StatsOverview`, and the unused
+  CPR/crimes/members/items import utilities. Collapsed every `API_MODE`
+  conditional (~70 across 18 files — auth, faction identity, contexts, the
+  war-room socket + API client, and the routed views) to its API-only arm, and
+  removed the `@supabase/supabase-js` dependency plus the fake `VITE_SUPABASE_*`
+  test env. No behavior change in production; the browser no longer references a
+  raw Torn key anywhere. **Note:** JSON-preset revive requests (the non-Nuke war
+  room revive services) relied on the retired Supabase edge function and now
+  show a clear "needs a self-hosted revive endpoint" message instead of failing
+  silently — a server `/api/war-room/revive` endpoint is the follow-up; the Nuke
+  preset (direct-from-browser) is unaffected.
 
 ### Fixed
 
@@ -87,6 +105,14 @@ from `VERSION` at runtime) both surface it automatically.
   so the chain always read as idle. `fetch-chains` now converts both to absolute
   epochs (for our side and the enemy) on store; `start`/`end` were already
   absolute and are unchanged.
+- **War Overview "Fetch Attacks"/"Fetch Revives" and War Room BSP auto-fetch /
+  private-notes were silently disabled in production (#135 part 2, slice 3c).**
+  Several war-room and war-overview actions were gated on the browser holding a
+  raw Torn API key (`user.apiKey`), which the self-hosted stack deliberately
+  never stores — so the stale-data "Fetch" buttons sat permanently disabled and
+  the auto BSP spy fetch never fired. These paths already call session-authed
+  `/api/*` endpoints, so the raw-key guards were removed and they work off the
+  session token.
 
 ### Added
 

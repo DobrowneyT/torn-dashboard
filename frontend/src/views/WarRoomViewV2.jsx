@@ -5,7 +5,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useViewState } from '../contexts/ViewStateContext'
-import { supabase } from '../utils/supabase'
 import {
   fetchWarRoomMembersV2,
   fetchOurMembersV2,
@@ -25,7 +24,7 @@ import {
   fetchRollCall,
   fetchWarNotes,
 } from '../utils/warRoomApiV2'
-import { API_MODE, apiGet, apiPut } from '../utils/apiClient'
+import { apiGet, apiPut } from '../utils/apiClient'
 import MemberNoteButton from '../components/warroom/MemberNoteButton'
 import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberNotes'
 import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
@@ -592,7 +591,7 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, service
       country: userCountry || 'Torn',
     }
     try {
-      const result = await requestRevive(requestArgs, user.apiKey)
+      const result = await requestRevive(requestArgs)
       if (result.ok) {
         setFeedback({ ok: true, text: 'Sent' })
       } else {
@@ -1319,7 +1318,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const [memberNotes, setMemberNotes] = useState({})
   const canEditNotes = canEditMemberNotes({ isWarLead, isLeadership, isAdmin, isVisitor })
   useEffect(() => {
-    if (!API_MODE) return
     apiGet('/api/member-notes')
       .then(({ notes }) => setMemberNotes(notesByMember(notes)))
       .catch(() => {})
@@ -1386,15 +1384,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
   useEffect(() => { opponentFidRef.current = config?.faction_id }, [config?.faction_id])
 
-  // Look up faction name from the factions table whenever the faction_id changes
+  // Faction name comes down on the war-room config broadcast.
   useEffect(() => {
     if (!config?.faction_id) return
-    if (API_MODE) {
-      if (config?.faction_name) setFactionName(config.faction_name)
-      return
-    }
-    supabase.from('factions').select('name').eq('id', config.faction_id).maybeSingle()
-      .then(({ data }) => { if (data?.name) setFactionName(data.name) })
+    if (config?.faction_name) setFactionName(config.faction_name)
   }, [config?.faction_id, config?.faction_name])
   useEffect(() => { membersRef.current = members }, [members])
   useEffect(() => { userRef.current = user }, [user])
@@ -1462,46 +1455,37 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       if (nowOkay.has(id)) continue
       const dib = dibs[id]
       if (!dib || String(dib.claimed_by) !== myId) continue
-      releaseDibsV2(id, user?.apiKey, { userId: user?.id })
+      releaseDibsV2(id)
         .then(() => pollNow())
         .catch(e => console.error('Auto-release dibs:', e))
     }
     prevEnemyOkayRef.current = nowOkay
-  }, [members, dibs, user?.apiKey, user?.id, pollNow])
+  }, [members, dibs, user?.id, pollNow])
 
   // ── BSP fire once when members first appear ───────────────────────────────
 
   useEffect(() => {
-    if (!config?.enabled || !members.length || bspFiredRef.current || !user?.apiKey) return
+    if (!config?.enabled || !members.length || bspFiredRef.current) return
     bspFiredRef.current = true
     const missing = members.filter(m => m.bsp_total === null).map(m => m.member_id)
     if (!missing.length) return
-    fetchBspStatsV2(missing, user.apiKey).catch(e => console.error('BSP auto-fetch error:', e))
-  }, [members.length, config?.enabled, user?.apiKey])
+    fetchBspStatsV2(missing).catch(e => console.error('BSP auto-fetch error:', e))
+  }, [members.length, config?.enabled])
 
-  // ── Torn polling is now CENTRALISED via pg_cron ───────────────────────────
-  // (see supabase/migrations/20260601000003_war_room_v2_cron_polling.sql)
-  //
-  // Previously every viewer's browser ran its own setInterval and fired
-  // fetch_members_v2 / fetch_our_members_v2, so Torn API hits scaled with
-  // viewer count. Now a single Postgres cron job triggers the Edge Function
-  // (cron_poll_war_room) which polls Torn once globally every 500ms and
-  // writes to war_room_state_v2. The hook below picks up the changes via
-  // delta-poll, same as before.
-  //
-  // The Save flow and Update Spies still trigger one-shot fetches (leader
-  // actions, not periodic).
+  // ── Torn polling is CENTRALISED server-side ───────────────────────────────
+  // A single in-process ticker polls Torn once globally and writes war-room
+  // state; viewers pick up changes over the WebSocket/delta hook rather than
+  // each browser polling Torn. The Save flow and Update Spies still trigger
+  // one-shot fetches (leader actions, not periodic).
 
   // ── Leadership actions ────────────────────────────────────────────────────
 
   async function toggleEnabled() {
-    // API mode holds no raw key by design — the session token authorizes.
-    if (!API_MODE && !user?.apiKey) return
     setToggling(true); setToggleError(null)
     try {
       const enabling = !config?.enabled
       if (enabling) bspFiredRef.current = false
-      await setWarRoomConfigV2({ enabled: enabling }, user.apiKey)
+      await setWarRoomConfigV2({ enabled: enabling })
       await pollNow()
     } catch (e) {
       setToggleError(e.message)
@@ -1509,20 +1493,20 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   }
 
   async function handleClearState() {
-    await clearWarRoomStateV2(user.apiKey)
+    await clearWarRoomStateV2()
     bspFiredRef.current = false
     await pollNow()
   }
 
   async function handleSaveReviveService(updates) {
-    await setWarRoomConfigV2(updates, user.apiKey)
+    await setWarRoomConfigV2(updates)
     await pollNow()
   }
 
   // Same shape as handleSaveReviveService — the modal sends the full updated list
   // (plus optionally a cleared active selection if the active service was removed).
   async function handleSaveReviveList(updates) {
-    await setWarRoomConfigV2(updates, user.apiKey)
+    await setWarRoomConfigV2(updates)
     await pollNow()
   }
 
@@ -1532,16 +1516,16 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     // 1. Disable polling so an in-flight poll for the OLD faction can't
     //    re-add members between the clear and the new fetch.
     if (config?.enabled) {
-      await setWarRoomConfigV2({ enabled: false }, user.apiKey)
+      await setWarRoomConfigV2({ enabled: false })
       await new Promise(r => setTimeout(r, 500))
     }
     // 2. Clear state (soft-deletes all current rows + zeroes the chain row).
-    await clearWarRoomStateV2(user.apiKey)
+    await clearWarRoomStateV2()
     bspFiredRef.current = false
     // 3. Persist the new faction_id (and reset cached name).
     // auto_managed:false — a manual Save yields the session to the leader, so
     // the lifecycle cron won't auto-disable it (e.g. when testing other factions).
-    await setWarRoomConfigV2({ faction_id: newFactionId, faction_name: null, auto_managed: false, managed_war_id: null }, user.apiKey)
+    await setWarRoomConfigV2({ faction_id: newFactionId, faction_name: null, auto_managed: false, managed_war_id: null })
     setFactionName(null)
     // 4. Initial enemy + our fetch in parallel. Chain seed runs alongside
     //    so the ChainTimerCard shows the current state of both factions
@@ -1549,9 +1533,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     //    if Torn rejects (e.g., enemy ID typo) the member fetch result still
     //    drives the rest of the Save flow.
     const [enemyResp] = await Promise.all([
-      fetchWarRoomMembersV2(newFactionId, user.apiKey),
-      fetchOurMembersV2(user.apiKey),
-      fetchChainsV2(newFactionId, user.apiKey).catch(e => console.warn('Chain seed failed:', e)),
+      fetchWarRoomMembersV2(newFactionId),
+      fetchOurMembersV2(),
+      fetchChainsV2(newFactionId).catch(e => console.warn('Chain seed failed:', e)),
     ])
     if (enemyResp?.faction_name) setFactionName(enemyResp.faction_name)
     // 5. Trigger an immediate poll so the new state appears within ~50ms.
@@ -1566,19 +1550,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (!oppId) { setCurrentWar(null); return }
     if (!tokenReady) return  // wait for the session token (RLS) before resolving
     let cancelled = false
-    const resolve = API_MODE
-      ? apiGet('/api/wars?limit=20').then(({ wars }) =>
-          (wars ?? [])
-            .filter(w => Number(w.opponent_id) === Number(oppId))
-            .sort((a, b) => (b.start_at ?? 0) - (a.start_at ?? 0))[0] ?? null
-        )
-      : supabase.from('ranked_wars')
-          .select('id, opponent_id, opponent_name, start_at, end_at')
-          .eq('opponent_id', oppId)
-          .order('start_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-          .then(({ data }) => data)
+    const resolve = apiGet('/api/wars?limit=20').then(({ wars }) =>
+      (wars ?? [])
+        .filter(w => Number(w.opponent_id) === Number(oppId))
+        .sort((a, b) => (b.start_at ?? 0) - (a.start_at ?? 0))[0] ?? null
+    )
     resolve.then((data) => {
       if (cancelled) return
       // Only treat as "current" when the war hasn't ended yet.
@@ -1595,27 +1571,16 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // summary counts + leader results stay reasonably live (data changes slowly).
   const refreshRollCall = useCallback(async () => {
     if (!currentWar?.id) { setRollCallRows([]); setWarNotes(null); setRollCallLoaded(true); return }
-    if (API_MODE) {
-      // Per-channel guard (#167): a transient failure must NOT overwrite
-      // known-good rows with [] — that would drop a submitted response and
-      // re-trip the gate on a backgrounded/throttled tab. Adopt only a
-      // successful read; only mark "loaded" once roll call actually loaded.
-      const [rcRes, ntRes] = await Promise.allSettled([
-        fetchRollCall(currentWar.id),
-        fetchWarNotes(currentWar.id),
-      ])
-      if (rcRes.status === 'fulfilled') { setRollCallRows(rcRes.value ?? []); setRollCallLoaded(true) }
-      if (ntRes.status === 'fulfilled') setWarNotes(ntRes.value ?? null)
-      return
-    }
-    const [rcResp, ntResp] = await Promise.allSettled([
-      supabase.from('war_room_roll_call_v2').select('*').eq('war_id', currentWar.id),
-      supabase.from('war_room_notes_v2').select('*').eq('war_id', currentWar.id).maybeSingle(),
+    // Per-channel guard (#167): a transient failure must NOT overwrite
+    // known-good rows with [] — that would drop a submitted response and
+    // re-trip the gate on a backgrounded/throttled tab. Adopt only a
+    // successful read; only mark "loaded" once roll call actually loaded.
+    const [rcRes, ntRes] = await Promise.allSettled([
+      fetchRollCall(currentWar.id),
+      fetchWarNotes(currentWar.id),
     ])
-    // Same guard for the legacy path: a query error (or thrown network fault)
-    // leaves the last known-good rows in place instead of clearing them.
-    if (rcResp.status === 'fulfilled' && !rcResp.value.error) { setRollCallRows(rcResp.value.data ?? []); setRollCallLoaded(true) }
-    if (ntResp.status === 'fulfilled' && !ntResp.value.error) setWarNotes(ntResp.value.data ?? null)
+    if (rcRes.status === 'fulfilled') { setRollCallRows(rcRes.value ?? []); setRollCallLoaded(true) }
+    if (ntRes.status === 'fulfilled') setWarNotes(ntRes.value ?? null)
   }, [currentWar?.id])
 
   useEffect(() => {
@@ -1653,7 +1618,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (!currentWar?.id) return
     setSubmittingRC(true); setRcError(null)
     try {
-      await submitRollCall(currentWar.id, answers, user.name, user.apiKey)
+      await submitRollCall(currentWar.id, answers)
       // Latch the gate closed for this war immediately + persistently (#167):
       // even before the refresh reflects the new row (or if a later refresh
       // transiently fails), the overlay won't come back for this browser.
@@ -1674,14 +1639,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Load the leads-only private note via the edge function when a War Leader
   // opens the notes panel (it's never client-readable).
   useEffect(() => {
-    // API mode authenticates with the session token — no browser key needed.
-    if (!notesPanelOpen || !canSeeNotes || !currentWar?.id || (!API_MODE && !user?.apiKey)) return
+    // The session token authorizes the leads-only read.
+    if (!notesPanelOpen || !canSeeNotes || !currentWar?.id) return
     let cancelled = false
-    getWarNotesPrivate(currentWar.id, user.apiKey)
+    getWarNotesPrivate(currentWar.id)
       .then(r => { if (!cancelled) setPrivateNotes(r?.notes ?? '') })
       .catch(() => { if (!cancelled) setPrivateNotes('') })
     return () => { cancelled = true }
-  }, [notesPanelOpen, canSeeNotes, currentWar?.id, user?.apiKey])
+  }, [notesPanelOpen, canSeeNotes, currentWar?.id])
 
   // Collaborative live refresh: while the notes panel is open, pull the notes
   // (public via refreshRollCall + the leads-only private note) every few
@@ -1692,22 +1657,20 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     let cancelled = false
     const tick = async () => {
       await refreshRollCall()
-      if (API_MODE || user?.apiKey) {
-        const r = await getWarNotesPrivate(currentWar.id, user.apiKey).catch(() => null)
-        if (!cancelled && r) setPrivateNotes(r.notes ?? '')
-      }
+      const r = await getWarNotesPrivate(currentWar.id).catch(() => null)
+      if (!cancelled && r) setPrivateNotes(r.notes ?? '')
     }
     const t = setInterval(tick, 3000)
     return () => { cancelled = true; clearInterval(t) }
-  }, [notesPanelOpen, canSeeNotes, currentWar?.id, tokenReady, refreshRollCall, user?.apiKey])
+  }, [notesPanelOpen, canSeeNotes, currentWar?.id, tokenReady, refreshRollCall])
 
   async function handleSaveWarNotes(fields) {
     if (!currentWar?.id) return false
     setSavingNotes(true); setNotesError(null)
     try {
-      await saveWarNotes(currentWar.id, fields, user.name, user.apiKey)
+      await saveWarNotes(currentWar.id, fields)
       await refreshRollCall()  // refresh public notes + the optimistic-lock token
-      const r = await getWarNotesPrivate(currentWar.id, user.apiKey).catch(() => null)
+      const r = await getWarNotesPrivate(currentWar.id).catch(() => null)
       if (r) setPrivateNotes(r.notes ?? '')
       return true
     } catch (e) {
@@ -1721,40 +1684,31 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Update Spies works even when the war room is paused: if no members are loaded
   // yet (paused state), it does an enemy fetch first, then BSP enrichment.
   async function handleUpdateSpies() {
-    if ((!API_MODE && !user?.apiKey) || !config?.faction_id) return
+    if (!config?.faction_id) return
     setUpdatingSpies(true); setSpiesMsg(null)
     try {
       let workingMembers = membersRef.current.length ? membersRef.current : members
       if (!workingMembers.length) {
         setSpiesMsg({ ok: true, text: 'Fetching members…' })
-        await fetchWarRoomMembersV2(config.faction_id, user.apiKey)
+        await fetchWarRoomMembersV2(config.faction_id)
         // Give the next poll tick a beat to surface the new members, then
-        // fall back to a direct DB read of v2 if the hook hasn't caught up.
+        // fall back to a direct delta read if the hook hasn't caught up.
         await pollNow()
         await new Promise(r => setTimeout(r, 200))
         workingMembers = membersRef.current
         if (!workingMembers.length) {
-          if (API_MODE) {
-            const delta = await apiGet('/api/war-room/delta')
-            const rows = delta?.state?.rows ?? []
-            workingMembers = rows
-              .filter(r => Number(r.faction_id) === Number(config.faction_id) && !r.deleted_at)
-              .map(r => ({ member_id: r.member_id }))
-          } else {
-            const { data } = await supabase
-              .from('war_room_state_v2')
-              .select('member_id')
-              .eq('faction_id', config.faction_id)
-              .is('deleted_at', null)
-            workingMembers = data ?? []
-          }
+          const delta = await apiGet('/api/war-room/delta')
+          const rows = delta?.state?.rows ?? []
+          workingMembers = rows
+            .filter(r => Number(r.faction_id) === Number(config.faction_id) && !r.deleted_at)
+            .map(r => ({ member_id: r.member_id }))
         }
       }
       if (!workingMembers.length) throw new Error('No members loaded — check the faction ID')
       const ids = workingMembers.map(m => m.member_id)
       // Show progress BEFORE the await so it reflects in-flight state, not completion.
       setSpiesMsg({ ok: true, text: `Fetching spies for ${ids.length} members…` })
-      const result = await fetchBspStatsV2(ids, user.apiKey)
+      const result = await fetchBspStatsV2(ids)
       // Edge Function returns { fetched, tornstats, bsp, requested }. Older
       // deploys (pre-TornStats) only return { fetched } — fall back gracefully.
       const ts = Number(result?.tornstats ?? 0)
@@ -1792,7 +1746,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     dibsAbortRef.current = controller
 
     try {
-      await claimDibsV2(memberId, user.name, null, user.apiKey, { signal: controller.signal, userId: user.id })
+      await claimDibsV2(memberId, null)
       await pollNow()
     } catch (e) {
       if (e.name === 'AbortError') return
@@ -1812,7 +1766,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     setDibsError(null)
     setPendingDibsOps(prev => ({ ...prev, [memberId]: 'release' }))
     try {
-      await releaseDibsV2(memberId, user.apiKey, { userId: user.id })
+      await releaseDibsV2(memberId)
       await pollNow()
     } catch (e) {
       setDibsError(e.message)
@@ -1832,7 +1786,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (!user?.id) return
     setChainClaimError(null)
     try {
-      await claimChainSaveV2(user.apiKey, { userId: user.id, userName: user.name })
+      await claimChainSaveV2()
       await pollNow()
     } catch (e) {
       setChainClaimError(e.message)
@@ -1844,7 +1798,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (!user?.id) return
     setChainClaimError(null)
     try {
-      await releaseChainSaveV2(user.apiKey, { userId: user.id })
+      await releaseChainSaveV2()
       await pollNow()
     } catch (e) {
       setChainClaimError(e.message)
@@ -2441,8 +2395,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       <HeadlineBanner config={config} mode="banner" canManage={(isWarLead || isLeadership || isAdmin) && !isVisitor} />
 
       {/* Push opt-in (#207): offer background notifications on entering a live
-          war room (API mode only; visitors are read-only observers). */}
-      {API_MODE && !isVisitor && <WarRoomPushPrompt live={isActive} />}
+          war room (visitors are read-only observers). */}
+      {!isVisitor && <WarRoomPushPrompt live={isActive} />}
 
       {/* Server-detected PUSH surge (#208) — auto-fires sound/flash for everyone. */}
       {surgeAlert && (
@@ -2524,15 +2478,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             {isOverdosed(m) && (
                               <span title="Overdosed" className="px-1 py-0.5 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold">OD</span>
                             )}
-                            {API_MODE && (
-                              <MemberNoteButton
-                                memberId={m.member_id}
-                                memberName={m.member_name}
-                                note={memberNotes[m.member_id]}
-                                canEdit={canEditNotes}
-                                onSave={saveMemberNote}
-                              />
-                            )}
+                            <MemberNoteButton
+                              memberId={m.member_id}
+                              memberName={m.member_name}
+                              note={memberNotes[m.member_id]}
+                              canEdit={canEditNotes}
+                              onSave={saveMemberNote}
+                            />
                           </div>
                         </td>
 
@@ -2737,7 +2689,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     preset: active?.preset ?? 'json',
                     country: resolveCountryFromDescription(myRow?.status_description),
                   },
-                  user?.apiKey,
                 )
               }}
               updatingSpies={updatingSpies}

@@ -1,12 +1,12 @@
-// Faction identity for the SPA. In API mode it comes from /api/bootstrap
-// (faction_config — per tenant, editable in Leadership → Settings); the
-// config.js strings are the legacy Supabase-mode fallback only.
+// Faction identity for the SPA. It comes from /api/bootstrap (faction_config —
+// per tenant, editable in Leadership → Settings); the config.js strings are the
+// pre-bootstrap fallback only.
 //
 // AuthContext awaits loadFactionIdentity() during its initial loading gate,
 // so by the time any view renders the synchronous getters are safe.
 import { useEffect, useState } from 'react'
 import { config } from '../config'
-import { API_MODE, apiBootstrap } from './apiClient'
+import { apiBootstrap } from './apiClient'
 
 const fallback = {
   id: String(config.faction.id),
@@ -20,7 +20,6 @@ let cached = null
 let inflight = null
 
 export async function loadFactionIdentity() {
-  if (!API_MODE) return fallback
   if (cached) return cached
   inflight ??= apiBootstrap(null)
     .then((boot) => {

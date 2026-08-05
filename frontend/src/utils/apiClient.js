@@ -1,10 +1,6 @@
 // Client for the self-hosted per-faction API (dashboard-migration.md).
-//
-// API mode is baked at build time: the docker/nginx build sets
-// VITE_API_MODE=true, so the same bundle served by the new stack talks to
-// /api/* on its own origin. GitHub Pages / local `npm run dev` builds leave
-// the flag unset and keep the Supabase path untouched.
-export const API_MODE = import.meta.env.VITE_API_MODE === 'true'
+// Every deployment talks to /api/* on its own origin — the legacy Supabase
+// path was removed at the production cutover (#135).
 
 const TOKEN_STORAGE_KEY = 'apiSession'
 

@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useFactionConfig } from '../contexts/FactionConfigContext'
-import { API_MODE, apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient'
+import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient'
 import { PAYOUT_MODES, DEFAULT_PAYOUT_MODE } from '../utils/payoutCalculations'
 import { CheckCircle2, AlertTriangle, Trash2, Loader2, Image as ImageIcon } from 'lucide-react'
 
@@ -460,14 +460,6 @@ function PolicySection({ readOnly }) {
 export default function FactionSettingsView() {
   const { isVisitor } = useAuth()
   const readOnly = !!isVisitor
-
-  if (!API_MODE) {
-    return (
-      <div className="text-gray-600 dark:text-gray-400 text-sm">
-        Faction settings are managed through the new API stack — not available on this deployment.
-      </div>
-    )
-  }
 
   return (
     <div className="space-y-6">

@@ -1,7 +1,6 @@
 // Competitions (#183): a section on the Members page. Everyone sees the list
 // and a selected competition's live leaderboard; leadership gets a create form.
-// API-only feature (needs the faction API + daily-stats snapshots), so the
-// caller gates rendering on API_MODE.
+// Needs the faction API + daily-stats snapshots.
 import { useState, useEffect } from 'react'
 import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { Trophy, Plus, X, Award, Pin } from 'lucide-react'

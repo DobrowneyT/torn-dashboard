@@ -1,25 +1,15 @@
 /**
- * War Room API v2
+ * War Room API v2 (self-hosted stack).
  *
- * Two transport layers:
- *  - Edge Function (writes + Torn API proxying) — same envelope as v1.
- *  - PostgREST RPC (delta polling reads) — direct from the browser to
- *    war_room_*_v2_delta(p_since) Postgres functions.
- *
- * The split mirrors the architectural change: writes still go through the
- * Edge Function so the Torn API key pool and leadership checks stay
- * server-side, but reads bypass the function entirely (and bypass Realtime
- * entirely) and stream as cheap HTTP+gzip from PostgREST.
+ * All writes and Torn-proxying reads go through the faction API on this origin
+ * (/api/war-room/*), authorized by the caller's session token. The Torn key
+ * pool and leadership checks stay server-side. The one exception is the Nuke
+ * revive preset, which POSTs directly from the browser (see requestRevive).
  */
-import { supabase } from './supabase'
-import { API_MODE, getApiSession } from './apiClient'
+import { getApiSession } from './apiClient'
 
-const WAR_ROOM_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/war-room-fetch'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-// API-mode transport for the ported war-room writes (slice #72): same
-// throw shape as callWarRoom (err.status / err.payload) so call sites'
-// 409-owner handling works unchanged.
+// Same throw shape as the old edge-function client (err.status / err.payload)
+// so call sites' 409-owner handling keeps working unchanged.
 async function warRoomApi(method, path, payload) {
   const session = getApiSession()
   const res = await fetch(path, {
@@ -40,137 +30,85 @@ async function warRoomApi(method, path, payload) {
   return data
 }
 
-async function callWarRoom(action, payload, tornApiKey, signal) {
-  const response = await fetch(WAR_ROOM_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // The Supabase Edge Function gateway requires Authorization on every
-      // call when JWT verification is enabled (i.e., deployed without
-      // --no-verify-jwt). The anon key satisfies the gateway. The function
-      // still does its own Torn-key auth via verifyTornUser() against the
-      // x-torn-api-key header below — no change to the in-function auth.
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      'apikey': SUPABASE_ANON_KEY,
-      'x-torn-api-key': tornApiKey,
-    },
-    body: JSON.stringify({ action, ...payload }),
-    signal,
-  })
+// ── Writes ───────────────────────────────────────────────────────────────────
 
-  const data = await response.json()
-  if (!response.ok) {
-    const err = new Error(data.error || `War Room API error: ${response.status}`)
-    err.status = response.status
-    err.payload = data
-    throw err
-  }
-  return data
+export async function fetchWarRoomMembersV2(factionId) {
+  // Baselines BOTH factions in one server call (pooled key).
+  return warRoomApi('POST', '/api/war-room/fetch-members', { faction_id: factionId })
 }
 
-// ── Edge Function actions (writes) ───────────────────────────────────────────
-
-export async function fetchWarRoomMembersV2(factionId, tornApiKey) {
-  // API mode baselines BOTH factions in one server call (pooled key).
-  if (API_MODE) return warRoomApi('POST', '/api/war-room/fetch-members', { faction_id: factionId })
-  return callWarRoom('fetch_members_v2', { faction_id: factionId }, tornApiKey)
+export async function fetchOurMembersV2() {
+  // Covered by fetch-members server-side — keep the call site's Promise.all shape.
+  return { ok: true }
 }
 
-export async function fetchOurMembersV2(tornApiKey) {
-  // Covered by fetch-members in API mode — keep the call site's Promise.all shape.
-  if (API_MODE) return { ok: true }
-  return callWarRoom('fetch_our_members_v2', {}, tornApiKey)
+export async function fetchBspStatsV2(memberIds) {
+  return warRoomApi('POST', '/api/war-room/fetch-spies', { member_ids: memberIds })
 }
 
-export async function fetchBspStatsV2(memberIds, tornApiKey) {
-  if (API_MODE) return warRoomApi('POST', '/api/war-room/fetch-spies', { member_ids: memberIds })
-  return callWarRoom('fetch_bsp_v2', { member_ids: memberIds }, tornApiKey)
+export async function setWarRoomConfigV2(updates) {
+  return warRoomApi('PUT', '/api/war-room/config', updates)
 }
 
-export async function setWarRoomConfigV2(updates, tornApiKey) {
-  if (API_MODE) return warRoomApi('PUT', '/api/war-room/config', updates)
-  return callWarRoom('set_config_v2', updates, tornApiKey)
+export async function clearWarRoomStateV2() {
+  return warRoomApi('POST', '/api/war-room/clear-state', {})
 }
 
-export async function clearWarRoomStateV2(tornApiKey) {
-  if (API_MODE) return warRoomApi('POST', '/api/war-room/clear-state', {})
-  return callWarRoom('clear_state_v2', {}, tornApiKey)
-}
-
-// Leader headline banner (#158) — self-hosted stack only; broadcasts on 'config'.
+// Leader headline banner (#158) — broadcasts on 'config'.
 export async function setWarHeadline(text, tone) {
-  if (API_MODE) return warRoomApi('POST', '/api/war-room/headline', { text, tone })
-  return { ok: false, error: 'Headline requires the self-hosted stack' }
+  return warRoomApi('POST', '/api/war-room/headline', { text, tone })
 }
 
 export async function clearWarHeadline() {
-  if (API_MODE) return warRoomApi('DELETE', '/api/war-room/headline')
-  return { ok: false, error: 'Headline requires the self-hosted stack' }
+  return warRoomApi('DELETE', '/api/war-room/headline')
 }
 
 // Roll call — member submits/edits their availability for a war. member_id is
-// derived server-side from the key; user_name is passed for display.
-export async function submitRollCall(warId, answers, userName, tornApiKey) {
-  if (API_MODE) return warRoomApi('POST', '/api/war-room/roll-call', { war_id: warId, ...answers })
-  return callWarRoom('submit_roll_call_v2', { data: { war_id: warId, ...answers }, user_name: userName }, tornApiKey)
+// derived server-side from the session.
+export async function submitRollCall(warId, answers) {
+  return warRoomApi('POST', '/api/war-room/roll-call', { war_id: warId, ...answers })
 }
 
 // War notes / type / agreed scores — War Leaders only (enforced server-side).
 // `notes` carries war_type, termed_score_us/them, race_target_score,
 // notes_public, notes_private, and expected_updated_at (optimistic lock).
-export async function saveWarNotes(warId, notes, userName, tornApiKey) {
-  if (API_MODE) return warRoomApi('PUT', '/api/war-room/notes', { war_id: warId, ...notes })
-  return callWarRoom('save_war_notes_v2', { data: { war_id: warId, ...notes }, user_name: userName }, tornApiKey)
+export async function saveWarNotes(warId, notes) {
+  return warRoomApi('PUT', '/api/war-room/notes', { war_id: warId, ...notes })
 }
 
-// Leads-only private note — fetched through the edge function (never client-readable).
-export async function getWarNotesPrivate(warId, tornApiKey) {
-  if (API_MODE) return warRoomApi('GET', `/api/war-room/notes/${warId}/private`)
-  return callWarRoom('get_war_notes_private_v2', { data: { war_id: warId } }, tornApiKey)
+// Leads-only private note — fetched through the server (never client-readable).
+export async function getWarNotesPrivate(warId) {
+  return warRoomApi('GET', `/api/war-room/notes/${warId}/private`)
 }
 
-export async function claimDibsV2(targetId, userName, warId, tornApiKey, opts = {}) {
-  if (API_MODE) return warRoomApi('POST', '/api/war-room/dibs', { target_id: targetId, war_id: warId ?? null })
-  return callWarRoom(
-    'claim_dibs_v2',
-    { target_id: targetId, user_name: userName, war_id: warId ?? null, user_id: opts.userId },
-    tornApiKey,
-    opts.signal,
-  )
+export async function claimDibsV2(targetId, warId) {
+  return warRoomApi('POST', '/api/war-room/dibs', { target_id: targetId, war_id: warId ?? null })
 }
 
-export async function releaseDibsV2(targetId, tornApiKey, opts = {}) {
-  if (API_MODE) return warRoomApi('DELETE', `/api/war-room/dibs/${targetId}`)
-  return callWarRoom(
-    'release_dibs_v2',
-    { target_id: targetId, user_id: opts.userId },
-    tornApiKey,
-    opts.signal,
-  )
+export async function releaseDibsV2(targetId) {
+  return warRoomApi('DELETE', `/api/war-room/dibs/${targetId}`)
 }
 
-// Revive request still uses the v1 action name (Edge-Function-side proxy is
-// shared between v1 and v2 — the action handler itself reads from whichever
-// war_room_state* table is canonical at the time).
+// Revive request. The Nuke preset is gated on source IP fingerprint — the
+// userscript posts from the user's residential IP, but identical payloads from
+// a datacenter IP are silently shadow-filtered. To match the userscript's
+// fingerprint we POST directly from the browser. Nuke's response carries
+// `access-control-allow-origin: *` and the form-urlencoded content-type is a
+// "simple" CORS request (no preflight), so this needs no server cooperation.
 //
-// Nuke is the exception: it is gated on source IP fingerprint — the
-// userscript posts from the user's residential IP (via GM_xmlhttpRequest)
-// and Nuke's revivers pick those up, but identical payloads sent from our
-// Edge Function (Deno datacenter IP) appear to be silently shadow-filtered
-// (Nuke returns 200 but the request never reaches the reviver pool). To
-// match the userscript's fingerprint we POST directly from the browser.
-// Nuke's response carries `access-control-allow-origin: *` and the
-// form-urlencoded content-type is a "simple" CORS request (no preflight),
-// so this works without any server-side cooperation from them.
-export async function requestRevive({ url, userID, userName, factionName, source, sourceKey, preset, country }, tornApiKey) {
+// Non-nuke ("json") presets used to proxy through the Supabase edge function,
+// which no longer exists — they need a server-side /api/war-room/revive
+// endpoint that hasn't been built yet, so they degrade to a clear message.
+export async function requestRevive({ url, userID, userName, source, preset, country }) {
   if (preset === 'nuke') {
     return requestReviveNukeDirect({ url, userID, userName, country, source })
   }
-  return callWarRoom(
-    'revive_request',
-    { url, userID, userName, factionName, source, sourceKey, preset },
-    tornApiKey,
-  )
+  return {
+    ok: false,
+    status: 0,
+    body: { reason: 'JSON revive presets need a self-hosted revive endpoint (not built yet). Use a Nuke-preset service.' },
+    url,
+  }
 }
 
 async function requestReviveNukeDirect({ url, userID, userName, country, source }) {
@@ -198,22 +136,9 @@ async function requestReviveNukeDirect({ url, userID, userName, country, source 
   }
 }
 
-/**
- * Mint a short-lived Supabase JWT (HS256, 4h) for the supabase-js client's
- * `accessToken` async hook. Same claim shape as the realtime token but a
- * tighter TTL since it gates REST queries (not a long-lived websocket).
- *
- * Returns { token, expires_at } where expires_at is a unix-second timestamp.
- */
-export async function mintSessionToken(tornApiKey) {
-  return callWarRoom('mint_session_token', {}, tornApiKey)
-}
-
-// Map Torn hospital-description adjectives to Nuke's title-cased country
-// names. Mirrors the server-side logic in war-room-fetch's resolveUserCountry
-// so the direct-browser path produces the same country string the Edge
-// Function would have. Anything that doesn't match is treated as Torn (which
-// covers the standard hospital and "no description available" cases).
+// Map Torn hospital-description adjectives to Nuke's title-cased country names,
+// so the direct-browser path produces the same country string the server would.
+// Anything that doesn't match is treated as Torn.
 const HOSPITAL_COUNTRY_ADJECTIVES = [
   [/\bMexican\b/i,       'Mexico'],
   [/\bCaymanian\b/i,     'Cayman Islands'],
@@ -236,58 +161,17 @@ export function resolveCountryFromDescription(description) {
   return 'Torn'
 }
 
-// ── PostgREST RPC (delta polling reads) ──────────────────────────────────────
-//
-// The RPCs return TABLE(rows jsonb, server_now timestamptz). supabase-js wraps
-// the result in an array, so `data?.[0]` is the row. Pass server_now back as
-// the next poll's p_since — never use Date.now() client-side, to avoid clock
-// skew opening polling gaps.
+// ── Chain-save claim ─────────────────────────────────────────────────────────
 
-function unwrapDelta(data) {
-  const row = Array.isArray(data) ? data[0] : data
-  return {
-    rows: row?.rows ?? [],
-    serverNow: row?.server_now ?? null,
-  }
+export async function claimChainSaveV2() {
+  return warRoomApi('POST', '/api/war-room/chain-save', {})
 }
 
-export async function pollStateDelta(since) {
-  const { data, error } = await supabase.rpc('war_room_state_v2_delta', { p_since: since })
-  if (error) throw error
-  return unwrapDelta(data)
+export async function releaseChainSaveV2() {
+  return warRoomApi('DELETE', '/api/war-room/chain-save')
 }
 
-export async function pollDibsDelta(since) {
-  const { data, error } = await supabase.rpc('war_room_dibs_v2_delta', { p_since: since })
-  if (error) throw error
-  return unwrapDelta(data)
-}
-
-export async function pollConfigDelta(since) {
-  const { data, error } = await supabase.rpc('war_room_config_v2_delta', { p_since: since })
-  if (error) throw error
-  return unwrapDelta(data)
-}
-
-export async function pollChainDelta(since) {
-  const { data, error } = await supabase.rpc('war_room_chain_v2_delta', { p_since: since })
-  if (error) throw error
-  return unwrapDelta(data)
-}
-
-// ── Chain-save claim Edge Function actions ───────────────────────────────────
-
-export async function claimChainSaveV2(tornApiKey, opts = {}) {
-  if (API_MODE) return warRoomApi('POST', '/api/war-room/chain-save', {})
-  return callWarRoom('claim_chain_save_v2', { user_id: opts.userId, user_name: opts.userName }, tornApiKey, opts.signal)
-}
-
-export async function releaseChainSaveV2(tornApiKey, opts = {}) {
-  if (API_MODE) return warRoomApi('DELETE', '/api/war-room/chain-save')
-  return callWarRoom('release_chain_save_v2', { user_id: opts.userId }, tornApiKey, opts.signal)
-}
-
-// ── Slice #72 reads: roll-call rows + public notes (API mode) ────────────────
+// ── Reads: roll-call rows + public notes ─────────────────────────────────────
 
 export async function fetchRollCall(warId) {
   const { responses } = await warRoomApi('GET', `/api/war-room/roll-call?war_id=${warId}`)
@@ -300,11 +184,10 @@ export async function fetchWarNotes(warId) {
 }
 
 /**
- * One-shot fetch of both chains. Used by the Save flow to seed
- * war_room_chain_v2 with current state for our + the new enemy faction
- * before war room is enabled. Bypasses the cron throttle/cooldown gating.
+ * One-shot fetch of both chains. Used by the Save flow to seed the chain state
+ * for our + the new enemy faction before war room is enabled. Bypasses the cron
+ * throttle/cooldown gating.
  */
-export async function fetchChainsV2(enemyFactionId, tornApiKey) {
-  if (API_MODE) return warRoomApi('POST', '/api/war-room/fetch-chains', { enemy_faction_id: enemyFactionId })
-  return callWarRoom('fetch_chains_v2', { enemy_faction_id: enemyFactionId }, tornApiKey)
+export async function fetchChainsV2(enemyFactionId) {
+  return warRoomApi('POST', '/api/war-room/fetch-chains', { enemy_faction_id: enemyFactionId })
 }
