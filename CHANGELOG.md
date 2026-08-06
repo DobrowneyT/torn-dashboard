@@ -17,6 +17,18 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+
+- **War Room poll cadences are clamped server-side (#260).** `PUT
+  /api/war-room/config` wrote whatever it was handed straight to the database,
+  so the client's clamps could be bypassed by a crafted request and the
+  server-side chain poller set to 0s. Chain poll intervals are now floored at
+  1s (comfortably above the 0.5s safety minimum) and capped at 600s, and the
+  other numeric cadence/threshold fields — dibs expiry, the surge thresholds,
+  windows and cooldown, TornStats max age — are clamped to their own bounds.
+  A non-numeric value is rejected with a 400 rather than silently stored as the
+  floor. In-range values save and broadcast exactly as before.
+
 ### Changed
 
 - **A disabled API key now ends the member's session (#319).** When the hourly

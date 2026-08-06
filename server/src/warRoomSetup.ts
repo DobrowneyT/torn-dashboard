@@ -11,6 +11,7 @@ import { createTornClient } from './scraper/tornClient.js'
 import { resolveSpyProviders, fetchSpiesForMembers } from './spyFetch.js'
 import { syncWarRoomMemberStates } from './warRoomTicker.js'
 import { storeOurChain, storeEnemyChain } from './warRoomChain.js'
+import { clampConfigValue } from './warRoomConfigBounds.js'
 import type { WarRoomHub } from './warRoom.js'
 
 export interface WarRoomSetupDeps {
@@ -97,8 +98,18 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
 
   app.put('/api/war-room/config', GUARD, async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>
-    const updates = Object.entries(body).filter(([k]) => CONFIG_COLUMNS.has(k))
-    if (updates.length === 0) return reply.status(400).send({ error: 'no config fields provided' })
+    const allowed = Object.entries(body).filter(([k]) => CONFIG_COLUMNS.has(k))
+    if (allowed.length === 0) return reply.status(400).send({ error: 'no config fields provided' })
+
+    // Clamp cadence fields to safe bounds (#260). The client clamps these too,
+    // but that is a UX affordance: without this, a crafted request could set a
+    // chain poller to 0s and the server-side poller would hammer Torn.
+    const updates: Array<[string, unknown]> = []
+    for (const [k, v] of allowed) {
+      const clamped = clampConfigValue(k, v)
+      if (!clamped.ok) return reply.status(400).send({ error: clamped.error })
+      updates.push([k, clamped.value])
+    }
 
     const sets = updates.map(([k], i) => `"${k}" = $${i + 1}`).join(', ')
     const res = await db.query(

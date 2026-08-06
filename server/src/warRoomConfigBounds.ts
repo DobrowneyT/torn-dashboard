@@ -1,0 +1,73 @@
+// Server-side bounds for the numeric war-room config fields (#260).
+//
+// PUT /api/war-room/config used to write whatever it was handed straight to the
+// DB. The client clamps these inputs, but a client clamp is a UX affordance, not
+// a control: a crafted request — or a future UI change that drops a `min` — could
+// set a chain poller to 0s and have the server-side poller hammer Torn on every
+// tick. These bounds are the enforcement.
+//
+// Mirrors the clamps in frontend/src/views/WarRoomViewV2.jsx. Keep the two in
+// step: the client's job is to stop a typo, this one's is to stop everything else.
+
+export interface Bounds {
+  min: number
+  max: number
+}
+
+/**
+ * Bounded numeric fields, in seconds unless the name says otherwise. Anything
+ * absent from this table (booleans, names, revive_services JSON) passes through
+ * untouched — this is a clamp table, not an allowlist. The allowlist is
+ * CONFIG_COLUMNS in warRoomSetup.ts.
+ */
+export const CONFIG_BOUNDS: Record<string, Bounds> = {
+  // The #260 floor. These are integer seconds, so 1s is the practical minimum
+  // and is comfortably above the 0.5s safety floor the UI refresh uses.
+  chain_poll_interval_ours_sec: { min: 1, max: 600 },
+  chain_poll_interval_enemy_sec: { min: 1, max: 600 },
+
+  // A dib that expires almost instantly is indistinguishable from no dibs.
+  dibs_expiry_seconds: { min: 5, max: 600 },
+
+  // PUSH-surge alerts (#208). A 0-threshold or 0-window would alert on
+  // everything and spam every subscribed member's phone.
+  surge_enemy_threshold: { min: 1, max: 100 },
+  surge_enemy_window_sec: { min: 5, max: 600 },
+  surge_our_threshold: { min: 1, max: 100 },
+  surge_our_window_sec: { min: 5, max: 600 },
+  surge_cooldown_sec: { min: 30, max: 3600 },
+
+  // 0 is a real setting (disables the age filter), so the floor must be 0.
+  tornstats_max_age_days: { min: 0, max: 365 },
+}
+
+export type ClampResult =
+  | { ok: true; value: unknown }
+  | { ok: false; error: string }
+
+/**
+ * Clamp one config field to its bounds.
+ *
+ * Out-of-range numbers are clamped (the caller asked for something unsafe; store
+ * the safe edge). Non-numeric input for a bounded field is REJECTED rather than
+ * coerced — silently storing the minimum would hide a real client bug behind a
+ * plausible-looking value.
+ */
+export function clampConfigValue(field: string, value: unknown): ClampResult {
+  const bounds = CONFIG_BOUNDS[field]
+  if (!bounds) return { ok: true, value }
+
+  // Accept a numeric string: JSON bodies built from form inputs often carry one.
+  // Reject booleans explicitly — Number(true) is 1, which would look valid.
+  // Reject an empty/whitespace string too: Number('') is 0, so a cleared input
+  // would otherwise sail through and be stored as the field's minimum.
+  let n = NaN
+  if (typeof value === 'number') n = value
+  else if (typeof value === 'string' && value.trim() !== '') n = Number(value)
+  if (!Number.isFinite(n)) {
+    return { ok: false, error: `${field} must be a number` }
+  }
+
+  // Floor before clamping so 0.9 cannot round up past a floor of 1.
+  return { ok: true, value: Math.min(bounds.max, Math.max(bounds.min, Math.floor(n))) }
+}

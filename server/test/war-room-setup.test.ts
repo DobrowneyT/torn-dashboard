@@ -81,6 +81,56 @@ describe('war-room manual setup', () => {
     expect((await call('PUT', '/api/war-room/config', { enabled: true }, 'visitor')).status).toBe(403)
   })
 
+  it('clamps cadence fields server-side, whatever the client sends (#260)', async () => {
+    // The client clamps these too, but a crafted request would otherwise set a
+    // chain poller to 0s and hammer Torn on every tick.
+    const { status, body } = await call('PUT', '/api/war-room/config', {
+      chain_poll_interval_ours_sec: 0,
+      chain_poll_interval_enemy_sec: -5,
+      dibs_expiry_seconds: 1,
+      surge_cooldown_sec: 99999,
+    })
+    expect(status).toBe(200)
+    expect(body.config).toMatchObject({
+      chain_poll_interval_ours_sec: 1,
+      chain_poll_interval_enemy_sec: 1,
+      dibs_expiry_seconds: 5,
+      surge_cooldown_sec: 3600,
+    })
+
+    // The stored row — not just the response — carries the clamped values.
+    const row = await stack.db.query(
+      `SELECT chain_poll_interval_ours_sec, chain_poll_interval_enemy_sec
+         FROM war_room_config_v2 WHERE id = 1`
+    )
+    expect(row.rows[0]).toEqual({
+      chain_poll_interval_ours_sec: 1,
+      chain_poll_interval_enemy_sec: 1,
+    })
+  })
+
+  it('saves in-range cadence values unchanged', async () => {
+    const { status, body } = await call('PUT', '/api/war-room/config', {
+      chain_poll_interval_ours_sec: 5,
+      chain_poll_interval_enemy_sec: 30,
+      dibs_expiry_seconds: 45,
+    })
+    expect(status).toBe(200)
+    expect(body.config).toMatchObject({
+      chain_poll_interval_ours_sec: 5,
+      chain_poll_interval_enemy_sec: 30,
+      dibs_expiry_seconds: 45,
+    })
+  })
+
+  it('rejects a non-numeric cadence value instead of storing a floor', async () => {
+    const { status, body } = await call('PUT', '/api/war-room/config', {
+      chain_poll_interval_ours_sec: 'fast',
+    })
+    expect(status).toBe(400)
+    expect(body.error).toMatch(/chain_poll_interval_ours_sec/)
+  })
+
   it('clear-state tombstones live rows and resets the chain', async () => {
     const { status } = await call('POST', '/api/war-room/clear-state', {})
     expect(status).toBe(200)
