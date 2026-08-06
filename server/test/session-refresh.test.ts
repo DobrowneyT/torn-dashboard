@@ -55,7 +55,20 @@ beforeAll(async () => {
   await stack.db.query(
     `INSERT INTO members (member_id, member_name, tier, is_current) VALUES
        ('1800', 'Rememberer', 2, true),
-       ('1801', 'Kicked', 2, false)`
+       ('1801', 'Kicked', 2, false),
+       ('1802', 'Paused', 2, true),
+       ('1803', 'Recruit', 2, true),
+       ('1804', 'NoKey', 2, true),
+       ('1805', 'Healthy', 2, true)`
+  )
+  // Key-pool rows for the #319 cases. cpr_api_key/consent_at are what make a
+  // row "enrolled" — the same predicate keyPool.claim() uses.
+  await stack.db.query(
+    `INSERT INTO member_secrets
+       (member_id, cpr_api_key, consent_at, has_faction_access, disabled, last_error) VALUES
+       ('1802', '\\x00'::bytea, now(), true,  true,  'Torn API error 18: API key is paused'),
+       ('1803', '\\x00'::bytea, now(), false, false, NULL),
+       ('1805', '\\x00'::bytea, now(), true,  false, NULL)`
   )
 }, 30000)
 
@@ -116,5 +129,63 @@ describe('remember-me sessions (#119)', () => {
     const expired = await forgeToken('1800', { ageSeconds: 31 * DAY, ttlSeconds: 30 * DAY })
     expect((await refresh(expired)).status).toBe(401)
     expect((await refresh()).status).toBe(401)
+  })
+})
+
+// The hourly members-sync re-verification (#309) disables a pooled key when
+// Torn reports it paused / deleted / access-denied. Until now the member stayed
+// logged in on a token minted while the key still worked; refresh is the seam
+// that ends that, and the SPA already turns a 403 here into a forced logout.
+describe('disabled key ends the session (#319)', () => {
+  it('denies refresh when the member\'s enrolled key is disabled', async () => {
+    const stale = await forgeToken('1802', { ageSeconds: 25 * 60 * 60 })
+    const res = await refresh(stale)
+    expect(res.status).toBe(403)
+    expect(res.body.token).toBeUndefined()
+    // The reason must name the KEY, not roster removal — "your faction access
+    // was removed" would send someone to their leadership over a paused key.
+    expect(res.body.error).toMatch(/key/i)
+  })
+
+  it('lets a RECRUIT keep browsing — no faction access is not a disabled key', async () => {
+    // The whole point of #309: a recruit's key is healthy, just not yet
+    // faction-scoped. They browse normally and join the pool at ~72h without
+    // re-logging in. Logging them out here would be a regression.
+    const stale = await forgeToken('1803', { ageSeconds: 25 * 60 * 60 })
+    const res = await refresh(stale)
+    expect(res.status).toBe(200)
+    expect(res.body.token).toBeTruthy()
+  })
+
+  it('leaves a member who never enrolled a key alone', async () => {
+    const stale = await forgeToken('1804', { ageSeconds: 25 * 60 * 60 })
+    expect((await refresh(stale)).status).toBe(200)
+  })
+
+  it('leaves a healthy pooled key alone', async () => {
+    const stale = await forgeToken('1805', { ageSeconds: 25 * 60 * 60 })
+    expect((await refresh(stale)).status).toBe(200)
+  })
+
+  it('re-enrolling a working key at login lets the member back in', async () => {
+    // login → keyPool.store() resets disabled/last_error, so fixing the key in
+    // Torn and logging in again is the whole recovery path.
+    const key = 'PAUSEDFIXED18020'
+    stack.torn.addKey(key, { id: '1802', factionId: TEST_FACTION.tornFactionId })
+    const login = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: key }),
+    })
+    expect(login.status).toBe(200)
+
+    const row = await stack.db.query(
+      'SELECT disabled, last_error FROM member_secrets WHERE member_id = $1', ['1802']
+    )
+    expect(row.rows[0].disabled).toBe(false)
+    expect(row.rows[0].last_error).toBeNull()
+
+    const stale = await forgeToken('1802', { ageSeconds: 25 * 60 * 60 })
+    expect((await refresh(stale)).status).toBe(200)
   })
 })

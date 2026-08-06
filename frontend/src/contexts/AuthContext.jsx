@@ -70,10 +70,14 @@ async function revalidateSession() {
   }
   const refreshed = await apiRefresh()
   if (refreshed.ok || refreshed.transient) return { ok: true }
+  // A 403 has more than one cause — roster removal, or a key the members-sync
+  // re-verification disabled (#319, e.g. paused or deleted in Torn). The server
+  // knows which and says so, and telling someone their "faction access was
+  // removed" over a paused key sends them to their leadership for nothing.
   return {
     ok: false,
     reason: refreshed.status === 403
-      ? 'Your faction access was removed. Contact your leadership if this is unexpected.'
+      ? refreshed.error || 'Your faction access was removed. Contact your leadership if this is unexpected.'
       : 'Your session expired. Please log in again.',
   }
 }
