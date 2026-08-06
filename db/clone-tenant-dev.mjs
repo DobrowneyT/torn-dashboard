@@ -9,17 +9,20 @@
 // db/migrations/*.sql. Re-runnable: each run is an explicit operator-triggered
 // refresh of the staging data.
 //
-// Runs ON THE VPS, against the same Postgres that serves production. The copy
-// includes member_secrets/faction_secrets — that is intended and safe *because
-// the data never leaves the box*; see deploy/DEV.md for the safety model.
+// Runs ON THE VPS with the production stack UP, against the same Postgres that
+// serves production. The copy includes member_secrets/faction_secrets — that is
+// intended and safe *because the data never leaves the box*; see deploy/DEV.md
+// for the safety model.
 //
-// The naming/guard logic lives in db/cloneDevLib.mjs (unit tested); this file
-// is the pg_dump/psql orchestration, mirroring db/backup.mjs + db/restore.mjs.
+// The naming/guard logic lives in db/cloneDevLib.mjs (unit tested); this file is
+// the orchestration. Note it runs pg_dump|psql INSIDE the postgres container
+// rather than on the host: the deployment has no host-side Postgres client
+// binaries, which is the same reason db/backup.mjs and db/restore.mjs are
+// documented to run inside the backup sidecar.
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn, execFileSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { parseArgs } from 'node:util'
-import { pipeline } from 'node:stream/promises'
 import dotenv from 'dotenv'
 import pg from 'pg'
 import { applyScopedGrants } from './grants.mjs'
@@ -55,8 +58,22 @@ const conn = {
   user: process.env.PGUSER ?? composeEnv.POSTGRES_USER ?? 'postgres',
   password: process.env.PGPASSWORD ?? composeEnv.POSTGRES_PASSWORD,
 }
-const pgEnv = { ...process.env, PGPASSWORD: conn.password ?? '' }
-const baseArgs = ['--host', conn.host, '--port', String(conn.port), '--username', conn.user]
+// The deployment has NO Postgres client binaries on the host — Postgres runs in
+// a container, and pg_dump/psql live in it (this is also why db/backup.mjs and
+// db/restore.mjs are documented to run inside the backup sidecar). So the
+// dump|restore is executed INSIDE the running postgres container, which has the
+// version-matched tools. Everything else uses the `pg` driver over the
+// published 127.0.0.1 port, exactly as db/migrate.mjs does.
+const repoRoot = join(here, '..')
+const COMPOSE = [
+  'compose', '-f', 'deploy/docker-compose.yml', '--project-directory', 'deploy',
+]
+// Interpolated into a shell command inside the container, so it is validated
+// here as well as at the naming boundary in cloneDevLib.
+if (!/^[A-Za-z0-9_]+$/.test(conn.user)) {
+  console.error(`Unsafe POSTGRES_USER: ${conn.user}`)
+  process.exit(1)
+}
 
 // 1. The source must exist. Cloning a typo'd slug would otherwise produce an
 // empty database that looks like a working staging instance.
@@ -68,53 +85,34 @@ try {
     console.error(`Live database ${liveDb} does not exist — nothing to clone`)
     process.exit(2)
   }
+
+  // 2. Recreate the target through the driver — no dropdb/createdb binary
+  // needed. WITH (FORCE) evicts a dev API still holding a connection, so a
+  // refresh never fails just because the staging stack is up. assertDevTarget
+  // above is what keeps this off a live tenant.
+  console.log(`==> recreating ${devDb}`)
+  await admin.query(`DROP DATABASE IF EXISTS ${devDb} WITH (FORCE)`)
+  await admin.query(`CREATE DATABASE ${devDb}`)
 } finally {
   await admin.end()
 }
 
-// 2. Recreate the target. assertDevTarget above is what keeps this off a live
-// tenant; --if-exists makes the first run and a refresh the same command.
-console.log(`==> recreating ${devDb}`)
-execFileSync('dropdb', [...baseArgs, '--if-exists', devDb], { stdio: 'inherit', env: pgEnv })
-execFileSync('createdb', [...baseArgs, devDb], { stdio: 'inherit', env: pgEnv })
-
-// 3. pg_dump the live tenant straight into the copy. --no-owner/--no-privileges
+// 3. pg_dump the live tenant straight into the copy, entirely inside the
+// container — the data never crosses the host boundary. --no-owner/--no-privileges
 // for the same reason db/backup.mjs uses them: the grants are re-applied below
 // rather than carried, so the copy works even if roles differ.
 console.log(`==> copying ${liveDb} → ${devDb}`)
-const dump = spawn(
-  'pg_dump',
-  [...baseArgs, '--no-owner', '--no-privileges', '--format=plain', liveDb],
-  { env: pgEnv }
-)
-let dumpErr = ''
-dump.stderr.on('data', (d) => { dumpErr += d })
-
-const psql = spawn(
-  'psql',
-  [...baseArgs, '--dbname', devDb, '--set', 'ON_ERROR_STOP=on', '--quiet'],
-  { env: pgEnv, stdio: ['pipe', 'inherit', 'inherit'] }
-)
-
-// Attach exit listeners before the pipeline — 'close' can fire the instant the
-// stream ends, before a later-attached listener would catch it (same race
-// db/backup.mjs and db/restore.mjs guard against).
-const dumpExited = new Promise((resolve, reject) => {
-  dump.on('close', resolve)
-  dump.on('error', reject)
-})
-const psqlExited = new Promise((resolve, reject) => {
-  psql.on('close', resolve)
-  psql.on('error', reject)
-})
-await pipeline(dump.stdout, psql.stdin)
-const [dumpCode, psqlCode] = await Promise.all([dumpExited, psqlExited])
-if (dumpCode !== 0) {
-  console.error(`pg_dump ${liveDb} exited ${dumpCode}: ${dumpErr.trim()}`)
-  process.exit(1)
-}
-if (psqlCode !== 0) {
-  console.error(`psql restore into ${devDb} exited ${psqlCode}`)
+try {
+  execFileSync(
+    'docker',
+    [...COMPOSE, 'exec', '-T', 'postgres', 'sh', '-c',
+     `set -o pipefail; pg_dump -U ${conn.user} --no-owner --no-privileges ${liveDb} ` +
+     `| psql -U ${conn.user} --set ON_ERROR_STOP=on --quiet -d ${devDb}`],
+    { stdio: 'inherit', cwd: repoRoot }
+  )
+} catch (e) {
+  console.error(`\nCopy ${liveDb} → ${devDb} failed (exit ${e.status ?? '?'}).`)
+  console.error('Is the production stack up? The staging clone runs pg_dump inside its postgres container.')
   process.exit(1)
 }
 
@@ -147,7 +145,7 @@ try {
 
 // 5. Bring the copy up to the current schema, exactly as a deploy would.
 console.log('==> migrations')
-execFileSync('node', [join(here, 'migrate.mjs'), '--db', devDb], { stdio: 'inherit', env: pgEnv })
+execFileSync('node', [join(here, 'migrate.mjs'), '--db', devDb], { stdio: 'inherit' })
 
 // 6. Smoke check, and prove the app role can actually read — a superuser check
 // would pass on a copy the dev API cannot boot against.
