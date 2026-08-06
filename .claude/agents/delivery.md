@@ -76,9 +76,12 @@ When handed a `ready-for-agent` issue, deliver it end-to-end following
    frontend/JSX or container changes, a build. Report failures honestly.
 6. **PR to `dev`** with `Closes #<issue>`, then **enable auto-merge once required
    checks pass** — UNLESS the issue carries a `hold-merge` label or asks for manual
-   staging verification first. Auto-merge ⇒ auto-deploy to staging via the cron.
+   staging verification first. Merging to `dev` reaches no live tenant; it updates
+   the staging instance (#292) when that instance is auto-following.
 7. After merge, **close the issue** (dev merges don't auto-close from a PR to `dev`)
    and prune the branch.
+8. **Stop at `dev`.** Promotion to production is a `dev → main` merge a human
+   approves; never open or merge a PR into `main`.
 
 ## Guardrails
 
