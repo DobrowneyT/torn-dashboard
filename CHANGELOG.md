@@ -17,6 +17,30 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **Staging / dev instance on the VPS (#292).** A private second instance
+  serving a full copy of a real tenant (`faction_<slug>_dev`), reachable only
+  through an SSH tunnel, so a branch can be exercised against real data — key
+  pool included — before it is promoted to `main`. `db/clone-tenant-dev.mjs`
+  clones a live tenant into its copy with every scraper disabled;
+  `deploy/dev-deploy.sh` puts any pushed branch on the staging ground and, as a
+  `--if-changed` cron, auto-follows `dev` while standing down whenever the
+  worktree is on some other branch. Runs from its own git worktree, compose
+  project, lock file and databases, so it cannot deploy over production. Setup,
+  the tunnel recipe and the live-outbound blast radius are in `deploy/DEV.md`.
+
+### Changed
+
+- **Production deploy and backups skip staging databases (#292).**
+  `deploy/update.sh` migrations and the nightly backup now exclude
+  `faction_*_dev`, so the production cron can never write to — or archive — a
+  staging copy.
+- **Deploy docs corrected (#292).** `deploy/update.sh` deploys whatever branch
+  its checkout is on, and the production checkout stays on `main` permanently;
+  merging to `dev` reaches no live tenant. `docs/agents/delivery-workflow.md`,
+  `.claude/agents/delivery.md` and `deploy/LAUNCH.md` said otherwise.
+
 ## [3.2.0] - 2026-08-05
 
 ### Added

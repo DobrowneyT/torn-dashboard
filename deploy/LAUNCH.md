@@ -598,21 +598,26 @@ The steady-state workflow once the launch phases are done.
 
 ```
 laptop: feature branch → local compose stack (real data via pull-live-db.sh)
-   → PR → CI green → merge to the deploy branch (staging: dev; production: main)
-      → Duby: update.sh (cron-run every 5 min with --if-changed)
-         → pull, migrate every faction DB, rebuild, restart, verify readiness
+   → PR → CI green → merge to `dev`            (reaches no live tenant)
+      → [optional] staging worktree on the VPS  (deploy/DEV.md, #292)
+         → `dev → main` merge, approved by a human
+            → VPS: update.sh (cron-run every 5 min with --if-changed)
+               → pull, migrate every live faction DB, rebuild, verify readiness
 ```
 
 ### 6.1 — Deploying to the server: `deploy/update.sh`
 
 One idempotent script does the whole server-side deploy:
 
-1. `git fetch` + **fast-forward-only** pull of *the branch the checkout is on*
-   (staging tracks `dev` today; at cutover you `git checkout main` once and it
-   tracks `main` — no config to edit). Refuses to invent merge commits.
+1. `git fetch` + **fast-forward-only** pull of *the branch the checkout is on*.
+   The production checkout is on `main` and **stays there permanently** — no
+   config to edit, and nothing should ever move it. Refuses to invent merge
+   commits.
 2. **Pre-deploy safety dump** of every faction DB through the backup sidecar
    (skippable with `SKIP_BACKUP=1`; failure warns, never blocks).
-3. `node db/migrate.mjs` against **every** `faction_*` database (idempotent).
+3. `node db/migrate.mjs` against every **live** `faction_*` database
+   (idempotent). Staging copies (`faction_*_dev`, #292) are excluded — the
+   staging worktree migrates those itself.
 4. `docker compose up -d --build` — compose rebuilds images and recreates only
    the containers that actually changed (the SPA rides the nginx image).
 5. **Readiness probe per tenant** (`Host: <slug>.localhost` matches the

@@ -93,11 +93,21 @@ Then delete its `api-<slug>` block from `deploy/docker-compose.override.yml`,
 its `deploy/nginx/factions/<slug>.conf`, and the `DB_PASSWORD_<SLUG>` line
 from `deploy/.env`, and rebuild nginx: `docker compose up -d --build nginx`.
 
+## Staging / dev instance (#292)
+
+A private second instance on the same box, serving a full copy of a real
+tenant (`faction_<slug>_dev`) over an SSH tunnel, so a branch can be exercised
+against real data — key pool included — before it is promoted to `main`. It
+runs from its own git worktree and compose project and cannot touch a live
+tenant database. **See [DEV.md](DEV.md)** for setup, the clone/deploy/tunnel
+loop, the branch model, and the live-outbound blast radius.
+
 ## Backups, restore, and monitoring (slice #76)
 
 ### Nightly backups
 
-The `backup` sidecar dumps **every** `faction_*` database (`pg_dump` → gzip →
+The `backup` sidecar dumps every **live** `faction_*` database — staging copies
+(`faction_*_dev`) are excluded (`pg_dump` → gzip →
 `/backups`), then once daily at `BACKUP_HOUR_UTC` (default 04:00). It's opt-in,
 like the scrapers — bring it up once:
 

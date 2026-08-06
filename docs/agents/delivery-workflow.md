@@ -5,9 +5,15 @@ follows in **implement mode**, and the checklist any contributor (human or agent
 should use when landing a change on `dev`. This is the canonical reference; the agent
 definition summarizes it.
 
-> Applies to feature work, which branches off and merges into **`dev`**.
-> `main` is **live production** (the self-hosted stack); an approved **`dev → main`**
-> merge is what promotes to production.
+> **Every change — feature *and* bug fix, no exceptions — branches off `dev`,
+> PRs into `dev`, and reaches production only via a separate, approved
+> `dev → main` merge.** Never branch off `main`, never PR into `main`, never
+> force-push `main`.
+>
+> Why it is unconditional: `deploy/update.sh` deploys **whatever branch the
+> server checkout is on**, and the production checkout is on **`main`
+> permanently**. Anything that lands on `main` is live for every tenant within
+> ~5 minutes. See [Where a merge actually goes](#where-a-merge-actually-goes).
 
 ## The loop, per issue
 
@@ -65,13 +71,34 @@ definition summarizes it.
    **Opt out** — do NOT auto-merge — when any of these hold:
    - the issue carries the **`hold-merge`** label, or
    - the issue text asks to hold / test on staging first, or
-   - the change wants a human to eyeball staging before it's live.
+   - the change wants a human to eyeball it before it can be promoted.
 
-   Auto-merge ⇒ **auto-deploy to staging** within ~5 minutes via the `dev` cron.
-   That blast radius is why the opt-out exists.
+   Merging to `dev` reaches **no live tenant**, which is what makes auto-merge
+   the safe default. It does update the staging instance (#292) within ~5
+   minutes when that instance is in auto-follow mode, so the opt-out still
+   matters when someone is mid-test on the staging ground.
 
 8. **After merge**, close the issue manually (a PR to `dev` does not auto-close it),
    and delete the merged branch.
+
+9. **Promotion to production is a separate act.** `dev` accumulates until a human
+   decides to ship: cut the release (promote `[Unreleased]` to a dated heading
+   matching `VERSION`), then open and merge a `dev → main` PR. **The delivery
+   agent never does this on its own** — delivering an issue ends at `dev`.
+
+## Where a merge actually goes
+
+| Merge | Deploys to | Who approves |
+|---|---|---|
+| feature branch → `dev` | nothing live; the staging instance if it is auto-following (#292) | auto-merge on green |
+| `dev` → `main` | **production — every tenant, within ~5 minutes** | a human, deliberately |
+
+`deploy/update.sh` on the VPS runs `--if-changed` every 5 minutes and deploys
+**the branch its checkout is on**. That checkout is on `main` and **stays on
+`main` in perpetuity** — it is the deploy model, not a migration leftover.
+Staging is a *separate git worktree* with its own script, compose project, lock
+file and `faction_*_dev` databases (`deploy/dev-deploy.sh`, see
+`deploy/DEV.md`); the two cannot deploy over each other.
 
 ## Required checks
 
@@ -100,6 +127,9 @@ not fire on docs-only / non-source PRs at all.
 ## The `hold-merge` label
 
 `hold-merge` is the documented opt-out from auto-merge-on-green. Apply it to an issue
-(or PR) whose change must be verified on staging, or released deliberately, before it
-reaches the live path. Absent the label (and absent an explicit hold in the issue),
-the default is auto-merge once CI is green.
+(or PR) that a human should read before it even lands on `dev` — risky infrastructure,
+deploy tooling, anything whose review matters more than its speed. Absent the label
+(and absent an explicit hold in the issue), the default is auto-merge once CI is green.
+
+It is not the control that keeps a change off production — the `dev → main` gate
+already does that, unconditionally, for every change.
