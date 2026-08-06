@@ -304,13 +304,43 @@ export async function refreshSession(
   if (!claims) return { ok: false, status: 401, error: 'Session expired — please log in again' }
 
   const userId = claims.torn_user_id
-  const [config, roles, roster] = await Promise.all([
+  const [config, roles, roster, key] = await Promise.all([
     factionIdentity(deps.db),
     fetchRoles(deps.db, userId),
     deps.db.query('SELECT 1 FROM members WHERE member_id = $1 AND is_current', [userId]),
+    // Enrolled-and-disabled only. "Enrolled" mirrors keyPool.claim()'s
+    // predicate; a member who never consented has no row and is unaffected.
+    deps.db.query(
+      `SELECT last_error FROM member_secrets
+        WHERE member_id = $1 AND disabled
+          AND consent_at IS NOT NULL AND cpr_api_key IS NOT NULL`,
+      [userId]
+    ),
   ])
   if (roster.rows.length === 0 && roles.length === 0) {
-    return { ok: false, status: 403, error: 'No longer a faction member' }
+    return {
+      ok: false,
+      status: 403,
+      error: 'Your faction access was removed. Contact your leadership if this is unexpected.',
+    }
+  }
+
+  // The hourly members-sync re-verification (#309) disables a key when Torn
+  // reports it paused, deleted, or access-denied. Without this the member keeps
+  // browsing on a token minted while the key still worked.
+  //
+  // Only `disabled` ends a session. A RECRUIT's key is healthy — it just has
+  // has_faction_access = false until Torn promotes them at ~72h — so recruits
+  // keep browsing and join the pool with no re-login. Do not conflate the two.
+  if (key.rows.length > 0) {
+    return {
+      ok: false,
+      status: 403,
+      error: key.rows[0].last_error
+        ? `Your Torn API key is no longer usable (${key.rows[0].last_error}). ` +
+          'Fix it in Torn, then log in again.'
+        : 'Your Torn API key is no longer usable. Check it in Torn, then log in again.',
+    }
   }
 
   const { token: fresh, expiresAt } = await mintSessionToken(deps.jwtSecret, {
