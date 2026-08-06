@@ -4,7 +4,8 @@
  * All writes and Torn-proxying reads go through the faction API on this origin
  * (/api/war-room/*), authorized by the caller's session token. The Torn key
  * pool and leadership checks stay server-side. The one exception is the Nuke
- * revive preset, which POSTs directly from the browser (see requestRevive).
+ * revive preset, which POSTs directly from the browser to keep the user's
+ * residential IP — see requestRevive for why that matters.
  */
 import { getApiSession } from './apiClient'
 
@@ -89,25 +90,37 @@ export async function releaseDibsV2(targetId) {
   return warRoomApi('DELETE', `/api/war-room/dibs/${targetId}`)
 }
 
-// Revive request. The Nuke preset is gated on source IP fingerprint — the
-// userscript posts from the user's residential IP, but identical payloads from
-// a datacenter IP are silently shadow-filtered. To match the userscript's
-// fingerprint we POST directly from the browser. Nuke's response carries
-// `access-control-allow-origin: *` and the form-urlencoded content-type is a
-// "simple" CORS request (no preflight), so this needs no server cooperation.
+// Revive request. Transport is chosen by preset, deliberately (#308):
 //
-// Non-nuke ("json") presets used to proxy through the Supabase edge function,
-// which no longer exists — they need a server-side /api/war-room/revive
-// endpoint that hasn't been built yet, so they degrade to a clear message.
-export async function requestRevive({ url, userID, userName, source, preset, country }) {
+//   'json' (UHC/WTF) → POST /api/war-room/revive, proxied server-to-server.
+//     The browser cannot POST cross-origin to these services (CORS), so the
+//     server forwards it. Identity (userID/userName) is derived from the
+//     session server-side and is NOT sent from here.
+//
+//   'nuke' → direct from the browser. Nuke is gated on source-IP fingerprint:
+//     the userscript posts from the user's residential IP, and identical
+//     payloads from a datacenter IP are silently shadow-filtered (200, but
+//     no reviver ever sees it). The VPS is a datacenter IP, so routing Nuke
+//     through the server would look successful while doing nothing. Nuke's
+//     response carries `access-control-allow-origin: *` and form-urlencoded
+//     is a "simple" CORS request (no preflight), so this needs no server help.
+//
+// The server implements the Nuke payload shape too — switching Nuke over is a
+// one-line change here, once a real Nuke request routed through the VPS is
+// confirmed to reach a reviver (the manual gate on #308).
+export async function requestRevive({ url, factionName, source, sourceKey, preset, country, userID, userName }) {
   if (preset === 'nuke') {
     return requestReviveNukeDirect({ url, userID, userName, country, source })
   }
-  return {
-    ok: false,
-    status: 0,
-    body: { reason: 'JSON revive presets need a self-hosted revive endpoint (not built yet). Use a Nuke-preset service.' },
-    url,
+  try {
+    return await warRoomApi('POST', '/api/war-room/revive', {
+      url, factionName, source, sourceKey, preset: preset || 'json',
+    })
+  } catch (e) {
+    // warRoomApi throws on a non-2xx from OUR server (bad url, unreachable
+    // service). Flatten to the same result shape the UI already renders, so a
+    // proxy failure and a service refusal look alike to the call site.
+    return { ok: false, status: e.status ?? 0, body: { reason: e.payload?.error ?? e.message }, url }
   }
 }
 

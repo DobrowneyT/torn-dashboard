@@ -19,6 +19,17 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **Server-side revive-request proxy (#308).** `POST /api/war-room/revive`
+  forwards a revive request to the service from the VPS, restoring the
+  JSON-preset services (UHC/WTF) that broke when the Supabase edge function was
+  retired — they showed a "needs a self-hosted revive endpoint" message. The
+  per-service `sourceKey` (UHC `source`, WTF `requestChannel`) is honoured, and
+  the requester's identity is derived from the session rather than the request
+  body. The Nuke preset **stays direct-from-browser** for now: Nuke
+  shadow-filters datacenter IPs, so proxying it through the VPS would answer
+  200 while no reviver ever saw it. The server implements the Nuke payload
+  shape too, so switching it over is a one-line change once a real request
+  through the VPS is confirmed to land.
 - **Staging / dev instance on the VPS (#292).** A private second instance
   serving a full copy of a real tenant (`faction_<slug>_dev`), reachable only
   through an SSH tunnel, so a branch can be exercised against real data — key

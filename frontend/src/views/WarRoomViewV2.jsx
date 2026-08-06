@@ -580,14 +580,14 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, service
       source: serviceSource || serviceName || 'War Room',
       sourceKey: serviceSourceKey || 'source',
       // Selects the payload shape + transport on the requestRevive side:
-      //   'json' (UHC/WTF) → Edge Function JSON POST
+      //   'json' (UHC/WTF) → POST /api/war-room/revive (server-to-server)
       //   'nuke'           → direct browser form POST (matches userscript's
       //                      residential-IP fingerprint to avoid Nuke's
       //                      datacenter-IP shadow-filter)
       preset: servicePreset || 'json',
       // Required by the Nuke direct-POST path — resolved by the parent from
-      // our own war_room_state row. Ignored by the json path (Edge Function
-      // resolves country server-side).
+      // our own war_room_state row. Ignored by the json path (the server
+      // resolves country from its own state table).
       country: userCountry || 'Torn',
     }
     try {
