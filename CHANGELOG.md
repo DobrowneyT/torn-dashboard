@@ -17,6 +17,8 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.5.1] - 2026-08-06
+
 ### Fixed
 
 - **War Room poll cadences are clamped server-side (#260).** `PUT
