@@ -17,6 +17,8 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-08-06
+
 ### Added
 
 - **Server-side revive-request proxy (#308).** `POST /api/war-room/revive`
