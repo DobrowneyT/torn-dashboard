@@ -72,10 +72,22 @@ if [ ! -e deploy/.env ]; then
   exit 1
 fi
 
+# Read KEY from an env file, tolerating both a missing file and a missing key.
+#
+# `grep … | cut` is the obvious way to do this and is a trap here: under
+# `set -e` with `pipefail`, a grep that matches nothing (or names a file that
+# does not exist) makes the whole pipeline non-zero, and the script dies
+# mid-assignment with NO message at all. sed always exits 0, so a miss is an
+# empty string and the explicit checks below get to report it properly.
+env_value() {  # env_value <file> <KEY>
+  [ -f "$1" ] || return 0
+  sed -n "s/^$2=//p" "$1" | tail -1
+}
+
 # Which tenant is on the staging ground. Sticky across runs (the cron has no
 # argument to pass), so it is set once via the environment and then persisted.
-if [ -z "${DEV_SLUG:-}" ] && [ -f deploy/.env.dev ]; then
-  DEV_SLUG="$(grep -s '^DEV_SLUG=' deploy/.env.dev | cut -d= -f2-)"
+if [ -z "${DEV_SLUG:-}" ]; then
+  DEV_SLUG="$(env_value deploy/.env.dev DEV_SLUG)"
 fi
 if [ -z "${DEV_SLUG:-}" ]; then
   echo "DEV_SLUG is not set and deploy/.env.dev does not carry one." >&2
@@ -85,15 +97,23 @@ fi
 
 DEV_DB="faction_${DEV_SLUG}_dev"
 DB_PASSWORD_VAR="DB_PASSWORD_$(echo "$DEV_SLUG" | tr '[:lower:]' '[:upper:]')"
-DB_PASSWORD="$(grep -s "^${DB_PASSWORD_VAR}=" deploy/.env | cut -d= -f2-)"
+DB_PASSWORD="$(env_value deploy/.env "$DB_PASSWORD_VAR")"
 if [ -z "$DB_PASSWORD" ]; then
   echo "$DB_PASSWORD_VAR missing from deploy/.env — is $DEV_SLUG a provisioned tenant?" >&2
   exit 1
 fi
 
-POSTGRES_USER="$(grep -s '^POSTGRES_USER=' deploy/.env | cut -d= -f2-)"
-DEV_HTTP_PORT="${DEV_HTTP_PORT:-$(grep -s '^DEV_HTTP_PORT=' deploy/.env.dev 2>/dev/null | cut -d= -f2-)}"
+POSTGRES_USER="$(env_value deploy/.env POSTGRES_USER)"
+DEV_HTTP_PORT="${DEV_HTTP_PORT:-$(env_value deploy/.env.dev DEV_HTTP_PORT)}"
 DEV_HTTP_PORT="${DEV_HTTP_PORT:-8090}"
+
+# Host-side CLI deps for db/migrate.mjs (and db/clone-tenant-dev.mjs, which the
+# operator runs by hand before the first deploy). A fresh worktree has no
+# node_modules of its own, so this has to happen before anything calls node.
+if [ ! -d node_modules/dotenv ]; then
+  echo "==> installing host CLI deps"
+  npm ci --omit=dev --workspace @tnl/db --silent 2>/dev/null || npm ci --omit=dev --workspace @tnl/db
+fi
 
 COMPOSE=(docker compose -f deploy/docker-compose.dev.yml --project-directory deploy)
 
@@ -132,6 +152,8 @@ set -a
 . deploy/.env.dev
 set +a
 
+# Refresh the host CLI deps on every deploy — the branch we just checked out may
+# carry a different lockfile than the one installed above.
 npm ci --omit=dev --workspace @tnl/db --silent 2>/dev/null || npm ci --omit=dev --workspace @tnl/db
 
 # Migrations, staging copies ONLY. The `_dev` filter is the mirror image of the

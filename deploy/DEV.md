@@ -91,6 +91,12 @@ git worktree add -B dev ~/torn/dashboard-dev origin/dev
 # Symlink (don't copy) so a credential rotation propagates to staging.
 ln -s ~/torn/torn-dashboard/deploy/.env ~/torn/dashboard-dev/deploy/.env
 
+# A worktree gets its own working tree but NOT the production checkout's
+# node_modules. db/clone-tenant-dev.mjs needs dotenv + pg, so install before
+# running it. (dev-deploy.sh does this too — this is for the clone that
+# precedes the first deploy.)
+cd ~/torn/dashboard-dev && npm ci --omit=dev --workspace @tnl/db
+
 # Auto-follow `dev`. Silent unless the branch is `dev` AND origin moved.
 crontab -e
 */5 * * * * cd $HOME/torn/dashboard-dev && ./deploy/dev-deploy.sh --if-changed >> $HOME/torn/dev-deploy.log 2>&1
@@ -201,6 +207,10 @@ git reset --hard origin/dev
 
 A giveaway is legacy directories that #135 deleted (`supabase/`, `data/`, `export/`,
 `scripts/`, `requirements.txt`) still being present.
+
+**`Cannot find package 'dotenv'`** — the worktree has no `node_modules` yet. A git
+worktree does not share the production checkout's. Run
+`npm ci --omit=dev --workspace @tnl/db` in the worktree, then retry the clone.
 
 **`DEV_SLUG is not set`** — first run only. `DEV_SLUG=forge ./deploy/dev-deploy.sh dev`.
 
