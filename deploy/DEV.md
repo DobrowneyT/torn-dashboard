@@ -79,7 +79,13 @@ sibling directory so neither checkout can move the other.
 
 ```bash
 cd ~/torn/torn-dashboard
-git worktree add ~/torn/dashboard-dev dev
+
+# FETCH FIRST. deploy/update.sh only ever runs `git fetch origin main`, so this
+# box has likely NEVER fetched dev — its local `dev` ref is frozen at whenever
+# the repo was cloned, often dozens of commits stale. `-B dev origin/dev` forces
+# the worktree onto the real remote branch instead of that stale local ref.
+git fetch origin
+git worktree add -B dev ~/torn/dashboard-dev origin/dev
 
 # deploy/.env is gitignored and lives only in the production checkout.
 # Symlink (don't copy) so a credential rotation propagates to staging.
@@ -182,6 +188,19 @@ database, enable that job in staging, let it run, and re-check the live count.
 ---
 
 ## Troubleshooting
+
+**`Cannot find module .../db/clone-tenant-dev.mjs`, or `./deploy/dev-deploy.sh: No such file
+or directory`** — the worktree is on a **stale `dev`** (see the fetch note in Setup). Confirm
+with `git log --oneline -1`, then:
+
+```bash
+cd ~/torn/dashboard-dev
+git fetch origin
+git reset --hard origin/dev
+```
+
+A giveaway is legacy directories that #135 deleted (`supabase/`, `data/`, `export/`,
+`scripts/`, `requirements.txt`) still being present.
 
 **`DEV_SLUG is not set`** — first run only. `DEV_SLUG=forge ./deploy/dev-deploy.sh dev`.
 
