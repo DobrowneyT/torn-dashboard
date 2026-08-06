@@ -212,6 +212,16 @@ A giveaway is legacy directories that #135 deleted (`supabase/`, `data/`, `expor
 worktree does not share the production checkout's. Run
 `npm ci --omit=dev --workspace @tnl/db` in the worktree, then retry the clone.
 
+**`spawnSync dropdb ENOENT`** (or `pg_dump` / `psql` ENOENT) — you are on a build
+that expected Postgres client binaries on the host. There are none: Postgres runs
+in a container. Update the worktree (`git fetch origin && git reset --hard origin/dev`);
+the clone now runs `pg_dump | psql` inside the postgres container and does the
+drop/create through the `pg` driver.
+
+**`Copy … failed` / `service "postgres" is not running`** — the clone dumps from
+inside the production stack's postgres container, so that stack has to be up.
+Check with `docker compose -p tnl-dashboard ps`.
+
 **`DEV_SLUG is not set`** — first run only. `DEV_SLUG=forge ./deploy/dev-deploy.sh dev`.
 
 **`faction_<slug>_dev does not exist`** — clone it first (step 1).
