@@ -17,6 +17,18 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Changed
+
+- **A disabled API key now ends the member's session (#319).** When the hourly
+  members-sync re-verification (#309) disables a pooled key — paused, deleted,
+  access denied, or resolving to a different account — the member is logged out
+  at their next session refresh (next page load, or within 4h in an open tab)
+  and told which key problem caused it, rather than the generic "faction access
+  was removed". **Recruits are unaffected:** a recruit's key is healthy, just
+  not yet faction-scoped, so they keep browsing and join the pool at ~72h with
+  no re-login. Members who never enrolled a key are unaffected too. Fixing the
+  key in Torn and logging in again restores access.
+
 ## [3.4.0] - 2026-08-06
 
 ### Added
