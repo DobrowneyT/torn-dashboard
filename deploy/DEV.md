@@ -50,6 +50,14 @@ Three things reach the outside world. Read this before you go clicking.
 | **Torn API** | Login and any scraper you enable make real calls with the copied key pool, spending real key quota. Responses are written **only to the copy**. | Scrapers **off** in every fresh clone |
 | **Web Push** | If VAPID keys are set, a dev notification is delivered to **real members' real browsers**. They cannot tell it came from staging. | **Off** — `DEV_VAPID_*` unset |
 | **In-app feedback** | If a GitHub token is set, submitting feedback opens a **real issue** in the real repo. | **Off** — `DEV_FEEDBACK_*` unset |
+| **Revive requests** (#308) | Clicking revive POSTs to the **real** service (UHC/WTF/Nuke) and summons **real revivers** to a real player. There is no test mode and no toggle — the service is whatever URL the copied config holds. | **On** — always live |
+
+**Revive is the one live path with no off switch.** Testing it end-to-end necessarily
+reaches a third-party service and real people, so keep it to a single request on
+yourself, and don't leave a war-room tab clicking it. To exercise the plumbing
+without summoning anyone, point the tenant's revive service URL at a throwaway
+endpoint (any URL that accepts a POST) in the **copy's** Manage Services — the
+copy's config is disposable, and the change never reaches the live tenant.
 
 Push and feedback stay off unless you opt in for a single deploy:
 
