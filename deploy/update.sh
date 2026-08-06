@@ -5,11 +5,18 @@
 #   ./deploy/update.sh --if-changed   # exit quietly unless origin moved (cron)
 #   SKIP_BACKUP=1 ./deploy/update.sh  # skip the pre-deploy safety dump
 #
-# Deploys whatever branch this checkout is ON (staging tracks dev; after
-# cutover the server checkout moves to main once and this keeps tracking it).
+# Deploys whatever branch this checkout is ON. The production checkout is on
+# `main` and STAYS on `main` permanently — that is the deploy model, not a
+# transitional state. Moving it would silently publish unreleased work to every
+# live tenant. Promotion to production is a `dev` → `main` merge, which this
+# cron then picks up.
 # Auto-deploy = a cron line running --if-changed every 5 minutes; see
 # deploy/LAUNCH.md Phase 6. Chosen over a GitHub-Actions push deploy so no
 # CI system holds SSH credentials to a shared box.
+#
+# The staging instance (#292) is a SEPARATE worktree with its own script
+# (deploy/dev-deploy.sh), compose project, lock and databases. Nothing here
+# touches it.
 #
 # Operator state is never touched: deploy/.env, docker-compose.override.yml
 # and nginx/factions/*.conf are gitignored, so `git pull` cannot clobber them.
@@ -52,11 +59,16 @@ if [ "${SKIP_BACKUP:-0}" != "1" ]; then
     || echo "[warn] pre-deploy backup failed — continuing"
 fi
 
-# Idempotent migrations against every faction DB.
+# Idempotent migrations against every LIVE faction DB. `faction_%_dev` copies
+# belong to the staging instance (#292) and are excluded: production's cron must
+# never write to a staging database, and deploy/dev-deploy.sh migrates them on
+# its own schedule from whatever branch staging is testing.
 echo "==> migrations"
 POSTGRES_USER="$(grep -s '^POSTGRES_USER=' deploy/.env | cut -d= -f2-)"
 DBS="$("${COMPOSE[@]}" exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -tAc \
-  "SELECT datname FROM pg_database WHERE datname LIKE 'faction_%' ORDER BY datname")"
+  "SELECT datname FROM pg_database
+     WHERE datname LIKE 'faction\_%' AND datname NOT LIKE '%\_dev'
+     ORDER BY datname")"
 for db in $DBS; do
   node db/migrate.mjs --db "$db"
 done

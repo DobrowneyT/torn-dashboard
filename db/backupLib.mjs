@@ -3,11 +3,16 @@
 // pg_dump / psql / rclone orchestration that uses them lives in db/backup.mjs
 // and db/restore.mjs and is proven by the compose E2E.
 
-/** Every application database is `faction_<slug>`; map pg_database rows to those. */
+/**
+ * Every live application database is `faction_<slug>`; map pg_database rows to
+ * those. Staging copies (`faction_<slug>_dev`, #292) are deliberately excluded:
+ * this drives the nightly backup and deploy/update.sh's migrate loop, and the
+ * prod cron must never write to — or waste an archive on — a dev database.
+ */
 export function factionDbsFromRows(rows) {
   return rows
     .map((r) => r.datname)
-    .filter((name) => name.startsWith('faction_'))
+    .filter((name) => name.startsWith('faction_') && !name.endsWith('_dev'))
     .map((db) => ({ db, slug: db.slice('faction_'.length) }))
 }
 

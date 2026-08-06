@@ -12,6 +12,12 @@ import type pg from 'pg'
 import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
 import { rolesFromClaims } from './auth.js'
 import { DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
+import {
+  buildJsonPayload,
+  buildNukeFields,
+  checkReviveTarget,
+  resolveCountryFromDescription,
+} from './warRoomRevive.js'
 import type { WarRoomHub } from './warRoom.js'
 
 export interface WarRoomWriteDeps {
@@ -394,4 +400,80 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
       return { ok: true, notes: res.rows[0]?.notes ?? '', updated_at: res.rows[0]?.updated_at ?? null }
     }
   )
+
+  // ── Revive request proxy (#308) ─────────────────────────────────────────
+  // Browsers cannot POST cross-origin to services like tornuhc.eu, so the
+  // server forwards the call (server-to-server, no CORS). Replaces the retired
+  // Supabase `war-room-fetch` `revive_request` action.
+  //
+  // NOTE (Nuke): Nuke appears to shadow-filter datacenter IPs — it answers 200
+  // while the request never reaches the reviver pool. The VPS is a datacenter
+  // IP, so the frontend still sends the Nuke preset DIRECT from the browser
+  // (residential IP) and only routes JSON presets here. This endpoint
+  // implements the Nuke shape anyway, so flipping the frontend over is a
+  // one-line change once a real Nuke request through the VPS is confirmed to
+  // land. See #308.
+  app.post('/api/war-room/revive', { preHandler: requireNotVisitor() }, async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+
+    const target = checkReviveTarget(body.url)
+    if (!target.ok) return reply.status(400).send({ error: target.error })
+    const url = target.url!.toString()
+
+    // Identity comes from the session, never the request body: a revive
+    // request is always for yourself, and trusting a client-supplied id would
+    // let anyone spam the reviver pool under someone else's name.
+    const userID = Number(req.session!.torn_user_id)
+    const identity = {
+      userID,
+      userName: await actorName(req.session!.torn_user_id),
+      factionName: typeof body.factionName === 'string' ? body.factionName : '',
+    }
+    const source = typeof body.source === 'string' ? body.source : undefined
+    const preset = String(body.preset ?? 'json').toLowerCase()
+
+    let headers: Record<string, string>
+    let outBody: string
+    let sentPayload: Record<string, unknown>
+
+    if (preset === 'nuke') {
+      // The server owns war-room state, so it resolves the country itself
+      // rather than trusting whatever the client believed. A tombstoned row is
+      // "not in state" and falls back to Torn.
+      const state = await db.query(
+        `SELECT state->'status'->>'description' AS description
+           FROM war_room_state_v2 WHERE member_id = $1 AND deleted_at IS NULL`,
+        [userID]
+      )
+      const country = resolveCountryFromDescription(state.rows[0]?.description)
+      sentPayload = buildNukeFields(identity, { source, country })
+      headers = { 'content-type': 'application/x-www-form-urlencoded' }
+      outBody = new URLSearchParams(sentPayload as Record<string, string>).toString()
+    } else {
+      sentPayload = buildJsonPayload(identity, {
+        source,
+        sourceKey: typeof body.sourceKey === 'string' ? body.sourceKey : undefined,
+      })
+      headers = { 'content-type': 'application/json' }
+      outBody = JSON.stringify(sentPayload)
+    }
+
+    try {
+      // The service is a third party that can hang; without a deadline a stuck
+      // connection would pin a request handler until the client gives up.
+      const resp = await fetch(url, {
+        method: 'POST', headers, body: outBody,
+        signal: AbortSignal.timeout(15_000),
+      })
+      const text = await resp.text()
+      let parsed: unknown
+      try { parsed = JSON.parse(text) } catch { parsed = { raw: text } }
+      // A non-2xx from the SERVICE is a successful proxy of a refusal, not a
+      // proxy failure — the UI renders ok:false and shows the reason.
+      return { ok: resp.ok, status: resp.status, body: parsed, sentPayload, url }
+    } catch (e) {
+      req.log.error({ err: e, url, preset }, 'revive request failed')
+      return reply.status(502).send({ error: `Revive request failed: ${(e as Error).message}` })
+    }
+  })
 }

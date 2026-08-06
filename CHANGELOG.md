@@ -17,6 +17,43 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-08-06
+
+### Added
+
+- **Server-side revive-request proxy (#308).** `POST /api/war-room/revive`
+  forwards a revive request to the service from the VPS, restoring the
+  JSON-preset services (UHC/WTF) that broke when the Supabase edge function was
+  retired — they showed a "needs a self-hosted revive endpoint" message. The
+  per-service `sourceKey` (UHC `source`, WTF `requestChannel`) is honoured, and
+  the requester's identity is derived from the session rather than the request
+  body. The Nuke preset **stays direct-from-browser** for now: Nuke
+  shadow-filters datacenter IPs, so proxying it through the VPS would answer
+  200 while no reviver ever saw it. The server implements the Nuke payload
+  shape too, so switching it over is a one-line change once a real request
+  through the VPS is confirmed to land.
+- **Staging / dev instance on the VPS (#292).** A private second instance
+  serving a full copy of a real tenant (`faction_<slug>_dev`), reachable only
+  through an SSH tunnel, so a branch can be exercised against real data — key
+  pool included — before it is promoted to `main`. `db/clone-tenant-dev.mjs`
+  clones a live tenant into its copy with every scraper disabled;
+  `deploy/dev-deploy.sh` puts any pushed branch on the staging ground and, as a
+  `--if-changed` cron, auto-follows `dev` while standing down whenever the
+  worktree is on some other branch. Runs from its own git worktree, compose
+  project, lock file and databases, so it cannot deploy over production. Setup,
+  the tunnel recipe and the live-outbound blast radius are in `deploy/DEV.md`.
+
+### Changed
+
+- **Production deploy and backups skip staging databases (#292).**
+  `deploy/update.sh` migrations and the nightly backup now exclude
+  `faction_*_dev`, so the production cron can never write to — or archive — a
+  staging copy.
+- **Deploy docs corrected (#292).** `deploy/update.sh` deploys whatever branch
+  its checkout is on, and the production checkout stays on `main` permanently;
+  merging to `dev` reaches no live tenant. `docs/agents/delivery-workflow.md`,
+  `.claude/agents/delivery.md` and `deploy/LAUNCH.md` said otherwise.
+
 ## [3.2.0] - 2026-08-05
 
 ### Added

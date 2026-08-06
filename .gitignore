@@ -62,5 +62,8 @@ dist/
 # Per-deployment artifacts written by db/new-faction.mjs (slice #75)
 deploy/docker-compose.override.yml
 deploy/nginx/factions/*.conf
+# Staging instance config written by deploy/dev-deploy.sh (#292) — carries the
+# tenant DB credential, and is regenerated on every staging deploy.
+deploy/.env.dev
 # Local backup archives written by db/backup.mjs (slice #76)
 deploy/backups/
