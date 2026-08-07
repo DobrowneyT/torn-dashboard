@@ -128,7 +128,7 @@ function BspCell({ member: m }) {
   ].filter(([, v]) => v !== null && v !== undefined)
 
   return (
-    <span className="relative group inline-block">
+    <span className="group inline-block">
       <span className="font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold cursor-help underline decoration-dotted decoration-gray-400 dark:decoration-slate-600 underline-offset-2">
         {formatStats(m.bsp_total)}
       </span>
