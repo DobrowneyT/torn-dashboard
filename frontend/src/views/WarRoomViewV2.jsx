@@ -127,8 +127,13 @@ function BspCell({ member: m }) {
     ['DEX', m.bsp_dex],
   ].filter(([, v]) => v !== null && v !== undefined)
 
+  // `relative` is required: the breakdown below is `absolute right-0 top-full`,
+  // and without a positioned ancestor it anchors to whatever is positioned
+  // further up and lands nowhere near its cell. It is not what made the number
+  // overlap the header (#331) — that was the sticky <th> having no z-index,
+  // which let every positioned row element paint over it.
   return (
-    <span className="group inline-block">
+    <span className="relative group inline-block">
       <span className="font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold cursor-help underline decoration-dotted decoration-gray-400 dark:decoration-slate-600 underline-offset-2">
         {formatStats(m.bsp_total)}
       </span>
@@ -773,12 +778,19 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSourc
 // poll (every 1-3s) produced a new component type and unmounted/remounted every
 // <th> — causing visible flashing and dropped mouse clicks on the headers.
 
+// A sticky <th> is a POSITIONED element, so it paints in the positioned layer —
+// but with `z-index: auto` that layer is ordered by DOM position, and <tbody>
+// comes after <thead>. Every positioned thing in a row (the note button's
+// `relative` wrapper, the stat cell, the tooltips) therefore painted straight
+// over the header as it scrolled underneath (#331). z-20 lifts the header above
+// row content while staying below the z-30/z-40 popovers, which open downward
+// and are meant to cover it.
 function SortTh({ col, sortCol, sortDir, onSort, children, className = '' }) {
   const active = sortCol === col
   return (
     <th
       onClick={() => onSort(col)}
-      className={`py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap ${className}`}
+      className={`py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap ${className}`}
     >
       <span className="flex items-center gap-1">
         {children}
@@ -2445,9 +2457,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     <SortTh col="status"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
                     <SortTh col="timer"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
                     <SortTh col="stats"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
-                    <th className="py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Flags</th>
-                    <th className="py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
-                    <th className="py-2.5 px-3 sticky top-0 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Action</th>
+                    <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Flags</th>
+                    <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
+                    <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody>

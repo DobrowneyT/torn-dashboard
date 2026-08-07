@@ -17,6 +17,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+
+- **War Room sticky header no longer has row content painted over it (#331).**
+  The sticky `<th>` cells carried no `z-index`, and a sticky element with
+  `z-index: auto` paints in DOM order — so every positioned element in a row
+  (the stat cell, the member-note button, the tooltips) drew straight over the
+  header as it scrolled underneath. The headers are now `z-20`, above row
+  content but below the `z-30`/`z-40` popovers that are meant to cover them.
+
 ## [3.5.1] - 2026-08-06
 
 ### Fixed
