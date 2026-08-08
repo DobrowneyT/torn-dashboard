@@ -4,6 +4,7 @@ import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   isRosterSide, selectRosterMembers, rosterColumns, rosterColumnCount,
   isStatsFilterAvailable, otherSide, canViewOurRoster, effectiveRosterSide, pollingState,
+  effectiveSortCol,
 } from '../warRoomRosterSide'
 
 const members = [{ member_id: 1, member_name: 'Enemy' }]
@@ -160,5 +161,40 @@ describe('pollingState (#345)', () => {
     expect(pollingState({ enabled: true })).toMatchObject({ state: 'live', rosterPolling: true })
     expect(pollingState({ enabled: true, rosterIntervalMs: null }))
       .toMatchObject({ state: 'live', rosterPolling: true })
+  })
+})
+
+describe('effectiveSortCol (#351)', () => {
+  it('keeps a shared column on either side', () => {
+    for (const col of ['name', 'activity', 'status', 'timer', 'stats', 'farm']) {
+      expect(effectiveSortCol(col, US)).toBe(col)
+      expect(effectiveSortCol(col, THEM)).toBe(col)
+    }
+  })
+
+  it('keeps the our-roster stat columns while we are on our roster', () => {
+    for (const col of ['energy', 'cooldown_drug', 'cooldown_medical', 'cooldown_booster']) {
+      expect(effectiveSortCol(col, US)).toBe(col)
+    }
+  })
+
+  it('falls back when the sort column does not exist on this side', () => {
+    // sortCol is persisted across reloads, so someone who sorts by energy,
+    // toggles back to the enemy and reloads would otherwise land on a sort
+    // over a column that isn't rendered — every row compares equal and the
+    // header arrow points at nothing.
+    expect(effectiveSortCol('energy', THEM)).toBe('timer')
+    expect(effectiveSortCol('cooldown_drug', THEM)).toBe('timer')
+  })
+
+  it('falls back for a war lead who lost the role mid-session', () => {
+    // effectiveRosterSide already forces them back to THEM; this makes sure
+    // the sort follows rather than stranding the table on a dead comparator.
+    const side = effectiveRosterSide(US, { isWarLead: false })
+    expect(effectiveSortCol('energy', side)).toBe('timer')
+  })
+
+  it('ignores an unrecognised sort column rather than rewriting it', () => {
+    expect(effectiveSortCol('mystery', THEM)).toBe('mystery')
   })
 })

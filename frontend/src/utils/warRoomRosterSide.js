@@ -72,6 +72,28 @@ export function rosterColumns(side) {
   }
 }
 
+/**
+ * Sort columns that exist only on our own roster (#351).
+ *
+ * Energy and the cooldowns are sortable, but they are also the columns that
+ * disappear on the enemy side — and `sortCol` is persisted across reloads. A
+ * lead who sorts by energy, toggles back to the opponent and reloads would
+ * otherwise be left sorting a column that isn't rendered: every row compares
+ * equal, the order looks arbitrary, and no header carries the arrow.
+ */
+const OUR_ROSTER_SORT_COLS = new Set([
+  'energy', 'cooldown_drug', 'cooldown_medical', 'cooldown_booster',
+])
+
+/** Default to fall back to when the chosen sort column isn't on this side. */
+export const DEFAULT_SORT_COL = 'timer'
+
+/** The sort column actually in effect for a side. */
+export function effectiveSortCol(sortCol, side, fallback = DEFAULT_SORT_COL) {
+  if (side !== US && OUR_ROSTER_SORT_COLS.has(sortCol)) return fallback
+  return sortCol
+}
+
 /** Fixed columns every side shows: name, activity, status, timer, stats, flags. */
 const BASE_COLUMN_COUNT = 6
 

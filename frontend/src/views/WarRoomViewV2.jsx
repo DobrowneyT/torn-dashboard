@@ -30,11 +30,11 @@ import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberN
 import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   selectRosterMembers, rosterColumns, rosterColumnCount, isStatsFilterAvailable,
-  canViewOurRoster, effectiveRosterSide, pollingState,
+  canViewOurRoster, effectiveRosterSide, pollingState, effectiveSortCol,
 } from '../utils/warRoomRosterSide'
 import {
-  formatEnergy, energyTone, formatCooldown, remainingCooldown,
-  overdosedByDrugCooldown, statsAgeSeconds, hasStatsError,
+  formatEnergy, energyHue, energyBand, formatCooldown, remainingCooldown,
+  overdosedByDrugCooldown, statsAgeSeconds, hasStatsError, compareMemberStat,
 } from '../utils/warRoomMemberStats'
 import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
 
@@ -813,25 +813,29 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSourc
 // (— with the error in the tooltip). A war lead planning around "Ready" that
 // actually meant "we couldn't ask" would be planning around a fiction.
 
-const ENERGY_TONE_CLASS = {
-  high: 'text-emerald-600 dark:text-emerald-400 font-semibold',
-  mid: 'text-amber-600 dark:text-amber-400',
-  low: 'text-gray-400 dark:text-gray-500',
-  unknown: 'text-gray-300 dark:text-gray-700',
-}
-
 function MemberEnergyCell({ stats }) {
   const label = formatEnergy(stats)
-  const tone = energyTone(stats)
+  const hue = energyHue(stats)
+  const band = energyBand(stats)
   const age = statsAgeSeconds(stats)
   const errored = hasStatsError(stats)
   const title = errored
     ? `Energy unavailable — this member's key failed: ${stats.last_error}`
     : age == null
       ? 'Energy — no reading yet'
-      : `Energy as of ${age}s ago`
+      : `Energy (${band}) as of ${age}s ago`
+
+  // Grey, not red, when there is no reading (#351): colouring a member we
+  // couldn't ask as "empty" would get them written off for a push.
+  if (hue == null) {
+    return <span title={title} className="text-xs font-mono text-gray-300 dark:text-gray-700">{label}</span>
+  }
   return (
-    <span title={title} className={`text-xs font-mono ${ENERGY_TONE_CLASS[tone]}`}>
+    <span
+      title={title}
+      style={{ '--energy-hue': hue }}
+      className={`energy-grad text-xs font-mono ${band === 'stacked' ? 'font-semibold' : ''}`}
+    >
       {label}
     </span>
   )
@@ -2010,6 +2014,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const rosterMembers = selectRosterMembers(effectiveSide, { members, ourMembers })
   const columns = rosterColumns(effectiveSide)
   const statsFilterUsable = isStatsFilterAvailable(effectiveSide)
+  // Energy and the cooldowns only exist on our roster, and sortCol is
+  // persisted — so a lead who sorts by energy, toggles back to the opponent
+  // and reloads must not land on a sort over a column that isn't there (#351).
+  const activeSortCol = effectiveSortCol(sortCol, effectiveSide)
 
   const filtered = useMemo(() => {
     // Update farm-mode transition tracker as a side effect of recomputing.
@@ -2049,8 +2057,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     }
 
     const d = sortDir === 'asc' ? 1 : -1
+    // `now` from the farm tracker above is reused deliberately (#351):
+    // cooldowns are aged against it, and letting each comparison read its own
+    // Date.now() would make the comparator non-transitive mid-sort.
     return list.slice().sort((a, b) => {
-      switch (sortCol) {
+      switch (activeSortCol) {
         case 'name':
           return d * a.member_name.localeCompare(b.member_name)
         case 'activity': {
@@ -2091,10 +2102,22 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         }
         case 'stats':
           return d * ((a.bsp_total ?? -1) - (b.bsp_total ?? -1))
+        // Our-roster live stats (#351). Members with no reading sink to the
+        // bottom in both directions — see compareMemberStat.
+        case 'energy':
+        case 'cooldown_drug':
+        case 'cooldown_medical':
+        case 'cooldown_booster':
+          return compareMemberStat(
+            activeSortCol,
+            memberStats[String(a.member_id)],
+            memberStats[String(b.member_id)],
+            d, now
+          )
         default: return 0
       }
     })
-  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, sortCol, sortDir])
+  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, activeSortCol, sortDir, memberStats])
 
   // ── Mobile War Room adapters ──────────────────────────────────────────────
   // Project the desktop's flat enemy `members` rows onto the prop shape that
@@ -2727,23 +2750,26 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               <table className="w-full text-sm border-separate border-spacing-0">
                 <thead>
                   <tr className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    <SortTh col="name"     sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="px-4">Name</SortTh>
-                    <SortTh col="activity" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Activity</SortTh>
-                    <SortTh col="status"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
-                    <SortTh col="timer"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
-                    <SortTh col="stats"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
+                    <SortTh col="name"     sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="px-4">Name</SortTh>
+                    <SortTh col="activity" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Activity</SortTh>
+                    <SortTh col="status"   sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
+                    <SortTh col="timer"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
+                    <SortTh col="stats"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
                     <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Flags</th>
+                    {/* Energy and the cooldowns sort like any other column (#351):
+                        energy on the current value, cooldowns on the AGED
+                        remaining one so the order matches the rendered numbers. */}
                     {columns.energy && (
-                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Energy</th>
+                      <SortTh col="energy" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Energy</SortTh>
                     )}
                     {columns.drugCd && (
-                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Drug CD</th>
+                      <SortTh col="cooldown_drug" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Drug CD</SortTh>
                     )}
                     {columns.medicalCd && (
-                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Medical CD</th>
+                      <SortTh col="cooldown_medical" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Medical CD</SortTh>
                     )}
                     {columns.boosterCd && (
-                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Booster CD</th>
+                      <SortTh col="cooldown_booster" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Booster CD</SortTh>
                     )}
                     {columns.dibs && (
                       <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
@@ -2756,7 +2782,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={rosterColumnCount(rosterSide)} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
+                      <td colSpan={rosterColumnCount(effectiveSide)} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
                         No members match the current filters.
                       </td>
                     </tr>
