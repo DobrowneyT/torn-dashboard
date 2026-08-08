@@ -17,6 +17,41 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.13.0] - 2026-08-08
+
+### Added
+
+- **Estimated arrival for travelling members (#330).** The Timer column was
+  empty for anyone in the air, because Torn returns no arrival time for travel —
+  `status.until` is null for a traveller, unlike hospital and jail. The estimate
+  is derived instead, from three things: the departure (latched server-side when
+  the roster poll observes the transition into Traveling), the destination
+  (parsed from the status description), and the aircraft
+  (`status.plane_image_type`, already present in the faction-members payload we
+  poll, so it costs no extra calls and works for the opponent).
+- **Elimination narrows the estimate as the flight runs.** The four travel
+  methods differ by roughly 1.4x, so a method whose latest possible landing has
+  passed while the member is still airborne is ruled out. An unrecognised
+  aircraft starts as a wide range and tightens on its own.
+
+### Notes
+
+- The result is always a **band, never a point**: Torn added up to 3%
+  flight-time variance in patch #26, so even a fully identified flight lands
+  inside a window. It renders italic with a `~` prefix so it can never be
+  mistaken for the exact hospital countdown beside it.
+- **A missed departure shows nothing rather than a guess.** If the board was not
+  polling — war room off, roster cadence 0, process restarted — the first tick
+  back would read a member who left hours ago as having just taken off. A
+  freshness check rejects that transition, and the cell stays blank. A wrong
+  arrival time is worse than none: a lead waits on it and loses the window.
+- Two aircraft are mapped from live observation (`airliner` = Business Class,
+  `light_aircraft` = private airstrip). Standard and WLT are still unknown and
+  fall back to the full range rather than defaulting to a method.
+- A member still airborne past every candidate reads `landing` rather than a
+  time in the past — reachable in normal play, since a Detective Agency's
+  Watchlist can extend a flight.
+
 ## [3.12.1] - 2026-08-08
 
 ### Fixed
