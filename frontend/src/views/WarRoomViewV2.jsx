@@ -2167,6 +2167,16 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
   const isActive   = !!config?.enabled
   const hasMembers = members.length > 0
+  // Whether the SHOWN roster has anyone, and whether either does (#336).
+  //
+  // hasMembers is the ENEMY roster specifically, and several things below
+  // rightly key off that. But the roster-side toggle and the table must not:
+  // gating them on the enemy meant that with no opponent loaded — between
+  // wars, or before Save & Fetch, which is exactly when you would want to
+  // check your own members — the toggle did not render at all and the table
+  // sat on "Waiting for first poll…" even though our own roster was loaded.
+  const hasAnyMembers = members.length > 0 || ourMembers.length > 0
+  const hasRosterMembers = rosterMembers.length > 0
 
   const resolvedName = factionName ?? config?.faction_name
   const factionLabel = resolvedName
@@ -2362,8 +2372,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         )}
       </div>
 
-      {/* Filters — their own card below the controls. */}
-      {hasMembers && (
+      {/* Filters — their own card below the controls. Keyed off EITHER roster
+          (#336): this card holds the roster-side toggle, so gating it on the
+          enemy hid the way to reach our own members precisely when no opponent
+          was loaded. */}
+      {hasAnyMembers && (
         <div data-tour="filters" className="card flex flex-col gap-2">
             {/* Leader headline composer (#197 layout) — post/clear the headline
                 from here; the banner itself renders above the roster. */}
@@ -2619,13 +2632,18 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         </div>
       )}
 
-      {/* Member table — shown whenever members exist, or when active (so "waiting…" shows) */}
-      {(hasMembers || isActive) ? (
+      {/* Member table — shown whenever either roster has members, or when
+          active (so "waiting…" shows). The empty state follows the SHOWN side
+          (#336), so switching to our faction with no opponent loaded renders
+          our members instead of an enemy-flavoured "waiting" panel. */}
+      {(hasAnyMembers || isActive) ? (
         <div data-tour="roster" className="card p-0 overflow-hidden">
 
-          {!hasMembers ? (
+          {!hasRosterMembers ? (
             <div className="flex items-center justify-center py-16 text-gray-400 dark:text-gray-600 text-sm">
-              Waiting for first poll…
+              {effectiveSide === US
+                ? 'No members loaded for our faction yet.'
+                : 'Waiting for first poll…'}
             </div>
           ) : (
             <div className="overflow-auto max-h-[65vh]">
@@ -2866,7 +2884,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               30s" — so the two numbers a lead would check to confirm a cadence
               change had taken hold were the two that could not reflect it. */}
           <div className="px-4 py-2.5 border-t border-gray-200 dark:border-slate-700 grid grid-cols-3 items-center text-xs text-gray-400 dark:text-gray-600">
-            <span className="justify-self-start">Showing {filtered.length} of {members.length} members</span>
+            <span className="justify-self-start">Showing {filtered.length} of {rosterMembers.length} members</span>
             <span className="justify-self-center">
               {isActive && lastFetched && !pollError
                 ? `Updated ${Math.round((Date.now() - lastFetched) / 1000)}s ago`

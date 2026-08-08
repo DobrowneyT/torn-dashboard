@@ -72,6 +72,13 @@ from `VERSION` at runtime) both surface it automatically.
   which the hook never read. Removed from both the desktop config panel and the
   mobile leadership sheet; the slot now holds the Member Stats cadence, which
   is live.
+- **The roster-side toggle was unreachable with no opponent loaded (#336).**
+  #335 put the toggle in the filters card, which renders only when the *enemy*
+  roster has members — so between wars, or before Save & Fetch, the way to view
+  our own faction did not exist, and the table sat on "Waiting for first poll…"
+  even though our members were loaded. The filters card and the roster table
+  now key off either roster, and the empty state follows the side actually
+  being shown.
 - **"Find Target ID range" popover opened underneath the sticky header
   (#336).** A regression from #331: the popover was `z-20`, the same as the
   headers it needed to cover, and an equal `z-index` falls back to DOM order —
