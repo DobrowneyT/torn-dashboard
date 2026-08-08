@@ -17,6 +17,27 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.14.1] - 2026-08-08
+
+### Fixed
+
+- **Enemies flickered between Okay and Hospital as they came out (#371).** The
+  delta merge applied rows by ARRIVAL order rather than by version. Two
+  transports feed the board at once — the WebSocket, and a REST delta fired by
+  `pollNow()` after every dibs claim, release and note — so a response already
+  in flight when the ticker wrote a member could land on top of fresher data
+  and hold until that member's next write. It clustered around hospital exits
+  because that is exactly when people are clicking, and it repeated because
+  Torn's `last_action.relative` text rewrites almost every row constantly,
+  keeping stale rows inside the `since` window.
+
+  Rows now merge **newest-wins** on `updated_at`. Equal timestamps still apply
+  (re-sends are routine, and a same-millisecond update is real), unversioned
+  rows still apply (the old behaviour beats silently dropping data), and
+  tombstones are kept in the map and filtered at publish time rather than
+  deleted — deleting the entry discards the only thing able to reject a stale
+  row for that member, and a resurrected member would never leave the board.
+
 ## [3.14.0] - 2026-08-08
 
 ### Changed
