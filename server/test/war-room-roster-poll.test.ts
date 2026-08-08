@@ -97,7 +97,7 @@ describe('roster_poll_interval_ms in CONFIG_BOUNDS', () => {
   })
 })
 
-describe('minSustainableIntervalMs (#341)', () => {
+describe('minSustainableIntervalMs (#342)', () => {
   it('holds a one-key pool to 1.5s', () => {
     // Two calls per sync on ONE key: at 1s that is 120 calls/min against
     // Torn's 100/min limit. This is the case that froze the board.
@@ -123,7 +123,7 @@ describe('minSustainableIntervalMs (#341)', () => {
   })
 })
 
-describe('safeRosterIntervalMs (#341)', () => {
+describe('safeRosterIntervalMs (#342)', () => {
   it('overrides a cadence the pool cannot sustain', () => {
     // The exact reported failure: 0.5s configured against a small pool.
     expect(safeRosterIntervalMs(500, 1)).toBe(1500)

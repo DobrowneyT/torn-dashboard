@@ -2947,7 +2947,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 ? `Updated ${Math.round((Date.now() - lastFetched) / 1000)}s ago`
                 : ''}
             </span>
-            {/* Poll cadences used to be printed here (#341). They are
+            {/* Poll cadences used to be printed here (#342). They are
                 diagnostic detail — every viewer had to read them, and only an
                 admin can act on them, from War Room settings. The paused state
                 still shows, because that changes how you read the timers. */}

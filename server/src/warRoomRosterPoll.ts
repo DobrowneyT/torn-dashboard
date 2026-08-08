@@ -39,7 +39,7 @@ const PER_KEY_BUDGET_PER_MIN = 80
  * The fastest cadence a pool of `poolSize` keys can actually sustain.
  *
  * This exists because the configured floor alone was not a safety limit
- * (#341). A sync spends two calls on ONE key, and `pool.claim()` rotates keys
+ * (#342). A sync spends two calls on ONE key, and `pool.claim()` rotates keys
  * between syncs, so the per-key rate is:
  *
  *     callsPerKeyPerMin = CALLS_PER_SYNC * (60000 / intervalMs) / poolSize

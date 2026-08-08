@@ -134,7 +134,7 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
   // the behaviour we want anyway.
   let lastRosterSyncMs: number | null = null
   // Enrolled-key count, cached: it sets the fastest cadence the pool can
-  // sustain (#341) and changes rarely, so re-counting every heartbeat would be
+  // sustain (#342) and changes rarely, so re-counting every heartbeat would be
   // pure waste.
   let poolSize = 1
   let poolSizeAt = 0
@@ -197,7 +197,7 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       // The dibs sweep and surge detection live INSIDE this gate deliberately:
       // both diff against the states this sync produces, so running them on a
       // heartbeat with no fresh data would compare a snapshot against itself.
-      // Never poll faster than the key pool can sustain (#341). A sync spends
+      // Never poll faster than the key pool can sustain (#342). A sync spends
       // two Torn calls on ONE key, so the configured cadence alone is not a
       // safety limit: 0.5s against a small pool exceeded Torn's per-key rate,
       // every sync threw, and the swallowed error froze the board silently.
@@ -349,7 +349,7 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
           void tick({ respectRosterCadence: true }).catch((err) => {
             // Was `.catch(() => {})`. A Torn rate-limit error thrown by the
             // roster sync vanished here, so a board that had stopped updating
-            // looked identical to one with nothing to report (#341). Throttled
+            // looked identical to one with nothing to report (#342). Throttled
             // so a persistent fault cannot flood the log.
             if (Date.now() - lastTickErrorLogAt < 60_000) return
             lastTickErrorLogAt = Date.now()

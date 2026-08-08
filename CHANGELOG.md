@@ -22,7 +22,7 @@ from `VERSION` at runtime) both surface it automatically.
 ### Fixed
 
 - **War Room board froze silently when the roster cadence was set faster than
-  the key pool could sustain (#341).** A roster sync spends two Torn calls on a
+  the key pool could sustain (#342).** A roster sync spends two Torn calls on a
   single key, so the 0.5s cadence #339 allowed meant 240 calls/minute spread
   across the pool — past Torn's 100/min *per key* on any small pool. Every sync
   threw a rate-limit error, the ticker's `.catch(() => {})` discarded it, and a
@@ -38,11 +38,11 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Changed
 
-- **Removed the poll-cadence readout from the roster footer (#341).** It was
+- **Removed the poll-cadence readout from the roster footer (#342).** It was
   diagnostic detail shown to every viewer, actionable only by an admin, who can
   read it from War Room settings. The paused-state notice stays.
-- **Removed the descriptive blurb beside the "Showing:" toggle (#341).**
-- **The roster toggle now names our faction (#341)** instead of the generic
+- **Removed the descriptive blurb beside the "Showing:" toggle (#342).**
+- **The roster toggle now names our faction (#342)** instead of the generic
   "Our faction", matching how the opponent side is labelled.
 
 ## [3.8.0] - 2026-08-08
