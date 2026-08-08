@@ -17,6 +17,40 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.9.0] - 2026-08-08
+
+### Fixed
+
+- **Roll call is archived per war instead of being wiped (#345).** The war
+  lifecycle's auto-setup ran an unqualified `DELETE FROM war_room_roll_call_v2`,
+  destroying every past war's responses — while the notes table beside it was
+  deliberately archived by `war_id`. Worse, auto-setup fires whenever the job
+  sees a war it does not already own, which is reachable mid-week: it deleted
+  93 live responses in production today. Rows are already keyed by `war_id`, so
+  a new war id is an empty slate by construction and there was never anything
+  to reset. Roll call now archives exactly like notes.
+
+### Changed
+
+- **`enabled` is now the only gate on War Room polling (#345).** The ticker
+  used to refuse to poll an auto-managed session outside its war's start/end
+  window, so "enabled" really meant "enabled, unless the calendar disagrees" —
+  a board could sit frozen for days before a scheduled war while showing every
+  sign of being live. If leadership switched the room on, it polls: before a
+  war, after one, whenever. What it polls is controlled by the cadences, both
+  of which now accept `0` as off — `roster_poll_interval_ms` stops the roster
+  sweep, `member_stats_poll_interval_sec` stops the member-stats sweep.
+- **The War Room no longer switches itself on (#345).** Auto-enable at T-1h is
+  gone. On the weekly reset the lifecycle still detects the new war, points the
+  config at it, baselines both rosters and pulls spies — then leaves the room
+  **off** for leadership to start. It still auto-disables when the managed war
+  ends, so a finished war stops costing Torn calls.
+- **Status badge reflects the simpler model (#345).** `SCHEDULED — NOT POLLING`
+  and `WAR ENDED — NOT POLLING` are gone. Enabled reads **LIVE**, disabled reads
+  **STOPPED**, and an enabled room whose roster cadence is 0 reads **RUNNING —
+  ROSTER PAUSED**, so a switched-off roster poll cannot masquerade as a live
+  board.
+
 ## [3.8.1] - 2026-08-08
 
 ### Fixed

@@ -967,12 +967,19 @@ function ConfigPanel({
     setRosterSec(String((config?.roster_poll_interval_ms ?? 1000) / 1000))
   }, [config?.roster_poll_interval_ms])
   async function commitRosterSec() {
-    const asMs = Math.round((Number(rosterSec) || 1) * 1000)
-    const next = Math.min(60_000, Math.max(500, asMs))
+    const asMs = Math.round(Number(rosterSec) * 1000)
+    // Mirror the server's zero-or-floor rule: 0 (or below) is off, anything
+    // positive is raised to the 500ms floor rather than silently discarded.
+    const next = !Number.isFinite(asMs) || asMs <= 0 ? 0 : Math.min(60_000, Math.max(500, asMs))
     if (next === (config?.roster_poll_interval_ms ?? 1000)) return
     try {
       await onSaveReviveService({ roster_poll_interval_ms: next })
-      setMsg({ ok: true, text: `Roster refresh set to ${next / 1000}s (${(1000 / next).toFixed(1)} Hz).` })
+      setMsg({
+        ok: true,
+        text: next === 0
+          ? 'Roster polling disabled — no roster calls to Torn.'
+          : `Roster refresh set to ${next / 1000}s (${(1000 / next).toFixed(1)} Hz).`,
+      })
     } catch (e) { setMsg({ ok: false, text: e.message }) }
   }
 
@@ -1125,11 +1132,11 @@ function ConfigPanel({
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Roster Refresh</label>
           <div
             className="flex items-center gap-1.5"
-            title="How often the server re-reads BOTH rosters from Torn (two calls per sweep). Lower it during a termed war to save API calls; 0.5s (2 Hz) is the hard floor. Takes effect on the next tick — no need to restart the war room."
+            title="How often the server re-reads BOTH rosters from Torn (two calls per sweep). 0 stops roster polling entirely; otherwise 0.5s (2 Hz) is the hard floor, and a small key pool is held slower still. Takes effect on the next tick."
           >
             <input
               type="number"
-              min={0.5}
+              min={0}
               max={60}
               step={0.5}
               value={rosterSec}
@@ -1137,7 +1144,9 @@ function ConfigPanel({
               onBlur={commitRosterSec}
               className="w-16 px-2 py-1.5 text-sm text-center border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <span className="text-xs text-gray-400 dark:text-gray-500">s</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              {Number(rosterSec) > 0 ? 's' : 's (off)'}
+            </span>
           </div>
         </div>
       </div>
@@ -2219,16 +2228,12 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   }
 
   const isActive   = !!config?.enabled
-  // Whether the SERVER is actually polling (#342). `enabled` alone is not the
-  // answer: the ticker refuses to poll an auto-managed session outside its
-  // war's window, so an enabled board can sit frozen at the last war's end
-  // while claiming to be live. This drives the badge and the footer so the two
-  // can never disagree with the server again.
+  // What the board says it is doing. `enabled` is the ONLY gate on polling as
+  // of #345; the one case still worth calling out is an enabled room whose
+  // roster cadence has been set to 0.
   const polling = pollingState({
     enabled: isActive,
-    autoManaged: !!config?.auto_managed,
-    warStartAt: currentWar?.startAt,
-    warEndAt: currentWar?.endAt,
+    rosterIntervalMs: config?.roster_poll_interval_ms,
   })
   const hasMembers = members.length > 0
   // Whether the SHOWN roster has anyone, and whether either does (#336).
@@ -2280,20 +2285,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> LIVE
                 </span>
               )}
-              {polling.state === 'scheduled' && (
+              {polling.state === 'roster-paused' && (
                 <span
-                  title="This war room is auto-managed, so the server does not poll until the war starts. Press Save next to the Opponent Faction ID to take manual control and start polling now."
+                  title="The war room is running, but Roster Refresh is 0s so neither roster is being polled. Set it above 0 to resume."
                   className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full text-xs font-semibold"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> SCHEDULED — NOT POLLING
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> RUNNING — ROSTER PAUSED
                 </span>
               )}
-              {polling.state === 'ended' && (
-                <span
-                  title="The managed war has ended, so the server has stopped polling. The roster below is the last known state."
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300 rounded-full text-xs font-semibold"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" /> WAR ENDED — NOT POLLING
+              {polling.state === 'off' && isLeadership && (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300 rounded-full text-xs font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" /> STOPPED
                 </span>
               )}
               {/* Leadership controls collapse toggle — sits on the title row
@@ -2972,8 +2974,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           <div className="px-4 py-2.5 border-t border-gray-200 dark:border-slate-700 grid grid-cols-3 items-center text-xs text-gray-400 dark:text-gray-600">
             <span className="justify-self-start">Showing {filtered.length} of {rosterMembers.length} members</span>
             <span className="justify-self-center">
-              {!polling.polling && polling.state !== 'off'
-                ? 'Last known state — server is not polling'
+              {polling.state === 'roster-paused'
+                ? 'Last known state — roster refresh is off'
                 : polling.polling && lastFetched && !pollError
                   ? `Updated ${Math.round((Date.now() - lastFetched) / 1000)}s ago`
                   : ''}

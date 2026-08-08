@@ -36,7 +36,6 @@ export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
   if (upcoming) {
     const opp = (upcoming.factions ?? []).find((f: any) => Number(f.id) !== us)
     const oppId = opp?.id != null ? Number(opp.id) : null
-    const startAt = Number(upcoming.start ?? 0)
     const alreadyOwn = cfg?.managed_war_id != null && Number(cfg.managed_war_id) === Number(upcoming.id)
     const manualActive = !!cfg?.enabled && !cfg?.auto_managed
 
@@ -45,11 +44,13 @@ export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
       const dbc = await db.connect()
       try {
         await dbc.query('BEGIN')
-        // Roll call is per-war availability — reset it each week. Notes are
-        // ARCHIVED (#145): prior wars' rows are keyed by war_id and kept so
-        // leadership can browse past strategy/negotiations; only the new war's
-        // row is seeded (idempotently) as a fresh slate to edit.
-        await dbc.query('DELETE FROM war_room_roll_call_v2')
+        // Roll call and notes are BOTH archived per war (#345). Every row is
+        // keyed by war_id, so a new war id is already an empty slate — there is
+        // nothing to reset. This used to run an unqualified
+        // `DELETE FROM war_room_roll_call_v2`, which destroyed every past war's
+        // responses (and, if the lifecycle re-ran auto-setup for a war already
+        // underway, the current war's too). The notes row is still seeded
+        // idempotently so leadership has something to edit.
         await dbc.query(
           `INSERT INTO war_room_notes_v2 (war_id, opponent_faction_id) VALUES ($1, $2)
            ON CONFLICT (war_id) DO NOTHING`,
@@ -106,11 +107,10 @@ export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
       return { rows, details: { actions, war_id: upcoming.id, opponent: oppId, spies } }
     }
 
-    // AUTO-ENABLE at T-1h (only for the war we own).
-    if (alreadyOwn && cfg?.auto_managed && !cfg?.enabled && now >= startAt - 3600) {
-      await db.query('UPDATE war_room_config_v2 SET enabled = true, updated_at = now() WHERE id = 1')
-      actions.push('auto_enable')
-    }
+    // No AUTO-ENABLE (#345). Auto-setup points the board at the new war and
+    // baselines both rosters, but ENABLING is a leadership decision: the room
+    // polls Torn continuously once on, so it should not switch itself on an
+    // hour before a war because the calendar said so. Leaders press Start.
   }
 
   // AUTO-DISABLE when the war we own has ended. Never touches manual sessions.
