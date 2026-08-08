@@ -17,6 +17,40 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.9.1] - 2026-08-08
+
+### Fixed
+
+- **War Room energy never populated while cooldowns worked (#348).** The v2
+  response nests the bars under `bars` but returns `cooldowns` at the **top
+  level**, and `parseMemberStats` read `body.energy`. The parser was written
+  from YATA's v1 code, where selections are flattened — and the test fixture
+  was written in that same v1 shape, so it passed against a parser that could
+  never have worked against the live API. The fixture is now a real captured
+  response, plus a case asserting the two halves cannot diverge again. A
+  flattened body still parses.
+
+### Added
+
+- **Our own members' battle stats (#348).** A daily `member-battle-stats` job
+  fills `member_battle_stats` from three sources, best first and never
+  downgrading: the member's **own key** via
+  `/v2/user?selections=battlestats` (self-only, Limited access — our enrolment
+  floor — so exact and current), then our faction's **TornStats** spy report
+  for anyone without an enrolled key, then a **BSP** estimate for whoever is
+  still unknown. The `source` is stored so an estimate is never presented with
+  the same confidence as a member's own figure.
+- **`GET /api/members/battle-stats`, war leads / leadership / admin only
+  (#348).** Battle stats decide who can hit whom, so they live in their own
+  table with their own role check — folding them into `/api/members` would
+  have exposed them to every authenticated caller, since that route backs
+  every view.
+- **API key disclosure covers battle stats (#348).** `battlestats` is added to
+  the Torn API Calls row, and a new "Battle Stats" row states the daily
+  cadence, that the figures are visible only to war leads / leadership /
+  admins, and that a TornStats or BSP figure is an estimate the dashboard
+  labels as such.
+
 ## [3.9.0] - 2026-08-08
 
 ### Fixed

@@ -68,3 +68,26 @@ describe('ApiKeyDisclosure content', () => {
     expect(rowText('Sharing')).toMatch(/war leads/i)
   })
 })
+
+describe('ApiKeyDisclosure — battle stats (#348)', () => {
+  it('names the battlestats selection in the API calls row', () => {
+    expect(rowText('Torn API Calls')).toMatch(/battlestats/)
+  })
+
+  it('discloses battle stats in plain language, with the audience and cadence', () => {
+    // The most sensitive figure we hold about a member — it decides who can
+    // hit whom — so it gets its own row rather than hiding inside "Purpose".
+    const bs = rowText('Battle Stats')
+    expect(bs).toMatch(/strength/i)
+    expect(bs).toMatch(/once a day/i)
+    expect(bs).toMatch(/war leads/i)
+  })
+
+  it('says an estimated figure is distinguishable from a real one', () => {
+    // TornStats/BSP fallbacks are guesses; presenting them as fact would be
+    // the misleading part.
+    const bs = rowText('Battle Stats')
+    expect(bs).toMatch(/tornstats|predictor/i)
+    expect(bs).toMatch(/source/i)
+  })
+})

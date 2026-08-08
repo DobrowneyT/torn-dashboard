@@ -12,24 +12,47 @@ import {
   memberStatsPollDue,
 } from '../src/warRoomMemberStats.js'
 
-// A realistic /v2/user?selections=bars,cooldowns body.
+// A REAL /v2/user?selections=bars,cooldowns response, captured from the live
+// API. Note the asymmetry that caused the original bug: bars are nested under
+// `bars`, but `cooldowns` sits at the top level. The first version of this
+// fixture was written in v1's flattened shape, so it passed against a parser
+// that could never have worked in production.
 const body = {
-  energy: { current: 87, maximum: 150, increment: 5, interval: 900, ticktime: 120, fulltime: 11340 },
-  nerve: { current: 20, maximum: 50 },
-  happy: { current: 4000, maximum: 5000 },
-  life: { current: 5000, maximum: 5000 },
-  cooldowns: { drug: 1800, medical: 0, booster: 43200 },
+  bars: {
+    energy: { current: 940, maximum: 150, increment: 5, interval: 600, tick_time: 111, full_time: 0 },
+    nerve: { current: 31, maximum: 145, increment: 1, interval: 300, tick_time: 111, full_time: 34011 },
+    happy: { current: 5025, maximum: 5025, increment: 5, interval: 900, tick_time: 711, full_time: 0 },
+    life: { current: 7500, maximum: 7500, increment: 450, interval: 300, tick_time: 111, full_time: 0 },
+    chain: { id: 0, current: 0, max: 10, timeout: 0, modifier: 1, cooldown: 0, start: 0, end: 1786193289 },
+  },
+  cooldowns: { drug: 0, medical: 4025, booster: 0 },
 }
 
 describe('parseMemberStats', () => {
-  it('pulls energy and all three cooldowns from a bars+cooldowns response', () => {
+  it('pulls energy from bars.energy and cooldowns from the top level', () => {
+    // The exact shape the live API returns. Energy under `bars`, cooldowns not.
     expect(parseMemberStats(body)).toEqual({
-      energy_current: 87,
+      energy_current: 940,
       energy_maximum: 150,
-      cooldown_drug: 1800,
-      cooldown_medical: 0,
-      cooldown_booster: 43200,
+      cooldown_drug: 0,
+      cooldown_medical: 4025,
+      cooldown_booster: 0,
     })
+  })
+
+  it('still reads a flattened body, as v1 returned', () => {
+    expect(parseMemberStats({
+      energy: { current: 87, maximum: 150 },
+      cooldowns: { drug: 1800, medical: 0, booster: 43200 },
+    })).toMatchObject({ energy_current: 87, energy_maximum: 150, cooldown_drug: 1800 })
+  })
+
+  it('does not silently return empty energy when only cooldowns parse', () => {
+    // The production symptom: cooldowns rendered correctly while every
+    // member's energy showed blank, because only one of the two was reachable.
+    const parsed = parseMemberStats(body)
+    expect(parsed.energy_current).not.toBeNull()
+    expect(parsed.cooldown_medical).not.toBeNull()
   })
 
   it('ignores the nerve/happy/life bars that ride along in the same response', () => {
@@ -51,7 +74,7 @@ describe('parseMemberStats', () => {
       cooldown_medical: null,
       cooldown_booster: null,
     })
-    expect(parseMemberStats({ energy: { current: 12 } })).toMatchObject({
+    expect(parseMemberStats({ bars: { energy: { current: 12 } } })).toMatchObject({
       energy_current: 12,
       energy_maximum: null,
       cooldown_drug: null,
@@ -59,7 +82,7 @@ describe('parseMemberStats', () => {
   })
 
   it('rejects non-numeric junk in a numeric slot', () => {
-    expect(parseMemberStats({ energy: { current: 'lots' }, cooldowns: { drug: null } }))
+    expect(parseMemberStats({ bars: { energy: { current: 'lots' } }, cooldowns: { drug: null } }))
       .toMatchObject({ energy_current: null, cooldown_drug: null })
   })
 

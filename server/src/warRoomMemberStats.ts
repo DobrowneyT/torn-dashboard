@@ -50,8 +50,14 @@ function num(value: unknown): number | null {
  */
 export function parseMemberStats(body: unknown): MemberStats {
   const b = (body ?? {}) as Record<string, any>
-  const energy = (b.energy ?? {}) as Record<string, unknown>
-  const cooldowns = (b.cooldowns ?? {}) as Record<string, unknown>
+  // v2 nests the bars under `bars` (energy/nerve/happy/life/chain) but returns
+  // `cooldowns` at the TOP level — an asymmetry that is easy to miss, and did
+  // bite: this originally read `b.energy`, copied from YATA's v1 code where
+  // selections are flattened. Cooldowns worked, energy silently came back
+  // empty. The `?? b.energy` fallback keeps the flattened shape working.
+  const bars = (b.bars ?? {}) as Record<string, any>
+  const energy = (bars.energy ?? b.energy ?? {}) as Record<string, unknown>
+  const cooldowns = (b.cooldowns ?? bars.cooldowns ?? {}) as Record<string, unknown>
   return {
     energy_current: num(energy.current),
     energy_maximum: num(energy.maximum),

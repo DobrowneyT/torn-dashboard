@@ -16,7 +16,11 @@ export const ROWS = [
   // the only thing we read that is personal-state-in-the-moment rather than
   // faction data — members should be able to see it named, not infer it.
   ['Live War Stats', 'While a war room is active AND leadership has switched the sweep on, your key is used to read your own energy bar and your drug, medical and booster cooldowns (at most once every 30 seconds). A long drug cooldown is shown to war leads as an overdose indicator. This is used for war planning — who can hit, who is out of action — and is never read while the war room is off. Nerve, happy and life bars are returned by the same Torn call but are discarded, never stored.'],
-  ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes, bars, cooldowns) · GET /v2/faction (crimes, members, contributors, chain, attacks, revives, rankedwars + report, basic)'],
+  // #348: battle stats are the single most sensitive figure we hold about a
+  // member, so they get their own disclosure row rather than being folded into
+  // the general "Purpose" line.
+  ['Battle Stats', 'Once a day your key is used to read your own battle stats (strength, defense, speed, dexterity). These are visible only to war leads, leadership and admins — never to the faction at large — and are used to plan who can be fielded against whom. If you have not enrolled a key, an estimate may instead be taken from your faction TornStats spy report or from Battle Stats Predictor; the dashboard records which source each figure came from, so an estimate is never presented as fact.'],
+  ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes, bars, cooldowns, battlestats) · GET /v2/faction (crimes, members, contributors, chain, attacks, revives, rankedwars + report, basic)'],
   ['Access Level', 'Limited Access'],
 ]
 

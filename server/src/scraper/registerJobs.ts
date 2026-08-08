@@ -14,6 +14,7 @@ import { cprScanJob } from './jobs/cprScan.js'
 import { membersSyncJob } from './jobs/membersSync.js'
 import { memberStatsJob } from './jobs/memberStats.js'
 import { memberProfileJob } from './jobs/memberProfile.js'
+import { memberBattleStatsJob } from './jobs/memberBattleStats.js'
 import { statsSamplesPruneJob } from './jobs/statsSamplesPrune.js'
 import { warsSyncJob } from './jobs/warsSync.js'
 import { attacksSyncJob } from './jobs/attacksSync.js'
@@ -57,6 +58,11 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // Profile denorms (donator/property/last-action) change slowly — once daily,
   // just after the first member-stats run (#226). Composes via COALESCE.
   ['member-profile', '0 20 1 * * *', memberProfileJob],
+  // Our own members' battle stats (#348) — daily. Pass 1 spends one Torn call
+  // per enrolled member (their OWN key; battlestats is self-only), then
+  // TornStats and BSP fill anyone without a key. Stats move slowly, so daily
+  // is ample. Offset from member-profile so the two don't overlap.
+  ['member-battle-stats', '0 45 2 * * *', memberBattleStatsJob],
   // Prune the intraday sample series past its retention window (#227) — daily,
   // keeping samples still needed to resolve unresolved competitions.
   ['stats-samples-prune', '0 40 1 * * *', statsSamplesPruneJob],

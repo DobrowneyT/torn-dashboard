@@ -594,6 +594,26 @@ CREATE TABLE public.war_room_config_v2 (
 -- #336: live energy + cooldowns for our own members. Separate from
 -- war_room_state_v2 because it is war-lead-only — its own table gives it its
 -- own delta channel, which the hub withholds from non-lead sockets.
+-- #348: our own members' battle stats. Lead-only, so it gets its own table
+-- (and therefore its own role-checked read path) rather than columns on
+-- `members`, which everything reads.
+CREATE TABLE public.member_battle_stats (
+  member_id text PRIMARY KEY,
+  strength bigint,
+  defense bigint,
+  speed bigint,
+  dexterity bigint,
+  total bigint,
+  source text DEFAULT 'torn' NOT NULL,
+  fetched_at timestamp with time zone,
+  spy_at timestamp with time zone,
+  last_error text,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE INDEX member_battle_stats_updated_at_idx
+  ON public.member_battle_stats (updated_at);
+
 CREATE TABLE public.war_room_member_stats_v2 (
   member_id bigint PRIMARY KEY,
   energy_current integer,
