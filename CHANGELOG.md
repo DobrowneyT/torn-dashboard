@@ -17,6 +17,31 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.11.0] - 2026-08-08
+
+### Added
+
+- **Our members' battle stats in the War Room Stats column (#353).** #348 had
+  been collecting them daily into `member_battle_stats` with nothing rendering
+  them, so the data landed in the DB and stayed invisible; meanwhile our own
+  roster showed a column of `???` because spies are only fetched for the
+  opponent. The lead-gated `/api/members/battle-stats` rows are now projected
+  onto the `bsp_*` field names the Stats cell, both sorts and the min/max
+  filter already read, so no call site needed an our-faction code path.
+- **The Stats tooltip distinguishes an exact figure from an estimate (#353).**
+  A reading from the member's own key is labelled `OWN` and underlined solid;
+  TornStats (`TS`) and BSP (`BSP`) keep the dotted "this is a guess" treatment.
+  The cell previously knew only two sources, so an exact figure would have been
+  labelled as a prediction.
+
+### Changed
+
+- **The Stats filter works on our own roster (#353)** — but only once the daily
+  sweep has actually run. It stays suspended while we hold no battle stats,
+  because with every total null a min/max carried over from the enemy side
+  would silently empty the table, which is the trap the original suspension
+  existed to prevent.
+
 ## [3.10.0] - 2026-08-08
 
 ### Added

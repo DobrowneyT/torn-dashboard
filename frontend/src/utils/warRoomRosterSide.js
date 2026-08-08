@@ -106,13 +106,17 @@ export function rosterColumnCount(side) {
 /**
  * Is the battle-stats filter usable on this side?
  *
- * No, for us: spies are fetched for the ENEMY only, so `bsp_total` is null for
- * our members. Leaving the filter live would silently empty the table the moment
- * anyone toggled over with a min/max set — the filter has to be suspended, not
- * merely ignored.
+ * It was flatly unavailable on our own roster until #353: spies are fetched for
+ * the ENEMY only, so `bsp_total` was null for every one of our members and an
+ * active min/max would silently empty the table the moment anyone toggled over.
+ *
+ * Our members now carry their own battle stats (#348), but only once the daily
+ * sweep has actually run — before that, or if the fetch failed, we hold nothing
+ * and the original trap is still open. So the answer is conditional rather than
+ * a flat yes: usable on our side exactly when we have stats for someone.
  */
-export function isStatsFilterAvailable(side) {
-  return side !== US
+export function isStatsFilterAvailable(side, ourBattleStatsCount = 0) {
+  return side !== US || ourBattleStatsCount > 0
 }
 
 /** Cycle target for the toggle button. */
