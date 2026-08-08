@@ -700,7 +700,12 @@ CREATE TABLE public.war_room_state_v2 (
   deleted_at timestamp with time zone,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
   spy_source text,
-  ts_spy_at timestamp with time zone
+  ts_spy_at timestamp with time zone,
+  -- When we OBSERVED this member enter Traveling (#330). Torn gives no arrival
+  -- time for travel, so the ETA is derived from this plus the known flight time
+  -- for the destination and aircraft. NULL means we did not witness the
+  -- departure, which is normal — not missing data.
+  travel_departed_at timestamp with time zone
 );
 
 -- ── New tables for the multi-faction stack ───────────────────────────────────
