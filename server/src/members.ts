@@ -2,7 +2,7 @@
 // server-side; responses use snake_case DB names under a resource key.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireAuth } from './authz.js'
+import { requireAuth, requireRole } from './authz.js'
 
 export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
   app.get('/api/members', { preHandler: requireAuth() }, async () => {
@@ -151,6 +151,34 @@ export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
     )
     return { items: res.rows }
   })
+
+  /**
+   * Our own members' battle stats (#348). WAR LEADS / LEADERSHIP / ADMIN ONLY.
+   *
+   * Battle stats decide who can hit whom, so this is the most sensitive number
+   * we hold about a member. It lives in its own table precisely so it can have
+   * its own guard — folding it into /api/members would have exposed it to
+   * every authenticated caller, since that route is read by every view.
+   *
+   * `source` rides along so the UI can distinguish a member's own exact figure
+   * from a TornStats spy or a BSP estimate.
+   */
+  app.get(
+    '/api/members/battle-stats',
+    { preHandler: requireRole('warlead', 'leadership', 'admin') },
+    async () => {
+      const res = await db.query(`
+        SELECT b.member_id, m.member_name,
+               b.strength, b.defense, b.speed, b.dexterity, b.total,
+               b.source, b.fetched_at, b.spy_at
+          FROM member_battle_stats b
+          JOIN members m ON m.member_id = b.member_id
+         WHERE m.is_current = true
+         ORDER BY b.total DESC NULLS LAST
+      `)
+      return { battle_stats: res.rows }
+    }
+  )
 }
 
 function clampLimit(raw: string | undefined, fallback: number, max: number): number {
