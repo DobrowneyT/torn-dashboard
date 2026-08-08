@@ -17,6 +17,36 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-08-08
+
+### Added
+
+- **Configurable roster refresh, floored at 2 Hz (#339).** How often the server
+  re-reads both rosters from Torn is now a setting (`roster_poll_interval_ms`,
+  default 1000) rather than a hardcoded 1 Hz — turn it down during a termed war
+  so a per-second sweep of both factions stops burning API calls, or push it to
+  0.5s during a live chain. 500ms is a hard floor enforced in the clamp table
+  *and* in the ticker's gate, since each sweep is two Torn calls. This is the
+  control the old "UI Refresh" slider appeared to be: that one was client-side
+  and wired to nothing, and no server setting for the roster existed at all.
+- **Overdose flag on the roster (#339).** Combines both detectors: the hospital
+  status flag (#199), certain but only while the member is still in hospital,
+  and the drug cooldown over 10h (#336), which survives release.
+
+### Changed
+
+- **The revivable flag now says who can actually revive (#339).** Torn has
+  three revive privacy settings and `is_revivable` collapses them. Since we
+  hire **outside** revivers, a target on "Friends & faction" is revivable in
+  Torn's sense but not by anyone we can pay — the old single flag sent leads
+  chasing revives that could not happen. Now: green for `Everyone` (a hired
+  reviver works), muted for `Friends & faction` (their own side only), nothing
+  for `No one`, and an unknown setting degrades to the weaker claim. The data
+  was already stored; the UI was ignoring it.
+- **Removed the "In OC" flag from the War Room (#339).** Being in an organised
+  crime never affected whether a member could be hit or revived, and the flags
+  column is scanned rather than read. Gone from desktop and mobile.
+
 ## [3.7.0] - 2026-08-08
 
 ### Added

@@ -587,7 +587,8 @@ CREATE TABLE public.war_room_config_v2 (
   surge_our_threshold integer DEFAULT 4 NOT NULL,
   surge_our_window_sec integer DEFAULT 60 NOT NULL,
   surge_cooldown_sec integer DEFAULT 300 NOT NULL,
-  member_stats_poll_interval_sec integer DEFAULT 0 NOT NULL
+  member_stats_poll_interval_sec integer DEFAULT 0 NOT NULL,
+  roster_poll_interval_ms integer DEFAULT 1000 NOT NULL
 );
 
 -- #336: live energy + cooldowns for our own members. Separate from

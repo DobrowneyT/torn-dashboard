@@ -37,7 +37,7 @@
  *       description:   String|null,   // Torn's raw status_description
  *       until:         Number|null,   // seconds since epoch, used for countdowns
  *       bsp:           Number|null,   // battle stats sum (battlescore proxy)
- *       flags: { revivable, earlyDischarge, inOc, onWall }    // booleans
+ *       flags: { reviveAudience, earlyDischarge, overdosed, onWall }
  *     }
  *
  * --------------------------------------------------------------------
@@ -84,11 +84,15 @@ const ACTIVITY = {
   Offline: { dot: 'bg-gray-400',  text: 'text-gray-500  dark:text-gray-400',  label: 'Offline' },
 }
 
+// #339: "In OC" removed — it never bore on whether a member could be hit or
+// revived. Revivable splits by audience: only the green one means a reviver we
+// can HIRE will work; "Friends & faction" is revivable but not by us.
 const FLAG_ICONS = [
-  { key: 'revivable',      Icon: Syringe, label: 'Revivable',       color: 'text-orange-600' },
-  { key: 'earlyDischarge', Icon: Zap,     label: 'Early discharge', color: 'text-yellow-600' },
-  { key: 'inOc',           Icon: Lock,    label: 'In OC',           color: 'text-gray-600' },
-  { key: 'onWall',         Icon: Shield,  label: 'On wall',         color: 'text-blue-600' },
+  { key: 'reviveAnyone',   Icon: Syringe, label: 'Revivable by anyone',            color: 'text-emerald-600' },
+  { key: 'reviveFriends',  Icon: Syringe, label: 'Revivable by their faction only', color: 'text-gray-400' },
+  { key: 'earlyDischarge', Icon: Zap,     label: 'Early discharge',                color: 'text-yellow-600' },
+  { key: 'overdosed',      Icon: Skull,   label: 'Overdosed',                      color: 'text-red-600' },
+  { key: 'onWall',         Icon: Shield,  label: 'On wall',                        color: 'text-blue-600' },
 ]
 
 // ───────────────────────────────────────────────────────────────────
