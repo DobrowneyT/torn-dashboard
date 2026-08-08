@@ -64,11 +64,21 @@ describe('rosterColumnCount', () => {
 })
 
 describe('isStatsFilterAvailable', () => {
-  it('suspends the stats filter on our own faction', () => {
-    // Spies are fetched for the enemy only, so bsp_total is null for us —
-    // an active min/max would silently empty the table on toggle.
-    expect(isStatsFilterAvailable(US)).toBe(false)
+  it('is always available against the opponent', () => {
     expect(isStatsFilterAvailable(THEM)).toBe(true)
+    expect(isStatsFilterAvailable(THEM, 0)).toBe(true)
+  })
+
+  it('opens up on our roster once we hold battle stats (#353)', () => {
+    expect(isStatsFilterAvailable(US, 42)).toBe(true)
+  })
+
+  it('stays suspended on our roster while we hold none', () => {
+    // The original trap is still open before the daily sweep has run, or if
+    // the fetch failed: every bsp_total is null, so an active min/max carried
+    // over from the enemy side would empty the table on toggle.
+    expect(isStatsFilterAvailable(US, 0)).toBe(false)
+    expect(isStatsFilterAvailable(US)).toBe(false)
   })
 })
 
