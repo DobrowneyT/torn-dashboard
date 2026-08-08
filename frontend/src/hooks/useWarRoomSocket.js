@@ -34,6 +34,11 @@ function flattenStateRow(row) {
     status_description:    s.status?.description    ?? null,
     status_details:        s.status?.details        ?? null,
     status_until:          s.status?.until          ?? null,
+    // #330: the aircraft, which gives the travel method and so the flight
+    // time. Already in the faction-members payload we poll, so it costs
+    // nothing extra. `travel_departed_at` is a real column and arrives on the
+    // row itself.
+    plane_image_type:      s.status?.plane_image_type ?? null,
     is_revivable:          s.is_revivable          ?? false,
     has_early_discharge:   s.has_early_discharge   ?? false,
     is_in_oc:              s.is_in_oc              ?? false,

@@ -66,12 +66,17 @@ interface StateRow {
   deleted_at?: unknown
   state?: {
     status?: { state?: string } | null
+    last_action?: { status?: string } | null
     is_revivable?: unknown
   } | null
 }
 
 function statusState(row: StateRow): string | null {
   return row.state?.status?.state ?? null
+}
+
+function lastActionStatus(row: StateRow): string | null {
+  return row.state?.last_action?.status ?? null
 }
 
 /**
@@ -135,28 +140,62 @@ export function createSurgeDetector() {
         }
         const dir = directionFor(Number(row.faction_id), ctx)
 
-        // ── status: any non-Okay → Okay ───────────────────────────────────
-        if (cfg.status?.enabled) {
-          const next = statusState(row)
-          if (next) {
-            const prev = lastStatus.get(id)
-            lastStatus.set(id, next)
-            if (prev !== undefined && prev !== 'Okay' && next === 'Okay' && dir) {
-              windows.status[dir].push(ctx.nowMs)
-            }
-          }
+        // Both previous values are tracked whichever kinds are enabled: the
+        // revive rule below needs to know whether the STATUS also moved, and a
+        // detector switched on mid-war should start from what is true now
+        // rather than treat the next poll as everyone transitioning at once.
+        const nextStatus = statusState(row)
+        const prevStatus = lastStatus.get(id)
+        if (nextStatus) lastStatus.set(id, nextStatus)
+
+        const nextRevivable = isRevivable(row)
+        const prevRevivable = lastRevivable.get(id)
+        if (nextRevivable !== null) lastRevivable.set(id, nextRevivable)
+
+        if (!dir) continue
+
+        // A status change in this same observation. Used below to tell a
+        // deliberate act apart from a side effect of one.
+        const statusAlsoChanged =
+          prevStatus !== undefined && nextStatus !== null && prevStatus !== nextStatus
+
+        // ── status: any non-Okay → Okay, BY SOMEONE WHO IS ONLINE ─────────
+        //
+        // The online requirement is what makes this mean anything (#367).
+        // Hospital timers expire on their own, so while we are farming a
+        // faction a batch of members drops out of hospital every few minutes
+        // with nobody at the keyboard — and that fired "incoming push!" at a
+        // lead who was the one doing the pushing. Online + Okay is the
+        // difference between "they are back" and "they are back AND playing".
+        //
+        // Cost: a member who leaves hospital while Idle and starts hitting
+        // immediately is not counted. Worth it — a false alarm every few
+        // minutes during a farm trains people to ignore the alert entirely.
+        if (
+          cfg.status?.enabled && nextStatus &&
+          prevStatus !== undefined && prevStatus !== 'Okay' && nextStatus === 'Okay' &&
+          lastActionStatus(row) === 'Online'
+        ) {
+          windows.status[dir].push(ctx.nowMs)
         }
 
-        // ── revive: false → true ──────────────────────────────────────────
-        if (cfg.revive?.enabled) {
-          const next = isRevivable(row)
-          if (next !== null) {
-            const prev = lastRevivable.get(id)
-            lastRevivable.set(id, next)
-            if (prev === false && next === true && dir) {
-              windows.revive[dir].push(ctx.nowMs)
-            }
-          }
+        // ── revive: false → true, WITHOUT the status moving too ───────────
+        //
+        // `is_revivable` means "a revive is possible right now", and a revive
+        // is only possible for someone in hospital — so the flag flips true
+        // the moment a member with revives already on gets hospitalised. While
+        // we farm them, that is every target we put down, which would make
+        // this alert fire constantly at the faction doing the farming.
+        //
+        // Requiring the status to have held still separates the deliberate act
+        // from the side effect: revives turning on while nothing else about
+        // them changed is somebody reaching for the setting.
+        if (
+          cfg.revive?.enabled &&
+          prevRevivable === false && nextRevivable === true &&
+          !statusAlsoChanged
+        ) {
+          windows.revive[dir].push(ctx.nowMs)
         }
       }
 

@@ -104,12 +104,32 @@ export async function syncWarRoomMemberStates(
   for (const [memberId, { faction_id, m }] of fresh) {
     const state = memberState(m)
     const res = await db.query(
-      `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, level, "position", state, deleted_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NULL, now())
+      `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, level, "position", state, deleted_at, updated_at, travel_departed_at)
+       -- A member first seen ALREADY travelling gets NULL: we did not witness
+       -- the departure, so we have nothing to count from (#330).
+       VALUES ($1, $2, $3, $4, $5, $6, NULL, now(), NULL)
        ON CONFLICT (member_id) DO UPDATE SET
          faction_id = EXCLUDED.faction_id, member_name = EXCLUDED.member_name,
          level = EXCLUDED.level, "position" = EXCLUDED.position,
-         state = EXCLUDED.state, deleted_at = NULL, updated_at = now()
+         state = EXCLUDED.state, deleted_at = NULL, updated_at = now(),
+         travel_departed_at = CASE
+           -- Landed, or never left: nothing to count from.
+           WHEN EXCLUDED.state->'status'->>'state' <> 'Traveling' THEN NULL
+           -- Took off, and we were watching closely enough to believe it. The
+           -- freshness check is what makes this trustworthy: without it, the
+           -- first tick after the board was off (disabled, cadence 0, restart)
+           -- reads a member who departed hours ago as having just left, and
+           -- produces a confidently wrong arrival time. Wrong is worse than
+           -- absent here — a lead waits on it and wastes the window.
+           WHEN war_room_state_v2.state->'status'->>'state' IS DISTINCT FROM 'Traveling'
+                AND war_room_state_v2.updated_at > now() - interval '120 seconds'
+             THEN now()
+           -- Took off, but our last look was too long ago to trust the edge.
+           WHEN war_room_state_v2.state->'status'->>'state' IS DISTINCT FROM 'Traveling'
+             THEN NULL
+           -- Still in the air: keep the departure we already latched.
+           ELSE war_room_state_v2.travel_departed_at
+         END
        WHERE war_room_state_v2.state IS DISTINCT FROM EXCLUDED.state
           OR war_room_state_v2.member_name IS DISTINCT FROM EXCLUDED.member_name
           OR war_room_state_v2.level IS DISTINCT FROM EXCLUDED.level

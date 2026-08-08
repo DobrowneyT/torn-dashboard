@@ -17,6 +17,79 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.14.0] - 2026-08-08
+
+### Changed
+
+- **In farm mode, a green attack button always survives the Stats filter
+  (#366).** Online + Okay members are the only people who can be hit this
+  second, so if a push starts they are precisely what a lead needs on screen —
+  and a min/max left over from farming would quietly remove exactly them. A
+  filter that hides the thing you must react to is worse than no filter.
+  Non-green members still filter normally, and outside farm mode the filter is
+  left alone: set deliberately, it is a targeting tool and should do what it
+  says.
+- The green-target predicate is now shared between the farm sort and the stats
+  filter rather than written twice. Two copies would eventually disagree, and
+  the failure mode is a member the sort promotes to the top tier being filtered
+  off the board.
+
+## [3.13.1] - 2026-08-08
+
+### Fixed
+
+- **Surge alerts fired while WE were farming (#367).** Hospital timers expire on
+  their own, so during a farming run batches of enemies dropped out of hospital
+  every few minutes with nobody at the keyboard — and the detector read that as
+  "incoming push!" at the faction doing the pushing. A status surge now requires
+  **Online + Okay**: back *and playing*, not just back. Absent activity reads as
+  not-online rather than defaulting to online.
+- **The revive surge had the same bug, from the day it shipped (#359).**
+  `is_revivable` means "a revive is possible right now", and a revive is only
+  possible in hospital — so the flag flips true the moment a member with revives
+  already on gets **hospitalised**, which while farming is every target we put
+  down. It now counts the flip only when the member's status did **not** also
+  change in that observation: revives coming on while nothing else moved is
+  somebody reaching for the setting; revives coming on alongside a status change
+  is a side effect of it. This holds whichever way Torn reports `is_revivable`
+  for a healthy member, since it rejects a simultaneous status change rather
+  than a particular status.
+
+## [3.13.0] - 2026-08-08
+
+### Added
+
+- **Estimated arrival for travelling members (#330).** The Timer column was
+  empty for anyone in the air, because Torn returns no arrival time for travel —
+  `status.until` is null for a traveller, unlike hospital and jail. The estimate
+  is derived instead, from three things: the departure (latched server-side when
+  the roster poll observes the transition into Traveling), the destination
+  (parsed from the status description), and the aircraft
+  (`status.plane_image_type`, already present in the faction-members payload we
+  poll, so it costs no extra calls and works for the opponent).
+- **Elimination narrows the estimate as the flight runs.** The four travel
+  methods differ by roughly 1.4x, so a method whose latest possible landing has
+  passed while the member is still airborne is ruled out. An unrecognised
+  aircraft starts as a wide range and tightens on its own.
+
+### Notes
+
+- The result is always a **band, never a point**: Torn added up to 3%
+  flight-time variance in patch #26, so even a fully identified flight lands
+  inside a window. It renders italic with a `~` prefix so it can never be
+  mistaken for the exact hospital countdown beside it.
+- **A missed departure shows nothing rather than a guess.** If the board was not
+  polling — war room off, roster cadence 0, process restarted — the first tick
+  back would read a member who left hours ago as having just taken off. A
+  freshness check rejects that transition, and the cell stays blank. A wrong
+  arrival time is worse than none: a lead waits on it and loses the window.
+- Two aircraft are mapped from live observation (`airliner` = Business Class,
+  `light_aircraft` = private airstrip). Standard and WLT are still unknown and
+  fall back to the full range rather than defaulting to a method.
+- A member still airborne past every candidate reads `landing` rather than a
+  time in the past — reachable in normal play, since a Detective Agency's
+  Watchlist can extend a flight.
+
 ## [3.12.1] - 2026-08-08
 
 ### Fixed

@@ -30,13 +30,14 @@ import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberN
 import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   selectRosterMembers, rosterColumns, rosterColumnCount, isStatsFilterAvailable,
-  canViewOurRoster, effectiveRosterSide, pollingState, effectiveSortCol,
+  canViewOurRoster, effectiveRosterSide, pollingState, effectiveSortCol, passesStatsFilter,
 } from '../utils/warRoomRosterSide'
 import {
   formatEnergy, energyHue, energyBand, formatCooldown, remainingCooldown,
   overdosedByDrugCooldown, statsAgeSeconds, hasStatsError, compareMemberStat,
 } from '../utils/warRoomMemberStats'
 import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
+import { travelEta, formatTravelEta } from '../utils/warRoomTravel'
 import {
   indexBattleStats, withBattleStats, statsSourceLabel, isExactStatsSource,
 } from '../utils/warRoomBattleStats'
@@ -67,7 +68,7 @@ import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs, fireAlert, surgeAlertKind } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
 import { parseDbTime } from '../utils/time'
-import { farmCompare } from '../utils/warRoomFarmSort'
+import { farmCompare, isGreenTarget } from '../utils/warRoomFarmSort'
 import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon } from 'lucide-react'
 import HelpPanel from '../components/warroom/HelpPanel'
 import SpotlightTour from '../components/warroom/SpotlightTour'
@@ -318,12 +319,75 @@ function StatusCell({ state, description }) {
 
 // ── Countdown (ticks every 1s client-side) ────────────────────────────────────
 
-function CountdownCell({ until }) {
+// Human names for the travel methods, for the ETA tooltip.
+const TRAVEL_METHOD_LABELS = {
+  business: 'Business Class',
+  wlt: 'WLT',
+  airstrip: 'private airstrip',
+  standard: 'standard flight',
+}
+
+/**
+ * Estimated arrival for a traveller (#330).
+ *
+ * Rendered deliberately UNLIKE the exact countdown beside it — italic, muted,
+ * always `~` prefixed — because it is inferred, not reported. Torn gives no
+ * arrival time for travel, so this is derived from the observed departure, the
+ * destination, and the aircraft, and it carries up to 3% of Torn's own
+ * variance on top. A lead must be able to tell at a glance which numbers in
+ * this column are facts and which are estimates.
+ */
+function TravelEtaCell({ member }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const eta = travelEta({
+    description: member.status_description,
+    planeType: member.plane_image_type,
+    departedAt: member.travel_departed_at,
+    nowMs: now,
+  })
+  if (eta.state === 'unknown') {
+    return (
+      <span
+        title="No arrival estimate — we did not see this member take off, so there is nothing to count from."
+        className="text-gray-300 dark:text-gray-700 text-xs"
+      >—</span>
+    )
+  }
+  if (eta.state === 'overdue') {
+    return (
+      <span
+        title="Past every expected landing time. Either they are about to land, or their flight was extended (a Detective Agency Watchlist can do that)."
+        className="text-xs font-mono italic text-blue-500 dark:text-blue-400"
+      >landing</span>
+    )
+  }
+
+  const label = TRAVEL_METHOD_LABELS[eta.methods[0]] ?? eta.methods[0]
+  const title = eta.methods.length === 1
+    ? `Estimated arrival — ${label}, ±3% flight-time variance`
+    : `Estimated arrival — still could be ${eta.methods.map((m) => TRAVEL_METHOD_LABELS[m] ?? m).join(' / ')}`
+  return (
+    <span title={title} className="text-xs font-mono italic text-blue-600 dark:text-blue-400">
+      {formatTravelEta(eta)}
+    </span>
+  )
+}
+
+function CountdownCell({ until, member }) {
   const [now, setNow] = useState(Math.floor(Date.now() / 1000))
   useEffect(() => {
     const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000)
     return () => clearInterval(id)
   }, [])
+  // Travel has no `until` from Torn (#330) — the estimate is derived instead.
+  if (member && (member.status_state === 'Traveling') && !until) {
+    return <TravelEtaCell member={member} />
+  }
   if (!until) return <span className="text-gray-300 dark:text-gray-700 text-xs">—</span>
   const rem = until - now
   const urgent = rem > 0 && rem < 300
@@ -2147,13 +2211,21 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (activityFilter.size > 0) {
       list = list.filter(m => activityFilter.has(m.last_action_status))
     }
-    // Suspended on our own roster: spies are fetched for the enemy only, so
-    // bsp_total is null for us and an active min/max would empty the table.
+    // Suspended on our own roster until we hold battle stats: spies are fetched
+    // for the enemy only, so bsp_total would be null for everyone and an active
+    // min/max would empty the table.
     if (statsFilterEnabled && statsFilterUsable) {
       const minVal = parseStatInput(statsFilterMin)
       const maxVal = parseStatInput(statsFilterMax)
-      if (minVal !== null) list = list.filter(m => m.bsp_total !== null && m.bsp_total >= minVal)
-      if (maxVal !== null) list = list.filter(m => m.bsp_total !== null && m.bsp_total <= maxVal)
+      // In farm mode a green attack button ALWAYS survives the stats filter
+      // (#366). Those are the only people who can be hit this second, so if a
+      // push starts they are what a lead needs to see — and a filter set for
+      // farming would otherwise quietly remove exactly them. Outside farm mode
+      // the filter is a deliberate targeting tool and is left alone.
+      const farmMode = activeSortCol === 'farm'
+      list = list.filter((m) => passesStatsFilter(m, {
+        min: minVal, max: maxVal, farmMode, isGreen: isGreenTarget(m),
+      }))
     }
 
     const d = sortDir === 'asc' ? 1 : -1
@@ -2175,7 +2247,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           // top by battle stats, everyone else below in the prior ordering.
           // sortDir is intentionally ignored — farm has fixed semantics.
           const farmTarget = m => ({
-            isGreen: m.last_action_status === 'Online' && m.status_state === 'Okay',
+            isGreen: isGreenTarget(m),
             okay: m.status_state === 'Okay',
             until: m.status_until,
             bsp: m.bsp_total,
@@ -2938,7 +3010,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
                         {/* Timer */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
-                          <CountdownCell until={m.status_until} />
+                          <CountdownCell until={m.status_until} member={m} />
                         </td>
 
                         {/* Stats — hover for str/dex/spd/def breakdown + source. */}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { farmCompare } from '../warRoomFarmSort'
+import { farmCompare, isGreenTarget } from '../warRoomFarmSort'
 
 // Normalized farm target (each war-room view adapts its own row shape onto
 // this before comparing):
@@ -53,5 +53,35 @@ describe('farmCompare — farm-mode two-tier sort (#108)', () => {
       'soon', 'later',                      // sub 1
       'other',                              // sub 2
     ])
+  })
+})
+
+describe('isGreenTarget (#366)', () => {
+  const green = { last_action_status: 'Online', status_state: 'Okay' }
+
+  it('is the green attack button: online AND out of hospital', () => {
+    expect(isGreenTarget(green)).toBe(true)
+  })
+
+  it('is false for anyone who cannot be hit right now', () => {
+    expect(isGreenTarget({ last_action_status: 'Online', status_state: 'Hospital' })).toBe(false)
+    expect(isGreenTarget({ last_action_status: 'Offline', status_state: 'Okay' })).toBe(false)
+    expect(isGreenTarget({ last_action_status: 'Idle', status_state: 'Okay' })).toBe(false)
+    expect(isGreenTarget({ last_action_status: 'Online', status_state: 'Traveling' })).toBe(false)
+  })
+
+  it('tolerates a missing row', () => {
+    expect(isGreenTarget(null)).toBe(false)
+    expect(isGreenTarget({})).toBe(false)
+  })
+
+  it('agrees with the tier the farm sort puts them in', () => {
+    // The reason this is shared rather than written twice (#366): the stats
+    // filter must never remove a member the farm sort promotes to the top
+    // tier. Two copies of the predicate would eventually disagree, and the
+    // failure mode is a top-tier target vanishing off the board.
+    const asTarget = (m) => ({ isGreen: isGreenTarget(m), okay: m.status_state === 'Okay', until: null, bsp: 1, okayAt: -1 })
+    const notGreen = { last_action_status: 'Offline', status_state: 'Okay' }
+    expect(farmCompare(asTarget(green), asTarget(notGreen))).toBeLessThan(0)
   })
 })
