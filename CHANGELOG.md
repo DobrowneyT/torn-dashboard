@@ -17,6 +17,103 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.11.0] - 2026-08-08
+
+### Added
+
+- **Our members' battle stats in the War Room Stats column (#353).** #348 had
+  been collecting them daily into `member_battle_stats` with nothing rendering
+  them, so the data landed in the DB and stayed invisible; meanwhile our own
+  roster showed a column of `???` because spies are only fetched for the
+  opponent. The lead-gated `/api/members/battle-stats` rows are now projected
+  onto the `bsp_*` field names the Stats cell, both sorts and the min/max
+  filter already read, so no call site needed an our-faction code path.
+- **The Stats tooltip distinguishes an exact figure from an estimate (#353).**
+  A reading from the member's own key is labelled `OWN` and underlined solid;
+  TornStats (`TS`) and BSP (`BSP`) keep the dotted "this is a guess" treatment.
+  The cell previously knew only two sources, so an exact figure would have been
+  labelled as a prediction.
+
+### Changed
+
+- **The Stats filter works on our own roster (#353)** — but only once the daily
+  sweep has actually run. It stays suspended while we hold no battle stats,
+  because with every total null a min/max carried over from the enemy side
+  would silently empty the table, which is the trap the original suspension
+  existed to prevent.
+
+## [3.10.0] - 2026-08-08
+
+### Added
+
+- **Sortable Energy and cooldown columns on our own roster (#351).** Energy,
+  Drug CD, Medical CD and Booster CD now sort ascending/descending like the
+  other headers. Energy sorts on the current value; cooldowns sort on the
+  **aged** remaining value, matching what the cell renders — the sweep walks
+  keys serially, so ranking the raw stored seconds would produce an order that
+  disagrees with the numbers beside it. Members with no reading sink to the
+  bottom in **both** directions: sorting ascending by energy asks "who is
+  empty", and a member whose key failed is an absence of an answer, not one.
+- **Energy colour gradient (#351).** Red at empty → amber at a full natural bar
+  → green at a stacked 1000, and piecewise rather than linear so the 0-150
+  stretch where nearly everyone sits mid-war gets a full sweep instead of the
+  bottom 15% of one ramp. Replaces a band on `current / maximum`, which
+  collapsed the distinction that matters most — 150/150 and 1000/150 both came
+  out "high", so a roster that had not stacked looked identical to one that
+  had. The amber anchor follows each member's own reported maximum.
+
+### Changed
+
+- **A ready cooldown renders as `0`, not "Ready" (#351).** The column is
+  numeric and scanned vertically; "Ready" was the widest value in it and the
+  only non-numeric one. `—` still means "no reading".
+
+### Fixed
+
+- **A member whose key failed no longer reads as 0 energy (#351).** `Number(null)`
+  is 0, so rows the sweep wrote with a `last_error` and null energy rendered as
+  `0/150` — indistinguishable from a genuinely empty member, and enough to get
+  someone written off for a push. Every numeric read in the module now goes
+  through a guard that keeps null as null, and the gradient leaves those cells
+  grey rather than colouring them red.
+- The war-room empty-state row spanned the wrong number of columns after a
+  forced fall back to the enemy roster, and the sort column persisted across
+  reloads could survive onto a side where that column is not rendered.
+
+## [3.9.1] - 2026-08-08
+
+### Fixed
+
+- **War Room energy never populated while cooldowns worked (#348).** The v2
+  response nests the bars under `bars` but returns `cooldowns` at the **top
+  level**, and `parseMemberStats` read `body.energy`. The parser was written
+  from YATA's v1 code, where selections are flattened — and the test fixture
+  was written in that same v1 shape, so it passed against a parser that could
+  never have worked against the live API. The fixture is now a real captured
+  response, plus a case asserting the two halves cannot diverge again. A
+  flattened body still parses.
+
+### Added
+
+- **Our own members' battle stats (#348).** A daily `member-battle-stats` job
+  fills `member_battle_stats` from three sources, best first and never
+  downgrading: the member's **own key** via
+  `/v2/user?selections=battlestats` (self-only, Limited access — our enrolment
+  floor — so exact and current), then our faction's **TornStats** spy report
+  for anyone without an enrolled key, then a **BSP** estimate for whoever is
+  still unknown. The `source` is stored so an estimate is never presented with
+  the same confidence as a member's own figure.
+- **`GET /api/members/battle-stats`, war leads / leadership / admin only
+  (#348).** Battle stats decide who can hit whom, so they live in their own
+  table with their own role check — folding them into `/api/members` would
+  have exposed them to every authenticated caller, since that route backs
+  every view.
+- **API key disclosure covers battle stats (#348).** `battlestats` is added to
+  the Torn API Calls row, and a new "Battle Stats" row states the daily
+  cadence, that the figures are visible only to war leads / leadership /
+  admins, and that a TornStats or BSP figure is an estimate the dashboard
+  labels as such.
+
 ## [3.9.0] - 2026-08-08
 
 ### Fixed

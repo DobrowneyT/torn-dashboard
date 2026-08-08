@@ -4,6 +4,7 @@ import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   isRosterSide, selectRosterMembers, rosterColumns, rosterColumnCount,
   isStatsFilterAvailable, otherSide, canViewOurRoster, effectiveRosterSide, pollingState,
+  effectiveSortCol,
 } from '../warRoomRosterSide'
 
 const members = [{ member_id: 1, member_name: 'Enemy' }]
@@ -63,11 +64,21 @@ describe('rosterColumnCount', () => {
 })
 
 describe('isStatsFilterAvailable', () => {
-  it('suspends the stats filter on our own faction', () => {
-    // Spies are fetched for the enemy only, so bsp_total is null for us —
-    // an active min/max would silently empty the table on toggle.
-    expect(isStatsFilterAvailable(US)).toBe(false)
+  it('is always available against the opponent', () => {
     expect(isStatsFilterAvailable(THEM)).toBe(true)
+    expect(isStatsFilterAvailable(THEM, 0)).toBe(true)
+  })
+
+  it('opens up on our roster once we hold battle stats (#353)', () => {
+    expect(isStatsFilterAvailable(US, 42)).toBe(true)
+  })
+
+  it('stays suspended on our roster while we hold none', () => {
+    // The original trap is still open before the daily sweep has run, or if
+    // the fetch failed: every bsp_total is null, so an active min/max carried
+    // over from the enemy side would empty the table on toggle.
+    expect(isStatsFilterAvailable(US, 0)).toBe(false)
+    expect(isStatsFilterAvailable(US)).toBe(false)
   })
 })
 
@@ -160,5 +171,40 @@ describe('pollingState (#345)', () => {
     expect(pollingState({ enabled: true })).toMatchObject({ state: 'live', rosterPolling: true })
     expect(pollingState({ enabled: true, rosterIntervalMs: null }))
       .toMatchObject({ state: 'live', rosterPolling: true })
+  })
+})
+
+describe('effectiveSortCol (#351)', () => {
+  it('keeps a shared column on either side', () => {
+    for (const col of ['name', 'activity', 'status', 'timer', 'stats', 'farm']) {
+      expect(effectiveSortCol(col, US)).toBe(col)
+      expect(effectiveSortCol(col, THEM)).toBe(col)
+    }
+  })
+
+  it('keeps the our-roster stat columns while we are on our roster', () => {
+    for (const col of ['energy', 'cooldown_drug', 'cooldown_medical', 'cooldown_booster']) {
+      expect(effectiveSortCol(col, US)).toBe(col)
+    }
+  })
+
+  it('falls back when the sort column does not exist on this side', () => {
+    // sortCol is persisted across reloads, so someone who sorts by energy,
+    // toggles back to the enemy and reloads would otherwise land on a sort
+    // over a column that isn't rendered — every row compares equal and the
+    // header arrow points at nothing.
+    expect(effectiveSortCol('energy', THEM)).toBe('timer')
+    expect(effectiveSortCol('cooldown_drug', THEM)).toBe('timer')
+  })
+
+  it('falls back for a war lead who lost the role mid-session', () => {
+    // effectiveRosterSide already forces them back to THEM; this makes sure
+    // the sort follows rather than stranding the table on a dead comparator.
+    const side = effectiveRosterSide(US, { isWarLead: false })
+    expect(effectiveSortCol('energy', side)).toBe('timer')
+  })
+
+  it('ignores an unrecognised sort column rather than rewriting it', () => {
+    expect(effectiveSortCol('mystery', THEM)).toBe('mystery')
   })
 })

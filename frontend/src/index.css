@@ -58,6 +58,18 @@
     @apply bg-slate-700 border-slate-600 text-gray-100;
   }
 
+  /* War Room energy gradient (#351): red (empty) → amber (full natural bar) →
+     green (stacked for war). The hue is computed per member by energyHue() and
+     set as an inline --energy-hue; only the lightness differs between themes,
+     which is exactly why it can't be a Tailwind class. */
+  .energy-grad {
+    color: hsl(var(--energy-hue, 0) 78% 36%);
+  }
+
+  .dark .energy-grad {
+    color: hsl(var(--energy-hue, 0) 72% 62%);
+  }
+
   /* "Needs manual review" bucket — distinct from any tier color */
   .bg-tier-review {
     @apply bg-gray-500;

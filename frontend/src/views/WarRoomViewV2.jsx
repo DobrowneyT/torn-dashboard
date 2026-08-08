@@ -30,13 +30,16 @@ import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberN
 import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   selectRosterMembers, rosterColumns, rosterColumnCount, isStatsFilterAvailable,
-  canViewOurRoster, effectiveRosterSide, pollingState,
+  canViewOurRoster, effectiveRosterSide, pollingState, effectiveSortCol,
 } from '../utils/warRoomRosterSide'
 import {
-  formatEnergy, energyTone, formatCooldown, remainingCooldown,
-  overdosedByDrugCooldown, statsAgeSeconds, hasStatsError,
+  formatEnergy, energyHue, energyBand, formatCooldown, remainingCooldown,
+  overdosedByDrugCooldown, statsAgeSeconds, hasStatsError, compareMemberStat,
 } from '../utils/warRoomMemberStats'
 import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
+import {
+  indexBattleStats, withBattleStats, statsSourceLabel, isExactStatsSource,
+} from '../utils/warRoomBattleStats'
 
 // Flag glyph tones (#339). The muted revive is the load-bearing one: it must
 // read as a weaker claim than the green one at a glance, not just on hover.
@@ -117,6 +120,10 @@ function formatRelative(ts) {
 //   - `m.bsp_total == null` → render dim "???", no tooltip.
 //   - TornStats source AND ts_spy_at present → age from ts_spy_at, "(TS)".
 //   - BSP source (or unknown) → age from bsp_fetched_at, "(BSP)".
+//   - Own-key source (#353, our own roster only) → age from bsp_fetched_at,
+//     "(OWN)". This one is EXACT rather than an estimate, so it is the only
+//     source that gets a solid underline instead of the dotted "this is a
+//     guess" treatment.
 //   - Breakdown rows render only when the corresponding field is non-null
 //     so BSP-only rows (often no per-stat) just show Total + source.
 function BspCell({ member: m }) {
@@ -129,14 +136,15 @@ function BspCell({ member: m }) {
   }
 
   const isTs = m.spy_source === 'tornstats'
+  const isExact = isExactStatsSource(m.spy_source)
   // ts_spy_at is the real spy capture time; bsp_fetched_at is when we polled.
-  // BSP rows don't have a "real" spy timestamp so we use the fetch time.
-  // Use parseDbTime, not new Date(): the API serves Postgres timestamptz text
-  // with a bare "+00" offset (db.ts) that JS Date rejects → the age showed a
-  // dash even with a real ts_spy_at (#140).
+  // BSP and own-key rows don't have a "real" spy timestamp so we use the fetch
+  // time. Use parseDbTime, not new Date(): the API serves Postgres timestamptz
+  // text with a bare "+00" offset (db.ts) that JS Date rejects → the age showed
+  // a dash even with a real ts_spy_at (#140).
   const ageDate = isTs && m.ts_spy_at ? parseDbTime(m.ts_spy_at) : parseDbTime(m.bsp_fetched_at)
   const ageSourceTs = ageDate ? Math.floor(ageDate.getTime() / 1000) : null
-  const sourceLabel = isTs ? 'TS' : 'BSP'
+  const sourceLabel = statsSourceLabel(m.spy_source)
   const ageLabel = ageSourceTs ? formatRelative(ageSourceTs) : '—'
 
   const rows = [
@@ -153,7 +161,14 @@ function BspCell({ member: m }) {
   // which let every positioned row element paint over it.
   return (
     <span className="relative group inline-block">
-      <span className="font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold cursor-help underline decoration-dotted decoration-gray-400 dark:decoration-slate-600 underline-offset-2">
+      <span
+        title={isExact ? 'Exact — read from this member\'s own key' : undefined}
+        className={`font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold cursor-help underline underline-offset-2 ${
+          isExact
+            ? 'decoration-solid decoration-emerald-500/70'
+            : 'decoration-dotted decoration-gray-400 dark:decoration-slate-600'
+        }`}
+      >
         {formatStats(m.bsp_total)}
       </span>
       <span
@@ -813,25 +828,29 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSourc
 // (— with the error in the tooltip). A war lead planning around "Ready" that
 // actually meant "we couldn't ask" would be planning around a fiction.
 
-const ENERGY_TONE_CLASS = {
-  high: 'text-emerald-600 dark:text-emerald-400 font-semibold',
-  mid: 'text-amber-600 dark:text-amber-400',
-  low: 'text-gray-400 dark:text-gray-500',
-  unknown: 'text-gray-300 dark:text-gray-700',
-}
-
 function MemberEnergyCell({ stats }) {
   const label = formatEnergy(stats)
-  const tone = energyTone(stats)
+  const hue = energyHue(stats)
+  const band = energyBand(stats)
   const age = statsAgeSeconds(stats)
   const errored = hasStatsError(stats)
   const title = errored
     ? `Energy unavailable — this member's key failed: ${stats.last_error}`
     : age == null
       ? 'Energy — no reading yet'
-      : `Energy as of ${age}s ago`
+      : `Energy (${band}) as of ${age}s ago`
+
+  // Grey, not red, when there is no reading (#351): colouring a member we
+  // couldn't ask as "empty" would get them written off for a push.
+  if (hue == null) {
+    return <span title={title} className="text-xs font-mono text-gray-300 dark:text-gray-700">{label}</span>
+  }
   return (
-    <span title={title} className={`text-xs font-mono ${ENERGY_TONE_CLASS[tone]}`}>
+    <span
+      title={title}
+      style={{ '--energy-hue': hue }}
+      className={`energy-grad text-xs font-mono ${band === 'stacked' ? 'font-semibold' : ''}`}
+    >
       {label}
     </span>
   )
@@ -2007,9 +2026,38 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // roster rather than sitting on one they may no longer see.
   const canSeeOurRoster = canViewOurRoster({ isWarLead, isLeadership, isAdmin, isVisitor })
   const effectiveSide = effectiveRosterSide(rosterSide, { isWarLead, isLeadership, isAdmin, isVisitor })
-  const rosterMembers = selectRosterMembers(effectiveSide, { members, ourMembers })
+
+  // Our own members' battle stats (#353). Daily data, so it comes over the
+  // lead-gated REST endpoint rather than the war room's delta channel — that
+  // protocol is for per-second state. Refetched on a slow timer so a board left
+  // open across the 02:45 UTC sweep doesn't sit on yesterday's figures.
+  const [ourBattleStats, setOurBattleStats] = useState({})
+  useEffect(() => {
+    // The server refuses this to anyone who may not see our roster anyway; not
+    // asking keeps a plain member's console free of a 403 every reload.
+    if (!canSeeOurRoster) { setOurBattleStats({}); return undefined }
+    let cancelled = false
+    const load = () => apiGet('/api/members/battle-stats')
+      .then(d => { if (!cancelled) setOurBattleStats(indexBattleStats(d?.battle_stats)) })
+      .catch(() => { /* leave the column as "???" rather than blanking the board */ })
+    load()
+    const id = setInterval(load, 10 * 60 * 1000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [canSeeOurRoster])
+
+  const rawRosterMembers = selectRosterMembers(effectiveSide, { members, ourMembers })
+  // Projected onto the bsp_* names the Stats cell, both sorts and the min/max
+  // filter already read, so none of them needs an our-faction code path.
+  const rosterMembers = useMemo(
+    () => (effectiveSide === US ? withBattleStats(rawRosterMembers, ourBattleStats) : rawRosterMembers),
+    [effectiveSide, rawRosterMembers, ourBattleStats]
+  )
   const columns = rosterColumns(effectiveSide)
-  const statsFilterUsable = isStatsFilterAvailable(effectiveSide)
+  const statsFilterUsable = isStatsFilterAvailable(effectiveSide, Object.keys(ourBattleStats).length)
+  // Energy and the cooldowns only exist on our roster, and sortCol is
+  // persisted — so a lead who sorts by energy, toggles back to the opponent
+  // and reloads must not land on a sort over a column that isn't there (#351).
+  const activeSortCol = effectiveSortCol(sortCol, effectiveSide)
 
   const filtered = useMemo(() => {
     // Update farm-mode transition tracker as a side effect of recomputing.
@@ -2049,8 +2097,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     }
 
     const d = sortDir === 'asc' ? 1 : -1
+    // `now` from the farm tracker above is reused deliberately (#351):
+    // cooldowns are aged against it, and letting each comparison read its own
+    // Date.now() would make the comparator non-transitive mid-sort.
     return list.slice().sort((a, b) => {
-      switch (sortCol) {
+      switch (activeSortCol) {
         case 'name':
           return d * a.member_name.localeCompare(b.member_name)
         case 'activity': {
@@ -2091,10 +2142,22 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         }
         case 'stats':
           return d * ((a.bsp_total ?? -1) - (b.bsp_total ?? -1))
+        // Our-roster live stats (#351). Members with no reading sink to the
+        // bottom in both directions — see compareMemberStat.
+        case 'energy':
+        case 'cooldown_drug':
+        case 'cooldown_medical':
+        case 'cooldown_booster':
+          return compareMemberStat(
+            activeSortCol,
+            memberStats[String(a.member_id)],
+            memberStats[String(b.member_id)],
+            d, now
+          )
         default: return 0
       }
     })
-  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, sortCol, sortDir])
+  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, activeSortCol, sortDir, memberStats])
 
   // ── Mobile War Room adapters ──────────────────────────────────────────────
   // Project the desktop's flat enemy `members` rows onto the prop shape that
@@ -2576,15 +2639,16 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               )}
             </div>
 
-            {/* Stats filter — suspended on our own roster (#335): spies are
-                fetched for the enemy only, so filtering on bsp_total there
-                would silently empty the table. */}
+            {/* Stats filter — works on both sides since #353. Still suspended
+                on our own roster until the daily battle-stats sweep has
+                actually run: with every bsp_total null, a min/max carried over
+                from the enemy side would silently empty the table. */}
             <div className={`flex items-center gap-2 flex-wrap ${statsFilterUsable ? '' : 'opacity-50'}`}>
               <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Stats:</span>
               <button
                 onClick={() => setStatsFilterEnabled(v => !v)}
                 disabled={!statsFilterUsable}
-                title={statsFilterUsable ? undefined : 'Stats filtering needs spy data, which is only collected for the opponent'}
+                title={statsFilterUsable ? undefined : 'No battle stats for our members yet — the daily sweep has not run'}
                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                   statsFilterEnabled && statsFilterUsable
                     ? 'bg-blue-600 text-white'
@@ -2595,7 +2659,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               </button>
               {!statsFilterUsable && (
                 <span className="text-[11px] text-gray-500 dark:text-gray-500">
-                  No spy data for our own members.
+                  No battle stats for our members yet.
                 </span>
               )}
               <input
@@ -2727,23 +2791,26 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               <table className="w-full text-sm border-separate border-spacing-0">
                 <thead>
                   <tr className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    <SortTh col="name"     sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="px-4">Name</SortTh>
-                    <SortTh col="activity" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Activity</SortTh>
-                    <SortTh col="status"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
-                    <SortTh col="timer"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
-                    <SortTh col="stats"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
+                    <SortTh col="name"     sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="px-4">Name</SortTh>
+                    <SortTh col="activity" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Activity</SortTh>
+                    <SortTh col="status"   sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
+                    <SortTh col="timer"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
+                    <SortTh col="stats"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
                     <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Flags</th>
+                    {/* Energy and the cooldowns sort like any other column (#351):
+                        energy on the current value, cooldowns on the AGED
+                        remaining one so the order matches the rendered numbers. */}
                     {columns.energy && (
-                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Energy</th>
+                      <SortTh col="energy" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Energy</SortTh>
                     )}
                     {columns.drugCd && (
-                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Drug CD</th>
+                      <SortTh col="cooldown_drug" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Drug CD</SortTh>
                     )}
                     {columns.medicalCd && (
-                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Medical CD</th>
+                      <SortTh col="cooldown_medical" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Medical CD</SortTh>
                     )}
                     {columns.boosterCd && (
-                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Booster CD</th>
+                      <SortTh col="cooldown_booster" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Booster CD</SortTh>
                     )}
                     {columns.dibs && (
                       <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
@@ -2756,7 +2823,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={rosterColumnCount(rosterSide)} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
+                      <td colSpan={rosterColumnCount(effectiveSide)} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
                         No members match the current filters.
                       </td>
                     </tr>

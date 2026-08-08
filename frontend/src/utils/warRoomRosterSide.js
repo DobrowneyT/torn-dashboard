@@ -72,6 +72,28 @@ export function rosterColumns(side) {
   }
 }
 
+/**
+ * Sort columns that exist only on our own roster (#351).
+ *
+ * Energy and the cooldowns are sortable, but they are also the columns that
+ * disappear on the enemy side — and `sortCol` is persisted across reloads. A
+ * lead who sorts by energy, toggles back to the opponent and reloads would
+ * otherwise be left sorting a column that isn't rendered: every row compares
+ * equal, the order looks arbitrary, and no header carries the arrow.
+ */
+const OUR_ROSTER_SORT_COLS = new Set([
+  'energy', 'cooldown_drug', 'cooldown_medical', 'cooldown_booster',
+])
+
+/** Default to fall back to when the chosen sort column isn't on this side. */
+export const DEFAULT_SORT_COL = 'timer'
+
+/** The sort column actually in effect for a side. */
+export function effectiveSortCol(sortCol, side, fallback = DEFAULT_SORT_COL) {
+  if (side !== US && OUR_ROSTER_SORT_COLS.has(sortCol)) return fallback
+  return sortCol
+}
+
 /** Fixed columns every side shows: name, activity, status, timer, stats, flags. */
 const BASE_COLUMN_COUNT = 6
 
@@ -84,13 +106,17 @@ export function rosterColumnCount(side) {
 /**
  * Is the battle-stats filter usable on this side?
  *
- * No, for us: spies are fetched for the ENEMY only, so `bsp_total` is null for
- * our members. Leaving the filter live would silently empty the table the moment
- * anyone toggled over with a min/max set — the filter has to be suspended, not
- * merely ignored.
+ * It was flatly unavailable on our own roster until #353: spies are fetched for
+ * the ENEMY only, so `bsp_total` was null for every one of our members and an
+ * active min/max would silently empty the table the moment anyone toggled over.
+ *
+ * Our members now carry their own battle stats (#348), but only once the daily
+ * sweep has actually run — before that, or if the fetch failed, we hold nothing
+ * and the original trap is still open. So the answer is conditional rather than
+ * a flat yes: usable on our side exactly when we have stats for someone.
  */
-export function isStatsFilterAvailable(side) {
-  return side !== US
+export function isStatsFilterAvailable(side, ourBattleStatsCount = 0) {
+  return side !== US || ourBattleStatsCount > 0
 }
 
 /** Cycle target for the toggle button. */
