@@ -1995,10 +1995,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // re-read on session refresh), and must fall straight back to the enemy
   // roster rather than sitting on one they may no longer see.
   const canSeeOurRoster = canViewOurRoster({ isWarLead, isLeadership, isAdmin, isVisitor })
-  // 0 = off. Server-side cadence, so it takes effect on the next tick without
-  // restarting the war room (the ticker re-reads config every second).
-  const memberStatsIntervalSec = Number(config?.member_stats_poll_interval_sec ?? 0)
-  const memberStatsEnabled = memberStatsIntervalSec > 0
   const effectiveSide = effectiveRosterSide(rosterSide, { isWarLead, isLeadership, isAdmin, isVisitor })
   const rosterMembers = selectRosterMembers(effectiveSide, { members, ourMembers })
   const columns = rosterColumns(effectiveSide)
@@ -2453,7 +2449,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Showing:</span>
               {[
                 { side: THEM, label: resolvedName ?? 'Opponent' },
-                { side: US,   label: 'Our faction' },
+                // Our real faction name, to match how the opponent is labelled
+                // — "Our faction" read as a generic control rather than a side.
+                { side: US,   label: getFactionIdentity().name || 'Our faction' },
               ].map(({ side, label }) => (
                 <button
                   key={side}
@@ -2468,13 +2466,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   {label}
                 </button>
               ))}
-              {effectiveSide === US && (
-                <span className="text-[11px] text-gray-500 dark:text-gray-500">
-                  {memberStatsEnabled
-                    ? `Live energy and cooldowns, refreshed every ${memberStatsIntervalSec}s. Dibs and attacks don't apply.`
-                    : 'Hospital and travel timers only — live stats polling is off (enable it in War Room settings).'}
-                </span>
-              )}
             </div>
             )}
 
@@ -2956,12 +2947,12 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 ? `Updated ${Math.round((Date.now() - lastFetched) / 1000)}s ago`
                 : ''}
             </span>
+            {/* Poll cadences used to be printed here (#341). They are
+                diagnostic detail — every viewer had to read them, and only an
+                admin can act on them, from War Room settings. The paused state
+                still shows, because that changes how you read the timers. */}
             <span className="justify-self-end text-right">
-              {isActive
-                ? `Roster: every ${(config?.roster_poll_interval_ms ?? 1000) / 1000}s · Our chain: every ${config?.chain_poll_interval_ours_sec ?? 5}s`
-                  + ` · Enemy chain: every ${config?.chain_poll_interval_enemy_sec ?? 30}s`
-                  + (memberStatsEnabled ? ` · Member stats: every ${memberStatsIntervalSec}s` : '')
-                : 'Static snapshot · Enable to refresh'}
+              {isActive ? '' : 'Static snapshot · Enable to refresh'}
             </span>
           </div>
         </div>

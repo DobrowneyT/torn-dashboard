@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   ROSTER_POLL_MIN_MS, ROSTER_POLL_MAX_MS, ROSTER_POLL_DEFAULT_MS,
   TICKER_HEARTBEAT_MS, rosterPollDue,
+  minSustainableIntervalMs, safeRosterIntervalMs,
 } from '../src/warRoomRosterPoll.js'
 import { CONFIG_BOUNDS, clampConfigValue } from '../src/warRoomConfigBounds.js'
 
@@ -93,5 +94,59 @@ describe('roster_poll_interval_ms in CONFIG_BOUNDS', () => {
   it('rejects non-numeric input', () => {
     expect(clampConfigValue(field, '')).toMatchObject({ ok: false })
     expect(clampConfigValue(field, true)).toMatchObject({ ok: false })
+  })
+})
+
+describe('minSustainableIntervalMs (#341)', () => {
+  it('holds a one-key pool to 1.5s', () => {
+    // Two calls per sync on ONE key: at 1s that is 120 calls/min against
+    // Torn's 100/min limit. This is the case that froze the board.
+    expect(minSustainableIntervalMs(1)).toBe(1500)
+  })
+
+  it('lets a larger pool go faster, down to the absolute floor', () => {
+    expect(minSustainableIntervalMs(2)).toBe(750)
+    expect(minSustainableIntervalMs(3)).toBe(ROSTER_POLL_MIN_MS)
+    expect(minSustainableIntervalMs(50)).toBe(ROSTER_POLL_MIN_MS)
+  })
+
+  it('never returns faster than the absolute floor however large the pool', () => {
+    expect(minSustainableIntervalMs(10_000)).toBe(ROSTER_POLL_MIN_MS)
+  })
+
+  it('treats a missing or nonsense pool size as one key', () => {
+    // Fail toward the SLOWEST assumption — the failure mode of guessing high
+    // is a frozen board.
+    expect(minSustainableIntervalMs(0)).toBe(1500)
+    expect(minSustainableIntervalMs(NaN)).toBe(1500)
+    expect(minSustainableIntervalMs(-5)).toBe(1500)
+  })
+})
+
+describe('safeRosterIntervalMs (#341)', () => {
+  it('overrides a cadence the pool cannot sustain', () => {
+    // The exact reported failure: 0.5s configured against a small pool.
+    expect(safeRosterIntervalMs(500, 1)).toBe(1500)
+    expect(safeRosterIntervalMs(500, 2)).toBe(750)
+  })
+
+  it('honours a cadence the pool can sustain', () => {
+    expect(safeRosterIntervalMs(500, 3)).toBe(500)
+    expect(safeRosterIntervalMs(5000, 1)).toBe(5000)
+  })
+
+  it('never speeds a slow setting up', () => {
+    // The override is a floor, not a target — a lead who asked for 10s during
+    // a termed war must still get 10s on a 50-key pool.
+    expect(safeRosterIntervalMs(10_000, 50)).toBe(10_000)
+  })
+
+  it('falls back to the default when unset, still respecting the pool', () => {
+    expect(safeRosterIntervalMs(null, 5)).toBe(ROSTER_POLL_DEFAULT_MS)
+    expect(safeRosterIntervalMs(0, 1)).toBe(1500)
+  })
+
+  it('still caps at the ceiling', () => {
+    expect(safeRosterIntervalMs(999_999, 5)).toBe(ROSTER_POLL_MAX_MS)
   })
 })
