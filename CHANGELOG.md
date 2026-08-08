@@ -17,6 +17,120 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-08-08
+
+### Added
+
+- **Configurable roster refresh, floored at 2 Hz (#339).** How often the server
+  re-reads both rosters from Torn is now a setting (`roster_poll_interval_ms`,
+  default 1000) rather than a hardcoded 1 Hz — turn it down during a termed war
+  so a per-second sweep of both factions stops burning API calls, or push it to
+  0.5s during a live chain. 500ms is a hard floor enforced in the clamp table
+  *and* in the ticker's gate, since each sweep is two Torn calls. This is the
+  control the old "UI Refresh" slider appeared to be: that one was client-side
+  and wired to nothing, and no server setting for the roster existed at all.
+- **Overdose flag on the roster (#339).** Combines both detectors: the hospital
+  status flag (#199), certain but only while the member is still in hospital,
+  and the drug cooldown over 10h (#336), which survives release.
+
+### Changed
+
+- **The revivable flag now says who can actually revive (#339).** Torn has
+  three revive privacy settings and `is_revivable` collapses them. Since we
+  hire **outside** revivers, a target on "Friends & faction" is revivable in
+  Torn's sense but not by anyone we can pay — the old single flag sent leads
+  chasing revives that could not happen. Now: green for `Everyone` (a hired
+  reviver works), muted for `Friends & faction` (their own side only), nothing
+  for `No one`, and an unknown setting degrades to the weaker claim. The data
+  was already stored; the UI was ignoring it.
+- **Removed the "In OC" flag from the War Room (#339).** Being in an organised
+  crime never affected whether a member could be hit or revived, and the flags
+  column is scanned rather than read. Gone from desktop and mobile.
+
+## [3.7.0] - 2026-08-08
+
+### Added
+
+- **Live energy and drug/medical/booster cooldowns for our own members
+  (#336).** The our-faction roster now shows each member's current energy and
+  all three cooldowns, replacing the placeholders shipped with #335. Torn
+  exposes `bars` and `cooldowns` as self-only selections — there is no
+  `/v2/user/{id}` variant — so this is one `GET
+  /v2/user?selections=bars,cooldowns` per member using that member's own pooled
+  key. A new **Member Stats** cadence in War Room settings controls it: `0`
+  disables it entirely (the default, since it costs one Torn call per enrolled
+  member per cycle) and any enabled value is floored at 30s, server-side as
+  well as in the UI. The sweep only runs while the war room is enabled, and
+  runs detached from the 1 Hz tick so a full roster walk never stalls the
+  board.
+- **Overdose detection that outlives the hospital stay (#336).** A drug
+  cooldown over 10h can only be an overdose — a xanax tops out around 8h — so
+  the Drug CD cell flags it. This complements rather than replaces the existing
+  hospital-status flag (#199): that one is direct but disappears the moment the
+  member is released, while a crippling cooldown persists long after.
+
+### Changed
+
+- **The our-faction roster is now war-lead only (#336).** Live energy and drug
+  state say when a teammate is playing and whether they are mid-overdose, so
+  the "Showing:" toggle is restricted to war leads, leadership and admins
+  (never visitors), matching the member-notes guard. This is enforced on the
+  **server**: the data lives in its own table on its own delta channel, which
+  the WebSocket hub withholds from non-lead sockets and
+  `GET /api/war-room/delta` never reads for a non-lead. Hiding the columns in
+  the UI would still have shipped every member's energy to every browser.
+- **API key disclosure now names the live-stats collection (#336).** A new
+  "Live War Stats" row states in plain language that energy and drug/medical/
+  booster cooldowns are read from your own key at most every 30 seconds while a
+  war room is active, that a long drug cooldown is surfaced as an overdose
+  indicator, that this is visible to war leads rather than the whole faction,
+  and that the nerve/happy/life bars returned by the same call are discarded.
+  `bars` and `cooldowns` are added to the Torn API Calls row.
+
+### Fixed
+
+- **War Room footer reported poll cadences that could not be right (#336).** It
+  labelled a client-side slider as the enemy chain rate and hardcoded "Ours:
+  every 30s", so the two numbers a lead would check to confirm a cadence change
+  had taken effect were the two that never reflected it. The footer now reads
+  the real server-side values from config. (Server cadences take effect
+  immediately — the ticker re-reads config every second — so no war-room
+  restart is or ever was needed.)
+- **Removed the inert "UI Refresh" poll-rate control (#336).** It had done
+  nothing since the API-mode collapse: the board is push-driven over the
+  WebSocket and the value was passed to `useWarRoomSocket` as `intervalMs`,
+  which the hook never read. Removed from both the desktop config panel and the
+  mobile leadership sheet; the slot now holds the Member Stats cadence, which
+  is live.
+- **The roster-side toggle was unreachable with no opponent loaded (#336).**
+  #335 put the toggle in the filters card, which renders only when the *enemy*
+  roster has members — so between wars, or before Save & Fetch, the way to view
+  our own faction did not exist, and the table sat on "Waiting for first poll…"
+  even though our members were loaded. The filters card and the roster table
+  now key off either roster, and the empty state follows the side actually
+  being shown.
+- **"Find Target ID range" popover opened underneath the sticky header
+  (#336).** A regression from #331: the popover was `z-20`, the same as the
+  headers it needed to cover, and an equal `z-index` falls back to DOM order —
+  which the header wins. Raised to `z-30`, matching the sibling popovers and
+  the invariant #331 already documented.
+
+## [3.6.0] - 2026-08-07
+
+### Added
+
+- **War Room roster can switch to our own faction (#335).** A "Showing:" toggle
+  above the roster swaps the table between the opponent and our own members, so
+  leads can see who is in hospital or flying and when they are back without
+  leaving the room. No backend work: the ticker already polls both factions and
+  the socket hook already splits them, so this selects which roster feeds the
+  table. Dibs and Attack are hidden on our side (you cannot claim or hit a
+  team-mate) and Energy / Booster CD columns take their place as placeholders
+  until #336 collects that data. The stats filter is suspended on our roster —
+  spy data is only fetched for the opponent. Surge alerts and the spy auto-fetch
+  keep tracking the enemy regardless of what is displayed, and the toggle resets
+  to the opponent on reload.
+
 ### Fixed
 
 - **War Room sticky header no longer has row content painted over it (#331).**

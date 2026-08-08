@@ -27,6 +27,25 @@ import {
 import { apiGet, apiPut } from '../utils/apiClient'
 import MemberNoteButton from '../components/warroom/MemberNoteButton'
 import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberNotes'
+import {
+  THEM, US, DEFAULT_ROSTER_SIDE,
+  selectRosterMembers, rosterColumns, rosterColumnCount, isStatsFilterAvailable,
+  canViewOurRoster, effectiveRosterSide,
+} from '../utils/warRoomRosterSide'
+import {
+  formatEnergy, energyTone, formatCooldown, remainingCooldown,
+  overdosedByDrugCooldown, statsAgeSeconds, hasStatsError,
+} from '../utils/warRoomMemberStats'
+import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
+
+// Flag glyph tones (#339). The muted revive is the load-bearing one: it must
+// read as a weaker claim than the green one at a glance, not just on hover.
+const FLAG_TONE_CLASS = {
+  good: 'text-emerald-600 dark:text-emerald-400',
+  muted: 'opacity-40',
+  bad: 'text-red-600 dark:text-red-400',
+  info: '',
+}
 import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
 import { isWarLead as checkWarLead } from '../config'
 import { getFactionId, getFactionIdentity } from '../utils/factionIdentity'
@@ -712,8 +731,11 @@ function FindTargetButton() {
       >
         <Settings className="w-3 h-3" />
       </button>
+      {/* z-30, not z-20: the sticky table header is z-20 (#331), and an equal
+          z-index falls back to DOM order — the header comes later in the DOM,
+          so it won and this popover opened underneath it. */}
       {settingsOpen && (
-        <div className="absolute top-full right-0 mt-1 z-20 p-3 rounded-lg shadow-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 w-64 space-y-2">
+        <div className="absolute top-full right-0 mt-1 z-30 p-3 rounded-lg shadow-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 w-64 space-y-2">
           <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">Find Target ID range</div>
           <div className="flex items-center gap-2">
             <label className="text-xs text-gray-500 dark:text-gray-400 w-8">Min</label>
@@ -785,6 +807,66 @@ function QuickLinksBar({ reviveServiceName, reviveServiceUrl, reviveServiceSourc
 // over the header as it scrolled underneath (#331). z-20 lifts the header above
 // row content while staying below the z-30/z-40 popovers, which open downward
 // and are meant to cover it.
+// ── Our-roster live stats cells (#336) ───────────────────────────────────────
+// Both cells distinguish three states that must never look alike: no reading
+// yet (—), a reading of zero (Ready / 0), and a member whose own key failed
+// (— with the error in the tooltip). A war lead planning around "Ready" that
+// actually meant "we couldn't ask" would be planning around a fiction.
+
+const ENERGY_TONE_CLASS = {
+  high: 'text-emerald-600 dark:text-emerald-400 font-semibold',
+  mid: 'text-amber-600 dark:text-amber-400',
+  low: 'text-gray-400 dark:text-gray-500',
+  unknown: 'text-gray-300 dark:text-gray-700',
+}
+
+function MemberEnergyCell({ stats }) {
+  const label = formatEnergy(stats)
+  const tone = energyTone(stats)
+  const age = statsAgeSeconds(stats)
+  const errored = hasStatsError(stats)
+  const title = errored
+    ? `Energy unavailable — this member's key failed: ${stats.last_error}`
+    : age == null
+      ? 'Energy — no reading yet'
+      : `Energy as of ${age}s ago`
+  return (
+    <span title={title} className={`text-xs font-mono ${ENERGY_TONE_CLASS[tone]}`}>
+      {label}
+    </span>
+  )
+}
+
+function MemberCooldownCell({ stats, field, label }) {
+  // Aged against the clock: the stored value is seconds-remaining as of the
+  // sweep, so it is already stale by the time it renders.
+  const remaining = remainingCooldown(stats?.[field], stats?.fetched_at)
+  const errored = hasStatsError(stats)
+  const overdosed = field === 'cooldown_drug' && overdosedByDrugCooldown(stats)
+
+  const title = errored
+    ? `${label} cooldown unavailable — this member's key failed: ${stats.last_error}`
+    : overdosed
+      ? `${label} cooldown over 10h — this member has OVERDOSED`
+      : `${label} cooldown`
+
+  // Overdose is the one thing on this row worth interrupting a scan for.
+  const cls = overdosed
+    ? 'text-red-600 dark:text-red-400 font-semibold'
+    : remaining == null
+      ? 'text-gray-300 dark:text-gray-700'
+      : remaining === 0
+        ? 'text-gray-400 dark:text-gray-500'
+        : 'text-gray-600 dark:text-gray-300'
+
+  return (
+    <span title={title} className={`text-xs font-mono ${cls}`}>
+      {formatCooldown(remaining)}
+      {overdosed && <span className="ml-1 not-italic" aria-label="overdosed">OD</span>}
+    </span>
+  )
+}
+
 function SortTh({ col, sortCol, sortDir, onSort, children, className = '' }) {
   const active = sortCol === col
   return (
@@ -808,7 +890,6 @@ function ConfigPanel({
   config,
   isActive, toggling, onToggleEnabled,
   updatingSpies, onUpdateSpies,
-  pollIntervalSec, onPollIntervalChange,
   onSaveAndFetch, onSaveReviveService, onSaveReviveList, onClearState,
 }) {
   const [factionId, setFactionId] = useState(String(config?.faction_id ?? ''))
@@ -871,6 +952,53 @@ function ConfigPanel({
     if (next === (config?.dibs_expiry_seconds ?? 30)) return
     try { await onSaveReviveService({ dibs_expiry_seconds: next }); setMsg({ ok: true, text: `Dibs auto-drop set to ${next}s.` }) }
     catch (e) { setMsg({ ok: false, text: e.message }) }
+  }
+
+  // Roster refresh cadence (#339). Stored in MILLISECONDS but edited in
+  // seconds, because sub-second is the whole point: leads push this to 0.5s
+  // (2 Hz) during a live chain and pull it back to several seconds for a
+  // termed war so a 1 Hz sweep of both rosters stops burning Torn calls.
+  // Unlike the old "UI Refresh" slider this is a SERVER setting, so it really
+  // does change how often we call Torn — and it applies on the next tick.
+  const [rosterSec, setRosterSec] = useState(
+    String((config?.roster_poll_interval_ms ?? 1000) / 1000)
+  )
+  useEffect(() => {
+    setRosterSec(String((config?.roster_poll_interval_ms ?? 1000) / 1000))
+  }, [config?.roster_poll_interval_ms])
+  async function commitRosterSec() {
+    const asMs = Math.round((Number(rosterSec) || 1) * 1000)
+    const next = Math.min(60_000, Math.max(500, asMs))
+    if (next === (config?.roster_poll_interval_ms ?? 1000)) return
+    try {
+      await onSaveReviveService({ roster_poll_interval_ms: next })
+      setMsg({ ok: true, text: `Roster refresh set to ${next / 1000}s (${(1000 / next).toFixed(1)} Hz).` })
+    } catch (e) { setMsg({ ok: false, text: e.message }) }
+  }
+
+  // Our-members live stats sweep (#336): how often the server walks every
+  // enrolled member's own key for energy + cooldowns. 0 = off; anything else
+  // floors at 30s, because this costs ONE Torn call per member per cycle.
+  // Server clamps identically (CONFIG_BOUNDS) — this is the typo guard.
+  const [memberStatsSec, setMemberStatsSec] = useState(String(config?.member_stats_poll_interval_sec ?? 0))
+  useEffect(() => {
+    setMemberStatsSec(String(config?.member_stats_poll_interval_sec ?? 0))
+  }, [config?.member_stats_poll_interval_sec])
+  async function commitMemberStats() {
+    const raw = Math.floor(Number(memberStatsSec) || 0)
+    // Mirror the server's zero-or-floor rule: 0 stays off, anything positive
+    // is raised to the 30s floor rather than being silently discarded.
+    const next = raw <= 0 ? 0 : Math.min(600, Math.max(30, raw))
+    if (next === (config?.member_stats_poll_interval_sec ?? 0)) return
+    try {
+      await onSaveReviveService({ member_stats_poll_interval_sec: next })
+      setMsg({
+        ok: true,
+        text: next === 0
+          ? 'Member stats polling disabled — no per-member Torn calls.'
+          : `Member stats polling set to ${next}s (one call per member per cycle).`,
+      })
+    } catch (e) { setMsg({ ok: false, text: e.message }) }
   }
 
   // PUSH-surge alerts (#208): a global on/off plus per-direction rate thresholds
@@ -989,16 +1117,24 @@ function ConfigPanel({
         >
           {updatingSpies ? '⏳ Fetching…' : '🔍 Update Spies'}
         </button>
+        {/* Roster Refresh (#339) — the control the old "UI Refresh" slider
+            pretended to be. That one was client-side and inert since the
+            API-mode collapse; this one is the server cadence, so turning it
+            down genuinely cuts Torn calls. Floor 0.5s = 2 Hz. */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">UI Refresh</label>
-          <div className="flex items-center gap-1.5" title="How often the UI re-reads the DB (delta poll). Torn API polling is now centralised server-side via pg_cron at 500ms — this slider only controls UI freshness from DB.">
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Roster Refresh</label>
+          <div
+            className="flex items-center gap-1.5"
+            title="How often the server re-reads BOTH rosters from Torn (two calls per sweep). Lower it during a termed war to save API calls; 0.5s (2 Hz) is the hard floor. Takes effect on the next tick — no need to restart the war room."
+          >
             <input
               type="number"
               min={0.5}
               max={60}
               step={0.5}
-              value={pollIntervalSec}
-              onChange={e => onPollIntervalChange(e.target.value)}
+              value={rosterSec}
+              onChange={e => setRosterSec(e.target.value)}
+              onBlur={commitRosterSec}
               className="w-16 px-2 py-1.5 text-sm text-center border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <span className="text-xs text-gray-400 dark:text-gray-500">s</span>
@@ -1080,6 +1216,28 @@ function ConfigPanel({
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="30"
             title="How often the server polls the enemy faction's chain endpoint. Clamped to 1–600s. Pauses while enemy is in cooldown."
+            className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        {/* Member stats sweep (#336) — sits with the other server cadences.
+            0 = off, and it is the only one here that can be switched off
+            entirely: it is the only one whose cost scales with roster size
+            (one Torn call per enrolled member per cycle). */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Member stats <span className="text-gray-400 dark:text-gray-600">(s, 0 = off)</span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={600}
+            step={30}
+            value={memberStatsSec}
+            onChange={e => setMemberStatsSec(e.target.value)}
+            onBlur={commitMemberStats}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="0"
+            title="How often the server refreshes OUR members' energy and drug/medical/booster cooldowns, using each member's own key. One Torn call per enrolled member per cycle, so 0 disables it and the minimum when enabled is 30s. Only runs while the war room is enabled."
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -1198,7 +1356,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Sets are stored as arrays so JSON.stringify can round-trip them.
   const [persistedState, setPersistedState] = useViewState('warroom_desktop_v2')
 
-  const [pollIntervalSec, setPollIntervalSec] = useState(() => persistedState.pollIntervalSec ?? 3)
 
   // ── v2 data layer ──
   // useWarRoomPoll owns config/members/ourMembers/dibs and refreshes via
@@ -1240,6 +1397,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     members: rawMembers,
     ourMembers,
     dibs,
+    memberStats,
     config,
     chain,
     isInitialLoading: configLoading,
@@ -1249,7 +1407,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   } = useWarRoomSocket({
     // API mode rides the WebSocket (intervalMs applies only to the legacy
     // polling transport and the REST fallback); legacy builds poll as before.
-    intervalMs: Math.max(500, Math.round(pollIntervalSec * 1000)),
     enabled: !!user,
     ourFactionId: OUR_FACTION_ID,
     onAlert: onSurgeAlert,
@@ -1306,6 +1463,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const [savingNotes, setSavingNotes]   = useState(false)
   const [notesError, setNotesError]     = useState(null)
   const canBypass = isLeadership || isAdmin || isWarLead
+
+  // Which faction the roster table shows (#335). Deliberately NOT persisted:
+  // finding the target list empty mid-war because the toggle was left flipped
+  // in a previous session is a worse failure than re-clicking it.
+  const [rosterSide, setRosterSide] = useState(DEFAULT_ROSTER_SIDE)
 
   // Stats filter
   const [statsFilterEnabled, setStatsFilterEnabled] = useState(() => persistedState.statsFilterEnabled ?? false)
@@ -1423,11 +1585,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       statsFilterMax,
       sortCol,
       sortDir,
-      pollIntervalSec,
       leadershipPanelOpen,
       notesPanelOpen,
     })
-  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir, pollIntervalSec, leadershipPanelOpen, notesPanelOpen, setPersistedState])
+  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir, leadershipPanelOpen, notesPanelOpen, setPersistedState])
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -1828,9 +1989,28 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const prevStatesRef = useRef(new Map())  // member_id → previous status_state
   const okayAtRef     = useRef(new Map())  // member_id → ms-since-epoch first observed as Okay
 
+  // The roster the table renders, and which optional columns come with it.
+  // Resolve the side through the permission check on EVERY render (#336): a
+  // viewer can lose the war-lead role while the board is open (roles are
+  // re-read on session refresh), and must fall straight back to the enemy
+  // roster rather than sitting on one they may no longer see.
+  const canSeeOurRoster = canViewOurRoster({ isWarLead, isLeadership, isAdmin, isVisitor })
+  // 0 = off. Server-side cadence, so it takes effect on the next tick without
+  // restarting the war room (the ticker re-reads config every second).
+  const memberStatsIntervalSec = Number(config?.member_stats_poll_interval_sec ?? 0)
+  const memberStatsEnabled = memberStatsIntervalSec > 0
+  const effectiveSide = effectiveRosterSide(rosterSide, { isWarLead, isLeadership, isAdmin, isVisitor })
+  const rosterMembers = selectRosterMembers(effectiveSide, { members, ourMembers })
+  const columns = rosterColumns(effectiveSide)
+  const statsFilterUsable = isStatsFilterAvailable(effectiveSide)
+
   const filtered = useMemo(() => {
     // Update farm-mode transition tracker as a side effect of recomputing.
     // Cheap and safe — the refs are only read by the sort below.
+    //
+    // NOTE: this tracker always walks the ENEMY `members`, never the displayed
+    // roster. Feeding it our own faction would pollute the just-released
+    // timestamps keyed by member_id and corrupt farm ordering on the way back.
     const prev = prevStatesRef.current
     const okayAt = okayAtRef.current
     const now = Date.now()
@@ -1844,7 +2024,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       prev.set(m.member_id, m.status_state)
     }
 
-    let list = members
+    let list = rosterMembers
 
     if (statusFilter.size > 0) {
       list = list.filter(m => statusFilter.has(stateToFilterKey(m.status_state, m.status_description)))
@@ -1852,7 +2032,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (activityFilter.size > 0) {
       list = list.filter(m => activityFilter.has(m.last_action_status))
     }
-    if (statsFilterEnabled) {
+    // Suspended on our own roster: spies are fetched for the enemy only, so
+    // bsp_total is null for us and an active min/max would empty the table.
+    if (statsFilterEnabled && statsFilterUsable) {
       const minVal = parseStatInput(statsFilterMin)
       const maxVal = parseStatInput(statsFilterMax)
       if (minVal !== null) list = list.filter(m => m.bsp_total !== null && m.bsp_total >= minVal)
@@ -1905,12 +2087,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         default: return 0
       }
     })
-  }, [members, statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir])
+  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, sortCol, sortDir])
 
   // ── Mobile War Room adapters ──────────────────────────────────────────────
   // Project the desktop's flat enemy `members` rows onto the prop shape that
   // MobileWarRoomView expects. Pure renaming — no transformation. The mobile
   // component is presentational; all polling/realtime stays in this parent.
+  //
+  // Deliberately stays on the ENEMY roster: the roster-side toggle (#335) is a
+  // desktop control, and having the mobile overlay silently follow a switch it
+  // cannot show would be worse than not following it. Wiring mobile up needs
+  // its own toggle in that component — tracked on #335.
   const mobileMembers = useMemo(() => members.map(m => ({
     id:           m.member_id,
     name:         m.member_name,
@@ -1932,9 +2119,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     spySource:    m.spy_source,
     tsSpyAt:      m.ts_spy_at,
     flags: {
-      revivable:      !!m.is_revivable,
+      // #339: inOc dropped — it never affected whether a member could be hit
+      // or revived. reviveAudience distinguishes "anyone can revive" (a hired
+      // reviver works) from "friends & faction only" (one cannot).
+      reviveAnyone:   reviveAudience(m) === 'anyone',
+      reviveFriends:  reviveAudience(m) === 'friends',
       earlyDischarge: !!m.has_early_discharge,
-      inOc:           !!m.is_in_oc,
+      overdosed:      isOverdosedAnySource(m, null),
       onWall:         !!m.is_on_wall,
     },
   })), [members])
@@ -2031,6 +2222,16 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
   const isActive   = !!config?.enabled
   const hasMembers = members.length > 0
+  // Whether the SHOWN roster has anyone, and whether either does (#336).
+  //
+  // hasMembers is the ENEMY roster specifically, and several things below
+  // rightly key off that. But the roster-side toggle and the table must not:
+  // gating them on the enemy meant that with no opponent loaded — between
+  // wars, or before Save & Fetch, which is exactly when you would want to
+  // check your own members — the toggle did not render at all and the table
+  // sat on "Waiting for first poll…" even though our own roster was loaded.
+  const hasAnyMembers = members.length > 0 || ourMembers.length > 0
+  const hasRosterMembers = rosterMembers.length > 0
 
   const resolvedName = factionName ?? config?.faction_name
   const factionLabel = resolvedName
@@ -2191,8 +2392,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             onToggleEnabled={toggleEnabled}
             updatingSpies={updatingSpies}
             onUpdateSpies={handleUpdateSpies}
-            pollIntervalSec={pollIntervalSec}
-            onPollIntervalChange={(v) => setPollIntervalSec(Math.max(0.5, Number(v) || 0.5))}
             onSaveAndFetch={handleSaveAndFetch}
             onSaveReviveService={handleSaveReviveService}
             onSaveReviveList={handleSaveReviveList}
@@ -2228,8 +2427,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         )}
       </div>
 
-      {/* Filters — their own card below the controls. */}
-      {hasMembers && (
+      {/* Filters — their own card below the controls. Keyed off EITHER roster
+          (#336): this card holds the roster-side toggle, so gating it on the
+          enemy hid the way to reach our own members precisely when no opponent
+          was loaded. */}
+      {hasAnyMembers && (
         <div data-tour="filters" className="card flex flex-col gap-2">
             {/* Leader headline composer (#197 layout) — post/clear the headline
                 from here; the banner itself renders above the roster. */}
@@ -2239,6 +2441,43 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 <HeadlineBanner config={config} canManage mode="composer" />
               </div>
             )}
+            {/* Roster side (#335) — swap the table between the opponent and our
+                own faction. Both rosters already arrive on the same stream, so
+                the switch itself is purely a view change: alerts and spy
+                fetching keep tracking the enemy regardless of what is on
+                screen. War leads only (#336), because our side carries live
+                energy and drug cooldowns. The server enforces this too — the
+                toggle disappearing is a courtesy, not the control. */}
+            {canSeeOurRoster && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Showing:</span>
+              {[
+                { side: THEM, label: resolvedName ?? 'Opponent' },
+                { side: US,   label: 'Our faction' },
+              ].map(({ side, label }) => (
+                <button
+                  key={side}
+                  onClick={() => setRosterSide(side)}
+                  aria-pressed={effectiveSide === side}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                    effectiveSide === side
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+              {effectiveSide === US && (
+                <span className="text-[11px] text-gray-500 dark:text-gray-500">
+                  {memberStatsEnabled
+                    ? `Live energy and cooldowns, refreshed every ${memberStatsIntervalSec}s. Dibs and attacks don't apply.`
+                    : 'Hospital and travel timers only — live stats polling is off (enable it in War Room settings).'}
+                </span>
+              )}
+            </div>
+            )}
+
             <div className="flex flex-wrap gap-y-2 gap-x-4 items-center">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Status:</span>
@@ -2315,19 +2554,28 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               )}
             </div>
 
-            {/* Stats filter */}
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Stats filter — suspended on our own roster (#335): spies are
+                fetched for the enemy only, so filtering on bsp_total there
+                would silently empty the table. */}
+            <div className={`flex items-center gap-2 flex-wrap ${statsFilterUsable ? '' : 'opacity-50'}`}>
               <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Stats:</span>
               <button
                 onClick={() => setStatsFilterEnabled(v => !v)}
+                disabled={!statsFilterUsable}
+                title={statsFilterUsable ? undefined : 'Stats filtering needs spy data, which is only collected for the opponent'}
                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                  statsFilterEnabled
+                  statsFilterEnabled && statsFilterUsable
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
-                }`}
+                } ${statsFilterUsable ? '' : 'cursor-not-allowed'}`}
               >
-                {statsFilterEnabled ? 'On' : 'Off'}
+                {statsFilterEnabled && statsFilterUsable ? 'On' : 'Off'}
               </button>
+              {!statsFilterUsable && (
+                <span className="text-[11px] text-gray-500 dark:text-gray-500">
+                  No spy data for our own members.
+                </span>
+              )}
               <input
                 type="text"
                 placeholder="Min (e.g. 3m)"
@@ -2439,13 +2687,18 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         </div>
       )}
 
-      {/* Member table — shown whenever members exist, or when active (so "waiting…" shows) */}
-      {(hasMembers || isActive) ? (
+      {/* Member table — shown whenever either roster has members, or when
+          active (so "waiting…" shows). The empty state follows the SHOWN side
+          (#336), so switching to our faction with no opponent loaded renders
+          our members instead of an enemy-flavoured "waiting" panel. */}
+      {(hasAnyMembers || isActive) ? (
         <div data-tour="roster" className="card p-0 overflow-hidden">
 
-          {!hasMembers ? (
+          {!hasRosterMembers ? (
             <div className="flex items-center justify-center py-16 text-gray-400 dark:text-gray-600 text-sm">
-              Waiting for first poll… ({pollIntervalSec}s interval)
+              {effectiveSide === US
+                ? 'No members loaded for our faction yet.'
+                : 'Waiting for first poll…'}
             </div>
           ) : (
             <div className="overflow-auto max-h-[65vh]">
@@ -2458,14 +2711,30 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     <SortTh col="timer"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
                     <SortTh col="stats"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
                     <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Flags</th>
-                    <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
-                    <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Action</th>
+                    {columns.energy && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Energy</th>
+                    )}
+                    {columns.drugCd && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Drug CD</th>
+                    )}
+                    {columns.medicalCd && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Medical CD</th>
+                    )}
+                    {columns.boosterCd && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Booster CD</th>
+                    )}
+                    {columns.dibs && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
+                    )}
+                    {columns.action && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Action</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
+                      <td colSpan={rosterColumnCount(rosterSide)} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
                         No members match the current filters.
                       </td>
                     </tr>
@@ -2523,19 +2792,30 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                           <BspCell member={m} />
                         </td>
 
-                        {/* Flags */}
+                        {/* Flags (#339) — composed in warRoomFlags.js so the
+                            revive nuance is tested rather than inlined. The
+                            two revivable states share a glyph but not a
+                            tooltip or tone: "Friends & faction" is revivable
+                            in Torn's sense yet NOT by a reviver we can hire. */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {(() => {
                             const isFlying = stateToFilterKey(m.status_state, m.status_description) === 'Flying'
-                            const anyFlag = m.is_revivable || m.has_early_discharge || m.is_in_oc || m.is_on_wall || isFlying
+                            const flags = memberFlags(m, {
+                              isFlying,
+                              stats: memberStats[String(m.member_id)],
+                            })
                             return (
                               <div className="flex items-center gap-1.5">
-                                {isFlying            && <span title="Flying / abroad" className="text-base leading-none cursor-default">✈</span>}
-                                {m.is_revivable       && <span title="Revivable"       className="text-base leading-none cursor-default">💉</span>}
-                                {m.has_early_discharge && <span title="Early Discharge" className="text-base leading-none cursor-default">⚡</span>}
-                                {m.is_in_oc           && <span title="In OC"           className="text-base leading-none cursor-default">🔒</span>}
-                                {m.is_on_wall         && <span title="On Wall"         className="text-base leading-none cursor-default">🛡</span>}
-                                {!anyFlag && (
+                                {flags.map(f => (
+                                  <span
+                                    key={f.key}
+                                    title={f.title}
+                                    className={`text-base leading-none cursor-default ${FLAG_TONE_CLASS[f.tone] ?? ''}`}
+                                  >
+                                    {f.glyph}
+                                  </span>
+                                ))}
+                                {flags.length === 0 && (
                                   <span className="text-gray-300 dark:text-gray-700 text-xs">—</span>
                                 )}
                               </div>
@@ -2543,11 +2823,50 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                           })()}
                         </td>
 
+                        {/* Energy + cooldowns — our-roster only (#336), fetched
+                            per-member with that member's own key because Torn
+                            exposes bars/cooldowns as self-only selections.
+                            Cooldowns are seconds-at-fetch-time, so every one is
+                            aged against the clock rather than shown raw. */}
+                        {columns.energy && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <MemberEnergyCell stats={memberStats[String(m.member_id)]} />
+                          </td>
+                        )}
+                        {columns.drugCd && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <MemberCooldownCell
+                              stats={memberStats[String(m.member_id)]}
+                              field="cooldown_drug"
+                              label="Drug"
+                            />
+                          </td>
+                        )}
+                        {columns.medicalCd && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <MemberCooldownCell
+                              stats={memberStats[String(m.member_id)]}
+                              field="cooldown_medical"
+                              label="Medical"
+                            />
+                          </td>
+                        )}
+                        {columns.boosterCd && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <MemberCooldownCell
+                              stats={memberStats[String(m.member_id)]}
+                              field="cooldown_booster"
+                              label="Booster"
+                            />
+                          </td>
+                        )}
+
                         {/* Dibs — optimistic: clicking flips the cell instantly
                             via effectiveDibs; the Loader2 spinner signals the
                             server hasn't confirmed yet. Releases also show a
                             pending state by rendering a disabled "Releasing…"
                             stub until polling clears the row entirely. */}
+                        {columns.dibs && (
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {dib ? (
                             <div className={`flex items-center gap-1.5 ${dib._pending ? 'opacity-70' : ''}`}>
@@ -2575,6 +2894,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             </button>
                           )}
                         </td>
+                        )}
 
                         {/* Attack — 3 states (priority order):
                               1. Green Attack: target is Online AND Okay
@@ -2584,6 +2904,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                  AND the target isn't a fresh-kill window.
                               3. Red Attack: default — Idle / Offline /
                                  hospitalised, no contesting dib.            */}
+                        {columns.action && (
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {(() => {
                             const isOnlineOkay = m.last_action_status === 'Online' && m.status_state === 'Okay'
@@ -2611,6 +2932,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             )
                           })()}
                         </td>
+                        )}
                       </tr>
                     )
                   })}
@@ -2620,9 +2942,15 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           )}
 
           {/* Footer (#197 layout): members (left) · last updated (center) ·
-              refresh rates (right). */}
+              refresh rates (right).
+
+              The rates shown are the REAL server-side cadences read from
+              config, not a client setting (#336). They previously reported a
+              dead client slider as the enemy rate and hardcoded "Ours: every
+              30s" — so the two numbers a lead would check to confirm a cadence
+              change had taken hold were the two that could not reflect it. */}
           <div className="px-4 py-2.5 border-t border-gray-200 dark:border-slate-700 grid grid-cols-3 items-center text-xs text-gray-400 dark:text-gray-600">
-            <span className="justify-self-start">Showing {filtered.length} of {members.length} members</span>
+            <span className="justify-self-start">Showing {filtered.length} of {rosterMembers.length} members</span>
             <span className="justify-self-center">
               {isActive && lastFetched && !pollError
                 ? `Updated ${Math.round((Date.now() - lastFetched) / 1000)}s ago`
@@ -2630,7 +2958,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             </span>
             <span className="justify-self-end text-right">
               {isActive
-                ? `Enemy: every ${pollIntervalSec}s · Ours: every 30s · Timers: every 1s`
+                ? `Roster: every ${(config?.roster_poll_interval_ms ?? 1000) / 1000}s · Our chain: every ${config?.chain_poll_interval_ours_sec ?? 5}s`
+                  + ` · Enemy chain: every ${config?.chain_poll_interval_enemy_sec ?? 30}s`
+                  + (memberStatsEnabled ? ` · Member stats: every ${memberStatsIntervalSec}s` : '')
                 : 'Static snapshot · Enable to refresh'}
             </span>
           </div>
@@ -2674,8 +3004,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               isLeadership={isLeadership && !isVisitor}
               isActive={isActive}
               paused={!isActive}
-              pollIntervalS={pollIntervalSec}
-              onPollIntervalChange={(s) => setPollIntervalSec(Math.max(0.5, Number(s) || 0.5))}
               reviveServices={effectiveReviveServices(config)}
               activeReviveName={config?.revive_service_name ?? ''}
               activeReviveUrl={config?.revive_service_url ?? ''}

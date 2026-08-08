@@ -39,6 +39,10 @@ const CONFIG_COLUMNS = new Set([
   'surge_enemy_threshold', 'surge_enemy_window_sec',
   'surge_our_threshold', 'surge_our_window_sec',
   'surge_cooldown_sec',
+  // Live member energy/cooldown sweep (#336). 0 = off; see CONFIG_BOUNDS.
+  'member_stats_poll_interval_sec',
+  // Roster refresh cadence in ms (#339). Floored at 500ms = 2 Hz.
+  'roster_poll_interval_ms',
 ])
 
 /**

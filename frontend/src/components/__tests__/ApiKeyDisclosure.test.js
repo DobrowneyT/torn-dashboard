@@ -34,4 +34,37 @@ describe('ApiKeyDisclosure content', () => {
     expect(calls).toMatch(/revives/)
     expect(calls).toMatch(/rankedwars/)
   })
+
+  it('names the bars + cooldowns selections now read from every member (#336)', () => {
+    // Adding a selection to the sweep without adding it here would leave the
+    // consent screen quietly understating what we collect.
+    const calls = rowText('Torn API Calls')
+    expect(calls).toMatch(/bars/)
+    expect(calls).toMatch(/cooldowns/)
+  })
+
+  it('discloses live energy and drug cooldowns in plain language, not just as an endpoint', () => {
+    // A member reading "GET /v2/user (…, bars, cooldowns)" cannot reasonably
+    // work out that it means their energy and overdose state, so the plain
+    // description is the actual disclosure.
+    const live = rowText('Live War Stats')
+    expect(live).toMatch(/energy/i)
+    expect(live).toMatch(/cooldown/i)
+    expect(live).toMatch(/overdose/i)
+  })
+
+  it('states the limits that make the collection acceptable', () => {
+    // Each of these is a real constraint the implementation enforces; if one
+    // stops being true the disclosure has to change with it.
+    const live = rowText('Live War Stats')
+    expect(live).toMatch(/30 seconds/)       // the cadence floor
+    expect(live).toMatch(/war room is off/i) // never swept outside a war
+    expect(live).toMatch(/discarded|never stored/i) // nerve/happy/life dropped
+  })
+
+  it('says the live stats are lead-only rather than faction-wide', () => {
+    // The Sharing row otherwise reads "visible to your faction", which would
+    // be wrong for this data — the hub withholds it from ordinary members.
+    expect(rowText('Sharing')).toMatch(/war leads/i)
+  })
 })

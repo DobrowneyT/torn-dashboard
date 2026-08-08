@@ -82,6 +82,47 @@ describe('clampConfigValue — unbounded fields pass through', () => {
   })
 })
 
+describe('clampConfigValue — member stats cadence (#336)', () => {
+  const field = 'member_stats_poll_interval_sec'
+
+  it('keeps 0 as 0 — it is "off", not "as fast as possible"', () => {
+    // The trap this rule exists for: a plain [30,600] clamp would rewrite the
+    // operator's "disable it" into the FASTEST allowed cadence, i.e. the exact
+    // opposite of what they asked for, silently.
+    expect(clampConfigValue(field, 0)).toEqual({ ok: true, value: 0 })
+    expect(clampConfigValue(field, '0')).toEqual({ ok: true, value: 0 })
+  })
+
+  it('floors any enabled cadence at 30s', () => {
+    // One Torn call per enrolled member per cycle, so the floor is a rate-limit
+    // guard, not a preference.
+    expect(clampConfigValue(field, 1)).toEqual({ ok: true, value: 30 })
+    expect(clampConfigValue(field, 29)).toEqual({ ok: true, value: 30 })
+    expect(clampConfigValue(field, 30)).toEqual({ ok: true, value: 30 })
+  })
+
+  it('treats a negative as off rather than flooring it up to 30', () => {
+    // Nonsense input should fail toward "do nothing", never toward "poll hard".
+    expect(clampConfigValue(field, -5)).toEqual({ ok: true, value: 0 })
+  })
+
+  it('rounds a fractional cadence down without escaping the floor', () => {
+    expect(clampConfigValue(field, 0.9)).toEqual({ ok: true, value: 0 })
+    expect(clampConfigValue(field, 45.9)).toEqual({ ok: true, value: 45 })
+  })
+
+  it('caps at the same 600s ceiling as the chain pollers', () => {
+    expect(clampConfigValue(field, 99999)).toEqual({ ok: true, value: 600 })
+  })
+
+  it('still rejects non-numeric input instead of coercing it to off', () => {
+    // An empty input must not read as a deliberate "disable" — Number('') is 0.
+    expect(clampConfigValue(field, '')).toMatchObject({ ok: false })
+    expect(clampConfigValue(field, true)).toMatchObject({ ok: false })
+    expect(clampConfigValue(field, 'soon')).toMatchObject({ ok: false })
+  })
+})
+
 describe('CONFIG_BOUNDS', () => {
   it('never allows a poll cadence below the 0.5s safety floor', () => {
     // A guard on the table itself: someone lowering a min to 0 in a future

@@ -13,6 +13,10 @@ import type { PushService } from './push.js'
 import { createSurgeDetector, type SurgeConfig, type SurgeEvent } from './warRoomSurge.js'
 import { snapshotDibbedStatus, sweepDibsExpiry, DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
 import { storeOurChain, storeEnemyChain, chainPollDue, chainNearExpiry, CHAIN_FORCE_POLL_SEC } from './warRoomChain.js'
+import { memberStatsPollDue, sweepMemberStats, pruneMemberStats } from './warRoomMemberStats.js'
+import {
+  rosterPollDue, ROSTER_POLL_DEFAULT_MS, TICKER_HEARTBEAT_MS,
+} from './warRoomRosterPoll.js'
 
 export interface WarRoomTickerDeps {
   db: pg.Pool
@@ -120,6 +124,15 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
   const surge = createSurgeDetector()
   let timer: NodeJS.Timeout | null = null
   let ticking = false
+  // The member-stats sweep (#336) walks the whole roster, so it runs DETACHED
+  // from the tick body with its own in-flight guard. Awaiting it inline would
+  // stall the 1 Hz state sync for the length of the sweep — the board would
+  // visibly freeze every cycle.
+  let sweepingMemberStats = false
+  // When the roster last synced. In-process rather than a DB column: it is
+  // read and written every heartbeat, and a restart re-syncing immediately is
+  // the behaviour we want anyway.
+  let lastRosterSyncMs: number | null = null
 
   async function warWindowActive(managedWarId: number | null): Promise<boolean> {
     if (managedWarId == null) return true
@@ -130,7 +143,13 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
     return Number(start_at) <= now && (end_at == null || Number(end_at) === 0 || Number(end_at) > now)
   }
 
-  async function tick(): Promise<void> {
+  /**
+   * One pass. `respectRosterCadence` is the automatic heartbeat's flag: it
+   * paces the roster sync against roster_poll_interval_ms. A DIRECT tick()
+   * call (tests, and any future "poll now") always syncs — pacing is a
+   * property of the heartbeat, not of what a tick means.
+   */
+  async function tick({ respectRosterCadence = false } = {}): Promise<void> {
     if (ticking) return
     ticking = true
     try {
@@ -149,43 +168,102 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       const ourId = Number(us.rows[0].torn_faction_id)
       const enemyId = Number(cfg.faction_id)
 
-      // Snapshot dibbed targets' hospital status BEFORE the sync overwrites it —
-      // the auto-expiry sweep diffs old vs new (see warRoomDibsExpiry).
-      const prevDibStatus = await snapshotDibbedStatus(db)
-      const changed = await syncWarRoomMemberStates(db, client, claimed.key, enemyId, ourId)
-      const expiredDibs = await sweepDibsExpiry(
-        db, prevDibStatus,
-        // Live-editable in the war-room settings (#159); the static dep is a
-        // test/override fallback.
-        Number(cfg.dibs_expiry_seconds ?? deps.dibsExpirySeconds ?? DIBS_EXPIRY_SECONDS)
-      )
+      // Roster sync on its own cadence (#339). The heartbeat now runs faster
+      // than the default rate so 2 Hz is reachable, which means the sync — and
+      // everything derived from it — has to be gated, or lowering the setting
+      // would speed the board up instead of slowing it down.
+      //
+      // The dibs sweep and surge detection live INSIDE this gate deliberately:
+      // both diff against the states this sync produces, so running them on a
+      // heartbeat with no fresh data would compare a snapshot against itself.
+      const rosterInterval = Number(cfg.roster_poll_interval_ms ?? ROSTER_POLL_DEFAULT_MS)
+      const rosterDue = !respectRosterCadence
+        || rosterPollDue(lastRosterSyncMs, rosterInterval, Date.now())
+      if (rosterDue) {
+        lastRosterSyncMs = Date.now()
 
-      if (changed.length > 0 || expiredDibs.length > 0) {
-        const now = await db.query('SELECT now() AS server_now')
-        if (changed.length > 0) hub.broadcast('state', changed, now.rows[0].server_now)
-        if (expiredDibs.length > 0) hub.broadcast('dibs', expiredDibs, now.rows[0].server_now)
-      }
+        // Snapshot dibbed targets' hospital status BEFORE the sync overwrites it —
+        // the auto-expiry sweep diffs old vs new (see warRoomDibsExpiry).
+        const prevDibStatus = await snapshotDibbedStatus(db)
+        const changed = await syncWarRoomMemberStates(db, client, claimed.key, enemyId, ourId)
+        const expiredDibs = await sweepDibsExpiry(
+          db, prevDibStatus,
+          // Live-editable in the war-room settings (#159); the static dep is a
+          // test/override fallback.
+          Number(cfg.dibs_expiry_seconds ?? deps.dibsExpirySeconds ?? DIBS_EXPIRY_SECONDS)
+        )
 
-      // PUSH-surge detection + fan-out (#208). observe() is a no-op when the
-      // toggle is off. We only act on ENEMY-side surges ("we're being pushed") —
-      // the our-side / offensive direction is intentionally not alerted.
-      const surges = surge
-        .observe(changed, { enemyId, ourId, config: surgeConfigFrom(cfg), nowMs: Date.now() })
-        .filter((ev) => ev.direction === 'enemy')
-      for (const ev of surges) {
-        const msg = surgeMessage(ev)
-        // Open tabs: sound/flash automatically for everyone (reuses #156/#157).
-        hub.alert({ kind: 'surge', direction: ev.direction, count: ev.count, ...msg })
-        // Subscribers: a background web-push, even with the tab closed.
-        void deps.pushService?.sendToAll({ ...msg, url: '/war-room', tag: `surge-${ev.direction}` }).catch(() => {})
+        if (changed.length > 0 || expiredDibs.length > 0) {
+          const now = await db.query('SELECT now() AS server_now')
+          if (changed.length > 0) hub.broadcast('state', changed, now.rows[0].server_now)
+          if (expiredDibs.length > 0) hub.broadcast('dibs', expiredDibs, now.rows[0].server_now)
+        }
+
+        // PUSH-surge detection + fan-out (#208). observe() is a no-op when the
+        // toggle is off. We only act on ENEMY-side surges ("we're being pushed") —
+        // the our-side / offensive direction is intentionally not alerted.
+        const surges = surge
+          .observe(changed, { enemyId, ourId, config: surgeConfigFrom(cfg), nowMs: Date.now() })
+          .filter((ev) => ev.direction === 'enemy')
+        for (const ev of surges) {
+          const msg = surgeMessage(ev)
+          // Open tabs: sound/flash automatically for everyone (reuses #156/#157).
+          hub.alert({ kind: 'surge', direction: ev.direction, count: ev.count, ...msg })
+          // Subscribers: a background web-push, even with the tab closed.
+          void deps.pushService?.sendToAll({ ...msg, url: '/war-room', tag: `surge-${ev.direction}` }).catch(() => {})
+        }
       }
 
       // Live chain watch: poll our + enemy chains at their configured cadences
       // (or force a poll when our chain is within seconds of dropping), convert
       // Torn's relative timers to absolute, and broadcast the refreshed row.
       await pollChains(cfg, claimed.key, ourId, enemyId)
+
+      // Live energy + cooldowns for our own members (#336). Fire-and-forget:
+      // see sweepingMemberStats. Off by default (cadence 0).
+      void sweepMemberStatsIfDue(cfg).catch(() => {})
     } finally {
       ticking = false
+    }
+  }
+
+  /**
+   * Cadence-gated sweep of our own members' energy/cooldowns (#336).
+   *
+   * Unlike everything else in the tick this does NOT use the pooled key: Torn
+   * exposes bars/cooldowns as self-only selections, so each member's row costs
+   * one call made with that member's own key. The shared `client` is safe to
+   * reuse because its rate limiter is per-key — each member's key sees at most
+   * two calls a minute at the 30s floor.
+   */
+  async function sweepMemberStatsIfDue(cfg: any): Promise<void> {
+    if (sweepingMemberStats) return
+    // Claim the guard BEFORE the first await: two ticks a second apart would
+    // otherwise both pass the check and double-sweep the roster.
+    sweepingMemberStats = true
+    try {
+      const interval = Number(cfg.member_stats_poll_interval_sec ?? 0)
+      if (interval <= 0) return
+      const mark = await db.query(
+        'SELECT extract(epoch from max(fetched_at)) AS last FROM war_room_member_stats_v2'
+      )
+      if (!memberStatsPollDue(mark.rows[0]?.last, interval, Date.now())) return
+
+      const keys = await pool.listKeys()
+      if (keys.length === 0) return
+      const changed = await sweepMemberStats(db, client, keys)
+      // Drop rows for members who are no longer enrolled, so a departed member's
+      // last-known energy can't linger on the board.
+      await pruneMemberStats(db, keys.map((k) => k.member_id))
+
+      if (changed.length > 0) {
+        const sn = await db.query('SELECT now() AS server_now')
+        // 'memberstats' is a LEAD-ONLY channel — the hub withholds it from
+        // ordinary members' sockets (see LEAD_ONLY_CHANNELS in warRoom.ts).
+        hub.broadcast('memberstats', changed, sn.rows[0].server_now)
+      }
+    } finally {
+      sweepingMemberStats = false
     }
   }
 
@@ -229,7 +307,13 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
     tick,
     start() {
       if (timer) return
-      timer = setInterval(() => { void tick().catch(() => {}) }, deps.intervalMs ?? 1000)
+      // Heartbeat, not the poll rate: each sub-poll (roster, chains, member
+      // stats) gates itself on its own configured cadence. It runs at the
+      // roster floor so the fastest allowed setting is actually reachable.
+      timer = setInterval(
+        () => { void tick({ respectRosterCadence: true }).catch(() => {}) },
+        deps.intervalMs ?? TICKER_HEARTBEAT_MS
+      )
     },
     stop() {
       if (timer) clearInterval(timer)
