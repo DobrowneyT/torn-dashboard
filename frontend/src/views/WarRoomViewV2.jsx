@@ -34,7 +34,7 @@ import {
 } from '../utils/warRoomRosterSide'
 import {
   formatEnergy, energyHue, energyBand, formatCooldown, remainingCooldown,
-  overdosedByDrugCooldown, statsAgeSeconds, hasStatsError, compareMemberStat,
+  overdosedByDrugCooldown, statsAgeSeconds, hasStatsError, compareMemberStat, cooldownHue,
 } from '../utils/warRoomMemberStats'
 import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
 import { travelEta, formatTravelEta } from '../utils/warRoomTravel'
@@ -912,8 +912,8 @@ function MemberEnergyCell({ stats }) {
   return (
     <span
       title={title}
-      style={{ '--energy-hue': hue }}
-      className={`energy-grad text-xs font-mono ${band === 'stacked' ? 'font-semibold' : ''}`}
+      style={{ '--grad-hue': hue }}
+      className={`hue-grad text-xs font-mono ${band === 'stacked' ? 'font-semibold' : ''}`}
     >
       {label}
     </span>
@@ -931,21 +931,33 @@ function MemberCooldownCell({ stats, field, label }) {
     ? `${label} cooldown unavailable — this member's key failed: ${stats.last_error}`
     : overdosed
       ? `${label} cooldown over 10h — this member has OVERDOSED`
-      : `${label} cooldown`
+      : `${label} cooldown — green is ready, red is capped`
 
-  // Overdose is the one thing on this row worth interrupting a scan for.
-  const cls = overdosed
-    ? 'text-red-600 dark:text-red-400 font-semibold'
-    : remaining == null
-      ? 'text-gray-300 dark:text-gray-700'
-      : remaining === 0
-        ? 'text-gray-400 dark:text-gray-500'
-        : 'text-gray-600 dark:text-gray-300'
+  // Overdose wins outright (#356): it already has its own red-and-bold
+  // treatment from #351, and a gradient underneath would be a second way of
+  // saying the same thing in a slightly different colour.
+  if (overdosed) {
+    return (
+      <span title={title} className="text-xs font-mono text-red-600 dark:text-red-400 font-semibold">
+        {formatCooldown(remaining)}
+        <span className="ml-1 not-italic" aria-label="overdosed">OD</span>
+      </span>
+    )
+  }
 
+  // Coloured off the AGED value, the same number printed in the cell.
+  const hue = cooldownHue(field, remaining)
+  if (hue == null) {
+    // Grey, never green: a member whose key failed must not read as "ready".
+    return (
+      <span title={title} className="text-xs font-mono text-gray-300 dark:text-gray-700">
+        {formatCooldown(remaining)}
+      </span>
+    )
+  }
   return (
-    <span title={title} className={`text-xs font-mono ${cls}`}>
+    <span title={title} style={{ '--grad-hue': hue }} className="hue-grad text-xs font-mono">
       {formatCooldown(remaining)}
-      {overdosed && <span className="ml-1 not-italic" aria-label="overdosed">OD</span>}
     </span>
   )
 }

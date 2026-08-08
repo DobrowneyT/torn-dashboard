@@ -17,6 +17,36 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.15.0] - 2026-08-08
+
+### Added
+
+- **Colour gradient on the three cooldown columns (#356).** Inverted from
+  energy — green means ready to act, red means capped — and linear rather than
+  piecewise: energy needed the split because it has two regimes read for two
+  different questions, while a cooldown just counts down and less is better the
+  whole way. Ceilings are drug **8h** (a full xanax), medical **9h** and booster
+  **48h**.
+
+  Medical is anchored at the **wartime** maximum. 6h is the usual cap but war
+  perks raise it to 9h, and wartime is exactly when the column is read — a 6h
+  ceiling would pin every war-perk member to flat red through their last three
+  hours, flattening the window a lead is scanning.
+
+  Coloured off the **aged** remaining value, the same figure the cell prints.
+  Over-ceiling readings clamp rather than wrapping through red: an item that
+  would push a member past the cap applies anyway, so those are normal, not
+  errors. A member with no reading stays grey, never green — a failed key must
+  not read as "ready". An overdose keeps its own red-and-bold treatment from
+  #351 instead of taking a gradient, so that state has one appearance rather
+  than two.
+
+### Changed
+
+- The energy and cooldown gradients now share one CSS rule (`.hue-grad`,
+  `--grad-hue`) instead of energy owning its own, so the two cannot drift apart
+  on legibility in either theme.
+
 ## [3.14.1] - 2026-08-08
 
 ### Fixed

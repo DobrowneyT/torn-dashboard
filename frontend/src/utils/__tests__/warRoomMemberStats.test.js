@@ -6,6 +6,7 @@ import {
   overdosedByDrugCooldown, formatEnergy, statsAgeSeconds, hasStatsError,
   memberStatSortValue, compareMemberStat,
   energyHue, energyBand, HUE_EMPTY, HUE_FULL_BAR, HUE_STACKED,
+  cooldownHue, COOLDOWN_CEILING_SEC, HUE_READY, HUE_CAPPED,
 } from '../warRoomMemberStats'
 // The pre-existing hospital-status overdose flag (#199), imported here to pin
 // the relationship between the two detectors rather than describe it in prose.
@@ -307,5 +308,69 @@ describe('compareMemberStat', () => {
     // Array.sort is stable, so returning 0 keeps whatever ordering the rows
     // already had rather than shuffling the unknown block on every poll.
     expect(compareMemberStat('energy', null, {}, 1, T0)).toBe(0)
+  })
+})
+
+describe('cooldownHue (#356)', () => {
+  it('is inverted from energy: green when ready, red at the ceiling', () => {
+    // Low is good for a cooldown, high is good for energy.
+    expect(HUE_READY).toBe(HUE_STACKED)
+    expect(HUE_CAPPED).toBe(HUE_EMPTY)
+    expect(cooldownHue('cooldown_drug', 0)).toBe(HUE_READY)
+    expect(cooldownHue('cooldown_drug', COOLDOWN_CEILING_SEC.cooldown_drug)).toBe(HUE_CAPPED)
+  })
+
+  it('uses the ceilings leadership set', () => {
+    expect(COOLDOWN_CEILING_SEC.cooldown_drug).toBe(8 * 3600)
+    expect(COOLDOWN_CEILING_SEC.cooldown_medical).toBe(9 * 3600)
+    expect(COOLDOWN_CEILING_SEC.cooldown_booster).toBe(48 * 3600)
+  })
+
+  it('puts the medical ceiling at the WARTIME maximum, not the usual one', () => {
+    // 6h is normal, but war perks raise it to 9h — and wartime is when this
+    // column is read. At a 6h ceiling every war-perk member would sit at flat
+    // red for their last three hours, flattening exactly the window a lead is
+    // scanning.
+    expect(cooldownHue('cooldown_medical', 6 * 3600)).not.toBe(HUE_CAPPED)
+    expect(cooldownHue('cooldown_medical', 9 * 3600)).toBe(HUE_CAPPED)
+  })
+
+  it('falls monotonically from ready to capped', () => {
+    // Any rise would read as "more cooldown left" and mislead a push call.
+    const points = [0, 60, 600, 1800, 3600, 7200, 14_400, 21_600, 28_800]
+    const hues = points.map((p) => cooldownHue('cooldown_drug', p))
+    for (let i = 1; i < hues.length; i++) expect(hues[i]).toBeLessThanOrEqual(hues[i - 1])
+  })
+
+  it('clamps past the ceiling instead of wrapping through red', () => {
+    // Over-ceiling readings are NORMAL, not errors: an item that would push a
+    // member past the cap applies anyway and they wait it out. Unclamped, hue
+    // is circular and 2x the ceiling would come out magenta.
+    expect(cooldownHue('cooldown_medical', 20 * 3600)).toBe(HUE_CAPPED)
+    expect(cooldownHue('cooldown_booster', 100 * 3600)).toBe(HUE_CAPPED)
+    expect(cooldownHue('cooldown_drug', -50)).toBe(HUE_READY)
+  })
+
+  it('scales each column against its own ceiling', () => {
+    // 8h is the whole drug range but a sixth of the booster one, so the same
+    // number of seconds must not look the same in both columns.
+    const eightHours = 8 * 3600
+    expect(cooldownHue('cooldown_drug', eightHours)).toBe(HUE_CAPPED)
+    expect(cooldownHue('cooldown_booster', eightHours)).toBeGreaterThan(HUE_CAPPED)
+  })
+
+  it('returns null with no reading, so the cell can stay grey', () => {
+    // A member whose key failed must never read as "ready".
+    expect(cooldownHue('cooldown_drug', null)).toBeNull()
+    expect(cooldownHue('cooldown_drug', undefined)).toBeNull()
+    expect(cooldownHue('cooldown_drug', '')).toBeNull()
+  })
+
+  it('returns null for a column with no ceiling on file', () => {
+    expect(cooldownHue('cooldown_mystery', 100)).toBeNull()
+  })
+
+  it('returns whole numbers so the inline style does not churn', () => {
+    expect(Number.isInteger(cooldownHue('cooldown_medical', 1234))).toBe(true)
   })
 })
