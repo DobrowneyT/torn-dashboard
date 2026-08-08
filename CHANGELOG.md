@@ -17,6 +17,20 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **War Room roster can switch to our own faction (#335).** A "Showing:" toggle
+  above the roster swaps the table between the opponent and our own members, so
+  leads can see who is in hospital or flying and when they are back without
+  leaving the room. No backend work: the ticker already polls both factions and
+  the socket hook already splits them, so this selects which roster feeds the
+  table. Dibs and Attack are hidden on our side (you cannot claim or hit a
+  team-mate) and Energy / Booster CD columns take their place as placeholders
+  until #336 collects that data. The stats filter is suspended on our roster —
+  spy data is only fetched for the opponent. Surge alerts and the spy auto-fetch
+  keep tracking the enemy regardless of what is displayed, and the toggle resets
+  to the opponent on reload.
+
 ### Fixed
 
 - **War Room sticky header no longer has row content painted over it (#331).**
