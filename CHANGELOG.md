@@ -17,6 +17,53 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.12.1] - 2026-08-08
+
+### Fixed
+
+- **Surge alerts ignored every sound and flash preference (#361).** The handler
+  called `fireAlert('surge', { sound: true, flash: true })` with the settings
+  hardcoded, and the Alerts popover had no surge channel — so a member who
+  wanted quiet had no control that could deliver it, while the Sound and
+  Screen-flash checkboxes sitting right there visibly did not apply. There is
+  now a surge channel with the same two switches. It defaults **on**, unlike
+  dibs and chain: this is a war-wide warning from the server, not a personal
+  reminder anyone asked for, so it is opt-out. Silencing it does **not** hide
+  the banner — muting a ping and suppressing a warning are different things.
+
+### Changed
+
+- **Flash colour and tone now differ per surge kind (#361).** Status flashes red
+  to match its red banner (it was amber, disagreeing with its own banner) and
+  keeps the urgent klaxon; a revive surge flashes amber to match its banner and
+  gets fewer, softer beeps, so the two are told apart without looking — the same
+  way dibs and chain already are.
+
+## [3.12.0] - 2026-08-08
+
+### Added
+
+- **Revive-surge alerts — "a push is being set up" (#359).** A second push-surge
+  detector alongside the existing one, firing when N members turn their revives
+  **on** within a window. The original detector (#208) fires when members become
+  Okay, by which point the push has already started; nobody enables revives
+  casually mid-war, so a cluster of that is the push being *prepared*. The
+  settings panel now has two sections, Status and Revives, each with its own
+  toggle, threshold, window and cooldown — hospital churn is constant during a
+  chain while revive prep is deliberate and rare, so one shared window would
+  tune one of them wrong. Off by default.
+- Distinct copy, rally-call preset and banner colour for the new alert. A revive
+  surge is amber and reads "turtle up and hold"; telling a faction to retaliate
+  against a push that has not started yet would spend the chain early.
+
+### Changed
+
+- The surge detector now tracks two kinds through one state machine rather than
+  duplicating the window, threshold, cooldown and seed-on-first-sight logic.
+  `SurgeEvent` carries a `kind`, and the web-push tag includes it — sharing one
+  tag would let a revive alert silently replace an unread status alert in the
+  notification tray.
+
 ## [3.11.0] - 2026-08-08
 
 ### Added

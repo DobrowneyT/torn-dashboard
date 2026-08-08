@@ -37,6 +37,16 @@ export const CONFIG_BOUNDS: Record<string, Bounds> = {
   surge_our_window_sec: { min: 5, max: 600 },
   surge_cooldown_sec: { min: 30, max: 3600 },
 
+  // Revive-surge alerts (#359). Same guard, same reasoning: a 0 threshold or
+  // window would alert on everything and spam every subscribed phone. The
+  // window ceiling is larger than the status one because revive prep is a
+  // slower, deliberate act and is worth watching over a longer stretch.
+  surge_revive_enemy_threshold: { min: 1, max: 100 },
+  surge_revive_enemy_window_sec: { min: 5, max: 1800 },
+  surge_revive_our_threshold: { min: 1, max: 100 },
+  surge_revive_our_window_sec: { min: 5, max: 1800 },
+  surge_revive_cooldown_sec: { min: 30, max: 3600 },
+
   // 0 is a real setting (disables the age filter), so the floor must be 0.
   tornstats_max_age_days: { min: 0, max: 365 },
 

@@ -60,11 +60,11 @@ import RollCallOverlay from '../components/warroom/RollCallOverlay'
 import WarSummaryCard from '../components/warroom/WarSummaryCard'
 import WarNotesPanel from '../components/warroom/WarNotesPanel'
 import AlertSettingsButton from '../components/warroom/AlertSettingsButton'
-import HeadlineBanner, { PUSH_HEADLINE_PRESETS } from '../components/warroom/HeadlineBanner'
+import HeadlineBanner, { surgeHeadlinePreset } from '../components/warroom/HeadlineBanner'
 import WarRoomPushPrompt from '../components/warroom/WarRoomPushPrompt'
 import { setWarHeadline } from '../utils/warRoomApiV2'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
-import { loadAlertPrefs, fireAlert } from '../utils/warRoomAlerts'
+import { loadAlertPrefs, fireAlert, surgeAlertKind } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
 import { parseDbTime } from '../utils/time'
 import { farmCompare } from '../utils/warRoomFarmSort'
@@ -903,6 +903,40 @@ function SortTh({ col, sortCol, sortDir, onSort, children, className = '' }) {
   )
 }
 
+// One push-surge detector's controls (#359). Both kinds — Status and Revives —
+// have an identical shape: a toggle, a threshold, a window and a cooldown. The
+// component exists so the two sections cannot drift apart in layout or
+// behaviour, only in their copy and their bounds.
+function SurgeSection({ label, hint, checked, onToggle, fields, setFields, onCommit, rows }) {
+  return (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 cursor-pointer select-none">
+        <input type="checkbox" checked={checked} onChange={onToggle}
+          className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500" />
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{label}</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">— {hint}</span>
+      </label>
+      {checked && fields && (
+        <div className="flex flex-wrap items-end gap-x-3 gap-y-2 pl-6">
+          {rows.map(({ label: fieldLabel, field, min, max, fb, w, hint: fieldHint }) => (
+            <div key={field}>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{fieldLabel}</label>
+              <input
+                type="number" min={min} max={max} step={1} title={fieldHint}
+                value={fields[field]}
+                onChange={e => setFields(f => ({ ...f, [field]: e.target.value }))}
+                onBlur={() => onCommit(field, min, max, fb)}
+                onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                className={`${w} px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Config panel (leadership only) ────────────────────────────────────────────
 
 function ConfigPanel({
@@ -1031,7 +1065,12 @@ function ConfigPanel({
   // (N members Okay within M sec) and a cooldown. Off = a termed war stays
   // silent. Same commit-on-blur pattern as the cadences above; the toggle saves
   // immediately. All clamped server-side too via the config allowlist.
+  //
+  // Two independent detectors (#359), each with its own toggle and rates:
+  // hospital churn is constant during a chain while enabling revives is
+  // deliberate and rare, so one shared window would tune one of them wrong.
   const surgeEnabled = !!config?.surge_alerts_enabled
+  const surgeReviveEnabled = !!config?.surge_revive_alerts_enabled
   const [surgeFields, setSurgeFields] = useState(null)
   useEffect(() => {
     setSurgeFields({
@@ -1040,12 +1079,16 @@ function ConfigPanel({
       surge_our_threshold:    String(config?.surge_our_threshold    ?? 4),
       surge_our_window_sec:   String(config?.surge_our_window_sec   ?? 60),
       surge_cooldown_sec:     String(config?.surge_cooldown_sec     ?? 300),
+      surge_revive_enemy_threshold:  String(config?.surge_revive_enemy_threshold  ?? 3),
+      surge_revive_enemy_window_sec: String(config?.surge_revive_enemy_window_sec ?? 300),
+      surge_revive_cooldown_sec:     String(config?.surge_revive_cooldown_sec     ?? 600),
     })
-  }, [config?.surge_enemy_threshold, config?.surge_enemy_window_sec, config?.surge_our_threshold, config?.surge_our_window_sec, config?.surge_cooldown_sec])
-  async function toggleSurge() {
+  }, [config?.surge_enemy_threshold, config?.surge_enemy_window_sec, config?.surge_our_threshold, config?.surge_our_window_sec, config?.surge_cooldown_sec,
+      config?.surge_revive_enemy_threshold, config?.surge_revive_enemy_window_sec, config?.surge_revive_cooldown_sec])
+  async function toggleSurgeKind(column, current, label) {
     try {
-      await onSaveReviveService({ surge_alerts_enabled: !surgeEnabled })
-      setMsg({ ok: true, text: `Surge alerts ${!surgeEnabled ? 'enabled' : 'disabled'}.` })
+      await onSaveReviveService({ [column]: !current })
+      setMsg({ ok: true, text: `${label} alerts ${!current ? 'enabled' : 'disabled'}.` })
     } catch (e) { setMsg({ ok: false, text: e.message }) }
   }
   async function commitSurgeField(field, min, max, fallback) {
@@ -1290,36 +1333,42 @@ function ConfigPanel({
         </div>
       </div>
 
-      {/* PUSH-surge alerts (#208): global on/off + per-direction rate + cooldown.
+      {/* PUSH-surge alerts: two independent detectors (#208 status, #359 revives).
           Off means a termed war never pings anyone. */}
-      <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 space-y-2">
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input type="checkbox" checked={surgeEnabled} onChange={toggleSurge}
-            className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500" />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Push-surge alerts</span>
-          <span className="text-xs text-gray-400 dark:text-gray-500">— warn on a wave of hospital exits (leave off for termed wars)</span>
-        </label>
-        {surgeEnabled && surgeFields && (
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-2 pl-6">
-            {[
-              { label: 'Alert when ≥', field: 'surge_enemy_threshold', min: 1, max: 100, fb: 3, w: 'w-16', hint: 'Enemies leaving hospital within the window to trigger a "we\'re being pushed" alert.' },
-              { label: 'within (s)', field: 'surge_enemy_window_sec', min: 5, max: 600, fb: 60, w: 'w-20', hint: 'Rolling window for the enemy hospital-exit count.' },
-              { label: 'Cooldown (s)', field: 'surge_cooldown_sec', min: 30, max: 3600, fb: 300, w: 'w-24', hint: 'Quiet period after an alert so flicker can’t re-spam.' },
-            ].map(({ label, field, min, max, fb, w, hint }) => (
-              <div key={field}>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-                <input
-                  type="number" min={min} max={max} step={1} title={hint}
-                  value={surgeFields[field]}
-                  onChange={e => setSurgeFields(f => ({ ...f, [field]: e.target.value }))}
-                  onBlur={() => commitSurgeField(field, min, max, fb)}
-                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                  className={`${w} px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                />
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 space-y-3">
+        <div className="text-sm font-medium text-gray-700 dark:text-gray-200">Push-surge alerts</div>
+
+        {/* Status — they are already back up and swinging. */}
+        <SurgeSection
+          label="Status"
+          hint="a wave of enemy hospital exits — the push is already under way"
+          checked={surgeEnabled}
+          onToggle={() => toggleSurgeKind('surge_alerts_enabled', surgeEnabled, 'Status surge')}
+          fields={surgeFields}
+          setFields={setSurgeFields}
+          onCommit={commitSurgeField}
+          rows={[
+            { label: 'Alert when ≥', field: 'surge_enemy_threshold', min: 1, max: 100, fb: 3, w: 'w-16', hint: 'Enemies leaving hospital within the window to trigger a "we\'re being pushed" alert.' },
+            { label: 'within (s)', field: 'surge_enemy_window_sec', min: 5, max: 600, fb: 60, w: 'w-20', hint: 'Rolling window for the enemy hospital-exit count.' },
+            { label: 'Cooldown (s)', field: 'surge_cooldown_sec', min: 30, max: 3600, fb: 300, w: 'w-24', hint: 'Quiet period after an alert so flicker can\u2019t re-spam.' },
+          ]}
+        />
+
+        {/* Revives — the push being SET UP, before anyone is back on their feet. */}
+        <SurgeSection
+          label="Revives"
+          hint="enemies switching revives on — a push is being set up"
+          checked={surgeReviveEnabled}
+          onToggle={() => toggleSurgeKind('surge_revive_alerts_enabled', surgeReviveEnabled, 'Revive surge')}
+          fields={surgeFields}
+          setFields={setSurgeFields}
+          onCommit={commitSurgeField}
+          rows={[
+            { label: 'Alert when ≥', field: 'surge_revive_enemy_threshold', min: 1, max: 100, fb: 3, w: 'w-16', hint: 'Enemies turning revives on within the window. Nobody does this casually mid-war.' },
+            { label: 'within (s)', field: 'surge_revive_enemy_window_sec', min: 5, max: 1800, fb: 300, w: 'w-20', hint: 'Rolling window. Longer than the status one by default: revive prep is deliberate and spread out.' },
+            { label: 'Cooldown (s)', field: 'surge_revive_cooldown_sec', min: 30, max: 3600, fb: 600, w: 'w-24', hint: 'Quiet period after an alert. Longer than the status one — re-alerting on the same prep is noise.' },
+          ]}
+        />
       </div>
 
       {/* Revive service — preset dropdown + gear to manage the list */}
@@ -1393,24 +1442,36 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Coerce to number to match the bigint faction_id column.
   const OUR_FACTION_ID = getFactionId()
 
-  // Server-detected PUSH surge (#208): a transient banner + sound/flash, fired
-  // automatically for every open tab (no opt-in). The web-push to subscribers
-  // is sent server-side in the ticker.
+  // Personal alert prefs (#156/#157, surge channel added in #361). Declared
+  // here rather than lower down because onSurgeAlert depends on it, and a
+  // useCallback dependency array is evaluated at definition time.
+  const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
+
+  // Server-detected PUSH surge (#208 status, #359 revives): a transient banner
+  // plus sound/flash. The web-push to subscribers is sent server-side.
+  //
+  // Leadership's surge toggles are the master switch — with them off the server
+  // emits nothing and none of this runs. What changed in #361 is that the
+  // sound/flash used to be hardcoded on and consulted no preference at all, so
+  // a member who wanted quiet had no control that could deliver it. The BANNER
+  // still shows regardless: silencing a ping is not the same as hiding the
+  // warning, and the war-wide notice is the point.
   const [surgeAlert, setSurgeAlert] = useState(null)
   const onSurgeAlert = useCallback((msg) => {
     if (msg?.kind !== 'surge') return
-    fireAlert('surge', { sound: true, flash: true })
+    const prefs = alertPrefs?.surge
+    if (prefs?.enabled !== false) fireAlert(surgeAlertKind(msg.surge), prefs ?? { sound: true, flash: true })
     const shown = { ...msg, at: Date.now() }
     setSurgeAlert(shown)
     setTimeout(() => setSurgeAlert((cur) => (cur?.at === shown.at ? null : cur)), 12000)
-  }, [])
+  }, [alertPrefs])
 
   // #209: a leader can one-tap the matching rally-call preset onto the faction
   // headline. Nothing hits the banner until a leader confirms here (the surge
   // sound/flash/push in #208 already went to everyone).
   const [postingHeadline, setPostingHeadline] = useState(false)
   async function postSurgeHeadline() {
-    const preset = PUSH_HEADLINE_PRESETS[surgeAlert?.direction]
+    const preset = surgeHeadlinePreset(surgeAlert?.surge, surgeAlert?.direction)
     if (!preset) return
     setPostingHeadline(true)
     try {
@@ -1458,7 +1519,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Personal alerts (#156 dibs hospital-exit, #157 chain-watch). Per-user
   // prefs in localStorage; the hook fires sound/flash over the polled data and
   // reports when the chain is dropping so attack buttons can flag red.
-  const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
   const { chainAlerting } = useWarRoomAlerts({
     chain, members, dibs, userId: user?.id, prefs: alertPrefs, active: !!config?.enabled,
   })
@@ -2747,7 +2807,12 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       {/* Server-detected PUSH surge (#208) — auto-fires sound/flash for everyone. */}
       {surgeAlert && (
         <div className={`mb-3 rounded-lg px-4 py-3 flex items-center justify-between gap-3 shadow text-white ${
-          surgeAlert.direction === 'enemy' ? 'bg-red-600' : 'bg-green-600'}`}>
+          surgeAlert.direction !== 'enemy' ? 'bg-green-600'
+            // Amber, not red, for an incoming revive surge (#359): nothing has
+            // landed yet. Reserving red for "they are already hitting us" keeps
+            // the two banners distinguishable at a glance mid-war.
+            : surgeAlert.surge === 'revive' ? 'bg-amber-600'
+            : 'bg-red-600'}`}>
           <div className="flex items-center gap-2 min-w-0">
             <AlertTriangle className="w-5 h-5 flex-shrink-0" />
             <span className="font-bold text-base sm:text-lg truncate">{surgeAlert.title}</span>
@@ -2755,7 +2820,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* Leader-only one-tap rally call (#209). Non-leaders never see it. */}
-            {(isWarLead || isLeadership || isAdmin) && !isVisitor && PUSH_HEADLINE_PRESETS[surgeAlert.direction] && (
+            {(isWarLead || isLeadership || isAdmin) && !isVisitor && surgeHeadlinePreset(surgeAlert.surge, surgeAlert.direction) && (
               surgeAlert.posted ? (
                 <span className="text-xs font-semibold px-2.5 py-1 rounded bg-white/20">Headline posted ✓</span>
               ) : (
