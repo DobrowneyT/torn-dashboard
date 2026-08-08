@@ -17,6 +17,44 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.10.0] - 2026-08-08
+
+### Added
+
+- **Sortable Energy and cooldown columns on our own roster (#351).** Energy,
+  Drug CD, Medical CD and Booster CD now sort ascending/descending like the
+  other headers. Energy sorts on the current value; cooldowns sort on the
+  **aged** remaining value, matching what the cell renders — the sweep walks
+  keys serially, so ranking the raw stored seconds would produce an order that
+  disagrees with the numbers beside it. Members with no reading sink to the
+  bottom in **both** directions: sorting ascending by energy asks "who is
+  empty", and a member whose key failed is an absence of an answer, not one.
+- **Energy colour gradient (#351).** Red at empty → amber at a full natural bar
+  → green at a stacked 1000, and piecewise rather than linear so the 0-150
+  stretch where nearly everyone sits mid-war gets a full sweep instead of the
+  bottom 15% of one ramp. Replaces a band on `current / maximum`, which
+  collapsed the distinction that matters most — 150/150 and 1000/150 both came
+  out "high", so a roster that had not stacked looked identical to one that
+  had. The amber anchor follows each member's own reported maximum.
+
+### Changed
+
+- **A ready cooldown renders as `0`, not "Ready" (#351).** The column is
+  numeric and scanned vertically; "Ready" was the widest value in it and the
+  only non-numeric one. `—` still means "no reading".
+
+### Fixed
+
+- **A member whose key failed no longer reads as 0 energy (#351).** `Number(null)`
+  is 0, so rows the sweep wrote with a `last_error` and null energy rendered as
+  `0/150` — indistinguishable from a genuinely empty member, and enough to get
+  someone written off for a push. Every numeric read in the module now goes
+  through a guard that keeps null as null, and the gradient leaves those cells
+  grey rather than colouring them red.
+- The war-room empty-state row spanned the wrong number of columns after a
+  forced fall back to the enemy roster, and the sort column persisted across
+  reloads could survive onto a side where that column is not rendered.
+
 ## [3.9.1] - 2026-08-08
 
 ### Fixed

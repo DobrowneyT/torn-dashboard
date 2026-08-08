@@ -3,7 +3,9 @@ import { describe, it, expect } from 'vitest'
 import {
   OVERDOSE_DRUG_CD_SEC,
   indexMemberStats, remainingCooldown, formatCooldown,
-  overdosedByDrugCooldown, formatEnergy, energyTone, statsAgeSeconds, hasStatsError,
+  overdosedByDrugCooldown, formatEnergy, statsAgeSeconds, hasStatsError,
+  memberStatSortValue, compareMemberStat,
+  energyHue, energyBand, HUE_EMPTY, HUE_FULL_BAR, HUE_STACKED,
 } from '../warRoomMemberStats'
 // The pre-existing hospital-status overdose flag (#199), imported here to pin
 // the relationship between the two detectors rather than describe it in prose.
@@ -53,8 +55,11 @@ describe('remainingCooldown', () => {
 
 describe('formatCooldown', () => {
   it('distinguishes unknown from ready', () => {
+    // The column is numeric and scanned vertically, so a ready cooldown reads
+    // as 0 (#351) rather than the word "Ready", which was the widest value in
+    // the column and broke the scan. The dash still means "no reading".
     expect(formatCooldown(null)).toBe('—')
-    expect(formatCooldown(0)).toBe('Ready')
+    expect(formatCooldown(0)).toBe('0')
   })
 
   it('formats seconds, minutes and hours compactly', () => {
@@ -115,19 +120,96 @@ describe('formatEnergy', () => {
     // would blank exactly the member you most need to see.
     expect(formatEnergy({ energy_current: 0, energy_maximum: 150 })).toBe('0/150')
   })
+
+  it('does not turn a NULL reading into zero energy', () => {
+    // The other half of the same distinction, and a live bug: the sweep writes
+    // a row with null energy and a last_error when a member's key fails, and
+    // Number(null) is 0 — so those members rendered as "0/150" and read as
+    // empty rather than unasked.
+    expect(formatEnergy({ energy_current: null, energy_maximum: 150 })).toBe('—')
+    expect(formatEnergy({ energy_current: '', energy_maximum: 150 })).toBe('—')
+  })
 })
 
-describe('energyTone', () => {
-  it('bands energy by fraction of maximum', () => {
-    expect(energyTone({ energy_current: 150, energy_maximum: 150 })).toBe('high')
-    expect(energyTone({ energy_current: 75, energy_maximum: 150 })).toBe('mid')
-    expect(energyTone({ energy_current: 10, energy_maximum: 150 })).toBe('low')
+describe('energyHue (#351)', () => {
+  const hue = (current, maximum = 150) => energyHue({ energy_current: current, energy_maximum: maximum })
+
+  it('anchors the three reference points a war lead reads for', () => {
+    // Empty is red, a FULL NATURAL BAR is amber, a fully stacked member is
+    // green. Amber sits on the full bar rather than halfway up the range
+    // because 150 is what you get for free — it means "has not stacked".
+    expect(hue(0)).toBe(HUE_EMPTY)
+    expect(hue(150)).toBe(HUE_FULL_BAR)
+    expect(hue(1000)).toBe(HUE_STACKED)
   })
 
-  it('reports unknown rather than guessing a band', () => {
-    expect(energyTone(null)).toBe('unknown')
-    expect(energyTone({ energy_current: 10 })).toBe('unknown')
-    expect(energyTone({ energy_current: 10, energy_maximum: 0 })).toBe('unknown')
+  it('separates a full bar from a stacked member', () => {
+    // The bug this replaces: the old tone banded on current/maximum, so
+    // 150/150 and 1000/150 both came out "high" — exactly the distinction
+    // that decides whether the faction is ready to start a war.
+    expect(hue(150)).not.toBe(hue(1000))
+  })
+
+  it('ramps red to amber across the natural bar', () => {
+    // Mid-war, almost everyone lives in 0-150, so this stretch gets its own
+    // full sweep instead of being squashed into the bottom 15% of one ramp.
+    expect(hue(75)).toBeGreaterThan(hue(0))
+    expect(hue(75)).toBeLessThan(hue(150))
+  })
+
+  it('ramps amber to green across the stack', () => {
+    expect(hue(500)).toBeGreaterThan(hue(150))
+    expect(hue(500)).toBeLessThan(hue(1000))
+  })
+
+  it('rises monotonically all the way up', () => {
+    // Any dip would read as "this member has less energy" and mislead a push
+    // call. Worth pinning across the piecewise join at 150.
+    const points = [0, 25, 50, 100, 145, 150, 155, 200, 400, 700, 999, 1000]
+    const hues = points.map((p) => hue(p))
+    for (let i = 1; i < hues.length; i++) expect(hues[i]).toBeGreaterThanOrEqual(hues[i - 1])
+  })
+
+  it('clamps beyond the stack target rather than wrapping past green', () => {
+    // Hue is circular: unclamped, 1500 would run past green into cyan/blue.
+    expect(hue(1500)).toBe(HUE_STACKED)
+    expect(hue(-5)).toBe(HUE_EMPTY)
+  })
+
+  it('uses the member reported maximum as the amber anchor', () => {
+    // Donator//non-donator caps differ, so the "full bar" line is per member
+    // rather than a hardcoded 150.
+    expect(energyHue({ energy_current: 100, energy_maximum: 100 })).toBe(HUE_FULL_BAR)
+  })
+
+  it('falls back to the standard bar when maximum is missing or junk', () => {
+    expect(energyHue({ energy_current: 150 })).toBe(HUE_FULL_BAR)
+    expect(energyHue({ energy_current: 150, energy_maximum: 0 })).toBe(HUE_FULL_BAR)
+  })
+
+  it('returns null with no reading, so the cell can stay grey', () => {
+    // A member we could not ask must never be coloured — red would read as
+    // "this member is empty" and get them written off for the push.
+    expect(energyHue(null)).toBeNull()
+    expect(energyHue({})).toBeNull()
+    expect(energyHue({ energy_current: null })).toBeNull()
+  })
+
+  it('returns a whole number so the inline style does not churn', () => {
+    expect(Number.isInteger(hue(37))).toBe(true)
+  })
+})
+
+describe('energyBand', () => {
+  it('names the three states in words for the tooltip', () => {
+    expect(energyBand({ energy_current: 0, energy_maximum: 150 })).toBe('empty')
+    expect(energyBand({ energy_current: 90, energy_maximum: 150 })).toBe('regenerating')
+    expect(energyBand({ energy_current: 150, energy_maximum: 150 })).toBe('full bar')
+    expect(energyBand({ energy_current: 600, energy_maximum: 150 })).toBe('stacked')
+  })
+
+  it('is null when there is no reading', () => {
+    expect(energyBand(null)).toBeNull()
   })
 })
 
@@ -149,5 +231,81 @@ describe('hasStatsError', () => {
     expect(hasStatsError({ last_error: 'Incorrect key' })).toBe(true)
     expect(hasStatsError({ last_error: null })).toBe(false)
     expect(hasStatsError(null)).toBe(false)
+  })
+})
+
+describe('memberStatSortValue', () => {
+  it('sorts energy on the current value, not the fraction of maximum', () => {
+    // "Who can throw the most hits right now" is a raw count question. A
+    // 100/100 member is worth less to a chain than a 400/500 one.
+    expect(memberStatSortValue('energy', { energy_current: 400, energy_maximum: 500 })).toBe(400)
+    expect(memberStatSortValue('energy', { energy_current: 100, energy_maximum: 100 })).toBe(100)
+  })
+
+  it('sorts energy of zero as zero rather than unknown', () => {
+    expect(memberStatSortValue('energy', { energy_current: 0 })).toBe(0)
+  })
+
+  it('sorts cooldowns on the AGED value, matching the cell', () => {
+    // The sweep walks keys serially, so two members' readings were taken at
+    // different moments. Comparing the raw stored seconds would rank a member
+    // fetched 5 minutes ago against one fetched just now — the ordering would
+    // disagree with the numbers on screen.
+    const older = { cooldown_medical: 1000, fetched_at: at('2026-08-08T11:55:00Z') } // 700 left
+    const newer = { cooldown_medical: 900, fetched_at: at('2026-08-08T12:00:00Z') }  // 900 left
+    expect(memberStatSortValue('cooldown_medical', older, T0)).toBe(700)
+    expect(memberStatSortValue('cooldown_medical', newer, T0)).toBe(900)
+  })
+
+  it('is null when there is no reading at all', () => {
+    expect(memberStatSortValue('energy', null)).toBeNull()
+    expect(memberStatSortValue('energy', {})).toBeNull()
+    expect(memberStatSortValue('cooldown_drug', {}, T0)).toBeNull()
+  })
+})
+
+describe('compareMemberStat', () => {
+  const withEnergy = (n) => ({ energy_current: n, energy_maximum: 150 })
+  const sortEnergy = (rows, dir) =>
+    rows.slice().sort((a, b) => compareMemberStat('energy', a, b, dir, T0))
+      .map((r) => r?.energy_current ?? 'none')
+
+  it('orders ascending and descending', () => {
+    const rows = [withEnergy(50), withEnergy(150), withEnergy(0)]
+    expect(sortEnergy(rows, 1)).toEqual([0, 50, 150])
+    expect(sortEnergy(rows, -1)).toEqual([150, 50, 0])
+  })
+
+  it('sinks members with no reading in BOTH directions', () => {
+    // The crux (#351). "No reading" is not "zero energy" — sorting ascending
+    // must surface the genuinely empty members, not the ones whose key failed
+    // or who simply have not been swept yet. Both directions answer a question
+    // about members we actually know something about.
+    const rows = [withEnergy(50), null, withEnergy(150), {}]
+    expect(sortEnergy(rows, 1)).toEqual([50, 150, 'none', 'none'])
+    expect(sortEnergy(rows, -1)).toEqual([150, 50, 'none', 'none'])
+  })
+
+  it('ranks a ready cooldown above one still running, ascending', () => {
+    // The scan this column exists for: who can act now.
+    const ready = { cooldown_drug: 0, fetched_at: at('2026-08-08T12:00:00Z') }
+    const busy = { cooldown_drug: 7200, fetched_at: at('2026-08-08T12:00:00Z') }
+    expect(compareMemberStat('cooldown_drug', ready, busy, 1, T0)).toBeLessThan(0)
+    expect(compareMemberStat('cooldown_drug', ready, busy, -1, T0)).toBeGreaterThan(0)
+  })
+
+  it('puts an overdosed member at the top when sorting drug CD descending', () => {
+    // An overdose is a >10h cooldown, so it falls out of the ordering for free
+    // — worth pinning, because "who is out of the fight" is the reason a lead
+    // sorts this column at all.
+    const od = { cooldown_drug: 40_000, fetched_at: at('2026-08-08T12:00:00Z') }
+    const normal = { cooldown_drug: 7200, fetched_at: at('2026-08-08T12:00:00Z') }
+    expect(compareMemberStat('cooldown_drug', od, normal, -1, T0)).toBeLessThan(0)
+  })
+
+  it('treats two unknowns as equal, leaving the prior order intact', () => {
+    // Array.sort is stable, so returning 0 keeps whatever ordering the rows
+    // already had rather than shuffling the unknown block on every poll.
+    expect(compareMemberStat('energy', null, {}, 1, T0)).toBe(0)
   })
 })

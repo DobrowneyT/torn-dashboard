@@ -41,6 +41,12 @@ export const SCRAPER_JOB_INFO = {
     'Daily slow-moving profile denorms (donator/property/last-action) for ' +
     'every current member. Composes with member-stats via COALESCE. ' +
     '~1 call per member.',
+  'member-battle-stats':
+    "Our own members' battle stats, daily, best source first: each member's " +
+    'OWN key (GET /v2/user?selections=battlestats — self-only, so there is no ' +
+    'faction-wide call), then a TornStats faction spy, then a BSP estimate for ' +
+    'anyone still unknown. Lead-only. ~1 call per pooled key + 1 + one per ' +
+    'member with no key.',
   'stats-samples-prune':
     'Housekeeping: prunes the intraday member_stat_samples series past its ' +
     'retention window, keeping samples still needed to resolve competitions. ' +
