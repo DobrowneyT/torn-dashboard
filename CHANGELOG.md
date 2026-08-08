@@ -44,6 +44,24 @@ from `VERSION` at runtime) both surface it automatically.
 - **Removed the descriptive blurb beside the "Showing:" toggle (#342).**
 - **The roster toggle now names our faction (#342)** instead of the generic
   "Our faction", matching how the opponent side is labelled.
+- **An unknown revive setting now reads as "revivable by anyone" (#342).** Torn
+  reports `Unknown` when it will not disclose the preference, which is the
+  normal case for an opponent — so #339 painted the entire enemy roster with
+  the muted glyph and buried the distinction it was meant to draw.
+  `is_revivable` is already computed from our vantage point, so the revive is
+  possible; only the stated preference is missing. The muted glyph is now
+  reserved for members Torn explicitly reports as "Friends & faction".
+
+### Added
+
+- **The war-room ticker now says why it is idle (#342).** Four conditions
+  previously stopped a tick with a bare `return`: the war room being disabled,
+  no opponent set, an auto-managed war outside its active window, and no
+  claimable API key. A board frozen for any of those reasons was
+  indistinguishable from one with nothing to report. Each now logs once when
+  the reason changes (and once more when polling resumes) — notably the
+  auto-managed-war case, which is easy to hit on a cloned staging database
+  whose `managed_war_id` points at a war that has since finished.
 
 ## [3.8.0] - 2026-08-08
 

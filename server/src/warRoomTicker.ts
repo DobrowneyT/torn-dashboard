@@ -142,6 +142,32 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
   // over-ambitious cadence doesn't write a line every second.
   let lastClampLogAt = 0
   let lastTickErrorLogAt = 0
+  // Why the last tick did nothing, so an idle ticker can explain itself. Logged
+  // only when the reason CHANGES — an idle war room is the normal state and
+  // must not write a line every heartbeat (#342).
+  let lastIdleReason: string | null = null
+
+  /**
+   * Report why a tick is doing nothing.
+   *
+   * Every one of these was previously a bare `return`. That is fine when the
+   * war room is deliberately off, and awful when it is not: a board frozen
+   * because its managed war ended (very common on a cloned staging database,
+   * where auto_managed and managed_war_id arrive pointing at a finished war)
+   * looked exactly like a board with nothing to say.
+   */
+  function idle(reason: string): void {
+    if (lastIdleReason === reason) return
+    lastIdleReason = reason
+    console.log(`[war-room] ticker idle: ${reason}`)
+  }
+
+  function active(): void {
+    if (lastIdleReason !== null) {
+      console.log('[war-room] ticker active again')
+      lastIdleReason = null
+    }
+  }
 
   async function enrolledKeyCount(): Promise<number> {
     if (Date.now() - poolSizeAt < 60_000) return poolSize
@@ -176,14 +202,21 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
     try {
       const config = await db.query('SELECT * FROM war_room_config_v2 WHERE id = 1')
       const cfg = config.rows[0]
-      if (!cfg?.enabled || !cfg.faction_id) return
+      if (!cfg?.enabled) return idle('war room is disabled')
+      if (!cfg.faction_id) return idle('no opponent faction set')
       // The war window gates AUTOMATION-owned sessions only: a manual Save
       // (auto_managed=false) may carry a stale managed_war_id from whatever
       // the lifecycle ran last, and must keep polling regardless.
-      if (cfg.auto_managed && !(await warWindowActive(cfg.managed_war_id))) return
+      if (cfg.auto_managed && !(await warWindowActive(cfg.managed_war_id))) {
+        return idle(
+          `auto-managed war ${cfg.managed_war_id} is outside its active window — ` +
+          `no polling until a new war starts (turn off auto-manage to poll anyway)`
+        )
+      }
 
       const claimed = await pool.claim()
-      if (!claimed) return
+      if (!claimed) return idle('no usable API key in the pool')
+      active()
 
       const us = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
       const ourId = Number(us.rows[0].torn_faction_id)
