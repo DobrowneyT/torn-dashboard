@@ -14,6 +14,19 @@
 //   Tier 1 — everyone else (red button): today's ordering preserved —
 //            freshly-released Okay first, then soonest-out timers, then rest.
 
+/**
+ * The green attack button: the target is online AND out of hospital/jail, so
+ * they can be hit right now.
+ *
+ * Exported and shared (#366) because two places have to agree on it exactly.
+ * The farm sort puts these on top; the stats filter must never remove them.
+ * Two copies of this predicate would eventually disagree, and the failure mode
+ * is a member who sorts into the top tier and is then filtered off the board.
+ */
+export function isGreenTarget(member) {
+  return member?.last_action_status === 'Online' && member?.status_state === 'Okay'
+}
+
 /** Battle stats descending; un-spied (null) targets sink to the bottom. */
 function bspDescNullsLast(a, b) {
   const an = a.bsp == null

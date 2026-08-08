@@ -17,6 +17,23 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.14.0] - 2026-08-08
+
+### Changed
+
+- **In farm mode, a green attack button always survives the Stats filter
+  (#366).** Online + Okay members are the only people who can be hit this
+  second, so if a push starts they are precisely what a lead needs on screen —
+  and a min/max left over from farming would quietly remove exactly them. A
+  filter that hides the thing you must react to is worse than no filter.
+  Non-green members still filter normally, and outside farm mode the filter is
+  left alone: set deliberately, it is a targeting tool and should do what it
+  says.
+- The green-target predicate is now shared between the farm sort and the stats
+  filter rather than written twice. Two copies would eventually disagree, and
+  the failure mode is a member the sort promotes to the top tier being filtered
+  off the board.
+
 ## [3.13.1] - 2026-08-08
 
 ### Fixed

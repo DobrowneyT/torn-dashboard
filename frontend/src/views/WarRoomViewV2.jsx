@@ -30,7 +30,7 @@ import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberN
 import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   selectRosterMembers, rosterColumns, rosterColumnCount, isStatsFilterAvailable,
-  canViewOurRoster, effectiveRosterSide, pollingState, effectiveSortCol,
+  canViewOurRoster, effectiveRosterSide, pollingState, effectiveSortCol, passesStatsFilter,
 } from '../utils/warRoomRosterSide'
 import {
   formatEnergy, energyHue, energyBand, formatCooldown, remainingCooldown,
@@ -68,7 +68,7 @@ import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs, fireAlert, surgeAlertKind } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
 import { parseDbTime } from '../utils/time'
-import { farmCompare } from '../utils/warRoomFarmSort'
+import { farmCompare, isGreenTarget } from '../utils/warRoomFarmSort'
 import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon } from 'lucide-react'
 import HelpPanel from '../components/warroom/HelpPanel'
 import SpotlightTour from '../components/warroom/SpotlightTour'
@@ -2211,13 +2211,21 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (activityFilter.size > 0) {
       list = list.filter(m => activityFilter.has(m.last_action_status))
     }
-    // Suspended on our own roster: spies are fetched for the enemy only, so
-    // bsp_total is null for us and an active min/max would empty the table.
+    // Suspended on our own roster until we hold battle stats: spies are fetched
+    // for the enemy only, so bsp_total would be null for everyone and an active
+    // min/max would empty the table.
     if (statsFilterEnabled && statsFilterUsable) {
       const minVal = parseStatInput(statsFilterMin)
       const maxVal = parseStatInput(statsFilterMax)
-      if (minVal !== null) list = list.filter(m => m.bsp_total !== null && m.bsp_total >= minVal)
-      if (maxVal !== null) list = list.filter(m => m.bsp_total !== null && m.bsp_total <= maxVal)
+      // In farm mode a green attack button ALWAYS survives the stats filter
+      // (#366). Those are the only people who can be hit this second, so if a
+      // push starts they are what a lead needs to see — and a filter set for
+      // farming would otherwise quietly remove exactly them. Outside farm mode
+      // the filter is a deliberate targeting tool and is left alone.
+      const farmMode = activeSortCol === 'farm'
+      list = list.filter((m) => passesStatsFilter(m, {
+        min: minVal, max: maxVal, farmMode, isGreen: isGreenTarget(m),
+      }))
     }
 
     const d = sortDir === 'asc' ? 1 : -1
@@ -2239,7 +2247,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           // top by battle stats, everyone else below in the prior ordering.
           // sortDir is intentionally ignored — farm has fixed semantics.
           const farmTarget = m => ({
-            isGreen: m.last_action_status === 'Online' && m.status_state === 'Okay',
+            isGreen: isGreenTarget(m),
             okay: m.status_state === 'Okay',
             until: m.status_until,
             bsp: m.bsp_total,
