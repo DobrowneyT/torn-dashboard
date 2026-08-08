@@ -37,10 +37,15 @@ export function reviveAudience(member) {
   if (setting === REVIVE_NO_ONE) return null
   if (setting === REVIVE_FRIENDS) return 'friends'
   if (setting === REVIVE_EVERYONE) return 'anyone'
-  // 'Unknown', null, or a value Torn adds later: the member IS revivable, we
-  // just cannot say by whom. Report the weaker claim rather than promising a
-  // hired reviver will work.
-  return 'friends'
+  // 'Unknown', null, or a value Torn adds later.
+  //
+  // Treat this as 'anyone' (#342). Torn reports Unknown when it will not
+  // disclose the preference — which is the normal case for an ENEMY, i.e. most
+  // of the roster. `is_revivable` is already computed from OUR vantage point,
+  // so a true there means a revive is possible; the missing piece is only the
+  // stated preference. Degrading to 'friends' here painted the entire enemy
+  // roster muted and buried the real distinction.
+  return 'anyone'
 }
 
 /**
@@ -79,17 +84,16 @@ export function memberFlags(member, { isFlying = false, stats = null } = {}) {
     flags.push({
       key: 'revive-anyone',
       glyph: '💉',
-      title: 'Revivable by anyone — a hired reviver can bring them up',
+      title: 'Revivable — a hired reviver can bring them up',
       tone: 'good',
     })
   } else if (audience === 'friends') {
-    const known = member?.revive_setting === REVIVE_FRIENDS
+    // Only ever reached when Torn explicitly states the restriction, which in
+    // practice means our own members: we can see their real setting.
     flags.push({
       key: 'revive-friends',
       glyph: '💉',
-      title: known
-        ? 'Revivable by their friends & faction ONLY — a hired reviver cannot'
-        : 'Revivable, but their revive setting is unknown — a hired reviver may not work',
+      title: 'Revivable by their friends & faction only — an outside reviver cannot',
       tone: 'muted',
     })
   }

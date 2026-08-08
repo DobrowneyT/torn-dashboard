@@ -30,7 +30,7 @@ import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberN
 import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   selectRosterMembers, rosterColumns, rosterColumnCount, isStatsFilterAvailable,
-  canViewOurRoster, effectiveRosterSide,
+  canViewOurRoster, effectiveRosterSide, pollingState,
 } from '../utils/warRoomRosterSide'
 import {
   formatEnergy, energyTone, formatCooldown, remainingCooldown,
@@ -1448,7 +1448,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
   // ── Roll call + war notes ───────────────────────────────────────────────────
   const [notesPanelOpen, setNotesPanelOpen] = useState(() => persistedState.notesPanelOpen ?? false)
-  const [currentWar, setCurrentWar]   = useState(null)   // { id, opponentId, opponentName, startAt }
+  const [currentWar, setCurrentWar]   = useState(null)   // { id, opponentId, opponentName, startAt, endAt }
   const [warNotes, setWarNotes]       = useState(null)
   const [rollCallRows, setRollCallRows] = useState([])
   const [rollCallLoaded, setRollCallLoaded] = useState(false)  // gate waits for this
@@ -1732,7 +1732,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       if (cancelled) return
       // Only treat as "current" when the war hasn't ended yet.
       if (data && !data.end_at) {
-        setCurrentWar({ id: data.id, opponentId: data.opponent_id, opponentName: data.opponent_name, startAt: data.start_at })
+        // endAt feeds pollingState (#342) — without it the board cannot tell
+        // "war finished, server stopped" from "still live".
+        setCurrentWar({ id: data.id, opponentId: data.opponent_id, opponentName: data.opponent_name, startAt: data.start_at, endAt: data.end_at })
       } else {
         setCurrentWar(null)
       }
@@ -1995,10 +1997,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // re-read on session refresh), and must fall straight back to the enemy
   // roster rather than sitting on one they may no longer see.
   const canSeeOurRoster = canViewOurRoster({ isWarLead, isLeadership, isAdmin, isVisitor })
-  // 0 = off. Server-side cadence, so it takes effect on the next tick without
-  // restarting the war room (the ticker re-reads config every second).
-  const memberStatsIntervalSec = Number(config?.member_stats_poll_interval_sec ?? 0)
-  const memberStatsEnabled = memberStatsIntervalSec > 0
   const effectiveSide = effectiveRosterSide(rosterSide, { isWarLead, isLeadership, isAdmin, isVisitor })
   const rosterMembers = selectRosterMembers(effectiveSide, { members, ourMembers })
   const columns = rosterColumns(effectiveSide)
@@ -2221,6 +2219,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   }
 
   const isActive   = !!config?.enabled
+  // Whether the SERVER is actually polling (#342). `enabled` alone is not the
+  // answer: the ticker refuses to poll an auto-managed session outside its
+  // war's window, so an enabled board can sit frozen at the last war's end
+  // while claiming to be live. This drives the badge and the footer so the two
+  // can never disagree with the server again.
+  const polling = pollingState({
+    enabled: isActive,
+    autoManaged: !!config?.auto_managed,
+    warStartAt: currentWar?.startAt,
+    warEndAt: currentWar?.endAt,
+  })
   const hasMembers = members.length > 0
   // Whether the SHOWN roster has anyone, and whether either does (#336).
   //
@@ -2266,9 +2275,25 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   `${factionLabel}`
                 ) : ''}
               </h2>
-              {isActive && (
+              {polling.polling && (
                 <span className="flex items-center gap-1.5 px-2.5 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-xs font-semibold">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> LIVE
+                </span>
+              )}
+              {polling.state === 'scheduled' && (
+                <span
+                  title="This war room is auto-managed, so the server does not poll until the war starts. Press Save next to the Opponent Faction ID to take manual control and start polling now."
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full text-xs font-semibold"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> SCHEDULED — NOT POLLING
+                </span>
+              )}
+              {polling.state === 'ended' && (
+                <span
+                  title="The managed war has ended, so the server has stopped polling. The roster below is the last known state."
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300 rounded-full text-xs font-semibold"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" /> WAR ENDED — NOT POLLING
                 </span>
               )}
               {/* Leadership controls collapse toggle — sits on the title row
@@ -2453,7 +2478,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Showing:</span>
               {[
                 { side: THEM, label: resolvedName ?? 'Opponent' },
-                { side: US,   label: 'Our faction' },
+                // Our real faction name, to match how the opponent is labelled
+                // — "Our faction" read as a generic control rather than a side.
+                { side: US,   label: getFactionIdentity().name || 'Our faction' },
               ].map(({ side, label }) => (
                 <button
                   key={side}
@@ -2468,13 +2495,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   {label}
                 </button>
               ))}
-              {effectiveSide === US && (
-                <span className="text-[11px] text-gray-500 dark:text-gray-500">
-                  {memberStatsEnabled
-                    ? `Live energy and cooldowns, refreshed every ${memberStatsIntervalSec}s. Dibs and attacks don't apply.`
-                    : 'Hospital and travel timers only — live stats polling is off (enable it in War Room settings).'}
-                </span>
-              )}
             </div>
             )}
 
@@ -2952,16 +2972,18 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           <div className="px-4 py-2.5 border-t border-gray-200 dark:border-slate-700 grid grid-cols-3 items-center text-xs text-gray-400 dark:text-gray-600">
             <span className="justify-self-start">Showing {filtered.length} of {rosterMembers.length} members</span>
             <span className="justify-self-center">
-              {isActive && lastFetched && !pollError
-                ? `Updated ${Math.round((Date.now() - lastFetched) / 1000)}s ago`
-                : ''}
+              {!polling.polling && polling.state !== 'off'
+                ? 'Last known state — server is not polling'
+                : polling.polling && lastFetched && !pollError
+                  ? `Updated ${Math.round((Date.now() - lastFetched) / 1000)}s ago`
+                  : ''}
             </span>
+            {/* Poll cadences used to be printed here (#342). They are
+                diagnostic detail — every viewer had to read them, and only an
+                admin can act on them, from War Room settings. The paused state
+                still shows, because that changes how you read the timers. */}
             <span className="justify-self-end text-right">
-              {isActive
-                ? `Roster: every ${(config?.roster_poll_interval_ms ?? 1000) / 1000}s · Our chain: every ${config?.chain_poll_interval_ours_sec ?? 5}s`
-                  + ` · Enemy chain: every ${config?.chain_poll_interval_enemy_sec ?? 30}s`
-                  + (memberStatsEnabled ? ` · Member stats: every ${memberStatsIntervalSec}s` : '')
-                : 'Static snapshot · Enable to refresh'}
+              {isActive ? '' : 'Static snapshot · Enable to refresh'}
             </span>
           </div>
         </div>

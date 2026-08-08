@@ -17,6 +17,63 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.8.1] - 2026-08-08
+
+### Fixed
+
+- **War Room board froze silently when the roster cadence was set faster than
+  the key pool could sustain (#342).** A roster sync spends two Torn calls on a
+  single key, so the 0.5s cadence #339 allowed meant 240 calls/minute spread
+  across the pool — past Torn's 100/min *per key* on any small pool. Every sync
+  threw a rate-limit error, the ticker's `.catch(() => {})` discarded it, and a
+  board that had stopped updating was indistinguishable from one with nothing
+  to report: stale statuses, hospital timers stuck on "Releasing…", and
+  "Updated 200s ago" while the footer claimed it was polling twice a second.
+
+  The configured cadence is now floored by what the pool can actually sustain
+  (`1500ms / enrolled keys`, never below 500ms), so one key gets 1.5s, two get
+  750ms, and three or more reach the full 2 Hz. The override is logged. Tick
+  failures are logged too, throttled to once a minute — the swallow is what
+  made this invisible, and it predated #339.
+
+### Changed
+
+- **Removed the poll-cadence readout from the roster footer (#342).** It was
+  diagnostic detail shown to every viewer, actionable only by an admin, who can
+  read it from War Room settings. The paused-state notice stays.
+- **Removed the descriptive blurb beside the "Showing:" toggle (#342).**
+- **The roster toggle now names our faction (#342)** instead of the generic
+  "Our faction", matching how the opponent side is labelled.
+- **An unknown revive setting now reads as "revivable by anyone" (#342).** Torn
+  reports `Unknown` when it will not disclose the preference, which is the
+  normal case for an opponent — so #339 painted the entire enemy roster with
+  the muted glyph and buried the distinction it was meant to draw.
+  `is_revivable` is already computed from our vantage point, so the revive is
+  possible; only the stated preference is missing. The muted glyph is now
+  reserved for members Torn explicitly reports as "Friends & faction".
+
+### Added
+
+- **The War Room no longer claims to be LIVE while the server has stopped
+  polling (#342).** The green LIVE badge was driven by `war_room_config_v2.enabled`
+  alone, but the ticker deliberately refuses to poll an **auto-managed** session
+  outside its war's window. In the hours before a scheduled war — and between
+  wars — that produced a board showing a pulsing LIVE badge and an "Updated 12s
+  ago" footer over a roster frozen at the previous war's end, with a poll
+  cadence it was not honouring. The badge now reads **SCHEDULED — NOT POLLING**
+  or **WAR ENDED — NOT POLLING**, and the footer says "Last known state —
+  server is not polling". Pressing **Save** next to the Opponent Faction ID
+  still takes manual control and starts polling immediately; the badge tooltip
+  now says so.
+- **The war-room ticker now says why it is idle (#342).** Four conditions
+  previously stopped a tick with a bare `return`: the war room being disabled,
+  no opponent set, an auto-managed war outside its active window, and no
+  claimable API key. A board frozen for any of those reasons was
+  indistinguishable from one with nothing to report. Each now logs once when
+  the reason changes (and once more when polling resumes) — notably the
+  auto-managed-war case, which is easy to hit on a cloned staging database
+  whose `managed_war_id` points at a war that has since finished.
+
 ## [3.8.0] - 2026-08-08
 
 ### Added

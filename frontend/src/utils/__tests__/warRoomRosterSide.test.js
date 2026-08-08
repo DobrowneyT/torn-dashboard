@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   isRosterSide, selectRosterMembers, rosterColumns, rosterColumnCount,
-  isStatsFilterAvailable, otherSide, canViewOurRoster, effectiveRosterSide,
+  isStatsFilterAvailable, otherSide, canViewOurRoster, effectiveRosterSide, pollingState,
 } from '../warRoomRosterSide'
 
 const members = [{ member_id: 1, member_name: 'Enemy' }]
@@ -131,5 +131,64 @@ describe('effectiveRosterSide', () => {
   it('normalises a nonsense side to the enemy', () => {
     expect(effectiveRosterSide('sideways', lead)).toBe(THEM)
     expect(effectiveRosterSide(undefined, lead)).toBe(THEM)
+  })
+})
+
+describe('pollingState (#342)', () => {
+  const HOUR = 3600
+  const now = 1_800_000_000_000
+  const nowSec = Math.floor(now / 1000)
+
+  it('reports off when the war room is disabled', () => {
+    expect(pollingState({ enabled: false, nowMs: now })).toMatchObject({ state: 'off', polling: false })
+  })
+
+  it('reports scheduled — NOT live — before an auto-managed war starts', () => {
+    // The exact production case: enabled, auto-managed, war 8h away. The board
+    // showed a green LIVE badge over a roster frozen at the last war's end,
+    // while the server was deliberately not polling.
+    const s = pollingState({
+      enabled: true, autoManaged: true,
+      warStartAt: nowSec + 8 * HOUR, nowMs: now,
+    })
+    expect(s).toMatchObject({ state: 'scheduled', polling: false })
+    expect(s.startsAt).toBe(nowSec + 8 * HOUR)
+  })
+
+  it('reports live once an auto-managed war is inside its window', () => {
+    expect(pollingState({
+      enabled: true, autoManaged: true,
+      warStartAt: nowSec - HOUR, warEndAt: nowSec + HOUR, nowMs: now,
+    })).toMatchObject({ state: 'live', polling: true })
+  })
+
+  it('reports ended after an auto-managed war closes', () => {
+    expect(pollingState({
+      enabled: true, autoManaged: true,
+      warStartAt: nowSec - 4 * HOUR, warEndAt: nowSec - HOUR, nowMs: now,
+    })).toMatchObject({ state: 'ended', polling: false })
+  })
+
+  it('treats an open-ended war as live', () => {
+    for (const warEndAt of [null, 0, undefined]) {
+      expect(pollingState({
+        enabled: true, autoManaged: true, warStartAt: nowSec - HOUR, warEndAt, nowMs: now,
+      })).toMatchObject({ state: 'live', polling: true })
+    }
+  })
+
+  it('always reports live for a manual session, whatever the war window says', () => {
+    // auto_managed=false is the documented escape hatch — pressing Save yields
+    // the session to the leader and the ticker polls regardless.
+    expect(pollingState({
+      enabled: true, autoManaged: false, warStartAt: nowSec + 8 * HOUR, nowMs: now,
+    })).toMatchObject({ state: 'live', polling: true })
+  })
+
+  it('assumes live when there is no usable start time', () => {
+    // Never claim a gate we cannot prove — mislabelling a working board as
+    // stopped is its own kind of lie.
+    expect(pollingState({ enabled: true, autoManaged: true, warStartAt: null, nowMs: now }))
+      .toMatchObject({ state: 'live', polling: true })
   })
 })

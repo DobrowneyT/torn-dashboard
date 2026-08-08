@@ -31,16 +31,21 @@ describe('reviveAudience', () => {
     expect(reviveAudience(null)).toBeNull()
   })
 
-  it('degrades to the weaker claim when the setting is unknown', () => {
-    // Better to under-promise than to send a lead chasing a revive that a
-    // hired reviver cannot perform.
-    expect(reviveAudience({ is_revivable: true, revive_setting: 'Unknown' })).toBe('friends')
-    expect(reviveAudience({ is_revivable: true, revive_setting: null })).toBe('friends')
-    expect(reviveAudience({ is_revivable: true })).toBe('friends')
+  it('treats an unknown setting as revivable by anyone', () => {
+    // Torn reports Unknown when it will not disclose the preference, which is
+    // the normal case for an ENEMY — i.e. most of the roster. is_revivable is
+    // already computed from our vantage point, so the revive is possible; only
+    // the stated preference is missing. Muting these painted the whole enemy
+    // roster grey and buried the real distinction (#342).
+    expect(reviveAudience({ is_revivable: true, revive_setting: 'Unknown' })).toBe('anyone')
+    expect(reviveAudience({ is_revivable: true, revive_setting: null })).toBe('anyone')
+    expect(reviveAudience({ is_revivable: true })).toBe('anyone')
   })
 
-  it('degrades rather than throwing on a setting Torn adds later', () => {
-    expect(reviveAudience({ is_revivable: true, revive_setting: 'Faction only' })).toBe('friends')
+  it('only mutes when Torn explicitly states the restriction', () => {
+    // In practice that means our own members, whose real setting we can see.
+    expect(reviveAudience({ is_revivable: true, revive_setting: REVIVE_FRIENDS })).toBe('friends')
+    expect(reviveAudience({ is_revivable: true, revive_setting: 'Faction only' })).toBe('anyone')
   })
 })
 
