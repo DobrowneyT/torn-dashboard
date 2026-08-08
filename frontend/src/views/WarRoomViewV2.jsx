@@ -64,7 +64,7 @@ import HeadlineBanner, { surgeHeadlinePreset } from '../components/warroom/Headl
 import WarRoomPushPrompt from '../components/warroom/WarRoomPushPrompt'
 import { setWarHeadline } from '../utils/warRoomApiV2'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
-import { loadAlertPrefs, fireAlert } from '../utils/warRoomAlerts'
+import { loadAlertPrefs, fireAlert, surgeAlertKind } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
 import { parseDbTime } from '../utils/time'
 import { farmCompare } from '../utils/warRoomFarmSort'
@@ -1442,17 +1442,29 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Coerce to number to match the bigint faction_id column.
   const OUR_FACTION_ID = getFactionId()
 
-  // Server-detected PUSH surge (#208): a transient banner + sound/flash, fired
-  // automatically for every open tab (no opt-in). The web-push to subscribers
-  // is sent server-side in the ticker.
+  // Personal alert prefs (#156/#157, surge channel added in #361). Declared
+  // here rather than lower down because onSurgeAlert depends on it, and a
+  // useCallback dependency array is evaluated at definition time.
+  const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
+
+  // Server-detected PUSH surge (#208 status, #359 revives): a transient banner
+  // plus sound/flash. The web-push to subscribers is sent server-side.
+  //
+  // Leadership's surge toggles are the master switch — with them off the server
+  // emits nothing and none of this runs. What changed in #361 is that the
+  // sound/flash used to be hardcoded on and consulted no preference at all, so
+  // a member who wanted quiet had no control that could deliver it. The BANNER
+  // still shows regardless: silencing a ping is not the same as hiding the
+  // warning, and the war-wide notice is the point.
   const [surgeAlert, setSurgeAlert] = useState(null)
   const onSurgeAlert = useCallback((msg) => {
     if (msg?.kind !== 'surge') return
-    fireAlert('surge', { sound: true, flash: true })
+    const prefs = alertPrefs?.surge
+    if (prefs?.enabled !== false) fireAlert(surgeAlertKind(msg.surge), prefs ?? { sound: true, flash: true })
     const shown = { ...msg, at: Date.now() }
     setSurgeAlert(shown)
     setTimeout(() => setSurgeAlert((cur) => (cur?.at === shown.at ? null : cur)), 12000)
-  }, [])
+  }, [alertPrefs])
 
   // #209: a leader can one-tap the matching rally-call preset onto the faction
   // headline. Nothing hits the banner until a leader confirms here (the surge
@@ -1507,7 +1519,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Personal alerts (#156 dibs hospital-exit, #157 chain-watch). Per-user
   // prefs in localStorage; the hook fires sound/flash over the polled data and
   // reports when the chain is dropping so attack buttons can flag red.
-  const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
   const { chainAlerting } = useWarRoomAlerts({
     chain, members, dibs, userId: user?.id, prefs: alertPrefs, active: !!config?.enabled,
   })
