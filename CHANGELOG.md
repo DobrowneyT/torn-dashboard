@@ -54,6 +54,17 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Added
 
+- **The War Room no longer claims to be LIVE while the server has stopped
+  polling (#342).** The green LIVE badge was driven by `war_room_config_v2.enabled`
+  alone, but the ticker deliberately refuses to poll an **auto-managed** session
+  outside its war's window. In the hours before a scheduled war — and between
+  wars — that produced a board showing a pulsing LIVE badge and an "Updated 12s
+  ago" footer over a roster frozen at the previous war's end, with a poll
+  cadence it was not honouring. The badge now reads **SCHEDULED — NOT POLLING**
+  or **WAR ENDED — NOT POLLING**, and the footer says "Last known state —
+  server is not polling". Pressing **Save** next to the Opponent Faction ID
+  still takes manual control and starts polling immediately; the badge tooltip
+  now says so.
 - **The war-room ticker now says why it is idle (#342).** Four conditions
   previously stopped a tick with a bare `return`: the war room being disabled,
   no opponent set, an auto-managed war outside its active window, and no
