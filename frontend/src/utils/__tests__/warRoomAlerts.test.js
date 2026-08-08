@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { hospitalExitDue, chainSecondsLeft, chainDropDue } from '../warRoomAlerts.js'
+import { describe, it, expect, beforeEach } from 'vitest'
+import {
+  hospitalExitDue, chainSecondsLeft, chainDropDue,
+  ALERT_PREF_DEFAULTS, loadAlertPrefs, saveAlertPrefs, surgeAlertKind,
+} from '../warRoomAlerts.js'
 
 describe('hospitalExitDue', () => {
   const target = (state, until) => ({ status_state: state, status_until: until })
@@ -47,5 +50,70 @@ describe('chainDropDue', () => {
   it('never fires without a live savable chain', () => {
     expect(chainDropDue({ current: 0, timeout: 1050 }, 1000, 60)).toBe(false)
     expect(chainDropDue({ current: 25, timeout: 1050, cooldown: 2000 }, 1000, 60)).toBe(false)
+  })
+})
+
+// These tests run in node, not jsdom — the frontend suite is util-level by
+// design — so localStorage has to be stood up by hand.
+function stubLocalStorage() {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+    clear: () => store.clear(),
+  }
+  return store
+}
+
+describe('surge alert preferences (#361)', () => {
+  beforeEach(() => { stubLocalStorage() })
+
+  it('defaults the surge channel ON, unlike dibs and chain', () => {
+    // A war-wide warning fired by the server, not a personal reminder someone
+    // asked for — so opt-OUT. The other two stay opt-in.
+    expect(ALERT_PREF_DEFAULTS.surge.enabled).toBe(true)
+    expect(ALERT_PREF_DEFAULTS.dibs.enabled).toBe(false)
+    expect(ALERT_PREF_DEFAULTS.chain.enabled).toBe(false)
+  })
+
+  it('gives the surge channel the same sound and flash switches as the others', () => {
+    // The bug: fireAlert('surge', {sound:true, flash:true}) was hardcoded, so
+    // the checkboxes in the popover visibly did not apply to it.
+    expect(ALERT_PREF_DEFAULTS.surge).toMatchObject({ sound: true, flash: true })
+  })
+
+  it('has no threshold — the window is leadership-owned and server-side', () => {
+    expect(ALERT_PREF_DEFAULTS.surge).not.toHaveProperty('leadSec')
+    expect(ALERT_PREF_DEFAULTS.surge).not.toHaveProperty('thresholdSec')
+  })
+
+  it('loads a surge channel even for a browser that predates it', () => {
+    // Prefs saved before #361 have no surge key at all; merging over the
+    // defaults must not leave it undefined and crash the alert handler.
+    localStorage.setItem('warRoomAlertPrefs', JSON.stringify({ dibs: { enabled: true } }))
+    const prefs = loadAlertPrefs()
+    expect(prefs.surge).toMatchObject({ enabled: true, sound: true, flash: true })
+    expect(prefs.dibs.enabled).toBe(true)
+  })
+
+  it('round-trips a member silencing surges', () => {
+    saveAlertPrefs({ ...loadAlertPrefs(), surge: { enabled: false, sound: false, flash: false } })
+    expect(loadAlertPrefs().surge.enabled).toBe(false)
+  })
+})
+
+describe('surgeAlertKind', () => {
+  it('routes the two surge kinds to different tone and flash channels', () => {
+    // Told apart by ear and by peripheral colour, the same way dibs and chain
+    // already are.
+    expect(surgeAlertKind('revive')).toBe('surge-revive')
+    expect(surgeAlertKind('status')).toBe('surge')
+  })
+
+  it('falls back to the status channel when a payload carries no kind', () => {
+    // An alert from a server predating #359 has no `surge` field.
+    expect(surgeAlertKind(undefined)).toBe('surge')
+    expect(surgeAlertKind(null)).toBe('surge')
   })
 })

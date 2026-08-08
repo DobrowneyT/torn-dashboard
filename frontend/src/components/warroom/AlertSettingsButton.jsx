@@ -2,6 +2,10 @@
 // member can use to opt into the dibs hospital-exit reminder and the chain-
 // watch alert, each with a lead/threshold and sound/flash toggles. Prefs are
 // per-user (localStorage) — not a leadership setting.
+//
+// The surge channel (#361) is here too, but it is an opt-OUT: leadership's
+// toggles decide whether surges fire at all, and this only governs how loudly
+// this browser is told about ones that did.
 import { useEffect, useRef, useState } from 'react'
 import { Bell } from 'lucide-react'
 import { saveAlertPrefs, playAlertSound } from '../../utils/warRoomAlerts'
@@ -35,6 +39,8 @@ function Row({ label, children }) {
   )
 }
 
+// `unitKey` is optional: the surge channel has no lead time or threshold —
+// the server owns its window and thresholds, and they are a leadership setting.
 function ChannelSection({ title, hint, cfg, onChange, sampleKind, unitLabel, unitKey }) {
   return (
     <div className="space-y-2">
@@ -46,10 +52,12 @@ function ChannelSection({ title, hint, cfg, onChange, sampleKind, unitLabel, uni
         </label>
       </div>
       <p className="text-xs text-gray-500 dark:text-gray-400">{hint}</p>
-      <Row label={unitLabel}>
-        <NumberField value={cfg[unitKey]} disabled={!cfg.enabled} min={1} max={600}
-          onCommit={n => onChange({ ...cfg, [unitKey]: n })} />
-      </Row>
+      {unitKey && (
+        <Row label={unitLabel}>
+          <NumberField value={cfg[unitKey]} disabled={!cfg.enabled} min={1} max={600}
+            onCommit={n => onChange({ ...cfg, [unitKey]: n })} />
+        </Row>
+      )}
       <Row label="Sound">
         <input type="checkbox" checked={cfg.sound} disabled={!cfg.enabled}
           onChange={e => onChange({ ...cfg, sound: e.target.checked })} />
@@ -90,7 +98,7 @@ export default function AlertSettingsButton({ prefs, setPrefs, open: openProp, o
     saveAlertPrefs(next)
   }
 
-  const anyOn = prefs.dibs.enabled || prefs.chain.enabled
+  const anyOn = prefs.dibs.enabled || prefs.chain.enabled || prefs.surge?.enabled
 
   return (
     <div className="relative inline-flex" ref={ref}>
@@ -117,6 +125,12 @@ export default function AlertSettingsButton({ prefs, setPrefs, open: openProp, o
             hint="Alert me when the chain is about to drop, and highlight attack buttons red."
             cfg={prefs.chain} onChange={cfg => update('chain', cfg)}
             unitLabel="Threshold (s)" unitKey="thresholdSec" />
+          <div className="border-t border-gray-200 dark:border-slate-700" />
+          <ChannelSection
+            title="Push-surge alerts" sampleKind="surge"
+            hint="Sound and flash when leadership's surge alerts fire. Turning this off silences them for you only — the banner still appears, and leadership decides whether surges fire at all."
+            cfg={prefs.surge ?? { enabled: true, sound: true, flash: true }}
+            onChange={cfg => update('surge', cfg)} />
           <p className="text-xs text-gray-400 dark:text-gray-500">
             Saved to this browser. Sound needs one click on the page first (browser policy).
           </p>
