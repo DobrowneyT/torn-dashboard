@@ -26,22 +26,28 @@ const statusOnly: SurgeConfig = { ...config, revive: { ...config.revive, enabled
 const reviveOnly: SurgeConfig = { ...config, status: { ...config.status, enabled: false } }
 
 // Build a changed-row where `member` transitions to `state` on `faction`.
-function row(member: number, faction: number, state: string, deleted = false) {
+// Online by default: a status surge now requires it (#367), so the existing
+// cases describe members who are actually at the keyboard.
+function row(member: number, faction: number, state: string, deleted = false, activity = 'Online') {
   return {
     member_id: member,
     faction_id: faction,
     deleted_at: deleted ? new Date() : null,
-    state: { status: { state } },
+    state: { status: { state }, last_action: { status: activity } },
   }
 }
 
-/** A row carrying only the revive flag — the status half is deliberately absent. */
-function reviveRow(member: number, faction: number, revivable: boolean, deleted = false) {
+/**
+ * A row for the revive detector. The status stays put at Hospital across calls
+ * on purpose: a revive flag that flips while the status ALSO moves is a side
+ * effect of the status change, not somebody toggling the setting (#367).
+ */
+function reviveRow(member: number, faction: number, revivable: boolean, deleted = false, state = 'Hospital') {
   return {
     member_id: member,
     faction_id: faction,
     deleted_at: deleted ? new Date() : null,
-    state: { status: { state: 'Hospital' }, is_revivable: revivable },
+    state: { status: { state }, last_action: { status: 'Online' }, is_revivable: revivable },
   }
 }
 
@@ -132,6 +138,109 @@ describe('status surge detection (#208)', () => {
     recover(d, [1, 2], ENEMY, 500)
     const fired = d.observe([row(3, ENEMY, 'Okay', true)], { enemyId: ENEMY, ourId: OURS, config: statusOnly, nowMs: 1000 })
     expect(fired).toEqual([])
+  })
+})
+
+describe('the online gate on status surges (#367)', () => {
+  const offline = (m: number) => row(m, ENEMY, 'Okay', false, 'Offline')
+  const idle = (m: number) => row(m, ENEMY, 'Okay', false, 'Idle')
+
+  function seedHospital(d: Detector, members: number[], nowMs = 0) {
+    d.observe(members.map((m) => row(m, ENEMY, 'Hospital')), { enemyId: ENEMY, ourId: OURS, config: statusOnly, nowMs })
+  }
+
+  it('ignores members whose hospital timer simply expired while they were offline', () => {
+    // The reported bug: while WE farm a faction, batches drop out of hospital
+    // every few minutes with nobody at the keyboard, and that fired "incoming
+    // push!" at the lead who was doing the pushing.
+    const d = createSurgeDetector()
+    seedHospital(d, [1, 2, 3, 4])
+    expect(d.observe([1, 2, 3, 4].map(offline), { enemyId: ENEMY, ourId: OURS, config: statusOnly, nowMs: 1000 }))
+      .toEqual([])
+  })
+
+  it('ignores idle members too', () => {
+    // Idle is "logged in a while ago", not "at the keyboard". Counting it
+    // would put most of the farming noise straight back.
+    const d = createSurgeDetector()
+    seedHospital(d, [1, 2, 3])
+    expect(d.observe([1, 2, 3].map(idle), { enemyId: ENEMY, ourId: OURS, config: statusOnly, nowMs: 1000 }))
+      .toEqual([])
+  })
+
+  it('still fires for members who are online when they come out', () => {
+    const d = createSurgeDetector()
+    seedHospital(d, [1, 2, 3])
+    expect(recover(d, [1, 2, 3], ENEMY, 1000)).toHaveLength(1)
+  })
+
+  it('counts only the online ones out of a mixed batch', () => {
+    // Two real, two timing out — below the threshold of three, so silence.
+    const d = createSurgeDetector()
+    seedHospital(d, [1, 2, 3, 4])
+    const mixed = [row(1, ENEMY, 'Okay'), row(2, ENEMY, 'Okay'), offline(3), offline(4)]
+    expect(d.observe(mixed, { enemyId: ENEMY, ourId: OURS, config: statusOnly, nowMs: 1000 })).toEqual([])
+  })
+
+  it('does not count a member who was already online and merely re-reported', () => {
+    const d = createSurgeDetector()
+    seedHospital(d, [1, 2, 3])
+    expect(recover(d, [1, 2, 3], ENEMY, 1000)).toHaveLength(1)
+    // Same three, still Okay and online, on the next poll — no new transitions.
+    expect(recover(d, [1, 2, 3], ENEMY, 400_000)).toEqual([])
+  })
+
+  it('ignores a row with no activity rather than assuming online', () => {
+    // Absent is not Online. Assuming it would reopen the farming false alarm
+    // for any payload shape that omits last_action.
+    const d = createSurgeDetector()
+    const bare = (m: number) => ({ member_id: m, faction_id: ENEMY, deleted_at: null, state: { status: { state: 'Okay' } } })
+    d.observe([1, 2, 3].map((m) => row(m, ENEMY, 'Hospital')), { enemyId: ENEMY, ourId: OURS, config: statusOnly, nowMs: 0 })
+    expect(d.observe([1, 2, 3].map(bare), { enemyId: ENEMY, ourId: OURS, config: statusOnly, nowMs: 1000 })).toEqual([])
+  })
+})
+
+describe('the passive-flip gate on revive surges (#367)', () => {
+  it('ignores revives that turn on because the member entered hospital', () => {
+    // `is_revivable` means "a revive is possible right now", and a revive is
+    // only possible in hospital — so the flag flips true the moment someone
+    // with revives already on gets hospitalised. While we farm them, that is
+    // every target we put down.
+    const d = createSurgeDetector()
+    const healthy = (m: number) => reviveRow(m, ENEMY, false, false, 'Okay')
+    const downed = (m: number) => reviveRow(m, ENEMY, true, false, 'Hospital')
+
+    d.observe([1, 2, 3, 4].map(healthy), { enemyId: ENEMY, ourId: OURS, config: reviveOnly, nowMs: 0 })
+    expect(d.observe([1, 2, 3, 4].map(downed), { enemyId: ENEMY, ourId: OURS, config: reviveOnly, nowMs: 1000 }))
+      .toEqual([])
+  })
+
+  it('still fires when revives come on with the status holding still', () => {
+    // Nothing else about them changed, so somebody reached for the setting —
+    // which is the whole signal this alert is built on.
+    const d = createSurgeDetector()
+    revivesOff(d, [1, 2, 3], ENEMY, 0)
+    expect(revivesOn(d, [1, 2, 3], ENEMY, 1000)).toHaveLength(1)
+  })
+
+  it('fires for healthy members turning revives on, if Torn reports that', () => {
+    // We do not know whether a healthy member can read as revivable. The gate
+    // is written so the alert works either way: what it rejects is a
+    // SIMULTANEOUS status change, not a particular status.
+    const d = createSurgeDetector()
+    const healthyOff = (m: number) => reviveRow(m, ENEMY, false, false, 'Okay')
+    const healthyOn = (m: number) => reviveRow(m, ENEMY, true, false, 'Okay')
+    d.observe([1, 2, 3].map(healthyOff), { enemyId: ENEMY, ourId: OURS, config: reviveOnly, nowMs: 0 })
+    expect(d.observe([1, 2, 3].map(healthyOn), { enemyId: ENEMY, ourId: OURS, config: reviveOnly, nowMs: 1000 }))
+      .toHaveLength(1)
+  })
+
+  it('counts a first-seen status as no change, so a new member can still be counted', () => {
+    // prevStatus is undefined on first sighting; that must not read as "the
+    // status changed" and suppress a genuine toggle on the next poll.
+    const d = createSurgeDetector()
+    revivesOff(d, [1, 2, 3], ENEMY, 0)
+    expect(revivesOn(d, [1, 2, 3], ENEMY, 1000)).toHaveLength(1)
   })
 })
 
@@ -249,16 +358,32 @@ describe('revive surge detection (#359)', () => {
 })
 
 describe('the two detectors together', () => {
-  it('tracks both kinds independently in one tick', () => {
+  it('tracks both kinds independently', () => {
     const d = createSurgeDetector()
-    // Seed everyone hospitalised with revives off.
+    // Seed: hospitalised, revives off.
     d.observe([1, 2, 3].map((m) => reviveRow(m, ENEMY, false)), { enemyId: ENEMY, ourId: OURS, config, nowMs: 0 })
-    // Now they all become Okay AND revivable in the same tick.
-    const fired = d.observe(
-      [1, 2, 3].map((m) => ({ member_id: m, faction_id: ENEMY, deleted_at: null, state: { status: { state: 'Okay' }, is_revivable: true } })),
-      { enemyId: ENEMY, ourId: OURS, config, nowMs: 1000 }
-    )
-    expect(fired.map((e) => e.kind).sort()).toEqual(['revive', 'status'])
+    // They turn revives on while still in hospital — a revive surge.
+    const first = d.observe([1, 2, 3].map((m) => reviveRow(m, ENEMY, true)), { enemyId: ENEMY, ourId: OURS, config, nowMs: 1000 })
+    expect(first.map((e) => e.kind)).toEqual(['revive'])
+    // Later they come out, online — a status surge.
+    const second = d.observe([1, 2, 3].map((m) => row(m, ENEMY, 'Okay')), { enemyId: ENEMY, ourId: OURS, config, nowMs: 2000 })
+    expect(second.map((e) => e.kind)).toEqual(['status'])
+  })
+
+  it('stays silent through a farming run, which fired both alerts before #367', () => {
+    // The reported bug, end to end. We are farming them: targets get
+    // hospitalised (flipping is_revivable true for anyone with revives on),
+    // then their timers expire while they are offline. Neither is a push, and
+    // neither should say a word to the faction doing the farming.
+    const d = createSurgeDetector()
+    const okayOffline = (m: number) => row(m, ENEMY, 'Okay', false, 'Offline')
+    const hospitalRevivable = (m: number) => reviveRow(m, ENEMY, true)
+
+    d.observe([1, 2, 3, 4].map(okayOffline), { enemyId: ENEMY, ourId: OURS, config, nowMs: 0 })
+    // We put them in hospital; revives were already on, so the flag flips.
+    expect(d.observe([1, 2, 3, 4].map(hospitalRevivable), { enemyId: ENEMY, ourId: OURS, config, nowMs: 1000 })).toEqual([])
+    // Their timers run out while they are still offline.
+    expect(d.observe([1, 2, 3, 4].map(okayOffline), { enemyId: ENEMY, ourId: OURS, config, nowMs: 600_000 })).toEqual([])
   })
 
   it('does not accumulate history for a kind while it is switched off', () => {

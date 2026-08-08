@@ -17,6 +17,27 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.13.1] - 2026-08-08
+
+### Fixed
+
+- **Surge alerts fired while WE were farming (#367).** Hospital timers expire on
+  their own, so during a farming run batches of enemies dropped out of hospital
+  every few minutes with nobody at the keyboard — and the detector read that as
+  "incoming push!" at the faction doing the pushing. A status surge now requires
+  **Online + Okay**: back *and playing*, not just back. Absent activity reads as
+  not-online rather than defaulting to online.
+- **The revive surge had the same bug, from the day it shipped (#359).**
+  `is_revivable` means "a revive is possible right now", and a revive is only
+  possible in hospital — so the flag flips true the moment a member with revives
+  already on gets **hospitalised**, which while farming is every target we put
+  down. It now counts the flip only when the member's status did **not** also
+  change in that observation: revives coming on while nothing else moved is
+  somebody reaching for the setting; revives coming on alongside a status change
+  is a side effect of it. This holds whichever way Torn reports `is_revivable`
+  for a healthy member, since it rejects a simultaneous status change rather
+  than a particular status.
+
 ## [3.13.0] - 2026-08-08
 
 ### Added
