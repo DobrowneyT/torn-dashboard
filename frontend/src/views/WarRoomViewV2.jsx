@@ -36,6 +36,16 @@ import {
   formatEnergy, energyTone, formatCooldown, remainingCooldown,
   overdosedByDrugCooldown, statsAgeSeconds, hasStatsError,
 } from '../utils/warRoomMemberStats'
+import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
+
+// Flag glyph tones (#339). The muted revive is the load-bearing one: it must
+// read as a weaker claim than the green one at a glance, not just on hover.
+const FLAG_TONE_CLASS = {
+  good: 'text-emerald-600 dark:text-emerald-400',
+  muted: 'opacity-40',
+  bad: 'text-red-600 dark:text-red-400',
+  info: '',
+}
 import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
 import { isWarLead as checkWarLead } from '../config'
 import { getFactionId, getFactionIdentity } from '../utils/factionIdentity'
@@ -944,6 +954,28 @@ function ConfigPanel({
     catch (e) { setMsg({ ok: false, text: e.message }) }
   }
 
+  // Roster refresh cadence (#339). Stored in MILLISECONDS but edited in
+  // seconds, because sub-second is the whole point: leads push this to 0.5s
+  // (2 Hz) during a live chain and pull it back to several seconds for a
+  // termed war so a 1 Hz sweep of both rosters stops burning Torn calls.
+  // Unlike the old "UI Refresh" slider this is a SERVER setting, so it really
+  // does change how often we call Torn — and it applies on the next tick.
+  const [rosterSec, setRosterSec] = useState(
+    String((config?.roster_poll_interval_ms ?? 1000) / 1000)
+  )
+  useEffect(() => {
+    setRosterSec(String((config?.roster_poll_interval_ms ?? 1000) / 1000))
+  }, [config?.roster_poll_interval_ms])
+  async function commitRosterSec() {
+    const asMs = Math.round((Number(rosterSec) || 1) * 1000)
+    const next = Math.min(60_000, Math.max(500, asMs))
+    if (next === (config?.roster_poll_interval_ms ?? 1000)) return
+    try {
+      await onSaveReviveService({ roster_poll_interval_ms: next })
+      setMsg({ ok: true, text: `Roster refresh set to ${next / 1000}s (${(1000 / next).toFixed(1)} Hz).` })
+    } catch (e) { setMsg({ ok: false, text: e.message }) }
+  }
+
   // Our-members live stats sweep (#336): how often the server walks every
   // enrolled member's own key for energy + cooldowns. 0 = off; anything else
   // floors at 30s, because this costs ONE Torn call per member per cycle.
@@ -1085,30 +1117,27 @@ function ConfigPanel({
         >
           {updatingSpies ? '⏳ Fetching…' : '🔍 Update Spies'}
         </button>
-        {/* Replaced the old "UI Refresh" slider (#336). It had been inert since
-            the API-mode collapse: the board is push-driven over the WebSocket,
-            so the value was passed to useWarRoomSocket and never read. Rather
-            than leave a control that does nothing, this slot now holds a
-            cadence that is genuinely live. */}
+        {/* Roster Refresh (#339) — the control the old "UI Refresh" slider
+            pretended to be. That one was client-side and inert since the
+            API-mode collapse; this one is the server cadence, so turning it
+            down genuinely cuts Torn calls. Floor 0.5s = 2 Hz. */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Member Stats</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Roster Refresh</label>
           <div
             className="flex items-center gap-1.5"
-            title="How often the server refreshes OUR members' energy and drug/medical/booster cooldowns. Costs one Torn call per enrolled member per cycle, using each member's own key. 0 disables it; the minimum when enabled is 30s. Takes effect immediately — no need to restart the war room."
+            title="How often the server re-reads BOTH rosters from Torn (two calls per sweep). Lower it during a termed war to save API calls; 0.5s (2 Hz) is the hard floor. Takes effect on the next tick — no need to restart the war room."
           >
             <input
               type="number"
-              min={0}
-              max={600}
-              step={30}
-              value={memberStatsSec}
-              onChange={e => setMemberStatsSec(e.target.value)}
-              onBlur={commitMemberStats}
+              min={0.5}
+              max={60}
+              step={0.5}
+              value={rosterSec}
+              onChange={e => setRosterSec(e.target.value)}
+              onBlur={commitRosterSec}
               className="w-16 px-2 py-1.5 text-sm text-center border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <span className="text-xs text-gray-400 dark:text-gray-500">
-              {Number(memberStatsSec) > 0 ? 's' : 's (off)'}
-            </span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">s</span>
           </div>
         </div>
       </div>
@@ -1187,6 +1216,28 @@ function ConfigPanel({
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="30"
             title="How often the server polls the enemy faction's chain endpoint. Clamped to 1–600s. Pauses while enemy is in cooldown."
+            className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        {/* Member stats sweep (#336) — sits with the other server cadences.
+            0 = off, and it is the only one here that can be switched off
+            entirely: it is the only one whose cost scales with roster size
+            (one Torn call per enrolled member per cycle). */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Member stats <span className="text-gray-400 dark:text-gray-600">(s, 0 = off)</span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={600}
+            step={30}
+            value={memberStatsSec}
+            onChange={e => setMemberStatsSec(e.target.value)}
+            onBlur={commitMemberStats}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="0"
+            title="How often the server refreshes OUR members' energy and drug/medical/booster cooldowns, using each member's own key. One Torn call per enrolled member per cycle, so 0 disables it and the minimum when enabled is 30s. Only runs while the war room is enabled."
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -2068,9 +2119,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     spySource:    m.spy_source,
     tsSpyAt:      m.ts_spy_at,
     flags: {
-      revivable:      !!m.is_revivable,
+      // #339: inOc dropped — it never affected whether a member could be hit
+      // or revived. reviveAudience distinguishes "anyone can revive" (a hired
+      // reviver works) from "friends & faction only" (one cannot).
+      reviveAnyone:   reviveAudience(m) === 'anyone',
+      reviveFriends:  reviveAudience(m) === 'friends',
       earlyDischarge: !!m.has_early_discharge,
-      inOc:           !!m.is_in_oc,
+      overdosed:      isOverdosedAnySource(m, null),
       onWall:         !!m.is_on_wall,
     },
   })), [members])
@@ -2737,19 +2792,30 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                           <BspCell member={m} />
                         </td>
 
-                        {/* Flags */}
+                        {/* Flags (#339) — composed in warRoomFlags.js so the
+                            revive nuance is tested rather than inlined. The
+                            two revivable states share a glyph but not a
+                            tooltip or tone: "Friends & faction" is revivable
+                            in Torn's sense yet NOT by a reviver we can hire. */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {(() => {
                             const isFlying = stateToFilterKey(m.status_state, m.status_description) === 'Flying'
-                            const anyFlag = m.is_revivable || m.has_early_discharge || m.is_in_oc || m.is_on_wall || isFlying
+                            const flags = memberFlags(m, {
+                              isFlying,
+                              stats: memberStats[String(m.member_id)],
+                            })
                             return (
                               <div className="flex items-center gap-1.5">
-                                {isFlying            && <span title="Flying / abroad" className="text-base leading-none cursor-default">✈</span>}
-                                {m.is_revivable       && <span title="Revivable"       className="text-base leading-none cursor-default">💉</span>}
-                                {m.has_early_discharge && <span title="Early Discharge" className="text-base leading-none cursor-default">⚡</span>}
-                                {m.is_in_oc           && <span title="In OC"           className="text-base leading-none cursor-default">🔒</span>}
-                                {m.is_on_wall         && <span title="On Wall"         className="text-base leading-none cursor-default">🛡</span>}
-                                {!anyFlag && (
+                                {flags.map(f => (
+                                  <span
+                                    key={f.key}
+                                    title={f.title}
+                                    className={`text-base leading-none cursor-default ${FLAG_TONE_CLASS[f.tone] ?? ''}`}
+                                  >
+                                    {f.glyph}
+                                  </span>
+                                ))}
+                                {flags.length === 0 && (
                                   <span className="text-gray-300 dark:text-gray-700 text-xs">—</span>
                                 )}
                               </div>
@@ -2892,7 +2958,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             </span>
             <span className="justify-self-end text-right">
               {isActive
-                ? `Roster: every 1s · Our chain: every ${config?.chain_poll_interval_ours_sec ?? 5}s`
+                ? `Roster: every ${(config?.roster_poll_interval_ms ?? 1000) / 1000}s · Our chain: every ${config?.chain_poll_interval_ours_sec ?? 5}s`
                   + ` · Enemy chain: every ${config?.chain_poll_interval_enemy_sec ?? 30}s`
                   + (memberStatsEnabled ? ` · Member stats: every ${memberStatsIntervalSec}s` : '')
                 : 'Static snapshot · Enable to refresh'}

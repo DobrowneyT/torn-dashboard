@@ -46,6 +46,13 @@ export const CONFIG_BOUNDS: Record<string, Bounds> = {
   // Unlike the chain pollers this costs one Torn call per enrolled member per
   // cycle, so the floor is a rate-limit guard rather than a preference.
   member_stats_poll_interval_sec: { min: 0, max: 600 },
+
+  // #339 roster refresh, in MILLISECONDS (the other cadences are seconds, but
+  // this one needs sub-second granularity to express 2 Hz). Floored at 500ms:
+  // each sync is two Torn calls, so 2 Hz is already 240/min. 0 is NOT an off
+  // switch here — a war room that never syncs its roster is simply broken —
+  // so this clamps normally rather than joining ZERO_OR_FLOOR.
+  roster_poll_interval_ms: { min: 500, max: 60_000 },
 }
 
 /**
