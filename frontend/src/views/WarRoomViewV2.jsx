@@ -27,6 +27,10 @@ import {
 import { apiGet, apiPut } from '../utils/apiClient'
 import MemberNoteButton from '../components/warroom/MemberNoteButton'
 import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberNotes'
+import {
+  THEM, US, DEFAULT_ROSTER_SIDE,
+  selectRosterMembers, rosterColumns, rosterColumnCount, isStatsFilterAvailable,
+} from '../utils/warRoomRosterSide'
 import { useWarRoomSocket } from '../hooks/useWarRoomSocket'
 import { isWarLead as checkWarLead } from '../config'
 import { getFactionId, getFactionIdentity } from '../utils/factionIdentity'
@@ -1307,6 +1311,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const [notesError, setNotesError]     = useState(null)
   const canBypass = isLeadership || isAdmin || isWarLead
 
+  // Which faction the roster table shows (#335). Deliberately NOT persisted:
+  // finding the target list empty mid-war because the toggle was left flipped
+  // in a previous session is a worse failure than re-clicking it.
+  const [rosterSide, setRosterSide] = useState(DEFAULT_ROSTER_SIDE)
+
   // Stats filter
   const [statsFilterEnabled, setStatsFilterEnabled] = useState(() => persistedState.statsFilterEnabled ?? false)
   const [statsFilterMin, setStatsFilterMin] = useState(() => persistedState.statsFilterMin ?? '')
@@ -1828,9 +1837,18 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const prevStatesRef = useRef(new Map())  // member_id → previous status_state
   const okayAtRef     = useRef(new Map())  // member_id → ms-since-epoch first observed as Okay
 
+  // The roster the table renders, and which optional columns come with it.
+  const rosterMembers = selectRosterMembers(rosterSide, { members, ourMembers })
+  const columns = rosterColumns(rosterSide)
+  const statsFilterUsable = isStatsFilterAvailable(rosterSide)
+
   const filtered = useMemo(() => {
     // Update farm-mode transition tracker as a side effect of recomputing.
     // Cheap and safe — the refs are only read by the sort below.
+    //
+    // NOTE: this tracker always walks the ENEMY `members`, never the displayed
+    // roster. Feeding it our own faction would pollute the just-released
+    // timestamps keyed by member_id and corrupt farm ordering on the way back.
     const prev = prevStatesRef.current
     const okayAt = okayAtRef.current
     const now = Date.now()
@@ -1844,7 +1862,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       prev.set(m.member_id, m.status_state)
     }
 
-    let list = members
+    let list = rosterMembers
 
     if (statusFilter.size > 0) {
       list = list.filter(m => statusFilter.has(stateToFilterKey(m.status_state, m.status_description)))
@@ -1852,7 +1870,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     if (activityFilter.size > 0) {
       list = list.filter(m => activityFilter.has(m.last_action_status))
     }
-    if (statsFilterEnabled) {
+    // Suspended on our own roster: spies are fetched for the enemy only, so
+    // bsp_total is null for us and an active min/max would empty the table.
+    if (statsFilterEnabled && statsFilterUsable) {
       const minVal = parseStatInput(statsFilterMin)
       const maxVal = parseStatInput(statsFilterMax)
       if (minVal !== null) list = list.filter(m => m.bsp_total !== null && m.bsp_total >= minVal)
@@ -1905,12 +1925,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         default: return 0
       }
     })
-  }, [members, statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir])
+  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, sortCol, sortDir])
 
   // ── Mobile War Room adapters ──────────────────────────────────────────────
   // Project the desktop's flat enemy `members` rows onto the prop shape that
   // MobileWarRoomView expects. Pure renaming — no transformation. The mobile
   // component is presentational; all polling/realtime stays in this parent.
+  //
+  // Deliberately stays on the ENEMY roster: the roster-side toggle (#335) is a
+  // desktop control, and having the mobile overlay silently follow a switch it
+  // cannot show would be worse than not following it. Wiring mobile up needs
+  // its own toggle in that component — tracked on #335.
   const mobileMembers = useMemo(() => members.map(m => ({
     id:           m.member_id,
     name:         m.member_name,
@@ -2239,6 +2264,36 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 <HeadlineBanner config={config} canManage mode="composer" />
               </div>
             )}
+            {/* Roster side (#335) — swap the table between the opponent and our
+                own faction. Both rosters already arrive on the same stream, so
+                this is purely a view switch: alerts and spy fetching keep
+                tracking the enemy regardless of what is on screen. */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Showing:</span>
+              {[
+                { side: THEM, label: resolvedName ?? 'Opponent' },
+                { side: US,   label: 'Our faction' },
+              ].map(({ side, label }) => (
+                <button
+                  key={side}
+                  onClick={() => setRosterSide(side)}
+                  aria-pressed={rosterSide === side}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                    rosterSide === side
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+              {rosterSide === US && (
+                <span className="text-[11px] text-gray-500 dark:text-gray-500">
+                  Hospital and travel timers for our own members. Dibs and attacks don't apply.
+                </span>
+              )}
+            </div>
+
             <div className="flex flex-wrap gap-y-2 gap-x-4 items-center">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs font-medium text-gray-400 dark:text-gray-500 mr-0.5">Status:</span>
@@ -2315,19 +2370,28 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               )}
             </div>
 
-            {/* Stats filter */}
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Stats filter — suspended on our own roster (#335): spies are
+                fetched for the enemy only, so filtering on bsp_total there
+                would silently empty the table. */}
+            <div className={`flex items-center gap-2 flex-wrap ${statsFilterUsable ? '' : 'opacity-50'}`}>
               <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Stats:</span>
               <button
                 onClick={() => setStatsFilterEnabled(v => !v)}
+                disabled={!statsFilterUsable}
+                title={statsFilterUsable ? undefined : 'Stats filtering needs spy data, which is only collected for the opponent'}
                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                  statsFilterEnabled
+                  statsFilterEnabled && statsFilterUsable
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
-                }`}
+                } ${statsFilterUsable ? '' : 'cursor-not-allowed'}`}
               >
-                {statsFilterEnabled ? 'On' : 'Off'}
+                {statsFilterEnabled && statsFilterUsable ? 'On' : 'Off'}
               </button>
+              {!statsFilterUsable && (
+                <span className="text-[11px] text-gray-500 dark:text-gray-500">
+                  No spy data for our own members.
+                </span>
+              )}
               <input
                 type="text"
                 placeholder="Min (e.g. 3m)"
@@ -2458,14 +2522,24 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     <SortTh col="timer"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
                     <SortTh col="stats"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
                     <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Flags</th>
-                    <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
-                    <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Action</th>
+                    {columns.energy && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Energy</th>
+                    )}
+                    {columns.boosterCd && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Booster CD</th>
+                    )}
+                    {columns.dibs && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
+                    )}
+                    {columns.action && (
+                      <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Action</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
+                      <td colSpan={rosterColumnCount(rosterSide)} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
                         No members match the current filters.
                       </td>
                     </tr>
@@ -2543,11 +2617,29 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                           })()}
                         </td>
 
+                        {/* Energy / Booster CD — our-roster only, and placeholders
+                            until #336 lands the per-member bars+cooldowns fetch.
+                            The columns exist now so the toggle ships complete and
+                            filling them in is a rendering change, not a layout one. */}
+                        {columns.energy && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span title="Energy — not collected yet (#336)"
+                              className="text-xs font-mono text-gray-300 dark:text-gray-700">—/150</span>
+                          </td>
+                        )}
+                        {columns.boosterCd && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span title="Booster cooldown — not collected yet (#336)"
+                              className="text-xs font-mono text-gray-300 dark:text-gray-700">—</span>
+                          </td>
+                        )}
+
                         {/* Dibs — optimistic: clicking flips the cell instantly
                             via effectiveDibs; the Loader2 spinner signals the
                             server hasn't confirmed yet. Releases also show a
                             pending state by rendering a disabled "Releasing…"
                             stub until polling clears the row entirely. */}
+                        {columns.dibs && (
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {dib ? (
                             <div className={`flex items-center gap-1.5 ${dib._pending ? 'opacity-70' : ''}`}>
@@ -2575,6 +2667,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             </button>
                           )}
                         </td>
+                        )}
 
                         {/* Attack — 3 states (priority order):
                               1. Green Attack: target is Online AND Okay
@@ -2584,6 +2677,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                  AND the target isn't a fresh-kill window.
                               3. Red Attack: default — Idle / Offline /
                                  hospitalised, no contesting dib.            */}
+                        {columns.action && (
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {(() => {
                             const isOnlineOkay = m.last_action_status === 'Online' && m.status_state === 'Okay'
@@ -2611,6 +2705,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             )
                           })()}
                         </td>
+                        )}
                       </tr>
                     )
                   })}
