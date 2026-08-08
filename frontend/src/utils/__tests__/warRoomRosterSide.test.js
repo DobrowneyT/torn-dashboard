@@ -4,7 +4,7 @@ import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   isRosterSide, selectRosterMembers, rosterColumns, rosterColumnCount,
   isStatsFilterAvailable, otherSide, canViewOurRoster, effectiveRosterSide, pollingState,
-  effectiveSortCol,
+  effectiveSortCol, passesStatsFilter,
 } from '../warRoomRosterSide'
 
 const members = [{ member_id: 1, member_name: 'Enemy' }]
@@ -206,5 +206,56 @@ describe('effectiveSortCol (#351)', () => {
 
   it('ignores an unrecognised sort column rather than rewriting it', () => {
     expect(effectiveSortCol('mystery', THEM)).toBe('mystery')
+  })
+})
+
+describe('passesStatsFilter (#366)', () => {
+  const weak = { bsp_total: 1_000_000 }
+  const strong = { bsp_total: 5_000_000_000 }
+  const unspied = { bsp_total: null }
+  const band = { min: 2_000_000, max: 100_000_000 }
+
+  it('filters on the total when farm mode is off', () => {
+    expect(passesStatsFilter(weak, band)).toBe(false)
+    expect(passesStatsFilter(strong, band)).toBe(false)
+    expect(passesStatsFilter({ bsp_total: 50_000_000 }, band)).toBe(true)
+  })
+
+  it('drops un-spied members when a bound is set', () => {
+    // No number means we cannot say they are in range, and claiming they are
+    // would put an unknown-strength target in a filtered list.
+    expect(passesStatsFilter(unspied, band)).toBe(false)
+    expect(passesStatsFilter(unspied, { min: 5 })).toBe(false)
+  })
+
+  it('keeps everyone when no bound is set', () => {
+    expect(passesStatsFilter(unspied, {})).toBe(true)
+    expect(passesStatsFilter(weak, {})).toBe(true)
+  })
+
+  it('lets a green attack button through in FARM MODE, whatever the filter says', () => {
+    // The point of the change. Those are the only people hittable this second;
+    // if a push starts they are what a lead must see, and a min/max left over
+    // from farming would quietly remove exactly them.
+    expect(passesStatsFilter(weak, { ...band, farmMode: true, isGreen: true })).toBe(true)
+    expect(passesStatsFilter(strong, { ...band, farmMode: true, isGreen: true })).toBe(true)
+    expect(passesStatsFilter(unspied, { ...band, farmMode: true, isGreen: true })).toBe(true)
+  })
+
+  it('still filters non-green members in farm mode', () => {
+    // The bypass is for the green tier only — otherwise farm mode would just
+    // switch the filter off, which is not what was asked for.
+    expect(passesStatsFilter(weak, { ...band, farmMode: true, isGreen: false })).toBe(false)
+  })
+
+  it('does not bypass outside farm mode', () => {
+    // A stats filter set deliberately, with farm mode off, is a targeting tool
+    // and must do what it says.
+    expect(passesStatsFilter(weak, { ...band, farmMode: false, isGreen: true })).toBe(false)
+  })
+
+  it('treats 0 as a real total rather than missing', () => {
+    expect(passesStatsFilter({ bsp_total: 0 }, { min: 0 })).toBe(true)
+    expect(passesStatsFilter({ bsp_total: 0 }, { min: 1 })).toBe(false)
   })
 })

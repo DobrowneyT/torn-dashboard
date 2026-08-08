@@ -119,6 +119,26 @@ export function isStatsFilterAvailable(side, ourBattleStatsCount = 0) {
   return side !== US || ourBattleStatsCount > 0
 }
 
+/**
+ * Does this member survive the battle-stats min/max filter?
+ *
+ * In FARM MODE a green attack button always survives (#366). Those are the only
+ * people who can be hit this second, so if a push starts they are precisely what
+ * a lead needs on screen — and a min/max left over from farming would quietly
+ * remove exactly them. A filter that hides the thing you must react to is worse
+ * than no filter.
+ *
+ * Outside farm mode the filter is a deliberate targeting tool and is left to do
+ * what it says.
+ */
+export function passesStatsFilter(member, { min = null, max = null, farmMode = false, isGreen = false } = {}) {
+  if (farmMode && isGreen) return true
+  const total = member?.bsp_total
+  if (min !== null && !(total !== null && total !== undefined && total >= min)) return false
+  if (max !== null && !(total !== null && total !== undefined && total <= max)) return false
+  return true
+}
+
 /** Cycle target for the toggle button. */
 export function otherSide(side) {
   return side === US ? THEM : US
