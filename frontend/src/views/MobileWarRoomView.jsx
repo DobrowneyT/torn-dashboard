@@ -18,7 +18,6 @@
  * isLeadership   Boolean — gates leadership cog
  * isActive       Boolean — show LIVE pill (not paused)
  * paused         Boolean — show PAUSED pill + banner
- * pollIntervalS  Number — shown in leadership sheet
  * onClaim(id)        Called when user taps Dibs
  * onRelease(id)      Called when user taps their own Dibs (release)
  * onTogglePaused()   Called from leadership sheet
@@ -795,7 +794,7 @@ function FilterSheet({
 // ───────────────────────────────────────────────────────────────────
 
 function LeadershipSheet({
-  open, onClose, paused, pollIntervalS, onPollIntervalChange,
+  open, onClose, paused,
   reviveServices = [], activeReviveName = '', onPickReviveService,
   onTogglePaused, onUpdateSpies, updatingSpies = false, spiesMsg = null,
   tornstatsMaxAgeDays = 0, onChangeTornstatsMaxAge = () => {},
@@ -826,7 +825,7 @@ function LeadershipSheet({
         <div className="flex items-center gap-2.5 justify-between">
           <div>
             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{paused ? 'Paused' : 'Active'}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">{paused ? 'No live polling — last-known snapshot.' : `Enemy poll every ${pollIntervalS}s`}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">{paused ? 'No live polling — last-known snapshot.' : 'Live — the roster streams over the socket.'}</div>
           </div>
           <button
             onClick={onTogglePaused}
@@ -838,16 +837,10 @@ function LeadershipSheet({
             {paused ? 'Enable' : 'Stop'}
           </button>
         </div>
-        <div className="mt-3 flex items-center gap-2">
-          <label className="text-[12px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Poll rate</label>
-          <SheetInput
-            type="number" min={0.5} step={0.5}
-            value={pollIntervalS}
-            onChange={e => onPollIntervalChange(e.target.value)}
-            className="w-20 text-center"
-          />
-          <span className="text-[12px] text-gray-500 dark:text-gray-400">seconds (min 0.5)</span>
-        </div>
+        {/* The "Poll rate" input that lived here was inert (#336): the board
+            is push-driven over the WebSocket, so the value was never read.
+            Cadences are server-side settings now — see the desktop config
+            panel. */}
       </SheetSection>
       <SheetSection title="Opponent Faction">
         <div className="flex items-center gap-2">
@@ -943,8 +936,6 @@ export default function MobileWarRoomView({
   isLeadership = false,
   isActive = true,
   paused = false,
-  pollIntervalS = 3,
-  onPollIntervalChange = () => {},
   reviveServices = [],
   activeReviveName = '',
   activeReviveUrl = '',
@@ -1175,7 +1166,7 @@ export default function MobileWarRoomView({
           />
         ))}
         <div className="mt-1 text-[11px] text-gray-400 text-center px-3 py-2">
-          Showing {filtered.length} of {members.length} · {paused ? 'Static snapshot' : `Polling every ${pollIntervalS}s`}
+          Showing {filtered.length} of {members.length} · {paused ? 'Static snapshot' : 'Live'}
         </div>
       </div>
 
@@ -1193,8 +1184,6 @@ export default function MobileWarRoomView({
       <LeadershipSheet
         open={leaderOpen} onClose={() => setLeaderOpen(false)}
         paused={paused}
-        pollIntervalS={pollIntervalS}
-        onPollIntervalChange={onPollIntervalChange}
         reviveServices={reviveServices}
         activeReviveName={activeReviveName}
         onPickReviveService={onPickReviveService}

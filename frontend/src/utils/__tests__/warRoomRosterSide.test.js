@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   isRosterSide, selectRosterMembers, rosterColumns, rosterColumnCount,
-  isStatsFilterAvailable, otherSide,
+  isStatsFilterAvailable, otherSide, canViewOurRoster, effectiveRosterSide,
 } from '../warRoomRosterSide'
 
 const members = [{ member_id: 1, member_name: 'Enemy' }]
@@ -37,9 +37,13 @@ describe('rosterColumns', () => {
     expect(rosterColumns(THEM)).toMatchObject({ dibs: true, action: true })
   })
 
-  it('shows Energy and booster cooldown only on our own faction', () => {
-    expect(rosterColumns(US)).toMatchObject({ energy: true, boosterCd: true })
-    expect(rosterColumns(THEM)).toMatchObject({ energy: false, boosterCd: false })
+  it('shows Energy and all three cooldowns only on our own faction', () => {
+    expect(rosterColumns(US)).toMatchObject({
+      energy: true, drugCd: true, medicalCd: true, boosterCd: true,
+    })
+    expect(rosterColumns(THEM)).toMatchObject({
+      energy: false, drugCd: false, medicalCd: false, boosterCd: false,
+    })
   })
 })
 
@@ -47,7 +51,7 @@ describe('rosterColumnCount', () => {
   it('counts the columns actually rendered for each side', () => {
     // Drives the empty-state colSpan; a wrong number visibly breaks that row.
     expect(rosterColumnCount(THEM)).toBe(8)
-    expect(rosterColumnCount(US)).toBe(8)
+    expect(rosterColumnCount(US)).toBe(10)
   })
 
   it('stays in step with rosterColumns', () => {
@@ -84,5 +88,48 @@ describe('side helpers', () => {
   it('toggles between the two sides', () => {
     expect(otherSide(THEM)).toBe(US)
     expect(otherSide(US)).toBe(THEM)
+  })
+})
+
+describe('canViewOurRoster', () => {
+  it('admits war leads, leadership and admins', () => {
+    expect(canViewOurRoster({ isWarLead: true })).toBe(true)
+    expect(canViewOurRoster({ isLeadership: true })).toBe(true)
+    expect(canViewOurRoster({ isAdmin: true })).toBe(true)
+  })
+
+  it('excludes an ordinary member', () => {
+    // Live energy and drug cooldowns say when a teammate is playing and
+    // whether they are mid-overdose — lead data, not roster-wide data.
+    expect(canViewOurRoster({})).toBe(false)
+    expect(canViewOurRoster()).toBe(false)
+  })
+
+  it('excludes a visitor even when they also carry a lead role', () => {
+    // Visitors are read-only outsiders; the role combination is possible and
+    // must fail closed.
+    expect(canViewOurRoster({ isWarLead: true, isVisitor: true })).toBe(false)
+    expect(canViewOurRoster({ isLeadership: true, isVisitor: true })).toBe(false)
+  })
+})
+
+describe('effectiveRosterSide', () => {
+  const lead = { isWarLead: true }
+
+  it('honours the chosen side for a permitted viewer', () => {
+    expect(effectiveRosterSide(US, lead)).toBe(US)
+    expect(effectiveRosterSide(THEM, lead)).toBe(THEM)
+  })
+
+  it('drops back to the enemy when the viewer may not see our roster', () => {
+    // Roles are re-read on session refresh, so a lead can lose the role with
+    // the board open — the table must not strand them on our roster.
+    expect(effectiveRosterSide(US, {})).toBe(THEM)
+    expect(effectiveRosterSide(US, { isWarLead: true, isVisitor: true })).toBe(THEM)
+  })
+
+  it('normalises a nonsense side to the enemy', () => {
+    expect(effectiveRosterSide('sideways', lead)).toBe(THEM)
+    expect(effectiveRosterSide(undefined, lead)).toBe(THEM)
   })
 })

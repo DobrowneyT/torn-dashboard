@@ -16,9 +16,15 @@ export interface WarRoomDeps {
   jwtSecret: string
 }
 
+export type WarRoomChannel = 'state' | 'dibs' | 'config' | 'chain' | 'memberstats'
+
 export interface WarRoomHub {
-  /** Push a delta to every connected war-room client. */
-  broadcast(channel: 'state' | 'dibs' | 'config' | 'chain', rows: unknown[], serverNow: string): void
+  /**
+   * Push a delta to connected war-room clients. Lead-only channels (see
+   * LEAD_ONLY_CHANNELS) reach only sockets whose session carries a war
+   * lead / leadership / admin role.
+   */
+  broadcast(channel: WarRoomChannel, rows: unknown[], serverNow: string): void
   /** Push an out-of-band alert event (e.g. a PUSH surge, #208) to every tab. */
   alert(payload: Record<string, unknown>): void
   clientCount(): number
@@ -29,7 +35,38 @@ const CHANNELS = {
   dibs: 'SELECT * FROM war_room_dibs_v2',
   config: 'SELECT * FROM war_room_config_v2',
   chain: 'SELECT * FROM war_room_chain_v2',
+  memberstats: 'SELECT * FROM war_room_member_stats_v2',
 } as const
+
+/**
+ * Channels withheld from ordinary members (#336).
+ *
+ * Live energy and drug cooldowns say when a teammate is playing and whether
+ * they are mid-overdose — war-planning data for leads, not something every
+ * member should hold about every other member. Because the hub serialises ONE
+ * frame and fans it out, hiding this in the UI would still ship it to every
+ * browser; the withholding has to happen here.
+ *
+ * Deriving lead-only status from the channel NAME (rather than a flag at each
+ * call site) means a future broadcaster cannot leak it by forgetting an
+ * argument.
+ */
+const LEAD_ONLY_CHANNELS = new Set<WarRoomChannel>(['memberstats'])
+
+/**
+ * Who may see lead-only channels. Mirrors canEditMemberNotes on the client:
+ * war leads, leadership and admins, never visitors (read-only outsiders).
+ */
+export function canSeeLeadOnlyChannels(claims: {
+  is_warlead?: boolean
+  is_leadership?: boolean
+  is_admin?: boolean
+  is_visitor?: boolean
+} | null | undefined): boolean {
+  if (!claims) return false
+  if (claims.is_visitor) return false
+  return Boolean(claims.is_warlead || claims.is_leadership || claims.is_admin)
+}
 
 async function channelRows(db: pg.Pool, base: string, since: string | undefined) {
   const res = since
@@ -38,19 +75,22 @@ async function channelRows(db: pg.Pool, base: string, since: string | undefined)
   return res.rows
 }
 
-async function fullDelta(db: pg.Pool, since: string | undefined) {
+async function fullDelta(db: pg.Pool, since: string | undefined, includeLeadOnly: boolean) {
   const now = await db.query('SELECT now() AS server_now')
-  const [state, dibs, config, chain] = await Promise.all([
+  const [state, dibs, config, chain, memberstats] = await Promise.all([
     channelRows(db, CHANNELS.state, since),
     channelRows(db, CHANNELS.dibs, since),
     channelRows(db, CHANNELS.config, since),
     channelRows(db, CHANNELS.chain, since),
+    // Not merely filtered out of the response — never read for a non-lead.
+    includeLeadOnly ? channelRows(db, CHANNELS.memberstats, since) : Promise.resolve([]),
   ])
   return {
     state: { rows: state },
     dibs: { rows: dibs },
     config: { rows: config },
     chain: { rows: chain },
+    memberstats: { rows: memberstats },
     server_now: now.rows[0].server_now,
   }
 }
@@ -63,10 +103,14 @@ export async function registerWarRoomRoutes(
 
   app.get('/api/war-room/delta', { preHandler: requireAuth() }, async (req) => {
     const since = (req.query as { since?: string }).since
-    return fullDelta(deps.db, since)
+    // The REST fallback is the same read path as the socket snapshot, so it
+    // needs the same gate — otherwise a non-lead could just poll it directly.
+    return fullDelta(deps.db, since, canSeeLeadOnlyChannels(req.session))
   })
 
-  const clients = new Set<WebSocket>()
+  // Sockets carry their session's lead status: broadcast() needs it per client,
+  // and re-verifying the token on every frame would be absurd.
+  const clients = new Map<WebSocket, { lead: boolean }>()
 
   // Authenticated socket: ?token= carries the same session JWT as the
   // Authorization header (browsers can't set headers on WebSocket).
@@ -78,27 +122,30 @@ export async function registerWarRoomRoutes(
       return
     }
 
-    clients.add(socket)
+    const lead = canSeeLeadOnlyChannels(session)
+    clients.set(socket, { lead })
     socket.on('close', () => clients.delete(socket))
     socket.on('error', () => clients.delete(socket))
 
     // First frame: the full snapshot, so a (re)connecting client resyncs
     // without any REST round-trip.
-    const snapshot = await fullDelta(deps.db, undefined)
+    const snapshot = await fullDelta(deps.db, undefined, lead)
     socket.send(JSON.stringify({ type: 'snapshot', ...snapshot }))
   })
 
   return {
     broadcast(channel, rows, serverNow) {
       if (rows.length === 0) return
+      const leadOnly = LEAD_ONLY_CHANNELS.has(channel)
       const frame = JSON.stringify({ type: 'delta', channel, rows, server_now: serverNow })
-      for (const socket of clients) {
+      for (const [socket, meta] of clients) {
+        if (leadOnly && !meta.lead) continue
         if (socket.readyState === socket.OPEN) socket.send(frame)
       }
     },
     alert(payload) {
       const frame = JSON.stringify({ type: 'alert', ...payload })
-      for (const socket of clients) {
+      for (const socket of clients.keys()) {
         if (socket.readyState === socket.OPEN) socket.send(frame)
       }
     },

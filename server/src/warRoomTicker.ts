@@ -13,6 +13,7 @@ import type { PushService } from './push.js'
 import { createSurgeDetector, type SurgeConfig, type SurgeEvent } from './warRoomSurge.js'
 import { snapshotDibbedStatus, sweepDibsExpiry, DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
 import { storeOurChain, storeEnemyChain, chainPollDue, chainNearExpiry, CHAIN_FORCE_POLL_SEC } from './warRoomChain.js'
+import { memberStatsPollDue, sweepMemberStats, pruneMemberStats } from './warRoomMemberStats.js'
 
 export interface WarRoomTickerDeps {
   db: pg.Pool
@@ -120,6 +121,11 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
   const surge = createSurgeDetector()
   let timer: NodeJS.Timeout | null = null
   let ticking = false
+  // The member-stats sweep (#336) walks the whole roster, so it runs DETACHED
+  // from the tick body with its own in-flight guard. Awaiting it inline would
+  // stall the 1 Hz state sync for the length of the sweep — the board would
+  // visibly freeze every cycle.
+  let sweepingMemberStats = false
 
   async function warWindowActive(managedWarId: number | null): Promise<boolean> {
     if (managedWarId == null) return true
@@ -184,8 +190,52 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       // (or force a poll when our chain is within seconds of dropping), convert
       // Torn's relative timers to absolute, and broadcast the refreshed row.
       await pollChains(cfg, claimed.key, ourId, enemyId)
+
+      // Live energy + cooldowns for our own members (#336). Fire-and-forget:
+      // see sweepingMemberStats. Off by default (cadence 0).
+      void sweepMemberStatsIfDue(cfg).catch(() => {})
     } finally {
       ticking = false
+    }
+  }
+
+  /**
+   * Cadence-gated sweep of our own members' energy/cooldowns (#336).
+   *
+   * Unlike everything else in the tick this does NOT use the pooled key: Torn
+   * exposes bars/cooldowns as self-only selections, so each member's row costs
+   * one call made with that member's own key. The shared `client` is safe to
+   * reuse because its rate limiter is per-key — each member's key sees at most
+   * two calls a minute at the 30s floor.
+   */
+  async function sweepMemberStatsIfDue(cfg: any): Promise<void> {
+    if (sweepingMemberStats) return
+    // Claim the guard BEFORE the first await: two ticks a second apart would
+    // otherwise both pass the check and double-sweep the roster.
+    sweepingMemberStats = true
+    try {
+      const interval = Number(cfg.member_stats_poll_interval_sec ?? 0)
+      if (interval <= 0) return
+      const mark = await db.query(
+        'SELECT extract(epoch from max(fetched_at)) AS last FROM war_room_member_stats_v2'
+      )
+      if (!memberStatsPollDue(mark.rows[0]?.last, interval, Date.now())) return
+
+      const keys = await pool.listKeys()
+      if (keys.length === 0) return
+      const changed = await sweepMemberStats(db, client, keys)
+      // Drop rows for members who are no longer enrolled, so a departed member's
+      // last-known energy can't linger on the board.
+      await pruneMemberStats(db, keys.map((k) => k.member_id))
+
+      if (changed.length > 0) {
+        const sn = await db.query('SELECT now() AS server_now')
+        // 'memberstats' is a LEAD-ONLY channel — the hub withholds it from
+        // ordinary members' sockets (see LEAD_ONLY_CHANNELS in warRoom.ts).
+        hub.broadcast('memberstats', changed, sn.rows[0].server_now)
+      }
+    } finally {
+      sweepingMemberStats = false
     }
   }
 

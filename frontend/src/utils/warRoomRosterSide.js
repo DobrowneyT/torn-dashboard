@@ -27,19 +27,49 @@ export function selectRosterMembers(side, { members = [], ourMembers = [] } = {}
 }
 
 /**
+ * The side actually in effect, given what the viewer is allowed to see.
+ *
+ * A viewer can lose the war-lead role while the board is open (a session
+ * refresh re-reads roles), which would otherwise strand them on a roster they
+ * may no longer view. Resolving the side through this on every render means
+ * the table falls back to the enemy the moment the permission goes away.
+ */
+export function effectiveRosterSide(side, permissions) {
+  if (side === US && !canViewOurRoster(permissions)) return THEM
+  return isRosterSide(side) ? side : THEM
+}
+
+/**
+ * Can this viewer switch to our own roster at all? (#336)
+ *
+ * The our-side sheet carries live energy and drug cooldowns, which say when a
+ * teammate is playing and whether they are mid-overdose. That is war-planning
+ * data for leads, not something every member should hold about every other
+ * member — so the toggle is gated, and the server withholds the data itself
+ * (LEAD_ONLY_CHANNELS in warRoom.ts) rather than trusting this check.
+ *
+ * Mirrors canEditMemberNotes: war leads, leadership and admins, never visitors.
+ */
+export function canViewOurRoster({ isWarLead, isLeadership, isAdmin, isVisitor } = {}) {
+  return Boolean((isWarLead || isLeadership || isAdmin) && !isVisitor)
+}
+
+/**
  * Which optional columns this side shows.
  *
  * Dibs and Attack are meaningless against our own faction — you cannot claim or
  * hit a team-mate — so they are hidden rather than greyed out: a narrower table
  * beats a row of dead controls mid-war.
  *
- * Energy and the booster cooldown are the reverse: only meaningful for us, and
- * only obtainable per-member with that member's own key (#336). They render as
- * placeholders until that lands.
+ * Energy and the three cooldowns are the reverse: only meaningful for us, and
+ * only obtainable per-member with that member's own key (#336).
  */
 export function rosterColumns(side) {
   const us = side === US
-  return { dibs: !us, action: !us, energy: us, boosterCd: us }
+  return {
+    dibs: !us, action: !us,
+    energy: us, drugCd: us, medicalCd: us, boosterCd: us,
+  }
 }
 
 /** Fixed columns every side shows: name, activity, status, timer, stats, flags. */

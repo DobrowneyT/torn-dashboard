@@ -91,12 +91,17 @@ const SETTINGS_DOCS = [
   { key: 'payout_tickets', label: 'Payout Tickets', hint: 'Tickets per tier for the OC payout split.' },
   {
     key: 'war_room_defaults', label: 'War Room Defaults',
-    hint: 'Default poll cadences / dibs auto-drop / revive service for new war sessions.',
+    hint: 'Default poll cadences / dibs auto-drop / member stats sweep / revive service for new war sessions.',
     template: {
       chain_poll_interval_ours_sec: 5,
       chain_poll_interval_enemy_sec: 30,
       dibs_expiry_seconds: 30,
       tornstats_max_age_days: 0,
+      // #336: how often the server refreshes OUR members' energy and
+      // drug/medical/booster cooldowns, using each member's own key. 0 = off
+      // (the default — it costs one Torn call per enrolled member per cycle);
+      // when enabled the server floors it at 30s.
+      member_stats_poll_interval_sec: 0,
       revive_service_name: null,
       revive_service_url: null,
     },

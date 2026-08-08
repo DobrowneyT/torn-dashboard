@@ -17,6 +17,69 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-08-08
+
+### Added
+
+- **Live energy and drug/medical/booster cooldowns for our own members
+  (#336).** The our-faction roster now shows each member's current energy and
+  all three cooldowns, replacing the placeholders shipped with #335. Torn
+  exposes `bars` and `cooldowns` as self-only selections — there is no
+  `/v2/user/{id}` variant — so this is one `GET
+  /v2/user?selections=bars,cooldowns` per member using that member's own pooled
+  key. A new **Member Stats** cadence in War Room settings controls it: `0`
+  disables it entirely (the default, since it costs one Torn call per enrolled
+  member per cycle) and any enabled value is floored at 30s, server-side as
+  well as in the UI. The sweep only runs while the war room is enabled, and
+  runs detached from the 1 Hz tick so a full roster walk never stalls the
+  board.
+- **Overdose detection that outlives the hospital stay (#336).** A drug
+  cooldown over 10h can only be an overdose — a xanax tops out around 8h — so
+  the Drug CD cell flags it. This complements rather than replaces the existing
+  hospital-status flag (#199): that one is direct but disappears the moment the
+  member is released, while a crippling cooldown persists long after.
+
+### Changed
+
+- **The our-faction roster is now war-lead only (#336).** Live energy and drug
+  state say when a teammate is playing and whether they are mid-overdose, so
+  the "Showing:" toggle is restricted to war leads, leadership and admins
+  (never visitors), matching the member-notes guard. This is enforced on the
+  **server**: the data lives in its own table on its own delta channel, which
+  the WebSocket hub withholds from non-lead sockets and
+  `GET /api/war-room/delta` never reads for a non-lead. Hiding the columns in
+  the UI would still have shipped every member's energy to every browser.
+- **API key disclosure now names the live-stats collection (#336).** A new
+  "Live War Stats" row states in plain language that energy and drug/medical/
+  booster cooldowns are read from your own key at most every 30 seconds while a
+  war room is active, that a long drug cooldown is surfaced as an overdose
+  indicator, that this is visible to war leads rather than the whole faction,
+  and that the nerve/happy/life bars returned by the same call are discarded.
+  `bars` and `cooldowns` are added to the Torn API Calls row.
+
+### Fixed
+
+- **War Room footer reported poll cadences that could not be right (#336).** It
+  labelled a client-side slider as the enemy chain rate and hardcoded "Ours:
+  every 30s", so the two numbers a lead would check to confirm a cadence change
+  had taken effect were the two that never reflected it. The footer now reads
+  the real server-side values from config. (Server cadences take effect
+  immediately — the ticker re-reads config every second — so no war-room
+  restart is or ever was needed.)
+- **Removed the inert "UI Refresh" poll-rate control (#336).** It had done
+  nothing since the API-mode collapse: the board is push-driven over the
+  WebSocket and the value was passed to `useWarRoomSocket` as `intervalMs`,
+  which the hook never read. Removed from both the desktop config panel and the
+  mobile leadership sheet; the slot now holds the Member Stats cadence, which
+  is live.
+- **"Find Target ID range" popover opened underneath the sticky header
+  (#336).** A regression from #331: the popover was `z-20`, the same as the
+  headers it needed to cover, and an equal `z-index` falls back to DOM order —
+  which the header wins. Raised to `z-30`, matching the sibling popovers and
+  the invariant #331 already documented.
+
+## [3.6.0] - 2026-08-07
+
 ### Added
 
 - **War Room roster can switch to our own faction (#335).** A "Showing:" toggle
