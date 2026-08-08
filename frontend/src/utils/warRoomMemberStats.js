@@ -179,6 +179,59 @@ export function energyBand(stats) {
   return 'stacked'
 }
 
+// ── Cooldown gradient (#356) ─────────────────────────────────────────────────
+//
+// The same idea as energy, INVERTED: low is good for a cooldown, where high is
+// good for energy. Green at 0 (ready to act), running to red at a per-column
+// ceiling.
+//
+// Linear rather than piecewise, unlike energy. Energy needed the split because
+// it has two genuinely different regimes — the free 150 bar, and the stack
+// above it — read for two different questions. A cooldown has one regime: it
+// counts down, and less is better the whole way.
+//
+// The ceilings are game-balance assumptions, so they live together and can be
+// changed in one line each.
+
+export const COOLDOWN_CEILING_SEC = {
+  // Top of a normal xanax (6-8h), so the ramp spans the whole ordinary range.
+  // Above OVERDOSE_DRUG_CD_SEC the cell hands off to the overdose red from
+  // #351 instead — one treatment for that state, not two.
+  cooldown_drug: 8 * 3600,        // 28800
+  // 6h is the usual maximum, but WAR PERKS raise it to 9h — and wartime is
+  // exactly when this column is read. A 6h ceiling would pin every war-perk
+  // member to flat red for their last three hours, flattening the distinction
+  // across the window a lead is actually scanning.
+  cooldown_medical: 9 * 3600,     // 32400
+  cooldown_booster: 48 * 3600,    // 172800
+}
+
+/** Green when ready, red at the ceiling. Reuses the energy anchors, reversed. */
+export const HUE_READY = HUE_STACKED
+export const HUE_CAPPED = HUE_EMPTY
+
+/**
+ * Hue for a cooldown's REMAINING seconds, or null when there is no reading.
+ *
+ * Takes the aged value, not the stored one — the same number the cell renders
+ * and the sort uses. Colouring the raw seconds-at-fetch-time would disagree
+ * with the figure printed next to it.
+ *
+ * Null rather than green: a member whose key failed must not read as "ready".
+ */
+export function cooldownHue(field, secondsRemaining) {
+  const s = reading(secondsRemaining)
+  if (s == null) return null
+  const ceiling = COOLDOWN_CEILING_SEC[field]
+  if (!ceiling) return null
+  // Clamped at both ends. Hue is circular, so an unclamped value past the
+  // ceiling would run through red and out the other side into magenta — and
+  // over-ceiling readings are NORMAL, not errors: an item that would push a
+  // member past the cap applies anyway and they wait it out.
+  const t = Math.min(1, Math.max(0, s / ceiling))
+  return Math.round(HUE_READY + (HUE_CAPPED - HUE_READY) * t)
+}
+
 // ── Sorting (#351) ───────────────────────────────────────────────────────────
 
 /**
