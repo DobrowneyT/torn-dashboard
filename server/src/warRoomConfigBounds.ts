@@ -39,6 +39,23 @@ export const CONFIG_BOUNDS: Record<string, Bounds> = {
 
   // 0 is a real setting (disables the age filter), so the floor must be 0.
   tornstats_max_age_days: { min: 0, max: 365 },
+
+  // #336 member live stats. Range is NON-CONTIGUOUS: 0 means off, and any
+  // enabled cadence is floored at 30s. `min` is 0 so a plain clamp can't
+  // rewrite "off" into "fastest"; ZERO_OR_FLOOR below enforces the real floor.
+  // Unlike the chain pollers this costs one Torn call per enrolled member per
+  // cycle, so the floor is a rate-limit guard rather than a preference.
+  member_stats_poll_interval_sec: { min: 0, max: 600 },
+}
+
+/**
+ * Fields where 0 is a distinct "off" setting and every other value has a
+ * higher floor. Clamping these against CONFIG_BOUNDS alone would turn an
+ * operator's deliberate 0 into the fastest allowed cadence — the exact
+ * opposite of the intent, and silently.
+ */
+const ZERO_OR_FLOOR: Record<string, number> = {
+  member_stats_poll_interval_sec: 30,
 }
 
 export type ClampResult =
@@ -69,5 +86,17 @@ export function clampConfigValue(field: string, value: unknown): ClampResult {
   }
 
   // Floor before clamping so 0.9 cannot round up past a floor of 1.
-  return { ok: true, value: Math.min(bounds.max, Math.max(bounds.min, Math.floor(n))) }
+  const floored = Math.floor(n)
+
+  // Off-or-floored fields. 0 (or anything nonsensical below it) is "off" and
+  // survives as 0; a positive request under the floor is raised TO the floor,
+  // because the caller clearly wanted polling and the floor is the fastest we
+  // will safely do. Collapsing those to 0 instead would silently ignore them.
+  const zeroFloor = ZERO_OR_FLOOR[field]
+  if (zeroFloor !== undefined) {
+    if (floored <= 0) return { ok: true, value: 0 }
+    return { ok: true, value: Math.min(bounds.max, Math.max(zeroFloor, floored)) }
+  }
+
+  return { ok: true, value: Math.min(bounds.max, Math.max(bounds.min, floored)) }
 }

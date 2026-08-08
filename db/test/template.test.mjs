@@ -56,6 +56,10 @@ const NEW_TABLES = [
   'push_subscriptions',
   // Feedback attachments (#254)
   'feedback_attachments',
+  // Our own members' live energy + cooldowns (#336). Deliberately its own
+  // table rather than columns on war_room_state_v2: that separation is what
+  // lets the hub withhold it from non-lead sockets.
+  'war_room_member_stats_v2',
 ]
 
 let server

@@ -10,9 +10,13 @@ import { KeyRound } from 'lucide-react'
 
 export const ROWS = [
   ['Storage', 'Encrypted with AES-256-GCM, using a secret held only by the server process, and stored in your faction\'s own database (not shared with any other faction). The raw key never leaves the server in plaintext — clients, faction leadership, and the browser cannot read it, not even from the admin key-pool panel (which shows only status: consent date, key level, enabled/disabled). It is decrypted only inside the server process at the moment of use.'],
-  ['Sharing', 'Your key is never shared with other members or other factions. Data fetched with it (CPR stats, member stats, war/attack history, live war-room state) is visible to your faction.'],
+  ['Sharing', 'Your key is never shared with other members or other factions. Data fetched with it (CPR stats, member stats, war/attack history, live war-room state) is visible to your faction. One exception is narrower: your live energy and drug/medical/booster cooldowns (below) are shown only to war leads, leadership and admins — not to the faction at large.'],
   ['Purpose', 'Identity & faction verification, CPR (organised-crime) scraping, live War Room polling, and background faction data scrapers (cadence varies by job — every few minutes to once daily). To bypass Torn’s per-key cache, your key joins a rotating pool shared across these automated calls, so it may occasionally be used to fetch a teammate’s public stats or profile, not only your own.'],
-  ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes) · GET /v2/faction (crimes, members, contributors, chain, attacks, revives, rankedwars + report, basic)'],
+  // #336: called out separately from the general "Purpose" row because it is
+  // the only thing we read that is personal-state-in-the-moment rather than
+  // faction data — members should be able to see it named, not infer it.
+  ['Live War Stats', 'While a war room is active AND leadership has switched the sweep on, your key is used to read your own energy bar and your drug, medical and booster cooldowns (at most once every 30 seconds). A long drug cooldown is shown to war leads as an overdose indicator. This is used for war planning — who can hit, who is out of action — and is never read while the war room is off. Nerve, happy and life bars are returned by the same Torn call but are discarded, never stored.'],
+  ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes, bars, cooldowns) · GET /v2/faction (crimes, members, contributors, chain, attacks, revives, rankedwars + report, basic)'],
   ['Access Level', 'Limited Access'],
 ]
 

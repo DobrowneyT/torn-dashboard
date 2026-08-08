@@ -9,8 +9,11 @@
  * both transports.
  *
  * Returns:
- *   { members, ourMembers, dibs, config, chain,
+ *   { members, ourMembers, dibs, memberStats, config, chain,
  *     isInitialLoading, lastTick, pollError, pollNow }
+ *
+ * `memberStats` (#336) is LEAD-ONLY and arrives empty for everyone else — the
+ * server withholds the channel rather than the client filtering it.
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { getApiSession, apiGet, apiRefresh } from '../utils/apiClient'
@@ -42,6 +45,7 @@ function flattenStateRow(row) {
 export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
   const stateMapRef = useRef(new Map())
   const dibsMapRef = useRef(new Map())
+  const memberStatsMapRef = useRef(new Map())
   const watermarkRef = useRef(null)
   // Keep the alert callback in a ref so it can change without reconnecting.
   const onAlertRef = useRef(onAlert)
@@ -50,6 +54,8 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
   const [members, setMembers] = useState([])
   const [ourMembers, setOurMembers] = useState([])
   const [dibs, setDibs] = useState({})
+  /** Our own members' live energy/cooldowns, keyed by member id (#336). */
+  const [memberStats, setMemberStats] = useState({})
   const [config, setConfig] = useState(null)
   const [chain, setChain] = useState(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
@@ -72,6 +78,12 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
     setDibs(obj)
   }, [])
 
+  const publishMemberStats = useCallback(() => {
+    const obj = {}
+    for (const [k, v] of memberStatsMapRef.current) obj[k] = v
+    setMemberStats(obj)
+  }, [])
+
   const applyChannel = useCallback((channel, rows) => {
     if (!rows?.length) return
     if (channel === 'state') {
@@ -90,28 +102,40 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
       setConfig(rows[rows.length - 1])
     } else if (channel === 'chain') {
       setChain(rows[rows.length - 1])
+    } else if (channel === 'memberstats') {
+      // Live energy/cooldowns for our own members (#336). Lead-only: the
+      // server withholds this channel from non-lead sockets entirely, so an
+      // ordinary member simply never populates this map.
+      for (const r of rows) memberStatsMapRef.current.set(String(r.member_id), r)
+      publishMemberStats()
     }
-  }, [publishState, publishDibs])
+  }, [publishState, publishDibs, publishMemberStats])
 
   const applyFullDelta = useCallback((body, isSnapshot) => {
     if (isSnapshot) {
       stateMapRef.current.clear()
       dibsMapRef.current.clear()
+      memberStatsMapRef.current.clear()
     }
     applyChannel('state', body.state?.rows)
     applyChannel('dibs', body.dibs?.rows)
     applyChannel('config', body.config?.rows)
     applyChannel('chain', body.chain?.rows)
+    applyChannel('memberstats', body.memberstats?.rows)
     if (isSnapshot) {
       // A snapshot replaces everything, so republish even if a channel was empty.
       publishState()
       publishDibs()
+      // Republishing matters most here: a viewer who LOST the lead role gets a
+      // snapshot with the channel empty, and must end up with an empty map
+      // rather than keeping the stats their previous session cached.
+      publishMemberStats()
     }
     if (body.server_now) watermarkRef.current = body.server_now
     setLastTick(Date.now())
     setIsInitialLoading(false)
     setPollError(null)
-  }, [applyChannel, publishState, publishDibs])
+  }, [applyChannel, publishState, publishDibs, publishMemberStats])
 
   // REST fallback tick — full snapshot when we have no watermark, delta after.
   const restTick = useCallback(async () => {
@@ -206,5 +230,5 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
   // Imperative refresh after a write — one REST delta from the watermark.
   const pollNow = useCallback(() => restTick(), [restTick])
 
-  return { members, ourMembers, dibs, config, chain, isInitialLoading, lastTick, pollError, pollNow }
+  return { members, ourMembers, dibs, memberStats, config, chain, isInitialLoading, lastTick, pollError, pollNow }
 }

@@ -586,8 +586,27 @@ CREATE TABLE public.war_room_config_v2 (
   surge_enemy_window_sec integer DEFAULT 60 NOT NULL,
   surge_our_threshold integer DEFAULT 4 NOT NULL,
   surge_our_window_sec integer DEFAULT 60 NOT NULL,
-  surge_cooldown_sec integer DEFAULT 300 NOT NULL
+  surge_cooldown_sec integer DEFAULT 300 NOT NULL,
+  member_stats_poll_interval_sec integer DEFAULT 0 NOT NULL
 );
+
+-- #336: live energy + cooldowns for our own members. Separate from
+-- war_room_state_v2 because it is war-lead-only — its own table gives it its
+-- own delta channel, which the hub withholds from non-lead sockets.
+CREATE TABLE public.war_room_member_stats_v2 (
+  member_id bigint PRIMARY KEY,
+  energy_current integer,
+  energy_maximum integer,
+  cooldown_drug integer,
+  cooldown_medical integer,
+  cooldown_booster integer,
+  last_error text,
+  fetched_at timestamp with time zone,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE INDEX war_room_member_stats_v2_updated_at_idx
+  ON public.war_room_member_stats_v2 (updated_at);
 
 CREATE TABLE public.war_room_dibs_v2 (
   id bigint DEFAULT nextval('war_room_dibs_v2_id_seq'::regclass) NOT NULL,
