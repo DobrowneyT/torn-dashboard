@@ -41,7 +41,8 @@ beforeAll(async () => {
   const pool = createKeyPool({ db: stack.db, encryptionKey: TEST_KEY_ENCRYPTION_KEY })
   await pool.store('1500', 'LIFEKEY01500AAAA', { consentVersion: 'v2' })
 
-  // Leftovers from the previous war that auto-setup must wipe.
+  // Leftovers from the previous war. Live state/dibs/chain are reset by
+  // auto-setup; roll call and notes are ARCHIVED per war (#345) and kept.
   await stack.db.query(`INSERT INTO war_room_config_v2 (id, enabled, faction_id, faction_name, auto_managed, managed_war_id)
                         VALUES (1, false, 88888, 'Last Week Foes', false, NULL)`)
   await stack.db.query(`INSERT INTO war_room_chain_v2 (id, current, max, save_claimed_by, save_claimed_name) VALUES (1, 20, 25, 1500, 'Scout')`)
@@ -89,9 +90,12 @@ describe('war lifecycle job', () => {
       auto_managed: true, managed_war_id: 800, enabled: false,
     })
 
-    // Roll call resets each week; notes are ARCHIVED (#145) — prior war 600's
-    // public + private notes are retained, and war 800 gets a fresh seed row.
-    expect((await stack.db.query('SELECT count(*)::int AS n FROM war_room_roll_call_v2')).rows[0].n).toBe(0)
+    // Roll call is ARCHIVED per war, exactly like notes (#345). War 600's
+    // responses survive; war 800 simply has none yet, because every row is
+    // keyed by war_id and a new war id is already an empty slate. This used to
+    // be an unqualified DELETE that destroyed every past war's responses.
+    const rc = await stack.db.query('SELECT war_id, member_id FROM war_room_roll_call_v2 ORDER BY war_id')
+    expect(rc.rows).toEqual([{ war_id: 600, member_id: 1500 }])
     const notes = await stack.db.query('SELECT war_id, opponent_faction_id FROM war_room_notes_v2 ORDER BY war_id')
     expect(notes.rows).toEqual([
       { war_id: 600, opponent_faction_id: null },   // last week's, kept
@@ -118,16 +122,21 @@ describe('war lifecycle job', () => {
     expect(again.details!.actions).toEqual([])
   })
 
-  it('enables the room at T-1h', async () => {
+  it('never enables the room by itself, even an hour before the war (#345)', async () => {
+    // Auto-enable at T-1h is gone. The room polls Torn continuously once on,
+    // so switching it on is a leadership decision, not a calendar one. The
+    // board is already baselined and waiting; leaders press Start.
     warStart = Math.floor(Date.now() / 1000) + 1800 // 30 min out
     const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
     const result = await warLifecycleJob(deps())
-    expect(result.details!.actions).toEqual(['auto_enable'])
+    expect(result.details!.actions).toEqual([])
     const cfg = await stack.db.query('SELECT enabled FROM war_room_config_v2 WHERE id = 1')
-    expect(cfg.rows[0].enabled).toBe(true)
+    expect(cfg.rows[0].enabled).toBe(false)
   })
 
   it('disables when the managed war ends and releases automation ownership', async () => {
+    // A leader started the room by hand — that is the only way it turns on now.
+    await stack.db.query('UPDATE war_room_config_v2 SET enabled = true WHERE id = 1')
     warEnd = Math.floor(Date.now() / 1000) - 60
     const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
     const result = await warLifecycleJob(deps())

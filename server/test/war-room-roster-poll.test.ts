@@ -61,24 +61,34 @@ describe('rosterPollDue', () => {
   })
 
   it('falls back to the default on a non-numeric cadence', () => {
-    // 0 is NOT an off switch here — unlike member stats, a war room with no
-    // roster polling is just broken, so nonsense reverts to the default.
     expect(rosterPollDue(NOW - 1000, NaN, NOW)).toBe(true)
     expect(rosterPollDue(NOW - 999, NaN, NOW)).toBe(false)
+  })
+
+  it('never polls when the cadence is 0 (#345 off switch)', () => {
+    // Off must beat staleness, or "stop polling" would resume on the first
+    // tick after a restart.
+    expect(rosterPollDue(null, 0, NOW)).toBe(false)
+    expect(rosterPollDue(NOW - 999_999, 0, NOW)).toBe(false)
   })
 })
 
 describe('roster_poll_interval_ms in CONFIG_BOUNDS', () => {
   const field = 'roster_poll_interval_ms'
 
-  it('is clamped server-side to the same window', () => {
-    expect(CONFIG_BOUNDS[field]).toEqual({ min: ROSTER_POLL_MIN_MS, max: ROSTER_POLL_MAX_MS })
+  it('allows 0 (off) through to the 60s ceiling', () => {
+    expect(CONFIG_BOUNDS[field]).toEqual({ min: 0, max: ROSTER_POLL_MAX_MS })
   })
 
-  it('raises a too-fast request to the 2 Hz floor instead of rejecting it', () => {
+  it('raises a positive too-fast request to the 2 Hz floor', () => {
     expect(clampConfigValue(field, 1)).toEqual({ ok: true, value: 500 })
-    expect(clampConfigValue(field, 0)).toEqual({ ok: true, value: 500 })
-    expect(clampConfigValue(field, -1000)).toEqual({ ok: true, value: 500 })
+  })
+
+  it('keeps 0 as off rather than clamping it to the floor (#345)', () => {
+    // Same trap as the member-stats cadence: a plain clamp would turn the
+    // operator's "stop" into "as fast as possible".
+    expect(clampConfigValue(field, 0)).toEqual({ ok: true, value: 0 })
+    expect(clampConfigValue(field, -1000)).toEqual({ ok: true, value: 0 })
   })
 
   it('accepts the usable range unchanged', () => {
@@ -143,7 +153,12 @@ describe('safeRosterIntervalMs (#342)', () => {
 
   it('falls back to the default when unset, still respecting the pool', () => {
     expect(safeRosterIntervalMs(null, 5)).toBe(ROSTER_POLL_DEFAULT_MS)
-    expect(safeRosterIntervalMs(0, 1)).toBe(1500)
+  })
+
+  it('preserves 0 as off instead of raising it to the sustainable floor (#345)', () => {
+    // The pool floor must not resurrect a poll the operator switched off.
+    expect(safeRosterIntervalMs(0, 1)).toBe(0)
+    expect(safeRosterIntervalMs(0, 50)).toBe(0)
   })
 
   it('still caps at the ceiling', () => {
