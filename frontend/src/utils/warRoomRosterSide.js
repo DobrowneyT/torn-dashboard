@@ -97,3 +97,36 @@ export function isStatsFilterAvailable(side) {
 export function otherSide(side) {
   return side === US ? THEM : US
 }
+
+/**
+ * Is the server actually polling, or is it gated off? (#342)
+ *
+ * The war room's "LIVE" badge was driven by `config.enabled` alone, but the
+ * ticker refuses to poll an AUTO-MANAGED session outside its war's window
+ * (warWindowActive in warRoomTicker.ts). Between wars, and in the hours before
+ * a scheduled one, that means an enabled war room shows a green LIVE badge and
+ * an "Updated Ns ago" footer over a roster frozen at the last war's end.
+ *
+ * That combination cost real debugging time: the board looked live, reported a
+ * poll cadence it was not honouring, and gave no hint that the server had
+ * deliberately stopped. Returns the honest state so the UI can say so.
+ *
+ * Manual sessions (auto_managed false) always poll — a leader who pressed Save
+ * owns the session, which is also the escape hatch when a war has not started.
+ */
+export function pollingState({ enabled, autoManaged, warStartAt, warEndAt, nowMs = Date.now() } = {}) {
+  if (!enabled) return { state: 'off', polling: false }
+  if (!autoManaged) return { state: 'live', polling: true }
+
+  const now = Math.floor(nowMs / 1000)
+  const start = Number(warStartAt)
+  const end = Number(warEndAt)
+
+  // No usable start time: assume the ticker is polling rather than claiming a
+  // gate we cannot prove. Under-promising here would mislabel a working board.
+  if (!Number.isFinite(start) || start <= 0) return { state: 'live', polling: true }
+
+  if (now < start) return { state: 'scheduled', polling: false, startsAt: start }
+  if (Number.isFinite(end) && end > 0 && now >= end) return { state: 'ended', polling: false }
+  return { state: 'live', polling: true }
+}

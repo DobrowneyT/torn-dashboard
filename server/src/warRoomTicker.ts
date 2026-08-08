@@ -15,7 +15,7 @@ import { snapshotDibbedStatus, sweepDibsExpiry, DIBS_EXPIRY_SECONDS } from './wa
 import { storeOurChain, storeEnemyChain, chainPollDue, chainNearExpiry, CHAIN_FORCE_POLL_SEC } from './warRoomChain.js'
 import { memberStatsPollDue, sweepMemberStats, pruneMemberStats } from './warRoomMemberStats.js'
 import {
-  rosterPollDue, ROSTER_POLL_DEFAULT_MS, TICKER_HEARTBEAT_MS,
+  rosterPollDue, safeRosterIntervalMs, TICKER_HEARTBEAT_MS,
 } from './warRoomRosterPoll.js'
 
 export interface WarRoomTickerDeps {
@@ -133,6 +133,53 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
   // read and written every heartbeat, and a restart re-syncing immediately is
   // the behaviour we want anyway.
   let lastRosterSyncMs: number | null = null
+  // Enrolled-key count, cached: it sets the fastest cadence the pool can
+  // sustain (#342) and changes rarely, so re-counting every heartbeat would be
+  // pure waste.
+  let poolSize = 1
+  let poolSizeAt = 0
+  // Throttle for the "we overrode your setting" log, so a permanently
+  // over-ambitious cadence doesn't write a line every second.
+  let lastClampLogAt = 0
+  let lastTickErrorLogAt = 0
+  // Why the last tick did nothing, so an idle ticker can explain itself. Logged
+  // only when the reason CHANGES — an idle war room is the normal state and
+  // must not write a line every heartbeat (#342).
+  let lastIdleReason: string | null = null
+
+  /**
+   * Report why a tick is doing nothing.
+   *
+   * Every one of these was previously a bare `return`. That is fine when the
+   * war room is deliberately off, and awful when it is not: a board frozen
+   * because its managed war ended (very common on a cloned staging database,
+   * where auto_managed and managed_war_id arrive pointing at a finished war)
+   * looked exactly like a board with nothing to say.
+   */
+  function idle(reason: string): void {
+    if (lastIdleReason === reason) return
+    lastIdleReason = reason
+    console.log(`[war-room] ticker idle: ${reason}`)
+  }
+
+  function active(): void {
+    if (lastIdleReason !== null) {
+      console.log('[war-room] ticker active again')
+      lastIdleReason = null
+    }
+  }
+
+  async function enrolledKeyCount(): Promise<number> {
+    if (Date.now() - poolSizeAt < 60_000) return poolSize
+    const res = await db.query(
+      `SELECT count(*)::int AS n FROM member_secrets
+        WHERE disabled = false AND consent_at IS NOT NULL AND cpr_api_key IS NOT NULL
+          AND has_faction_access IS NOT FALSE`
+    )
+    poolSize = Math.max(1, Number(res.rows[0]?.n ?? 1))
+    poolSizeAt = Date.now()
+    return poolSize
+  }
 
   async function warWindowActive(managedWarId: number | null): Promise<boolean> {
     if (managedWarId == null) return true
@@ -155,14 +202,21 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
     try {
       const config = await db.query('SELECT * FROM war_room_config_v2 WHERE id = 1')
       const cfg = config.rows[0]
-      if (!cfg?.enabled || !cfg.faction_id) return
+      if (!cfg?.enabled) return idle('war room is disabled')
+      if (!cfg.faction_id) return idle('no opponent faction set')
       // The war window gates AUTOMATION-owned sessions only: a manual Save
       // (auto_managed=false) may carry a stale managed_war_id from whatever
       // the lifecycle ran last, and must keep polling regardless.
-      if (cfg.auto_managed && !(await warWindowActive(cfg.managed_war_id))) return
+      if (cfg.auto_managed && !(await warWindowActive(cfg.managed_war_id))) {
+        return idle(
+          `auto-managed war ${cfg.managed_war_id} is outside its active window — ` +
+          `no polling until a new war starts (turn off auto-manage to poll anyway)`
+        )
+      }
 
       const claimed = await pool.claim()
-      if (!claimed) return
+      if (!claimed) return idle('no usable API key in the pool')
+      active()
 
       const us = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
       const ourId = Number(us.rows[0].torn_faction_id)
@@ -176,7 +230,20 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       // The dibs sweep and surge detection live INSIDE this gate deliberately:
       // both diff against the states this sync produces, so running them on a
       // heartbeat with no fresh data would compare a snapshot against itself.
-      const rosterInterval = Number(cfg.roster_poll_interval_ms ?? ROSTER_POLL_DEFAULT_MS)
+      // Never poll faster than the key pool can sustain (#342). A sync spends
+      // two Torn calls on ONE key, so the configured cadence alone is not a
+      // safety limit: 0.5s against a small pool exceeded Torn's per-key rate,
+      // every sync threw, and the swallowed error froze the board silently.
+      const keys = await enrolledKeyCount()
+      const configured = Number(cfg.roster_poll_interval_ms ?? 0)
+      const rosterInterval = safeRosterIntervalMs(configured, keys)
+      if (configured > 0 && rosterInterval > configured && Date.now() - lastClampLogAt > 300_000) {
+        lastClampLogAt = Date.now()
+        console.warn(
+          `[war-room] roster cadence held at ${rosterInterval}ms (configured ${configured}ms): ` +
+          `${keys} enrolled key(s) cannot sustain it without exceeding Torn's per-key rate limit.`
+        )
+      }
       const rosterDue = !respectRosterCadence
         || rosterPollDue(lastRosterSyncMs, rosterInterval, Date.now())
       if (rosterDue) {
@@ -311,7 +378,17 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       // stats) gates itself on its own configured cadence. It runs at the
       // roster floor so the fastest allowed setting is actually reachable.
       timer = setInterval(
-        () => { void tick({ respectRosterCadence: true }).catch(() => {}) },
+        () => {
+          void tick({ respectRosterCadence: true }).catch((err) => {
+            // Was `.catch(() => {})`. A Torn rate-limit error thrown by the
+            // roster sync vanished here, so a board that had stopped updating
+            // looked identical to one with nothing to report (#342). Throttled
+            // so a persistent fault cannot flood the log.
+            if (Date.now() - lastTickErrorLogAt < 60_000) return
+            lastTickErrorLogAt = Date.now()
+            console.error('[war-room] tick failed:', err?.message ?? err)
+          })
+        },
         deps.intervalMs ?? TICKER_HEARTBEAT_MS
       )
     },
