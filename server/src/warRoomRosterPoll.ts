@@ -62,10 +62,18 @@ export function minSustainableIntervalMs(poolSize: number): number {
  * when it had to override the setting.
  */
 export function safeRosterIntervalMs(configuredMs: unknown, poolSize: number): number {
-  const configured = Number(configuredMs)
-  const base = Number.isFinite(configured) && configured > 0
-    ? configured
-    : ROSTER_POLL_DEFAULT_MS
+  // UNSET is not OFF. Number(null) is 0, so coercing first would read a
+  // missing column (or a pre-migration row) as "stop polling" — the board
+  // would go dark on upgrade. Only an explicit number can switch it off.
+  const unset = configuredMs == null || configuredMs === ''
+  const configured = unset ? NaN : Number(configuredMs)
+
+  // 0 is OFF and must survive the floor (#345): raising it to the minimum
+  // sustainable cadence would turn "stop polling" into "poll as fast as
+  // allowed", the exact inversion the member-stats clamp already guards.
+  if (Number.isFinite(configured) && configured <= 0) return 0
+
+  const base = Number.isFinite(configured) ? configured : ROSTER_POLL_DEFAULT_MS
   return Math.min(ROSTER_POLL_MAX_MS, Math.max(minSustainableIntervalMs(poolSize), base))
 }
 
@@ -77,13 +85,20 @@ export function safeRosterIntervalMs(configuredMs: unknown, poolSize: number): n
  */
 export const TICKER_HEARTBEAT_MS = ROSTER_POLL_MIN_MS
 
-/** Is a roster sync due, given when the last one ran? */
+/**
+ * Is a roster sync due?
+ *
+ * 0 means OFF (#345) and wins over any staleness — a lead who zeroed the
+ * cadence wants the Torn calls to stop, not to resume on the next restart.
+ * The member-stats sweep uses the same convention.
+ */
 export function rosterPollDue(
   lastSyncMs: number | null | undefined,
   intervalMs: number,
   nowMs: number
 ): boolean {
   const interval = Number(intervalMs)
+  if (Number.isFinite(interval) && interval <= 0) return false
   const effective = Number.isFinite(interval)
     ? Math.min(ROSTER_POLL_MAX_MS, Math.max(ROSTER_POLL_MIN_MS, interval))
     : ROSTER_POLL_DEFAULT_MS

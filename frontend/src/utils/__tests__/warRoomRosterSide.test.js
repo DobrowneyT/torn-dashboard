@@ -134,61 +134,31 @@ describe('effectiveRosterSide', () => {
   })
 })
 
-describe('pollingState (#342)', () => {
-  const HOUR = 3600
-  const now = 1_800_000_000_000
-  const nowSec = Math.floor(now / 1000)
-
+describe('pollingState (#345)', () => {
   it('reports off when the war room is disabled', () => {
-    expect(pollingState({ enabled: false, nowMs: now })).toMatchObject({ state: 'off', polling: false })
+    expect(pollingState({ enabled: false })).toMatchObject({ state: 'off', polling: false })
   })
 
-  it('reports scheduled — NOT live — before an auto-managed war starts', () => {
-    // The exact production case: enabled, auto-managed, war 8h away. The board
-    // showed a green LIVE badge over a roster frozen at the last war's end,
-    // while the server was deliberately not polling.
-    const s = pollingState({
-      enabled: true, autoManaged: true,
-      warStartAt: nowSec + 8 * HOUR, nowMs: now,
-    })
-    expect(s).toMatchObject({ state: 'scheduled', polling: false })
-    expect(s.startsAt).toBe(nowSec + 8 * HOUR)
+  it('reports live whenever the room is enabled, whatever the war is doing', () => {
+    // #345 removed the war-window gate: an enabled room polls, full stop.
+    // Previously a war starting in 8 hours meant no polling at all while the
+    // badge still read LIVE.
+    expect(pollingState({ enabled: true, rosterIntervalMs: 1000 }))
+      .toMatchObject({ state: 'live', polling: true, rosterPolling: true })
   })
 
-  it('reports live once an auto-managed war is inside its window', () => {
-    expect(pollingState({
-      enabled: true, autoManaged: true,
-      warStartAt: nowSec - HOUR, warEndAt: nowSec + HOUR, nowMs: now,
-    })).toMatchObject({ state: 'live', polling: true })
+  it('distinguishes an enabled room whose roster poll is switched off', () => {
+    // Plain "LIVE" over a roster nobody refreshes would repeat the original
+    // lie in miniature.
+    expect(pollingState({ enabled: true, rosterIntervalMs: 0 }))
+      .toMatchObject({ state: 'roster-paused', polling: true, rosterPolling: false })
   })
 
-  it('reports ended after an auto-managed war closes', () => {
-    expect(pollingState({
-      enabled: true, autoManaged: true,
-      warStartAt: nowSec - 4 * HOUR, warEndAt: nowSec - HOUR, nowMs: now,
-    })).toMatchObject({ state: 'ended', polling: false })
-  })
-
-  it('treats an open-ended war as live', () => {
-    for (const warEndAt of [null, 0, undefined]) {
-      expect(pollingState({
-        enabled: true, autoManaged: true, warStartAt: nowSec - HOUR, warEndAt, nowMs: now,
-      })).toMatchObject({ state: 'live', polling: true })
-    }
-  })
-
-  it('always reports live for a manual session, whatever the war window says', () => {
-    // auto_managed=false is the documented escape hatch — pressing Save yields
-    // the session to the leader and the ticker polls regardless.
-    expect(pollingState({
-      enabled: true, autoManaged: false, warStartAt: nowSec + 8 * HOUR, nowMs: now,
-    })).toMatchObject({ state: 'live', polling: true })
-  })
-
-  it('assumes live when there is no usable start time', () => {
-    // Never claim a gate we cannot prove — mislabelling a working board as
-    // stopped is its own kind of lie.
-    expect(pollingState({ enabled: true, autoManaged: true, warStartAt: null, nowMs: now }))
-      .toMatchObject({ state: 'live', polling: true })
+  it('treats an unset cadence as polling, not paused', () => {
+    // Number(null) is 0; reading "unset" as "off" would blank the board on
+    // upgrade before the column is populated.
+    expect(pollingState({ enabled: true })).toMatchObject({ state: 'live', rosterPolling: true })
+    expect(pollingState({ enabled: true, rosterIntervalMs: null }))
+      .toMatchObject({ state: 'live', rosterPolling: true })
   })
 })

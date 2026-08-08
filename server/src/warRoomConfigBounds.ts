@@ -48,11 +48,10 @@ export const CONFIG_BOUNDS: Record<string, Bounds> = {
   member_stats_poll_interval_sec: { min: 0, max: 600 },
 
   // #339 roster refresh, in MILLISECONDS (the other cadences are seconds, but
-  // this one needs sub-second granularity to express 2 Hz). Floored at 500ms:
-  // each sync is two Torn calls, so 2 Hz is already 240/min. 0 is NOT an off
-  // switch here — a war room that never syncs its roster is simply broken —
-  // so this clamps normally rather than joining ZERO_OR_FLOOR.
-  roster_poll_interval_ms: { min: 500, max: 60_000 },
+  // this one needs sub-second granularity to express 2 Hz). 0 disables the
+  // roster poll outright (#345); any enabled value floors at 500ms because
+  // each sync spends two Torn calls.
+  roster_poll_interval_ms: { min: 0, max: 60_000 },
 }
 
 /**
@@ -63,6 +62,7 @@ export const CONFIG_BOUNDS: Record<string, Bounds> = {
  */
 const ZERO_OR_FLOOR: Record<string, number> = {
   member_stats_poll_interval_sec: 30,
+  roster_poll_interval_ms: 500,
 }
 
 export type ClampResult =

@@ -266,14 +266,29 @@ describe('war-room ticker', () => {
     client.ws.close()
   })
 
-  it('does nothing when the AUTOMATION-owned war is out of its window', async () => {
+  it('keeps polling an auto-managed session outside its war window (#345)', async () => {
+    // The war window used to gate polling, so an ENABLED room went dark before
+    // a scheduled war and after one ended — for days, behind a LIVE badge.
+    // `enabled` is now the only gate: if leadership switched it on, it polls.
     await stack.db.query(`UPDATE ranked_wars SET end_at = ${Math.floor(Date.now() / 1000) - 60} WHERE id = 700`)
     await stack.db.query(`UPDATE war_room_config_v2 SET auto_managed = true, updated_at = now() WHERE id = 1`)
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => memberPayload('Okay'))
+    const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+    const ticker = createWarRoomTicker(tickerDeps())
+    const before = stack.torn.hits()
+    await ticker.tick()
+    expect(stack.torn.hits()).toBeGreaterThan(before)
+  })
+
+  it('does nothing at all once the war room is disabled', async () => {
+    // The remaining gate, and the one a leader actually controls.
+    await stack.db.query(`UPDATE war_room_config_v2 SET enabled = false, updated_at = now() WHERE id = 1`)
     const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
     const ticker = createWarRoomTicker(tickerDeps())
     const before = stack.torn.hits()
     await ticker.tick()
     expect(stack.torn.hits()).toBe(before)
+    await stack.db.query(`UPDATE war_room_config_v2 SET enabled = true, updated_at = now() WHERE id = 1`)
   })
 
   it('a manual session keeps polling despite a stale managed_war_id (#100)', async () => {

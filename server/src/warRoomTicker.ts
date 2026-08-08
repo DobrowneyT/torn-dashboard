@@ -181,15 +181,6 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
     return poolSize
   }
 
-  async function warWindowActive(managedWarId: number | null): Promise<boolean> {
-    if (managedWarId == null) return true
-    const res = await db.query('SELECT start_at, end_at FROM ranked_wars WHERE id = $1', [managedWarId])
-    if (res.rows.length === 0) return false
-    const now = Math.floor(Date.now() / 1000)
-    const { start_at, end_at } = res.rows[0]
-    return Number(start_at) <= now && (end_at == null || Number(end_at) === 0 || Number(end_at) > now)
-  }
-
   /**
    * One pass. `respectRosterCadence` is the automatic heartbeat's flag: it
    * paces the roster sync against roster_poll_interval_ms. A DIRECT tick()
@@ -202,17 +193,15 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
     try {
       const config = await db.query('SELECT * FROM war_room_config_v2 WHERE id = 1')
       const cfg = config.rows[0]
+      // ENABLED IS THE ONLY GATE (#345). There used to be a second one: an
+      // auto-managed session refused to poll outside its war's start/end
+      // window. That made "enabled" mean "enabled, unless the calendar
+      // disagrees" — a board could sit frozen for days while showing every
+      // sign of being live, which is exactly what happened before a scheduled
+      // war. Leadership decides when the room runs; the cadence settings
+      // (0 = off) decide what it polls.
       if (!cfg?.enabled) return idle('war room is disabled')
       if (!cfg.faction_id) return idle('no opponent faction set')
-      // The war window gates AUTOMATION-owned sessions only: a manual Save
-      // (auto_managed=false) may carry a stale managed_war_id from whatever
-      // the lifecycle ran last, and must keep polling regardless.
-      if (cfg.auto_managed && !(await warWindowActive(cfg.managed_war_id))) {
-        return idle(
-          `auto-managed war ${cfg.managed_war_id} is outside its active window — ` +
-          `no polling until a new war starts (turn off auto-manage to poll anyway)`
-        )
-      }
 
       const claimed = await pool.claim()
       if (!claimed) return idle('no usable API key in the pool')
