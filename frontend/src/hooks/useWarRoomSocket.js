@@ -17,6 +17,7 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { getApiSession, apiGet, apiRefresh } from '../utils/apiClient'
+import { mergeVersionedRows, liveRows } from '../utils/warRoomMerge'
 
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15_000
@@ -70,8 +71,11 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
   const ourFactionIdRef = useRef(ourFactionId)
   ourFactionIdRef.current = ourFactionId
 
+  // Tombstones live in the maps and are filtered out here (#371) — see
+  // mergeVersionedRows for why deleting them loses the ability to reject a
+  // stale row for that member.
   const publishState = useCallback(() => {
-    const all = Array.from(stateMapRef.current.values())
+    const all = liveRows(stateMapRef.current).map(flattenStateRow)
     const fid = ourFactionIdRef.current
     setMembers(all.filter(m => Number(m.faction_id) !== Number(fid)))
     setOurMembers(all.filter(m => Number(m.faction_id) === Number(fid)))
@@ -79,29 +83,28 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
 
   const publishDibs = useCallback(() => {
     const obj = {}
-    for (const [k, v] of dibsMapRef.current) obj[k] = v
+    for (const v of liveRows(dibsMapRef.current)) obj[v.target_id] = v
     setDibs(obj)
   }, [])
 
   const publishMemberStats = useCallback(() => {
     const obj = {}
-    for (const [k, v] of memberStatsMapRef.current) obj[k] = v
+    for (const v of liveRows(memberStatsMapRef.current)) obj[String(v.member_id)] = v
     setMemberStats(obj)
   }, [])
 
   const applyChannel = useCallback((channel, rows) => {
     if (!rows?.length) return
+    // Every row-channel merges NEWEST-WINS rather than last-arrival-wins (#371).
+    // The socket and the REST delta from pollNow() both write these maps, so a
+    // response that was in flight across a write would otherwise land on top of
+    // fresher data and hold until the next change — which is what made enemies
+    // flicker between Okay and Hospital as they came out.
     if (channel === 'state') {
-      for (const r of rows) {
-        if (r.deleted_at) stateMapRef.current.delete(r.member_id)
-        else stateMapRef.current.set(r.member_id, flattenStateRow(r))
-      }
+      mergeVersionedRows(stateMapRef.current, rows, 'member_id')
       publishState()
     } else if (channel === 'dibs') {
-      for (const r of rows) {
-        if (r.deleted_at) dibsMapRef.current.delete(r.target_id)
-        else dibsMapRef.current.set(r.target_id, r)
-      }
+      mergeVersionedRows(dibsMapRef.current, rows, 'target_id')
       publishDibs()
     } else if (channel === 'config') {
       setConfig(rows[rows.length - 1])
@@ -111,7 +114,7 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
       // Live energy/cooldowns for our own members (#336). Lead-only: the
       // server withholds this channel from non-lead sockets entirely, so an
       // ordinary member simply never populates this map.
-      for (const r of rows) memberStatsMapRef.current.set(String(r.member_id), r)
+      mergeVersionedRows(memberStatsMapRef.current, rows, 'member_id')
       publishMemberStats()
     }
   }, [publishState, publishDibs, publishMemberStats])
