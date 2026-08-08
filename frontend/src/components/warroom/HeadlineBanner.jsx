@@ -21,6 +21,33 @@ export const PUSH_HEADLINE_PRESETS = {
   our:   { text: 'WE HAVE THE NUMBERS — ORGANIZE A PUSH',          tone: 'go' },
 }
 
+/**
+ * Rally-call presets for a REVIVE surge (#359).
+ *
+ * Deliberately different copy from the status presets above, because the two
+ * alerts arrive at different moments. A status surge means they are already
+ * back up and swinging, so the call is to retaliate. A revive surge means they
+ * are still being set up — the call is to get ready before it lands, and
+ * telling a faction to retaliate against a push that has not started yet would
+ * spend the chain early.
+ */
+export const REVIVE_HEADLINE_PRESETS = {
+  enemy: { text: 'PUSH INCOMING — TURTLE UP AND HOLD', tone: 'warn' },
+  our:   { text: 'REVIVES ARE ON — STAND BY TO PUSH',  tone: 'go' },
+}
+
+/**
+ * The preset for a surge, by kind and direction.
+ *
+ * Falls back to the status set for an unknown kind: an older server, or a
+ * payload from before #359, sends no kind at all and must still one-tap to the
+ * preset it always did.
+ */
+export function surgeHeadlinePreset(kind, direction) {
+  const table = kind === 'revive' ? REVIVE_HEADLINE_PRESETS : PUSH_HEADLINE_PRESETS
+  return table[direction] ?? null
+}
+
 // Quick-pick presets. `push` renders a time input and produces "PUSH 2 HH:MM".
 const PRESETS = [
   { label: 'Turtle / stay in hospital', text: 'TURTLE — STAY IN HOSPITAL', tone: 'warn' },

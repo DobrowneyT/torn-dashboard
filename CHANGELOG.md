@@ -17,6 +17,31 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.12.0] - 2026-08-08
+
+### Added
+
+- **Revive-surge alerts — "a push is being set up" (#359).** A second push-surge
+  detector alongside the existing one, firing when N members turn their revives
+  **on** within a window. The original detector (#208) fires when members become
+  Okay, by which point the push has already started; nobody enables revives
+  casually mid-war, so a cluster of that is the push being *prepared*. The
+  settings panel now has two sections, Status and Revives, each with its own
+  toggle, threshold, window and cooldown — hospital churn is constant during a
+  chain while revive prep is deliberate and rare, so one shared window would
+  tune one of them wrong. Off by default.
+- Distinct copy, rally-call preset and banner colour for the new alert. A revive
+  surge is amber and reads "turtle up and hold"; telling a faction to retaliate
+  against a push that has not started yet would spend the chain early.
+
+### Changed
+
+- The surge detector now tracks two kinds through one state machine rather than
+  duplicating the window, threshold, cooldown and seed-on-first-sight logic.
+  `SurgeEvent` carries a `kind`, and the web-push tag includes it — sharing one
+  tag would let a revive alert silently replace an unread status alert in the
+  notification tray.
+
 ## [3.11.0] - 2026-08-08
 
 ### Added
