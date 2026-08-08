@@ -31,18 +31,36 @@ export interface WarRoomTickerDeps {
 }
 
 // Map the war_room_config_v2 surge columns to the detector's config shape.
+// Two independent kinds (#359), each with its own toggle, rates and cooldown:
+// hospital churn and deliberate revive prep happen at very different rates, so
+// sharing a window would force one of them to be tuned wrong.
 function surgeConfigFrom(cfg: Record<string, unknown>): SurgeConfig {
   return {
-    enabled: !!cfg.surge_alerts_enabled,
-    enemy: { threshold: Number(cfg.surge_enemy_threshold ?? 3), windowSec: Number(cfg.surge_enemy_window_sec ?? 60) },
-    our: { threshold: Number(cfg.surge_our_threshold ?? 4), windowSec: Number(cfg.surge_our_window_sec ?? 60) },
-    cooldownSec: Number(cfg.surge_cooldown_sec ?? 300),
+    status: {
+      enabled: !!cfg.surge_alerts_enabled,
+      enemy: { threshold: Number(cfg.surge_enemy_threshold ?? 3), windowSec: Number(cfg.surge_enemy_window_sec ?? 60) },
+      our: { threshold: Number(cfg.surge_our_threshold ?? 4), windowSec: Number(cfg.surge_our_window_sec ?? 60) },
+      cooldownSec: Number(cfg.surge_cooldown_sec ?? 300),
+    },
+    revive: {
+      enabled: !!cfg.surge_revive_alerts_enabled,
+      enemy: { threshold: Number(cfg.surge_revive_enemy_threshold ?? 3), windowSec: Number(cfg.surge_revive_enemy_window_sec ?? 300) },
+      our: { threshold: Number(cfg.surge_revive_our_threshold ?? 4), windowSec: Number(cfg.surge_revive_our_window_sec ?? 300) },
+      cooldownSec: Number(cfg.surge_revive_cooldown_sec ?? 600),
+    },
   }
 }
 
-// User-facing copy for each surge direction: enemy = we're being pushed
-// (defensive), our = organize a push (offensive).
+// User-facing copy per kind and direction. The two kinds carry different
+// instructions: a status surge means they are already back up and swinging,
+// while a revive surge means they are being SET UP to come back — which is a
+// warning to act before it lands, not a report that it has.
 function surgeMessage(ev: SurgeEvent): { title: string; body: string } {
+  if (ev.kind === 'revive') {
+    return ev.direction === 'enemy'
+      ? { title: '💉 Push incoming?', body: `${ev.count} enemies just turned revives on — they're setting up a push.` }
+      : { title: '💉 Revives on', body: `${ev.count} of ours just turned revives on — we're set up to push.` }
+  }
   return ev.direction === 'enemy'
     ? { title: '🛡️ Incoming push!', body: `${ev.count} enemies just left hospital — defend / turtle up.` }
     : { title: '⚔️ Push window!', body: `${ev.count} of ours are out — organize a push.` }
@@ -264,9 +282,11 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
         for (const ev of surges) {
           const msg = surgeMessage(ev)
           // Open tabs: sound/flash automatically for everyone (reuses #156/#157).
-          hub.alert({ kind: 'surge', direction: ev.direction, count: ev.count, ...msg })
-          // Subscribers: a background web-push, even with the tab closed.
-          void deps.pushService?.sendToAll({ ...msg, url: '/war-room', tag: `surge-${ev.direction}` }).catch(() => {})
+          hub.alert({ kind: 'surge', surge: ev.kind, direction: ev.direction, count: ev.count, ...msg })
+          // Subscribers: a background web-push, even with the tab closed. The
+          // tag includes the kind (#359) — sharing one tag would let a revive
+          // alert silently REPLACE an unread status alert in the tray.
+          void deps.pushService?.sendToAll({ ...msg, url: '/war-room', tag: `surge-${ev.kind}-${ev.direction}` }).catch(() => {})
         }
       }
 

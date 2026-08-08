@@ -587,6 +587,14 @@ CREATE TABLE public.war_room_config_v2 (
   surge_our_threshold integer DEFAULT 4 NOT NULL,
   surge_our_window_sec integer DEFAULT 60 NOT NULL,
   surge_cooldown_sec integer DEFAULT 300 NOT NULL,
+  -- Revive-surge alerts (#359): a second detector watching members turn their
+  -- revives ON, which is the push being set up rather than already under way.
+  surge_revive_alerts_enabled boolean DEFAULT false NOT NULL,
+  surge_revive_enemy_threshold integer DEFAULT 3 NOT NULL,
+  surge_revive_enemy_window_sec integer DEFAULT 300 NOT NULL,
+  surge_revive_our_threshold integer DEFAULT 4 NOT NULL,
+  surge_revive_our_window_sec integer DEFAULT 300 NOT NULL,
+  surge_revive_cooldown_sec integer DEFAULT 600 NOT NULL,
   member_stats_poll_interval_sec integer DEFAULT 0 NOT NULL,
   roster_poll_interval_ms integer DEFAULT 1000 NOT NULL
 );
