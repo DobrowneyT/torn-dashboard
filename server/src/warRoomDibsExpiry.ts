@@ -43,6 +43,9 @@ export async function snapshotDibbedStatus(db: pg.Pool): Promise<Map<number, Tar
  *  #107 — target still in hospital but its until jumped up → drop now.
  *  #106 — target left hospital (Hospital→Okay) → schedule a release
  *         `expirySeconds` out; a later tick's sweep drops it if still held.
+ *  #376 — target is no longer Okay → disarm any scheduled release. The
+ *         countdown only ever means "alive and unconverted"; going back down
+ *         ends that, and the next time they surface they get a fresh window.
  */
 export async function sweepDibsExpiry(
   db: pg.Pool,
@@ -58,10 +61,25 @@ export async function sweepDibsExpiry(
 
   const dropNow: number[] = []
   const schedule: number[] = []
+  const disarm: number[] = []
   for (const row of live.rows) {
     const prev = prevStatus.get(Number(row.target_id)) ?? null
     const next = (row.status as TargetStatus) ?? null
     const wasHospital = prev?.state === 'Hospital'
+
+    // #376 — the target is no longer alive, so any countdown against this
+    // claim has lost its premise and must be disarmed.
+    //
+    // Both countdowns mean the same thing: "the target is up and the holder
+    // has not converted; free the claim in N seconds." Neither survives the
+    // target going back down. The deadline used to be set once and never
+    // cleared, which turned it into a landmine: it lapsed silently while the
+    // target was in hospital, and the sweep then dropped the claim the instant
+    // they came out again — no window at all, which is exactly what a farm-
+    // mode holder reported. Farm mode runs head-on into it, because the loop
+    // IS hospital → out → hit → hospital → out.
+    if (next?.state !== 'Okay' && row.auto_expire_at != null) disarm.push(row.id)
+
     if (wasHospital && next?.state === 'Hospital') {
       const pu = until(prev)
       const nu = until(next)
@@ -69,6 +87,15 @@ export async function sweepDibsExpiry(
     } else if (wasHospital && next?.state === 'Okay' && row.auto_expire_at == null) {
       schedule.push(row.id) // #106
     }
+  }
+
+  // Disarm before the tombstone sweep runs, so a deadline that lapsed while
+  // the target was down cannot be acted on in the same tick it is cleared.
+  if (disarm.length > 0) {
+    await db.query(
+      `UPDATE war_room_dibs_v2 SET auto_expire_at = NULL, updated_at = now() WHERE id = ANY($1)`,
+      [disarm]
+    )
   }
 
   if (schedule.length > 0) {
