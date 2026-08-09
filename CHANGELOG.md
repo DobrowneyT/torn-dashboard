@@ -17,6 +17,36 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.17.2] - 2026-08-09
+
+### Fixed
+
+- **Dibs dropped the instant a farmed target left hospital (#376).** Reported
+  as "the dibs is stripped and it appears it was never called". The auto-expiry
+  countdown was armed once and never disarmed — `auto_expire_at` was only ever
+  *set*, and only when it was still null. So after a target went back into
+  hospital the claim kept a deadline that quietly lapsed while they were down,
+  and the next time they surfaced the sweep saw `auto_expire_at <= now()` on an
+  Okay target and released the claim **on that tick**, with none of the
+  intended 30-second window.
+
+  Farm mode runs head-on into this, because the loop is precisely
+  hospital → out → hit → hospital → out: the *first* exit behaved correctly and
+  every exit after it dropped the claim immediately.
+
+  The countdown now disarms whenever the target stops being Okay. Both
+  countdowns that write this column — the hospital-exit window (#106) and the
+  claim-timeout (#159) — mean "the target is up and the holder hasn't
+  converted", and neither survives the target going back down. A claim nobody
+  converts still expires; a target who simply stays up still runs one window to
+  its end.
+
+  This also removes the last way the hospital flicker could destroy real data.
+  #371 fixed the flicker's effect on the *display*; a spurious `Okay` reaching
+  the server still armed a genuine countdown against a target who had never
+  left, which then killed the claim on their next real exit. That is why the
+  flicker fix improved things without ending the reports.
+
 ## [3.17.1] - 2026-08-09
 
 ### Changed
