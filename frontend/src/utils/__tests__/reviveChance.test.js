@@ -15,6 +15,51 @@ const NOW = 1_770_000_000
 const agoH = (h) => NOW - h * 3600
 const rev = (over = {}) => ({ target_id: 1, timestamp: agoH(1), result: 'success', ...over })
 
+// The formula as published, verified against the three worked examples in the
+// source post. These are the anchors: if a refactor changes any of them, the
+// model no longer computes what Torn computes.
+//
+//   chance = 90 + skill/10 − score × (8 − skill/25)
+//   score  = Σ over revives in the last 24h of (1 − t/86400), t in seconds
+//
+describe('the published formula', () => {
+  it('matches the post: score 1.5 against a skill-50 reviver is 86%', () => {
+    expect(chanceFromScore(1.5, 50)).toBe(86)
+  })
+
+  it('matches the post: score 12 against skill 100 is 52%', () => {
+    // The stated point of the example — at high scores the reviver's skill is
+    // the difference between viable and not.
+    expect(chanceFromScore(12, 100)).toBe(52)
+  })
+
+  it('matches the post: score 12 against skill 30 is 11.4%', () => {
+    expect(chanceFromScore(12, 30)).toBeCloseTo(11.4, 6)
+  })
+
+  it('matches the post: a revive now plus one 12h ago is a score of 1.5', () => {
+    const NOW_T = 1_770_000_000
+    expect(reviveScore([
+      { timestamp: NOW_T, result: 'success' },
+      { timestamp: NOW_T - 12 * 3600, result: 'success' },
+    ], NOW_T)).toBe(1.5)
+  })
+
+  it('is algebraically the published expression across the whole domain', () => {
+    // Belt and braces: the implementation decomposes the formula into a base
+    // and a per-point penalty, which is easier to read but is a rewrite. This
+    // pins the rewrite to the original for every skill/score combination that
+    // can occur, not just the three published points.
+    const published = (score, skill) => 90 + skill / 10 - score * (8 - skill / 25)
+    for (let skill = 0; skill <= 100; skill += 5) {
+      for (let score = 0; score <= 25; score += 0.5) {
+        const expected = Math.min(100, Math.max(0, published(score, skill)))
+        expect(chanceFromScore(score, skill)).toBeCloseTo(expected, 9)
+      }
+    }
+  })
+})
+
 describe('the published endpoints', () => {
   it('bases 90% at skill 0 and 100% at skill 100', () => {
     expect(baseChance(0)).toBe(90)

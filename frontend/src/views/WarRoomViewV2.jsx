@@ -1002,7 +1002,7 @@ function MemberReviveChanceCell({ revives, loaded }) {
     counted.length === 0
       ? 'No revives in the last 24h — fully rested.'
       : `${counted.length} revive${counted.length === 1 ? '' : 's'} in the last 24h (score ${score.toFixed(2)}); most recent ${lastAgo}m ago.`,
-    'Estimated from our revive history, not reported by Torn.',
+    'Computed from our own revive history — accurate as long as that history is complete.',
   ].join('\n')
 
   const hue = reviveChanceHue(chance)
@@ -3067,10 +3067,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                         col="revive_chance" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
                         title={[
                           'Best-case revive chance — what a skill-100 reviver would see.',
-                          'Estimated from our own revive history (revives-sync), not reported by Torn.',
+                          'chance = 90 + skill/10 − score × (8 − skill/25), computed from our own',
+                          'revive history (revives-sync). Torn does not report this directly.',
                           reviveModelCheck
-                            ? `Model check vs what Torn displayed: ${reviveModelCheck.meanAbsError.toFixed(1)}pp mean error, ${reviveModelCheck.bias >= 0 ? '+' : ''}${reviveModelCheck.bias.toFixed(1)}pp bias over ${reviveModelCheck.samples} observed revive${reviveModelCheck.samples === 1 ? '' : 's'}.`
-                            : 'Model check: no observed revives to compare against yet.',
+                            ? `History check vs what Torn displayed: ${reviveModelCheck.meanAbsError.toFixed(1)}pp mean error, ${reviveModelCheck.bias >= 0 ? '+' : ''}${reviveModelCheck.bias.toFixed(1)}pp bias over ${reviveModelCheck.samples} observed revive${reviveModelCheck.samples === 1 ? '' : 's'}. A positive bias means revives we never scraped — expected until the feed has run 24h.`
+                            : 'History check: no observed revives to compare against yet.',
                         ].join('\n')}
                       >Revive %</SortTh>
                     )}
