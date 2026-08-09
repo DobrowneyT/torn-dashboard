@@ -134,12 +134,23 @@ export async function sweepMemberStats(
       lastError = err instanceof Error ? err.message : String(err)
     }
 
+    // The overdose latch (#357). A threshold test against the CURRENT cooldown
+    // loses the flag the moment a real overdose burns below 10h, because this
+    // upsert overwrites cooldown_drug every pass. Deriving an absolute expiry
+    // is safe: nothing in the game reduces drug cooldown, so the first reading
+    // above the threshold already tells us when it ends.
+    //
+    // GREATEST, never assignment — Postgres GREATEST ignores NULLs, so this
+    // extends the window for a fresh overdose, leaves it untouched when the
+    // member's key fails (null cooldown ⇒ the CASE is NULL), and can never
+    // shorten it as the cooldown burns down.
     const res = await db.query(
       `INSERT INTO war_room_member_stats_v2
          (member_id, energy_current, energy_maximum,
           cooldown_drug, cooldown_medical, cooldown_booster,
-          last_error, fetched_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+          last_error, fetched_at, updated_at, overdose_until)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now(),
+               CASE WHEN $4::int > $8::int THEN now() + ($4::int * interval '1 second') END)
        ON CONFLICT (member_id) DO UPDATE SET
          energy_current = EXCLUDED.energy_current,
          energy_maximum = EXCLUDED.energy_maximum,
@@ -148,10 +159,17 @@ export async function sweepMemberStats(
          cooldown_booster = EXCLUDED.cooldown_booster,
          last_error = EXCLUDED.last_error,
          fetched_at = EXCLUDED.fetched_at,
-         updated_at = now()
+         updated_at = now(),
+         overdose_until = GREATEST(
+           war_room_member_stats_v2.overdose_until,
+           CASE WHEN EXCLUDED.cooldown_drug > $8::int
+                THEN EXCLUDED.fetched_at + (EXCLUDED.cooldown_drug * interval '1 second')
+           END
+         )
        RETURNING *`,
       [member_id, stats.energy_current, stats.energy_maximum,
-       stats.cooldown_drug, stats.cooldown_medical, stats.cooldown_booster, lastError]
+       stats.cooldown_drug, stats.cooldown_medical, stats.cooldown_booster, lastError,
+       OVERDOSE_DRUG_CD_SEC]
     )
     if (res.rows.length > 0) changed.push(res.rows[0])
   }

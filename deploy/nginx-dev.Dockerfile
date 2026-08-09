@@ -18,4 +18,6 @@ RUN npm run build -w frontend
 
 FROM nginx:1.27-alpine
 COPY deploy/nginx-dev/ /etc/nginx/conf.d/
+# Shared SPA cache policy (#382) — one source of truth with the prod image.
+COPY deploy/nginx/snippets/ /etc/nginx/conf.d/snippets/
 COPY --from=build /app/frontend/dist /usr/share/nginx/html

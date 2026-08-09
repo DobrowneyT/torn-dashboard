@@ -46,13 +46,20 @@ describe('rosterColumns', () => {
       energy: false, drugCd: false, medicalCd: false, boosterCd: false,
     })
   })
+
+  it('shows Revive % only on our own faction (#358)', () => {
+    // Not a display choice: Torn reports a success chance only on revives our
+    // own faction received, so there is no enemy figure to show.
+    expect(rosterColumns(US)).toMatchObject({ reviveChance: true })
+    expect(rosterColumns(THEM)).toMatchObject({ reviveChance: false })
+  })
 })
 
 describe('rosterColumnCount', () => {
   it('counts the columns actually rendered for each side', () => {
     // Drives the empty-state colSpan; a wrong number visibly breaks that row.
     expect(rosterColumnCount(THEM)).toBe(8)
-    expect(rosterColumnCount(US)).toBe(10)
+    expect(rosterColumnCount(US)).toBe(11)
   })
 
   it('stays in step with rosterColumns', () => {
@@ -183,7 +190,7 @@ describe('effectiveSortCol (#351)', () => {
   })
 
   it('keeps the our-roster stat columns while we are on our roster', () => {
-    for (const col of ['energy', 'cooldown_drug', 'cooldown_medical', 'cooldown_booster']) {
+    for (const col of ['energy', 'cooldown_drug', 'cooldown_medical', 'cooldown_booster', 'revive_chance']) {
       expect(effectiveSortCol(col, US)).toBe(col)
     }
   })
@@ -195,6 +202,8 @@ describe('effectiveSortCol (#351)', () => {
     // header arrow points at nothing.
     expect(effectiveSortCol('energy', THEM)).toBe('timer')
     expect(effectiveSortCol('cooldown_drug', THEM)).toBe('timer')
+    // #358: revive chance is our-roster only for the same reason.
+    expect(effectiveSortCol('revive_chance', THEM)).toBe('timer')
   })
 
   it('falls back for a war lead who lost the role mid-session', () => {

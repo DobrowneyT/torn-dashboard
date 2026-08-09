@@ -631,7 +631,12 @@ CREATE TABLE public.war_room_member_stats_v2 (
   cooldown_booster integer,
   last_error text,
   fetched_at timestamp with time zone,
-  updated_at timestamp with time zone DEFAULT now() NOT NULL
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  -- When the overdose that caused the current drug cooldown wears off (#357).
+  -- Latched on the first reading above the threshold and never shortened:
+  -- cooldown_drug is overwritten every sweep, so a live threshold test loses
+  -- the flag as soon as it burns below 10h.
+  overdose_until timestamp with time zone
 );
 
 CREATE INDEX war_room_member_stats_v2_updated_at_idx
@@ -892,6 +897,9 @@ ALTER TABLE faction_attacks ADD CONSTRAINT faction_attacks_pkey PRIMARY KEY (att
 ALTER TABLE faction_config ADD CONSTRAINT faction_config_pkey PRIMARY KEY (id);
 ALTER TABLE faction_settings ADD CONSTRAINT faction_settings_pkey PRIMARY KEY (key);
 ALTER TABLE faction_revives ADD CONSTRAINT faction_revives_pkey PRIMARY KEY (revive_id);
+-- #358: the standing revives feed is read as a rolling 24h window, not per war.
+CREATE INDEX IF NOT EXISTS idx_faction_revives_target_ts ON public.faction_revives USING btree (target_id, "timestamp" DESC);
+CREATE INDEX IF NOT EXISTS idx_faction_revives_ts ON public.faction_revives USING btree ("timestamp" DESC);
 ALTER TABLE factions ADD CONSTRAINT factions_pkey PRIMARY KEY (id);
 ALTER TABLE inventory_items ADD CONSTRAINT inventory_items_pkey PRIMARY KEY (id);
 ALTER TABLE items ADD CONSTRAINT items_pkey PRIMARY KEY (id);

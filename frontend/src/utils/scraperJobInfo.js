@@ -19,6 +19,13 @@ export const SCRAPER_JOB_INFO = {
     'pages of 100). Feeds War Room, RW payouts, and war overview, and captures ' +
     'each side\'s faction name into the factions lookup for free (no extra ' +
     'calls). 1 call per 100 new attacks.',
+  'revives-sync':
+    'Revives our members RECEIVED, incremental forward sync ' +
+    '(GET /v2/faction/revives?filters=incoming, pages of 100). Feeds the War ' +
+    "Room's revive-chance estimate — which needs a rolling 24h history, so it " +
+    'runs standing rather than per war — and the war overview\'s revive charts. ' +
+    'First run reaches back 7 days, not the whole history. 1 call per 100 new ' +
+    'revives.',
   'factions-sync':
     'Faction lookup completion: fills tags (and any missing names) for faction ' +
     'ids seen in attacks via GET /v2/faction/{id}/basic — attacks-sync captures ' +

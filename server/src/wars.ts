@@ -66,10 +66,32 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
     return { contributions: res.rows }
   })
 
+  /**
+   * A war's revives — resolved by TIME WINDOW, not by the stored rw_id (#358).
+   *
+   * This used to filter on `rw_id = $1`, which was correct while the only
+   * writer was the per-war backfill: it fetched one war's window and stamped
+   * every row with that war. The standing revives feed changed that. It tags a
+   * row from whatever wars `ranked_wars` knows about AT INGEST TIME, and
+   * wars-sync only runs every three hours — so revives landing in the first
+   * hours of a new war are written with a null tag, and nothing ever goes back
+   * to fill it in. Those revives would simply be missing from the war page.
+   *
+   * The window is the authoritative answer anyway: a revive belongs to a war if
+   * it happened during it. The rw_id clause is kept as a union so a war whose
+   * recorded window later shifts can't drop rows the backfill had already
+   * attributed to it.
+   */
   app.get('/api/wars/:id/revives', { preHandler: requireAuth() }, async (req) => {
     const { id } = req.params as { id: string }
     const res = await db.query(
-      'SELECT * FROM faction_revives WHERE rw_id = $1 ORDER BY "timestamp" ASC',
+      `SELECT r.* FROM faction_revives r
+         LEFT JOIN ranked_wars w ON w.id = $1
+        WHERE r.rw_id = $1
+           OR (w.start_at IS NOT NULL
+               AND r."timestamp" >= w.start_at
+               AND r."timestamp" <= COALESCE(w.end_at, extract(epoch FROM now())::bigint))
+        ORDER BY r."timestamp" ASC`,
       [id]
     )
     return { revives: res.rows }

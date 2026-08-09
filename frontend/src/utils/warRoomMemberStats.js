@@ -1,3 +1,8 @@
+import { parseDbTime } from './time'
+// Everything numeric in this module goes through the shared guard: a plain
+// Number() cast turns "we have no reading" into "this member has zero".
+import { reading } from './reading'
+
 /**
  * Live energy + cooldown display for our own members (#336).
  *
@@ -10,28 +15,18 @@
  */
 
 /**
- * Overdose threshold, in seconds of remaining drug cooldown. Mirrors
- * OVERDOSE_DRUG_CD_SEC in server/src/warRoomMemberStats.ts.
+ * Overdose threshold, in seconds of remaining drug cooldown.
+ *
+ * The SERVER owns this decision now (#357) — it latches an expiry the first
+ * time a reading crosses the line. This copy is only the fallback for rows
+ * written before that latch existed, and mirrors OVERDOSE_DRUG_CD_SEC in
+ * server/src/warRoomMemberStats.ts.
  *
  * Torn has no live "is overdosed" flag — `overdoses` exists only as a lifetime
  * personalstats counter. But a xanax leaves 6-8h of drug cooldown, so anything
  * past 10h can only be an overdose.
  */
 export const OVERDOSE_DRUG_CD_SEC = 36_000
-
-/**
- * A reading, or null when there isn't one.
- *
- * Number(null) is 0 and Number('') is 0, so a plain Number() cast turns "we
- * have no reading" into "this member has zero" — which for energy means a
- * member whose own key failed renders as empty and gets written off for the
- * push. Everything numeric in this module goes through here.
- */
-function reading(value) {
-  if (value == null || value === '') return null
-  const n = Number(value)
-  return Number.isFinite(n) ? n : null
-}
 
 /** Index the memberstats delta rows by member id, for O(1) lookup per row. */
 export function indexMemberStats(rows = []) {
@@ -80,23 +75,35 @@ export function formatCooldown(secondsRemaining) {
 }
 
 /**
- * Is this member overdosed, judged by their drug cooldown?
+ * Is this member overdosed?
  *
  * NOT a duplicate of isOverdosed() in memberNotes.js (#199) — the two see
  * different windows, and both are worth having:
  *
  *   • #199 reads Torn's hospital status details ("Overdosed"). Direct and
  *     certain, but only while the member is still IN hospital for it.
- *   • This one reads the drug cooldown, which long outlives the hospital stay.
- *     It keeps flagging a member who has already been released but is still
- *     sitting on a crippling cooldown — exactly the person you must not count
- *     on for the next chain.
+ *   • This one outlives the hospital stay, and keeps flagging a member who has
+ *     been released but is still sitting on a crippling cooldown — exactly the
+ *     person you must not count on for the next chain.
  *
- * Keyed off the STORED reading rather than the aged-down one: an overdose is a
- * fact about the dose that was taken, and shouldn't stop being true merely
- * because the cooldown has since burned below the threshold.
+ * Reads the server's LATCH (#357), not the live cooldown. The previous version
+ * tested `cooldown_drug > 10h` and carried a comment claiming the stored
+ * reading made it immune to burn-down. It did not: the sweep overwrites
+ * cooldown_drug every pass, so the stored value falls exactly like the
+ * displayed one, and a real overdose lost its flag the moment it dropped under
+ * 10h — with nine hours still to run.
+ *
+ * The server now records when the overdose ends, once, on the first reading
+ * above the threshold. That is sound because nothing in the game reduces drug
+ * cooldown, and because a member cannot dose again while on one: the cooldown's
+ * duration IS the window in which they are stuck.
  */
-export function overdosedByDrugCooldown(stats) {
+export function overdosedByDrugCooldown(stats, nowMs = Date.now()) {
+  const until = parseDbTime(stats?.overdose_until)
+  if (until) return until.getTime() > nowMs
+  // Rows written before the latch existed carry no expiry. Fall back to the
+  // old live test so an overdose already in progress at upgrade still shows,
+  // rather than the flag blinking off across the deploy.
   const drug = reading(stats?.cooldown_drug)
   if (drug == null) return false
   return drug > OVERDOSE_DRUG_CD_SEC
@@ -177,6 +184,59 @@ export function energyBand(stats) {
   if (cur < bar) return 'regenerating'
   if (cur === bar) return 'full bar'
   return 'stacked'
+}
+
+// ── Cooldown gradient (#356) ─────────────────────────────────────────────────
+//
+// The same idea as energy, INVERTED: low is good for a cooldown, where high is
+// good for energy. Green at 0 (ready to act), running to red at a per-column
+// ceiling.
+//
+// Linear rather than piecewise, unlike energy. Energy needed the split because
+// it has two genuinely different regimes — the free 150 bar, and the stack
+// above it — read for two different questions. A cooldown has one regime: it
+// counts down, and less is better the whole way.
+//
+// The ceilings are game-balance assumptions, so they live together and can be
+// changed in one line each.
+
+export const COOLDOWN_CEILING_SEC = {
+  // Top of a normal xanax (6-8h), so the ramp spans the whole ordinary range.
+  // Above OVERDOSE_DRUG_CD_SEC the cell hands off to the overdose red from
+  // #351 instead — one treatment for that state, not two.
+  cooldown_drug: 8 * 3600,        // 28800
+  // 6h is the usual maximum, but WAR PERKS raise it to 9h — and wartime is
+  // exactly when this column is read. A 6h ceiling would pin every war-perk
+  // member to flat red for their last three hours, flattening the distinction
+  // across the window a lead is actually scanning.
+  cooldown_medical: 9 * 3600,     // 32400
+  cooldown_booster: 48 * 3600,    // 172800
+}
+
+/** Green when ready, red at the ceiling. Reuses the energy anchors, reversed. */
+export const HUE_READY = HUE_STACKED
+export const HUE_CAPPED = HUE_EMPTY
+
+/**
+ * Hue for a cooldown's REMAINING seconds, or null when there is no reading.
+ *
+ * Takes the aged value, not the stored one — the same number the cell renders
+ * and the sort uses. Colouring the raw seconds-at-fetch-time would disagree
+ * with the figure printed next to it.
+ *
+ * Null rather than green: a member whose key failed must not read as "ready".
+ */
+export function cooldownHue(field, secondsRemaining) {
+  const s = reading(secondsRemaining)
+  if (s == null) return null
+  const ceiling = COOLDOWN_CEILING_SEC[field]
+  if (!ceiling) return null
+  // Clamped at both ends. Hue is circular, so an unclamped value past the
+  // ceiling would run through red and out the other side into magenta — and
+  // over-ceiling readings are NORMAL, not errors: an item that would push a
+  // member past the cap applies anyway and they wait it out.
+  const t = Math.min(1, Math.max(0, s / ceiling))
+  return Math.round(HUE_READY + (HUE_CAPPED - HUE_READY) * t)
 }
 
 // ── Sorting (#351) ───────────────────────────────────────────────────────────
