@@ -17,6 +17,8 @@ import LeadershipPage from './views/LeadershipPage'
 import { isAdmin, isOCManager } from './config'
 import Footer from './components/Footer'
 import RollCallReminderBanner from './components/warroom/RollCallReminderBanner'
+import UpdateBanner from './components/UpdateBanner'
+import { useVersionGate } from './hooks/useVersionGate'
 
 
 function DashboardLayout() {
@@ -25,6 +27,14 @@ function DashboardLayout() {
   const location = useLocation()
 
   const [viewAsRole, setViewAsRole] = useState(null)
+
+  // Keep this tab on the deployed build (#382). The War Room reloads outright
+  // rather than asking: a board left open for a whole war is the place stale
+  // code does real damage (wrong dibs, wrong statuses), and a dismissible
+  // banner is a banner that gets dismissed. Everywhere else we prompt, because
+  // a reload there can throw away something half-typed.
+  const onWarRoom = location.pathname.startsWith('/rw/war-room')
+  const { stale: updateAvailable, version: servingVersion } = useVersionGate({ forceReload: onWarRoom })
 
   // Role flags come from the session claims (role_assignments, managed per
   // faction in Settings); the config.js lists are a fallback only.
@@ -87,6 +97,8 @@ function DashboardLayout() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors duration-200 flex flex-col overflow-x-hidden">
       <Header viewAsRole={viewAsRole} setViewAsRole={setViewAsRole} canViewAs={userIsAdmin} />
+
+      {updateAvailable && <UpdateBanner version={servingVersion} />}
 
       <RollCallReminderBanner />
 
