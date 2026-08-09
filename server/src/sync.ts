@@ -12,7 +12,7 @@ import { createRunLogger } from './scraper/runLog.js'
 import type { JobDeps } from './scraper/jobs/itemsSync.js'
 import { warsSyncJob } from './scraper/jobs/warsSync.js'
 import { attacksSyncJob } from './scraper/jobs/attacksSync.js'
-import { revivesSyncJob } from './scraper/jobs/revivesSync.js'
+import { revivesSyncJob, revivesContinuousJob } from './scraper/jobs/revivesSync.js'
 import { crimesSyncJob } from './scraper/jobs/crimesSync.js'
 import { membersSyncJob } from './scraper/jobs/membersSync.js'
 
@@ -64,6 +64,30 @@ export function registerSyncRoutes(app: FastifyInstance, deps: SyncDeps) {
     // other is the live feed. Sharing a name would make the run history
     // unreadable — a war backfill's row count means something quite different.
     const run = await createRunLogger(deps.db).withRun('revives-sync-war', () => revivesSyncJob(jobDeps(), Number(id)))
+    return { run }
+  })
+
+  /**
+   * Full revive backfill (#358). Walks forward from `from` (default 0 — the
+   * whole history), ignoring what is already stored.
+   *
+   * Exists so a faction with partial history can complete it WITHOUT anyone
+   * truncating faction_revives first. The upsert is idempotent, so re-seen
+   * revives are refreshed rather than duplicated, and nothing is ever absent
+   * mid-run. Truncating to force a re-pull reaches the same end state while
+   * risking everything past Torn's own retention horizon.
+   *
+   * Long-running on the first call — it pages the entire history.
+   */
+  app.post('/api/sync/revives/backfill', GUARD, async (req, reply) => {
+    if (!guardConfigured(reply)) return
+    const raw = (req.query as { from?: string } | null)?.from
+    const from = raw == null || raw === '' ? 0 : Number(raw)
+    if (!Number.isInteger(from) || from < 0) {
+      return reply.status(400).send({ error: 'from must be a non-negative unix timestamp' })
+    }
+    const run = await createRunLogger(deps.db)
+      .withRun('revives-sync-backfill', () => revivesContinuousJob(jobDeps(), { from }))
     return { run }
   })
 

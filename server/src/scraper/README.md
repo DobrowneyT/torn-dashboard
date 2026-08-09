@@ -89,11 +89,12 @@ Incremental forward sync of `/v2/faction/revives?filters=incoming` from the
 newest stored revive, ASC pages of 100 — revives our members **received**,
 whoever performed them. Captures `success_chance` and the reviver's `skill`.
 
-Standing rather than per-war (#358) because its main consumer is a **rolling
-24-hour** window: a target's revive score decays continuously, so war-scoped
-slices can't answer "what would a reviver see right now". The per-war backfill
-(`POST /api/sync/wars/:id/revives`, logged as `revives-sync-war`) still exists
-for historical wars.
+Standing rather than per-war (#358): a target's revive score decays
+continuously, so war-scoped slices can't answer "what would a reviver see right
+now". It serves the **War Overview** too, which reads `faction_revives` across
+whole war windows — so the cold start walks the entire history, exactly like
+attacks-sync. The per-war backfill (`POST /api/sync/wars/:id/revives`, logged as
+`revives-sync-war`) still exists for re-pulling one war on demand.
 
 Tags each row with a ranked war when the timestamp falls inside one, but the
 war pages read by **time window**, not by that tag — `ranked_wars` may not know
@@ -101,7 +102,8 @@ about a war yet when its first revives arrive.
 
 - **Writes:** `faction_revives`
 - **Feeds:** War Room revive-chance column, war overview revive charts
-- **API calls:** 1 per 100 new revives; first run reaches back 7 days only
+- **API calls:** 1 per 100 new revives. The **first** run pages back through
+  the whole history and can take a while; every run after it reads one page.
 
 ### members-sync — `0 5 * * * *` (hourly at :05)
 

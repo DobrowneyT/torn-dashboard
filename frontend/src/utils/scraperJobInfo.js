@@ -23,9 +23,9 @@ export const SCRAPER_JOB_INFO = {
     'Revives our members RECEIVED, incremental forward sync ' +
     '(GET /v2/faction/revives?filters=incoming, pages of 100). Feeds the War ' +
     "Room's revive-chance estimate — which needs a rolling 24h history, so it " +
-    'runs standing rather than per war — and the war overview\'s revive charts. ' +
-    'First run reaches back 7 days, not the whole history. 1 call per 100 new ' +
-    'revives.',
+    'runs standing rather than per war — and the war overview\'s revive charts, ' +
+    'which read whole war windows. First run pages back through the entire ' +
+    'history and can take a while; after that, 1 call per 100 new revives.',
   'factions-sync':
     'Faction lookup completion: fills tags (and any missing names) for faction ' +
     'ids seen in attacks via GET /v2/faction/{id}/basic — attacks-sync captures ' +
