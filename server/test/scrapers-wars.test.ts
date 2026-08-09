@@ -244,6 +244,134 @@ describe('revives sync job', () => {
   })
 })
 
+// The standing feed (#358). Unlike the per-war backfill this has no window: it
+// walks forward from the newest stored revive so the rolling 24h history the
+// War Room's revive-chance estimate needs is always current.
+describe('continuous revives sync job', () => {
+  const revive = (id: number, ts: number, targetId = 1100) => ({
+    id, timestamp: ts, result: 'success', success_chance: 90,
+    reviver: { id: 4000, name: 'Medic', skill: 87.3, faction: { id: 9200, name: 'Revivers Inc' } },
+    target: { id: targetId, name: 'Scout', faction: { id: US, name: 'Us' } },
+  })
+
+  async function run() {
+    const { revivesContinuousJob } = await import('../src/scraper/jobs/revivesSync.js')
+    return revivesContinuousJob(deps())
+  }
+
+  beforeAll(async () => {
+    await stack.db.query('DELETE FROM faction_revives')
+  })
+
+  it('bounds the cold start instead of dragging in the whole revive history', async () => {
+    // Nothing stored: the only consumer is a 24h window, and war-era history
+    // is already covered by the per-war backfill — so a thousand-page walk
+    // back through every revive the faction ever received buys nothing.
+    let seenFrom = -1
+    stack.torn.setHandler('/v2/faction/revives', (url: URL) => {
+      seenFrom = Number(url.searchParams.get('from'))
+      return { revives: [] }
+    })
+    const result = await run()
+    expect(result.details?.cold_start).toBe(true)
+
+    const nowSec = Math.floor(Date.now() / 1000)
+    expect(seenFrom).toBeGreaterThan(nowSec - 8 * 24 * 3600)
+    expect(seenFrom).toBeLessThanOrEqual(nowSec - 6 * 24 * 3600)
+  })
+
+  it('stores revives and resumes from the newest one on the next run', async () => {
+    const recent = Math.floor(Date.now() / 1000) - 3600
+    stack.torn.setHandler('/v2/faction/revives', () => ({ revives: [revive(8001, recent)] }))
+    expect((await run()).rows).toBe(1)
+
+    let seenFrom = -1
+    stack.torn.setHandler('/v2/faction/revives', (url: URL) => {
+      seenFrom = Number(url.searchParams.get('from'))
+      return { revives: [] }
+    })
+    const second = await run()
+    // Inclusive of the newest stored second, so a revive sharing that
+    // timestamp can't fall through the gap — the upsert makes the re-read
+    // idempotent.
+    expect(seenFrom).toBe(recent)
+    expect(second.details?.cold_start).toBe(false)
+  })
+
+  it('is idempotent — a re-seen revive updates rather than duplicating', async () => {
+    const before = await stack.db.query('SELECT count(*)::int AS n FROM faction_revives')
+    const recent = Math.floor(Date.now() / 1000) - 3600
+    stack.torn.setHandler('/v2/faction/revives', () => ({
+      revives: [{ ...revive(8001, recent), result: 'failure' }],
+    }))
+    await run()
+    const after = await stack.db.query('SELECT count(*)::int AS n, max(result) AS result FROM faction_revives')
+    expect(after.rows[0].n).toBe(before.rows[0].n)
+    expect(after.rows[0].result).toBe('failure')
+  })
+
+  it('tags a revive that falls inside a known war window', async () => {
+    await stack.db.query('DELETE FROM faction_revives')
+    // War 500 runs 1748000000 → 1748259200 (set up above).
+    stack.torn.setHandler('/v2/faction/revives', () => ({ revives: [revive(8100, 1748100000)] }))
+    await run()
+    const row = await stack.db.query('SELECT rw_id FROM faction_revives WHERE revive_id = 8100')
+    expect(Number(row.rows[0].rw_id)).toBe(500)
+  })
+
+  it('never blanks a war tag the per-war backfill already resolved', async () => {
+    // COALESCE, not assignment. The continuous job writes null for anything
+    // outside a window it knows about; overwriting would quietly empty the war
+    // pages for a war whose row arrived after its revives did.
+    await stack.db.query('DELETE FROM faction_revives')
+    // Between war 500 ending and war 501 starting — peacetime, so the job has
+    // no window to tag it with.
+    const outside = 1748500000
+    stack.torn.setHandler('/v2/faction/revives', () => ({ revives: [revive(8200, outside)] }))
+    await run()
+    await stack.db.query('UPDATE faction_revives SET rw_id = 500 WHERE revive_id = 8200')
+
+    await run()   // same revive, still outside any window → warId null
+    const row = await stack.db.query('SELECT rw_id FROM faction_revives WHERE revive_id = 8200')
+    expect(Number(row.rows[0].rw_id)).toBe(500)
+  })
+
+  it('treats a rate limit mid-backlog as a soft stop, keeping what it got', async () => {
+    await stack.db.query('DELETE FROM faction_revives')
+    const base = Math.floor(Date.now() / 1000) - 7200
+    let call = 0
+    stack.torn.setHandler('/v2/faction/revives', () => {
+      call += 1
+      if (call === 1) {
+        return { revives: Array.from({ length: 100 }, (_, i) => revive(9000 + i, base + i)) }
+      }
+      return { error: { code: 5, error: 'Too many requests' } }
+    })
+    const result = await run()
+    expect(result.details?.rate_limited).toBe(true)
+    expect(result.rows).toBe(100)
+    const count = await stack.db.query('SELECT count(*)::int AS n FROM faction_revives')
+    expect(count.rows[0].n).toBe(100)
+  })
+
+  it('advances past a full page that shares a single timestamp instead of looping', async () => {
+    // 100 revives in one second would leave the cursor where it started and
+    // spin forever. Vanishingly unlikely, but a hung job takes the key pool
+    // with it.
+    await stack.db.query('DELETE FROM faction_revives')
+    const ts = Math.floor(Date.now() / 1000) - 7200
+    let call = 0
+    stack.torn.setHandler('/v2/faction/revives', () => {
+      call += 1
+      if (call === 1) return { revives: Array.from({ length: 100 }, (_, i) => revive(9500 + i, ts)) }
+      return { revives: [] }
+    })
+    const result = await run()
+    expect(result.rows).toBe(100)
+    expect(call).toBe(2)
+  })
+})
+
 describe('on-demand sync triggers (HTTP seam)', () => {
   const tokens: Record<string, string> = {}
 
@@ -297,7 +425,11 @@ describe('on-demand sync triggers (HTTP seam)', () => {
     const runs = await stack.db.query(
       `SELECT job_name FROM scraper_runs ORDER BY id DESC LIMIT 3`
     )
-    expect(runs.rows.map((r: any) => r.job_name).sort()).toEqual(['attacks-sync', 'revives-sync', 'wars-sync'])
+    // The per-war backfill logs under its own name (#358): the standing
+    // 'revives-sync' cron writes the same table, and sharing a name would make
+    // the run history unreadable — a war backfill's row count means something
+    // quite different from a five-minutely tail.
+    expect(runs.rows.map((r: any) => r.job_name).sort()).toEqual(['attacks-sync', 'revives-sync-war', 'wars-sync'])
 
     expect((await post('/api/sync/attacks', 'visitor')).status).toBe(403)
     expect((await post('/api/sync/wars', 'visitor')).status).toBe(403)

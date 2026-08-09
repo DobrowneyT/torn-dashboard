@@ -18,6 +18,7 @@ import { memberBattleStatsJob } from './jobs/memberBattleStats.js'
 import { statsSamplesPruneJob } from './jobs/statsSamplesPrune.js'
 import { warsSyncJob } from './jobs/warsSync.js'
 import { attacksSyncJob } from './jobs/attacksSync.js'
+import { revivesContinuousJob } from './jobs/revivesSync.js'
 import { factionsSyncJob } from './jobs/factionsSync.js'
 import { warLifecycleJob } from './jobs/warLifecycle.js'
 import { competitionsResolveJob } from './jobs/competitionsResolve.js'
@@ -68,6 +69,11 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   ['stats-samples-prune', '0 40 1 * * *', statsSamplesPruneJob],
   ['wars-sync', '0 10 */3 * * *', warsSyncJob],
   ['attacks-sync', '0 20,50 * * * *', attacksSyncJob],
+  // Standing revives feed (#358), on the attacks cadence and offset from it so
+  // the two don't contend for a key. Feeds the rolling 24h revive history the
+  // War Room's revive-chance estimate is computed from — a target's score
+  // decays continuously, so the history has to stay current, not war-scoped.
+  ['revives-sync', '0 5,35 * * * *', revivesContinuousJob],
   // Faction-name backfill (hourly, offset from attacks): resolves names for any
   // faction id referenced by an attack that we don't have yet, so the payout
   // opposing-faction filter shows names instead of "Faction #id".

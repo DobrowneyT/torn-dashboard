@@ -83,6 +83,26 @@ fair-fight/war/chain/warlord modifiers, and flags incoming attacks.
 - **API calls:** 1 per 100 new attacks (quiet hour = 1 call; heavy war
   hour = several)
 
+### revives-sync — `0 5,35 * * * *` (twice hourly at :05 and :35)
+
+Incremental forward sync of `/v2/faction/revives?filters=incoming` from the
+newest stored revive, ASC pages of 100 — revives our members **received**,
+whoever performed them. Captures `success_chance` and the reviver's `skill`.
+
+Standing rather than per-war (#358) because its main consumer is a **rolling
+24-hour** window: a target's revive score decays continuously, so war-scoped
+slices can't answer "what would a reviver see right now". The per-war backfill
+(`POST /api/sync/wars/:id/revives`, logged as `revives-sync-war`) still exists
+for historical wars.
+
+Tags each row with a ranked war when the timestamp falls inside one, but the
+war pages read by **time window**, not by that tag — `ranked_wars` may not know
+about a war yet when its first revives arrive.
+
+- **Writes:** `faction_revives`
+- **Feeds:** War Room revive-chance column, war overview revive charts
+- **API calls:** 1 per 100 new revives; first run reaches back 7 days only
+
 ### members-sync — `0 5 * * * *` (hourly at :05)
 
 Fetches the roster (`/v2/faction/members`), marks missing members as left

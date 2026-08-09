@@ -164,6 +164,46 @@ describe('GET /api/wars/:id/revives', () => {
     expect(body.revives.map((r: any) => r.revive_id)).toEqual([12, 11])
     expect(body.revives[0].reviver_name).toBe('Paramedic')
   })
+
+  it('includes an untagged revive that falls inside the war window (#358)', async () => {
+    // The standing revives feed tags rows from whatever wars ranked_wars knows
+    // about at INGEST time, and wars-sync only runs every three hours — so the
+    // opening hours of a war arrive with rw_id null and nothing ever fills it
+    // in. Reading by window rather than by tag is what stops those revives
+    // silently missing from the war page.
+    await stack.db.query(`
+      INSERT INTO faction_revives (revive_id, rw_id, "timestamp", reviver_id, reviver_name, target_id, target_name)
+      VALUES (14, NULL, ${WAR_START + 300}, 702, 'Untagged', 502, 'Member')
+    `)
+    const { body } = await get('/api/wars/200/revives')
+    expect(body.revives.map((r: any) => r.revive_id)).toEqual([12, 14, 11])
+  })
+
+  it('still excludes an untagged revive from outside the window', async () => {
+    await stack.db.query(`
+      INSERT INTO faction_revives (revive_id, rw_id, "timestamp", reviver_id, reviver_name, target_id, target_name)
+      VALUES (15, NULL, ${WAR_END + 90000}, 703, 'Later', 503, 'Member')
+    `)
+    const { body } = await get('/api/wars/200/revives')
+    expect(body.revives.map((r: any) => r.revive_id)).not.toContain(15)
+  })
+
+  it('keeps a tagged revive even when it sits outside the recorded window', async () => {
+    // The tag clause is a union, not a replacement: a war whose window is
+    // later corrected must not drop rows the per-war backfill attributed to it.
+    await stack.db.query(`
+      INSERT INTO faction_revives (revive_id, rw_id, "timestamp", reviver_id, reviver_name, target_id, target_name)
+      VALUES (16, 200, ${WAR_END + 200000}, 704, 'Straggler', 504, 'Member')
+    `)
+    const { body } = await get('/api/wars/200/revives')
+    expect(body.revives.map((r: any) => r.revive_id)).toContain(16)
+  })
+
+  it('does not duplicate a revive that is both tagged and inside the window', async () => {
+    const { body } = await get('/api/wars/200/revives')
+    const ids = body.revives.map((r: any) => r.revive_id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
 })
 
 describe('war payout history', () => {

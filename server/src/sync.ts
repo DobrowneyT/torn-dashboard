@@ -59,7 +59,11 @@ export function registerSyncRoutes(app: FastifyInstance, deps: SyncDeps) {
     if (!guardConfigured(reply)) return
     const { id } = req.params as { id: string }
     if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'War not found' })
-    const run = await createRunLogger(deps.db).withRun('revives-sync', () => revivesSyncJob(jobDeps(), Number(id)))
+    // Logged apart from the standing 'revives-sync' cron (#358): both write
+    // faction_revives, but one is a bounded backfill of a finished war and the
+    // other is the live feed. Sharing a name would make the run history
+    // unreadable — a war backfill's row count means something quite different.
+    const run = await createRunLogger(deps.db).withRun('revives-sync-war', () => revivesSyncJob(jobDeps(), Number(id)))
     return { run }
   })
 

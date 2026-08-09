@@ -1,4 +1,7 @@
 import { parseDbTime } from './time'
+// Everything numeric in this module goes through the shared guard: a plain
+// Number() cast turns "we have no reading" into "this member has zero".
+import { reading } from './reading'
 
 /**
  * Live energy + cooldown display for our own members (#336).
@@ -24,20 +27,6 @@ import { parseDbTime } from './time'
  * past 10h can only be an overdose.
  */
 export const OVERDOSE_DRUG_CD_SEC = 36_000
-
-/**
- * A reading, or null when there isn't one.
- *
- * Number(null) is 0 and Number('') is 0, so a plain Number() cast turns "we
- * have no reading" into "this member has zero" — which for energy means a
- * member whose own key failed renders as empty and gets written off for the
- * push. Everything numeric in this module goes through here.
- */
-function reading(value) {
-  if (value == null || value === '') return null
-  const n = Number(value)
-  return Number.isFinite(n) ? n : null
-}
 
 /** Index the memberstats delta rows by member id, for O(1) lookup per row. */
 export function indexMemberStats(rows = []) {
