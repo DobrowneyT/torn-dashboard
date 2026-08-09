@@ -39,6 +39,10 @@ import {
 import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
 import { travelEta, formatTravelEta } from '../utils/warRoomTravel'
 import {
+  SCORE_DECAY_SEC, countsTowardScore, reviveScore, bestCaseChance,
+  indexRevivesByTarget, reviveChanceHue, formatReviveChance, modelError,
+} from '../utils/reviveChance'
+import {
   indexBattleStats, withBattleStats, statsSourceLabel, isExactStatsSource,
 } from '../utils/warRoomBattleStats'
 
@@ -962,10 +966,58 @@ function MemberCooldownCell({ stats, field, label }) {
   )
 }
 
-function SortTh({ col, sortCol, sortDir, onSort, children, className = '' }) {
+/**
+ * Best-case revive chance for one of our members (#358).
+ *
+ * `revives` is that member's last 48h of received revives; `loaded` separates
+ * "nobody has revived them" (a genuine 100%) from "the history hasn't arrived
+ * yet" (—). Collapsing those two would put a confident 100% on every row for
+ * the first second of every page load, which is exactly the number a lead
+ * would act on.
+ */
+function MemberReviveChanceCell({ revives, loaded }) {
+  // Own clock, like CountdownCell — but at 30s, not 1s. The score decays a
+  // single revive's 4 points over a full day, so a per-second tick would
+  // re-render every row on our roster to move a rounded percentage roughly
+  // never. Thirty seconds keeps it live without the cost.
+  const [nowSec, setNowSec] = useState(Math.floor(Date.now() / 1000))
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  if (!loaded) {
+    return <span title="Revive chance — history not loaded yet" className="text-xs font-mono text-gray-300 dark:text-gray-700">—</span>
+  }
+
+  const history = revives ?? []
+  const score = reviveScore(history, nowSec)
+  const chance = bestCaseChance(history, nowSec)
+  const counted = history.filter((r) => countsTowardScore(r) && nowSec - Number(r.timestamp) < SCORE_DECAY_SEC)
+  const last = counted[0]
+  const lastAgo = last ? Math.max(0, Math.round((nowSec - Number(last.timestamp)) / 60)) : null
+
+  const title = [
+    `Best-case revive chance: what a skill-100 reviver would see right now.`,
+    counted.length === 0
+      ? 'No revives in the last 24h — fully rested.'
+      : `${counted.length} revive${counted.length === 1 ? '' : 's'} in the last 24h (score ${score.toFixed(2)}); most recent ${lastAgo}m ago.`,
+    'Estimated from our revive history, not reported by Torn.',
+  ].join('\n')
+
+  const hue = reviveChanceHue(chance)
+  return (
+    <span title={title} style={{ '--grad-hue': hue }} className="hue-grad text-xs font-mono">
+      {formatReviveChance(chance)}
+    </span>
+  )
+}
+
+function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title }) {
   const active = sortCol === col
   return (
     <th
+      title={title}
       onClick={() => onSort(col)}
       className={`py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap ${className}`}
     >
@@ -2181,6 +2233,46 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     return () => { cancelled = true; clearInterval(id) }
   }, [canSeeOurRoster])
 
+  // Recent revives our members received (#358), for the revive-chance column.
+  //
+  // Only the EVENTS are fetched; the percentage is recomputed locally on every
+  // render tick, because a target's score decays continuously — a number
+  // computed server-side would be wrong before it finished rendering. Five
+  // minutes is ample for the fetch: a new revive moves the figure by at most
+  // four points, and the decay between polls is under a point.
+  const [reviveHistory, setReviveHistory] = useState(null)   // null = not loaded
+  useEffect(() => {
+    if (!canSeeOurRoster) { setReviveHistory(null); return undefined }
+    let cancelled = false
+    const load = () => apiGet('/api/members/revive-history')
+      .then(d => { if (!cancelled) setReviveHistory(d?.revives ?? []) })
+      .catch(() => { /* leave the column as "—" rather than blanking the board */ })
+    load()
+    const id = setInterval(load, 5 * 60 * 1000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [canSeeOurRoster])
+
+  const revivesByTarget = useMemo(
+    () => indexRevivesByTarget(reviveHistory ?? []),
+    [reviveHistory]
+  )
+
+  // How far the chance model is from what Torn actually displayed.
+  //
+  // The formula interpolates between two published endpoints, and that
+  // interpolation is inference. Every scraped revive carries the percentage
+  // Torn really showed plus the reviver's skill, so it is checkable — and a
+  // check nobody can see is a check nobody does. It rides in the column header
+  // tooltip.
+  //
+  // Evaluated only on the last 24 hours, out of a 48-hour fetch: an
+  // observation any older has had its own prior revives truncated away by the
+  // window, which understates its score and shows up as bias we caused.
+  const reviveModelCheck = useMemo(() => {
+    if (!reviveHistory?.length) return null
+    return modelError(reviveHistory, Math.floor(Date.now() / 1000) - SCORE_DECAY_SEC)
+  }, [reviveHistory])
+
   const rawRosterMembers = selectRosterMembers(effectiveSide, { members, ourMembers })
   // Projected onto the bsp_* names the Stats cell, both sorts and the min/max
   // filter already read, so none of them needs an our-faction code path.
@@ -2298,10 +2390,19 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             memberStats[String(b.member_id)],
             d, now
           )
+        // Revive chance (#358). Members with no history are a genuine 100%,
+        // not an absence — but only once the fetch has landed; until then
+        // every row compares equal and the prior order stands.
+        case 'revive_chance': {
+          if (!reviveHistory) return 0
+          const nowSec = Math.floor(now / 1000)
+          const chanceOf = (m) => bestCaseChance(revivesByTarget.get(Number(m.member_id)) ?? [], nowSec)
+          return d * (chanceOf(a) - chanceOf(b))
+        }
         default: return 0
       }
     })
-  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, activeSortCol, sortDir, memberStats])
+  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, activeSortCol, sortDir, memberStats, reviveHistory, revivesByTarget])
 
   // ── Mobile War Room adapters ──────────────────────────────────────────────
   // Project the desktop's flat enemy `members` rows onto the prop shape that
@@ -2961,6 +3062,18 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     {columns.boosterCd && (
                       <SortTh col="cooldown_booster" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Booster CD</SortTh>
                     )}
+                    {columns.reviveChance && (
+                      <SortTh
+                        col="revive_chance" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
+                        title={[
+                          'Best-case revive chance — what a skill-100 reviver would see.',
+                          'Estimated from our own revive history (revives-sync), not reported by Torn.',
+                          reviveModelCheck
+                            ? `Model check vs what Torn displayed: ${reviveModelCheck.meanAbsError.toFixed(1)}pp mean error, ${reviveModelCheck.bias >= 0 ? '+' : ''}${reviveModelCheck.bias.toFixed(1)}pp bias over ${reviveModelCheck.samples} observed revive${reviveModelCheck.samples === 1 ? '' : 's'}.`
+                            : 'Model check: no observed revives to compare against yet.',
+                        ].join('\n')}
+                      >Revive %</SortTh>
+                    )}
                     {columns.dibs && (
                       <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Dibs</th>
                     )}
@@ -3095,6 +3208,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                               stats={memberStats[String(m.member_id)]}
                               field="cooldown_booster"
                               label="Booster"
+                            />
+                          </td>
+                        )}
+                        {columns.reviveChance && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <MemberReviveChanceCell
+                              revives={revivesByTarget.get(Number(m.member_id))}
+                              loaded={reviveHistory != null}
                             />
                           </td>
                         )}

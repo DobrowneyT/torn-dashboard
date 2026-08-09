@@ -17,6 +17,59 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.17.0] - 2026-08-09
+
+### Added
+
+- **Standing revives scraper (#358).** `revives-sync` runs twice hourly at :05
+  and :35, walking `/v2/faction/revives?filters=incoming` forward from the
+  newest stored revive — revives our members *received*, whoever performed
+  them, with each one's `success_chance` and the reviver's `skill`. Revives
+  were previously only ever fetched one finished war at a time, which cannot
+  answer a question about the last 24 hours. The first run reaches back 7 days
+  rather than the whole history: the only consumer is a rolling day, and
+  war-era history is already covered by the per-war backfill.
+
+- **Best-case revive chance on our own roster (#358).** A new lead-only
+  `Revive %` column: what a skill-100 reviver would see for that member right
+  now, sortable and colour-ramped like the other numeric columns. Computed from
+  the revive history rather than fetched — each revive a member receives adds 1
+  to their score, decaying linearly to zero over 24 hours, and each point of
+  score costs a reviver 4 percentage points at skill 100. The client holds the
+  raw events and recomputes on its own clock, so the figure decays live instead
+  of going stale between polls.
+
+  **There is no enemy equivalent and cannot be.** Torn reports a success chance
+  only on revives our own faction received, so the original form of this
+  request — a percentage next to a target we are deciding whether to pay to
+  revive — is not obtainable. What is on the board is our side only.
+
+  The chance is an estimate: Torn publishes the endpoints of the curve (90% at
+  skill 0 → 100% at skill 100; 8% per score point → 4% at skill 100) but not
+  the shape between them, and the interpolation here is inference. Because
+  every scraped revive carries the percentage Torn actually displayed, that
+  inference is checked against real observations rather than trusted — the
+  column header reports the model's mean error and signed bias against however
+  many revives we have seen.
+
+### Fixed
+
+- **War pages could silently miss the opening hours of a war's revives
+  (#358).** `GET /api/wars/:id/revives` filtered on the stored `rw_id` tag,
+  which was correct while the only writer was the per-war backfill. The
+  standing feed tags rows from whatever wars `ranked_wars` knows about at
+  ingest time, and `wars-sync` only runs every three hours — so revives landing
+  early in a new war were written untagged, and nothing ever went back to fill
+  them in. The war pages now resolve revives by **time window**, with the tag
+  kept as a union so a war whose window is later corrected can't drop rows.
+
+- **The "no reading is not a zero" guard now lives in one place.** `Number(null)`
+  is `0`, and that has produced the same class of bug four times — a member
+  whose key failed rendering as `0/150` energy, an unfetched cooldown rendering
+  as Ready, and (caught while building this) an absent reviver skill counting
+  as skill 0. The guard moved out of `warRoomMemberStats` into
+  `frontend/src/utils/reading.js`, and everything numeric goes through it.
+
 ## [3.16.0] - 2026-08-08
 
 ### Fixed

@@ -179,6 +179,45 @@ export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
       return { battle_stats: res.rows }
     }
   )
+
+  /**
+   * Recent revives our members RECEIVED (#358). WAR LEADS / LEADERSHIP / ADMIN.
+   *
+   * Feeds the War Room's revive-chance estimate. Deliberately returns raw
+   * events rather than a computed percentage: a target's revive score decays
+   * continuously, so a number computed here would be stale the moment it was
+   * serialised. The client holds the events and recomputes on its own tick,
+   * the same way the hospital countdowns work.
+   *
+   * The window is 48 hours for a 24-hour answer. The extra day is not scoring
+   * data — every contribution older than 24h is worth exactly zero — it is
+   * history for the model check: an observation near the start of the window
+   * would otherwise have its own prior revives truncated away, understating
+   * its score and making the model look biased when the windowing is at fault.
+   *
+   * Lead-gated to match battle stats above: this says who has been hospitalised
+   * repeatedly and how hard they are to get back up.
+   */
+  app.get(
+    '/api/members/revive-history',
+    { preHandler: requireRole('warlead', 'leadership', 'admin') },
+    async () => {
+      const res = await db.query(`
+        SELECT revive_id, target_id, "timestamp", result, success_chance,
+               reviver_id, reviver_name, reviver_skill
+          FROM faction_revives
+         WHERE "timestamp" >= extract(epoch FROM now() - interval '48 hours')::bigint
+         ORDER BY "timestamp" DESC
+      `)
+      return {
+        revives: res.rows,
+        // The client scores against its own clock; this is how it knows how
+        // far the window actually reaches, rather than assuming.
+        window_start: Math.floor(Date.now() / 1000) - 48 * 3600,
+        server_now: Math.floor(Date.now() / 1000),
+      }
+    }
+  )
 }
 
 function clampLimit(raw: string | undefined, fallback: number, max: number): number {

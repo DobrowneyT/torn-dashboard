@@ -69,6 +69,10 @@ export function rosterColumns(side) {
   return {
     dibs: !us, action: !us,
     energy: us, drugCd: us, medicalCd: us, boosterCd: us,
+    // Revive chance is our-roster only and not by choice (#358): Torn reports a
+    // success chance only on revives our own faction received, so there is no
+    // enemy equivalent to show.
+    reviveChance: us,
   }
 }
 
@@ -83,6 +87,7 @@ export function rosterColumns(side) {
  */
 const OUR_ROSTER_SORT_COLS = new Set([
   'energy', 'cooldown_drug', 'cooldown_medical', 'cooldown_booster',
+  'revive_chance',
 ])
 
 /** Default to fall back to when the chosen sort column isn't on this side. */
