@@ -1,3 +1,5 @@
+import { parseDbTime } from './time'
+
 /**
  * Live energy + cooldown display for our own members (#336).
  *
@@ -10,8 +12,12 @@
  */
 
 /**
- * Overdose threshold, in seconds of remaining drug cooldown. Mirrors
- * OVERDOSE_DRUG_CD_SEC in server/src/warRoomMemberStats.ts.
+ * Overdose threshold, in seconds of remaining drug cooldown.
+ *
+ * The SERVER owns this decision now (#357) — it latches an expiry the first
+ * time a reading crosses the line. This copy is only the fallback for rows
+ * written before that latch existed, and mirrors OVERDOSE_DRUG_CD_SEC in
+ * server/src/warRoomMemberStats.ts.
  *
  * Torn has no live "is overdosed" flag — `overdoses` exists only as a lifetime
  * personalstats counter. But a xanax leaves 6-8h of drug cooldown, so anything
@@ -80,23 +86,35 @@ export function formatCooldown(secondsRemaining) {
 }
 
 /**
- * Is this member overdosed, judged by their drug cooldown?
+ * Is this member overdosed?
  *
  * NOT a duplicate of isOverdosed() in memberNotes.js (#199) — the two see
  * different windows, and both are worth having:
  *
  *   • #199 reads Torn's hospital status details ("Overdosed"). Direct and
  *     certain, but only while the member is still IN hospital for it.
- *   • This one reads the drug cooldown, which long outlives the hospital stay.
- *     It keeps flagging a member who has already been released but is still
- *     sitting on a crippling cooldown — exactly the person you must not count
- *     on for the next chain.
+ *   • This one outlives the hospital stay, and keeps flagging a member who has
+ *     been released but is still sitting on a crippling cooldown — exactly the
+ *     person you must not count on for the next chain.
  *
- * Keyed off the STORED reading rather than the aged-down one: an overdose is a
- * fact about the dose that was taken, and shouldn't stop being true merely
- * because the cooldown has since burned below the threshold.
+ * Reads the server's LATCH (#357), not the live cooldown. The previous version
+ * tested `cooldown_drug > 10h` and carried a comment claiming the stored
+ * reading made it immune to burn-down. It did not: the sweep overwrites
+ * cooldown_drug every pass, so the stored value falls exactly like the
+ * displayed one, and a real overdose lost its flag the moment it dropped under
+ * 10h — with nine hours still to run.
+ *
+ * The server now records when the overdose ends, once, on the first reading
+ * above the threshold. That is sound because nothing in the game reduces drug
+ * cooldown, and because a member cannot dose again while on one: the cooldown's
+ * duration IS the window in which they are stuck.
  */
-export function overdosedByDrugCooldown(stats) {
+export function overdosedByDrugCooldown(stats, nowMs = Date.now()) {
+  const until = parseDbTime(stats?.overdose_until)
+  if (until) return until.getTime() > nowMs
+  // Rows written before the latch existed carry no expiry. Fall back to the
+  // old live test so an overdose already in progress at upgrade still shows,
+  // rather than the flag blinking off across the deploy.
   const drug = reading(stats?.cooldown_drug)
   if (drug == null) return false
   return drug > OVERDOSE_DRUG_CD_SEC

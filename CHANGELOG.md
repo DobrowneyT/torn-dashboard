@@ -17,6 +17,33 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.16.0] - 2026-08-08
+
+### Fixed
+
+- **The overdose flag vanished as the drug cooldown burned down (#357).**
+  Detection was a threshold test against the *current* cooldown, but the sweep
+  overwrites that column every pass — so a real overdose lost its flag the
+  moment it dropped under 10h, leaving a member who is out of the fight for
+  another nine hours looking available.
+
+  The server now latches an expiry the first time a reading crosses the
+  threshold, and never shortens it. That is sound because nothing in the game
+  reduces drug cooldown, so the first reading above the line already says when
+  it ends — and because a member cannot dose again while on one, so the
+  cooldown's duration *is* the window in which they are stuck.
+
+  The latch survives a failed key (a fetch that could not happen must never
+  read as "recovered") and a cooldown reaching zero; expiry is decided by
+  comparing the timestamp to now, so nothing has to guess when to reset. Rows
+  written before the migration fall back to the old live test, so an overdose
+  already in progress does not blink off across the deploy.
+
+- Removed a comment in `warRoomMemberStats.js` claiming the stored reading made
+  this immune to burn-down. It never did — the stored value falls exactly like
+  the displayed one — and anyone reading it would reasonably have concluded the
+  case was already handled.
+
 ## [3.15.0] - 2026-08-08
 
 ### Added

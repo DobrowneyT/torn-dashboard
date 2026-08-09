@@ -631,7 +631,12 @@ CREATE TABLE public.war_room_member_stats_v2 (
   cooldown_booster integer,
   last_error text,
   fetched_at timestamp with time zone,
-  updated_at timestamp with time zone DEFAULT now() NOT NULL
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  -- When the overdose that caused the current drug cooldown wears off (#357).
+  -- Latched on the first reading above the threshold and never shortened:
+  -- cooldown_drug is overwritten every sweep, so a live threshold test loses
+  -- the flag as soon as it burns below 10h.
+  overdose_until timestamp with time zone
 );
 
 CREATE INDEX war_room_member_stats_v2_updated_at_idx
