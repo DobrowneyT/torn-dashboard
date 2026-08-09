@@ -89,11 +89,46 @@ describe('overdosedByDrugCooldown', () => {
     expect(overdosedByDrugCooldown({ cooldown_drug: null })).toBe(false)
   })
 
-  it('stays true off the stored reading even as the cooldown burns down', () => {
-    // An overdose is a fact about the dose taken, not about how much cooldown
-    // happens to be left when someone looks at the board.
-    const stats = { cooldown_drug: 40_000, fetched_at: at('2026-08-08T10:00:00Z') }
-    expect(overdosedByDrugCooldown(stats)).toBe(true)
+  it('stays true off the SERVER LATCH as the cooldown burns down (#357)', () => {
+    // The bug this replaces: the old test asserted the same thing against the
+    // stored cooldown, which the sweep overwrites every pass — so a real
+    // overdose lost its flag the moment it dropped under 10h, with nine hours
+    // still to run. The expiry is recorded once and read back here.
+    const stats = { cooldown_drug: 30_000, overdose_until: '2026-08-08T20:00:00+00' }
+    expect(overdosedByDrugCooldown(stats, T0)).toBe(true)
+  })
+
+  it('goes false once the latched overdose has expired', () => {
+    expect(overdosedByDrugCooldown(
+      { cooldown_drug: 0, overdose_until: '2026-08-08T11:00:00+00' }, T0,
+    )).toBe(false)
+  })
+
+  it('prefers the latch over the live reading in both directions', () => {
+    // A high cooldown with an expired latch is a NEW normal dose, not a
+    // lingering overdose; a low cooldown with a live latch is an overdose
+    // still running. The latch wins either way.
+    expect(overdosedByDrugCooldown(
+      { cooldown_drug: 40_000, overdose_until: '2026-08-08T11:00:00+00' }, T0,
+    )).toBe(false)
+    expect(overdosedByDrugCooldown(
+      { cooldown_drug: 100, overdose_until: '2026-08-08T22:00:00+00' }, T0,
+    )).toBe(true)
+  })
+
+  it('falls back to the live test for rows written before the latch', () => {
+    // Otherwise an overdose already in progress would blink off across the
+    // deploy, which is the one moment a lead is most likely to notice.
+    expect(overdosedByDrugCooldown({ cooldown_drug: 40_000 }, T0)).toBe(true)
+    expect(overdosedByDrugCooldown({ cooldown_drug: 8 * 3600 }, T0)).toBe(false)
+  })
+
+  it('parses the bare Postgres offset on the latch', () => {
+    // '-05' without minutes is rejected by Date.parse (#140). Falling through
+    // to the live test here would quietly restore the old broken behaviour.
+    expect(overdosedByDrugCooldown(
+      { cooldown_drug: 0, overdose_until: '2026-08-08T18:00:00.000000-05' }, T0,
+    )).toBe(true)
   })
 
   it('catches an overdose the hospital-status flag (#199) can no longer see', () => {
