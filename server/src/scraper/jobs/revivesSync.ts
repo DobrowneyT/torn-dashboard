@@ -28,15 +28,21 @@ const PAGE_FULL = 100
 const RATE_LIMIT_CODES = new Set([5, 8])
 
 /**
- * How far back the continuous job reaches on its very first run.
+ * Where the continuous job starts when nothing is stored: the beginning,
+ * exactly like attacks-sync.
  *
- * Unlike attacks, there is no reason to drag in the faction's entire revive
- * history from a standing start: the only consumer of this feed is a rolling
- * 24-hour score, and war-era history is already covered by the per-war
- * backfill above. Seven days gives that 24-hour window a full cushion on the
- * first run without a thousand-page cold start.
+ * This was capped at seven days on the grounds that "the only consumer is a
+ * rolling 24-hour score". That was simply wrong — the War Overview reads
+ * `faction_revives` across whole war windows (GET /api/wars/:id/revives), and
+ * has since long before the revive-chance column existed. A seven-day cold
+ * start left every war older than a week with empty revive charts unless
+ * someone remembered to run the per-war backfill by hand.
+ *
+ * Revives are the same kind of record as attacks and deserve the same
+ * treatment: fetch the lot, once, and stay current from there. The first run
+ * is long; every run after it reads one page.
  */
-const COLD_START_LOOKBACK_SEC = 7 * 24 * 3600
+const COLD_START_FROM = 0
 
 interface ReviveRow {
   raw: any
@@ -126,16 +132,29 @@ async function warWindows(db: JobDeps['db']): Promise<Array<{ id: number; start:
  * Incremental forward from `max(timestamp)`, inclusive of that second so a
  * revive sharing the newest timestamp can't be skipped — the upsert makes
  * re-seen rows idempotent.
+ *
+ * `from` overrides that cursor and walks forward from wherever you point it,
+ * ignoring what is already stored. This is how a faction that only has partial
+ * history gets the rest WITHOUT deleting anything first: the upsert refreshes
+ * rows it has already seen and inserts the ones it hasn't.
+ *
+ * Deleting to force a re-pull would be the obvious alternative and is strictly
+ * worse. It opens a window where the data is simply gone, and if Torn's own
+ * retention turns out to be shorter than our stored history, everything past
+ * their horizon is gone permanently — traded for nothing, because this option
+ * reaches the same end state.
  */
-export async function revivesContinuousJob({ db, pool, client }: JobDeps): Promise<RunResult> {
+export async function revivesContinuousJob(
+  { db, pool, client }: JobDeps,
+  opts: { from?: number } = {}
+): Promise<RunResult> {
   const claimed = await pool.claim()
   if (!claimed) throw new Error('no pooled key available')
 
   const newest = await db.query('SELECT max("timestamp") AS ts FROM faction_revives')
   const coldStart = newest.rows[0].ts == null
-  let cursor = coldStart
-    ? Math.floor(Date.now() / 1000) - COLD_START_LOOKBACK_SEC
-    : Number(newest.rows[0].ts)
+  const forced = Number.isFinite(opts.from as number) ? Number(opts.from) : null
+  let cursor = forced ?? (coldStart ? COLD_START_FROM : Number(newest.rows[0].ts))
 
   const wars = await warWindows(db)
   const warFor = (ts: number | null) => {
@@ -174,5 +193,13 @@ export async function revivesContinuousJob({ db, pool, client }: JobDeps): Promi
     cursor = last != null && Number(last) > cursor ? Number(last) : cursor + 1
   }
 
-  return { rows, details: { pages, from: cursor, cold_start: coldStart, rate_limited: rateLimited } }
+  return {
+    rows,
+    details: {
+      pages, from: cursor, cold_start: coldStart, rate_limited: rateLimited,
+      // Distinguishes a deliberate backfill from the routine tail in the run
+      // log, where the row count would otherwise look alarming.
+      backfill_from: forced,
+    },
+  }
 }

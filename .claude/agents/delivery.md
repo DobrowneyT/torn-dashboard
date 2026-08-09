@@ -78,8 +78,12 @@ When handed a `ready-for-agent` issue, deliver it end-to-end following
    checks pass** — UNLESS the issue carries a `hold-merge` label or asks for manual
    staging verification first. Merging to `dev` reaches no live tenant; it updates
    the staging instance (#292) when that instance is auto-following.
-7. After merge, **close the issue** (dev merges don't auto-close from a PR to `dev`)
-   and prune the branch.
+7. After merge, **prune the branch** and **leave the issue OPEN**. `Closes #` only
+   fires on a PR into the default branch (`main`), so it never fires from `dev`;
+   the issue is closed by the promotion that makes the fix real for users, and
+   the promotion PR carries the `Closes #` lines. Comment on the issue if the
+   outcome differs from what it asked for. See `docs/agents/delivery-workflow.md`
+   step 9.
 8. **Stop at `dev`.** Promotion to production is a `dev → main` merge a human
    approves; never open or merge a PR into `main`.
 

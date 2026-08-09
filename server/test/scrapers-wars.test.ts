@@ -263,10 +263,12 @@ describe('continuous revives sync job', () => {
     await stack.db.query('DELETE FROM faction_revives')
   })
 
-  it('bounds the cold start instead of dragging in the whole revive history', async () => {
-    // Nothing stored: the only consumer is a 24h window, and war-era history
-    // is already covered by the per-war backfill — so a thousand-page walk
-    // back through every revive the faction ever received buys nothing.
+  it('cold-starts from the beginning, like attacks-sync', async () => {
+    // This was capped at seven days on the false premise that the only
+    // consumer was a rolling 24h score. The War Overview reads this table
+    // across whole war windows, so a bounded cold start left every war older
+    // than a week with empty revive charts unless someone remembered to run
+    // the per-war backfill by hand.
     let seenFrom = -1
     stack.torn.setHandler('/v2/faction/revives', (url: URL) => {
       seenFrom = Number(url.searchParams.get('from'))
@@ -274,10 +276,7 @@ describe('continuous revives sync job', () => {
     })
     const result = await run()
     expect(result.details?.cold_start).toBe(true)
-
-    const nowSec = Math.floor(Date.now() / 1000)
-    expect(seenFrom).toBeGreaterThan(nowSec - 8 * 24 * 3600)
-    expect(seenFrom).toBeLessThanOrEqual(nowSec - 6 * 24 * 3600)
+    expect(seenFrom).toBe(0)
   })
 
   it('stores revives and resumes from the newest one on the next run', async () => {
@@ -369,6 +368,44 @@ describe('continuous revives sync job', () => {
     const result = await run()
     expect(result.rows).toBe(100)
     expect(call).toBe(2)
+  })
+
+  it('backfills from an explicit `from`, ignoring what is already stored', async () => {
+    // The alternative to truncating the table. A faction whose history starts
+    // part-way through gets the rest without a window where the data is gone,
+    // and without betting that Torn still holds everything we already have.
+    await stack.db.query('DELETE FROM faction_revives')
+    const recent = Math.floor(Date.now() / 1000) - 3600
+    stack.torn.setHandler('/v2/faction/revives', () => ({ revives: [revive(8300, recent)] }))
+    await run()   // stored: cursor would now sit at `recent`
+
+    let seenFrom = -1
+    stack.torn.setHandler('/v2/faction/revives', (url: URL) => {
+      seenFrom = Number(url.searchParams.get('from'))
+      return { revives: [] }
+    })
+    const { revivesContinuousJob } = await import('../src/scraper/jobs/revivesSync.js')
+    const result = await revivesContinuousJob(deps(), { from: 0 })
+
+    // Walked from the beginning despite a newer row being present.
+    expect(seenFrom).toBe(0)
+    expect(result.details?.backfill_from).toBe(0)
+  })
+
+  it('a backfill refreshes rather than duplicates what it re-reads', async () => {
+    // Why deleting first is unnecessary: ON CONFLICT DO UPDATE means a second
+    // pass over the same revives is a no-op on row count.
+    await stack.db.query('DELETE FROM faction_revives')
+    const ts = Math.floor(Date.now() / 1000) - 7200
+    stack.torn.setHandler('/v2/faction/revives', () => ({ revives: [revive(8400, ts), revive(8401, ts + 1)] }))
+    await run()
+    const before = await stack.db.query('SELECT count(*)::int AS n FROM faction_revives')
+
+    const { revivesContinuousJob } = await import('../src/scraper/jobs/revivesSync.js')
+    await revivesContinuousJob(deps(), { from: 0 })
+
+    const after = await stack.db.query('SELECT count(*)::int AS n FROM faction_revives')
+    expect(after.rows[0].n).toBe(before.rows[0].n)
   })
 })
 

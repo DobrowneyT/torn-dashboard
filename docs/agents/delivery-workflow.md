@@ -61,8 +61,13 @@ definition summarizes it.
    (`npm run test:run --workspaces --if-present`) and, for frontend/JSX or container
    changes, `npm run build -w frontend`. If something fails or was skipped, say so.
 
-7. **Open the PR to `dev`** with `Closes #<issue>` in the body. **Enable auto-merge
-   once required checks pass** — this is the default:
+7. **Open the PR to `dev`** with `Closes #<issue>` in the body — for the link,
+   **not** for the close. GitHub only honours that keyword when a PR merges into
+   the **default branch** (`main`), so on a `dev` PR it cross-references the
+   issue and nothing more. The issue stays open until promotion (step 9), which
+   is the honest state: the fix is on staging, not in front of anyone.
+
+   **Enable auto-merge once required checks pass** — this is the default:
 
    ```
    gh pr merge <pr> --auto --merge
@@ -78,13 +83,59 @@ definition summarizes it.
    minutes when that instance is in auto-follow mode, so the opt-out still
    matters when someone is mid-test on the staging ground.
 
-8. **After merge**, close the issue manually (a PR to `dev` does not auto-close it),
-   and delete the merged branch.
+8. **After merge**, delete the merged branch. **Leave the issue open** — it is
+   closed by the promotion that puts the fix in front of users, not by the merge
+   that puts it on staging. Comment on it if the outcome differs from what the
+   issue asked for (a re-scope, a part that turned out impossible), so the
+   closing comment in step 9 is not the first anyone hears of it.
 
 9. **Promotion to production is a separate act.** `dev` accumulates until a human
    decides to ship: cut the release (promote `[Unreleased]` to a dated heading
    matching `VERSION`), then open and merge a `dev → main` PR. **The delivery
    agent never does this on its own** — delivering an issue ends at `dev`.
+
+   **The promotion PR body MUST carry a `Closes #<issue>` line for every issue in
+   the batch.** This is the one PR that merges into the default branch, so it is
+   the only place the keyword actually fires — and it fires at the right moment,
+   because that is when the fix becomes real for the people who reported it.
+
+   ```markdown
+   Promote dev → main: v3.15.0 → v3.18.0
+
+   Closes #356
+   Closes #357
+   Closes #358
+   Closes #376
+   Closes #382
+   ```
+
+   Without these lines, delivered issues silently accumulate as open. That is
+   exactly what happened up to v3.18.0: #358, #376 and #382 were all live in
+   production while still sitting open, because every `Closes #` had been written
+   on a `dev` PR where it could never take effect. Nothing warns you — the PR
+   renders the reference, the merge succeeds, and the issue just stays open.
+
+   Get the list from the commit range rather than from memory:
+
+   ```bash
+   git log --oneline origin/main..origin/dev | grep -oE '#[0-9]+' | sort -u
+   ```
+
+   Read that as a starting point, not an answer. Run against the real v3.18.0
+   promotion it returns thirteen numbers:
+
+   ```
+   #356 #357 #358 #371 #374 #375 #376 #378 #379 #381 #382 #383 #384
+   ```
+
+   Only **five** of those are issues the batch resolved (#356, #357, #358, #376,
+   #382). Seven are the PRs themselves (#374, #375, #378, #379, #381, #383,
+   #384) — squash-merge appends the PR number to every subject line — and #371
+   is an earlier issue mentioned for context, already closed.
+
+   So check each number is an issue this batch actually resolves before listing
+   it. Closing the wrong issue is worse than leaving one open: a wrongly-closed
+   issue looks handled, and nobody goes back to check.
 
 ## Where a merge actually goes
 
