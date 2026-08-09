@@ -244,6 +244,8 @@ server {
         proxy_read_timeout 300s;
     }
 
+    include /etc/nginx/conf.d/snippets/spa-cache.conf;
+
     location / {
         try_files $uri $uri/ /index.html;
     }
