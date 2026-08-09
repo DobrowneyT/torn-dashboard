@@ -17,6 +17,37 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.18.1] - 2026-08-09
+
+### Fixed
+
+- **`revives-sync` only reached back 7 days on a cold start (#358).** The cap
+  was justified in the code with "the only consumer of this feed is a rolling
+  24-hour score". That was wrong: the **War Overview** reads `faction_revives`
+  across whole war windows (`GET /api/wars/:id/revives`) and has done since
+  long before the revive-chance column existed. A seven-day cold start left
+  every war older than a week with empty revive charts unless someone
+  remembered to run the per-war backfill by hand.
+
+  Revives are the same kind of record as attacks and now get the same
+  treatment: the cold start walks the entire history. The first run is long;
+  every run after it reads one page.
+
+### Added
+
+- **`POST /api/sync/revives/backfill` (#358)** — walks forward from `?from=`
+  (default 0, the whole history) regardless of what is already stored, so a
+  faction with partial history can complete it **without truncating the table
+  first**. The upsert is idempotent, so re-read revives are refreshed rather
+  than duplicated.
+
+  This exists specifically so nobody has to delete data to force a re-pull.
+  Truncating reaches the same end state while opening a window where the data
+  is gone — and if Torn's own retention is shorter than the history we already
+  hold, everything past their horizon would be lost permanently. Logged as
+  `revives-sync-backfill` so a deliberate backfill is distinguishable from the
+  routine tail in the run history.
+
 ## [3.18.0] - 2026-08-09
 
 ### Fixed
