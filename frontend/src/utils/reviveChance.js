@@ -7,22 +7,19 @@
  * received. So there is nothing to show for an enemy, ever — see the note on
  * the issue.
  *
- * What IS computable is our own side. Torn's rule, from the wiki:
- *
- *   "This success chance is based on how many revives the target has recently
- *    received and at a base level each revive decreases the future success
- *    chance by around 8% which slowly fades over 24 hours."
- *
- * and, on the decay:
+ * What IS computable is our own side, and exactly — the formula is known (see
+ * MODEL). Its only free variable is `score_target`:
  *
  *   "Whenever a target receives a successful revive, 1 is added to its score.
  *    The added score then decays linearly to zero over a period of 24 hours."
  *
  * Every input to that is in our revive history once revives-sync is running:
  * who was revived and exactly when. So rather than trying to invert an
- * observed percentage, the score is computed DIRECTLY from the history, and
- * the observed percentages become something better — a check on the model (see
- * modelError below).
+ * observed percentage, the score is computed DIRECTLY from the history.
+ *
+ * Which means the accuracy of the number on the board is entirely a question
+ * of whether our HISTORY is complete, not of whether the maths is right. That
+ * is what modelError() below actually measures.
  *
  * The chance is quoted for a skill-100 reviver: a best case, and the right
  * frame for the actual decision, which is whether paying a good reviver to go
@@ -34,20 +31,23 @@ import { reading } from './reading'
 export const SCORE_DECAY_SEC = 24 * 3600
 
 /**
- * Torn's published figures, reconstructed into a formula.
+ * The formula, as reverse-engineered and published on the Torn forums
+ * (thread 16219555, "Revive Chance (with calculator)"):
  *
- * ⚠️ The wiki states the endpoints, not the curve between them, so the LINEAR
- * interpolation here is inference, not documentation. Both endpoints are
- * quoted directly:
+ *     chance = 90 + skill/10 − score_target × (8 − skill/25)
  *
- *   - base chance runs 90% at skill 0 → 100% at skill 100
- *   - each point of score costs 8% at skill 0, halved to 4% at skill 100
+ * Expressed here as a base plus a per-point penalty, which reads better at the
+ * call sites and is identical: `90 + skill/10` interpolates 90 → 100 across
+ * the skill range, and `8 − skill/25` interpolates 8 → 4 (100/25 = 4).
  *
- * Anything between those is assumed to be a straight line. Because we scrape
- * the chance Torn actually showed on every revive, that assumption is testable
- * against real data rather than trusted — modelError() is exactly that test,
- * and it is surfaced to leads. If the curve turns out to be something else,
- * the error will show up as a systematic bias, not a silent wrong number.
+ * The rewrite is pinned to the original across the entire skill × score domain
+ * in the tests, along with the post's three worked examples — score 1.5 at
+ * skill 50 → 86%, score 12 at skill 100 → 52%, score 12 at skill 30 → 11.4%.
+ *
+ * Note the published formula has no clamp; the one in chanceFromScore is ours.
+ * It only engages past a score of 25 at skill 100, well beyond anything
+ * reachable in practice, and a negative percentage is not a thing we should
+ * ever render.
  */
 export const MODEL = {
   baseAtSkillZero: 90,
@@ -162,10 +162,18 @@ export function indexRevivesByTarget(revives) {
  * score the target was carrying. That is enough to predict what should have
  * been displayed and compare.
  *
- * This exists because the interpolation in MODEL is inferred. Shipping an
- * inferred formula without a way to see it being wrong is how a plausible
- * number quietly becomes a trusted one. Returns null when there is nothing to
- * check against.
+ * With the formula confirmed exact, this is no longer a check on the maths —
+ * it is a check on OUR DATA, and a sharp one. Any disagreement means the score
+ * we reconstructed differs from the score Torn had, which means our revive
+ * history is missing revives theirs contained.
+ *
+ * The sign says which way: a POSITIVE bias (we predict higher than Torn
+ * showed) means we counted too little score, i.e. there are revives we never
+ * scraped. That is the expected reading in the first 24 hours after the job is
+ * switched on, and it should decay to zero as the window fills. If it doesn't,
+ * the feed has a gap worth chasing.
+ *
+ * Returns null when there is nothing to check against.
  *
  * `evaluateAfterSec` guards against a real artifact: an observation near the
  * START of the fetched window has had its own prior history truncated away, so

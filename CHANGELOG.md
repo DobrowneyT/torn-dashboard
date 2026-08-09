@@ -17,6 +17,33 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.17.1] - 2026-08-09
+
+### Changed
+
+- **The revive-chance formula is confirmed exact, not inferred (#358).** The
+  source thread was unreachable when 3.17.0 shipped (Cloudflare 403), so the
+  curve between Torn's published endpoints was reconstructed and labelled as
+  inference. The formula is now in hand:
+
+      chance = 90 + skill/10 − score × (8 − skill/25)
+      score  = Σ over revives in the last 24h of (1 − t/86400)
+
+  It matches what shipped, exactly. **No behaviour changed** — this release is
+  the evidence plus the corrected wording. The implementation is now pinned to
+  the published expression across the whole skill × score domain, and to the
+  three worked examples in the post (score 1.5 at skill 50 → 86%, score 12 at
+  skill 100 → 52%, score 12 at skill 30 → 11.4%).
+
+- **The model check is now a data check, and a sharper one.** With the maths
+  confirmed, any disagreement between our figure and the percentage Torn
+  displayed means our reconstructed score differs from theirs — that is, our
+  revive history is missing revives. The sign says which way: a **positive**
+  bias means we counted too little score, i.e. revives we never scraped.
+  Expected in the first 24 hours after the job is enabled, and it should decay
+  to zero as the window fills; if it doesn't, the feed has a gap. The column
+  header tooltip says so.
+
 ## [3.17.0] - 2026-08-09
 
 ### Added
