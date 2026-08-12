@@ -17,6 +17,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.19.1] - 2026-08-12
+
+### Fixed
+- OC Payouts → Crime Statistics: participants in a saved payout week now show
+  their names instead of `User 4422276 [4422276]` (#400). Torn never sends a
+  name with a crime slot, so `crime_slots.user_name` is always NULL; the
+  saved-week endpoint now resolves it by joining `members`, the same way
+  `/api/crimes/:id/slots` already did. The join deliberately includes departed
+  members, since an archived week is history.
+
 ## [3.19.0] - 2026-08-12
 
 ### Fixed
