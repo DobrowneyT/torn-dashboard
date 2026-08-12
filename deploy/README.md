@@ -180,6 +180,130 @@ done:
   `https://<slug>.<domain>/api/health/ready` per faction with a keyword/HTTP
   check so a DB outage or a down tenant pages you.
 
+## Public file hosting (files.monchoon.me)
+
+Serves static files — userscripts, videos, guides — on their own subdomain, so
+they can be linked from the Torn forums with a permanent URL.
+
+### Why it is not a container
+
+Everything else runs behind the Docker nginx on `127.0.0.1:8088`, which proxies
+to tenant APIs that can reach Postgres. This vhost is the **host nginx reading
+files off disk**: no `proxy_pass`, no container, no Docker network. It has no
+upload endpoint, no scripting, and no database credentials — and being off the
+app network, a compromise of it reaches nothing.
+
+Adding a static root to the existing tenant vhost would have been fewer moving
+parts and a strictly worse blast radius.
+
+### One-time setup
+
+**1. DNS.** Add an `A` record for `files.monchoon.me` → the VPS IP. Confirm it
+has propagated before running certbot, or the HTTP-01 challenge fails:
+
+```bash
+dig +short files.monchoon.me        # must return the VPS IP
+```
+
+**2. Create the directory**, owned by `ubuntu` so `scp` works without `sudo`:
+
+```bash
+sudo mkdir -p /srv/public-files
+sudo chown ubuntu:ubuntu /srv/public-files
+sudo chmod 755 /srv/public-files
+```
+
+`755` matters: nginx runs as `www-data` and must be able to traverse and read.
+
+**3. Install the vhost** from this repo:
+
+```bash
+scp deploy/host-nginx/files.monchoon.me.conf ubuntu@51.68.212.98:/tmp/
+ssh ubuntu@51.68.212.98
+sudo mv /tmp/files.monchoon.me.conf /etc/nginx/sites-available/files.monchoon.me
+sudo ln -s /etc/nginx/sites-available/files.monchoon.me /etc/nginx/sites-enabled/
+```
+
+**4. Test before reloading.** ⚠️ This box also serves someone else's sites — a
+bad config takes them down too. `nginx -t` first, every time:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**5. TLS.** certbot edits the vhost in place to add the `443` block:
+
+```bash
+sudo certbot --nginx -d files.monchoon.me
+```
+
+**6. Verify:**
+
+```bash
+echo 'hello' > /srv/public-files/test.txt
+curl -sS https://files.monchoon.me/test.txt          # → hello
+curl -sSI https://files.monchoon.me/                 # → 403/404, NOT a listing
+rm /srv/public-files/test.txt
+```
+
+The second check matters: a directory listing would expose every filename, and
+"you have to know the name" is the only access control here.
+
+### Uploading a file
+
+From your laptop, in one command:
+
+```bash
+scp myfile.mp4 ubuntu@51.68.212.98:/srv/public-files/
+# → https://files.monchoon.me/myfile.mp4
+```
+
+Subdirectories work and are worth using:
+
+```bash
+ssh ubuntu@51.68.212.98 'mkdir -p /srv/public-files/scripts /srv/public-files/video'
+
+scp my-script.user.js ubuntu@51.68.212.98:/srv/public-files/scripts/
+# → https://files.monchoon.me/scripts/my-script.user.js
+
+scp tutorial.mp4 ubuntu@51.68.212.98:/srv/public-files/video/
+# → https://files.monchoon.me/video/tutorial.mp4
+```
+
+A whole folder at once:
+
+```bash
+rsync -avz --chmod=F644,D755 ./scripts/ ubuntu@51.68.212.98:/srv/public-files/scripts/
+```
+
+`--chmod` is not optional if your local files are `600` — nginx (`www-data`)
+must be able to read them, and a `600` file 404s with a permissions error
+buried in the nginx log rather than anything visible in the browser.
+
+### Userscripts
+
+Name them `*.user.js`. Tampermonkey recognises the suffix and offers to install
+instead of showing a wall of source. Add to the script header so installs
+auto-update:
+
+```javascript
+// @updateURL    https://files.monchoon.me/scripts/my-script.user.js
+// @downloadURL  https://files.monchoon.me/scripts/my-script.user.js
+```
+
+⚠️ Userscripts are cached for **5 minutes only** (see the vhost). The
+dashboard's own `/assets/` are cached immutably for a year, which is only safe
+because Vite content-hashes those filenames. These filenames are stable, so a
+long cache would mean a script could never be updated and `@updateURL` would
+silently never fire.
+
+### Anything here is public
+
+There is no authentication. Anyone with the URL can fetch it, and dotfiles are
+the only thing actively blocked. Do not put anything in `/srv/public-files`
+that is not meant for the whole internet — in particular, never point a backup
+or a database dump at it.
+
 ## Notes
 
 - Run `docker compose` from `deploy/` (or pass both `-f` files) so the
