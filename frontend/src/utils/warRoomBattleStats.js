@@ -75,3 +75,33 @@ export function withBattleStats(members = [], byId = {}) {
     }
   })
 }
+
+/**
+ * Sort value for a battle-stats total: the number, or null when unread (#355).
+ *
+ * Null rather than 0, and the callers' comparators must sink nulls in BOTH
+ * directions — the #351 rule. Sorting ascending asks "who is weakest"; a member
+ * whose stats we have never read is not an answer to that, they are the absence
+ * of one, and folding them in as zero buries the members the sort was meant to
+ * surface. Sorting descending, the same members would pile up at the far end
+ * and push the real answers off the first screen.
+ */
+export function battleStatsSortValue(row) {
+  const total = row?.bsp_total
+  return total == null ? null : Number(total)
+}
+
+/**
+ * Does a member match a source filter? `'any'` passes everything.
+ *
+ * The useful query here is "show me everyone we only have a BSP guess for" —
+ * that list is the set of members to chase for a key, which is the whole reason
+ * the source is worth filtering on rather than merely displaying.
+ */
+export function matchesStatsSource(row, filter) {
+  if (!filter || filter === 'any') return true
+  if (filter === 'none') return row?.bsp_total == null
+  // A member with no reading has no source, so they cannot match a real one.
+  if (row?.bsp_total == null) return false
+  return (row?.spy_source ?? 'bsp') === filter
+}

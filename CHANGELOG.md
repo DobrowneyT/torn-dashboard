@@ -17,6 +17,26 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.21.0] - 2026-08-12
+
+### Added
+- Member Overview now carries a **Battle Stats** column (#355), war-lead and
+  above only: the same hover breakdown and exact-vs-estimate treatment as the
+  War Room, sortable (members with no reading sink to the bottom in both
+  directions, the #351 rule), and filterable by min/max total using the War
+  Room's `3m` / `2.6b` shorthand or by source — "BSP only" being the list of
+  members to chase for a key.
+
+### Changed
+- `parseStatInput` extracted to `utils/statInput` and shared. It existed twice
+  (War Room desktop and mobile) and Member Overview would have been the third;
+  two pages parsing `2.6b` differently is a bug nobody reports because each
+  page looks right on its own. A test scans `src/` to stop a fourth copy.
+- The battle-stats cell moved out of `WarRoomViewV2` into
+  `components/BattleStatsCell`, so both pages render the same cell rather than
+  lookalikes. Its age now uses `fmtAgo`, which already handles the bare
+  Postgres offset that JS `Date` rejects (#140).
+
 ## [3.20.2] - 2026-08-12
 
 ### Added
