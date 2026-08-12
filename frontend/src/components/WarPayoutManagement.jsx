@@ -327,6 +327,8 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
 // TCT == UTC. Convert between a unix-seconds timestamp and the value string a
 // native <input type="datetime-local"> expects, interpreting the field as TCT.
 const tsToTctInput = ts => ts ? new Date(ts * 1000).toISOString().slice(0, 16) : ''
+// db-time-safe: a datetime-local input value, not an API timestamp — we append
+// the ':00Z' ourselves, so this is a well-formed ISO string by construction.
 const tctInputToTs = s => s ? Math.floor(Date.parse(s + ':00Z') / 1000) : null
 
 // Render a count as `pre (post)` with the post-cutoff portion in the

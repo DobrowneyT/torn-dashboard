@@ -213,3 +213,77 @@ describe('FLIGHT_SECONDS table', () => {
     expect(FLIGHT_SECONDS['south africa'].business).toBe(85 * 60)
   })
 })
+
+// ── The format the API actually sends (#140) ─────────────────────────────────
+//
+// This is the bug that made #330 never render a single estimate in production,
+// and it hid behind a plausible-looking test suite because the fixtures used
+// ISO strings with a Z. Postgres timestamptz is served as TEXT with a BARE
+// two-digit offset, which is not valid ISO 8601:
+//
+//   "2026-08-12T15:30:28.041124+00"   ← Date.parse() → NaN
+//   "2026-08-12T15:30:28.041Z"        ← Date.parse() → fine
+//
+// Every fixture below uses the real wire shape on purpose.
+describe('departure timestamps in the shape the API really serves', () => {
+  const WIRE = '2026-08-12T15:30:28.041124+00'
+  const departedMs = Date.UTC(2026, 7, 12, 15, 30, 28, 41)
+
+  it('produces an estimate from a bare-offset timestamp', () => {
+    const eta = travelEta({
+      description: 'Traveling from Torn to Mexico',
+      planeType: 'light_aircraft',
+      departedAt: WIRE,
+      nowMs: departedMs + 600_000,
+    })
+    expect(eta.state).toBe('estimate')
+  })
+
+  it('is not fooled by Date.parse rejecting the offset', () => {
+    // Pins the precondition: if this ever starts parsing natively the test
+    // above stops proving anything, and we would want to know.
+    expect(Number.isNaN(Date.parse(WIRE))).toBe(true)
+  })
+
+  it('still returns unknown for a genuinely absent departure', () => {
+    const eta = travelEta({
+      description: 'Traveling from Torn to Mexico',
+      planeType: 'light_aircraft',
+      departedAt: null,
+      nowMs: departedMs,
+    })
+    expect(eta.state).toBe('unknown')
+  })
+})
+
+describe('aircraft → travel method, all three mapped', () => {
+  it('resolves every aircraft Torn draws', () => {
+    expect(methodsForPlaneType('light_aircraft')).toEqual(['airstrip'])
+    expect(methodsForPlaneType('private_jet')).toEqual(['wlt'])
+    // Torn draws one airliner for both Business Class and Standard. We resolve
+    // to business: in a war the question is "how soon could they be back", and
+    // the earlier candidate is the one worth planning against.
+    expect(methodsForPlaneType('airliner')).toEqual(['business'])
+  })
+
+  it('still falls back to every method for an unknown aircraft', () => {
+    // A future flight perk could add one. Guessing would give a confidently
+    // wrong landing time, which is the failure this whole feature avoids.
+    expect(methodsForPlaneType('rocket_ship')).toHaveLength(4)
+    expect(methodsForPlaneType(undefined)).toHaveLength(4)
+  })
+
+  it('gives a tight band once the aircraft is known', () => {
+    // The practical payoff: a mapped aircraft narrows the estimate to Torn's
+    // own ±3%, instead of spanning business-to-standard.
+    const eta = travelEta({
+      description: 'Traveling from Torn to Mexico',
+      planeType: 'private_jet',
+      departedAt: '2026-08-12T15:30:28.041124+00',
+      nowMs: Date.UTC(2026, 7, 12, 15, 30, 28, 41) + 60_000,
+    })
+    expect(eta.state).toBe('estimate')
+    expect(eta.methods).toEqual(['wlt'])
+    expect(eta.latestSec - eta.earliestSec).toBeLessThan(60)
+  })
+})

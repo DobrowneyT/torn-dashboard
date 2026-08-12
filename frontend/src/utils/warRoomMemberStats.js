@@ -47,7 +47,11 @@ export function indexMemberStats(rows = []) {
 export function remainingCooldown(seconds, fetchedAt, nowMs = Date.now()) {
   const base = reading(seconds)
   if (base == null) return null
-  const fetched = fetchedAt ? Date.parse(fetchedAt) : NaN
+  // parseDbTime, NOT Date.parse — the API's bare "+00" offset is not valid ISO
+  // and Date.parse returns NaN on it (#140). That fell through to the branch
+  // below, so cooldowns were shown at their stored value and never aged.
+  const parsedAt = fetchedAt ? parseDbTime(fetchedAt) : null
+  const fetched = parsedAt ? parsedAt.getTime() : NaN
   // No usable fetch time: show the raw reading rather than nothing. Better a
   // slightly stale number than a blank column.
   if (!Number.isFinite(fetched)) return Math.max(0, base)
@@ -279,7 +283,10 @@ export function compareMemberStat(field, statsA, statsB, dir = 1, nowMs = Date.n
  * implying it is live.
  */
 export function statsAgeSeconds(stats, nowMs = Date.now()) {
-  const fetched = stats?.fetched_at ? Date.parse(stats.fetched_at) : NaN
+  // See remainingCooldown: Date.parse cannot read the API's timestamps (#140),
+  // so this returned null for every reading and the age never rendered.
+  const parsedAt = stats?.fetched_at ? parseDbTime(stats.fetched_at) : null
+  const fetched = parsedAt ? parsedAt.getTime() : NaN
   if (!Number.isFinite(fetched)) return null
   return Math.max(0, Math.floor((nowMs - fetched) / 1000))
 }
