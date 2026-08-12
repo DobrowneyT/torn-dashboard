@@ -32,6 +32,10 @@ from `VERSION` at runtime) both surface it automatically.
   — the offsite copy failing took the local archives with it.
 - The closing summary now names failed uploads instead of reporting "6
   archived" for a run whose offsite copy never happened.
+- The backup image ships an empty `rclone.conf`, so `NOTICE: Config file ... not
+  found` no longer appears on every call. rclone is driven by `RCLONE_*` env
+  vars; the notice was harmless but read as a misconfiguration and sent us
+  chasing the wrong cause during the outage.
 
 ## [3.22.2] - 2026-08-12
 
