@@ -17,6 +17,25 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.22.1] - 2026-08-12
+
+### Fixed
+- Travel ETAs still never rendered after the server-side fix (#330). The client
+  parsed `travel_departed_at` with `Date.parse`, which returns **NaN** on the
+  bare two-digit offset Postgres serves (`2026-08-12T15:30:28.041124+00` is not
+  valid ISO 8601) — so every estimate fell through to "unknown". The #140 trap.
+- Same trap in the War Room member stats, where it was quieter and worse:
+  cooldowns stopped **ageing** and displayed their stored value as though live,
+  and the reading's staleness never rendered at all.
+- A scanner test now fails the build on any unguarded `Date.parse` in `src`,
+  since this has now silently broken four separate features.
+
+### Changed
+- All three of Torn's aircraft are mapped to travel methods (#330):
+  `private_jet → wlt` and `airliner → business` are now confirmed, so an
+  estimate narrows to Torn's own ±3% instead of spanning business-to-standard.
+  An unknown aircraft still falls back to every method rather than guessing.
+
 ## [3.22.0] - 2026-08-12
 
 ### Added

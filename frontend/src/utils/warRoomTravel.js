@@ -18,6 +18,8 @@
  * the window — the whole reason for the estimate.
  */
 
+import { parseDbTime } from './time'
+
 /** Torn's published flight-time variance: up to ±3%. */
 export const TRAVEL_VARIANCE = 0.03
 
@@ -50,20 +52,24 @@ const METHODS = ['business', 'wlt', 'airstrip', 'standard']
 /**
  * `status.plane_image_type` → travel method.
  *
- * Only two are confirmed, both from observed live members: someone flying a
- * Business Class Ticket reported `airliner`, someone on their private-island
- * airstrip reported `light_aircraft`. Note the BCT flyer also owns an airstrip,
- * so the value reflects the method actually IN USE, not the property owned.
+ * All three of Torn's aircraft are now mapped. The value reflects the method
+ * actually IN USE, not the property owned — a Business Class flyer who also
+ * owns an airstrip still reports `airliner`.
  *
- * Standard and WLT are still unmapped, and a flight perk may add its own type.
- * Unknown values deliberately fall through to every method (see
- * methodsForPlaneType) rather than defaulting to one — a wrong method gives a
+ * An UNKNOWN value still falls through to every method (see
+ * methodsForPlaneType) rather than defaulting to one: a wrong method gives a
  * confidently wrong landing time, which is the failure this all exists to
- * avoid. Elimination narrows them soon enough anyway.
+ * avoid. That path stays for a future flight perk with its own aircraft.
  */
 export const PLANE_TYPE_METHOD = {
+  // Torn draws three aircraft for four travel methods, so `airliner` is
+  // ambiguous: it covers both Business Class (the fastest) and Standard (the
+  // slowest). We resolve it to business deliberately — in a war the question
+  // is "how soon could they be back", and the earlier of two candidates is the
+  // one worth planning against. Confirmed mapping from MonChoon, 2026-08-12.
   airliner: 'business',
   light_aircraft: 'airstrip',
+  private_jet: 'wlt',
 }
 
 /** Destination names Torn uses in more than one form. */
@@ -125,7 +131,13 @@ export function methodsForPlaneType(planeType) {
  */
 export function travelEta({ description, planeType, departedAt, nowMs = Date.now() } = {}) {
   const destination = travelDestination(description)
-  const departed = departedAt ? Date.parse(departedAt) : NaN
+  // parseDbTime, NOT Date.parse: the API serves Postgres timestamptz as text
+  // with a BARE two-digit offset — "2026-08-12T15:30:28.041124+00". That is not
+  // valid ISO 8601 (it needs "+00:00" or "Z"), so Date.parse returns NaN and
+  // every ETA silently became "unknown". The #140 trap; it shipped here and
+  // meant this feature never rendered a single estimate in production.
+  const parsed = departedAt ? parseDbTime(departedAt) : null
+  const departed = parsed ? parsed.getTime() : NaN
   if (!destination || !Number.isFinite(departed)) return { state: 'unknown' }
 
   const times = FLIGHT_SECONDS[destination]
