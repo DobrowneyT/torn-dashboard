@@ -258,17 +258,35 @@ scp myfile.mp4 ubuntu@51.68.212.98:/srv/public-files/
 # → https://files.monchoon.me/myfile.mp4
 ```
 
-Subdirectories work and are worth using:
+Subdirectories work and are worth using. **`scripts/` and `videos/` are the two
+browsable ones** — see below:
 
 ```bash
-ssh ubuntu@51.68.212.98 'mkdir -p /srv/public-files/scripts /srv/public-files/video'
+ssh ubuntu@51.68.212.98 'mkdir -p /srv/public-files/scripts /srv/public-files/videos'
 
 scp my-script.user.js ubuntu@51.68.212.98:/srv/public-files/scripts/
 # → https://files.monchoon.me/scripts/my-script.user.js
 
-scp tutorial.mp4 ubuntu@51.68.212.98:/srv/public-files/video/
-# → https://files.monchoon.me/video/tutorial.mp4
+scp tutorial.mp4 ubuntu@51.68.212.98:/srv/public-files/videos/
+# → https://files.monchoon.me/videos/tutorial.mp4
 ```
+
+### Browsable folders
+
+`https://files.monchoon.me/scripts/` and `/videos/` render a directory listing,
+so you can point someone at the folder instead of hunting for the exact
+filename. Nothing else is browsable: `/` returns 404, and so does any other
+subdirectory you create.
+
+To make a new folder browsable, add a `location` block for it in the vhost
+alongside the existing two. It is deliberately opt-in — a folder you create is
+private-by-obscurity until you name it.
+
+⚠️ **Listings control discovery, not access.** Everything under
+`/srv/public-files` is still fetchable by anyone who knows or guesses its URL,
+whether or not its folder is listed. There is no authentication anywhere on
+this host, so "not listed" is not "not public" — never put anything there you
+would mind a stranger reading.
 
 A whole folder at once:
 

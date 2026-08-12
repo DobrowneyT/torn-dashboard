@@ -17,6 +17,13 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.22.2] - 2026-08-12
+
+### Added
+- `files.monchoon.me/scripts/` and `/videos/` now render a directory listing,
+  so a folder can be linked instead of an exact filename. Opt-in per folder:
+  `/` and every other subdirectory still 404 rather than listing.
+
 ## [3.22.1] - 2026-08-12
 
 ### Fixed
