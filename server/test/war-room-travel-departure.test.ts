@@ -99,6 +99,22 @@ async function ageLastLook(seconds: number) {
   }
 }
 
+/**
+ * Backdate our last sweep of the WHOLE ROSTER — a genuine blind spell.
+ *
+ * Distinct from ageLastLook, and the distinction is the #330 bug: that one
+ * ages one member's row, which happens naturally to anyone who simply is not
+ * changing while we watch them. Only this one means "we were not looking".
+ */
+async function ageLastSync(seconds: number) {
+  await stack.db.query(
+    `INSERT INTO war_room_config_v2 (id, last_roster_sync_at)
+     VALUES (1, now() - ($1 || ' seconds')::interval)
+     ON CONFLICT (id) DO UPDATE SET last_roster_sync_at = EXCLUDED.last_roster_sync_at`,
+    [String(seconds)]
+  )
+}
+
 beforeAll(async () => { stack = await startTestStack() })
 afterAll(async () => { await stack?.close() })
 
@@ -168,7 +184,11 @@ describe('travel departure latch (#330)', () => {
     // put a confidently wrong landing time on the board and a lead would wait
     // on it.
     await reset(OKAY)
-    await ageLastLook(600)
+    // The board itself went quiet — that is what makes the next edge
+    // untrustworthy. Previously this was simulated by ageing the member's own
+    // row, which turned out to describe an ordinary idle member just as well
+    // as an outage; the guard could not tell them apart and rejected both.
+    await ageLastSync(600)
 
     enemyMembers = [member(FLYING)]
     await sync()
@@ -179,7 +199,44 @@ describe('travel departure latch (#330)', () => {
     // The guard must not reject ordinary polling. Even a 60s roster cadence —
     // the slowest allowed — sits well inside the 120s allowance.
     await reset(OKAY)
-    await ageLastLook(60)
+    await ageLastSync(60)
+
+    enemyMembers = [member(FLYING)]
+    await sync()
+    expect(await departedAt()).not.toBeNull()
+  })
+
+  it('stamps a take-off by a member who had simply not changed for a while', async () => {
+    // THE PRODUCTION CASE, and the one the freshness guard gets wrong.
+    //
+    // The guard means "was the board watching?" but it is implemented as "did
+    // THIS member's row get written recently?" — and the upsert only writes a
+    // row when something about that member actually changed. An offline member
+    // sitting idle produces an identical payload every tick, so their
+    // updated_at stops advancing while the board polls them once a second.
+    //
+    // Ten minutes later they click travel. The guard compares against a
+    // ten-minute-old updated_at, concludes we must have been blind, and
+    // discards a departure it watched happen. Every ETA on the board stays
+    // blank, which is exactly what was reported with the war room enabled and
+    // six members in the air.
+    await reset(OKAY)
+
+    // The board is polling throughout — these syncs all happen.
+    for (let i = 0; i < 3; i++) await sync()
+
+    // Ten minutes pass in which this member does nothing.
+    await ageLastLook(600)
+
+    // Still polling, still nothing to write for them: their row is untouched,
+    // which is the whole problem. Pin it, so this test cannot quietly stop
+    // reproducing the setup it was written for.
+    await sync()
+    const stale = await stack.db.query(
+      `SELECT extract(epoch from (now() - updated_at))::int AS age
+         FROM war_room_state_v2 WHERE member_id = $1`, [MEMBER]
+    )
+    expect(stale.rows[0].age).toBeGreaterThan(120)
 
     enemyMembers = [member(FLYING)]
     await sync()
