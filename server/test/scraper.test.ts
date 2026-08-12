@@ -85,6 +85,14 @@ describe('rate-limited Torn client', () => {
     // Budget: 2 requests per 400ms window, per key.
     const client = createTornClient({ baseUrl: stack.tornBaseUrl, budget: { requests: 2, perMs: 400 } })
 
+    // Measured from a fixed point taken BEFORE any dispatch, not from the first
+    // resolution. Gaps between resolutions are a bad proxy: a loaded event loop
+    // delays the first one, which compresses every gap measured against it, so
+    // the test failed on total suite load rather than on the limiter. (Seen at
+    // 246ms against a 250ms floor when #385 added a file to the run.) A fixed
+    // baseline cannot be compressed, which makes these floors both steadier and
+    // tighter than the ones they replace.
+    const t0 = Date.now()
     const resolved: number[] = []
     await Promise.all(
       Array.from({ length: 6 }, () =>
@@ -93,12 +101,11 @@ describe('rate-limited Torn client', () => {
     )
     resolved.sort((a, b) => a - b)
 
-    // 6 requests on ONE key at 2/window dispatch in three waves: ~0ms, ~400ms, ~800ms.
-    // Margins are generous because a loaded event loop can delay the FIRST
-    // resolution (compressing observed gaps) — the waves are what matter.
+    // 6 requests on ONE key at 2/window dispatch in three waves: ~0ms, ~400ms,
+    // ~800ms. An unthrottled client would land all six near t0.
     expect(resolved).toHaveLength(6)
-    expect(resolved[2] - resolved[0]).toBeGreaterThanOrEqual(250)
-    expect(resolved[4] - resolved[0]).toBeGreaterThanOrEqual(600)
+    expect(resolved[2] - t0).toBeGreaterThanOrEqual(350)
+    expect(resolved[4] - t0).toBeGreaterThanOrEqual(750)
   })
 
   it('rate-limits each key independently, so multiple keys multiply throughput (#228)', async () => {
