@@ -17,6 +17,22 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.20.2] - 2026-08-12
+
+### Added
+- Server-side dibs concurrency harness (#385): a seeded run of concurrent
+  claims and releases from five holders against an oscillating roster, with
+  the real ticker and real WebSocket clients, asserting invariants that must
+  hold for any interleaving. Verified to reproduce #376 when the fix is
+  reverted (12 violations across 30 rounds); ~2.8s, so it stays in the
+  existing Vitest job.
+
+### Fixed
+- The Torn client rate-limit test measured gaps between resolutions, so a
+  loaded event loop compressed them and the test failed on total suite load
+  rather than on the limiter. It now measures from a fixed pre-dispatch
+  baseline, which cannot be compressed.
+
 ## [3.20.1] - 2026-08-12
 
 ### Changed
