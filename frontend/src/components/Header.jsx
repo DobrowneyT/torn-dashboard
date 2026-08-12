@@ -29,7 +29,7 @@ export default function Header({ viewAsRole, setViewAsRole, canViewAs, servingVe
 
   return (
     <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 relative">
         <div className="flex items-center justify-between">
           {/* Logo + title link back to the Dashboard, like a site masthead. */}
           <Link to="/" className="flex items-center gap-3 sm:gap-4 group">
@@ -51,9 +51,6 @@ export default function Header({ viewAsRole, setViewAsRole, canViewAs, servingVe
           </Link>
 
           <div className="flex items-center gap-4">
-            {/* Diagnostic furniture, kept quiet — but always on screen (#394). */}
-            <VersionChip servingVersion={servingVersion} />
-
             {user && (
               <div className="hidden md:block text-right">
                 <div className="font-semibold text-sm">{user.name}</div>
@@ -88,6 +85,15 @@ export default function Header({ viewAsRole, setViewAsRole, canViewAs, servingVe
               )}
             </button>
           </div>
+        </div>
+
+        {/* Absolutely positioned into the header's own bottom-right padding,
+            which is dead space — so the version is always on screen and costs
+            the page nothing. That was the constraint behind the whole issue:
+            the War Room is the densest view in the app and the one people keep
+            open longest, which is what ruled out a sticky footer (#394). */}
+        <div className="absolute bottom-1 right-4 sm:right-6 lg:right-8 leading-none">
+          <VersionChip servingVersion={servingVersion} />
         </div>
       </div>
     </header>

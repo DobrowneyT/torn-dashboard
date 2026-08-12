@@ -17,6 +17,19 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.20.1] - 2026-08-12
+
+### Changed
+- The header version chip moved from beside the username to the header's
+  bottom-right corner (#394). It sits in padding that was already empty, so
+  unlike a second row it costs no vertical space — which was the constraint
+  behind the issue, the War Room being the densest view in the app.
+
+### Added
+- `npm run preview:header` renders the real `Header` at desktop, tablet and
+  phone widths with auth stubbed, so layout can be judged without deploying.
+  It is dev-only tooling: the production build does not see it.
+
 ## [3.20.0] - 2026-08-12
 
 ### Added
