@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireNotVisitor } from './authz.js'
 import { factionIdentity } from './auth.js'
+import { APP_VERSION } from './version.js'
 
 export interface FeedbackDeps {
   db: pg.Pool
@@ -105,18 +106,52 @@ export function feedbackConfigured(deps: Pick<FeedbackDeps, 'githubToken' | 'git
   return Boolean(deps.githubToken && deps.githubRepo)
 }
 
-/** The GitHub issue body — records category, submitter identity, tenant, text. */
+/**
+ * What a reported app version may look like (#402).
+ *
+ * This is untrusted input that lands in a markdown document, so the rule is
+ * allow-list and discard — not sanitise and keep. Anything failing this pattern
+ * is not a version, and guessing at what the reporter meant would be worse than
+ * recording that we don't know.
+ */
+const APP_VERSION_PATTERN = /^[0-9A-Za-z.+-]{1,32}$/
+
+/** A client-reported version, or null if it isn't one. */
+export function normaliseClientVersion(value: unknown): string | null {
+  return typeof value === 'string' && APP_VERSION_PATTERN.test(value) ? value : null
+}
+
+/**
+ * The version line on the issue (#402).
+ *
+ * Both numbers, because the skew is the diagnosis: `serverVersion` is what is
+ * deployed, `clientVersion` is what the reporter's tab actually loaded — which
+ * may be weeks old (#382). Stamping only the server's would report the fixed
+ * version while the reporter sits on the broken one.
+ */
+export function buildVersionLine(clientVersion: string | null, serverVersion: string): string {
+  if (!clientVersion) return `**App version:** unknown (server ${serverVersion})`
+  if (clientVersion === serverVersion) return `**App version:** ${clientVersion}`
+  // Deliberately not "stale": during a deploy or a rollback the reporter can be
+  // AHEAD of the server, and claiming otherwise would send triage the wrong way.
+  return `**App version:** ${clientVersion} (server ${serverVersion} — does not match the deployed build)`
+}
+
+/** The GitHub issue body — records category, submitter identity, tenant, version, text. */
 export function buildFeedbackIssueBody(params: {
   category: string
   description: string
   submitterName: string
   submitterId: string
   slug: string
+  clientVersion?: string | null
+  serverVersion?: string
 }): string {
   return [
     `**Category:** ${CATEGORY_LABEL[params.category] ?? params.category}`,
     `**Submitted by:** ${params.submitterName} [${params.submitterId}]`,
     `**Faction:** ${params.slug}`,
+    buildVersionLine(params.clientVersion ?? null, params.serverVersion ?? APP_VERSION),
     '',
     params.description || '_(no description provided)_',
   ].join('\n')
@@ -238,7 +273,10 @@ export function registerFeedbackRoutes(app: FastifyInstance, deps: FeedbackDeps)
       return reply.status(429).send({ error: 'Too many feedback submissions — please try again in a bit.' })
     }
 
-    const body = (req.body ?? {}) as { category?: unknown; title?: unknown; description?: unknown; attachments?: unknown }
+    const body = (req.body ?? {}) as {
+      category?: unknown; title?: unknown; description?: unknown
+      attachments?: unknown; app_version?: unknown
+    }
     const category = String(body.category ?? '').toLowerCase()
     const title = typeof body.title === 'string' ? body.title.trim() : ''
     const description = typeof body.description === 'string' ? body.description.trim() : ''
@@ -259,7 +297,13 @@ export function registerFeedbackRoutes(app: FastifyInstance, deps: FeedbackDeps)
     // Attachment URLs embed the app's public origin so GitHub can fetch them.
     const publicBase = (deps.publicBaseUrl || `${req.protocol}://${req.headers.host}`).replace(/\/$/, '')
     const issueBody =
-      buildFeedbackIssueBody({ category, description, submitterName, submitterId: userId, slug: config.slug }) +
+      buildFeedbackIssueBody({
+        category, description, submitterName, submitterId: userId, slug: config.slug,
+        // #402: never validated as a precondition — a rubbish version degrades
+        // to "unknown" rather than rejecting the report.
+        clientVersion: normaliseClientVersion(body.app_version),
+        serverVersion: APP_VERSION,
+      }) +
       buildAttachmentsSection(parsed.files, publicBase)
     const issueTitle = `[${CATEGORY_LABEL[category]}] ${title}`
 

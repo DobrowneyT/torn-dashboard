@@ -54,7 +54,11 @@ export default function FeedbackModal({ onClose }) {
   const removeFile = (idx) => setFiles(files.filter((_, i) => i !== idx))
 
   const handleSubmit = async () => {
-    const built = buildFeedbackPayload({ category, title, description })
+    // #402: the reporter's running version rides along silently, so nobody has
+    // to be asked "what version are you on?" after the fact.
+    const built = buildFeedbackPayload({
+      category, title, description, appVersion: import.meta.env.VITE_APP_VERSION,
+    })
     if (!built.ok) { setError(built.error); return }
     const fileCheck = validateFeedbackFiles(files)
     if (!fileCheck.ok) { setError(fileCheck.error); return }
