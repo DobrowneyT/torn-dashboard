@@ -785,4 +785,54 @@ describe('weekCrimeRowsToMap', () => {
     expect(weekCrimeRowsToMap([])).toEqual({})
     expect(weekCrimeRowsToMap(undefined)).toEqual({})
   })
+
+  // #391 — the saved-week path used to hardcode `slots: []`, so Crime
+  // Statistics reported "0 participants" for every archived week and the
+  // expand showed "no data". The live calculator always had slots, which is
+  // why it only broke when someone REOPENED a payout — exactly when they are
+  // auditing who was in what.
+  it('nests the slots it is given, keyed by crime', () => {
+    const slots = [
+      { crime_id: 101, position: 'Muscle', position_number: 1, user_id: '500', user_name: 'Alice', joined_at: 1650 },
+      { crime_id: 101, position: 'Hacker', position_number: 2, user_id: '501', user_name: 'Bob', joined_at: 1655 },
+      { crime_id: 102, position: 'Driver', position_number: 1, user_id: '502', user_name: 'Carol', joined_at: 1550 },
+    ]
+    const map = weekCrimeRowsToMap(rows, slots)
+    expect(map[101].slots).toHaveLength(2)
+    expect(map[102].slots).toHaveLength(1)
+    expect(map[101].slots[0].user).toMatchObject({ id: 500, name: 'Alice', joined_at: 1650 })
+  })
+
+  it('feeds getCrimeStats a real participant count', () => {
+    // The reported symptom, at the level the user sees it.
+    const slots = [
+      { crime_id: 101, position: 'Muscle', user_id: '500', user_name: 'Alice' },
+      { crime_id: 101, position: 'Hacker', user_id: '501', user_name: 'Bob' },
+    ]
+    const stats = getCrimeStats(weekCrimeRowsToMap(rows, slots))
+    const crime101 = stats.crimesList.find((c) => c.id === 101)
+    expect(crime101.participants).toHaveLength(2)
+    // …and the crime with no slots still reports zero rather than throwing.
+    expect(stats.crimesList.find((c) => c.id === 102).participants).toHaveLength(0)
+  })
+
+  it('leaves an empty slot list when the caller passes none', () => {
+    // Older callers must degrade to the previous behaviour, not throw.
+    expect(weekCrimeRowsToMap(rows).slots).toBeUndefined()
+    expect(weekCrimeRowsToMap(rows)[101].slots).toEqual([])
+  })
+
+  it('ignores an unfilled slot rather than inventing a participant', () => {
+    const slots = [{ crime_id: 101, position: 'Muscle', user_id: null }]
+    const map = weekCrimeRowsToMap(rows, slots)
+    expect(map[101].slots[0].user).toBeNull()
+    expect(getCrimeStats(map).crimesList.find((c) => c.id === 101).participants).toHaveLength(0)
+  })
+
+  it('prefers the current member name over the one stored on the slot', () => {
+    // A member who renamed should read as who they are now.
+    const slots = [{ crime_id: 101, position: 'Muscle', user_id: '500', user_name: 'OldName' }]
+    const map = weekCrimeRowsToMap(rows, slots, { 500: 'NewName' })
+    expect(map[101].slots[0].user.name).toBe('NewName')
+  })
 })

@@ -14,8 +14,17 @@ import {
   deriveWarScoresByMember,
 } from '../utils/warPayoutCalculations'
 
-// Per-tenant identity from bootstrap (#96); resolved before views render.
-const OUR_FACTION_ID = getFactionId()
+// #393: identity is read AT USE TIME, never captured at module scope.
+//
+// This was `const getFactionId() = getFactionId()` here, with a comment saying
+// identity was "resolved before views render". True of rendering — but a
+// module-scope const evaluates at IMPORT time, and RWPage imports this module
+// statically during app startup, before /api/bootstrap has answered. So it
+// captured the config.js fallback (Forge, 10739) and every non-Forge tenant
+// filtered its own contributions away, reporting "No contribution data
+// available for this war" on wars that had synced perfectly well.
+//
+// getFactionId() is a cached property read, so calling it per use is free.
 const WAR_PAGE_SIZE = 5
 
 function formatCurrency(n) {
@@ -33,7 +42,7 @@ function WarDropdown({ wars, totalWars, selectedWar, onSelect, page, onPageChang
   }
 
   function warLabel(war) {
-    const isWin = war.winner_faction_id === OUR_FACTION_ID
+    const isWin = war.winner_faction_id === getFactionId()
     const isOngoing = !war.end_at || war.end_at === 0
     const result = isOngoing ? 'Ongoing' : isWin ? 'Win' : 'Loss'
     return `vs. ${war.opponent_name || `#${war.opponent_id}`} — ${formatWarDateRange(war.start_at, war.end_at)} [${result}]`
@@ -62,7 +71,7 @@ function WarDropdown({ wars, totalWars, selectedWar, onSelect, page, onPageChang
             <>
               <div className="divide-y divide-gray-100 dark:divide-slate-700 max-h-72 overflow-y-auto">
                 {wars.map(war => {
-                  const isWin = war.winner_faction_id === OUR_FACTION_ID
+                  const isWin = war.winner_faction_id === getFactionId()
                   const isOngoing = !war.end_at || war.end_at === 0
                   return (
                     <button
@@ -134,17 +143,17 @@ function HitReportPanel({ attacks, factionLookup, factionFilter, setFactionFilte
     for (const a of attacks) {
       const isIncoming = a.is_incoming === true || a.is_incoming === 'true' || a.is_incoming === 1
       if (isIncoming) {
-        if (a.defender_faction_id === OUR_FACTION_ID && a.attacker_faction_id) ids.add(Number(a.attacker_faction_id))
+        if (a.defender_faction_id === getFactionId() && a.attacker_faction_id) ids.add(Number(a.attacker_faction_id))
       } else {
-        if (a.attacker_faction_id === OUR_FACTION_ID && a.defender_faction_id) ids.add(Number(a.defender_faction_id))
+        if (a.attacker_faction_id === getFactionId() && a.defender_faction_id) ids.add(Number(a.defender_faction_id))
       }
     }
     const oppId = opponentId ? Number(opponentId) : null
     return [...ids].sort((a, b) => {
       if (a === oppId) return -1
       if (b === oppId) return 1
-      if (a === OUR_FACTION_ID) return -1
-      if (b === OUR_FACTION_ID) return 1
+      if (a === getFactionId()) return -1
+      if (b === getFactionId()) return 1
       const na = factionLookup.get(a)?.name || `Faction #${a}`
       const nb = factionLookup.get(b)?.name || `Faction #${b}`
       return na.localeCompare(nb)
@@ -552,7 +561,7 @@ export default function WarPayoutManagement() {
         loadWarContributions(war.id),
         loadFactionAttacksByWindow(war.start_at, war.end_at),
       ])
-      const ourContribs = contribs.filter(c => c.faction_id === OUR_FACTION_ID)
+      const ourContribs = contribs.filter(c => c.faction_id === getFactionId())
       setAttacks(warAttacks)
 
       if (ourContribs.length === 0) {
@@ -561,7 +570,7 @@ export default function WarPayoutManagement() {
         // already derives all scoring from attacks — can run a live preview. Save
         // stays disabled until the official report lands.
         const liveContribs = await loadLiveContributionsFromAttacks(war)
-        setContributions(liveContribs.filter(c => c.faction_id === OUR_FACTION_ID))
+        setContributions(liveContribs.filter(c => c.faction_id === getFactionId()))
         setContributionSource('live')
         setDiscrepancy(null)
       } else {

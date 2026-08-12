@@ -97,13 +97,29 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
     return { members: res.rows }
   })
 
+  /**
+   * A saved payout week's crimes — WITH their slots (#391).
+   *
+   * Slots were omitted here, so the Crime Statistics panel reported
+   * "0 participants" for every archived week and the expand showed "no data".
+   * The live calculator path (/api/payouts/crime-data) always returned them,
+   * which is why the panel worked while building a payout and broke the moment
+   * you reopened one — i.e. exactly when someone is auditing who was in what.
+   *
+   * Slots are returned flat, keyed by crime_id, matching the live path's shape
+   * so the client can share one shaper across both.
+   */
   app.get('/api/payouts/weeks/:id/crimes', { preHandler: requireAuth() }, async (req) => {
     const { id } = req.params as { id: string }
     const res = await db.query(
       'SELECT * FROM crimes WHERE payout_week_id = $1 ORDER BY executed_at DESC',
       [id]
     )
-    return { crimes: res.rows }
+    const crimeIds = res.rows.map((c: any) => c.crime_id)
+    const slots = crimeIds.length > 0
+      ? await db.query('SELECT * FROM crime_slots WHERE crime_id = ANY($1)', [crimeIds])
+      : { rows: [] }
+    return { crimes: res.rows, slots: slots.rows }
   })
 
   // The calculator's input: crimes relevant to a payout window (the four

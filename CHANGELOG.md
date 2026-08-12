@@ -17,6 +17,47 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.19.0] - 2026-08-12
+
+### Fixed
+
+- **RW Payout Management worked only on Forge (#393).** Every other tenant got
+  *"No contribution data available for this war"* on wars that had synced
+  perfectly well. `WarPayoutManagement` and `RWPayoutsView` read the tenant's
+  faction id into a **module-scope constant**, which evaluates when the module
+  is imported — during app startup, before `/api/bootstrap` has answered. So it
+  captured the `config.js` fallback (Forge, `10739`), and the contribution
+  filter discarded every row belonging to the actual tenant.
+
+  This was a **re-occurrence of #249**, which fixed the same symptom by
+  replacing hardcoded `10739` literals with `getFactionId()` calls — two of
+  which landed at module scope, where the call returns the fallback, which is
+  the same literal. The bug was relocated, not removed.
+
+  No configuration could have fixed it: one nginx image serves every tenant
+  from a single bundle, so a build-time `VITE_FACTION_ID` is necessarily wrong
+  for four of five factions. Identity has to come from the runtime bootstrap.
+
+  Identity is now read at use time. Two guards stop a third occurrence: a
+  dev-only warning when identity is read before bootstrap resolves, and a test
+  that **scans `frontend/src` for module-scope captures** and fails naming the
+  file and line. The scanner was verified by reintroducing the bug and watching
+  it fail.
+
+- **Crime Statistics showed "0 participants" for saved payout weeks (#391).**
+  `GET /api/payouts/weeks/:id/crimes` returned crimes without their slots, so
+  the client hardcoded an empty array and the participant list rendered as "no
+  data". The live calculator always had slots, which is why this only broke on
+  **reopening** a saved payout — exactly when someone is auditing who was in
+  what. The endpoint now returns slots, and both paths share one slot shaper so
+  they cannot drift apart again.
+
+### Added
+
+- **`isFactionIdentityResolved()`** — lets a call site distinguish a genuine
+  per-tenant bootstrap from the pre-load fallback, rather than silently
+  rendering another faction's identity.
+
 ## [3.18.1] - 2026-08-09
 
 ### Fixed
