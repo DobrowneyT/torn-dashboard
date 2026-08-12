@@ -100,6 +100,14 @@ export async function syncWarRoomMemberStates(
   for (const m of enemy.members ?? []) fresh.set(Number(m.id), { faction_id: enemyId, m })
   for (const m of ours.members ?? []) fresh.set(Number(m.id), { faction_id: ourId, m })
 
+  // When we last swept the whole roster — read BEFORE writing anything, since
+  // the #330 guard below asks "were we watching just now?" and the answer must
+  // be about the previous sweep, not this one.
+  const prev = await db.query(
+    'SELECT last_roster_sync_at FROM war_room_config_v2 WHERE id = 1'
+  )
+  const lastSyncAt: string | null = prev.rows[0]?.last_roster_sync_at ?? null
+
   const changed: any[] = []
   for (const [memberId, { faction_id, m }] of fresh) {
     const state = memberState(m)
@@ -115,16 +123,25 @@ export async function syncWarRoomMemberStates(
          travel_departed_at = CASE
            -- Landed, or never left: nothing to count from.
            WHEN EXCLUDED.state->'status'->>'state' <> 'Traveling' THEN NULL
-           -- Took off, and we were watching closely enough to believe it. The
-           -- freshness check is what makes this trustworthy: without it, the
-           -- first tick after the board was off (disabled, cadence 0, restart)
-           -- reads a member who departed hours ago as having just left, and
-           -- produces a confidently wrong arrival time. Wrong is worse than
-           -- absent here — a lead waits on it and wastes the window.
+           -- Took off, and the BOARD was watching closely enough to believe
+           -- it. Without a freshness check the first tick after the board was
+           -- off (disabled, cadence 0, restart) reads a member who departed
+           -- hours ago as having just left, and produces a confidently wrong
+           -- arrival time. Wrong is worse than absent — a lead waits on it.
+           --
+           -- The check is against the ROSTER SYNC marker, not this row's
+           -- updated_at. That was the bug: a row is only written when a member
+           -- CHANGES, so an offline member sitting idle stops advancing their
+           -- updated_at while we poll them every second — and their eventual
+           -- take-off was then discarded as unwitnessed. Which is every
+           -- take-off, because "idle, then travels" is what travelling looks
+           -- like from the roster's point of view.
            WHEN war_room_state_v2.state->'status'->>'state' IS DISTINCT FROM 'Traveling'
-                AND war_room_state_v2.updated_at > now() - interval '120 seconds'
+                AND $7::timestamptz IS NOT NULL
+                AND $7::timestamptz > now() - interval '120 seconds'
              THEN now()
-           -- Took off, but our last look was too long ago to trust the edge.
+           -- Took off, but our last sweep of the roster was too long ago to
+           -- trust the edge.
            WHEN war_room_state_v2.state->'status'->>'state' IS DISTINCT FROM 'Traveling'
              THEN NULL
            -- Still in the air: keep the departure we already latched.
@@ -136,7 +153,8 @@ export async function syncWarRoomMemberStates(
           OR war_room_state_v2.faction_id IS DISTINCT FROM EXCLUDED.faction_id
           OR war_room_state_v2.deleted_at IS NOT NULL
        RETURNING *`,
-      [memberId, faction_id, m.name, m.level ?? null, m.position ?? null, JSON.stringify(state)]
+      [memberId, faction_id, m.name, m.level ?? null, m.position ?? null, JSON.stringify(state),
+       lastSyncAt]
     )
     if (res.rows.length > 0) changed.push(res.rows[0])
   }
@@ -150,6 +168,19 @@ export async function syncWarRoomMemberStates(
     [[enemyId, ourId], [...fresh.keys()]]
   )
   changed.push(...gone.rows)
+
+  // Mark the sweep complete. Written LAST and unconditionally: it records that
+  // we looked at the whole roster, which is true whether or not anybody
+  // changed — the distinction the per-member updated_at could not make.
+  // Upsert, not UPDATE: the sync is also driven directly by the lifecycle
+  // baseline and by tests, where the config row may not exist yet. An UPDATE
+  // would silently affect zero rows and the marker would stay null forever,
+  // which reads as "never watching" and suppresses every departure.
+  await db.query(
+    `INSERT INTO war_room_config_v2 (id, last_roster_sync_at) VALUES (1, now())
+     ON CONFLICT (id) DO UPDATE SET last_roster_sync_at = now()`
+  )
+
   return changed
 }
 

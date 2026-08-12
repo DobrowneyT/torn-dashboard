@@ -596,7 +596,10 @@ CREATE TABLE public.war_room_config_v2 (
   surge_revive_our_window_sec integer DEFAULT 300 NOT NULL,
   surge_revive_cooldown_sec integer DEFAULT 600 NOT NULL,
   member_stats_poll_interval_sec integer DEFAULT 0 NOT NULL,
-  roster_poll_interval_ms integer DEFAULT 1000 NOT NULL
+  roster_poll_interval_ms integer DEFAULT 1000 NOT NULL,
+  -- When the roster sync last ran (#330 fix). Board liveness is a property of
+  -- the board, not of any one member's row — see db/migrations/0033.
+  last_roster_sync_at timestamp with time zone
 );
 
 -- #336: live energy + cooldowns for our own members. Separate from
