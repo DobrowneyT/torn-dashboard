@@ -20,6 +20,7 @@ export function parsePushTarget(text) {
 export function pushTargetEpoch(hhmm, now = new Date()) {
   const [h, m] = String(hhmm).split(':').map(Number)
   if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null
+  // db-time-safe: copies the caller-supplied Date.
   const t = new Date(now)
   t.setHours(h, m, 0, 0)
   if (t.getTime() <= now.getTime()) t.setDate(t.getDate() + 1)

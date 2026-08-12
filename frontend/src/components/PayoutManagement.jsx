@@ -22,8 +22,6 @@ import {
   exportPayoutsToCSV,
   exportPayoutFilename,
   generateBatchPayoutURL,
-  parsePayoutCSV,
-  parsePayoutXLSX,
   getCrimeStats,
   weekCrimeRowsToMap,
   PAYOUT_MODES,
@@ -31,9 +29,8 @@ import {
 } from '../utils/payoutCalculations'
 import { useFactionIdentity } from '../utils/factionIdentity'
 import { enrichItemBreakdown } from '../utils/lookupHelpers'
-import { importPayoutCSV } from '../utils/csvPayoutImport'
 import CrimeStatsView from './CrimeStatsView'
-import ImportPreviewModal from './ImportPreviewModal'
+import { fmtDbTime } from '../utils/time'
 import { X } from 'lucide-react'
 
 /**
@@ -159,9 +156,6 @@ export default function PayoutManagement() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
 
-  // CSV/XLSX import
-  const [importingCSV, setImportingCSV] = useState(false)
-  const [importPreviewData, setImportPreviewData] = useState(null)
 
   // Item breakdown state
   const [showItemRewards, setShowItemRewards] = useState(false)
@@ -576,7 +570,7 @@ export default function PayoutManagement() {
       if (existing) {
         const confirmOverwrite = window.confirm(
           `A payout for this week (${fromDate} to ${toDate}) already exists.\n\n` +
-          `Saved on: ${existing.saved_at ? new Date(existing.saved_at).toLocaleString() : 'unknown'}\n` +
+          `Saved on: ${fmtDbTime(existing.saved_at)}\n` +
           `Members: ${existing.member_count || 'N/A'}\n` +
           `Total payout: $${(existing.member_payout_total || 0).toLocaleString()}\n\n` +
           `Do you want to overwrite it?`
@@ -677,196 +671,6 @@ export default function PayoutManagement() {
     })
   }
 
-  async function handleImportFile(event) {
-    const file = event.target.files[0]
-    if (!file) return
-
-    setImportingCSV(true)
-
-    try {
-      // Parse week start from filename: "20251215-..." or "2025-12-15-..."
-      let year, month, day
-      const dateMatch8 = file.name.match(/^(\d{4})(\d{2})(\d{2})/)
-      const dateMatchDash = file.name.match(/^(\d{4})-(\d{2})-(\d{2})/)
-
-      if (dateMatch8) {
-        year = parseInt(dateMatch8[1])
-        month = parseInt(dateMatch8[2]) - 1
-        day = parseInt(dateMatch8[3])
-      } else if (dateMatchDash) {
-        year = parseInt(dateMatchDash[1])
-        month = parseInt(dateMatchDash[2]) - 1
-        day = parseInt(dateMatchDash[3])
-      } else {
-        throw new Error('Filename must start with a date in YYYYMMDD or YYYY-MM-DD format')
-      }
-
-      const weekStart = new Date(Date.UTC(year, month, day, 0, 0, 0, 0))
-      const weekEnd = new Date(weekStart)
-      weekEnd.setUTCDate(weekEnd.getUTCDate() + 6)
-      weekEnd.setUTCHours(23, 59, 59, 999)
-
-      const weekStartStr = weekStart.toISOString().split('T')[0]
-      const weekEndStr = weekEnd.toISOString().split('T')[0]
-      const weekStartTs = Math.floor(weekStart.getTime() / 1000)
-      const weekEndTs = Math.floor(weekEnd.getTime() / 1000)
-
-      let parsed
-      const isXLSX = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')
-
-      if (isXLSX) {
-        const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs')
-        const arrayBuffer = await file.arrayBuffer()
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-
-        const payoutSheetName = workbook.SheetNames.find(
-          n => n.toLowerCase().includes('payout') && n.toLowerCase().includes('calc')
-        ) || workbook.SheetNames.find(
-          n => n.toLowerCase().includes('payout')
-        )
-
-        if (!payoutSheetName) {
-          throw new Error('Could not find a Payout_Calculator sheet in the workbook. Available sheets: ' + workbook.SheetNames.join(', '))
-        }
-
-        const payoutSheet = workbook.Sheets[payoutSheetName]
-        const payoutRows = XLSX.utils.sheet_to_json(payoutSheet, { header: 1, defval: null })
-
-        const itemSheetName = workbook.SheetNames.find(
-          n => n.toLowerCase().includes('item_outcome')
-        ) || workbook.SheetNames.find(
-          n => n.toLowerCase() === 'items'
-        )
-
-        let itemRows = null
-        if (itemSheetName) {
-          const itemSheet = workbook.Sheets[itemSheetName]
-          itemRows = XLSX.utils.sheet_to_json(itemSheet, { header: 1, defval: null })
-        }
-
-        parsed = parsePayoutXLSX(payoutRows, itemRows, weekStartStr, weekEndStr)
-      } else {
-        const text = await file.text()
-        parsed = parsePayoutCSV(text, weekStartStr, weekEndStr)
-      }
-
-      if (parsed.members.length === 0) {
-        throw new Error('No valid member data found in the file')
-      }
-
-      // Show preview modal instead of saving immediately
-      setImportPreviewData({
-        weekStart: weekStartStr,
-        weekEnd: weekEndStr,
-        weekStartTs,
-        weekEndTs,
-        members: parsed.members,
-        totalPayout: parsed.totalPayout,
-        totalTime: parsed.totalTime,
-        totalTickets: parsed.totalTickets,
-        memberCount: parsed.memberCount,
-        itemOutcomes: parsed.itemOutcomes,
-        fileType: isXLSX ? 'XLSX' : 'CSV',
-      })
-
-    } catch (err) {
-      console.error('Error importing file:', err)
-      alert(`Failed to import file: ${err.message}`)
-    } finally {
-      setImportingCSV(false)
-      event.target.value = ''
-    }
-  }
-
-  async function handleConfirmImport() {
-    if (!importPreviewData) return
-
-    const {
-      weekStart: weekStartStr, weekEnd: weekEndStr,
-      weekStartTs, weekEndTs,
-      members: parsedMembers, totalPayout, totalTime,
-      totalTickets, memberCount, itemOutcomes, fileType,
-    } = importPreviewData
-
-    try {
-      // Check for existing week
-      const existing = await checkExistingWeek(weekStartStr, weekEndStr)
-      if (existing) {
-        const confirmOverwrite = window.confirm(
-          `A payout for this week (${weekStartStr} to ${weekEndStr}) already exists.\n\n` +
-          `Do you want to overwrite it?`
-        )
-        if (!confirmOverwrite) {
-          setImportPreviewData(null)
-          return
-        }
-      }
-
-      // Find crimes executed in this date range to link. The window endpoint
-      // returns a superset (lookback/in-progress) plus related item rows.
-      const windowData = await apiGet(`/api/payouts/crime-data?from=${weekStartTs}&to=${weekEndTs}`)
-      const successfulInWindow = (windowData.crimes || []).filter(c =>
-        c.status === 'Successful' && c.executed_at >= weekStartTs && c.executed_at < weekEndTs
-      )
-      const crimeIds = successfulInWindow.map(c => c.crime_id)
-      const idSet = new Set(crimeIds)
-
-      let totalMoneyReward = 0
-      let totalItemReward = 0
-      let totalItemCost = 0
-
-      if (crimeIds.length > 0) {
-        totalMoneyReward = successfulInWindow.reduce((sum, c) => sum + (c.rewards_money || 0), 0)
-        totalItemReward = (windowData.reward_items || [])
-          .filter(i => idSet.has(i.crime_id))
-          .reduce((sum, i) => sum + (i.unit_value * i.quantity), 0)
-        totalItemCost = (windowData.required_items || [])
-          .filter(i => idSet.has(i.crime_id) && i.was_consumed)
-          .reduce((sum, i) => sum + (i.unit_value || 0), 0)
-      }
-
-      if (itemOutcomes && totalItemReward === 0 && totalItemCost === 0) {
-        totalItemReward = itemOutcomes.rewardsTotal || 0
-        totalItemCost = itemOutcomes.usedTotal || 0
-      }
-
-      const grossTotal = totalMoneyReward + totalItemReward - totalItemCost
-      const factionCutAmount = Math.floor(grossTotal * 0.20)
-
-      const weekData = {
-        week_start: weekStartStr,
-        week_end: weekEndStr,
-        week_start_timestamp: weekStartTs,
-        week_end_timestamp: weekEndTs,
-        total_money_reward: totalMoneyReward,
-        total_item_reward: totalItemReward,
-        total_item_cost: totalItemCost,
-        net_item_value: totalItemReward - totalItemCost,
-        faction_cut_percent: 20,
-        faction_cut_amount: factionCutAmount,
-        member_payout_total: totalPayout,
-        crimes_processed: crimeIds.length,
-        total_time_spent: totalTime,
-        average_time_spent: memberCount > 0 ? Math.floor(totalTime / memberCount) : 0,
-        total_adjusted_tickets: totalTickets
-      }
-
-      await savePayoutWeek(weekData, parsedMembers, crimeIds, `${user.name} (${fileType} Import)`, user.apiKey)
-
-      alert(`Successfully imported ${memberCount} member payouts from ${fileType} for week of ${weekStartStr}`)
-
-      if (showHistory) {
-        loadHistoricalPayouts()
-      }
-
-    } catch (err) {
-      console.error('Error importing file:', err)
-      alert(`Failed to import file: ${err.message}`)
-    } finally {
-      setImportPreviewData(null)
-    }
-  }
-
   async function handleLoadHistoricalWeek(weekId) {
     try {
       // Load the week directly by id (not limited to the newest page)
@@ -882,7 +686,10 @@ export default function PayoutManagement() {
       if (crimeIds.length > 0) {
         // The window endpoint returns item rows for a superset of the linked
         // crimes; filter down to exactly the linked ids.
+        // db-time-safe: week_start/week_end are DATE columns ("2026-08-03"),
+        // which parse as UTC midnight — no offset to mangle.
         const fromTs = weekData.week_start_timestamp ?? Math.floor(new Date(weekData.week_start).getTime() / 1000)
+        // db-time-safe: DATE column, as above.
         const toTs = weekData.week_end_timestamp ?? (Math.floor(new Date(weekData.week_end).getTime() / 1000) + 86400)
         const windowData = await apiGet(`/api/payouts/crime-data?from=${fromTs}&to=${toTs}`)
         const idSet = new Set(crimeIds)
@@ -1146,16 +953,6 @@ export default function PayoutManagement() {
           >
             {showHistory ? 'Hide' : 'View'} History
           </button>
-          <label className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm cursor-pointer">
-            {importingCSV ? 'Importing...' : 'Import CSV/XLSX'}
-            <input
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              onChange={handleImportFile}
-              className="hidden"
-              disabled={importingCSV}
-            />
-          </label>
         </div>
 
         <button
@@ -1592,18 +1389,8 @@ export default function PayoutManagement() {
             <li>Review the Payout Summary and Member Payouts table</li>
             <li>Compare Actual Payout vs Theoretical Payout per member</li>
             <li>Click "Save to Database" to store the payout with crime links</li>
-            <li>Use "Import CSV" to import historical payout sheets</li>
           </ol>
         </div>
-      )}
-
-      {/* Import Preview Modal */}
-      {importPreviewData && (
-        <ImportPreviewModal
-          data={importPreviewData}
-          onConfirm={handleConfirmImport}
-          onCancel={() => setImportPreviewData(null)}
-        />
       )}
     </div>
   )

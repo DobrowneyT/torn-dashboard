@@ -4,6 +4,7 @@ import { config } from '../config'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { X } from 'lucide-react'
 import { apiGet, apiPost, apiPut } from '../utils/apiClient'
+import { parseDbTime } from '../utils/time'
 
 export default function InventoryManagement() {
   const { user } = useAuth()
@@ -43,7 +44,7 @@ export default function InventoryManagement() {
 
       setInventoryItems(inventory.items || [])
       if (inventory.last_sync) {
-        setLastSync(new Date(inventory.last_sync))
+        setLastSync(parseDbTime(inventory.last_sync))
       }
 
       // Populate factionMembers map from DB so loaned items show names, not "Unknown"

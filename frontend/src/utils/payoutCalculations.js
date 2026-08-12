@@ -99,18 +99,21 @@ const MIN_TIME_FOR_ANY_PAYOUT = 48 * 3600     // 48 hours = 172,800 seconds
  */
 export function getWeekRangeFromDate(date) {
   // Create date in UTC
+  // db-time-safe: `date` is a Date or a DATE-column string ("2026-08-03").
   const d = new Date(date)
 
   // Get day of week in UTC (0 = Sunday, 1 = Monday, etc.)
   const dayOfWeek = d.getUTCDay()
 
   // Calculate Monday of this week in UTC
+  // db-time-safe: Date copy.
   const monday = new Date(d)
   const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1
   monday.setUTCDate(d.getUTCDate() - daysToSubtract)
   monday.setUTCHours(0, 0, 0, 0)
 
   // Sunday is 6 days after Monday, ends at 23:59:59.999
+  // db-time-safe: Date copy.
   const sunday = new Date(monday)
   sunday.setUTCDate(monday.getUTCDate() + 6)
   sunday.setUTCHours(23, 59, 59, 999)
@@ -138,6 +141,7 @@ export function getCurrentWeekRange() {
  */
 export function getPreviousWeekRange() {
   const currentWeek = getCurrentWeekRange()
+  // db-time-safe: Date copy.
   const previousMonday = new Date(currentWeek.monday)
   previousMonday.setUTCDate(previousMonday.getUTCDate() - 7)
   return getWeekRangeFromDate(previousMonday)
@@ -147,6 +151,7 @@ export function getPreviousWeekRange() {
  * Format a date to YYYY-MM-DD in UTC
  */
 export function formatDateUTC(date) {
+  // db-time-safe: `date` is a Date or a DATE-column string.
   const d = new Date(date)
   const year = d.getUTCFullYear()
   const month = String(d.getUTCMonth() + 1).padStart(2, '0')

@@ -17,6 +17,33 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.23.0] - 2026-08-12
+
+### Added
+- RW Payout Management: saved payouts now list in the same table as OC Historical
+  Payouts — total payout, members, opposing faction, faction cut, saved by — with
+  **Load** and **Delete** per row. Loading restores the payout's settings, reselects
+  its war and recalculates, so the batch URL can be regenerated. The recalculation
+  is compared against the saved sheet and any drift is reported, because a batch URL
+  that silently disagrees with what was already paid sends the wrong amounts.
+- `GET /api/war-payouts` and `/api/wars/:id/payouts` join the war they belong to
+  (`war_opponent_name`, `war_opponent_id`, `war_start_at`, `war_end_at`).
+
+### Fixed
+- RW payout history showed **"Invalid Date"** on every row (#140). `new Date` returns
+  NaN on the bare `+00` offset Postgres serves, the same trap as #330.
+- The #140 scanner only checked `Date.parse`, missing `new Date(str)` — the same
+  parser, and the spelling the codebase actually used. Widening it found five more
+  live instances: mobile War Room stat age (never displayed), Key Pool "last claimed"
+  sorting (never ordered), War Overview last-ingest times (always zero), the OC
+  overwrite confirmation, and the inventory last-sync time (read as local, not UTC).
+- `parseBoundary` no longer re-implements the #140 offset repair; it delegates to
+  `parseDbTime`, which is where the timestamp-without-tz case was fixed.
+
+### Removed
+- OC Payout Management: the **Import CSV/XLSX** button and its import flow
+  (`ImportPreviewModal`, `csvPayoutImport`), unused since the self-hosted cutover.
+
 ## [3.22.5] - 2026-08-12
 
 ### Fixed

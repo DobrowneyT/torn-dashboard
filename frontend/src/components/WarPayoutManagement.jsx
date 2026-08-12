@@ -2,7 +2,14 @@ import { useState, useEffect, useMemo } from 'react'
 import { getFactionId } from '../utils/factionIdentity'
 import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions, loadLiveContributionsFromAttacks, loadFactionAttacksByWindow, loadWarPayouts, loadRecentWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
-import { apiPost, apiDelete } from '../utils/apiClient'
+import { apiGet, apiPost, apiDelete } from '../utils/apiClient'
+import WarPayoutHistory from './WarPayoutHistory'
+import {
+  restoredWarPayoutSettings,
+  restoredEligibilityOverrides,
+  restoredMultiplierOverrides,
+  driftAgainst,
+} from '../utils/warPayoutHistory'
 import {
   calculateRaceWarPayouts,
   detectRaceCutoff,
@@ -437,6 +444,12 @@ export default function WarPayoutManagement() {
   const [historicalPayouts, setHistoricalPayouts] = useState([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  // Reloading a saved payout. `pendingRestore` hands the recalculation to an
+  // effect so it sees the restored settings rather than the pre-load render's;
+  // `loadedPayout` is what the banner reports, drift included.
+  const [pendingRestore, setPendingRestore] = useState(null)
+  const [loadedPayout, setLoadedPayout] = useState(null)
+  const [loadError, setLoadError] = useState(null)
 
   // Results table sort
   const [sortCol, setSortCol] = useState('payout')
@@ -522,6 +535,8 @@ export default function WarPayoutManagement() {
     setSaveError(null)
     setShowHistory(false)
     setHistoricalPayouts([])
+    setLoadedPayout(null)
+    setLoadError(null)
 
     setTotalReward(0)
     setNotes('')
@@ -614,7 +629,9 @@ export default function WarPayoutManagement() {
     }
   }
 
-  async function handleDeleteWarPayout(payout) {
+  async function handleDeleteWarPayout(payoutId) {
+    const payout = historicalPayouts.find(p => p.id === payoutId)
+    if (!payout) return
     if (!confirm(`Delete this saved ${payout.war_type} payout for War #${payout.war_id}? This removes all member records for it and cannot be undone.`)) return
     try {
       await apiDelete(`/api/war-payouts/${payout.id}`)
@@ -625,18 +642,126 @@ export default function WarPayoutManagement() {
     }
   }
 
-  async function handleLoadHistory() {
+  async function refreshHistory() {
     setLoadingHistory(true)
     try {
-      const data = await loadRecentWarPayouts(20)
-      setHistoricalPayouts(data)
-      setShowHistory(s => !s)
+      setHistoricalPayouts(await loadRecentWarPayouts(20))
     } catch (err) {
       console.error('Error loading history:', err)
     } finally {
       setLoadingHistory(false)
     }
   }
+
+  // Toggle the history panel. Only fetches on the way OPEN — the old version
+  // re-fetched on close too, which showed a spinner on a panel about to vanish.
+  async function handleToggleHistory() {
+    if (showHistory) {
+      setShowHistory(false)
+      return
+    }
+    setShowHistory(true)
+    await refreshHistory()
+  }
+
+  /**
+   * Reload a saved payout: put its settings back on the form, reselect its
+   * war, and recalculate.
+   *
+   * This RECALCULATES rather than replaying the stored member rows, and that
+   * is deliberate. A payout can only be saved once Torn has published the war
+   * report, and both inputs to the calc — the official contributions and the
+   * attack log — are immutable after that, so a recalculation of a finished
+   * war reproduces the saved sheet exactly. Recalculating gets a complete,
+   * internally consistent results table (pools, per-window breakdowns, the hit
+   * report) instead of the partial one that stored rows alone could fill.
+   *
+   * "Exactly" is checked, not assumed: `driftAgainst` compares the recomputed
+   * sheet with what was saved and warns on any difference. Regenerating a
+   * batch URL that quietly disagrees with what was already paid would send the
+   * wrong amounts to real people.
+   */
+  async function handleLoadWarPayout(payoutId) {
+    const payout = historicalPayouts.find(p => p.id === payoutId)
+    if (!payout) return
+
+    setLoadError(null)
+    setLoadedPayout(null)
+
+    let war = wars.find(w => w.id === payout.war_id)
+    if (!war) {
+      // The war can sit outside the loaded page of the dropdown.
+      try {
+        war = (await apiGet(`/api/wars/${payout.war_id}`)).war
+      } catch (err) {
+        console.error('Error loading war for saved payout:', err)
+        setLoadError(`War #${payout.war_id} could not be loaded.`)
+        return
+      }
+    }
+
+    // Resets every control to its default and fetches contributions/attacks.
+    await handleSelectWar(war)
+
+    // Then put the saved values on top of those defaults.
+    const s = restoredWarPayoutSettings(payout)
+    setWarClass(s.warClass)
+    setFactionCutPercent(s.factionCutPercent)
+    setTotalReward(s.totalReward)
+    setMinScoreThreshold(s.minScoreThreshold)
+    setNotes(s.notes)
+    setMercCost(s.mercCost)
+    setReviverCost(s.reviverCost)
+    setFactionTopUp(s.factionTopUp)
+    setWarHitMult(s.warHitMult)
+    setAssistMult(s.assistMult)
+    setLossMult(s.lossMult)
+    setMugMult(s.mugMult)
+    setRegularHitMult(s.regularHitMult)
+    setPartWeight(s.partWeight)
+    setRaceTargetScore(s.raceTargetScore)
+    setRaceCutoffMode(s.raceCutoffMode)
+    setRaceCutoffTimestamp(s.raceCutoffTimestamp)
+    setRacePostCutoffMode(s.racePostCutoffMode)
+    setRacePreCutoffPercent(s.racePreCutoffPercent)
+    setPostWarHitMult(s.postWarHitMult)
+    setPostAssistMult(s.postAssistMult)
+    setPostLossMult(s.postLossMult)
+    setPostMugMult(s.postMugMult)
+    setPostRegularHitMult(s.postRegularHitMult)
+    setPostPartWeight(s.postPartWeight)
+    setPostDistMode(s.postDistMode)
+    setPostFlatThreshold(s.postFlatThreshold)
+    setPostScaleEnabled(s.postScaleEnabled)
+    setPostScaleHours(s.postScaleHours)
+
+    const overrides = restoredEligibilityOverrides(payout)
+    setEligibilityOverrides(overrides)
+    setMemberMultiplierOverrides(restoredMultiplierOverrides(payout))
+    setSavedPayoutId(payout.id)
+
+    // Recalculating here would read this render's state, not the values just
+    // queued above. The effect below runs after they commit.
+    setPendingRestore({ payout, overrides })
+  }
+
+  // Second half of handleLoadWarPayout — see the note there on why the
+  // recalculation cannot happen in the same tick.
+  useEffect(() => {
+    if (!pendingRestore) return
+    const { payout, overrides } = pendingRestore
+    setPendingRestore(null)
+
+    const results = computeResults(null, overrides, null, null)
+    if (!results) {
+      setLoadError('Settings were restored, but this war has no contribution data to recalculate from.')
+      return
+    }
+    setPayoutResults(results)
+    setHasCalculated(true)
+    setLoadedPayout({ payout, drift: driftAgainst(payout, results.members) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingRestore])
 
   // Filter outgoing attacks by the opposing-faction filter (defender_faction_id).
   // Incoming attacks are not used in payout calc but we keep them for completeness.
@@ -732,6 +857,10 @@ export default function WarPayoutManagement() {
     const results = computeResults(factionFilter)
     if (!results) return
 
+    // Recalculating by hand detaches from whatever was loaded — the banner
+    // must not keep claiming these numbers came from a saved payout.
+    setLoadedPayout(null)
+    setLoadError(null)
     setPayoutResults(results)
     setEligibilityOverrides({})
     setHasCalculated(true)
@@ -1230,7 +1359,7 @@ export default function WarPayoutManagement() {
           <h3 className="font-semibold text-gray-900 dark:text-white">Payout Settings</h3>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleLoadHistory}
+              onClick={handleToggleHistory}
               disabled={loadingHistory}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                 showHistory
@@ -1238,7 +1367,7 @@ export default function WarPayoutManagement() {
                   : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700'
               }`}
             >
-              {loadingHistory ? 'Loading...' : 'View History'}
+              {loadingHistory ? 'Loading...' : showHistory ? 'Hide History' : 'View History'}
             </button>
           </div>
         </div>
@@ -1741,6 +1870,47 @@ export default function WarPayoutManagement() {
         )}
       </div>
 
+      {loadError && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+          <p className="text-sm text-amber-700 dark:text-amber-400">{loadError}</p>
+        </div>
+      )}
+
+      {/* Reloaded from history. The drift line is the point of the banner: a
+          batch URL regenerated from a sheet that no longer matches what was
+          paid is worse than no URL at all. */}
+      {loadedPayout && (
+        <div className={`rounded-lg border p-3 ${
+          loadedPayout.drift.matches
+            ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+            : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+        }`}>
+          <p className={`text-sm ${
+            loadedPayout.drift.matches
+              ? 'text-blue-700 dark:text-blue-400'
+              : 'text-amber-700 dark:text-amber-400'
+          }`}>
+            {loadedPayout.drift.matches ? (
+              <>
+                Loaded the saved <span className="capitalize">{loadedPayout.payout.war_type}</span> payout
+                for War #{loadedPayout.payout.war_id}. The recalculation matches it exactly
+                ({formatCurrency(loadedPayout.drift.savedTotal)}), so Generate Batch URL reproduces
+                the URL that was saved.
+              </>
+            ) : (
+              <>
+                Loaded the saved payout for War #{loadedPayout.payout.war_id}, but recalculating it
+                today gives {formatCurrency(loadedPayout.drift.recomputedTotal)} against
+                the {formatCurrency(loadedPayout.drift.savedTotal)} that was saved
+                — {loadedPayout.drift.changed.length} member
+                {loadedPayout.drift.changed.length === 1 ? '' : 's'} differ.
+                A batch URL generated now will <strong>not</strong> match what was already paid.
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
       {/* Results — appears once a war is loaded so the Hit Report is accessible without calculating */}
       {selectedWar && !loadingWarData && attacks.length > 0 && (
         <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
@@ -2156,73 +2326,17 @@ export default function WarPayoutManagement() {
         </div>
       )}
 
-      {/* Historical payouts */}
+      {/* Saved payout history — same table shape as OC Payout Management. */}
       {showHistory && (
-        <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
-            <h3 className="font-semibold text-gray-900 dark:text-white">
-              Recent Saved Payouts
-            </h3>
-            <button
-              onClick={() => setShowHistory(false)}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm"
-            >
-              ✕
-            </button>
-          </div>
-          {historicalPayouts.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400 text-center">
-              No saved payouts yet.
-            </p>
-          ) : (
-            <div className="divide-y divide-gray-100 dark:divide-slate-700">
-              {historicalPayouts.map(payout => {
-                const memberCount = payout.war_payout_members?.length || 0
-                const eligCount = payout.war_payout_members?.filter(m => m.is_eligible).length || 0
-                const total = payout.war_payout_members?.reduce(
-                  (s, m) => s + (m.is_eligible ? Number(m.payout_amount) : 0), 0
-                ) || 0
-                return (
-                  <div key={payout.id} className="px-4 py-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <div>
-                        <span className="font-medium text-gray-900 dark:text-white capitalize">
-                          {payout.war_type} war
-                        </span>
-                        <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
-                          (War #{payout.war_id})
-                        </span>
-                        <span className="ml-2 text-gray-500 dark:text-gray-400">
-                          {new Date(payout.created_at).toLocaleDateString()} by {payout.created_by}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className="font-semibold text-green-700 dark:text-green-400">
-                            {formatCurrency(total)}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {eligCount}/{memberCount} members
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteWarPayout(payout)}
-                          className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                    {payout.notes && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{payout.notes}</p>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+        <WarPayoutHistory
+          payouts={historicalPayouts}
+          loading={loadingHistory}
+          onRefresh={refreshHistory}
+          onLoad={handleLoadWarPayout}
+          onDelete={handleDeleteWarPayout}
+        />
       )}
+
     </div>
   )
 }

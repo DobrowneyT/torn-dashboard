@@ -2,6 +2,7 @@
 // the create form offers an optional time-of-day, and the display shows the
 // exact time in Torn City Time (TCT = UTC). Date-only boundaries (start-of-day /
 // end-of-day) hide the time to keep the common case clean.
+import { parseDbTime } from './time'
 
 // Build the value to submit for a boundary: a full ISO timestamp when a
 // time-of-day is given, otherwise the bare date (the API maps a date to
@@ -13,13 +14,15 @@ export function boundaryValue(date, time) {
 
 // Parse a stored boundary (ISO from the API, or Postgres timestamptz text) to a
 // Date, or null.
+//
+// This used to re-implement parseDbTime's offset repair inline. Two copies of
+// the #140 fix is one copy too many — when the without-tz case was added to
+// parseDbTime, this one did not get it — so it delegates now and keeps only
+// the part that is specific to boundaries: psql's space separator.
 export function parseBoundary(v) {
   if (!v) return null
-  let s = String(v)
-  if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T') // PG "date time" → ISO
-  s = s.replace(/([+-]\d{2})$/, '$1:00')                            // bare ±HH offset → ±HH:MM
-  const d = new Date(s)
-  return Number.isNaN(d.getTime()) ? null : d
+  const s = String(v)
+  return parseDbTime(s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s)
 }
 
 const pad = (n) => String(n).padStart(2, '0')

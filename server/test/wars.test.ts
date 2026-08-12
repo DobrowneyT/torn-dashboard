@@ -247,6 +247,37 @@ describe('war payout history', () => {
     expect(body.payouts[0].war_payout_members).toHaveLength(2)
   })
 
+  it('carries the war we fought, so history can name the opponent', async () => {
+    // war_payouts stores the calculation, not who it was against. The history
+    // table shows the opponent instead of a bare war id, and refetching every
+    // war client-side to label a list is the shape this join replaces.
+    const { body } = await get('/api/war-payouts?limit=5')
+    const byWar = new Map(body.payouts.map((p: any) => [p.war_id, p]))
+    expect(byWar.get(200).war_opponent_name).toBe('Test Dummies')
+    expect(byWar.get(200).war_opponent_id).toBe(9002)
+    expect(byWar.get(200).war_start_at).toBe(WAR_START)
+    expect(byWar.get(200).war_end_at).toBe(WAR_END)
+    expect(byWar.get(100).war_opponent_name).toBe('Old Rivals')
+  })
+
+  it('still lists a payout whose war row has gone missing', async () => {
+    // LEFT JOIN, deliberately: losing a payout from the history because a
+    // display field is unavailable would be a far worse failure than showing
+    // "Unknown". Nothing deletes ranked_wars today, so this guards the choice.
+    const orphan = await stack.db.query(
+      `INSERT INTO war_payouts (war_id, war_type, faction_cut_percent, notes, created_at)
+       VALUES (300, 'real', 20, 'orphan', '2026-06-03T10:00:00Z') RETURNING id`
+    )
+    await stack.db.query('UPDATE ranked_wars SET opponent_name = NULL WHERE id = 300')
+    const { body } = await get('/api/war-payouts?limit=5')
+    const row = body.payouts.find((p: any) => p.id === orphan.rows[0].id)
+    expect(row).toBeDefined()
+    expect(row.war_opponent_name).toBeNull()
+    expect(row.war_payout_members).toEqual([])
+    await stack.db.query('DELETE FROM war_payouts WHERE id = $1', [orphan.rows[0].id])
+    await stack.db.query(`UPDATE ranked_wars SET opponent_name = 'Fresh Meat' WHERE id = 300`)
+  })
+
   it('DELETE /api/war-payouts/:id removes the payout and its members (leadership only)', async () => {
     const p = await stack.db.query(
       `INSERT INTO war_payouts (war_id, war_type, faction_cut_percent, notes, created_at)

@@ -2,6 +2,7 @@
 // (including synthetic "missing" members that have no key) and sort the table by
 // any column. Null/empty values (a missing member has no level/consent/claim)
 // always sort last, regardless of direction, so populated rows stay together.
+import { parseDbTime } from './time'
 
 export function keyPoolStatus(row) {
   if (row?.missing) return 'missing'
@@ -17,7 +18,7 @@ const ACCESSORS = {
   level: (r) => (r.key_level ?? null),
   consent: (r) => (r.consent_version || '').toLowerCase(),
   status: (r) => keyPoolStatus(r),
-  last_claimed: (r) => (r.last_claimed_at ? new Date(r.last_claimed_at).getTime() : null),
+  last_claimed: (r) => (parseDbTime(r.last_claimed_at)?.getTime() ?? null),
   last_error: (r) => (r.last_error || '').toLowerCase(),
 }
 

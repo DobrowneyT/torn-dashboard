@@ -26,6 +26,7 @@ export function pickOldestInWindow(snapshots, days) {
 }
 
 export function daysBetween(olderDate, newerDate) {
+  // db-time-safe: callers pass snapshot_date, a DATE column ("2026-08-03").
   const a = new Date(olderDate)
   const b = new Date(newerDate)
   return Math.max(1, Math.round((b - a) / DAY_MS))

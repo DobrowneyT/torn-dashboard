@@ -57,6 +57,7 @@ import {
   SlidersHorizontal, ShoppingBag, HeartPulse, Loader2,
 } from 'lucide-react'
 import { farmCompare } from '../utils/warRoomFarmSort'
+import { parseDbTime } from '../utils/time'
 import SpotlightTour from '../components/warroom/SpotlightTour'
 import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
 import { isTourSeen, markTourSeen } from '../utils/warRoomTour'
@@ -240,9 +241,9 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease, note, canEditNo
   const hasBsp = m.bsp != null
   const isTs = m.spySource === 'tornstats'
   const sourceLabel = isTs ? 'TS' : 'BSP'
-  const ageTs = isTs && m.tsSpyAt
-    ? Math.floor(new Date(m.tsSpyAt).getTime() / 1000)
-    : (m.bspFetchedAt ? Math.floor(new Date(m.bspFetchedAt).getTime() / 1000) : null)
+  const ageSource = isTs && m.tsSpyAt ? m.tsSpyAt : m.bspFetchedAt
+  const ageMs = parseDbTime(ageSource)?.getTime() ?? null
+  const ageTs = ageMs === null ? null : Math.floor(ageMs / 1000)
   const ageLabel = ageTs ? formatRelative(ageTs) : '—'
   const breakdownRows = [
     ['STR', m.bspStr],
