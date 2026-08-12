@@ -1,0 +1,355 @@
+{
+  "Ace in the Hole": {
+    "roles": 5,
+    "badEndingCount": 11,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null,
+      "goodEnding7": null,
+      "goodEnding8": null,
+      "goodEnding9": null,
+      "goodEnding10": null
+    }
+  },
+  "Best of the Lot": {
+    "roles": 4,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Bidding War": {
+    "roles": 6,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null
+    }
+  },
+  "Blast from the Past": {
+    "roles": 6,
+    "badEndingCount": 5,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null,
+      "goodEnding7": null,
+      "goodEnding8": null
+    }
+  },
+  "Break the Bank": {
+    "roles": 6,
+    "badEndingCount": 5,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Cash Me if You Can": {
+    "roles": 3,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Clinical Precision": {
+    "roles": 4,
+    "badEndingCount": 7,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null
+    }
+  },
+  "Counter Offer": {
+    "roles": 5,
+    "badEndingCount": 4,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null
+    }
+  },
+  "Crane Reaction": {
+    "roles": 6,
+    "badEndingCount": 8,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Dish It Out": {
+    "roles": 5,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "First Aid and Abet": {
+    "roles": 3,
+    "badEndingCount": 8,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null
+    }
+  },
+  "Gaslight the Way": {
+    "roles": 6,
+    "badEndingCount": 4,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Gone Fission": {
+    "roles": 5,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null
+    }
+  },
+  "Guardian Ángels": {
+    "roles": 3,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null
+    }
+  },
+  "Honey Trap": {
+    "roles": 3,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null
+    }
+  },
+  "Hostile Takeover": {
+    "roles": 6,
+    "badEndingCount": 8,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Leave No Trace": {
+    "roles": 3,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null
+    }
+  },
+  "Lock Stock": {
+    "roles": 5,
+    "badEndingCount": 8,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null
+    }
+  },
+  "Manifest Cruelty": {
+    "roles": 4,
+    "badEndingCount": 8,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null
+    }
+  },
+  "Market Forces": {
+    "roles": 5,
+    "badEndingCount": 5,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null
+    }
+  },
+  "Mob Mentality": {
+    "roles": 4,
+    "badEndingCount": 5,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "No Reserve": {
+    "roles": 3,
+    "badEndingCount": 7,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null
+    }
+  },
+  "Pet Project": {
+    "roles": 3,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Plucking the Lotus Petal": {
+    "roles": 4,
+    "badEndingCount": 10,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null,
+      "goodEnding7": null,
+      "goodEnding8": null,
+      "goodEnding9": null,
+      "goodEnding10": null
+    }
+  },
+  "Smoke and Wing Mirrors": {
+    "roles": 4,
+    "badEndingCount": 7,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Sneaky Git Grab": {
+    "roles": 4,
+    "badEndingCount": 6,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Snow Blind": {
+    "roles": 4,
+    "badEndingCount": 7,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null
+    }
+  },
+  "Stacking the Deck": {
+    "roles": 4,
+    "badEndingCount": 5,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null
+    }
+  },
+  "Stage Fright": {
+    "roles": 6,
+    "badEndingCount": 5,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null
+    }
+  },
+  "Thou Shalt Not Steal": {
+    "roles": 3,
+    "badEndingCount": 5,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null
+    }
+  },
+  "Window of Opportunity": {
+    "roles": 5,
+    "badEndingCount": 10,
+    "payouts": {
+      "goodEnding1": null,
+      "goodEnding2": null,
+      "goodEnding3": null,
+      "goodEnding4": null,
+      "goodEnding5": null,
+      "goodEnding6": null,
+      "goodEnding7": null,
+      "goodEnding8": null,
+      "goodEnding9": null,
+      "goodEnding10": null
+    }
+  }
+}
