@@ -53,10 +53,16 @@ COMPOSE+=(--project-directory deploy)
 
 # Pre-deploy safety dump of every faction DB (local volume; also B2 once
 # RCLONE_REMOTE is wired). A failed dump warns but never blocks the deploy.
+# `timeout` is belt-and-braces on top of rclone's own network limits: this step
+# runs in the FOREGROUND while holding the flock, so anything that hangs here
+# wedges every subsequent auto-deploy — the 5-min cron just logs "another update
+# is already running" and skips, and the stack silently stops updating. That is
+# exactly what a Backblaze maintenance window did for over an hour.
 if [ "${SKIP_BACKUP:-0}" != "1" ]; then
   echo "==> pre-deploy backup"
-  "${COMPOSE[@]}" run --rm -T backup node db/backup.mjs --out /backups \
-    || echo "[warn] pre-deploy backup failed — continuing"
+  timeout "${BACKUP_TIMEOUT:-15m}" \
+    "${COMPOSE[@]}" run --rm -T backup node db/backup.mjs --out /backups \
+    || echo "[warn] pre-deploy backup failed or timed out — continuing (local archives are unaffected)"
 fi
 
 # Idempotent migrations against every LIVE faction DB. `faction_%_dev` copies

@@ -60,3 +60,44 @@ export function selectExpired(names, now, retentionDays) {
     return at !== null && at.getTime() < cutoff
   })
 }
+
+/**
+ * Network-bounding flags for every rclone invocation (#B2-hang).
+ *
+ * Without these, rclone waits indefinitely on an unreachable remote. During a
+ * Backblaze maintenance window that wedged a pre-deploy backup for over an
+ * hour, which in turn held deploy/update.sh's flock, so every subsequent
+ * auto-deploy logged "another update is already running" and skipped. The
+ * stack silently stopped updating with no error anywhere.
+ *
+ * Deliberately short: an upload that has not made progress in two minutes is
+ * not going to, and the LOCAL archive — the one a deploy actually depends on —
+ * is already written by the time we get here.
+ */
+export function rcloneFlags() {
+  return [
+    '--contimeout', '30s',
+    '--timeout', '120s',
+    '--retries', '2',
+    '--low-level-retries', '3',
+  ]
+}
+
+/**
+ * The closing summary line.
+ *
+ * Names failed uploads explicitly rather than letting a local-only run read as
+ * a full success — "6 archived" while the offsite copy silently did not happen
+ * is exactly the kind of quiet half-failure that only surfaces when you need
+ * the backup.
+ */
+export function summarize({ archived, uploadFailures, pruned, retentionDays, remote }) {
+  const parts = [`${archived} archived`]
+  if (remote) {
+    parts.push(uploadFailures === 0
+      ? `${archived} uploaded`
+      : `⚠️ ${uploadFailures} UPLOAD(S) FAILED — local only`)
+  }
+  parts.push(`${pruned} local expired removed (retention ${retentionDays}d)`)
+  return `Backups complete: ${parts.join(', ')}.`
+}
