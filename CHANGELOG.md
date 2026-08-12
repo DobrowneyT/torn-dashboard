@@ -17,6 +17,25 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.20.0] - 2026-08-12
+
+### Added
+- The app version is now shown in the header instead of only in the footer
+  (#394). It carries the tenant slug too (`v3.20.0`, copying `3.20.0 / tnl`),
+  is selectable, and copies to the clipboard on click. When a newer build is
+  deployed the chip turns amber, shows both versions, and reloads on click —
+  so "what version am I on" and "am I out of date" are one place rather than
+  two. Below `sm` it moves into the settings menu. The footer is unchanged.
+- Feedback submitted through **Send feedback** now records the reporter's
+  running version on the GitHub issue automatically (#402) — no extra field,
+  nothing for the reporter to copy. The issue shows both their version and the
+  deployed one, and flags a mismatch, since a reporter on a stale build is the
+  case worth spotting.
+
+### Changed
+- `faction identity` now exposes the tenant `slug` (it was already sent by
+  `/api/bootstrap` but only used to derive the display tag).
+
 ## [3.19.1] - 2026-08-12
 
 ### Fixed

@@ -3,11 +3,14 @@ import { Link } from 'react-router-dom'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import SettingsDropdown from '../components/SettingsDropdown'
+import VersionChip from '../components/VersionChip'
 import { useFactionIdentity, faviconHrefFor, logoSrcFor } from '../utils/factionIdentity'
 
 import { Moon, Sun } from 'lucide-react'
 
-export default function Header({ viewAsRole, setViewAsRole, canViewAs }) {
+// `servingVersion` comes from App's single useVersionGate() call — see the
+// warning in VersionChip about why this is not read here (#394).
+export default function Header({ viewAsRole, setViewAsRole, canViewAs, servingVersion }) {
   const { theme, toggleTheme } = useTheme()
   const { user, logout, isLeadership } = useAuth()
   const faction = useFactionIdentity()
@@ -48,6 +51,9 @@ export default function Header({ viewAsRole, setViewAsRole, canViewAs }) {
           </Link>
 
           <div className="flex items-center gap-4">
+            {/* Diagnostic furniture, kept quiet — but always on screen (#394). */}
+            <VersionChip servingVersion={servingVersion} />
+
             {user && (
               <div className="hidden md:block text-right">
                 <div className="font-semibold text-sm">{user.name}</div>
@@ -67,6 +73,7 @@ export default function Header({ viewAsRole, setViewAsRole, canViewAs }) {
                 viewAsRole={viewAsRole}
                 setViewAsRole={setViewAsRole}
                 canViewAs={canViewAs}
+                servingVersion={servingVersion}
               />
             )}
 

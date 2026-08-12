@@ -2,6 +2,7 @@
 // the harness's second fake (stack.github captures created issues).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
+import { APP_VERSION } from '../src/version.js'
 
 let stack: TestStack
 
@@ -185,6 +186,70 @@ describe('POST /api/feedback attachments (#254)', () => {
   it('serves 404 for an unknown attachment id', async () => {
     const res = await fetch(`${stack.baseUrl}/api/feedback/attachments/00000000-0000-0000-0000-000000000000`)
     expect(res.status).toBe(404)
+  })
+})
+
+describe('the reporter\'s app version (#402)', () => {
+  // The point of stamping this is the SKEW. The server's own version is the
+  // deployed one; the reporter's is whatever their tab loaded, possibly weeks
+  // ago. Stamping only the server's would report the fixed version while the
+  // reporter sits on the broken one — worse than stamping nothing.
+  // A fresh reporter per submission: feedback is rate-limited to 5/hour per
+  // user (RATE_LIMIT), and a block of version cases would otherwise trip it and
+  // fail for a reason that has nothing to do with versions.
+  let next = 4300
+  async function freshToken(): Promise<string> {
+    const id = String(next++)
+    return loginMember(id, `Versioned${id}`, `FEEDBACKKEY${id}0`)
+  }
+
+  const lastBody = () => stack.github.issuesCreated().at(-1)!.body
+
+  it('records both versions and flags the mismatch', async () => {
+    await submit(await freshToken(), { category: 'bug', title: 'Stale tab', app_version: '3.0.0-old' })
+    const body = lastBody()
+    expect(body).toContain('3.0.0-old')
+    expect(body).toContain(APP_VERSION)
+    expect(body).toMatch(/does not match/i)
+  })
+
+  it('says nothing about a mismatch when the reporter is current', async () => {
+    await submit(await freshToken(), { category: 'bug', title: 'Current tab', app_version: APP_VERSION })
+    const body = lastBody()
+    expect(body).toContain(`**App version:** ${APP_VERSION}`)
+    expect(body).not.toMatch(/does not match/i)
+  })
+
+  it('reads "unknown" when the client sends nothing', async () => {
+    // An old cached bundle predating this change sends no version at all, so
+    // this is a normal state and must not look like an error.
+    await submit(await freshToken(), { category: 'bug', title: 'No version' })
+    expect(lastBody()).toContain('**App version:** unknown')
+  })
+
+  it('refuses a version that could inject markup into the issue', async () => {
+    // Untrusted input landing in a markdown document. Asserted on the RENDERED
+    // BODY rather than on a validator, so this still fails if someone later
+    // wires the raw value through a second path.
+    const nasty = '3.1`</b>[x](javascript:0)'
+    await submit(await freshToken(), { category: 'bug', title: 'Injection', app_version: nasty })
+    const body = lastBody()
+    expect(body).not.toContain('javascript:0')
+    expect(body).not.toContain('</b>')
+    expect(body).toContain('**App version:** unknown')
+  })
+
+  it('refuses an over-long version and a non-string one', async () => {
+    for (const bad of ['9'.repeat(33), { toString: () => '3.19.1' }, 42, null]) {
+      await submit(await freshToken(), { category: 'bug', title: 'Bad version', app_version: bad })
+      expect(lastBody()).toContain('**App version:** unknown')
+    }
+  })
+
+  it('still files the report when the version is rubbish', async () => {
+    // Diagnostic metadata must never be able to block a bug report.
+    const { status } = await submit(await freshToken(), { category: 'bug', title: 'Files anyway', app_version: '!!!' })
+    expect(status).toBe(200)
   })
 })
 
