@@ -11,6 +11,7 @@
  */
 
 import { apiGet, apiPost } from './apiClient'
+import { toSlotShape } from './payoutCalculations'
 
 /**
  * Load all crimes and related data for a given time range
@@ -82,30 +83,10 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
       const crimeRewardItems = rewardsByCrime.get(crimeId) || []
       const crimeRequiredItems = requiredByCrime.get(crimeId) || []
 
-      // Transform slots to match expected format with enriched member names
-      const transformedSlots = crimeSlots.map(slot => ({
-        position: slot.position,
-        position_id: slot.position_id,
-        position_number: slot.position_number,
-        checkpoint_pass_rate: parseFloat(slot.checkpoint_pass_rate) || 0,
-        user: slot.user_id ? {
-          id: parseInt(slot.user_id),
-          name: membersMap[slot.user_id] || slot.user_name || `User ${slot.user_id}`,
-          joined_at: slot.joined_at,
-          outcome: slot.user_outcome,
-          progress: slot.user_progress,
-          item_outcome: slot.item_outcome_id ? {
-            item_id: slot.item_outcome_id,
-            outcome: slot.item_outcome_outcome
-          } : null
-        } : null,
-        item_requirement: slot.item_requirement_id ? {
-          id: slot.item_requirement_id,
-          name: slot.item_requirement_name,
-          is_reusable: slot.item_requirement_is_reusable,
-          is_available: slot.item_requirement_is_available
-        } : null
-      }))
+      // #391: one shared shaper with the saved-week path, so the two cannot
+      // drift again — the saved-week side had quietly stopped producing slots
+      // at all.
+      const transformedSlots = crimeSlots.map(slot => toSlotShape(slot, membersMap))
 
       // Calculate total item reward value — `quantity || 1` would silently
       // inflate stale qty=0 rows (Window of Opportunity "potential drops")

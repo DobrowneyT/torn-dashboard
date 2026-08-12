@@ -969,13 +969,14 @@ export default function PayoutManagement() {
       setHasCalculated(true)
       setShowHistory(false)
 
-      // Fetch the linked crimes so Crime Statistics can render.
-      // We only need the fields getCrimeStats uses — no slots needed here.
+      // Fetch the linked crimes so Crime Statistics can render. Slots are part
+      // of that (#391) — the participant list IS the thing people reopen a
+      // saved week to look at.
       setMembersData(null)
       if (crimeIds.length > 0) {
         apiGet(`/api/payouts/weeks/${weekId}/crimes`)
-          .then(({ crimes: crimesRows }) => {
-            setCrimesData({ crimes: weekCrimeRowsToMap(crimesRows) })
+          .then(({ crimes: crimesRows, slots: slotRows }) => {
+            setCrimesData({ crimes: weekCrimeRowsToMap(crimesRows, slotRows) })
           })
           .catch((crimesErr) => {
             console.error('Error loading crimes for stats:', crimesErr)

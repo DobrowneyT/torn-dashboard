@@ -116,8 +116,10 @@ export default function PayoutsView({ isLeadership }) {
       setCrimeStatsWeek(weekData)
       setLoadingCrimeStats(true)
       setCrimeStats(null)
-      const { crimes } = await apiGet(`/api/payouts/weeks/${weekData.id}/crimes`)
-      setCrimeStats(getCrimeStats(weekCrimeRowsToMap(crimes)))
+      // #391: slots come back too now — without them every crime reported
+      // "0 participants" and the expand showed "no data".
+      const { crimes, slots } = await apiGet(`/api/payouts/weeks/${weekData.id}/crimes`)
+      setCrimeStats(getCrimeStats(weekCrimeRowsToMap(crimes, slots)))
     } catch (error) {
       console.error('Error loading crime statistics:', error)
       setCrimeStats(getCrimeStats({}))
