@@ -17,6 +17,26 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.22.3] - 2026-08-12
+
+### Fixed
+- A backup upload can no longer wedge deploys. `rclone` ran with no network
+  timeout, so a Backblaze maintenance window left it waiting over an hour in
+  the foreground of `deploy/update.sh` — which holds the deploy lock, so every
+  5-minute auto-deploy logged "another update is already running" and skipped.
+  The stack stopped updating with nothing reporting a fault. rclone now has
+  connect/transfer timeouts and finite retries, plus a `timeout` around the
+  whole pre-deploy step.
+- An unreachable remote no longer aborts the backup run. `upload()` threw, which
+  killed the loop, so every database *after the first* got no local dump either
+  — the offsite copy failing took the local archives with it.
+- The closing summary now names failed uploads instead of reporting "6
+  archived" for a run whose offsite copy never happened.
+- The backup image ships an empty `rclone.conf`, so `NOTICE: Config file ... not
+  found` no longer appears on every call. rclone is driven by `RCLONE_*` env
+  vars; the notice was harmless but read as a misconfiguration and sent us
+  chasing the wrong cause during the outage.
+
 ## [3.22.2] - 2026-08-12
 
 ### Added

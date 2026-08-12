@@ -5,6 +5,14 @@ FROM postgres:17-alpine
 
 RUN apk add --no-cache nodejs npm rclone
 
+# rclone is driven entirely by RCLONE_* env vars (deploy/.env), so it has no
+# config file — and it emitted `NOTICE: Config file ... not found - using
+# defaults` on every single call. Harmless, but it looks like a misconfiguration
+# in the backup logs, and during a B2 outage it sent us chasing the wrong cause.
+# An empty file at the default path silences it without changing behaviour; an
+# operator-supplied RCLONE_CONFIG still takes precedence.
+RUN mkdir -p /root/.config/rclone && touch /root/.config/rclone/rclone.conf
+
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY db/package.json db/
