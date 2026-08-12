@@ -409,3 +409,45 @@ describe('cooldownHue (#356)', () => {
     expect(Number.isInteger(cooldownHue('cooldown_medical', 1234))).toBe(true)
   })
 })
+
+// ── Timestamps in the shape the API really serves (#140) ─────────────────────
+//
+// Same trap that stopped #330 rendering: Postgres timestamptz arrives as text
+// with a BARE two-digit offset, which is not valid ISO 8601, so Date.parse
+// returns NaN. Here it did not blank the column — it silently disabled the
+// ageing, so a cooldown sat at whatever value it had when last fetched and
+// never counted down, and the staleness label never appeared at all. A wrong
+// number that looks live is worse than a visibly missing one.
+describe('bare-offset timestamps from the API', () => {
+  const WIRE = '2026-08-12T15:30:28.041124+00'
+  const fetchedMs = Date.UTC(2026, 7, 12, 15, 30, 28, 41)
+
+  it('Date.parse cannot read it — the precondition this all rests on', () => {
+    expect(Number.isNaN(Date.parse(WIRE))).toBe(true)
+  })
+
+  it('ages a cooldown against a bare-offset fetch time', () => {
+    // 600s left when read, 100s ago → 500s left now.
+    expect(remainingCooldown(600, WIRE, fetchedMs + 100_000)).toBe(500)
+  })
+
+  it('does not fall back to the unaged reading', () => {
+    // The exact production symptom: the raw stored value, frozen.
+    expect(remainingCooldown(600, WIRE, fetchedMs + 100_000)).not.toBe(600)
+  })
+
+  it('reports staleness instead of null', () => {
+    expect(statsAgeSeconds({ fetched_at: WIRE }, fetchedMs + 90_000)).toBe(90)
+  })
+
+  it('still returns null when there is genuinely no fetch time', () => {
+    expect(statsAgeSeconds({ fetched_at: null }, fetchedMs)).toBeNull()
+    expect(statsAgeSeconds({}, fetchedMs)).toBeNull()
+  })
+
+  it('still shows the raw reading when the timestamp is unparseable junk', () => {
+    // The documented fallback stays: better a slightly stale number than a
+    // blank column. It just must not be reached by ordinary API data.
+    expect(remainingCooldown(600, 'not-a-date', fetchedMs)).toBe(600)
+  })
+})
