@@ -5,9 +5,10 @@ import { Menu, Key, Info, Eye, ChevronRight, Check, LogOut, X, MessageSquarePlus
 import ApiKeyDisclosure from './ApiKeyDisclosure'
 import InstallAppMenuItem from './InstallAppMenuItem'
 import FeedbackModal from './FeedbackModal'
+import VersionChip from './VersionChip'
 import { maskKeyHint } from '../utils/keyMask'
 
-export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs }) {
+export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs, servingVersion }) {
   const { user, logout } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [showApiKeyModal, setShowApiKeyModal] = useState(false)
@@ -175,6 +176,13 @@ export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs 
               <InstallAppMenuItem onAction={() => setIsOpen(false)} />
 
               <div className="border-t border-gray-200 dark:border-slate-700 my-1"></div>
+
+              {/* The header chip is hidden below sm, and the mobile War Room has
+                  no room to spare — but that is where a good share of bug
+                  reports come from, so the version stays reachable here (#394). */}
+              <div className="sm:hidden">
+                <VersionChip servingVersion={servingVersion} variant="menu" />
+              </div>
 
               <button
                 onClick={handleLogout}

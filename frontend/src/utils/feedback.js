@@ -45,10 +45,21 @@ export function validateFeedbackFiles(files = []) {
 }
 
 /**
- * Validate the form fields and assemble the POST payload.
- * @returns {{ ok: true, payload: {category,title,description} } | { ok: false, error: string }}
+ * What a version string may look like (#402). The server applies the same
+ * pattern and is the real gate — this is only so the client never puts
+ * something absurd on the wire.
  */
-export function buildFeedbackPayload({ category, title, description } = {}) {
+export const APP_VERSION_PATTERN = /^[0-9A-Za-z.+-]{1,32}$/
+
+/**
+ * Validate the form fields and assemble the POST payload.
+ *
+ * `appVersion` is passed in rather than read from `import.meta.env` here so
+ * this stays a pure function — these tests run in node with no Vite env.
+ *
+ * @returns {{ ok: true, payload: {category,title,description,app_version?} } | { ok: false, error: string }}
+ */
+export function buildFeedbackPayload({ category, title, description, appVersion } = {}) {
   const cat = String(category || '').toLowerCase()
   if (cat !== 'bug' && cat !== 'suggestion') return { ok: false, error: 'Choose a category.' }
 
@@ -59,5 +70,13 @@ export function buildFeedbackPayload({ category, title, description } = {}) {
   const d = (description || '').trim()
   if (d.length > FEEDBACK_DESC_MAX) return { ok: false, error: `Description is too long (max ${FEEDBACK_DESC_MAX}).` }
 
-  return { ok: true, payload: { category: cat, title: t, description: d } }
+  const payload = { category: cat, title: t, description: d }
+  // Omitted rather than sent empty when we don't have one: the field's absence
+  // is meaningful (an old cached bundle), and the string "undefined" would be
+  // stamped on a real issue as though it were a version. Note this never
+  // affects `ok` — diagnostic metadata must not be able to block a report.
+  if (typeof appVersion === 'string' && APP_VERSION_PATTERN.test(appVersion)) {
+    payload.app_version = appVersion
+  }
+  return { ok: true, payload }
 }

@@ -13,6 +13,10 @@ const fallback = {
   name: config.faction.name,
   tag: config.faction.tag,
   displayName: config.faction.name,
+  // No slug: the fallback is Forge's identity, and labelling another tenant's
+  // bug report "forge" would send triage to the wrong deployment. Absent beats
+  // wrong — callers gate on isFactionIdentityResolved() (#394).
+  slug: '',
   branding: {},
 }
 
@@ -29,6 +33,10 @@ export async function loadFactionIdentity() {
           name: boot.faction.display_name,
           tag: boot.faction.branding?.tag || (boot.faction.slug || '').toUpperCase(),
           displayName: boot.faction.display_name,
+          // The tenant slug, which the bootstrap has always sent but we only
+          // consumed to derive `tag`. It is what identifies WHICH of the five
+          // deployments a bug report came from (#394).
+          slug: boot.faction.slug || '',
           branding: boot.faction.branding || {},
           // Distinguishes a genuine per-tenant bootstrap from `fallback`
           // (not-yet-loaded / bootstrap failure) — see apiKeyTitleFor.

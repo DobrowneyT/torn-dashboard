@@ -96,7 +96,15 @@ function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors duration-200 flex flex-col overflow-x-hidden">
-      <Header viewAsRole={viewAsRole} setViewAsRole={setViewAsRole} canViewAs={userIsAdmin} />
+      <Header
+        viewAsRole={viewAsRole}
+        setViewAsRole={setViewAsRole}
+        canViewAs={userIsAdmin}
+        // Passed down rather than re-derived: useVersionGate has side effects
+        // (poll, listener, and a reload on the War Room), so it is called once
+        // here and nowhere else (#394).
+        servingVersion={servingVersion}
+      />
 
       {updateAvailable && <UpdateBanner version={servingVersion} />}
 

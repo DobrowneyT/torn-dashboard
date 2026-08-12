@@ -34,6 +34,40 @@ describe('buildFeedbackPayload (#253)', () => {
   })
 })
 
+describe('app version on the payload (#402)', () => {
+  const base = { category: 'bug', title: 'Score stuck' }
+
+  it('carries the running version so nobody has to be asked for it', () => {
+    const r = buildFeedbackPayload({ ...base, appVersion: '3.19.1' })
+    expect(r.payload.app_version).toBe('3.19.1')
+  })
+
+  it('omits the field entirely when there is no version', () => {
+    // Never the string "undefined" — the server would happily stamp that on an
+    // issue, and a plausible-looking wrong answer is worse than a missing one.
+    expect(buildFeedbackPayload(base).payload).not.toHaveProperty('app_version')
+    expect(buildFeedbackPayload({ ...base, appVersion: undefined }).payload)
+      .not.toHaveProperty('app_version')
+    expect(buildFeedbackPayload({ ...base, appVersion: '' }).payload)
+      .not.toHaveProperty('app_version')
+  })
+
+  it('drops a version that is not shaped like one', () => {
+    // Defence in depth only — the server re-validates and is the real gate.
+    for (const bad of ['3.1`</b>[x](javascript:0)', 'x'.repeat(33), '3.19.1 (patched)', 42]) {
+      expect(buildFeedbackPayload({ ...base, appVersion: bad }).payload)
+        .not.toHaveProperty('app_version')
+    }
+  })
+
+  it('does not change whether the form validates', () => {
+    // The version is diagnostic metadata; it must never be able to block a
+    // report from being filed.
+    expect(buildFeedbackPayload({ ...base, appVersion: 'nonsense!!' }).ok).toBe(true)
+    expect(buildFeedbackPayload({ category: 'bug', title: '', appVersion: '3.19.1' }).ok).toBe(false)
+  })
+})
+
 describe('validateFeedbackFiles (#254)', () => {
   const img = { name: 'a.png', type: 'image/png', size: 1000 }
   const vid = { name: 'a.mp4', type: 'video/mp4', size: 2000 }
