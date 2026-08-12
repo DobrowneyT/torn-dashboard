@@ -24,7 +24,8 @@ from `VERSION` at runtime) both surface it automatically.
   payouts (`frontend/src/data/ocEndingPayouts.json`, 31 scenarios / 167 good
   endings, all `null` until measured) and a pure `expectedValue` helper that
   computes E(x) over whatever has been filled in. Partial data yields an
-  explicit **lower bound** rather than a number presented as the answer.
+  explicit **lower bound** rather than a number presented as the answer. Failed
+  crimes pay nothing (confirmed), so the 202 bad endings need no entry.
 
 ## [3.21.0] - 2026-08-12
 

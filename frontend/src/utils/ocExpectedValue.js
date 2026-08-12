@@ -14,14 +14,18 @@
 import payoutTable from '../data/ocEndingPayouts.json'
 
 /**
- * Bad endings are assumed to pay nothing unless a scenario says otherwise.
+ * Bad endings pay nothing.
  *
- * ⚠️ An assumption, not a measurement — nobody has confirmed that every failed
- * OC pays zero. It is isolated here rather than baked into the arithmetic so
- * that disproving it is a one-line change, and so `coverage()` can report it as
- * an assumption rather than as data.
+ * Confirmed by MonChoon (2026-08-12): "failed crimes never payout anything,
+ * that's for sure." So this is a game rule, not a guess — which is why the 202
+ * bad endings need no hand-entry and only the 167 good ones do.
+ *
+ * Still a named constant rather than arithmetic buried in the loop: it is the
+ * one place a rule change would land, and keeping it visible means the next
+ * reader can see that "bad endings contribute zero" is a decision with a source
+ * rather than an oversight.
  */
-export const ASSUME_BAD_ENDINGS_PAY_ZERO = true
+export const BAD_ENDINGS_PAY_ZERO = true
 
 /** The hand-entered payouts for a scenario, or null if we have no entry. */
 export function payoutsFor(scenario) {
@@ -55,9 +59,9 @@ export function expectedValue(scenario, endingProbabilities, payouts = payoutsFo
 
   for (const [key, p] of Object.entries(probs)) {
     if (typeof p !== 'number' || !Number.isFinite(p)) continue
-    if (key.startsWith('badEnding') && ASSUME_BAD_ENDINGS_PAY_ZERO && table[key] == null) {
-      // Priced at zero by assumption, so it counts as covered mass — but it
-      // contributes nothing, which is the point of the assumption.
+    if (key.startsWith('badEnding') && BAD_ENDINGS_PAY_ZERO && table[key] == null) {
+      // Pays nothing by the game's rules, so it counts as fully covered mass
+      // while contributing zero — no hand-entry needed for any of them.
       pricedProbability += p
       continue
     }
