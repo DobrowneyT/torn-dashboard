@@ -17,6 +17,66 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.22.0] - 2026-08-12
+
+### Added
+- Groundwork for the OC simulator (#390): the hand-entry table for per-ending
+  payouts (`frontend/src/data/ocEndingPayouts.json`, 31 scenarios / 167 good
+  endings, all `null` until measured) and a pure `expectedValue` helper that
+  computes E(x) over whatever has been filled in. Partial data yields an
+  explicit **lower bound** rather than a number presented as the answer. Failed
+  crimes pay nothing (confirmed), so the 202 bad endings need no entry.
+  
+## [3.21.1] - 2026-08-12
+
+### Fixed
+- Travel ETAs never appeared in the War Room (#330). The guard that refuses a
+  departure we did not witness was asking "did this member's row change in the
+  last 120s?" when it meant "was the board watching?". A member's row is only
+  written when they actually change, so anyone sitting idle stopped advancing
+  their `updated_at` while we polled them every second — and their eventual
+  take-off was then discarded as unwitnessed. That is every take-off, since
+  "idle, then travels" is what travelling looks like from the roster's point of
+  view. Board liveness is now recorded once per sweep
+  (`war_room_config_v2.last_roster_sync_at`, migration 0033) instead of being
+  inferred per member.
+
+## [3.21.0] - 2026-08-12
+
+### Added
+- Member Overview now carries a **Battle Stats** column (#355), war-lead and
+  above only: the same hover breakdown and exact-vs-estimate treatment as the
+  War Room, sortable (members with no reading sink to the bottom in both
+  directions, the #351 rule), and filterable by min/max total using the War
+  Room's `3m` / `2.6b` shorthand or by source — "BSP only" being the list of
+  members to chase for a key.
+
+### Changed
+- `parseStatInput` extracted to `utils/statInput` and shared. It existed twice
+  (War Room desktop and mobile) and Member Overview would have been the third;
+  two pages parsing `2.6b` differently is a bug nobody reports because each
+  page looks right on its own. A test scans `src/` to stop a fourth copy.
+- The battle-stats cell moved out of `WarRoomViewV2` into
+  `components/BattleStatsCell`, so both pages render the same cell rather than
+  lookalikes. Its age now uses `fmtAgo`, which already handles the bare
+  Postgres offset that JS `Date` rejects (#140).
+
+## [3.20.2] - 2026-08-12
+
+### Added
+- Server-side dibs concurrency harness (#385): a seeded run of concurrent
+  claims and releases from five holders against an oscillating roster, with
+  the real ticker and real WebSocket clients, asserting invariants that must
+  hold for any interleaving. Verified to reproduce #376 when the fix is
+  reverted (12 violations across 30 rounds); ~2.8s, so it stays in the
+  existing Vitest job.
+
+### Fixed
+- The Torn client rate-limit test measured gaps between resolutions, so a
+  loaded event loop compressed them and the test failed on total suite load
+  rather than on the limiter. It now measures from a fixed pre-dispatch
+  baseline, which cannot be compressed.
+
 ## [3.20.1] - 2026-08-12
 
 ### Changed

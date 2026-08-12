@@ -42,9 +42,7 @@ import {
   SCORE_DECAY_SEC, countsTowardScore, reviveScore, bestCaseChance,
   indexRevivesByTarget, reviveChanceHue, formatReviveChance, modelError,
 } from '../utils/reviveChance'
-import {
-  indexBattleStats, withBattleStats, statsSourceLabel, isExactStatsSource,
-} from '../utils/warRoomBattleStats'
+import { indexBattleStats, withBattleStats } from '../utils/warRoomBattleStats'
 
 // Flag glyph tones (#339). The muted revive is the load-bearing one: it must
 // read as a weaker claim than the green one at a glance, not just on hover.
@@ -71,13 +69,14 @@ import { setWarHeadline } from '../utils/warRoomApiV2'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs, fireAlert, surgeAlertKind } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
-import { parseDbTime } from '../utils/time'
 import { farmCompare, isGreenTarget } from '../utils/warRoomFarmSort'
 import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon } from 'lucide-react'
 import HelpPanel from '../components/warroom/HelpPanel'
 import SpotlightTour from '../components/warroom/SpotlightTour'
 import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
 import { isTourSeen, markTourSeen, resetTourSeen } from '../utils/warRoomTour'
+import { parseStatInput, formatStats } from '../utils/statInput'
+import BattleStatsCell from '../components/BattleStatsCell'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -86,15 +85,6 @@ import { isTourSeen, markTourSeen, resetTourSeen } from '../utils/warRoomTour'
 
 const STATUS_FILTERS   = ['Okay', 'Hospital', 'Flying', 'Jail']
 const ACTIVITY_FILTERS = ['Online', 'Idle', 'Offline']
-
-function formatStats(n) {
-  if (n === null || n === undefined) return '???'
-  if (n >= 1_000_000_000_000) return (n / 1_000_000_000_000).toFixed(2) + 'T'
-  if (n >= 1_000_000_000)     return (n / 1_000_000_000).toFixed(2) + 'B'
-  if (n >= 1_000_000)         return (n / 1_000_000).toFixed(2) + 'M'
-  if (n >= 1_000)             return (n / 1_000).toFixed(1) + 'K'
-  return String(n)
-}
 
 function formatCountdown(secondsRemaining) {
   if (secondsRemaining <= 0) return '—'
@@ -116,99 +106,6 @@ function formatRelative(ts) {
   return `${Math.floor(diff / 86_400)}d ago`
 }
 
-// Hover tooltip on a member's BSP total — shows the per-stat breakdown
-// (str/dex/spd/def), total, and "{relative age} ({TS|BSP})" so leadership
-// can see at a glance how trustworthy the number is. CSS-only show/hide via
-// the `group-hover` Tailwind variant (no JS state, no portal).
-//
-// Behaviour by row state:
-//   - `m.bsp_total == null` → render dim "???", no tooltip.
-//   - TornStats source AND ts_spy_at present → age from ts_spy_at, "(TS)".
-//   - BSP source (or unknown) → age from bsp_fetched_at, "(BSP)".
-//   - Own-key source (#353, our own roster only) → age from bsp_fetched_at,
-//     "(OWN)". This one is EXACT rather than an estimate, so it is the only
-//     source that gets a solid underline instead of the dotted "this is a
-//     guess" treatment.
-//   - Breakdown rows render only when the corresponding field is non-null
-//     so BSP-only rows (often no per-stat) just show Total + source.
-function BspCell({ member: m }) {
-  if (m.bsp_total === null || m.bsp_total === undefined) {
-    return (
-      <span className="font-mono text-xs text-gray-400 dark:text-gray-600 italic">
-        ???
-      </span>
-    )
-  }
-
-  const isTs = m.spy_source === 'tornstats'
-  const isExact = isExactStatsSource(m.spy_source)
-  // ts_spy_at is the real spy capture time; bsp_fetched_at is when we polled.
-  // BSP and own-key rows don't have a "real" spy timestamp so we use the fetch
-  // time. Use parseDbTime, not new Date(): the API serves Postgres timestamptz
-  // text with a bare "+00" offset (db.ts) that JS Date rejects → the age showed
-  // a dash even with a real ts_spy_at (#140).
-  const ageDate = isTs && m.ts_spy_at ? parseDbTime(m.ts_spy_at) : parseDbTime(m.bsp_fetched_at)
-  const ageSourceTs = ageDate ? Math.floor(ageDate.getTime() / 1000) : null
-  const sourceLabel = statsSourceLabel(m.spy_source)
-  const ageLabel = ageSourceTs ? formatRelative(ageSourceTs) : '—'
-
-  const rows = [
-    ['STR', m.bsp_str],
-    ['DEF', m.bsp_def],
-    ['SPD', m.bsp_spd],
-    ['DEX', m.bsp_dex],
-  ].filter(([, v]) => v !== null && v !== undefined)
-
-  // `relative` is required: the breakdown below is `absolute right-0 top-full`,
-  // and without a positioned ancestor it anchors to whatever is positioned
-  // further up and lands nowhere near its cell. It is not what made the number
-  // overlap the header (#331) — that was the sticky <th> having no z-index,
-  // which let every positioned row element paint over it.
-  return (
-    <span className="relative group inline-block">
-      <span
-        title={isExact ? 'Exact — read from this member\'s own key' : undefined}
-        className={`font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold cursor-help underline underline-offset-2 ${
-          isExact
-            ? 'decoration-solid decoration-emerald-500/70'
-            : 'decoration-dotted decoration-gray-400 dark:decoration-slate-600'
-        }`}
-      >
-        {formatStats(m.bsp_total)}
-      </span>
-      <span
-        role="tooltip"
-        className="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute right-0 top-full mt-1 z-30 min-w-[150px] rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg text-left p-2.5 text-[11px]"
-      >
-        {rows.length > 0 ? (
-          <table className="font-mono w-full">
-            <tbody>
-              {rows.map(([label, v]) => (
-                <tr key={label}>
-                  <td className="pr-3 text-gray-500 dark:text-gray-400">{label}</td>
-                  <td className="text-right text-gray-900 dark:text-gray-100">{formatStats(v)}</td>
-                </tr>
-              ))}
-              <tr className="border-t border-gray-200 dark:border-slate-700">
-                <td className="pr-3 pt-1 text-gray-500 dark:text-gray-400 font-semibold">Total</td>
-                <td className="text-right pt-1 text-gray-900 dark:text-gray-100 font-semibold">{formatStats(m.bsp_total)}</td>
-              </tr>
-            </tbody>
-          </table>
-        ) : (
-          <div className="font-mono flex justify-between gap-3">
-            <span className="text-gray-500 dark:text-gray-400 font-semibold">Total</span>
-            <span className="text-gray-900 dark:text-gray-100 font-semibold">{formatStats(m.bsp_total)}</span>
-          </div>
-        )}
-        <div className="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 text-[10px] text-right whitespace-nowrap">
-          {ageLabel} ({sourceLabel})
-        </div>
-      </span>
-    </span>
-  )
-}
-
 function parseHospitalInfo(description) {
   if (!description) return null
   const match = description.match(/^(In (?:a|an) .*? hospital)\b/i)
@@ -220,19 +117,6 @@ function stateToFilterKey(state, description) {
   if (state === 'Traveling' || state === 'Abroad') return 'Flying'
   if (state === 'Hospital' && parseHospitalInfo(description)) return 'Flying'
   return state
-}
-
-function parseStatInput(str) {
-  if (!str?.trim()) return null
-  const s = str.trim().toLowerCase()
-  // Accepts: "3", "3.5", "0.8", ".8" (leading-decimal shorthand) — each
-  // optionally followed by k/m/b. Rejects "3." (trailing dot) and bare ".".
-  const m = s.match(/^(\d*\.?\d+)\s*([kmb]?)$/)
-  if (!m) return null
-  const n = parseFloat(m[1])
-  if (Number.isNaN(n)) return null
-  const multipliers = { k: 1_000, m: 1_000_000, b: 1_000_000_000 }
-  return n * (multipliers[m[2]] ?? 1)
 }
 
 function parseTravelInfo(state, description) {
@@ -3141,7 +3025,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
                         {/* Stats — hover for str/dex/spd/def breakdown + source. */}
                         <td className="py-2.5 px-3 whitespace-nowrap text-right">
-                          <BspCell member={m} />
+                          <BattleStatsCell member={m} />
                         </td>
 
                         {/* Flags (#339) — composed in warRoomFlags.js so the

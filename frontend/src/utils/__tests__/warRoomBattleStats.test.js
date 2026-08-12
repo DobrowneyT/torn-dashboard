@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   indexBattleStats, withBattleStats, statsSourceLabel, isExactStatsSource,
+  battleStatsSortValue, matchesStatsSource,
 } from '../warRoomBattleStats'
 
 const row = (over = {}) => ({
@@ -116,5 +117,82 @@ describe('isExactStatsSource', () => {
     expect(isExactStatsSource('tornstats')).toBe(false)
     expect(isExactStatsSource('bsp')).toBe(false)
     expect(isExactStatsSource(null)).toBe(false)
+  })
+})
+
+describe('battleStatsSortValue (#355)', () => {
+  it('returns the total as a number', () => {
+    expect(battleStatsSortValue({ bsp_total: 2_600_000_000 })).toBe(2_600_000_000)
+    expect(battleStatsSortValue({ bsp_total: '5000' })).toBe(5000)
+  })
+
+  it('returns null — not 0 — when there is no reading', () => {
+    // The #351 rule. Callers sink nulls in BOTH directions: "who is weakest"
+    // is not answered by a member we have never read, and folding them in as
+    // zero buries the members the sort was meant to surface.
+    expect(battleStatsSortValue({ bsp_total: null })).toBeNull()
+    expect(battleStatsSortValue({})).toBeNull()
+    expect(battleStatsSortValue(undefined)).toBeNull()
+    // A genuine zero is a reading and must survive as one.
+    expect(battleStatsSortValue({ bsp_total: 0 })).toBe(0)
+  })
+
+  it('sinks unread members at both ends under the page sort', () => {
+    // Mirrors MemberOverview's comparator: the null branches are deliberately
+    // NOT multiplied by direction.
+    const cmp = (dir) => (a, b) => {
+      const va = battleStatsSortValue(a)
+      const vb = battleStatsSortValue(b)
+      if (va == null && vb == null) return 0
+      if (va == null) return 1
+      if (vb == null) return -1
+      return dir * ((va > vb) - (va < vb))
+    }
+    const rows = [
+      { id: 'mid', bsp_total: 5 },
+      { id: 'none', bsp_total: null },
+      { id: 'big', bsp_total: 9 },
+    ]
+    expect([...rows].sort(cmp(1)).map(r => r.id)).toEqual(['mid', 'big', 'none'])
+    expect([...rows].sort(cmp(-1)).map(r => r.id)).toEqual(['big', 'mid', 'none'])
+  })
+})
+
+describe('matchesStatsSource (#355)', () => {
+  const own = { bsp_total: 1, spy_source: 'torn' }
+  const ts = { bsp_total: 1, spy_source: 'tornstats' }
+  const bsp = { bsp_total: 1, spy_source: 'bsp' }
+  const unread = { bsp_total: null, spy_source: null }
+
+  it('passes everything on "any"', () => {
+    for (const r of [own, ts, bsp, unread]) {
+      expect(matchesStatsSource(r, 'any')).toBe(true)
+      expect(matchesStatsSource(r, undefined)).toBe(true)
+    }
+  })
+
+  it('isolates each source', () => {
+    expect(matchesStatsSource(own, 'torn')).toBe(true)
+    expect(matchesStatsSource(ts, 'torn')).toBe(false)
+    expect(matchesStatsSource(bsp, 'bsp')).toBe(true)
+  })
+
+  it('finds the members we only have a guess for — the chase-for-a-key list', () => {
+    expect(matchesStatsSource(bsp, 'bsp')).toBe(true)
+    expect(matchesStatsSource(own, 'bsp')).toBe(false)
+  })
+
+  it('separates "no reading" from "BSP estimate"', () => {
+    // An unread member is not a BSP row. Conflating them would put people we
+    // have never measured on the list of people whose estimate we distrust.
+    expect(matchesStatsSource(unread, 'none')).toBe(true)
+    expect(matchesStatsSource(unread, 'bsp')).toBe(false)
+    expect(matchesStatsSource(bsp, 'none')).toBe(false)
+  })
+
+  it('treats a missing source on a read member as BSP, matching the label', () => {
+    // statsSourceLabel falls back to BSP for unknown sources; the filter has to
+    // agree or the column and the filter would disagree about the same row.
+    expect(matchesStatsSource({ bsp_total: 1, spy_source: null }, 'bsp')).toBe(true)
   })
 })
