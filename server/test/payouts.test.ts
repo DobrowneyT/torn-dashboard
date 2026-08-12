@@ -313,3 +313,76 @@ describe('DELETE /api/payouts/weeks/:id', () => {
     expect((await del('/api/payouts/weeks/999999')).status).toBe(404)
   })
 })
+
+// Appended last on purpose: this block saves an extra week, and several tests
+// above assert on the total number of weeks.
+describe('saved-week slots carry participant names', () => {
+  // Torn's v2 faction/crimes payload gives each slot a user *id* and nothing
+  // else, so crimes_slots.user_name is NULL for every row we have ever stored
+  // (the column exists for a name Torn does not send). The name has to come
+  // from a join to `members` — which is what /api/crimes/:id/slots already
+  // does, and what this endpoint was missing: Crime Statistics rendered
+  // "User 4422276 [4422276]" for every participant of a saved week.
+  it('resolves user_name from members, including for departed members', async () => {
+    await stack.db.query(`
+      INSERT INTO members (member_id, member_name, tier, is_current) VALUES
+        ('402', 'Picklock Pete', 4, false)
+      ON CONFLICT (member_id) DO UPDATE SET member_name = EXCLUDED.member_name,
+                                            is_current = EXCLUDED.is_current
+    `)
+    // is_current = false above is the point: an archived payout week is
+    // history, and the people in it have often left. A roster join that
+    // filtered to current members would silently re-break this.
+
+    const { body } = await post('/api/payouts/weeks', {
+      week: {
+        week_start: '2026-07-06', week_end: '2026-07-12',
+        week_start_timestamp: FROM, week_end_timestamp: TO,
+        total_money_reward: 1000, faction_cut_percent: 20,
+        faction_cut_amount: 200, member_payout_total: 800, crimes_processed: 2,
+      },
+      members: [{ member_id: '400', member_name: 'Leader', tier: 2, base_tickets: 1, payout: 800, crimes_count: 1 }],
+      crime_ids: ['in-window', 'in-progress'],
+    })
+
+    const { status, body: wc } = await get(`/api/payouts/weeks/${body.week_id}/crimes`)
+    expect(status).toBe(200)
+
+    const byUser = Object.fromEntries(wc.slots.map((s: any) => [s.user_id, s.user_name]))
+    expect(byUser['402']).toBe('Picklock Pete')
+
+    // The leader's row was stubbed by the fresh-faction bootstrap, so read the
+    // expected name from `members` rather than hardcoding a harness detail.
+    const leader = await stack.db.query(`SELECT member_name FROM members WHERE member_id = '400'`)
+    expect(byUser['400']).toBe(leader.rows[0].member_name)
+    expect(byUser['400']).toBeTruthy()
+  })
+
+  it('leaves user_name null for a slot whose member we have never seen', async () => {
+    // No members row: better an honest null (the client renders `User <id>`)
+    // than an invented name.
+    await stack.db.query(`
+      INSERT INTO crime_slots (crime_id, "position", position_id, user_id, joined_at)
+      VALUES ('in-window', 'Muscle', 'P9', '999999', ${FROM - 400})
+      ON CONFLICT (crime_id, position_id) DO NOTHING
+    `)
+    const list = await get('/api/payouts/weeks?week_start=2026-07-06&week_end=2026-07-12')
+    const { body } = await get(`/api/payouts/weeks/${list.body.weeks[0].id}/crimes`)
+    const ghost = body.slots.find((s: any) => s.user_id === '999999')
+    expect(ghost).toBeDefined()
+    expect(ghost.user_name).toBeNull()
+  })
+
+  it('keeps the stored name when one exists, so history is not rewritten', async () => {
+    // If Torn ever does send a name, the slot's own value wins over the
+    // member's current one — an archive should read as it did at the time.
+    await stack.db.query(`
+      UPDATE crime_slots SET user_name = 'Pete (old handle)'
+      WHERE crime_id = 'in-progress' AND user_id = '402'
+    `)
+    const list = await get('/api/payouts/weeks?week_start=2026-07-06&week_end=2026-07-12')
+    const { body } = await get(`/api/payouts/weeks/${list.body.weeks[0].id}/crimes`)
+    const slot = body.slots.find((s: any) => s.crime_id === 'in-progress')
+    expect(slot.user_name).toBe('Pete (old handle)')
+  })
+})

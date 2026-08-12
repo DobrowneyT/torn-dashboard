@@ -108,6 +108,13 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
    *
    * Slots are returned flat, keyed by crime_id, matching the live path's shape
    * so the client can share one shaper across both.
+   *
+   * user_name is resolved by joining `members`, NOT read straight off the slot:
+   * Torn's faction/crimes payload gives a slot's user an id and no name, so
+   * crime_slots.user_name is NULL for every row we hold. The live path hides
+   * this by fetching the roster client-side and mapping ids to names; this
+   * endpoint had no such join, so participants rendered as "User 4422276".
+   * Same COALESCE as /api/crimes/:id/slots.
    */
   app.get('/api/payouts/weeks/:id/crimes', { preHandler: requireAuth() }, async (req) => {
     const { id } = req.params as { id: string }
@@ -117,7 +124,15 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
     )
     const crimeIds = res.rows.map((c: any) => c.crime_id)
     const slots = crimeIds.length > 0
-      ? await db.query('SELECT * FROM crime_slots WHERE crime_id = ANY($1)', [crimeIds])
+      ? await db.query(
+          // No is_current filter: a saved week is history, and its participants
+          // have often left the faction since. `members` retains them.
+          `SELECT s.*, COALESCE(s.user_name, m.member_name) AS user_name
+             FROM crime_slots s
+             LEFT JOIN members m ON m.member_id = s.user_id
+            WHERE s.crime_id = ANY($1)`,
+          [crimeIds]
+        )
       : { rows: [] }
     return { crimes: res.rows, slots: slots.rows }
   })
