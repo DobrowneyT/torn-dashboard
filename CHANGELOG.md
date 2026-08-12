@@ -17,6 +17,15 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.22.0] - 2026-08-12
+
+### Added
+- Groundwork for the OC simulator (#390): the hand-entry table for per-ending
+  payouts (`frontend/src/data/ocEndingPayouts.json`, 31 scenarios / 167 good
+  endings, all `null` until measured) and a pure `expectedValue` helper that
+  computes E(x) over whatever has been filled in. Partial data yields an
+  explicit **lower bound** rather than a number presented as the answer.
+
 ## [3.21.0] - 2026-08-12
 
 ### Added
