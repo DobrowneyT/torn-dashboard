@@ -29,6 +29,7 @@ import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar,
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { apiPost } from '../utils/apiClient'
 import { getFactionId } from '../utils/factionIdentity'
+import { parseDbTime } from '../utils/time'
 
 // Faction_attacks.result classifier — mirrors the same buckets the payout
 // calculator uses so "attack / assist / loss" mean the same thing here as
@@ -447,7 +448,7 @@ export default function WarOverviewView() {
     const maxOf = (rows, key) => {
       let max = 0
       for (const r of rows) {
-        const t = r[key] ? Math.floor(new Date(r[key]).getTime() / 1000) : 0
+        const t = Math.floor((parseDbTime(r[key])?.getTime() ?? 0) / 1000)
         if (t > max) max = t
       }
       return max
@@ -725,6 +726,7 @@ export default function WarOverviewView() {
   // Plotly returns date strings in the same UTC format we fed in ("YYYY-MM-DD
   // HH:MM:SS.mmm"). new Date() without a tz suffix is ambiguous across
   // browsers, so append "Z" to force UTC parsing.
+  // db-time-safe: a Plotly axis string, normalised to an explicit Z above.
   const parseUTC = s => Math.floor(new Date(s.trim().replace(' ', 'T').replace(/Z?$/, 'Z')).getTime() / 1000)
   const handleRelayout = useCallback((evt) => {
     const xa = evt['xaxis.range[0]']

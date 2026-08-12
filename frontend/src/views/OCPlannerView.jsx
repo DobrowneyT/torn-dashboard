@@ -192,6 +192,7 @@ export default function OCPlannerView() {
         </div>
         {lastUpdated && (
           <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+            {/* db-time-safe: lastUpdated is Date.now(). */}
             Updated {new Date(lastUpdated).toLocaleTimeString()} · re-pulls live crime data on every refresh
           </p>
         )}
