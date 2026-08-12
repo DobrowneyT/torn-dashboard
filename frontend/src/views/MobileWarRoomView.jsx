@@ -63,6 +63,7 @@ import { isTourSeen, markTourSeen } from '../utils/warRoomTour'
 import HeadlineBanner from '../components/warroom/HeadlineBanner'
 import MemberNoteButton from '../components/warroom/MemberNoteButton'
 import { isOverdosed } from '../utils/memberNotes'
+import { parseStatInput } from '../utils/statInput'
 
 // ───────────────────────────────────────────────────────────────────
 // Static config — status visuals, activity colours, flag icons
@@ -105,19 +106,6 @@ function formatStats(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
   if (n >= 1e3) return (n / 1e3).toFixed(0) + 'k'
   return String(n)
-}
-
-// Mirrors WarRoomView.parseStatInput: accepts "3", "3.5", ".8" optionally
-// followed by k/m/b. Returns null for empty/invalid input.
-function parseStatInput(str) {
-  if (!str?.trim()) return null
-  const s = str.trim().toLowerCase()
-  const m = s.match(/^(\d*\.?\d+)\s*([kmb]?)$/)
-  if (!m) return null
-  const n = parseFloat(m[1])
-  if (Number.isNaN(n)) return null
-  const multipliers = { k: 1_000, m: 1_000_000, b: 1_000_000_000 }
-  return n * (multipliers[m[2]] ?? 1)
 }
 
 function formatCountdown(s) {

@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { apiGet } from '../utils/apiClient'
+import BattleStatsCell from '../components/BattleStatsCell'
+import { matchesStatRange } from '../utils/statInput'
+import {
+  indexBattleStats, withBattleStats, battleStatsSortValue, matchesStatsSource,
+} from '../utils/warRoomBattleStats'
 import { STAT_PATHS_BY_KEY } from '../utils/statPaths'
 import {
   buildMemberRow, classifyRow, summarizeCompliance, isInactive, PI_NAME,
@@ -120,6 +125,12 @@ const IDENTITY_COLUMNS = {
       ? <span className="text-gray-400">—</span>
       : <span className="font-mono">{r.streak_days.toLocaleString()}d</span>,
   },
+  battle_stats: {
+    label: 'Battle Stats',
+    // Null, not 0, so the sort sinks unread members in BOTH directions (#351).
+    sortValue: r => battleStatsSortValue(r),
+    render: r => <BattleStatsCell member={r} />,
+  },
   gym_energy: {
     label: 'Gym Energy/d',
     sortValue: r => r.gym_energy_perday ?? -1,
@@ -151,11 +162,19 @@ const IDENTITY_COLUMNS_FOR_MODAL = Object.entries(IDENTITY_COLUMNS).map(([key, d
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function MemberOverview() {
+  // Battle stats are the most sensitive number we hold about a member — they
+  // decide who can hit whom — so the endpoint is gated to war leads and above
+  // (#348). Visitors reach this page through the leadership layout but are NOT
+  // in that set, so the column must not render for them either. The server is
+  // the real guard; this only avoids a pointless 403 and an empty column.
+  const { isLeadership, isAdmin, isWarLead } = useAuth()
+  const canSeeBattleStats = Boolean(isLeadership || isAdmin || isWarLead)
   const { user } = useAuth()
 
   // ── Data ──
   const [snapshots, setSnapshots] = useState([])
   const [members, setMembers]     = useState([])
+  const [battleStats, setBattleStats] = useState({})
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState(null)
 
@@ -168,6 +187,9 @@ export default function MemberOverview() {
   const [piFilter, setPiFilter]               = useState('any')
   const [activeFilter, setActiveFilter]       = useState('any')
   const [minTenure, setMinTenure]             = useState('')   // '' = no tenure filter
+  const [statsMin, setStatsMin]               = useState('')   // '' = no bound
+  const [statsMax, setStatsMax]               = useState('')
+  const [statsSource, setStatsSource]         = useState('any')
   const [sortCol, setSortCol]                 = useState('name')
   const [sortDir, setSortDir]                 = useState('asc')
   const [showWarningsOnly, setShowWarningsOnly] = useState(false)
@@ -190,15 +212,22 @@ export default function MemberOverview() {
 
         // Pull the full history once (server projects it to catalog stats), then
         // window it client-side — so every window incl. "All" works instantly.
-        const [snapshotsResp, membersResp, viewsResp, threshResp] = await Promise.all([
+        const [snapshotsResp, membersResp, viewsResp, threshResp, statsResp] = await Promise.all([
           apiGet(`/api/overview/daily-stats?window=all`),
           apiGet('/api/members'),
           fetchSavedViews().catch(e => { console.warn('saved views fetch failed', e); return [] }),
           fetchThresholdSets().catch(e => { console.warn('threshold sets fetch failed', e); return [] }),
+          // Swallowed on failure rather than fatal: a 403 here is the ordinary
+          // answer for a role without battle-stats access, and the rest of the
+          // page has nothing to do with it.
+          canSeeBattleStats
+            ? apiGet('/api/members/battle-stats').catch(e => { console.warn('battle stats fetch failed', e); return null })
+            : Promise.resolve(null),
         ])
         if (cancelled) return
         setSnapshots(snapshotsResp.snapshots ?? [])
         setMembers(membersResp.members ?? [])
+        setBattleStats(indexBattleStats(statsResp?.battle_stats ?? []))
         setSavedViews(viewsResp ?? [])
         setThresholdSets(threshResp ?? [])
         setLoading(false)
@@ -222,10 +251,13 @@ export default function MemberOverview() {
   // ── Compute per-member row (identity + per-stat deltas / daily averages) ──
   const memberRows = useMemo(() => {
     const window = TIME_WINDOWS.find(w => w.id === timeWindow) ?? TIME_WINDOWS[2]
-    return members.map(m =>
+    const rows = members.map(m =>
       buildMemberRow(m, snapshotsByMember.get(String(m.member_id)) ?? [], window.days)
     )
-  }, [members, snapshotsByMember, timeWindow])
+    // Projected onto the same bsp_* names the War Room uses, so the shared cell
+    // and the shared sort read one shape rather than two (#353).
+    return canSeeBattleStats ? withBattleStats(rows, battleStats) : rows
+  }, [members, snapshotsByMember, timeWindow, battleStats, canSeeBattleStats])
 
   // ── Resolve active threshold set ──
   const activeThresholds = useMemo(() => {
@@ -256,11 +288,16 @@ export default function MemberOverview() {
         // A member with unknown total days can't clear a tenure floor.
         if (r.total_days_in_faction == null || r.total_days_in_faction < Number(minTenure)) return false
       }
+      if (canSeeBattleStats) {
+        if (!matchesStatRange(r.bsp_total ?? null, statsMin, statsMax)) return false
+        if (!matchesStatsSource(r, statsSource)) return false
+      }
       if (showWarningsOnly && r.compliance_status !== 'flagged') return false
       if (showInconclusiveOnly && r.compliance_status !== 'inconclusive') return false
       return true
     })
-  }, [rowsWithFlags, search, donatorFilter, piFilter, activeFilter, minTenure, showWarningsOnly, showInconclusiveOnly])
+  }, [rowsWithFlags, search, donatorFilter, piFilter, activeFilter, minTenure, showWarningsOnly,
+      showInconclusiveOnly, canSeeBattleStats, statsMin, statsMax, statsSource])
 
   // ── Resolve active view → ordered list of column ids ──
   const allViews = useMemo(() => [...BUILT_IN_VIEWS, ...savedViews], [savedViews])
@@ -268,6 +305,15 @@ export default function MemberOverview() {
     return allViews.find(v => v.id === activeViewId) ?? BUILT_IN_VIEWS[0]
   }, [activeViewId, allViews])
   const isBuiltinView = !!activeView.builtin
+
+  // A saved view can name a column the current role may not see — views are
+  // shared, and the person who built one may outrank the person opening it.
+  // Filtering here rather than at each render site means there is one place
+  // that decides, and no path that renders an empty battle-stats column.
+  const visibleColumns = useMemo(
+    () => activeView.columns.filter(c => c !== 'battle_stats' || canSeeBattleStats),
+    [activeView, canSeeBattleStats]
+  )
 
   // ── Sort ──
   const sortedRows = useMemo(() => {
@@ -525,6 +571,43 @@ export default function MemberOverview() {
               className="w-20 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          {canSeeBattleStats && (
+            <>
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Stats</span>
+                {/* Same k/m/b shorthand as the War Room — one parser, so the
+                    two pages cannot read "2.6b" differently (#355). */}
+                <input
+                  type="text" placeholder="min" title="e.g. 3m, 2.6b"
+                  value={statsMin}
+                  onChange={e => setStatsMin(e.target.value)}
+                  className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-xs text-gray-400">–</span>
+                <input
+                  type="text" placeholder="max" title="e.g. 3m, 2.6b"
+                  value={statsMax}
+                  onChange={e => setStatsMax(e.target.value)}
+                  className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Source</span>
+                {/* "BSP only" is the list of members to chase for a key. */}
+                <select
+                  value={statsSource}
+                  onChange={e => setStatsSource(e.target.value)}
+                  className="px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="any">Any</option>
+                  <option value="torn">OWN (exact)</option>
+                  <option value="tornstats">TS (spy)</option>
+                  <option value="bsp">BSP (estimate)</option>
+                  <option value="none">No reading</option>
+                </select>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -534,7 +617,7 @@ export default function MemberOverview() {
           <table className="w-full text-sm border-separate border-spacing-0">
             <thead>
               <tr className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                {activeView.columns.map(colId => {
+                {visibleColumns.map(colId => {
                   const col = resolveColumn(colId)
                   if (!col) return null
                   const active = sortCol === colId
@@ -558,7 +641,7 @@ export default function MemberOverview() {
             <tbody>
               {sortedRows.length === 0 && (
                 <tr>
-                  <td colSpan={activeView.columns.length} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
+                  <td colSpan={visibleColumns.length} className="py-12 text-center text-gray-400 dark:text-gray-600 text-sm">
                     No members match the current filters.
                   </td>
                 </tr>
@@ -576,7 +659,7 @@ export default function MemberOverview() {
                       : baseBg
                 return (
                   <tr key={r.member_id} className={rowClass}>
-                    {activeView.columns.map(colId => {
+                    {visibleColumns.map(colId => {
                       const col = resolveColumn(colId)
                       if (!col) return null
                       // Compliance-driven flag (identity columns)
@@ -625,7 +708,9 @@ export default function MemberOverview() {
         onClose={() => setViewModalOpen(false)}
         initialName={viewModalMode === 'edit' ? activeView.name : ''}
         initialSelection={viewModalMode === 'edit' ? activeView.columns : activeView.columns}
-        identityColumns={IDENTITY_COLUMNS_FOR_MODAL}
+        identityColumns={canSeeBattleStats
+          ? IDENTITY_COLUMNS_FOR_MODAL
+          : IDENTITY_COLUMNS_FOR_MODAL.filter(c => c.key !== 'battle_stats')}
         canSaveAsNew={true}
         canUpdate={viewModalMode === 'edit' && !isBuiltinView}
         canDelete={viewModalMode === 'edit' && !isBuiltinView}
