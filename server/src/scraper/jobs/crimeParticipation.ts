@@ -39,8 +39,17 @@ export async function updateCrimeParticipation(
     .map((u) => ({ id: String(u.id), joined_at: Number(u.joined_at ?? 0) }))
   const occupantIds = occupants.map((o) => o.id)
 
-  const resolved = crime.status === 'Executed' || crime.status === 'Expired'
-  const completedFlag = crime.status === 'Executed'
+  // Torn's executed statuses (#392). This matched 'Executed' for months — a
+  // status Torn does not send — so the resolved branch never ran in production
+  // and `completed` was false on every row in every tenant. The tests could not
+  // catch it because they drove the tracker with the same invented status.
+  //
+  // 'Failed' and 'Failure' are both here for the same reason the rest of the
+  // codebase carries both: a failed crime still EXECUTED, so its members
+  // completed it. 'Executed' stays accepted in case it ever shows up.
+  const EXECUTED = new Set(['Successful', 'Failed', 'Failure', 'Executed'])
+  const completedFlag = EXECUTED.has(crime.status ?? '')
+  const resolved = completedFlag || crime.status === 'Expired'
   const resolveTime = crime.executed_at ?? crime.expired_at ?? null
 
   for (const o of occupants) {

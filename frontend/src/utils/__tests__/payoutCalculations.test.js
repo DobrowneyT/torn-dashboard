@@ -836,3 +836,100 @@ describe('weekCrimeRowsToMap', () => {
     expect(map[101].slots[0].user.name).toBe('NewName')
   })
 })
+
+// ─── Time Spent: crimes that ended without executing (#392) ────────
+//
+// The status check that picks a crime's end time lists only the executed
+// statuses:
+//
+//   if (status === 'Successful' || status === 'Failed' || status === 'Failure')
+//     timeReference = executedAt
+//   else
+//     timeReference = min(now, toTimestamp)   // "still in progress"
+//
+// Torn also has **Expired** — an OC that never filled and lapsed. It is not in
+// the list, so it takes the in-progress branch and its members are credited
+// right up to the window edge, for a crime that stopped existing days earlier.
+// A single expired crime therefore hands everyone who was sitting in it a full
+// week of Time Spent, which is the whole-interval error #389 describes.
+describe('Time Spent for expired crimes (#392)', () => {
+  const FROM = 1_000_000
+  const TO = FROM + 7 * DAY
+
+  // An expired crime plus a real one, so there is a payout to divide.
+  const fixture = ({ expiredStatus = 'Expired' } = {}) => ({
+    crimes: {
+      // Joined a day before the window, lapsed 6 hours into it.
+      expired: {
+        crime_id: 'expired',
+        name: 'Never Filled',
+        status: expiredStatus,
+        executed_at: null,
+        expired_at: FROM + 6 * HOUR,
+        created_at: FROM - DAY,
+        difficulty: 5,
+        rewards: { money: 0 },
+        slots: [makeSlot(1, FROM - DAY)],
+      },
+      // A normal crime the other member ran all week.
+      done: {
+        crime_id: 'done',
+        name: 'Test Crime',
+        status: 'Successful',
+        executed_at: TO - HOUR,
+        created_at: FROM,
+        difficulty: 5,
+        rewards: { money: 1_000_000 },
+        slots: [makeSlot(2, FROM)],
+      },
+    },
+  })
+
+  it('credits an expired crime only up to when it expired', () => {
+    const result = calculatePayouts(fixture(), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m1 = result.members.find(m => m.userId === 1)
+
+    // Real time in the crime, inside the window: FROM → FROM + 6h.
+    expect(m1.timeSpent).toBe(6 * HOUR)
+  })
+
+  it('does not hand an expired crime the whole payout window', () => {
+    // The failure this guards: 6 hours of participation scoring as 168, which
+    // then dominates the time-share split and moves real money.
+    const result = calculatePayouts(fixture(), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m1 = result.members.find(m => m.userId === 1)
+    expect(m1.timeSpent).toBeLessThan(TO - FROM)
+  })
+
+  it('treats an unrecognised status as ended, not as running', () => {
+    // Same reasoning, one step more defensive: if Torn adds a status we do not
+    // know, defaulting it to "still running to the window edge" is the failure
+    // mode that costs money. Only the statuses we KNOW mean in-progress should
+    // accrue to now.
+    const result = calculatePayouts(fixture({ expiredStatus: 'Something New' }), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m1 = result.members.find(m => m.userId === 1)
+    expect(m1.timeSpent).toBe(6 * HOUR)
+  })
+
+  it('still accrues a genuinely in-progress crime to the window edge', () => {
+    // The behaviour that must survive the fix: Planning/Recruiting members are
+    // in the crime right now and keep earning.
+    const crimes = {
+      crimes: {
+        planning: {
+          crime_id: 'planning',
+          name: 'Still Going',
+          status: 'Planning',
+          executed_at: null,
+          created_at: FROM,
+          difficulty: 5,
+          rewards: { money: 0 },
+          slots: [makeSlot(1, FROM)],
+        },
+        done: fixture().crimes.done,
+      },
+    }
+    const result = calculatePayouts(crimes, makeMembers([1, 2]), FROM, TO, 0.20)
+    expect(result.members.find(m => m.userId === 1).timeSpent).toBe(TO - FROM)
+  })
+})

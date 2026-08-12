@@ -368,15 +368,27 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     const createdAt = crime.created_at || 0
     const difficulty = crime.difficulty || 1
 
-    // Determine time reference for this crime
-    let timeReference
-    if (status === 'Successful' || status === 'Failed' || status === 'Failure') {
-      timeReference = executedAt
-    } else {
-      // For in-progress crimes, use current time, not toTimestamp
-      // This prevents showing 168h for crimes still in progress
-      timeReference = Math.min(Math.floor(Date.now() / 1000), toTimestamp)
-    }
+    // When this crime stopped accruing time for its members (#392).
+    //
+    // This used to be "executed → executed_at, everything else → now", which
+    // quietly meant EXPIRED crimes accrued to the window edge. An OC that
+    // never filled and lapsed six hours into the week credited everyone
+    // sitting in it the full 168 hours — a whole-interval error, and because
+    // Time Spent is a share of the total, it moved money away from members who
+    // had actually been in crimes.
+    //
+    // Only Planning and Recruiting are genuinely still running. Anything else
+    // has stopped, and stopped when its resolution marker says: executed_at for
+    // the executed statuses, expired_at for a lapsed one. An unrecognised
+    // status falls to the same rule rather than to "still running", because the
+    // status list has gone stale once already (the participation tracker spent
+    // months matching a status Torn never sends) and the failure mode of
+    // guessing "running" is the expensive one.
+    const inProgress = status === 'Planning' || status === 'Recruiting'
+    const resolvedAt = executedAt || crime.expired_at || 0
+    const timeReference = inProgress || resolvedAt <= 0
+      ? Math.min(Math.floor(Date.now() / 1000), toTimestamp)
+      : resolvedAt
 
     // Check if crime was executed within our window
     // Use >= fromTimestamp and < toTimestamp to avoid double-counting at boundaries

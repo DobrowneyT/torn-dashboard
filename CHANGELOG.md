@@ -17,6 +17,21 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.23.1] - 2026-08-12
+
+### Fixed
+- **OC Payouts: Time Spent counted expired crimes as still running** (#392, #389).
+  An OC that never filled and lapsed took the "in progress" branch, so its members
+  accrued right up to the payout window's edge — six hours of participation scored
+  as a full 168. Because Time Spent is a share of the total, that moved money away
+  from members who had actually been in crimes. Only `Planning` and `Recruiting`
+  now accrue to now; anything else ends at its resolution marker (`executed_at`, or
+  `expired_at` for a lapsed crime), and an unrecognised status ends rather than runs.
+- The participation tracker resolved on `status === 'Executed'`, which Torn never
+  sends (its statuses are `Successful`/`Failure`/`Expired`). `completed` was
+  therefore false on every row in every tenant, and its tests could not see it
+  because they drove the tracker with the same invented status.
+
 ## [3.23.0] - 2026-08-12
 
 ### Added
