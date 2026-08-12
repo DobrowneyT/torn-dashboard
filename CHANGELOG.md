@@ -27,6 +27,15 @@ from `VERSION` at runtime) both surface it automatically.
   redirects, which keeps a plain 404 on every folder that is not published.
 - Redirects from this vhost are now relative (`absolute_redirect off`), so nginx
   cannot rebuild them onto the wrong scheme, host or port.
+  
+## [3.22.4] - 2026-08-12
+
+### Fixed
+- `deploy/update.sh` now rebuilds the backup sidecar. It sits behind a compose
+  profile, so `up -d --build` skipped it — meaning changes to `db/backup.mjs` or
+  `backup.Dockerfile` never reached the running container, and the pre-deploy
+  backup kept using a stale image. The 3.22.3 timeout fix would not have
+  deployed without this.
 
 ## [3.22.3] - 2026-08-12
 
