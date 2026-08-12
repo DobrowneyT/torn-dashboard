@@ -1090,13 +1090,65 @@ export function getCrimeStats(crimes) {
 }
 
 /**
+ * A raw `crime_slots` row → the nested shape the crime views consume.
+ *
+ * Extracted (#391) because the live calculator and the saved-week history were
+ * building this independently, and the saved-week side simply wasn't — it
+ * hardcoded an empty array, so Crime Statistics reported "0 participants" for
+ * every archived week. One shared shaper means the two cannot diverge again.
+ *
+ * `memberNames` maps member_id → current display name; absent for saved weeks,
+ * where the name stored on the slot is what we have.
+ */
+export function toSlotShape(slot, memberNames = {}) {
+  return {
+    position: slot.position,
+    position_id: slot.position_id,
+    position_number: slot.position_number,
+    checkpoint_pass_rate: parseFloat(slot.checkpoint_pass_rate) || 0,
+    user: slot.user_id ? {
+      id: parseInt(slot.user_id),
+      name: memberNames[slot.user_id] || slot.user_name || `User ${slot.user_id}`,
+      joined_at: slot.joined_at,
+      outcome: slot.user_outcome,
+      progress: slot.user_progress,
+      item_outcome: slot.item_outcome_id
+        ? { item_id: slot.item_outcome_id, outcome: slot.item_outcome_outcome }
+        : null,
+    } : null,
+    item_requirement: slot.item_requirement_id ? {
+      id: slot.item_requirement_id,
+      name: slot.item_requirement_name,
+      is_reusable: slot.item_requirement_is_reusable,
+      is_available: slot.item_requirement_is_available,
+    } : null,
+  }
+}
+
+/** Group flat slot rows by crime_id. */
+export function groupSlotsByCrime(slots, memberNames = {}) {
+  const byCrime = new Map()
+  for (const slot of slots || []) {
+    const id = slot?.crime_id
+    if (id == null) continue
+    if (!byCrime.has(id)) byCrime.set(id, [])
+    byCrime.get(id).push(toSlotShape(slot, memberNames))
+  }
+  return byCrime
+}
+
+/**
  * Shape the rows from GET /api/payouts/weeks/:id/crimes into the crime map
  * getCrimeStats() consumes (keyed by crime_id; rewards_money nested under
  * rewards.money). Shared by Payout Management and the Payouts history view so
- * the Crime Statistics breakdown is built identically in both. The endpoint
- * returns no slots, so participant expansion shows "no data" for saved weeks.
+ * the Crime Statistics breakdown is built identically in both.
+ *
+ * #391: `slots` used to be hardcoded empty here, because the endpoint didn't
+ * return any — so every saved week reported "0 participants" and the expand
+ * showed "no data". The endpoint now sends them; pass them in.
  */
-export function weekCrimeRowsToMap(rows) {
+export function weekCrimeRowsToMap(rows, slots = [], memberNames = {}) {
+  const slotsByCrime = groupSlotsByCrime(slots, memberNames)
   const map = {}
   for (const c of rows || []) {
     map[c.crime_id] = {
@@ -1106,7 +1158,9 @@ export function weekCrimeRowsToMap(rows) {
       status: c.status,
       executed_at: c.executed_at,
       rewards: { money: c.rewards_money || 0 },
-      slots: [],
+      // Still defaults to empty when the caller passes nothing, so an older
+      // caller degrades to the previous behaviour rather than throwing.
+      slots: slotsByCrime.get(c.crime_id) || [],
     }
   }
   return map

@@ -43,9 +43,46 @@ export async function loadFactionIdentity() {
   return inflight
 }
 
-/** Synchronous access — valid once the auth loading gate has passed. */
+/**
+ * Synchronous access — valid once the auth loading gate has passed.
+ *
+ * ⚠️ Never capture the result at MODULE SCOPE. This is the #393 trap, and it
+ * has now cost two production bugs (#249, then #393) with the same symptom.
+ *
+ * The fallback below is Forge's id. That makes an early read *silently correct
+ * on Forge and silently wrong on every other tenant* — the worst possible
+ * failure shape, because the faction we develop and test against is the one
+ * that cannot reveal it. #249 replaced the hardcoded literals with calls to
+ * this function; two of those calls landed at module scope, where they
+ * returned the fallback, which was the same literal. The bug was relocated,
+ * not removed.
+ *
+ * Read it inside a component, a hook, or a function body — anywhere that runs
+ * after the auth gate. It is a cached property read, so per-use is free.
+ */
 export function getFactionIdentity() {
+  // Dev-only: surface a read that happened before bootstrap resolved. Stripped
+  // from production builds, and deliberately a warning rather than a throw —
+  // the fallback legitimately serves the login screen and the API-key title
+  // during the loading gate, so failing hard here would blank the app.
+  if (import.meta.env?.DEV && cached === null) {
+    console.warn(
+      '[factionIdentity] read before /api/bootstrap resolved — falling back to ' +
+      `faction ${fallback.id} (Forge). If this value is being stored, it will be ` +
+      'wrong for every other tenant. Read identity at use time, not at module scope. (#393)'
+    )
+  }
   return cached ?? fallback
+}
+
+/**
+ * Has identity genuinely resolved for this tenant?
+ *
+ * For call sites that would rather show nothing than show Forge's data. The
+ * `resolved` flag distinguishes a real bootstrap from the fallback.
+ */
+export function isFactionIdentityResolved() {
+  return cached?.resolved === true
 }
 
 /** Our Torn faction id as a number (bigint columns compare numerically). */

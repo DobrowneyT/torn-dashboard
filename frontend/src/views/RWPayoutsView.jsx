@@ -7,8 +7,9 @@ import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, Info } from 'lucide-react'
 import StatCards from '../components/StatCards'
 
-// Per-tenant identity from bootstrap (#96); resolved before views render.
-const OUR_FACTION_ID = getFactionId()
+// #393: read at use time, never captured at module scope — see the note in
+// WarPayoutManagement.jsx. A module-scope capture resolves before bootstrap
+// and silently pins the page to the Forge fallback.
 
 export default function RWPayoutsView() {
   const { user } = useAuth()
@@ -117,7 +118,7 @@ export default function RWPayoutsView() {
               const result = war
                 ? (!war.end_at || war.end_at === 0
                     ? 'ongoing'
-                    : war.winner_faction_id === OUR_FACTION_ID ? 'win' : 'loss')
+                    : war.winner_faction_id === getFactionId() ? 'win' : 'loss')
                 : null
               const resultColor = result === 'win' ? 'text-green-600' : result === 'loss' ? 'text-red-500' : 'text-yellow-600'
               const label = war
@@ -226,7 +227,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
   const payoutData = wp.war_payouts
 
   const result = war
-    ? (!war.end_at || war.end_at === 0 ? 'ongoing' : war.winner_faction_id === OUR_FACTION_ID ? 'win' : 'loss')
+    ? (!war.end_at || war.end_at === 0 ? 'ongoing' : war.winner_faction_id === getFactionId() ? 'win' : 'loss')
     : null
   const resultColor = result === 'win' ? 'text-green-500' : result === 'loss' ? 'text-red-500' : 'text-yellow-500'
   const label = war ? `vs ${war.opponent_name || `#${war.opponent_id}`}` : `Payout #${wp.payout_id}`
