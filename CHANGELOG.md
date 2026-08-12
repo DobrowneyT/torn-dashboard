@@ -17,6 +17,17 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.22.5] - 2026-08-12
+
+### Fixed
+- `files.monchoon.me/scripts` and `/videos` (no trailing slash) 404'd while the
+  slashed form worked. `location /videos/` does not match `/videos`, so it fell
+  to `try_files $uri =404`, and nginx's own add-the-slash redirect never ran
+  because try_files bypasses the handler that issues it. Fixed with exact-match
+  redirects, which keeps a plain 404 on every folder that is not published.
+- Redirects from this vhost are now relative (`absolute_redirect off`), so nginx
+  cannot rebuild them onto the wrong scheme, host or port.
+  
 ## [3.22.4] - 2026-08-12
 
 ### Fixed
