@@ -26,6 +26,20 @@ from `VERSION` at runtime) both surface it automatically.
   computes E(x) over whatever has been filled in. Partial data yields an
   explicit **lower bound** rather than a number presented as the answer. Failed
   crimes pay nothing (confirmed), so the 202 bad endings need no entry.
+  
+## [3.21.1] - 2026-08-12
+
+### Fixed
+- Travel ETAs never appeared in the War Room (#330). The guard that refuses a
+  departure we did not witness was asking "did this member's row change in the
+  last 120s?" when it meant "was the board watching?". A member's row is only
+  written when they actually change, so anyone sitting idle stopped advancing
+  their `updated_at` while we polled them every second — and their eventual
+  take-off was then discarded as unwitnessed. That is every take-off, since
+  "idle, then travels" is what travelling looks like from the roster's point of
+  view. Board liveness is now recorded once per sweep
+  (`war_room_config_v2.last_roster_sync_at`, migration 0033) instead of being
+  inferred per member.
 
 ## [3.21.0] - 2026-08-12
 
