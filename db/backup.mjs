@@ -21,7 +21,9 @@ import { parseArgs } from 'node:util'
 import { pipeline } from 'node:stream/promises'
 import dotenv from 'dotenv'
 import pg from 'pg'
-import { factionDbsFromRows, backupName, selectExpired, remotePruneArgs } from './backupLib.mjs'
+import {
+  factionDbsFromRows, backupName, selectExpired, remotePruneArgs, rcloneFlags, summarize,
+} from './backupLib.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const composeEnv = {}
@@ -91,9 +93,40 @@ async function dump({ db, slug }) {
   return { name, path: finalPath }
 }
 
+/** Hard ceiling on any one rclone call; the flags should trip long before it. */
+const RCLONE_TIMEOUT_MS = Number(process.env.RCLONE_TIMEOUT_MS ?? 300_000)
+
+/**
+ * Run rclone with bounded network waits. Returns false on failure instead of
+ * throwing — see upload() for why that matters.
+ */
+function rclone(argv, what) {
+  try {
+    execFileSync('rclone', [...argv, ...rcloneFlags()], {
+      stdio: 'inherit',
+      timeout: RCLONE_TIMEOUT_MS,
+    })
+    return true
+  } catch (err) {
+    const why = err?.killed || err?.signal
+      ? `timed out after ${Math.round(RCLONE_TIMEOUT_MS / 1000)}s`
+      : (err?.shortMessage ?? err?.message ?? 'failed')
+    console.warn(`[warn] rclone ${what}: ${why}`)
+    return false
+  }
+}
+
+/**
+ * Copy one archive offsite. NON-FATAL by design.
+ *
+ * This used to throw, which killed the whole run — so an unreachable remote
+ * meant every database after the first got no LOCAL dump either. The offsite
+ * copy is the thing we can lose and recover from tomorrow; the local archive
+ * is not, and it is already on disk by the time we reach here.
+ */
 function upload(path) {
-  if (!rcloneRemote) return
-  execFileSync('rclone', ['copy', path, `${rcloneRemote}/`], { stdio: 'inherit' })
+  if (!rcloneRemote) return true
+  return rclone(['copy', path, `${rcloneRemote}/`], `upload ${path}`)
 }
 
 function prune() {
@@ -102,7 +135,8 @@ function prune() {
   if (rcloneRemote) {
     // rclone enforces the same window remotely by age, scoped to OUR archive
     // names so nothing else in the bucket path can ever be swept (#117).
-    execFileSync('rclone', remotePruneArgs(rcloneRemote, retentionDays), { stdio: 'inherit' })
+    // Also non-fatal: failing to prune the remote costs storage, never data.
+    rclone(remotePruneArgs(rcloneRemote, retentionDays), 'remote prune')
   }
   return local.length
 }
@@ -116,10 +150,19 @@ if (dbs.length === 0) {
   process.exit(0)
 }
 
+let uploadFailures = 0
 for (const target of dbs) {
   const { name } = await dump(target)
-  upload(join(outDir, name))
-  console.log(`backed up ${target.db} → ${name}${rcloneRemote ? ` (+ ${rcloneRemote})` : ' (local only)'}`)
+  const sent = upload(join(outDir, name))
+  if (!sent) uploadFailures += 1
+  const where = !rcloneRemote ? ' (local only)' : sent ? ` (+ ${rcloneRemote})` : ' (LOCAL ONLY — upload failed)'
+  console.log(`backed up ${target.db} → ${name}${where}`)
 }
 const pruned = prune()
-console.log(`Backups complete: ${dbs.length} archived, ${pruned} local expired removed (retention ${retentionDays}d).`)
+console.log(summarize({
+  archived: dbs.length, uploadFailures, pruned, retentionDays, remote: rcloneRemote,
+}))
+// Non-zero when the offsite copy did not happen. The sidecar loop and
+// update.sh both tolerate this (`|| ...`), so it surfaces the problem without
+// stopping tomorrow's backup or blocking a deploy.
+if (uploadFailures > 0) process.exit(1)
