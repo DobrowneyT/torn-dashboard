@@ -52,6 +52,8 @@ const NEW_TABLES = [
   'member_faction_stints',
   // Observed OC occupancy + its poll heartbeat (#389)
   'crime_occupancy', 'crime_occupancy_polls',
+  // Mirrored OC probability model (#390)
+  'oc_scenarios', 'oc_scenario_roles', 'oc_scenario_endings',
   // Per-member war notes (#199)
   'member_notes',
   // Web Push subscriptions (#207)
