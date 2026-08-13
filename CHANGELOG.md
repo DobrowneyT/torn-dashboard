@@ -17,6 +17,55 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.28.0] - 2026-08-13
+
+### Added
+- **History against the current opponent** (#398).
+  `GET /api/war-room/history/:factionId` returns every completed ranked war against
+  one faction, newest first, each with our contributions, the roll call, and the
+  public note we wrote at the time. That last one is the part with no other home:
+  scores are public and contributions are Torn's, but what we said about them last
+  time was only findable by scrolling the archive war by war.
+  - Excludes the war currently in progress — "previous matchups" including the one
+    being fought reads as history the lead has not lived through yet.
+  - Empty arrays rather than nulls for a war with no notes or roll call, which is
+    the common case for a first-time-noted opponent and would otherwise throw in
+    the panel.
+  - Leads/visitors only, matching the notes archive.
+
+## [3.27.0] - 2026-08-13
+
+### Added
+- **OC ending mapping derived, not assumed** (#390). `server/src/oc/endingMap.ts`
+  resolves `goodEndingN` to a diagram node id from two independent signals that
+  must agree: the fewest checkpoint failures a path to that ending needs, and
+  which roles' CPR drops actually raise it in a probe sweep.
+  - ⚠️ **Position matching is wrong, not merely unproven.** For Break the Bank
+    the derived mapping swaps positions 3 and 4 against declaration order, so
+    `goodEnding3` and `goodEnding4` would have carried each other's payouts.
+  - Returns `ok: false` with reasons rather than a partial map — a half-derived
+    mapping's resolved endings look exactly as trustworthy as its guesses.
+  - Refuses on: no baseline probe, a diagram/API disagreement about how many
+    endings exist, no role evidence, or a tie between two candidate endings.
+- **OC scenario flowchart parsing** (#390), the substrate for the OC Simulator.
+  `server/src/oc/scenarioTree.ts` parses the mermaid diagram tornprobability.com
+  serves per scenario, enumerates every path from the prelude to each ending, and
+  counts the checkpoints a path passed or failed.
+  - Pass/fail is read from the edge **label** the diagram states (`-- "Pass" -->`),
+    not inferred from the child node's id suffix. The two agree today, but one is
+    a statement and the other is a convention.
+  - `allPassTerminal()` returns **null** rather than choosing when a scenario has
+    no unique every-checkpoint-passed ending. An ambiguous anchor must read as
+    "cannot map"; picking arbitrarily is how a plausible-but-wrong mapping ships.
+  - `validateScenarioTree()` checks the invariants the source must satisfy —
+    every checkpoint has both a Pass and a Fail edge, every branch reaches an
+    ending, nothing is unreachable from the prelude. It is the mirror job's gate:
+    a scenario that fails is refused rather than mapped, since a partial tree
+    still produces confident numbers. Break the Bank passes clean at 18
+    checkpoints, 10 endings, 137 nodes.
+  - Tested against the real Break the Bank diagram as a fixture, not a
+    hand-written sample.
+
 ## [3.26.0] - 2026-08-13
 
 ### Added
