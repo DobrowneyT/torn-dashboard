@@ -292,3 +292,97 @@ describe('war notes', () => {
     expect((await call('GET', '/api/war-room/notes/archive', undefined, 'visitor')).status).toBe(403)
   })
 })
+
+// #398 — history against ONE faction, not the whole archive.
+//
+// MonChoon: "what I was really after was specifically the history with this
+// week's opponent... all of the past wars we had with that faction, namely the
+// war contribution, and then if we have any notes based on our own input on
+// the roll call."
+describe('GET /api/war-room/history/:factionId', () => {
+  const OPP = 77001
+  const OTHER = 77002
+
+  beforeAll(async () => {
+    await stack.db.query(`
+      INSERT INTO ranked_wars (id, start_at, end_at, opponent_id, opponent_name,
+                               our_score, opponent_score, winner_faction_id) VALUES
+        (8001, 1700000000, 1700200000, ${OPP},   'Old Foes', 2500, 1200, ${TEST_FACTION.tornFactionId}),
+        (8002, 1600000000, 1600200000, ${OPP},   'Old Foes', 900,  1800, ${OPP}),
+        (8003, 1650000000, 1650200000, ${OTHER}, 'Someone Else', 100, 50, ${TEST_FACTION.tornFactionId}),
+        (8004, 1750000000, NULL,       ${OPP},   'Old Foes', 40,   30, NULL)
+    `)
+    await stack.db.query(`
+      INSERT INTO war_member_contributions (war_id, member_id, member_name, level, attacks, score, faction_id) VALUES
+        (8001, 1400, 'Ours',   40, 30, 410.25, ${TEST_FACTION.tornFactionId}),
+        (8001, 1405, 'AlsoUs', 22, 12, 120.00, ${TEST_FACTION.tornFactionId}),
+        (8001, 9900, 'Theirs', 60, 44, 380.00, ${OPP})
+    `)
+    await stack.db.query(
+      `INSERT INTO war_room_notes_v2 (war_id, opponent_faction_id, notes_public, war_type)
+       VALUES (8001, ${OPP}, 'They stacked at 03:00 TCT and we got caught short.', 'real')`
+    )
+    await stack.db.query(
+      `INSERT INTO war_room_roll_call_v2 (war_id, member_id, member_name, on_at_start)
+       VALUES (8001, 1400, 'Ours', true), (8001, 1405, 'AlsoUs', false)`
+    )
+  })
+
+  it('returns only wars against that faction, newest first', async () => {
+    const { status, body } = await call('GET', `/api/war-room/history/${OPP}`, undefined, 'warlead')
+    expect(status).toBe(200)
+    expect(body.wars.map((w: any) => w.war_id)).toEqual([8001, 8002])
+  })
+
+  it('excludes the war currently in progress', async () => {
+    // 8004 has no end_at — it is the matchup being fought. "Previous matchups"
+    // that includes the current one reads as history the lead has not lived yet.
+    const { body } = await call('GET', `/api/war-room/history/${OPP}`, undefined, 'warlead')
+    expect(body.wars.map((w: any) => w.war_id)).not.toContain(8004)
+  })
+
+  it('carries OUR contributions, not the opponent\'s', async () => {
+    const { body } = await call('GET', `/api/war-room/history/${OPP}`, undefined, 'warlead')
+    const war = body.wars.find((w: any) => w.war_id === 8001)
+    expect(war.our_contributions.map((c: any) => c.member_name)).toEqual(['Ours', 'AlsoUs'])
+    expect(war.our_contributions.map((c: any) => c.member_name)).not.toContain('Theirs')
+  })
+
+  it('carries the roll call and the note we wrote about them', async () => {
+    // The part with no other home: scores are public and contributions are
+    // Torn's, but what we said about them last time exists only here.
+    const { body } = await call('GET', `/api/war-room/history/${OPP}`, undefined, 'warlead')
+    const war = body.wars.find((w: any) => w.war_id === 8001)
+    expect(war.notes_public).toMatch(/stacked at 03:00/)
+    expect(war.roll_call).toHaveLength(2)
+    expect(war.roll_call.find((r: any) => r.member_name === 'Ours').on_at_start).toBe(true)
+  })
+
+  it('returns empty arrays, not null, for a war with no notes or roll call', async () => {
+    // The panel maps over these. A null would throw on a first-time-noted
+    // opponent, which is the common case.
+    const { body } = await call('GET', `/api/war-room/history/${OPP}`, undefined, 'warlead')
+    const war = body.wars.find((w: any) => w.war_id === 8002)
+    expect(war.our_contributions).toEqual([])
+    expect(war.roll_call).toEqual([])
+    expect(war.notes_public).toBeNull()
+  })
+
+  it('returns nothing for a faction we have never fought', async () => {
+    const { body } = await call('GET', '/api/war-room/history/999999', undefined, 'warlead')
+    expect(body.wars).toEqual([])
+  })
+
+  it('rejects a non-numeric faction id', async () => {
+    const { status } = await call('GET', '/api/war-room/history/abc', undefined, 'warlead')
+    expect(status).toBe(400)
+  })
+
+  it('is leads-only, with visitors allowed to read', async () => {
+    // Same gate as the notes archive: visitors demo the full leads view and
+    // this only ever reads. Plain members do not get war notes.
+    expect((await call('GET', `/api/war-room/history/${OPP}`, undefined, 'visitor')).status).toBe(200)
+    expect((await call('GET', `/api/war-room/history/${OPP}`, undefined, 'admin')).status).toBe(200)
+    expect((await call('GET', `/api/war-room/history/${OPP}`, undefined, 'member')).status).toBe(403)
+  })
+})

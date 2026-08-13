@@ -17,6 +17,22 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.28.0] - 2026-08-13
+
+### Added
+- **History against the current opponent** (#398).
+  `GET /api/war-room/history/:factionId` returns every completed ranked war against
+  one faction, newest first, each with our contributions, the roll call, and the
+  public note we wrote at the time. That last one is the part with no other home:
+  scores are public and contributions are Torn's, but what we said about them last
+  time was only findable by scrolling the archive war by war.
+  - Excludes the war currently in progress — "previous matchups" including the one
+    being fought reads as history the lead has not lived through yet.
+  - Empty arrays rather than nulls for a war with no notes or roll call, which is
+    the common case for a first-time-noted opponent and would otherwise throw in
+    the panel.
+  - Leads/visitors only, matching the notes archive.
+
 ## [3.27.0] - 2026-08-13
 
 ### Added
