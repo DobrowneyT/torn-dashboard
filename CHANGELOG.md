@@ -17,6 +17,25 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.26.0] - 2026-08-13
+
+### Added
+- **Fair Fight maths** (#422): `battleStatsScore` and `fairFight` in
+  `utils/fairFight.js`, using the formula MonChoon confirmed —
+  `BS = √str + √spd + √def + √dex`, `FF = min(3, 1 + 8/3 × def_BS/att_BS)`.
+  Pinned to the stated cases: 5b vs 100m gives **1.38**, an even fight and
+  punching up both cap at **3.00**. Any missing stat component yields `null`,
+  never a guess — FF decides who gets attacked, and BS score is a sum of square
+  roots, so it cannot be recovered from a stat total.
+  The War Room column is **not** wired yet — see the note in #422 on whose stats
+  the attacker side should use.
+
+### Changed
+- War Notes: roll-call results collapse to a tally — `Roll Call 41 Yes · 22 No
+  (33 missing)` — expanding to the full table on click, matching the Past Wars
+  control below it. The table is a row per respondent and was pushing the
+  archive off screen on a full faction.
+
 ## [3.25.0] - 2026-08-12
 
 ### Added
