@@ -68,6 +68,9 @@ export function rosterColumns(side) {
   const us = side === US
   return {
     dibs: !us, action: !us,
+    // Fair Fight is enemy-only by nature (#422): it answers "what would I earn
+    // hitting this person", which is meaningless against our own roster.
+    ff: !us,
     energy: us, drugCd: us, medicalCd: us, boosterCd: us,
     // Revive chance is our-roster only and not by choice (#358): Torn reports a
     // success chance only on revives our own faction received, so there is no
@@ -90,12 +93,23 @@ const OUR_ROSTER_SORT_COLS = new Set([
   'revive_chance',
 ])
 
+/**
+ * Sort columns that exist only on the ENEMY roster (#422).
+ *
+ * The mirror of the set above, and needed for the same reason: `sortCol` is
+ * persisted, so a lead who sorts by FF and then toggles to our own roster would
+ * be sorting a column that isn't rendered — every row compares equal and no
+ * header carries the arrow.
+ */
+const ENEMY_ROSTER_SORT_COLS = new Set(['ff'])
+
 /** Default to fall back to when the chosen sort column isn't on this side. */
 export const DEFAULT_SORT_COL = 'timer'
 
 /** The sort column actually in effect for a side. */
 export function effectiveSortCol(sortCol, side, fallback = DEFAULT_SORT_COL) {
   if (side !== US && OUR_ROSTER_SORT_COLS.has(sortCol)) return fallback
+  if (side === US && ENEMY_ROSTER_SORT_COLS.has(sortCol)) return fallback
   return sortCol
 }
 

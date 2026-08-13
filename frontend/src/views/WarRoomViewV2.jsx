@@ -77,6 +77,7 @@ import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
 import { isTourSeen, markTourSeen, resetTourSeen } from '../utils/warRoomTour'
 import { parseStatInput, formatStats } from '../utils/statInput'
 import BattleStatsCell from '../components/BattleStatsCell'
+import { fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated } from '../utils/fairFight'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -897,6 +898,63 @@ function MemberReviveChanceCell({ revives, loaded }) {
   )
 }
 
+/**
+ * Fair Fight for the viewer against one enemy (#422).
+ *
+ * Personal by construction: `mine` is the viewer's own battle stats, so this
+ * cell reads differently for every person looking at the same board. That is
+ * the point — FF is what YOU would earn, not a property of the target.
+ *
+ * The gradient runs red at 1.00 to green at 3.00, which is the full range FF
+ * can occupy. Note it saturates once the target reaches 75% of your BS score,
+ * so a large share of a healthy roster sits at a flat 3.00; the dotted
+ * underline below carries the information the colour cannot.
+ */
+function FairFightCell({ mine, target }) {
+  const ff = fairFight(mine, {
+    strength: target?.bsp_str, speed: target?.bsp_spd,
+    defense: target?.bsp_def, dexterity: target?.bsp_dex,
+    total: target?.bsp_total,
+  })
+
+  if (ff === null) {
+    return (
+      <span
+        className="text-xs text-gray-300 dark:text-gray-600"
+        title={mine ? 'No battle stats for this target yet.' : 'No battle stats on record for you yet.'}
+      >—</span>
+    )
+  }
+
+  // An estimate on EITHER side makes the result an estimate. The even-split
+  // assumption overstates lopsided builds, and on the target side that inflates
+  // FF — so a number built on a bare total should not look as solid as one
+  // built on a real spy.
+  const estimated = scoreIsEstimated(mine) || scoreIsEstimated({
+    strength: target?.bsp_str, speed: target?.bsp_spd,
+    defense: target?.bsp_def, dexterity: target?.bsp_dex,
+    total: target?.bsp_total,
+  })
+
+  // 0 → red (0deg), 1 → green (120deg).
+  const hue = Math.round(120 * ffGradientPosition(ff))
+  return (
+    <span
+      style={{ '--grad-hue': hue }}
+      className={`hue-grad text-xs font-mono ${estimated ? 'underline decoration-dotted decoration-from-font' : ''}`}
+      title={[
+        `Fair Fight ${formatFF(ff)} — your respect multiplier against this target.`,
+        isMaxFF(ff) ? 'At the 3.00 cap: full respect.' : '',
+        estimated
+          ? 'Estimated: only a stat TOTAL is known for one side, so an even split was assumed. That overstates lopsided builds, so the real FF may be lower.'
+          : 'Computed from a full stat breakdown on both sides.',
+      ].filter(Boolean).join('\n')}
+    >
+      {formatFF(ff)}
+    </span>
+  )
+}
+
 function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title }) {
   const active = sortCol === col
   return (
@@ -1569,7 +1627,23 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // in a previous session is a worse failure than re-clicking it.
   const [rosterSide, setRosterSide] = useState(DEFAULT_ROSTER_SIDE)
 
+  // The viewer's OWN battle stats, for the personal FF column (#422).
+  //
+  // Fetched once on mount rather than joining the poll: a member's own stats
+  // change on the timescale of a gym session, not a war-room tick, and putting
+  // them in the 2 Hz roster poll would be a request per second for a value that
+  // moves twice a week.
+  const [myBattleStats, setMyBattleStats] = useState(null)
+  useEffect(() => {
+    let on = true
+    apiGet('/api/members/me/battle-stats')
+      .then(r => { if (on) setMyBattleStats(r?.battle_stats ?? null) })
+      .catch(() => { if (on) setMyBattleStats(null) })
+    return () => { on = false }
+  }, [])
+
   // Stats filter
+  const [ffMaxOnly, setFfMaxOnly] = useState(() => persistedState.ffMaxOnly ?? false)
   const [statsFilterEnabled, setStatsFilterEnabled] = useState(() => persistedState.statsFilterEnabled ?? false)
   const [statsFilterMin, setStatsFilterMin] = useState(() => persistedState.statsFilterMin ?? '')
   const [statsFilterMax, setStatsFilterMax] = useState(() => persistedState.statsFilterMax ?? '')
@@ -1683,12 +1757,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       statsFilterEnabled,
       statsFilterMin,
       statsFilterMax,
+      ffMaxOnly,
       sortCol,
       sortDir,
       leadershipPanelOpen,
       notesPanelOpen,
     })
-  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, sortCol, sortDir, leadershipPanelOpen, notesPanelOpen, setPersistedState])
+  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, ffMaxOnly, sortCol, sortDir, leadershipPanelOpen, notesPanelOpen, setPersistedState])
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -2165,6 +2240,15 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     [effectiveSide, rawRosterMembers, ourBattleStats]
   )
   const columns = rosterColumns(effectiveSide)
+  // FF for one roster row, from the viewer's perspective. Shared by the sort,
+  // the 3x filter and the cell so the three cannot disagree about a number.
+  const ffFor = useCallback((m) => fairFight(myBattleStats, {
+    strength: m?.bsp_str, speed: m?.bsp_spd,
+    defense: m?.bsp_def, dexterity: m?.bsp_dex, total: m?.bsp_total,
+  }), [myBattleStats])
+  // Only offerable when we can actually compute it — otherwise the button
+  // would silently empty the board.
+  const ffFilterUsable = columns.ff && myBattleStats != null
   const statsFilterUsable = isStatsFilterAvailable(effectiveSide, Object.keys(ourBattleStats).length)
   // Energy and the cooldowns only exist on our roster, and sortCol is
   // persisted — so a lead who sorts by energy, toggles back to the opponent
@@ -2202,6 +2286,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     // Suspended on our own roster until we hold battle stats: spies are fetched
     // for the enemy only, so bsp_total would be null for everyone and an active
     // min/max would empty the table.
+    // "3x FF" (#422): only targets that pay the full respect multiplier. Kept
+    // separate from the min/max stats filter rather than folded into it — the
+    // two express different intents ("in this weight class" vs "worth hitting")
+    // and a lead routinely wants one without the other.
+    if (ffMaxOnly && ffFilterUsable) {
+      list = list.filter((m) => isMaxFF(ffFor(m)))
+    }
     if (statsFilterEnabled && statsFilterUsable) {
       const minVal = parseStatInput(statsFilterMin)
       const maxVal = parseStatInput(statsFilterMax)
@@ -2262,6 +2353,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         }
         case 'stats':
           return d * ((a.bsp_total ?? -1) - (b.bsp_total ?? -1))
+        // #422. Nulls sink in BOTH directions (#351): a target we cannot
+        // compute FF for is not "the worst" or "the best" one, it is unknown,
+        // and parking it at either end of the order says something untrue.
+        case 'ff': {
+          const av = ffFor(a)
+          const bv = ffFor(b)
+          if (av === null && bv === null) return a.member_name.localeCompare(b.member_name)
+          if (av === null) return 1
+          if (bv === null) return -1
+          return d * (av - bv)
+        }
         // Our-roster live stats (#351). Members with no reading sink to the
         // bottom in both directions — see compareMemberStat.
         case 'energy':
@@ -2286,7 +2388,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         default: return 0
       }
     })
-  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, activeSortCol, sortDir, memberStats, reviveHistory, revivesByTarget])
+  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, ffMaxOnly, ffFilterUsable, ffFor, activeSortCol, sortDir, memberStats, reviveHistory, revivesByTarget])
 
   // ── Mobile War Room adapters ──────────────────────────────────────────────
   // Project the desktop's flat enemy `members` rows onto the prop shape that
@@ -2791,6 +2893,22 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   No battle stats for our members yet.
                 </span>
               )}
+              {columns.ff && (
+                <button
+                  onClick={() => setFfMaxOnly(v => !v)}
+                  disabled={!ffFilterUsable}
+                  title={ffFilterUsable
+                    ? 'Show only targets at the 3.00 fair-fight cap — full respect for you.'
+                    : 'No battle stats on record for you yet, so FF cannot be computed.'}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                    ffMaxOnly && ffFilterUsable
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
+                  } ${ffFilterUsable ? '' : 'cursor-not-allowed opacity-50'}`}
+                >
+                  3x FF
+                </button>
+              )}
               <input
                 type="text"
                 placeholder="Min (e.g. 3m)"
@@ -2925,12 +3043,28 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               <table className="w-full text-sm border-separate border-spacing-0">
                 <thead>
                   <tr className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    <SortTh col="name"     sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="px-4">Name</SortTh>
+                    <SortTh col="name"     sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="px-2">Name</SortTh>
                     <SortTh col="activity" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Activity</SortTh>
                     <SortTh col="status"   sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
                     <SortTh col="timer"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
-                    <SortTh col="stats"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
                     <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Flags</th>
+                    <SortTh col="stats"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
+                    {columns.ff && (
+                      <SortTh
+                        col="ff" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
+                        className="text-right"
+                        title={[
+                          'Fair Fight — the respect multiplier YOU would get hitting this target.',
+                          'FF = min(3, 1 + 8/3 × (their BS score / your BS score)),',
+                          'BS score = √str + √spd + √def + √dex.',
+                          'This column is personal: it is computed from your own battle stats,',
+                          'so it reads differently for every viewer.',
+                          myBattleStats
+                            ? ''
+                            : 'No battle stats on record for you yet — the column cannot be computed.',
+                        ].filter(Boolean).join('\n')}
+                      >FF</SortTh>
+                    )}
                     {/* Energy and the cooldowns sort like any other column (#351):
                         energy on the current value, cooldowns on the AGED
                         remaining one so the order matches the rendered numbers. */}
@@ -2983,12 +3117,16 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
                     return (
                       <tr key={m.member_id} className={`${rowBg} hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors`}>
-                        {/* Name */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
+                        {/* Name — narrower than the rest (#422): it was the
+                            widest column by a distance and the FF column has to
+                            come from somewhere. Truncates rather than wrapping,
+                            so row height stays uniform down a 100-row board. */}
+                        <td className="py-2.5 px-2 whitespace-nowrap max-w-[13rem]">
+                          <div className="flex items-center gap-1.5 min-w-0">
                             <a href={`https://www.torn.com/profiles.php?XID=${m.member_id}`}
                               target="_blank" rel="noopener noreferrer"
-                              className="font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                              className="font-medium text-blue-600 dark:text-blue-400 hover:underline truncate"
+                              title={m.member_name}>
                               {m.member_name}
                             </a>
                             <span className="text-xs text-gray-400 dark:text-gray-600">Lv{m.level}</span>
@@ -3023,11 +3161,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                           <CountdownCell until={m.status_until} member={m} />
                         </td>
 
-                        {/* Stats — hover for str/dex/spd/def breakdown + source. */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right">
-                          <BattleStatsCell member={m} />
-                        </td>
-
                         {/* Flags (#339) — composed in warRoomFlags.js so the
                             revive nuance is tested rather than inlined. The
                             two revivable states share a glyph but not a
@@ -3058,6 +3191,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             )
                           })()}
                         </td>
+
+                        {/* Stats — hover for str/dex/spd/def breakdown + source. */}
+                        <td className="py-2.5 px-3 whitespace-nowrap text-right">
+                          <BattleStatsCell member={m} />
+                        </td>
+
+                        {columns.ff && (
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right">
+                            <FairFightCell mine={myBattleStats} target={m} />
+                          </td>
+                        )}
 
                         {/* Energy + cooldowns — our-roster only (#336), fetched
                             per-member with that member's own key because Torn

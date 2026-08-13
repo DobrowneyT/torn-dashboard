@@ -1,7 +1,7 @@
 // Roster-side toggle decisions (#335).
 import { describe, it, expect } from 'vitest'
 import {
-  THEM, US, DEFAULT_ROSTER_SIDE,
+  THEM, US, DEFAULT_ROSTER_SIDE, DEFAULT_SORT_COL,
   isRosterSide, selectRosterMembers, rosterColumns, rosterColumnCount,
   isStatsFilterAvailable, otherSide, canViewOurRoster, effectiveRosterSide, pollingState,
   effectiveSortCol, passesStatsFilter,
@@ -58,7 +58,7 @@ describe('rosterColumns', () => {
 describe('rosterColumnCount', () => {
   it('counts the columns actually rendered for each side', () => {
     // Drives the empty-state colSpan; a wrong number visibly breaks that row.
-    expect(rosterColumnCount(THEM)).toBe(8)
+    expect(rosterColumnCount(THEM)).toBe(9)  // +1 for FF (#422)
     expect(rosterColumnCount(US)).toBe(11)
   })
 
@@ -266,5 +266,31 @@ describe('passesStatsFilter (#366)', () => {
   it('treats 0 as a real total rather than missing', () => {
     expect(passesStatsFilter({ bsp_total: 0 }, { min: 0 })).toBe(true)
     expect(passesStatsFilter({ bsp_total: 0 }, { min: 1 })).toBe(false)
+  })
+})
+
+// #422: FF is enemy-only, and its sort column has to survive a side toggle.
+describe('fair-fight column (#422)', () => {
+  it('is present on the enemy roster and absent on ours', () => {
+    // FF answers "what would I earn hitting this person" — meaningless
+    // against our own faction.
+    expect(rosterColumns(THEM).ff).toBe(true)
+    expect(rosterColumns(US).ff).toBe(false)
+  })
+
+  it('counts toward the enemy column span', () => {
+    // The empty-state row uses colSpan={rosterColumnCount(side)}; a stale count
+    // leaves "No members match" short of the table width.
+    expect(rosterColumnCount(THEM)).toBe(9)
+    expect(rosterColumnCount(US)).toBe(11)
+  })
+
+  it('falls back when an FF sort is carried onto our own roster', () => {
+    // sortCol is persisted. Without this, a lead who sorts by FF and toggles
+    // to our side sorts a column that is not rendered: every row compares
+    // equal, the order looks arbitrary and no header carries an arrow —
+    // exactly the trap #351 fixed for energy, in the other direction.
+    expect(effectiveSortCol('ff', US)).toBe(DEFAULT_SORT_COL)
+    expect(effectiveSortCol('ff', THEM)).toBe('ff')
   })
 })

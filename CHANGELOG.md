@@ -17,6 +17,41 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.26.0] - 2026-08-13
+
+### Added
+- **Fair Fight maths** (#422): `battleStatsScore` and `fairFight` in
+  `utils/fairFight.js`, using the formula MonChoon confirmed —
+  `BS = √str + √spd + √def + √dex`, `FF = min(3, 1 + 8/3 × def_BS/att_BS)`.
+  Pinned to the stated cases: 5b vs 100m gives **1.38**, an even fight and
+  punching up both cap at **3.00**. Any missing stat component yields `null`,
+  never a guess — FF decides who gets attacked, and BS score is a sum of square
+  roots, so it cannot be recovered from a stat total.
+  `GET /api/members/me/battle-stats` returns the **caller's own** row to any
+  authenticated member — the only extra read FF needs. The target side is the
+  enemy roster the war room already shows everyone, so no other member's stats
+  enter the calculation.
+  - Only a total (BSP gives one number, not four)? An even split is assumed, per
+    MonChoon. ⚠️ That **overstates lopsided builds by 30%+**, because an even
+    split maximises the sum of roots for a given total — on the defender side it
+    makes a target look more rewarding than it is. `scoreIsEstimated()` marks
+    which scores were assumed.
+  - `ffGradientPosition` runs red at 1.00 → green at 3.00, and `isMaxFF` backs
+    the "3x FF" roster filter with a tolerance rather than exact equality.
+
+  The enemy-roster column is wired: order is now
+  `Name · Activity · Status · Timer · Flags · Stats · FF · Dibs · Action`, Name
+  narrowed and truncating, FF sortable (nulls sink both ways per #351) with a
+  red→green gradient, and a **3x FF** filter button showing only targets at the
+  cap. An estimated FF carries a dotted underline, since a number built on a
+  bare total should not look as solid as one built on a real spy.
+
+### Changed
+- War Notes: roll-call results collapse to a tally — `Roll Call 41 Yes · 22 No
+  (33 missing)` — expanding to the full table on click, matching the Past Wars
+  control below it. The table is a row per respondent and was pushing the
+  archive off screen on a full faction.
+
 ## [3.25.0] - 2026-08-12
 
 ### Added

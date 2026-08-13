@@ -262,3 +262,48 @@ describe('GET /api/inventory/loaned', () => {
     expect(body.items[0].weighted_avg_price).toBe(20000)
   })
 })
+
+// #422: the Fair Fight column needs the viewer's OWN battle stats, and nothing
+// else. The target side comes from the enemy roster the war room already shows
+// every member, so this is the only additional read FF requires.
+describe('GET /api/members/me/battle-stats', () => {
+  it('returns null rather than 404 before the caller has any stats', async () => {
+    // A member with no spy on record is the ordinary case, not an error — the
+    // FF column shows a dash and the page carries on. Runs first, while the
+    // table is still empty for this member.
+    const { status, body } = await get('/api/members/me/battle-stats')
+    expect(status).toBe(200)
+    expect(body.battle_stats).toBeNull()
+  })
+
+  it("returns the caller's own row, to a plain member with no roles", async () => {
+    // Deliberately NOT leadership-gated: it is the caller's own data, and
+    // gating it would make the FF column leadership-only for no security gain.
+    await stack.db.query(
+      `INSERT INTO member_battle_stats (member_id, strength, defense, speed, dexterity, total, source)
+       VALUES ('300', 100, 200, 300, 400, 1000, 'torn'),
+              ('301', 9, 9, 9, 9, 36, 'torn')`
+    )
+    const { status, body } = await get('/api/members/me/battle-stats')
+    expect(status).toBe(200)
+    expect(body.battle_stats.member_id).toBe('300')
+    expect(body.battle_stats.strength).toBe(100)
+    expect(body.battle_stats.total).toBe(1000)
+  })
+
+  it('never returns anyone else', async () => {
+    // The whole safety argument for the column: FF is computed from the
+    // viewer's own stats plus the ENEMY's, so no other faction member's stats
+    // enter the calculation at any point.
+    const { body } = await get('/api/members/me/battle-stats')
+    expect(Array.isArray(body.battle_stats)).toBe(false)
+    expect(body.battle_stats.member_id).toBe('300')
+  })
+
+  it('is not shadowed by the /api/members/:id route', async () => {
+    // `me` is a static segment and must win over the :id param; if it did not,
+    // this would 404 or try to look up a member literally called "me".
+    const { status } = await get('/api/members/me/battle-stats')
+    expect(status).toBe(200)
+  })
+})
