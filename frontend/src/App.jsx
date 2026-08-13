@@ -76,7 +76,9 @@ function DashboardLayout() {
     if (!effectiveCanAccessWarOverview && location.pathname.startsWith('/rw/war-overview')) {
       navigate('/', { replace: true })
     }
-    if (!effectiveCanAccessOCPlanner && location.pathname.startsWith('/oc/oc-planner')) {
+    // The Simulator (#390) shares the Planner's gate, so it shares the redirect.
+    if (!effectiveCanAccessOCPlanner &&
+        (location.pathname.startsWith('/oc/oc-planner') || location.pathname.startsWith('/oc/oc-simulator'))) {
       navigate('/', { replace: true })
     }
   }, [effectiveIsLeadership, effectiveCanAccessWarOverview, effectiveCanAccessOCPlanner, location.pathname, navigate])

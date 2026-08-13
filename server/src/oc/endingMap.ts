@@ -112,6 +112,49 @@ export function observedSignature(endingKey: string, probes: Probe[], margin = 1
   return out
 }
 
+/**
+ * The ending slots that are REAL, discarding the API's zero padding.
+ *
+ * ⚠️ Found by running all 31 scenarios on 2026-08-13. The service answers with
+ * a fixed number of ending slots and pads the unused tail with exact zeros:
+ * Plucking the Lotus Petal returns `goodEnding1..10` where 5–10 are all 0 and
+ * the diagram has exactly 4 endings; Ace in the Hole returns 10 where 8–10 are
+ * 0 against 7 in the diagram. Comparing the raw key count against the diagram
+ * made seven scenarios look like the API and the diagram disagreed about the
+ * crime's shape, and refused all of them.
+ *
+ * The trim is deliberately conservative in two ways:
+ *
+ *   - Only a TRAILING run of zeros is dropped. A zero in the middle is a real
+ *     ending that happens to be unreachable at these CPRs, and renumbering
+ *     around it would shift every ending after it onto the wrong node.
+ *   - An ending counts as real if it is non-zero in ANY probe, not just the
+ *     baseline. Dropping a role to CPR 1 is exactly what makes the rare endings
+ *     appear, so the sweep sees endings the baseline alone would call empty.
+ */
+export function realEndingKeys(prefix: string, probes: Probe[]): string[] {
+  const indexed = new Map<number, string>()
+  for (const probe of probes) {
+    for (const key of Object.keys(probe.endings)) {
+      if (!key.startsWith(prefix)) continue
+      const n = Number(key.slice(prefix.length))
+      if (Number.isInteger(n)) indexed.set(n, key)
+    }
+  }
+  const ordered = [...indexed.entries()].sort((a, b) => a[0] - b[0])
+
+  let lastReal = -1
+  ordered.forEach(([, key], i) => {
+    const nonZero = probes.some((p) => {
+      const v = p.endings[key]
+      return typeof v === 'number' && v > 0
+    })
+    if (nonZero) lastReal = i
+  })
+
+  return ordered.slice(0, lastReal + 1).map(([, key]) => key)
+}
+
 /** Depth implied by a probability at the all-high baseline. */
 function impliedDepth(p: number): number {
   // ~1% failure per checkpoint at CPR 99, so each required failure costs about
@@ -144,7 +187,7 @@ export function deriveEndingMap(
   }
 
   const prefix = kind === 'good' ? 'goodEnding' : 'badEnding'
-  const endingKeys = Object.keys(baseline.endings).filter((k) => k.startsWith(prefix))
+  const endingKeys = realEndingKeys(prefix, probes)
   const terminals = tree.terminals.filter((t) => t.ending === kind)
 
   if (endingKeys.length !== terminals.length) {

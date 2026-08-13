@@ -167,3 +167,114 @@ describe('GET /api/oc-planner/data', () => {
     expect(body.t3_cpr).toEqual({ '300': { 'Break the Bank||Robber': 80 } })
   })
 })
+
+// OC Simulator (#390). The simulator reads our MIRROR, so these tests seed the
+// mirror tables directly — the mirror job itself is covered in
+// oc-scenarios-mirror.test.ts.
+describe('OC Simulator endpoints', () => {
+  let ocToken: string
+
+  beforeAll(async () => {
+    stack.torn.addKey('SIMMANAGERKEY123', { id: '320', factionId: TEST_FACTION.tornFactionId })
+    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (320, 'ocmanager')`)
+    const login = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'SIMMANAGERKEY123' }),
+    })
+    ocToken = ((await login.json()) as any).token
+
+    await stack.db.query(`
+      INSERT INTO oc_scenarios (name, parameter_count, is_complete, observed_paths, diagram_valid)
+      VALUES ('Break the Bank', 6, true, 411, true),
+             ('Lock Stock', 5, false, 126, true)
+    `)
+    await stack.db.query(`
+      INSERT INTO oc_scenario_roles (scenario_name, position_id, role_name, weight) VALUES
+        ('Break the Bank', 'P1', 'Robber', 20),
+        ('Break the Bank', 'P2', 'Muscle 1', 20)
+    `)
+    await stack.db.query(`
+      INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved, problem) VALUES
+        ('Break the Bank', 'goodEnding1', '_A8S_', 'good', true, NULL),
+        ('Break the Bank', 'goodEnding3', NULL, 'good', false, 'goodEnding3: ties between _A9S_ and _A10S_')
+    `)
+  })
+
+  const simGet = async (path: string) => {
+    const res = await fetch(`${stack.baseUrl}${path}`, { headers: { authorization: `Bearer ${ocToken}` } })
+    return { status: res.status, body: (await res.json()) as any }
+  }
+  const simPost = async (path: string, payload: unknown, tok = ocToken) => {
+    const res = await fetch(`${stack.baseUrl}${path}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    return { status: res.status, body: (await res.json()) as any }
+  }
+
+  it('is gated — a plain member gets 403 on both routes', async () => {
+    // MonChoon: the simulator is for OC managers, leadership and admin.
+    expect((await get('/api/oc-simulator/scenarios')).status).toBe(403)
+    const res = await fetch(`${stack.baseUrl}/api/oc-simulator/calculate`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ scenario: 'Break the Bank', parameters: [1, 1, 1, 1, 1, 1] }),
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it('serves the mirrored scenarios with roles and endings', async () => {
+    const { status, body } = await simGet('/api/oc-simulator/scenarios')
+    expect(status).toBe(200)
+    const btb = body.scenarios.find((s: any) => s.name === 'Break the Bank')
+    expect(btb.parameter_count).toBe(6)
+    expect(btb.roles.map((r: any) => r.role_name)).toEqual(['Robber', 'Muscle 1'])
+  })
+
+  it('carries completeness, which the upstream API does not', async () => {
+    // ⚠️ Lock Stock answers with numbers that look exactly as authoritative as
+    // a finished model. The page has to be able to say otherwise.
+    const { body } = await simGet('/api/oc-simulator/scenarios')
+    const lock = body.scenarios.find((s: any) => s.name === 'Lock Stock')
+    expect(lock.is_complete).toBe(false)
+    expect(lock.observed_paths).toBe(126)
+  })
+
+  it('carries UNRESOLVED endings with their reason, not just the resolved ones', async () => {
+    // Dropping them would make "we could not work this out" indistinguishable
+    // from "this ending does not exist".
+    const { body } = await simGet('/api/oc-simulator/scenarios')
+    const btb = body.scenarios.find((s: any) => s.name === 'Break the Bank')
+    const unresolved = btb.endings.find((e: any) => e.ending_key === 'goodEnding3')
+    expect(unresolved.resolved).toBe(false)
+    expect(unresolved.node_id).toBeNull()
+    expect(unresolved.problem).toMatch(/ties between/)
+  })
+
+  it('rejects a CPR vector of the wrong length for that crime', async () => {
+    // ⚠️ The upstream service answers a wrong-length vector with perfectly
+    // ordinary numbers — for a crime nobody is running.
+    const { status, body } = await simPost('/api/oc-simulator/calculate', {
+      scenario: 'Break the Bank', parameters: [99, 99, 99],
+    })
+    expect(status).toBe(400)
+    expect(body.error).toMatch(/takes 6 roles, got 3/)
+  })
+
+  it('rejects CPRs outside 0–100 and missing input', async () => {
+    expect((await simPost('/api/oc-simulator/calculate', {
+      scenario: 'Break the Bank', parameters: [99, 99, 99, 99, 99, 900],
+    })).status).toBe(400)
+    expect((await simPost('/api/oc-simulator/calculate', { scenario: 'Break the Bank' })).status).toBe(400)
+    expect((await simPost('/api/oc-simulator/calculate', { parameters: [1] })).status).toBe(400)
+  })
+
+  it('404s a scenario we have not mirrored, rather than forwarding it', async () => {
+    const { status } = await simPost('/api/oc-simulator/calculate', {
+      scenario: 'Not A Real Crime', parameters: [99],
+    })
+    expect(status).toBe(404)
+  })
+})

@@ -23,6 +23,7 @@ import { revivesContinuousJob } from './jobs/revivesSync.js'
 import { factionsSyncJob } from './jobs/factionsSync.js'
 import { warLifecycleJob } from './jobs/warLifecycle.js'
 import { competitionsResolveJob } from './jobs/competitionsResolve.js'
+import { ocScenariosMirrorJob } from './jobs/ocScenariosMirror.js'
 
 export interface ScraperWiringOptions {
   db: pg.Pool
@@ -94,6 +95,13 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // Competitions auto-resolve (#186): every 15 min — day-boundary closes and
   // interval draws don't need finer granularity.
   ['competitions-resolve', '0 */15 * * * *', competitionsResolveJob],
+  // #390: mirror the OC probability model. ONCE A DAY, and that is a ceiling
+  // rather than a compromise — the source is a model someone is slowly
+  // extending, so it changes on the order of weeks, while a full run costs
+  // ~150 calls to a small third-party server (1 baseline + N role probes per
+  // scenario, plus a diagram each). Nothing about the simulator needs fresher.
+  // 03:50 keeps it clear of the 01:xx–02:xx daily cluster above.
+  ['oc-scenarios-mirror', '0 50 3 * * *', ocScenariosMirrorJob],
 ]
 
 function buildDeps(opts: ScraperWiringOptions): JobDeps {

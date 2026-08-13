@@ -10,7 +10,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseScenarioTree } from '../src/oc/scenarioTree.js'
 import {
-  deriveEndingMap, terminalSignature, observedSignature, rolesInText, type Probe,
+  deriveEndingMap, terminalSignature, observedSignature, rolesInText, realEndingKeys, type Probe,
 } from '../src/oc/endingMap.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -111,6 +111,66 @@ describe('deriveEndingMap — the real mapping', () => {
     const declared = tree.terminals.filter((t) => t.ending === 'good').map((t) => t.id)
     expect(declared).toEqual(['_A8S_', '_A8S2_', '_A10S_', '_A9S_', '_B3S_'])
     expect(result.map.goodEnding3).not.toBe(declared[2])
+  })
+})
+
+describe('realEndingKeys — the API pads its ending slots', () => {
+  // ⚠️ Found by running all 31 scenarios on 2026-08-13. The service answers
+  // with a fixed number of ending slots and zero-pads the unused tail. Taken at
+  // face value, seven scenarios looked like the API and the diagram disagreed
+  // about the crime's shape, and all seven were refused.
+  const padded = (...vals: number[]): Probe[] => [
+    {
+      droppedRole: null,
+      endings: Object.fromEntries(vals.map((v, i) => [`goodEnding${i + 1}`, v])),
+    },
+  ]
+
+  it('drops the trailing zeros — the real Plucking the Lotus Petal shape', () => {
+    // goodEnding1..10 returned, 5..10 exactly 0, diagram has exactly 4 endings.
+    const probes = padded(0.9797, 0.0099, 0.0002, 0.01, 0, 0, 0, 0, 0, 0)
+    expect(realEndingKeys('goodEnding', probes))
+      .toEqual(['goodEnding1', 'goodEnding2', 'goodEnding3', 'goodEnding4'])
+  })
+
+  it('keeps a zero in the MIDDLE, which is a real but unreachable ending', () => {
+    // Renumbering around an interior zero would shift every later ending onto
+    // the wrong node — the exact class of silent mis-mapping this module exists
+    // to prevent.
+    const probes = padded(0.97, 0, 0.02, 0.01, 0, 0)
+    expect(realEndingKeys('goodEnding', probes))
+      .toEqual(['goodEnding1', 'goodEnding2', 'goodEnding3', 'goodEnding4'])
+  })
+
+  it('counts an ending real if ANY probe reaches it, not just the baseline', () => {
+    // Dropping a role to CPR 1 is what makes the rare endings appear. Judging
+    // on the baseline alone would discard endings the sweep can plainly see.
+    const probes: Probe[] = [
+      { droppedRole: null, endings: { goodEnding1: 0.99, goodEnding2: 0.01, goodEnding3: 0 } },
+      { droppedRole: 'Robber', endings: { goodEnding1: 0.5, goodEnding2: 0.1, goodEnding3: 0.4 } },
+    ]
+    expect(realEndingKeys('goodEnding', probes)).toHaveLength(3)
+  })
+
+  it('sorts by number, so goodEnding10 does not land between 1 and 2', () => {
+    const probes = padded(...Array.from({ length: 10 }, (_, i) => (i < 7 ? 0.1 : 0)))
+    expect(realEndingKeys('goodEnding', probes)).toEqual(
+      Array.from({ length: 7 }, (_, i) => `goodEnding${i + 1}`)
+    )
+  })
+
+  it('returns nothing when every slot is empty', () => {
+    expect(realEndingKeys('goodEnding', padded(0, 0, 0))).toEqual([])
+    expect(realEndingKeys('goodEnding', [])).toEqual([])
+  })
+
+  it('does not confuse badEnding slots with goodEnding ones', () => {
+    const probes: Probe[] = [{
+      droppedRole: null,
+      endings: { goodEnding1: 0.9, goodEnding2: 0, badEnding1: 0.1, badEnding2: 0 },
+    }]
+    expect(realEndingKeys('goodEnding', probes)).toEqual(['goodEnding1'])
+    expect(realEndingKeys('badEnding', probes)).toEqual(['badEnding1'])
   })
 })
 
