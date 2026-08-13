@@ -17,6 +17,32 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.25.0] - 2026-08-12
+
+### Added
+- **Observed occupancy reaches the payout, as diagnostics** (#389 part 2). Every
+  payout now carries what the poller actually saw for the same window, alongside
+  the inferred figures it does not yet replace:
+  - `member.observedSeconds` — the union of that member's observed stints,
+    clipped to the window, to compare against the inferred Time Spent.
+  - `occupancyCoverage` — whether the poller watched the window, and where it did
+    not. A window with no polls reads as **unwatched**, never as "nobody moved".
+  - `occupancyDrift` — how far our first sighting sits from Torn's `joined_at`,
+    which is the signal for whether the poller is keeping up. Judged on p95, not
+    max, so one stint straddling a restart cannot condemn a healthy poller.
+  - `GET /api/payouts/crime-data` returns `occupancy` and `occupancy_polls`.
+
+  None of it is wired into the money. Switching the moment coverage looked
+  complete would take that decision away from the operator, and after four passes
+  where this calculation was confidently wrong, "the numbers changed and nobody
+  chose that" is the outcome most worth designing against.
+
+### Changed
+- `mergeIntervalSeconds` moved to `utils/intervals.js` and is re-exported from
+  `payoutCalculations` — occupancyTime needs it, and importing it back out of
+  payoutCalculations would have been a circular import that resolves only by
+  hoisting luck.
+
 ## [3.24.0] - 2026-08-12
 
 ### Added
