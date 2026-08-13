@@ -10,6 +10,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   parseScenarioTree, pathsToTerminal, checkpointsOnPath, allPassTerminal,
+  validateScenarioTree,
 } from '../src/oc/scenarioTree.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -159,5 +160,80 @@ describe('allPassTerminal — the anchor for the whole mapping', () => {
       ' _Prelude_ --> _A2S_',
     ].join('\n'))
     expect(allPassTerminal(ambiguous)).toBeNull()
+  })
+})
+
+// MonChoon's invariant (2026-08-13): "every branch should go to some leaf and
+// have either a pass / fail case, so we should be able to verify the outcomes
+// and that we have parsed it correctly."
+//
+// These are properties the SOURCE must have — a crime always resolves, and a
+// checkpoint always has both outcomes — so a violation means either the diagram
+// changed shape upstream or the parser dropped something. Both matter, and both
+// should stop the mirror job rather than produce a partial tree that still
+// yields confident numbers.
+describe('validateScenarioTree', () => {
+  it('passes cleanly on the real diagram', () => {
+    // 18 checkpoints, every one with both a Pass and a Fail edge; no dead ends;
+    // nothing unreachable. This is the check that would have caught the
+    // labelled-edge bug the moment it was written, instead of via a path count
+    // silently coming back zero.
+    const v = validateScenarioTree(tree)
+    expect(v.checkpointsMissingBranch).toEqual([])
+    expect(v.deadEnds).toEqual([])
+    expect(v.unreachable).toEqual([])
+    expect(v.unreachableTerminals).toEqual([])
+    expect(v.ok).toBe(true)
+  })
+
+  it('counts every checkpoint as having both outcomes', () => {
+    const checkpoints = [...tree.nodes.values()].filter((n) => n.kind === 'checkpoint')
+    expect(checkpoints).toHaveLength(18)
+    for (const c of checkpoints) {
+      const labels = (tree.edges.get(c.id) ?? [])
+        .map((to) => tree.edgeLabels.get(`${c.id}>${to}`)?.toLowerCase())
+      expect(labels, c.id).toContain('pass')
+      expect(labels, c.id).toContain('fail')
+    }
+  })
+
+  it('catches a checkpoint that lost a branch — the exact parser bug I shipped', () => {
+    // Reproduces the labelled-edge failure: the Fail branch goes missing and
+    // the checkpoint becomes a fork we only have half of.
+    const broken = parseScenarioTree([
+      'flowchart LR',
+      ' _Prelude_(["s"])',
+      ' _C1_{"roll"}',
+      ' _Prelude_ --> _C1_',
+      ' _C1_ -- "Pass" --> _A1S_',
+    ].join('\n'))
+    const v = validateScenarioTree(broken)
+    expect(v.ok).toBe(false)
+    expect(v.checkpointsMissingBranch).toEqual(['_C1_'])
+  })
+
+  it('catches a branch that stops without reaching an ending', () => {
+    const broken = parseScenarioTree([
+      'flowchart LR',
+      ' _Prelude_(["s"])',
+      ' _Mid_(["the story just stops"])',
+      ' _Prelude_ --> _Mid_',
+    ].join('\n'))
+    expect(validateScenarioTree(broken).deadEnds).toEqual(['_Mid_'])
+  })
+
+  it('catches a subtree the root can never reach', () => {
+    // An ending that can never happen still carries money statistics, and would
+    // otherwise be mapped to some API ending that genuinely occurs.
+    const broken = parseScenarioTree([
+      'flowchart LR',
+      ' _Prelude_(["s"])',
+      ' _Prelude_ --> _A1S_',
+      ' _Orphan_(["nothing points here"])',
+      ' _Orphan_ --> _A2S_',
+    ].join('\n'))
+    const v = validateScenarioTree(broken)
+    expect(v.ok).toBe(false)
+    expect(v.unreachableTerminals).toContain('_A2S_')
   })
 })

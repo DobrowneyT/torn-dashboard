@@ -220,3 +220,76 @@ export function allPassTerminal(tree: ScenarioTree): ScenarioNode | null {
   })
   return candidates.length === 1 ? candidates[0] : null
 }
+
+/**
+ * Structural problems with a parsed tree.
+ *
+ * MonChoon's invariant (2026-08-13): "every branch should go to some leaf and
+ * have either a pass / fail case, so we should be able to verify the outcomes
+ * and that we have parsed it correctly."
+ *
+ * That is exactly right, and it is worth far more than a spot check. These are
+ * properties the SOURCE must have — a crime always resolves, and a checkpoint
+ * always has both outcomes — so any violation means one of two things, and both
+ * matter: either the diagram changed shape upstream, or the parser dropped
+ * something. The labelled-edge bug that severed 36 checkpoint branches would
+ * have been caught instantly by `checkpointsMissingBranch`, rather than by my
+ * noticing a path count was zero.
+ *
+ * This is therefore the mirror job's gate: a scenario that fails validation is
+ * refused rather than mapped, because a partial tree still produces confident
+ * numbers.
+ */
+export interface TreeValidation {
+  ok: boolean
+  /** Checkpoints without exactly one Pass and one Fail edge. */
+  checkpointsMissingBranch: string[]
+  /** Non-terminal nodes with nowhere to go — the story stops without ending. */
+  deadEnds: string[]
+  /** Nodes with no path back to the root; they can never be reached. */
+  unreachable: string[]
+  /** Terminals the root cannot reach — an ending that can never happen. */
+  unreachableTerminals: string[]
+}
+
+export function validateScenarioTree(tree: ScenarioTree): TreeValidation {
+  const checkpointsMissingBranch: string[] = []
+  const deadEnds: string[] = []
+
+  for (const node of tree.nodes.values()) {
+    const out = tree.edges.get(node.id) ?? []
+
+    if (node.kind === 'checkpoint') {
+      const labels = out.map((to) => (tree.edgeLabels.get(`${node.id}>${to}`) ?? '').toLowerCase())
+      const hasPass = labels.includes('pass')
+      const hasFail = labels.includes('fail')
+      // Both outcomes, or it is not a decision — it is a fork we have half of.
+      if (!hasPass || !hasFail) checkpointsMissingBranch.push(node.id)
+      continue
+    }
+
+    // A terminal is SUPPOSED to have no way out; anything else that does not
+    // is a branch that never reaches a leaf.
+    if (node.kind !== 'terminal' && out.length === 0) deadEnds.push(node.id)
+  }
+
+  // Reachability from the root, forwards.
+  const seen = new Set<string>()
+  const stack = tree.root ? [tree.root] : []
+  while (stack.length > 0) {
+    const id = stack.pop()!
+    if (seen.has(id)) continue
+    seen.add(id)
+    for (const to of tree.edges.get(id) ?? []) stack.push(to)
+  }
+  const unreachable = [...tree.nodes.keys()].filter((id) => !seen.has(id))
+  const unreachableTerminals = tree.terminals.filter((t) => !seen.has(t.id)).map((t) => t.id)
+
+  return {
+    ok: checkpointsMissingBranch.length === 0 && deadEnds.length === 0 && unreachable.length === 0,
+    checkpointsMissingBranch,
+    deadEnds,
+    unreachable,
+    unreachableTerminals,
+  }
+}

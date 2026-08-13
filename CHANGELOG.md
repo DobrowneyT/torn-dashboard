@@ -30,6 +30,12 @@ from `VERSION` at runtime) both surface it automatically.
   - `allPassTerminal()` returns **null** rather than choosing when a scenario has
     no unique every-checkpoint-passed ending. An ambiguous anchor must read as
     "cannot map"; picking arbitrarily is how a plausible-but-wrong mapping ships.
+  - `validateScenarioTree()` checks the invariants the source must satisfy —
+    every checkpoint has both a Pass and a Fail edge, every branch reaches an
+    ending, nothing is unreachable from the prelude. It is the mirror job's gate:
+    a scenario that fails is refused rather than mapped, since a partial tree
+    still produces confident numbers. Break the Bank passes clean at 18
+    checkpoints, 10 endings, 137 nodes.
   - Tested against the real Break the Bank diagram as a fixture, not a
     hand-written sample.
 
