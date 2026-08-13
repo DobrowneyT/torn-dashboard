@@ -371,6 +371,41 @@ describe('GET /api/war-room/history/:factionId', () => {
   it('returns nothing for a faction we have never fought', async () => {
     const { body } = await call('GET', '/api/war-room/history/999999', undefined, 'warlead')
     expect(body.wars).toEqual([])
+    // And no roster to diff against — an empty array rather than a missing key,
+    // so the panel's "nobody new" and "no previous war" stay distinguishable.
+    expect(body.their_last_roster).toEqual([])
+    expect(body.last_war_id).toBeNull()
+  })
+
+  it('carries THEIR roster from the most recent previous war, for the diff', async () => {
+    const { body } = await call('GET', `/api/war-room/history/${OPP}`, undefined, 'warlead')
+    expect(body.last_war_id).toBe(8001)
+    expect(body.their_last_roster.map((r: any) => r.member_name)).toEqual(['Theirs'])
+    // Level travels with the row: it is already stored and level movement since
+    // the last war is genuinely useful pre-war reading.
+    expect(body.their_last_roster[0].level).toBe(60)
+  })
+
+  it('does not mix our roster into theirs', async () => {
+    // Both sides live in war_member_contributions keyed by faction_id. Getting
+    // this filter wrong would show our own members as "their roster last time",
+    // which reads as plausible right up until a lead acts on it.
+    const { body } = await call('GET', `/api/war-room/history/${OPP}`, undefined, 'warlead')
+    const names = body.their_last_roster.map((r: any) => r.member_name)
+    expect(names).not.toContain('Ours')
+    expect(names).not.toContain('AlsoUs')
+  })
+
+  it('takes the roster from the most recent war only, not every war', async () => {
+    // War 8002 is older and has no stored contributions. If the roster were
+    // pooled across matchups, a member who left after 8002 would resurface as
+    // "still here" forever.
+    await stack.db.query(
+      `INSERT INTO war_member_contributions (war_id, member_id, member_name, level, attacks, score, faction_id)
+       VALUES (8002, 9911, 'LongGone', 30, 5, 20.00, ${OPP})`
+    )
+    const { body } = await call('GET', `/api/war-room/history/${OPP}`, undefined, 'warlead')
+    expect(body.their_last_roster.map((r: any) => r.member_name)).not.toContain('LongGone')
   })
 
   it('rejects a non-numeric faction id', async () => {

@@ -17,6 +17,43 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.29.0] - 2026-08-13
+
+### Added
+- **Opponent history panel on the War Room** (#398). The endpoint from 3.28.0 now
+  has a UI, in the notes / roll-call area rather than the roster table — this is
+  pre-war planning reading and must not compete for space during a chain. Shows
+  previous matchups (dates, scores, result, our top scorers, roll-call turnout and
+  the note we wrote), capped at 5 with a "show all" expander, plus a diff of their
+  current roster against their roster in the most recent previous war.
+  - ⚠️ Labelled **war roster**, never "faction". Torn's ranked-war report held
+    77–100 rows per war in the real data, so anyone who joined mid-war or left
+    before the report was cut is simply absent from it. The caveat is always
+    visible, not a tooltip, because it changes what the numbers mean.
+  - A faction we have never fought produces no diff at all, rather than "everyone
+    on their roster is new" — technically true, useless, and alarming.
+  - Level movement since the last war shown for members present in both; null
+    rather than 0 when either level is unknown.
+  - Fetched on first open, not on mount: history changes once a war and has no
+    business adding a request to a page already polling at a 2 Hz floor.
+- **Observed occupancy on the payout page** (#389 part 2, UI). What the poller
+  actually watched, next to what the existing calculation inferred — an `Observed`
+  column and a collapsible panel with coverage, poller accuracy and the largest
+  per-member disagreements.
+  - ⚠️ Diagnostic only. Payouts are still calculated from the existing figures,
+    per MonChoon: *"I will observe the data for a few weeks until I can verify its
+    working and then we can push it."* Nothing here moves money.
+  - The `Observed` column is **hidden entirely** for a window the poller never
+    covered, and an unobserved member renders as an em dash. A column of `0h`
+    would read as "nobody was in a crime" when it means "we were not looking" —
+    the #330 confusion, which cost a fortnight the last time it was made.
+  - Coverage escalates on either a single gap ≥ 15 min or >1% of the window
+    missing, deliberately *not* on the underlying `covered` flag: that goes false
+    on one late tick, which would make a 4-minute hiccup and a 4-hour outage
+    produce the same warning, and a warning that fires on both is ignored on both.
+  - Poller accuracy reports "no evidence" when no joins were witnessed, rather
+    than passing a claim nothing has tested.
+
 ## [3.28.0] - 2026-08-13
 
 ### Added

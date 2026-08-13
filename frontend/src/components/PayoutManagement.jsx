@@ -30,6 +30,8 @@ import {
 import { useFactionIdentity } from '../utils/factionIdentity'
 import { enrichItemBreakdown } from '../utils/lookupHelpers'
 import CrimeStatsView from './CrimeStatsView'
+import OccupancyPanel from './OccupancyPanel'
+import { coverageVerdict, formatDelta } from '../utils/occupancyReport'
 import { fmtDbTime } from '../utils/time'
 import { X } from 'lucide-react'
 
@@ -838,6 +840,19 @@ export default function PayoutManagement() {
     return <span className="ml-1">{sortConfig.direction === 'asc' ? '^' : 'v'}</span>
   }
 
+  // #389: the Observed column appears only when the poller actually watched
+  // this window. A window it never covered would otherwise render a full column
+  // of 0h, and a zero looks like an observation — the exact confusion between
+  // "we didn't look" and "nothing happened" that cost a fortnight on #330.
+  const showObserved = useMemo(() => {
+    const state = coverageVerdict(
+      payoutResults?.occupancyCoverage,
+      payoutResults?.windowStart,
+      payoutResults?.windowEnd
+    ).state
+    return state === 'watched' || state === 'degraded'
+  }, [payoutResults])
+
   // Crime statistics
   const crimeStats = useMemo(() => {
     if (!crimesData?.crimes) return null
@@ -1233,6 +1248,9 @@ export default function PayoutManagement() {
             )}
           </div>
 
+          {/* #389: what the poller observed for this window, alongside what was counted. */}
+          <OccupancyPanel results={payoutResults} />
+
           {/* Member Payouts Table */}
           <div className="card">
             <h3 className="text-lg font-semibold mb-4">Member Payouts</h3>
@@ -1249,6 +1267,15 @@ export default function PayoutManagement() {
                     <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('timeSpent')}>
                       Time <SortIcon columnKey="timeSpent" />
                     </th>
+                    {showObserved && (
+                    <th
+                      className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600 whitespace-nowrap"
+                      title="What the occupancy poller actually watched (#389). Diagnostic — not used for payouts."
+                      onClick={() => handleSort('observedSeconds')}
+                    >
+                      Observed <SortIcon columnKey="observedSeconds" />
+                    </th>
+                    )}
                     <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('timePercent')}>
                       Time % <SortIcon columnKey="timePercent" />
                     </th>
@@ -1277,7 +1304,7 @@ export default function PayoutManagement() {
                 <tbody>
                   {sortedMembers.length === 0 ? (
                     <tr>
-                      <td colSpan={usesTiers ? 10 : 9} className="py-8 text-center text-gray-500">
+                      <td colSpan={(usesTiers ? 10 : 9) + (showObserved ? 1 : 0)} className="py-8 text-center text-gray-500">
                         No payouts calculated. Click "Run Payout" to calculate.
                       </td>
                     </tr>
@@ -1287,6 +1314,7 @@ export default function PayoutManagement() {
                         <td className="py-2 px-2 font-medium text-xs whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">{member.name}</td>
                         <td className="py-2 px-2 text-xs text-gray-600 dark:text-gray-400">{member.userId}</td>
                         <TimeCell member={member} />
+                        {showObserved && <ObservedCell member={member} />}
                         <td className="py-2 px-2 text-xs">{member.timePercent.toFixed(2)}%</td>
                         {usesTiers && <td className="py-2 px-2"><TierBadge tier={member.tier} /></td>}
                         <td className="py-2 px-2 text-xs">{member.baseTickets}</td>
@@ -1472,6 +1500,38 @@ function TimeCell({ member }) {
             ))}
           </div>
         </div>
+      )}
+    </td>
+  )
+}
+
+// What the poller watched for this member (#389), next to what the existing
+// calculation counted. Diagnostic: nothing in the payout reads this column.
+//
+// A member with no observation at all renders as an em dash, never 0h — the
+// difference between "we watched and saw none" and "we have no record" is the
+// entire point of the observation period this column serves.
+function ObservedCell({ member }) {
+  const observed = member.observedSeconds
+  if (observed === undefined || observed === null) {
+    return <td className="py-2 px-2 text-xs text-gray-400" title="No occupancy record for this member">—</td>
+  }
+  const delta = observed - (member.timeSpent ?? 0)
+  // Only the direction that indicates the bug gets colour. The poller seeing
+  // LESS is expected while its history is short and does not need flagging.
+  const overInferred = delta < -30 * 60
+  return (
+    <td className="py-2 px-2 text-xs whitespace-nowrap">
+      <span className="tabular-nums">{formatTimeHours(observed)}</span>
+      {Math.abs(delta) >= 30 * 60 && (
+        <span
+          className={`ml-1 tabular-nums ${overInferred ? 'text-red-500' : 'text-gray-400'}`}
+          title={overInferred
+            ? 'The existing calculation credits more time than the poller ever saw'
+            : 'The poller saw less — likely it was not running for part of this stint'}
+        >
+          {formatDelta(delta)}
+        </span>
       )}
     </td>
   )
