@@ -17,6 +17,22 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.27.0] - 2026-08-13
+
+### Added
+- **OC scenario flowchart parsing** (#390), the substrate for the OC Simulator.
+  `server/src/oc/scenarioTree.ts` parses the mermaid diagram tornprobability.com
+  serves per scenario, enumerates every path from the prelude to each ending, and
+  counts the checkpoints a path passed or failed.
+  - Pass/fail is read from the edge **label** the diagram states (`-- "Pass" -->`),
+    not inferred from the child node's id suffix. The two agree today, but one is
+    a statement and the other is a convention.
+  - `allPassTerminal()` returns **null** rather than choosing when a scenario has
+    no unique every-checkpoint-passed ending. An ambiguous anchor must read as
+    "cannot map"; picking arbitrarily is how a plausible-but-wrong mapping ships.
+  - Tested against the real Break the Bank diagram as a fixture, not a
+    hand-written sample.
+
 ## [3.26.0] - 2026-08-13
 
 ### Added
