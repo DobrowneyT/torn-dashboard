@@ -16,15 +16,29 @@ import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
 
 /**
- * One page is enough.
+ * One page of the JOINABLE crimes is enough.
  *
- * MonChoon: "we will NEVER have more than 100 active crimes open at a time."
- * `cat=all` returns up to 100, newest first, which is exactly the working set.
+ * `cat=available` returns the Recruiting and Planning crimes — MonChoon: those
+ * "are the only ones that can be joined, so that's what we want to use here."
+ * A crime nobody can join or leave cannot produce an occupancy change, so
+ * polling anything else would be spending calls to re-observe a frozen roster.
+ *
+ * It also keeps the page inside its 100-row limit for the right reason: the
+ * cap now applies to crimes in flight ("we will NEVER have more than 100
+ * active crimes open at a time") rather than to all crimes ever, which `all`
+ * would eventually exceed as history accumulates.
+ *
+ * ⚠️ The narrower category makes the "absent is not a departure" rule below
+ * load-bearing rather than merely careful: a crime leaves this category the
+ * moment it starts executing, so EVERY crime exits the feed while still
+ * holding occupants. Closing on absence would fabricate a departure for every
+ * member of every crime that ever runs.
+ *
  * This is deliberately NOT crimes-sync's paginated backlog sweep — that job
- * walks history from the oldest unexecuted crime and runs every 30 minutes.
- * Occupancy needs the opposite: the current picture, cheaply, often.
+ * walks history from the oldest unexecuted crime every 30 minutes. Occupancy
+ * needs the opposite: the current picture, cheaply, often.
  */
-const CRIMES_PATH = '/v2/faction/crimes?cat=all'
+const CRIMES_PATH = '/v2/faction/crimes?cat=available'
 
 interface Slot {
   position_id?: number | string | null

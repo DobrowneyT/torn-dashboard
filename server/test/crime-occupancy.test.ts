@@ -116,6 +116,22 @@ describe('a crime missing from the response is NOT a departure', () => {
     expect(rows[0]).toMatchObject({ closed: true, last_seen_at: 100 })
   })
 
+  it('does not close a crime that left `available` because it started executing', async () => {
+    // The dominant real-world case now that the poll is cat=available: EVERY
+    // crime drops out of the feed while still holding its occupants. If
+    // absence closed stints, every member of every crime that ever runs would
+    // get a fabricated departure at the moment the crime went to Planning ->
+    // executing. Their stint must stay open, ending at the last real sighting.
+    await poll([crime(1, [[900, 11, 100]]), crime(2, [[901, 21, 100]])], 100)
+    await poll([crime(1, [[900, 11, 100]]), crime(2, [[901, 21, 100]])], 200)
+    // Crime 2 executes and leaves the joinable set; crime 1 is still open.
+    await poll([crime(1, [[900, 11, 100]])], 300)
+
+    const stayed = await stints('901')
+    expect(stayed).toHaveLength(1)
+    expect(stayed[0]).toMatchObject({ closed: false, first_seen_at: 100, last_seen_at: 200 })
+  })
+
   it('closes nothing at all on an empty response', async () => {
     await poll([crime(1, [[900, 11, 100]])], 100)
     const res = await poll([], 200)
