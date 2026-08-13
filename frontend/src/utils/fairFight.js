@@ -33,21 +33,44 @@ const stat = (v) => {
 }
 
 /**
- * A fighter's battle-stat score, or null when any component is missing.
+ * A fighter's battle-stat score, or null when we have nothing to go on.
  *
- * ⚠️ This is a sum of square ROOTS, so it is NOT a function of the stat total.
- * Two members with identical totals split differently score differently, and
- * that is the whole reason the four values are needed. Deriving it from a
- * total by assuming an even split would invent a number that looks right and
- * is not — so a missing component returns null rather than a best guess.
+ * This is a sum of square ROOTS, so it is not a function of the stat total:
+ * two members with identical totals split differently score differently.
+ *
+ * When only a total is available — BSP estimates give one number, not four —
+ * we assume an even split, per MonChoon (2026-08-13): "if we don't have a stat
+ * breakdown and just have the total stats (like from BSP), then let's just
+ * assume that the player has evenly distributed stats."
+ *
+ * ⚠️ That assumption is not free, and it flatters lopsided builds. An even
+ * split maximises the sum of roots for a given total, so a pure-strength
+ * fighter's score is OVERSTATED — by about 30% at the extreme (√400 × ... see
+ * the tests). On the defender side that inflates FF, making a target look more
+ * rewarding than it is. `scoreIsEstimated` marks it so the UI can say which
+ * numbers are assumed rather than measured.
  */
 export function battleStatsScore(stats) {
   const s = stat(stats?.strength ?? stats?.str)
   const sp = stat(stats?.speed ?? stats?.spd)
   const d = stat(stats?.defense ?? stats?.def)
   const dx = stat(stats?.dexterity ?? stats?.dex)
-  if (s === null || sp === null || d === null || dx === null) return null
-  return Math.sqrt(s) + Math.sqrt(sp) + Math.sqrt(d) + Math.sqrt(dx)
+  if (s !== null && sp !== null && d !== null && dx !== null) {
+    return Math.sqrt(s) + Math.sqrt(sp) + Math.sqrt(d) + Math.sqrt(dx)
+  }
+  // Even split: 4 × √(total/4) = 2√total.
+  const total = stat(stats?.total ?? stats?.bsp ?? stats?.bspTotal)
+  if (total !== null) return 2 * Math.sqrt(total)
+  return null
+}
+
+/** True when the score came from a total with an assumed even split. */
+export function scoreIsEstimated(stats) {
+  const has = (v) => stat(v) !== null
+  const full = has(stats?.strength ?? stats?.str) && has(stats?.speed ?? stats?.spd)
+    && has(stats?.defense ?? stats?.def) && has(stats?.dexterity ?? stats?.dex)
+  if (full) return false
+  return stat(stats?.total ?? stats?.bsp ?? stats?.bspTotal) !== null
 }
 
 /**
@@ -96,4 +119,32 @@ export function ffBand(attackerStats, defenderStats) {
   if (ratio >= 0.45) return 'good'
   if (ratio >= 0.2) return 'poor'
   return 'wasted'                              // punching far down; a few respect
+}
+
+/**
+ * Gradient position for the FF cell: 0 at the low end (red) → 1 at 3.00 (green).
+ *
+ * ⚠️ Anchored at FF 1.00, not 0.75. Under the confirmed formula
+ * `1 + 8/3 × ratio`, FF cannot go below 1.00 — the ratio would have to be
+ * negative. MonChoon asked for "3.00 green and .75 red"; 0.75 is the RATIO at
+ * which FF saturates at 3.00, so it is the green end rather than the red one.
+ * Anchoring red at 1.00 is the only reading that spans the values FF actually
+ * takes. Worth confirming: if 0.75 has been seen as a real FF in game, the
+ * formula needs revisiting rather than the gradient.
+ */
+export function ffGradientPosition(ff) {
+  if (ff === null || ff === undefined) return null
+  return Math.min(1, Math.max(0, (ff - 1) / (FF_MAX - 1)))
+}
+
+/**
+ * Whether this matchup pays full respect — the "3x FF" roster filter.
+ *
+ * Compared with a tolerance rather than `=== 3`: FF is floating point, and a
+ * matchup sitting a whole hair under the cap is the same tactical call as one
+ * exactly on it. An exact equality check would drop targets for a rounding
+ * artefact the user cannot see.
+ */
+export function isMaxFF(ff) {
+  return ff !== null && ff !== undefined && ff >= FF_MAX - 1e-9
 }
