@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { LoaderCircle, Lock, ChevronUp, ChevronDown, X, Plus } from 'lucide-react'
+import { LoaderCircle, Lock, ChevronUp, ChevronDown, ChevronRight, ClipboardList, X, Plus } from 'lucide-react'
 import RollCallResultsTable from './RollCallResultsTable'
 import WarNotesArchive from './WarNotesArchive'
-import { notePointsFromText, notePointsToText } from '../../utils/rollCall'
+import { notePointsFromText, notePointsToText, rollCallTally } from '../../utils/rollCall'
 import { fmtAgo } from '../../utils/time'
 
 // War Leaders only. War type / agreed scores / strategy notes + the embedded
@@ -10,6 +10,8 @@ import { fmtAgo } from '../../utils/time'
 // (revised=true) are highlighted so leaders notice changes.
 // readOnly: rendered for visitors — all fields disabled, Save hidden.
 export default function WarNotesPanel({ currentWar, notes, privateNotes = '', onSave, saving, saveError, rollCallRows = [], ourMembers = [], readOnly = false }) {
+  // Collapsed by default: the tally is the headline, the table is the detail.
+  const [rollCallOpen, setRollCallOpen] = useState(false)
   const [warType, setWarType] = useState(notes?.war_type ?? 'real')
   const [termedUs, setTermedUs] = useState(notes?.termed_score_us ?? '')
   const [termedThem, setTermedThem] = useState(notes?.termed_score_them ?? '')
@@ -92,6 +94,7 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes?.updated_at, privateNotes, dirty])
 
+  const tally = rollCallTally(rollCallRows)
   const respondedIds = new Set(rollCallRows.map(r => Number(r.member_id)))
   const nonResponders = ourMembers
     .filter(m => !respondedIds.has(Number(m.member_id)))
@@ -237,20 +240,39 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
         {saveError && <span className="text-xs text-red-500 dark:text-red-400">{saveError}</span>}
       </div>
 
-      {/* Roll-call results */}
+      {/* Roll-call results — collapsed to a tally, matching Past Wars below.
+          The full table is a row per respondent and pushed the archive off
+          screen on a 90-member faction; the headline numbers are what a lead
+          actually reads, and the names are one click away when they matter. */}
       <div className="mt-4">
-        <div className="flex items-center justify-between mb-1.5">
-          <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-300">Roll Call Results</h5>
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            {rollCallRows.length} responded · {nonResponders.length} missing
+        <button
+          onClick={() => setRollCallOpen(o => !o)}
+          className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400"
+          aria-expanded={rollCallOpen}
+        >
+          <ClipboardList className="w-4 h-4" />
+          <span>
+            Roll Call
+            <span className="ml-2 font-normal text-gray-600 dark:text-gray-400">
+              <span className="text-green-600 dark:text-green-400 font-medium">{tally.yes}</span> Yes
+              {' · '}
+              <span className="text-red-600 dark:text-red-400 font-medium">{tally.no}</span> No
+              {nonResponders.length > 0 && ` (${nonResponders.length} missing)`}
+            </span>
           </span>
-        </div>
-        <RollCallResultsTable rows={rollCallRows} />
-        {nonResponders.length > 0 && (
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            <span className="font-medium text-gray-600 dark:text-gray-300">Not yet responded:</span>{' '}
-            {nonResponders.map(m => m.member_name || m.member_id).join(', ')}
-          </p>
+          <ChevronRight className={`w-4 h-4 transition-transform ${rollCallOpen ? 'rotate-90' : ''}`} />
+        </button>
+
+        {rollCallOpen && (
+          <div className="mt-2">
+            <RollCallResultsTable rows={rollCallRows} />
+            {nonResponders.length > 0 && (
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                <span className="font-medium text-gray-600 dark:text-gray-300">Not yet responded:</span>{' '}
+                {nonResponders.map(m => m.member_name || m.member_id).join(', ')}
+              </p>
+            )}
+          </div>
         )}
       </div>
 
