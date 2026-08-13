@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { LoaderCircle, Lock, ChevronUp, ChevronDown, ChevronRight, ClipboardList, X, Plus } from 'lucide-react'
 import RollCallResultsTable from './RollCallResultsTable'
 import WarNotesArchive from './WarNotesArchive'
+import OpponentHistoryPanel from './OpponentHistoryPanel'
 import { notePointsFromText, notePointsToText, rollCallTally } from '../../utils/rollCall'
 import { fmtAgo } from '../../utils/time'
 
@@ -9,7 +10,7 @@ import { fmtAgo } from '../../utils/time'
 // roll-call results table and a "not yet responded" list. Edited responses
 // (revised=true) are highlighted so leaders notice changes.
 // readOnly: rendered for visitors — all fields disabled, Save hidden.
-export default function WarNotesPanel({ currentWar, notes, privateNotes = '', onSave, saving, saveError, rollCallRows = [], ourMembers = [], readOnly = false }) {
+export default function WarNotesPanel({ currentWar, notes, privateNotes = '', onSave, saving, saveError, rollCallRows = [], ourMembers = [], enemyMembers = [], ourFactionId = null, readOnly = false }) {
   // Collapsed by default: the tally is the headline, the table is the detail.
   const [rollCallOpen, setRollCallOpen] = useState(false)
   const [warType, setWarType] = useState(notes?.war_type ?? 'real')
@@ -275,6 +276,14 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
           </div>
         )}
       </div>
+
+      {/* What happened last time we fought this faction (#398). Pre-war reading,
+          so it sits here with the notes rather than in the roster table. */}
+      <OpponentHistoryPanel
+        currentWar={currentWar}
+        ourFactionId={ourFactionId}
+        enemyMembers={enemyMembers}
+      />
 
       {/* Leads-only archive of past wars' notes & negotiations (#145). */}
       <WarNotesArchive currentWarId={currentWar?.id} />

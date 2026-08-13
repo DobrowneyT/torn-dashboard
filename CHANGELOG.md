@@ -17,6 +17,92 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.29.0] - 2026-08-13
+
+### Added
+- **Opponent history panel on the War Room** (#398). The endpoint from 3.28.0 now
+  has a UI, in the notes / roll-call area rather than the roster table — this is
+  pre-war planning reading and must not compete for space during a chain. Shows
+  previous matchups (dates, scores, result, our top scorers, roll-call turnout and
+  the note we wrote), capped at 5 with a "show all" expander, plus a diff of their
+  current roster against their roster in the most recent previous war.
+  - ⚠️ Labelled **war roster**, never "faction". Torn's ranked-war report held
+    77–100 rows per war in the real data, so anyone who joined mid-war or left
+    before the report was cut is simply absent from it. The caveat is always
+    visible, not a tooltip, because it changes what the numbers mean.
+  - A faction we have never fought produces no diff at all, rather than "everyone
+    on their roster is new" — technically true, useless, and alarming.
+  - Level movement since the last war shown for members present in both; null
+    rather than 0 when either level is unknown.
+  - Fetched on first open, not on mount: history changes once a war and has no
+    business adding a request to a page already polling at a 2 Hz floor.
+- **Observed occupancy on the payout page** (#389 part 2, UI). What the poller
+  actually watched, next to what the existing calculation inferred — an `Observed`
+  column and a collapsible panel with coverage, poller accuracy and the largest
+  per-member disagreements.
+  - ⚠️ Diagnostic only. Payouts are still calculated from the existing figures,
+    per MonChoon: *"I will observe the data for a few weeks until I can verify its
+    working and then we can push it."* Nothing here moves money.
+  - The `Observed` column is **hidden entirely** for a window the poller never
+    covered, and an unobserved member renders as an em dash. A column of `0h`
+    would read as "nobody was in a crime" when it means "we were not looking" —
+    the #330 confusion, which cost a fortnight the last time it was made.
+  - Coverage escalates on either a single gap ≥ 15 min or >1% of the window
+    missing, deliberately *not* on the underlying `covered` flag: that goes false
+    on one late tick, which would make a 4-minute hiccup and a 4-hour outage
+    produce the same warning, and a warning that fires on both is ignored on both.
+  - Poller accuracy reports "no evidence" when no joins were witnessed, rather
+    than passing a claim nothing has tested.
+
+## [3.28.0] - 2026-08-13
+
+### Added
+- **History against the current opponent** (#398).
+  `GET /api/war-room/history/:factionId` returns every completed ranked war against
+  one faction, newest first, each with our contributions, the roll call, and the
+  public note we wrote at the time. That last one is the part with no other home:
+  scores are public and contributions are Torn's, but what we said about them last
+  time was only findable by scrolling the archive war by war.
+  - Excludes the war currently in progress — "previous matchups" including the one
+    being fought reads as history the lead has not lived through yet.
+  - Empty arrays rather than nulls for a war with no notes or roll call, which is
+    the common case for a first-time-noted opponent and would otherwise throw in
+    the panel.
+  - Leads/visitors only, matching the notes archive.
+
+## [3.27.0] - 2026-08-13
+
+### Added
+- **OC ending mapping derived, not assumed** (#390). `server/src/oc/endingMap.ts`
+  resolves `goodEndingN` to a diagram node id from two independent signals that
+  must agree: the fewest checkpoint failures a path to that ending needs, and
+  which roles' CPR drops actually raise it in a probe sweep.
+  - ⚠️ **Position matching is wrong, not merely unproven.** For Break the Bank
+    the derived mapping swaps positions 3 and 4 against declaration order, so
+    `goodEnding3` and `goodEnding4` would have carried each other's payouts.
+  - Returns `ok: false` with reasons rather than a partial map — a half-derived
+    mapping's resolved endings look exactly as trustworthy as its guesses.
+  - Refuses on: no baseline probe, a diagram/API disagreement about how many
+    endings exist, no role evidence, or a tie between two candidate endings.
+- **OC scenario flowchart parsing** (#390), the substrate for the OC Simulator.
+  `server/src/oc/scenarioTree.ts` parses the mermaid diagram tornprobability.com
+  serves per scenario, enumerates every path from the prelude to each ending, and
+  counts the checkpoints a path passed or failed.
+  - Pass/fail is read from the edge **label** the diagram states (`-- "Pass" -->`),
+    not inferred from the child node's id suffix. The two agree today, but one is
+    a statement and the other is a convention.
+  - `allPassTerminal()` returns **null** rather than choosing when a scenario has
+    no unique every-checkpoint-passed ending. An ambiguous anchor must read as
+    "cannot map"; picking arbitrarily is how a plausible-but-wrong mapping ships.
+  - `validateScenarioTree()` checks the invariants the source must satisfy —
+    every checkpoint has both a Pass and a Fail edge, every branch reaches an
+    ending, nothing is unreachable from the prelude. It is the mirror job's gate:
+    a scenario that fails is refused rather than mapped, since a partial tree
+    still produces confident numbers. Break the Bank passes clean at 18
+    checkpoints, 10 endings, 137 nodes.
+  - Tested against the real Break the Bank diagram as a fixture, not a
+    hand-written sample.
+
 ## [3.26.0] - 2026-08-13
 
 ### Added

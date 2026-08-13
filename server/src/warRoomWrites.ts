@@ -380,6 +380,91 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     }
   )
 
+  /**
+   * History against ONE faction (#398).
+   *
+   * Distinct from the archive above, which lists every war we have ever noted.
+   * MonChoon: "what I was really after was specifically the history with this
+   * week's opponent... all of the past wars we had with that faction, namely the
+   * war contribution, and then if we have any notes based on our own input on
+   * the roll call."
+   *
+   * Three things per prior matchup, and the third is the one with no other home:
+   * scores are public, contributions are Torn's, but what WE wrote about them
+   * last time exists only here and is currently findable only by scrolling the
+   * archive war by war.
+   *
+   * ⚠️ Excludes the war currently in progress. `end_at IS NULL` is a war still
+   * running, and "previous matchups" that includes the one being fought would
+   * read as history a lead has not lived through yet.
+   *
+   * Contributions are ours only. Their roster for that war is in the same table
+   * and is what the roster diff uses, but it is a bigger payload and a separate
+   * question — this endpoint answers "how did WE do against them".
+   */
+  app.get(
+    '/api/war-room/history/:factionId',
+    { preHandler: requireRole('warlead', 'leadership', 'admin', 'visitor') },
+    async (req, reply) => {
+      const { factionId } = req.params as { factionId: string }
+      if (!/^\d+$/.test(factionId)) {
+        return reply.status(400).send({ error: 'numeric faction id required' })
+      }
+      const cfg = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
+      const us = Number(cfg.rows[0]?.torn_faction_id ?? 0)
+
+      const wars = await db.query(
+        `SELECT w.id AS war_id, w.start_at, w.end_at, w.our_score, w.opponent_score,
+                w.opponent_name, w.winner_faction_id, w.forfeit, w.is_termed,
+                n.notes_public, n.war_type, n.updated_at AS notes_updated_at,
+                COALESCE((
+                  SELECT jsonb_agg(to_jsonb(c) ORDER BY c.score DESC)
+                  FROM war_member_contributions c
+                  WHERE c.war_id = w.id AND c.faction_id = $2
+                ), '[]'::jsonb) AS our_contributions,
+                COALESCE((
+                  SELECT jsonb_agg(jsonb_build_object(
+                           'member_id', r.member_id, 'member_name', r.member_name,
+                           'on_at_start', r.on_at_start) ORDER BY r.member_name)
+                  FROM war_room_roll_call_v2 r WHERE r.war_id = w.id
+                ), '[]'::jsonb) AS roll_call
+           FROM ranked_wars w
+           LEFT JOIN war_room_notes_v2 n ON n.war_id = w.id
+          WHERE w.opponent_id = $1 AND w.end_at IS NOT NULL
+          ORDER BY w.start_at DESC`,
+        [factionId, us]
+      )
+
+      // Their roster from the MOST RECENT previous war only (#398 section 2).
+      //
+      // Deliberately not every war in the list. "New since one of the last six
+      // wars we fought" is not a fact anyone can act on, and the payload for a
+      // faction we fight often would be several hundred rows to answer a
+      // question about one of them.
+      //
+      // ⚠️ This is their war ROSTER as Torn reported it for that war, not their
+      // membership at any given moment — `rows_held` runs 77–100 against a
+      // 100-slot faction, so someone who joined mid-war or left before the
+      // report was cut can be missing. The UI has to say "war roster".
+      const lastWarId = wars.rows[0]?.war_id ?? null
+      const theirRoster = lastWarId
+        ? await db.query(
+            `SELECT member_id, member_name, level, score, attacks
+               FROM war_member_contributions
+              WHERE war_id = $1 AND faction_id = $2
+              ORDER BY score DESC`,
+            [lastWarId, factionId]
+          )
+        : { rows: [] }
+
+      return {
+        wars: wars.rows,
+        last_war_id: lastWarId,
+        their_last_roster: theirRoster.rows,
+      }
+    }
+  )
+
   app.get('/api/war-room/notes/:warId', { preHandler: requireAuth() }, async (req) => {
     const { warId } = req.params as { warId: string }
     const res = await db.query('SELECT * FROM war_room_notes_v2 WHERE war_id = $1', [warId])
