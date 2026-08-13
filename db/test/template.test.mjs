@@ -50,6 +50,8 @@ const NEW_TABLES = [
   'member_stat_samples',
   // Observed faction-membership stints (#284)
   'member_faction_stints',
+  // Observed OC occupancy + its poll heartbeat (#389)
+  'crime_occupancy', 'crime_occupancy_polls',
   // Per-member war notes (#199)
   'member_notes',
   // Web Push subscriptions (#207)
