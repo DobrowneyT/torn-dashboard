@@ -17,6 +17,26 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.24.0] - 2026-08-12
+
+### Added
+- **Observed OC occupancy** (#389). A new `crime-occupancy` scraper job polls the
+  current crimes once a minute (at the `:30` mark, off the other jobs' `:00`) and
+  records what it actually saw: one stint per member per slot, with `first_seen_at`
+  and `last_seen_at`. Torn reports when a member joined a crime and who is in it
+  now, but never when they left — so every "left at" in the payout calculation has
+  until now been inferred. This records it instead.
+  - `crime_occupancy` uses a surrogate key, unlike `crime_participation_v2`'s
+    `(crime_id, member_id)`, so a member who leaves a crime and rejoins it keeps
+    both stints rather than having the first silently overwritten.
+  - A crime **absent** from a poll response never closes a stint. Absent means we
+    did not look, not that anyone left; closing on absence would fabricate a
+    departure and stamp it with a plausible-looking time.
+  - `crime_occupancy_polls` records every poll, so a payout window containing an
+    outage can report the hole instead of quietly under-counting departures.
+  - Migration `db/migrations/0034-crime-occupancy.sql`; existing tenants need
+    `node db/migrate.mjs`.
+
 ## [3.23.1] - 2026-08-12
 
 ### Fixed
