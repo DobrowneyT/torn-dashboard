@@ -17,6 +17,25 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.29.1] - 2026-08-13
+
+### Fixed
+- **Opponent history panel spun forever** (#398). "Loading history…" never
+  resolved, against a healthy and fully indexed endpoint. The fetch effect
+  depended on the state it writes (`state.loading` / `state.data`), so
+  `setState({loading:true})` re-triggered the effect, React ran the previous
+  cleanup, and that set `cancelled = true` on the request already in flight —
+  which then discarded its own response. The in-flight opponent is now tracked
+  in a ref, and the effect depends only on `[open, opponentId]`.
+  - A 15s timeout now surfaces an error instead of spinning, and a failed
+    attempt clears the ref so reopening retries rather than being permanently
+    stuck for the session.
+  - Guarded by a source-shape test, in the spirit of the #140 `new Date`
+    scanner — verified to fail against the original code.
+  - No index or precompute needed: `idx_wmc_war_id`,
+    `war_room_roll_call_v2_war_idx` and the `(war_id, member_id)` unique already
+    cover every join this query makes.
+
 ## [3.30.0] - 2026-08-13
 
 ### Added
