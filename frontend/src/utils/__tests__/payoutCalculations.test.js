@@ -1008,3 +1008,69 @@ describe('banked time is displayed but excluded from the payout (#389)', () => {
     expect(result.members[0].payout).toBe(800_000)
   })
 })
+
+// ─── Observed occupancy is reported, not applied (#389 part 2) ─────
+//
+// The poller's figures ship alongside the inferred ones so MonChoon can watch
+// them for a few weeks before they are allowed to move money. Switching the
+// moment coverage looked complete would take that decision away.
+describe('occupancy diagnostics ride along without changing the payout (#389)', () => {
+  const FROM = 1_000_000
+  const TO = FROM + 7 * DAY
+
+  const base = () => makeCrimeFixture({
+    executedAt: FROM + 3 * DAY, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM)],
+  })
+
+  it('reports observed seconds per member', () => {
+    const data = {
+      ...base(),
+      occupancy: [
+        { member_id: '1', torn_joined_at: FROM, first_seen_at: FROM + 60, last_seen_at: FROM + 2 * HOUR },
+      ],
+    }
+    const result = calculatePayouts(data, makeMembers([1]), FROM, TO, 0.20)
+    expect(result.members[0].observedSeconds).toBe(2 * HOUR)
+  })
+
+  it('does NOT let observed seconds change the payout', () => {
+    // The observed figure here is 2h against an inferred 3 days. If it were
+    // wired into the money, this payout would move — it must not.
+    const withOcc = calculatePayouts({
+      ...base(),
+      occupancy: [{ member_id: '1', torn_joined_at: FROM, first_seen_at: FROM, last_seen_at: FROM + 2 * HOUR }],
+    }, makeMembers([1]), FROM, TO, 0.20)
+    const without = calculatePayouts(base(), makeMembers([1]), FROM, TO, 0.20)
+
+    expect(withOcc.members[0].payout).toBe(without.members[0].payout)
+    expect(withOcc.members[0].ticketTimeSpent).toBe(without.members[0].ticketTimeSpent)
+  })
+
+  it('reports a window the poller never watched as uncovered', () => {
+    // Every window before the poller shipped. It must read as "unwatched",
+    // never as "nobody moved".
+    const result = calculatePayouts(base(), makeMembers([1]), FROM, TO, 0.20)
+    expect(result.occupancyCoverage.covered).toBe(false)
+    expect(result.occupancyCoverage.pollCount).toBe(0)
+  })
+
+  it('carries the joined_at drift so the poller can be judged before it is trusted', () => {
+    const data = {
+      ...base(),
+      occupancy: [
+        { member_id: '1', torn_joined_at: FROM, first_seen_at: FROM + 30, last_seen_at: FROM + HOUR },
+      ],
+    }
+    const result = calculatePayouts(data, makeMembers([1]), FROM, TO, 0.20)
+    expect(result.occupancyDrift.count).toBe(1)
+    expect(result.occupancyDrift.max).toBe(30)
+    expect(result.occupancyDrift.withinTolerance).toBe(true)
+  })
+
+  it('is inert when the server sent no occupancy at all', () => {
+    const result = calculatePayouts(base(), makeMembers([1]), FROM, TO, 0.20)
+    expect(result.members[0].observedSeconds).toBe(0)
+    expect(result.occupancyDrift.count).toBe(0)
+    expect(result.members[0].payout).toBe(800_000)
+  })
+})

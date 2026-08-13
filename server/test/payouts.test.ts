@@ -386,3 +386,61 @@ describe('saved-week slots carry participant names', () => {
     expect(slot.user_name).toBe('Pete (old handle)')
   })
 })
+
+// #389 part 2: the payout window carries observed occupancy and the poll
+// heartbeats that say whether we were actually watching it.
+describe('GET /api/payouts/crime-data — observed occupancy', () => {
+  const WIN_FROM = 1_700_000_000
+  const WIN_TO = WIN_FROM + 7 * 86400
+
+  beforeAll(async () => {
+    await stack.db.query(
+      `INSERT INTO crime_occupancy
+         (crime_id, member_id, position_id, torn_joined_at, first_seen_at, last_seen_at, closed) VALUES
+         -- inside the window
+         ('9001', '500', '1', ${WIN_FROM + 100}, ${WIN_FROM + 160}, ${WIN_FROM + 3600}, true),
+         -- straddles the start
+         ('9002', '500', '1', ${WIN_FROM - 5000}, ${WIN_FROM - 4900}, ${WIN_FROM + 200}, true),
+         -- entirely before the window
+         ('9003', '501', '1', ${WIN_FROM - 90000}, ${WIN_FROM - 89000}, ${WIN_FROM - 80000}, true),
+         -- entirely after
+         ('9004', '501', '1', ${WIN_TO + 1000}, ${WIN_TO + 1100}, ${WIN_TO + 5000}, false)`
+    )
+    await stack.db.query(
+      `INSERT INTO crime_occupancy_polls (polled_at, crimes_seen, slots_seen) VALUES
+         (${WIN_FROM + 60}, 3, 9), (${WIN_FROM + 120}, 3, 9), (${WIN_TO - 60}, 2, 5),
+         (${WIN_FROM - 600}, 1, 1)`
+    )
+  })
+
+  it('returns only stints that overlap the window', async () => {
+    const { status, body } = await get(`/api/payouts/crime-data?from=${WIN_FROM}&to=${WIN_TO}`)
+    expect(status).toBe(200)
+    expect(body.occupancy.map((o: any) => o.crime_id).sort()).toEqual(['9001', '9002'])
+  })
+
+  it('carries both timestamps so the poller can be checked against Torn', async () => {
+    const { body } = await get(`/api/payouts/crime-data?from=${WIN_FROM}&to=${WIN_TO}`)
+    const row = body.occupancy.find((o: any) => o.crime_id === '9001')
+    expect(row.torn_joined_at).toBe(WIN_FROM + 100)
+    expect(row.first_seen_at).toBe(WIN_FROM + 160)
+    expect(row.last_seen_at).toBe(WIN_FROM + 3600)
+  })
+
+  it('returns the poll heartbeats inside the window, and only those', async () => {
+    // Without these the client cannot tell an unwatched stretch from a quiet
+    // one, and would credit anyone who left during an outage right through it.
+    const { body } = await get(`/api/payouts/crime-data?from=${WIN_FROM}&to=${WIN_TO}`)
+    const times = body.occupancy_polls.map((p: any) => p.polled_at)
+    expect(times).toEqual([WIN_FROM + 60, WIN_FROM + 120, WIN_TO - 60])
+  })
+
+  it('still answers when the window has no crimes at all', async () => {
+    // The empty-crimes early return is a separate code path and used to skip
+    // everything after it.
+    const { status, body } = await get('/api/payouts/crime-data?from=100&to=200')
+    expect(status).toBe(200)
+    expect(body.occupancy).toEqual([])
+    expect(body.occupancy_polls).toEqual([])
+  })
+})
