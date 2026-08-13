@@ -163,6 +163,29 @@ export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
    * `source` rides along so the UI can distinguish a member's own exact figure
    * from a TornStats spy or a BSP estimate.
    */
+  /**
+   * The CALLER'S OWN battle stats (#422). Any authenticated member.
+   *
+   * The Fair Fight column needs the viewer's own BS score to compute
+   * `FF = 1 + 8/3 × (target_BS / my_BS)`. That is the only extra thing FF
+   * needs, and it is the caller's own data — so this returns exactly one row,
+   * theirs, rather than widening the leadership-gated roster read above.
+   *
+   * Nothing about anyone else leaks. The target side of the calculation is the
+   * ENEMY roster, whose stats the war room already displays to every member in
+   * its Stats column, and FF is computed client-side from those two numbers.
+   * No other faction member's stats enter the calculation at any point.
+   */
+  app.get('/api/members/me/battle-stats', { preHandler: requireAuth() }, async (req) => {
+    const res = await db.query(
+      `SELECT member_id, strength, defense, speed, dexterity, total,
+              source, fetched_at, spy_at
+         FROM member_battle_stats WHERE member_id = $1`,
+      [String(req.session!.torn_user_id)]
+    )
+    return { battle_stats: res.rows[0] ?? null }
+  })
+
   app.get(
     '/api/members/battle-stats',
     { preHandler: requireRole('warlead', 'leadership', 'admin') },
