@@ -70,3 +70,53 @@ describe('crime participation log (#168)', () => {
     expect(await seg('5003', '902')).toMatchObject({ completed: false, left_at: 3500 })
   })
 })
+
+// Torn's real crime statuses (#392).
+//
+// Every test above drives the tracker with `status: 'Executed'`. Torn does not
+// send that. Its OC statuses are Recruiting, Planning, Successful, Failure and
+// Expired — the rest of this codebase matches on 'Successful'/'Failed'/
+// 'Failure' throughout, and crimes-sync stores the payload string verbatim.
+//
+// So the resolved branch never ran in production: `completed` was false on
+// every row in every tenant, and members present at execution kept an open
+// segment forever. The payout query happened to survive it — `left_at IS NOT
+// NULL` excluded them anyway — but the flag was a lie, and the tests could not
+// see that because they asserted against a status of their own invention.
+describe('resolves on the statuses Torn actually sends (#392)', () => {
+  it('completes a segment for a Successful crime', async () => {
+    await run({ id: 6001, status: 'Recruiting', slots: [slot(910, 1000)] })
+    await run({ id: 6001, status: 'Successful', executed_at: 1500, slots: [slot(910, 1000)] })
+    expect(await seg('6001', '910')).toMatchObject({ joined_at: 1000, left_at: 1500, completed: true })
+  })
+
+  it('completes a segment for a Failure crime — it executed, it just went badly', async () => {
+    await run({ id: 6002, status: 'Planning', slots: [slot(911, 1000)] })
+    await run({ id: 6002, status: 'Failure', executed_at: 1500, slots: [slot(911, 1000)] })
+    expect(await seg('6002', '911')).toMatchObject({ left_at: 1500, completed: true })
+  })
+
+  it('accepts the "Failed" spelling the rest of the codebase also matches', async () => {
+    await run({ id: 6003, status: 'Planning', slots: [slot(912, 1000)] })
+    await run({ id: 6003, status: 'Failed', executed_at: 1500, slots: [slot(912, 1000)] })
+    expect(await seg('6003', '912')).toMatchObject({ left_at: 1500, completed: true })
+  })
+
+  it('closes an expired crime at expiry, not completed', async () => {
+    await run({ id: 6004, status: 'Recruiting', slots: [slot(913, 1000)] })
+    await run({ id: 6004, status: 'Expired', expired_at: 1800, slots: [slot(913, 1000)] })
+    expect(await seg('6004', '913')).toMatchObject({ left_at: 1800, completed: false })
+  })
+
+  it('banks the leaver at execution while completing the member who stayed', async () => {
+    await run({ id: 6005, status: 'Recruiting', slots: [slot(914, 2000), slot(915, 2000)] })
+    await run({ id: 6005, status: 'Successful', executed_at: 2600, slots: [slot(915, 2000)] })
+    expect(await seg('6005', '915')).toMatchObject({ left_at: 2600, completed: true })
+    expect(await seg('6005', '914')).toMatchObject({ left_at: 2600, completed: false })
+  })
+
+  it('does not resolve a crime that is still running', async () => {
+    await run({ id: 6006, status: 'Planning', slots: [slot(916, 1000)] })
+    expect(await seg('6006', '916')).toMatchObject({ left_at: null, completed: false })
+  })
+})

@@ -368,15 +368,27 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     const createdAt = crime.created_at || 0
     const difficulty = crime.difficulty || 1
 
-    // Determine time reference for this crime
-    let timeReference
-    if (status === 'Successful' || status === 'Failed' || status === 'Failure') {
-      timeReference = executedAt
-    } else {
-      // For in-progress crimes, use current time, not toTimestamp
-      // This prevents showing 168h for crimes still in progress
-      timeReference = Math.min(Math.floor(Date.now() / 1000), toTimestamp)
-    }
+    // When this crime stopped accruing time for its members (#392).
+    //
+    // This used to be "executed → executed_at, everything else → now", which
+    // quietly meant EXPIRED crimes accrued to the window edge. An OC that
+    // never filled and lapsed six hours into the week credited everyone
+    // sitting in it the full 168 hours — a whole-interval error, and because
+    // Time Spent is a share of the total, it moved money away from members who
+    // had actually been in crimes.
+    //
+    // Only Planning and Recruiting are genuinely still running. Anything else
+    // has stopped, and stopped when its resolution marker says: executed_at for
+    // the executed statuses, expired_at for a lapsed one. An unrecognised
+    // status falls to the same rule rather than to "still running", because the
+    // status list has gone stale once already (the participation tracker spent
+    // months matching a status Torn never sends) and the failure mode of
+    // guessing "running" is the expensive one.
+    const inProgress = status === 'Planning' || status === 'Recruiting'
+    const resolvedAt = executedAt || crime.expired_at || 0
+    const timeReference = inProgress || resolvedAt <= 0
+      ? Math.min(Math.floor(Date.now() / 1000), toTimestamp)
+      : resolvedAt
 
     // Check if crime was executed within our window
     // Use >= fromTimestamp and < toTimestamp to avoid double-counting at boundaries
@@ -591,6 +603,18 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     const completedSeconds = mergeIntervalSeconds(member.completedIntervals)
     member.timeSpent = mergeIntervalSeconds([...member.completedIntervals, ...member.bankedIntervals])
     member.bankedSeconds = Math.max(0, member.timeSpent - completedSeconds)
+    // Time that DRIVES MONEY, as distinct from time that is displayed (#389).
+    //
+    // MonChoon, 2026-08-12: "do not use the early leave in the calculation,
+    // only have the legacy time spent in crime as part of the ticket portion.
+    // I will observe the data for a few weeks until I can verify its working."
+    //
+    // So banked (left-early) time stays fully visible — timeSpent and
+    // bankedSeconds are unchanged and the page reads exactly as before — but
+    // tickets, the sit-out penalty and the payout share are computed from the
+    // completed/current intervals alone. Once the occupancy poller has enough
+    // history to check banked time against, this collapses back to timeSpent.
+    member.ticketTimeSpent = completedSeconds
     delete member.completedIntervals
     delete member.bankedIntervals
   }
@@ -638,7 +662,7 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     const baseTickets = mode === 'tiered'
       ? (TIER_TICKETS[member.tier] || TIER_TICKETS[6])
       : FLAT_BASE_TICKETS
-    const sitOutPenalty = calculateSitOutPenalty(member.timeSpent, baseTickets)
+    const sitOutPenalty = calculateSitOutPenalty(member.ticketTimeSpent, baseTickets)
 
     member.baseTickets = baseTickets
     member.sitOutPenalty = sitOutPenalty
@@ -660,11 +684,14 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   if (mode === 'equal') {
     // Even split among members who did at least one OC (participated in the
     // window) — no ticket weighting, no sit-out floor.
-    const participants = memberArray.filter(m => m.timeSpent > 0)
+    // ticketTimeSpent, not timeSpent: a member whose only activity was a
+    // left-early stint has no ticket time, so they do not take an equal share
+    // while banked time is excluded from the money (#389).
+    const participants = memberArray.filter(m => m.ticketTimeSpent > 0)
     const share = participants.length > 0 ? 1 / participants.length : 0
     const each = participants.length > 0 ? Math.floor(memberPayoutTotal / participants.length) : 0
     for (const member of memberArray) {
-      const isParticipant = member.timeSpent > 0
+      const isParticipant = member.ticketTimeSpent > 0
       member.sharePercent = isParticipant ? share : 0
       member.payout = isParticipant ? each : 0
     }

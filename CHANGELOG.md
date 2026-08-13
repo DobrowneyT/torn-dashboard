@@ -17,6 +17,31 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.23.1] - 2026-08-12
+
+### Fixed
+- **OC Payouts: Time Spent counted expired crimes as still running** (#392, #389).
+  An OC that never filled and lapsed took the "in progress" branch, so its members
+  accrued right up to the payout window's edge — six hours of participation scored
+  as a full 168. Because Time Spent is a share of the total, that moved money away
+  from members who had actually been in crimes. Only `Planning` and `Recruiting`
+  now accrue to now; anything else ends at its resolution marker (`executed_at`, or
+  `expired_at` for a lapsed crime), and an unrecognised status ends rather than runs.
+- The participation tracker resolved on `status === 'Executed'`, which Torn never
+  sends (its statuses are `Successful`/`Failure`/`Expired`). `completed` was
+  therefore false on every row in every tenant, and its tests could not see it
+  because they drove the tracker with the same invented status.
+
+### Changed
+- **Left-early (banked) time no longer drives the OC payout** (#389), pending
+  verification against the new occupancy poller. It is still fully displayed —
+  `timeSpent` and `bankedSeconds` are unchanged and Payout Management reads
+  exactly as before — but tickets, the sit-out penalty and the payout share are
+  now computed from `ticketTimeSpent`: the completed/current intervals alone.
+  Requested by MonChoon, who wants to observe the banked figures for a few weeks
+  before letting them move money. Reverting to the combined figure is a one-line
+  change once the data is trusted.
+
 ## [3.23.0] - 2026-08-12
 
 ### Added
