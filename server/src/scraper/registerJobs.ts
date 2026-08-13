@@ -10,6 +10,7 @@ import { createScheduler } from './scheduler.js'
 import { itemsSyncJob, type JobDeps } from './jobs/itemsSync.js'
 import { inventorySyncJob } from './jobs/inventorySync.js'
 import { crimesSyncJob } from './jobs/crimesSync.js'
+import { crimeOccupancyJob } from './jobs/crimeOccupancy.js'
 import { cprScanJob } from './jobs/cprScan.js'
 import { membersSyncJob } from './jobs/membersSync.js'
 import { memberStatsJob } from './jobs/memberStats.js'
@@ -51,6 +52,17 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // still works and writes the same sync_metadata row.
   ['inventory-sync', '0 0 * * * *', inventorySyncJob],
   ['crimes-sync', '0 */30 * * * *', crimesSyncJob],
+  // #389: observed OC occupancy — every minute, at the :30 second mark.
+  //
+  // Torn never says when a member LEFT a crime, so the only way to know is to
+  // keep looking. One page of `cat=all` covers the working set (a faction
+  // never has more than 100 crimes in flight), which makes a per-minute poll
+  // cheap: 1,440 calls/day against a pool that rotates keys.
+  //
+  // The :30 offset is deliberate — every other job here fires on :00, and
+  // stacking a per-minute job on the same second would have it queue behind
+  // the half-hourly sweeps once every 30 runs.
+  ['crime-occupancy', '30 * * * * *', crimeOccupancyJob],
   ['cpr-scan', '0 30 5,17 * * *', cprScanJob],
   ['members-sync', '0 5 * * * *', membersSyncJob],
   // Member stats every 4h (#227): fresh competition leaderboards. Each run

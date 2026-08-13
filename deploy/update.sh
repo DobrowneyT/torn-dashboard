@@ -83,6 +83,16 @@ done
 # actually changed (the SPA lives in the nginx image, so it rides along).
 echo "==> rebuild + restart"
 "${COMPOSE[@]}" up -d --build
+
+# The backup sidecar sits behind `profiles: ["backup"]`, so the plain `up`
+# above skips it — and skips REBUILDING its image. Changes to db/backup.mjs or
+# deploy/backup.Dockerfile would therefore never reach the running sidecar, and
+# the pre-deploy `compose run backup` above would keep using the stale image
+# too. Silent, and exactly the sort of thing that only shows up when the backup
+# is the thing you need. Named explicitly so the stress profile stays opt-in.
+echo "==> rebuild + restart (backup sidecar)"
+"${COMPOSE[@]}" --profile backup up -d --build backup
+
 docker image prune -f >/dev/null
 
 # Verify every tenant through our nginx. server_name is <slug>.*, so

@@ -99,13 +99,23 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
 
   // Saved payout history. Nested member rows use the same key the PostgREST
   // embed produced (war_payout_members) so view code is unchanged.
+  //
+  // The war columns are joined in rather than denormalised onto war_payouts:
+  // the payout is a snapshot of a CALCULATION, while who we fought and when is
+  // a fact about the war. A LEFT JOIN keeps a payout listable even if its war
+  // row is missing — the history should never lose a row over a display field.
   const PAYOUTS_WITH_MEMBERS = `
     SELECT wp.*,
+           rw.opponent_name AS war_opponent_name,
+           rw.opponent_id   AS war_opponent_id,
+           rw.start_at      AS war_start_at,
+           rw.end_at        AS war_end_at,
            COALESCE((
              SELECT jsonb_agg(to_jsonb(wpm) ORDER BY wpm.payout_amount DESC)
              FROM war_payout_members wpm WHERE wpm.payout_id = wp.id
            ), '[]'::jsonb) AS war_payout_members
-    FROM war_payouts wp`
+    FROM war_payouts wp
+    LEFT JOIN ranked_wars rw ON rw.id = wp.war_id`
 
   app.get('/api/wars/:id/payouts', { preHandler: requireAuth() }, async (req) => {
     const { id } = req.params as { id: string }

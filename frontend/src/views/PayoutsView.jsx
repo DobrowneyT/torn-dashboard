@@ -89,6 +89,7 @@ export default function PayoutsView({ isLeadership }) {
       setLoadingMemberCrimes(true)
       setSelectedMember(memberId)
 
+      // db-time-safe: week_start/week_end are DATE columns ("2026-08-03").
       const startTs = Math.floor(new Date(weekStart).getTime() / 1000)
       const endTs = Math.floor(new Date(weekEnd).getTime() / 1000) + 86400
 
@@ -585,8 +586,10 @@ function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMembe
 function CrimeStatsModal({ weekData, stats, loading, onClose }) {
   // Pay-period window for CrimeStatsView's executed_at filter — prefer the
   // stored timestamps, fall back to the date strings (mirrors Payout Management).
+  // db-time-safe: DATE columns, no offset to mangle.
   const fromTs = weekData.week_start_timestamp
     ?? Math.floor(new Date(weekData.week_start).getTime() / 1000)
+  // db-time-safe: DATE column, as above.
   const toTs = weekData.week_end_timestamp
     ?? (Math.floor(new Date(weekData.week_end).getTime() / 1000) + 86400)
 

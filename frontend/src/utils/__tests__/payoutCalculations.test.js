@@ -836,3 +836,175 @@ describe('weekCrimeRowsToMap', () => {
     expect(map[101].slots[0].user.name).toBe('NewName')
   })
 })
+
+// ─── Time Spent: crimes that ended without executing (#392) ────────
+//
+// The status check that picks a crime's end time lists only the executed
+// statuses:
+//
+//   if (status === 'Successful' || status === 'Failed' || status === 'Failure')
+//     timeReference = executedAt
+//   else
+//     timeReference = min(now, toTimestamp)   // "still in progress"
+//
+// Torn also has **Expired** — an OC that never filled and lapsed. It is not in
+// the list, so it takes the in-progress branch and its members are credited
+// right up to the window edge, for a crime that stopped existing days earlier.
+// A single expired crime therefore hands everyone who was sitting in it a full
+// week of Time Spent, which is the whole-interval error #389 describes.
+describe('Time Spent for expired crimes (#392)', () => {
+  const FROM = 1_000_000
+  const TO = FROM + 7 * DAY
+
+  // An expired crime plus a real one, so there is a payout to divide.
+  const fixture = ({ expiredStatus = 'Expired' } = {}) => ({
+    crimes: {
+      // Joined a day before the window, lapsed 6 hours into it.
+      expired: {
+        crime_id: 'expired',
+        name: 'Never Filled',
+        status: expiredStatus,
+        executed_at: null,
+        expired_at: FROM + 6 * HOUR,
+        created_at: FROM - DAY,
+        difficulty: 5,
+        rewards: { money: 0 },
+        slots: [makeSlot(1, FROM - DAY)],
+      },
+      // A normal crime the other member ran all week.
+      done: {
+        crime_id: 'done',
+        name: 'Test Crime',
+        status: 'Successful',
+        executed_at: TO - HOUR,
+        created_at: FROM,
+        difficulty: 5,
+        rewards: { money: 1_000_000 },
+        slots: [makeSlot(2, FROM)],
+      },
+    },
+  })
+
+  it('credits an expired crime only up to when it expired', () => {
+    const result = calculatePayouts(fixture(), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m1 = result.members.find(m => m.userId === 1)
+
+    // Real time in the crime, inside the window: FROM → FROM + 6h.
+    expect(m1.timeSpent).toBe(6 * HOUR)
+  })
+
+  it('does not hand an expired crime the whole payout window', () => {
+    // The failure this guards: 6 hours of participation scoring as 168, which
+    // then dominates the time-share split and moves real money.
+    const result = calculatePayouts(fixture(), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m1 = result.members.find(m => m.userId === 1)
+    expect(m1.timeSpent).toBeLessThan(TO - FROM)
+  })
+
+  it('treats an unrecognised status as ended, not as running', () => {
+    // Same reasoning, one step more defensive: if Torn adds a status we do not
+    // know, defaulting it to "still running to the window edge" is the failure
+    // mode that costs money. Only the statuses we KNOW mean in-progress should
+    // accrue to now.
+    const result = calculatePayouts(fixture({ expiredStatus: 'Something New' }), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m1 = result.members.find(m => m.userId === 1)
+    expect(m1.timeSpent).toBe(6 * HOUR)
+  })
+
+  it('still accrues a genuinely in-progress crime to the window edge', () => {
+    // The behaviour that must survive the fix: Planning/Recruiting members are
+    // in the crime right now and keep earning.
+    const crimes = {
+      crimes: {
+        planning: {
+          crime_id: 'planning',
+          name: 'Still Going',
+          status: 'Planning',
+          executed_at: null,
+          created_at: FROM,
+          difficulty: 5,
+          rewards: { money: 0 },
+          slots: [makeSlot(1, FROM)],
+        },
+        done: fixture().crimes.done,
+      },
+    }
+    const result = calculatePayouts(crimes, makeMembers([1, 2]), FROM, TO, 0.20)
+    expect(result.members.find(m => m.userId === 1).timeSpent).toBe(TO - FROM)
+  })
+})
+
+// ─── Banked time is shown but does not drive money (#389) ──────────
+//
+// MonChoon, 2026-08-12: "do not use the early leave in the calculation, only
+// have the legacy time spent in crime as part of the ticket portion. I will
+// observe the data for a few weeks until I can verify it's working."
+//
+// So the split is deliberate and temporary: `timeSpent` and `bankedSeconds`
+// keep reporting left-early time for review, while `ticketTimeSpent` — the
+// completed/current intervals alone — is what tickets, the sit-out penalty and
+// the payout share are computed from.
+describe('banked time is displayed but excluded from the payout (#389)', () => {
+  const FROM = 1_000_000
+  const TO = FROM + 7 * DAY
+
+  // One member with a completed crime, one whose only activity was leaving
+  // a crime early (banked). Both are in the window.
+  const fixture = () => ({
+    crimes: {
+      done: {
+        crime_id: 'done', name: 'Test Crime', status: 'Successful',
+        executed_at: TO - HOUR, created_at: FROM, difficulty: 5,
+        rewards: { money: 1_000_000 },
+        slots: [makeSlot(1, FROM)],
+      },
+    },
+    participation: [
+      // Member 2 was in a crime for 3 days and left before it executed.
+      { member_id: '2', crime_id: 'left', joined_at: FROM, left_at: FROM + 3 * DAY, crime_name: 'Bailed' },
+      // Member 1 also banked a day on top of the crime they completed.
+      { member_id: '1', crime_id: 'other', joined_at: FROM - DAY, left_at: FROM + DAY, crime_name: 'Also Bailed' },
+    ],
+  })
+
+  it('still reports banked time, so it can be reviewed', () => {
+    const result = calculatePayouts(fixture(), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m2 = result.members.find(m => m.userId === '2' || m.userId === 2)
+    expect(m2.timeSpent).toBe(3 * DAY)
+    expect(m2.bankedSeconds).toBe(3 * DAY)
+  })
+
+  it('gives banked-only time no ticket time, so it earns nothing', () => {
+    const result = calculatePayouts(fixture(), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m2 = result.members.find(m => m.userId === '2' || m.userId === 2)
+    expect(m2.ticketTimeSpent).toBe(0)
+    expect(m2.payout).toBe(0)
+  })
+
+  it('pays the whole pool to the member with real crime time', () => {
+    const result = calculatePayouts(fixture(), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m1 = result.members.find(m => m.userId === 1)
+    expect(m1.payout).toBe(800_000)
+    expect(m1.sharePercent).toBe(1)
+  })
+
+  it('does not let banked time inflate a real member\'s ticket time either', () => {
+    // Member 1 completed a crime running FROM -> TO-1h and banked an extra day
+    // that overlaps it. timeSpent unions both; ticketTimeSpent must not.
+    const result = calculatePayouts(fixture(), makeMembers([1, 2]), FROM, TO, 0.20)
+    const m1 = result.members.find(m => m.userId === 1)
+    expect(m1.ticketTimeSpent).toBe(TO - HOUR - FROM)
+    expect(m1.timeSpent).toBeGreaterThanOrEqual(m1.ticketTimeSpent)
+  })
+
+  it('keeps ticketTimeSpent equal to timeSpent when nobody left early', () => {
+    // The no-banked-time case must be untouched by the split — otherwise this
+    // change would quietly alter every ordinary payout.
+    const crimes = makeCrimeFixture({
+      executedAt: FROM + 3 * DAY, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM)],
+    })
+    const result = calculatePayouts(crimes, makeMembers([1]), FROM, TO, 0.20)
+    expect(result.members[0].ticketTimeSpent).toBe(result.members[0].timeSpent)
+    expect(result.members[0].payout).toBe(800_000)
+  })
+})

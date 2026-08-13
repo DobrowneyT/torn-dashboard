@@ -17,6 +17,98 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.24.0] - 2026-08-12
+
+### Added
+- **Observed OC occupancy** (#389). A new `crime-occupancy` scraper job polls the
+  current crimes once a minute (at the `:30` mark, off the other jobs' `:00`) and
+  records what it actually saw: one stint per member per slot, with `first_seen_at`
+  and `last_seen_at`. Torn reports when a member joined a crime and who is in it
+  now, but never when they left — so every "left at" in the payout calculation has
+  until now been inferred. This records it instead.
+  - `crime_occupancy` uses a surrogate key, unlike `crime_participation_v2`'s
+    `(crime_id, member_id)`, so a member who leaves a crime and rejoins it keeps
+    both stints rather than having the first silently overwritten.
+  - A crime **absent** from a poll response never closes a stint. Absent means we
+    did not look, not that anyone left; closing on absence would fabricate a
+    departure and stamp it with a plausible-looking time.
+  - `crime_occupancy_polls` records every poll, so a payout window containing an
+    outage can report the hole instead of quietly under-counting departures.
+  - Migration `db/migrations/0034-crime-occupancy.sql`; existing tenants need
+    `node db/migrate.mjs`.
+
+## [3.23.1] - 2026-08-12
+
+### Fixed
+- **OC Payouts: Time Spent counted expired crimes as still running** (#392, #389).
+  An OC that never filled and lapsed took the "in progress" branch, so its members
+  accrued right up to the payout window's edge — six hours of participation scored
+  as a full 168. Because Time Spent is a share of the total, that moved money away
+  from members who had actually been in crimes. Only `Planning` and `Recruiting`
+  now accrue to now; anything else ends at its resolution marker (`executed_at`, or
+  `expired_at` for a lapsed crime), and an unrecognised status ends rather than runs.
+- The participation tracker resolved on `status === 'Executed'`, which Torn never
+  sends (its statuses are `Successful`/`Failure`/`Expired`). `completed` was
+  therefore false on every row in every tenant, and its tests could not see it
+  because they drove the tracker with the same invented status.
+
+### Changed
+- **Left-early (banked) time no longer drives the OC payout** (#389), pending
+  verification against the new occupancy poller. It is still fully displayed —
+  `timeSpent` and `bankedSeconds` are unchanged and Payout Management reads
+  exactly as before — but tickets, the sit-out penalty and the payout share are
+  now computed from `ticketTimeSpent`: the completed/current intervals alone.
+  Requested by MonChoon, who wants to observe the banked figures for a few weeks
+  before letting them move money. Reverting to the combined figure is a one-line
+  change once the data is trusted.
+
+## [3.23.0] - 2026-08-12
+
+### Added
+- RW Payout Management: saved payouts now list in the same table as OC Historical
+  Payouts — total payout, members, opposing faction, faction cut, saved by — with
+  **Load** and **Delete** per row. Loading restores the payout's settings, reselects
+  its war and recalculates, so the batch URL can be regenerated. The recalculation
+  is compared against the saved sheet and any drift is reported, because a batch URL
+  that silently disagrees with what was already paid sends the wrong amounts.
+- `GET /api/war-payouts` and `/api/wars/:id/payouts` join the war they belong to
+  (`war_opponent_name`, `war_opponent_id`, `war_start_at`, `war_end_at`).
+
+### Fixed
+- RW payout history showed **"Invalid Date"** on every row (#140). `new Date` returns
+  NaN on the bare `+00` offset Postgres serves, the same trap as #330.
+- The #140 scanner only checked `Date.parse`, missing `new Date(str)` — the same
+  parser, and the spelling the codebase actually used. Widening it found five more
+  live instances: mobile War Room stat age (never displayed), Key Pool "last claimed"
+  sorting (never ordered), War Overview last-ingest times (always zero), the OC
+  overwrite confirmation, and the inventory last-sync time (read as local, not UTC).
+- `parseBoundary` no longer re-implements the #140 offset repair; it delegates to
+  `parseDbTime`, which is where the timestamp-without-tz case was fixed.
+
+### Removed
+- OC Payout Management: the **Import CSV/XLSX** button and its import flow
+  (`ImportPreviewModal`, `csvPayoutImport`), unused since the self-hosted cutover.
+
+## [3.22.5] - 2026-08-12
+
+### Fixed
+- `files.monchoon.me/scripts` and `/videos` (no trailing slash) 404'd while the
+  slashed form worked. `location /videos/` does not match `/videos`, so it fell
+  to `try_files $uri =404`, and nginx's own add-the-slash redirect never ran
+  because try_files bypasses the handler that issues it. Fixed with exact-match
+  redirects, which keeps a plain 404 on every folder that is not published.
+- Redirects from this vhost are now relative (`absolute_redirect off`), so nginx
+  cannot rebuild them onto the wrong scheme, host or port.
+  
+## [3.22.4] - 2026-08-12
+
+### Fixed
+- `deploy/update.sh` now rebuilds the backup sidecar. It sits behind a compose
+  profile, so `up -d --build` skipped it — meaning changes to `db/backup.mjs` or
+  `backup.Dockerfile` never reached the running container, and the pre-deploy
+  backup kept using a stale image. The 3.22.3 timeout fix would not have
+  deployed without this.
+
 ## [3.22.3] - 2026-08-12
 
 ### Fixed
