@@ -39,7 +39,12 @@ from `VERSION` at runtime) both surface it automatically.
   - `ffGradientPosition` runs red at 1.00 → green at 3.00, and `isMaxFF` backs
     the "3x FF" roster filter with a tolerance rather than exact equality.
 
-  The War Room column itself is **not** wired yet.
+  The enemy-roster column is wired: order is now
+  `Name · Activity · Status · Timer · Flags · Stats · FF · Dibs · Action`, Name
+  narrowed and truncating, FF sortable (nulls sink both ways per #351) with a
+  red→green gradient, and a **3x FF** filter button showing only targets at the
+  cap. An estimated FF carries a dotted underline, since a number built on a
+  bare total should not look as solid as one built on a real spy.
 
 ### Changed
 - War Notes: roll-call results collapse to a tally — `Roll Call 41 Yes · 22 No
