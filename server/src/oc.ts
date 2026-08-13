@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireAuth, requireRole } from './authz.js'
 import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
+import { createProbabilityClient } from './oc/probabilityClient.js'
 
 export interface OcDeps {
   db: pg.Pool
@@ -123,6 +124,101 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       }
 
       return { live_crimes: live.payload, roster, t3_cpr: t3Cpr }
+    }
+  )
+
+  // ── OC Simulator (#390) ─────────────────────────────────────────────────
+  //
+  // Reads our MIRROR of tornprobability, never the live service. The browser
+  // must not talk to it: it is one person's server on a non-standard port with
+  // no SLA, and a member's machine has no business making that request.
+  //
+  // Gated to OC managers, leadership and admin, per MonChoon. Visitors are
+  // included on the read for the same reason as the war-notes archive — they
+  // demo the leads view and this only ever reads mirrored public data.
+  const SIM_ROLES = ['ocmanager', 'leadership', 'admin', 'visitor'] as const
+
+  app.get(
+    '/api/oc-simulator/scenarios',
+    { preHandler: requireRole(...SIM_ROLES) },
+    async () => {
+      const rows = await deps.db.query(
+        `SELECT s.name, s.parameter_count, s.is_complete, s.observed_paths,
+                s.diagram_valid, s.diagram_problems, s.fetched_at,
+                COALESCE((
+                  SELECT jsonb_agg(jsonb_build_object(
+                           'position_id', r.position_id,
+                           'role_name', r.role_name,
+                           'weight', r.weight)
+                         ORDER BY length(r.position_id), r.position_id)
+                  FROM oc_scenario_roles r WHERE r.scenario_name = s.name
+                ), '[]'::jsonb) AS roles,
+                -- Endings travel with their resolution state. An ending we
+                -- could not map keeps its row so the UI can say WHY, rather
+                -- than silently pricing the crime on a subset of its outcomes.
+                COALESCE((
+                  SELECT jsonb_agg(jsonb_build_object(
+                           'ending_key', e.ending_key, 'node_id', e.node_id,
+                           'kind', e.kind, 'resolved', e.resolved, 'problem', e.problem)
+                         ORDER BY e.kind, e.ending_key)
+                  FROM oc_scenario_endings e WHERE e.scenario_name = s.name
+                ), '[]'::jsonb) AS endings
+           FROM oc_scenarios s
+          ORDER BY s.name`
+      )
+      return { scenarios: rows.rows }
+    }
+  )
+
+  // Success chance for a CPR vector.
+  //
+  // Proxied server-to-server rather than mirrored: this is a function of the
+  // input vector, so there is nothing to cache — but it still must not be
+  // called from the browser (CORS, and the member's IP).
+  app.post(
+    '/api/oc-simulator/calculate',
+    { preHandler: requireRole(...SIM_ROLES) },
+    async (req, reply) => {
+      const body = (req.body ?? {}) as { scenario?: unknown; parameters?: unknown }
+      const scenario = typeof body.scenario === 'string' ? body.scenario : null
+      const parameters = Array.isArray(body.parameters) ? body.parameters.map(Number) : null
+
+      if (!scenario || !parameters || parameters.length === 0) {
+        return reply.status(400).send({ error: 'scenario and parameters are required' })
+      }
+      if (parameters.some((n) => !Number.isFinite(n) || n < 0 || n > 100)) {
+        return reply.status(400).send({ error: 'every CPR must be a number between 0 and 100' })
+      }
+
+      // The scenario must be one we have mirrored, and the vector must be the
+      // length that crime actually takes. A wrong-length vector still returns
+      // numbers from the upstream service — numbers describing a crime nobody
+      // is running, which would look completely ordinary on the page.
+      const known = await deps.db.query(
+        'SELECT parameter_count FROM oc_scenarios WHERE name = $1',
+        [scenario]
+      )
+      if (known.rows.length === 0) {
+        return reply.status(404).send({ error: `unknown scenario: ${scenario}` })
+      }
+      const expected = Number(known.rows[0].parameter_count)
+      if (parameters.length !== expected) {
+        return reply.status(400).send({
+          error: `${scenario} takes ${expected} roles, got ${parameters.length}`,
+        })
+      }
+
+      try {
+        const client = createProbabilityClient()
+        return { ok: true, result: await client.calculateSuccess(scenario, parameters) }
+      } catch (e) {
+        // Degrade to a clear failure, not a zeroed result: a success chance of
+        // 0 is a legitimate value and must never be manufactured by an outage.
+        return reply.status(502).send({
+          error: 'the probability service could not be reached',
+          detail: e instanceof Error ? e.message : String(e),
+        })
+      }
     }
   )
 }

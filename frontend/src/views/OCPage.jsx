@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import PayoutsView from './PayoutsView'
 import CrimesView from './CrimesView'
 import OCPlannerView from './OCPlannerView'
+import OCSimulatorView from './OCSimulatorView'
 import TierRequirementsView from './TierRequirementsView'
 import PayoutManagement from '../components/PayoutManagement'
 import TierManagement from '../components/TierManagement'
@@ -11,6 +12,9 @@ const TABS = [
   { to: '/oc/payouts',           label: 'Payouts',           leadership: false },
   { to: '/oc/oc-history',        label: 'OC History',        leadership: false },
   { to: '/oc/oc-planner',        label: 'OC Planner',        ocPlanner: true   },
+  // #390. Same gate as the Planner — MonChoon: gated to OC managers,
+  // leadership and admin.
+  { to: '/oc/oc-simulator',      label: 'OC Simulator',      ocPlanner: true   },
   { to: '/oc/tier-requirements', label: 'Tier Requirements', leadership: false, tier: true },
   { to: '/oc/payout-management', label: 'Payout Management', leadership: true  },
   { to: '/oc/tier-management',   label: 'Tier Management',   leadership: true, tier: true },
@@ -45,6 +49,7 @@ export default function OCPage({ isLeadership, canAccessOCPlanner }) {
         <Route path="payouts"           element={<PayoutsView isLeadership={isLeadership} />} />
         <Route path="oc-history"        element={<CrimesView isLeadership={isLeadership} />} />
         {canAccessOCPlanner && <Route path="oc-planner" element={<OCPlannerView />} />}
+        {canAccessOCPlanner && <Route path="oc-simulator" element={<OCSimulatorView />} />}
         {usesTiers && <Route path="tier-requirements" element={<TierRequirementsView />} />}
         {isLeadership && <Route path="payout-management" element={<PayoutManagement />} />}
         {isLeadership && usesTiers && <Route path="tier-management" element={<TierManagement />} />}

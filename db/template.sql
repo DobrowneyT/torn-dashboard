@@ -149,6 +149,51 @@ CREATE TABLE public.crime_occupancy_polls (
 );
 CREATE INDEX crime_occupancy_polls_at_idx ON public.crime_occupancy_polls (polled_at DESC);
 
+-- #390: our own copy of the OC probability model from tornprobability.com.
+-- The simulator computes against this copy, never the live service (one
+-- person's server, non-standard port, no SLA) — an outage degrades to stale
+-- numbers instead of a dead page. Note it is HTTPS on 3000, not HTTP.
+CREATE TABLE public.oc_scenarios (
+  name             text PRIMARY KEY,
+  parameter_count  int  NOT NULL,
+  -- NULL means we have not read the /scenarios page, which is distinct from
+  -- false: the API does not carry completeness, and an in-progress model
+  -- answers with numbers that look exactly as authoritative as a finished one.
+  is_complete      boolean,
+  observed_paths   int,
+  diagram          text,
+  diagram_valid    boolean,
+  diagram_problems jsonb NOT NULL DEFAULT '[]'::jsonb,
+  fetched_at       timestamptz,
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+
+-- GetRoleNames spells a scenario "Mob Mentality" and its role "Looter 1";
+-- GetRoleWeights spells the same two "MobMentality" and "Looter1". The mirror
+-- normalises both sides — a raw join drops every multi-word name.
+CREATE TABLE public.oc_scenario_roles (
+  scenario_name text NOT NULL REFERENCES public.oc_scenarios(name) ON DELETE CASCADE,
+  position_id   text NOT NULL,
+  role_name     text NOT NULL,
+  weight        numeric,
+  PRIMARY KEY (scenario_name, position_id)
+);
+
+-- goodEndingN -> diagram node id. Nothing in either API response states this
+-- correspondence, and position matching is WRONG: Break the Bank's derived
+-- mapping swaps positions 3 and 4 against declaration order.
+CREATE TABLE public.oc_scenario_endings (
+  scenario_name text NOT NULL REFERENCES public.oc_scenarios(name) ON DELETE CASCADE,
+  ending_key    text NOT NULL,
+  node_id       text,
+  kind          text NOT NULL,
+  resolved      boolean NOT NULL DEFAULT false,
+  problem       text,
+  PRIMARY KEY (scenario_name, ending_key)
+);
+CREATE INDEX oc_scenario_endings_node_idx
+  ON public.oc_scenario_endings (scenario_name, node_id);
+
 CREATE TABLE public.crimes (
   crime_id text NOT NULL,
   name text NOT NULL,

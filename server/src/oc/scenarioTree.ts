@@ -241,7 +241,29 @@ export function allPassTerminal(tree: ScenarioTree): ScenarioNode | null {
  * numbers.
  */
 export interface TreeValidation {
+  /** No structural problem of any kind. The bar for "we understand this fully". */
   ok: boolean
+  /**
+   * Whether the ending→node mapping can still be derived despite the problems.
+   *
+   * ⚠️ Added after running all 31 scenarios against the live service on
+   * 2026-08-13: 30 are clean, and **Mob Mentality** has exactly one defect —
+   * `_A4F_Cont_`, a narrative node ("The team wraps Looter #4 in their jackets
+   * to quell the fire, exiting the scene") with no outgoing edge. The story
+   * stops there without reaching a marked ending. That is a real gap in the
+   * SOURCE diagram, not a parse failure.
+   *
+   * `ok` alone would refuse the entire crime over it. But a node with no
+   * outgoing edges cannot be on any path to a terminal, so it cannot corrupt
+   * the mapping — it just means one narrative thread is unfinished upstream.
+   * Refusing a whole crime for a defect that provably cannot affect the answer
+   * trades a real capability for no safety at all.
+   *
+   * The problems that DO invalidate a mapping are the ones that change which
+   * endings exist or how they are reached: a checkpoint missing a branch, an
+   * unreachable node, or a terminal the root cannot reach.
+   */
+  mappable: boolean
   /** Checkpoints without exactly one Pass and one Fail edge. */
   checkpointsMissingBranch: string[]
   /** Non-terminal nodes with nowhere to go — the story stops without ending. */
@@ -250,6 +272,8 @@ export interface TreeValidation {
   unreachable: string[]
   /** Terminals the root cannot reach — an ending that can never happen. */
   unreachableTerminals: string[]
+  /** Human-readable summary of everything above, for storage and display. */
+  problems: string[]
 }
 
 export function validateScenarioTree(tree: ScenarioTree): TreeValidation {
@@ -285,11 +309,36 @@ export function validateScenarioTree(tree: ScenarioTree): TreeValidation {
   const unreachable = [...tree.nodes.keys()].filter((id) => !seen.has(id))
   const unreachableTerminals = tree.terminals.filter((t) => !seen.has(t.id)).map((t) => t.id)
 
+  const problems: string[] = []
+  if (checkpointsMissingBranch.length > 0) {
+    problems.push(
+      `${checkpointsMissingBranch.length} checkpoint(s) without both a Pass and a Fail branch: ` +
+      checkpointsMissingBranch.slice(0, 5).join(', ')
+    )
+  }
+  if (unreachable.length > 0) {
+    problems.push(`${unreachable.length} node(s) unreachable from the start: ${unreachable.slice(0, 5).join(', ')}`)
+  }
+  if (unreachableTerminals.length > 0) {
+    problems.push(`${unreachableTerminals.length} ending(s) that can never be reached: ${unreachableTerminals.join(', ')}`)
+  }
+  if (deadEnds.length > 0) {
+    problems.push(
+      `${deadEnds.length} narrative node(s) that stop without reaching an ending: ${deadEnds.slice(0, 5).join(', ')}`
+    )
+  }
+
   return {
     ok: checkpointsMissingBranch.length === 0 && deadEnds.length === 0 && unreachable.length === 0,
+    // Dead ends are deliberately excluded here — see the note on `mappable`.
+    mappable:
+      checkpointsMissingBranch.length === 0 &&
+      unreachable.length === 0 &&
+      unreachableTerminals.length === 0,
     checkpointsMissingBranch,
     deadEnds,
     unreachable,
     unreachableTerminals,
+    problems,
   }
 }

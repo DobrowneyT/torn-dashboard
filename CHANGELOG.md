@@ -17,6 +17,78 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.29.1] - 2026-08-13
+
+### Fixed
+- **Opponent history panel spun forever** (#398). "Loading history…" never
+  resolved, against a healthy and fully indexed endpoint. The fetch effect
+  depended on the state it writes (`state.loading` / `state.data`), so
+  `setState({loading:true})` re-triggered the effect, React ran the previous
+  cleanup, and that set `cancelled = true` on the request already in flight —
+  which then discarded its own response. The in-flight opponent is now tracked
+  in a ref, and the effect depends only on `[open, opponentId]`.
+  - A 15s timeout now surfaces an error instead of spinning, and a failed
+    attempt clears the ref so reopening retries rather than being permanently
+    stuck for the session.
+  - Guarded by a source-shape test, in the spirit of the #140 `new Date`
+    scanner — verified to fail against the original code.
+  - No index or precompute needed: `idx_wmc_war_id`,
+    `war_room_roll_call_v2_war_idx` and the `(war_id, member_id)` unique already
+    cover every join this query makes.
+
+## [3.30.0] - 2026-08-13
+
+### Added
+- **OC Simulator** (#390). New tab under OC, gated to OC managers, leadership
+  and admin (the OC Planner's gate). Pick a crime, set each role's CPR, and the
+  success chance, per-ending probabilities and E(x) update as you move a slider.
+  - **Nightly mirror job** (`oc-scenarios-mirror`, 03:50): copies the 31
+    scenarios, their roles and weights, their flowcharts and the derived
+    ending→node mapping into `oc_scenarios` / `oc_scenario_roles` /
+    `oc_scenario_endings`. The browser never talks to the upstream service — an
+    outage degrades to stale numbers instead of a dead page.
+  - Server proxies `CalculateSuccess`, validating the scenario is one we
+    mirrored and the CPR vector is the length that crime actually takes. A
+    wrong-length vector gets perfectly ordinary numbers upstream, for a crime
+    nobody is running.
+  - **E(x) is presented as a lower bound** until every good ending is priced,
+    and left blank rather than shown as `$0` when nothing is priced — a zero
+    reads as "this crime pays nothing". The payout table is still hand-entered
+    (0 of 167 filled).
+  - Model completeness (27 complete, 4 in progress) is shown on the page. It
+    exists only on the upstream HTML page; the API omits it, and an in-progress
+    model answers with numbers that look exactly as authoritative as a finished
+    one.
+
+### Fixed
+- **The upstream API zero-pads its ending slots** (#390). Found by running all
+  31 scenarios: Plucking the Lotus Petal returns `goodEnding1..10` with 5–10
+  exactly 0 against 4 real endings; Ace in the Hole returns 10 against 7. Taken
+  at face value this looked like the API and the diagram disagreeing about the
+  crime's shape, and refused seven scenarios outright. Only a *trailing* run of
+  zeros is trimmed — an interior zero is a real ending that happens to be
+  unreachable at those CPRs, and renumbering around it would shift every later
+  ending onto the wrong node.
+- **The diagram feed hung on every fetch** (#390). It is an SSE stream the
+  server holds open after sending the diagram, so `res.text()` waited for an end
+  that never came and aborted on the timeout every time — discarding a diagram
+  we had already received. Now read incrementally and closed as soon as a
+  complete frame arrives (288 ms against the live service).
+- **A truncated SSE frame decoded as a valid prefix** (#390). Base64 does not
+  fail on a partial payload; half a diagram still starts with `flowchart LR` and
+  would have been stored as a complete one with most of its nodes missing. Only
+  frames terminated by a blank line are accepted.
+- ⚠️ The service is **HTTPS on port 3000**, not HTTP. Plain HTTP gets an empty
+  reply, which reads exactly like the service being down.
+
+### Changed
+- `validateScenarioTree` now separates `ok` (no problem of any kind) from
+  `mappable` (no problem that invalidates the ending mapping) (#390). Mob
+  Mentality — the only defective diagram of the 31 — has one narrative node that
+  stops without reaching an ending. It is off every path to a terminal, so it
+  cannot affect the mapping, and refusing the whole crime over it would cost a
+  real capability for no safety. The problem is still reported, in words.
+
 ## [3.29.0] - 2026-08-13
 
 ### Added

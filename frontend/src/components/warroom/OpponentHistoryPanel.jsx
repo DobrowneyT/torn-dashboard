@@ -11,7 +11,7 @@
  * panel whose job is telling a lead who is new, overstating that to "their
  * faction last time" would be a confident, checkable lie.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronRight, LoaderCircle, Swords, UserPlus, UserMinus, Users } from 'lucide-react'
 import { getOpponentHistory } from '../../utils/warRoomApiV2'
 import { formatWarDateRange } from '../../utils/warPayoutCalculations'
@@ -29,6 +29,10 @@ const RESULT_TONE = {
 
 const INITIAL_WARS_SHOWN = 5
 
+/** Beyond this, say so rather than spinning. The query is indexed and returns
+ *  in milliseconds; anything near this means something is actually wrong. */
+const REQUEST_TIMEOUT_MS = 15_000
+
 export default function OpponentHistoryPanel({ currentWar, ourFactionId, enemyMembers = [] }) {
   const [open, setOpen] = useState(false)
   const [state, setState] = useState({ loading: false, error: null, data: null })
@@ -36,25 +40,66 @@ export default function OpponentHistoryPanel({ currentWar, ourFactionId, enemyMe
 
   const opponentId = currentWar?.opponentId ?? null
 
-  // Fetched on first open, not on mount. The War Room is already polling on a
-  // 2 Hz floor during a war; history changes once a war and has no business
-  // adding a request to every page load.
-  useEffect(() => {
-    if (!open || !opponentId || state.data || state.loading) return
-    let cancelled = false
-    setState((s) => ({ ...s, loading: true, error: null }))
-    getOpponentHistory(opponentId)
-      .then((res) => { if (!cancelled) setState({ loading: false, error: null, data: res }) })
-      .catch((e) => { if (!cancelled) setState({ loading: false, error: e?.message || 'Could not load history', data: null }) })
-    return () => { cancelled = true }
-  }, [open, opponentId, state.data, state.loading])
+  // Which opponent we have already asked for. Fetched on first open rather than
+  // on mount — the War Room already polls at a 2 Hz floor during a war, and
+  // history changes once a war.
+  //
+  // A ref rather than state, and that is the whole fix.
+  //
+  // ⚠️ This effect used to depend on `state.loading` / `state.data` — the very
+  // state it writes. So: open the panel, setState(loading) fires the request,
+  // the dependency changes, React runs the CLEANUP of the previous run, which
+  // sets `cancelled = true` on the in-flight request, and the guard then blocks
+  // a replacement. The response arrives, sees `cancelled`, and drops itself on
+  // the floor. The spinner runs forever with a perfectly healthy server behind
+  // it. Depending on state you mutate inside the same effect is the bug.
+  const requestedFor = useRef(null)
 
-  // Refetch when the opponent changes — a new war must not show the last one's
-  // history sitting there looking current.
+  // Declared BEFORE the fetch effect on purpose: when the opponent changes,
+  // React runs effects in order, so this clears the ref first and the fetch
+  // below then sees an unrequested opponent.
   useEffect(() => {
+    requestedFor.current = null
     setState({ loading: false, error: null, data: null })
     setShowAllWars(false)
   }, [opponentId])
+
+  useEffect(() => {
+    if (!open || !opponentId || requestedFor.current === opponentId) return
+    requestedFor.current = opponentId
+
+    let settled = false
+    setState({ loading: true, error: null, data: null })
+
+    // A spinner with no terminal state is worse than an error — the reader
+    // cannot tell "slow" from "broken", which is exactly what happened here.
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      requestedFor.current = null   // let a reopen try again
+      setState({
+        loading: false,
+        data: null,
+        error: 'Timed out loading history. Close and reopen to retry.',
+      })
+    }, REQUEST_TIMEOUT_MS)
+
+    getOpponentHistory(opponentId)
+      .then((res) => {
+        if (settled) return
+        settled = true
+        setState({ loading: false, error: null, data: res })
+      })
+      .catch((e) => {
+        if (settled) return
+        settled = true
+        requestedFor.current = null
+        setState({ loading: false, error: e?.message || 'Could not load history', data: null })
+      })
+      .finally(() => clearTimeout(timer))
+
+    return () => clearTimeout(timer)
+  }, [open, opponentId])
 
   if (!opponentId) return null
 

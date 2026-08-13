@@ -237,3 +237,91 @@ describe('validateScenarioTree', () => {
     expect(v.unreachableTerminals).toContain('_A2S_')
   })
 })
+
+// Running all 31 scenarios against the live service on 2026-08-13 found exactly
+// one defect across the whole set, and it is in the SOURCE rather than the
+// parser. It is worth a fixture because it is the case that decides how strict
+// the mirror's gate should be.
+describe('Mob Mentality — a real diagram with a real defect', () => {
+  const mob = parseScenarioTree(readFileSync(join(here, 'fixtures', 'mob-mentality.mmd'), 'utf8'))
+
+  it('parses as fully as every other scenario', () => {
+    expect(mob.nodes.size).toBeGreaterThan(100)
+    expect(mob.terminals.filter((t) => t.ending === 'good')).toHaveLength(5)
+    expect(mob.terminals.filter((t) => t.ending === 'bad')).toHaveLength(4)
+  })
+
+  it('has one narrative node that stops without reaching an ending', () => {
+    // "The team wraps Looter #4 in their jackets to quell the fire, exiting the
+    // scene." — the thread simply ends there, upstream.
+    const v = validateScenarioTree(mob)
+    expect(v.deadEnds).toEqual(['_A4F_Cont_'])
+    expect(v.ok).toBe(false)
+  })
+
+  it('is still mappable, because a dead end cannot be on a path to an ending', () => {
+    // ⚠️ The distinction the mirror gates on. `ok` would refuse the entire
+    // crime over a node with no outgoing edges — which by definition appears on
+    // no path to any terminal, and so cannot change a single ending's mapping.
+    // Refusing a whole crime for a defect that provably cannot affect the
+    // answer costs a real capability and buys no safety.
+    const v = validateScenarioTree(mob)
+    expect(v.mappable).toBe(true)
+    expect(v.checkpointsMissingBranch).toEqual([])
+    expect(v.unreachable).toEqual([])
+    expect(v.unreachableTerminals).toEqual([])
+  })
+
+  it('proves the dead end really is off every path to an ending', () => {
+    // Not an assumption — checked. If this ever fails, `mappable` is lying and
+    // the gate has to tighten.
+    for (const terminal of mob.terminals) {
+      for (const path of pathsToTerminal(mob, terminal.id)) {
+        expect(path).not.toContain('_A4F_Cont_')
+      }
+    }
+  })
+
+  it('still reports the problem in words rather than swallowing it', () => {
+    // Mappable is not "fine". The panel has to be able to say what is wrong
+    // with this crime's diagram.
+    const v = validateScenarioTree(mob)
+    expect(v.problems.join(' ')).toMatch(/stop without reaching an ending/)
+    expect(v.problems.join(' ')).toContain('_A4F_Cont_')
+  })
+})
+
+describe('mappable vs ok', () => {
+  it('marks a checkpoint missing a branch as NOT mappable', () => {
+    // The defects that change which endings exist, or how they are reached,
+    // must still refuse the scenario outright.
+    const broken = parseScenarioTree([
+      'flowchart LR',
+      ' _Prelude_(["s"])',
+      ' _C1_{"roll"}',
+      ' _Prelude_ --> _C1_',
+      ' _C1_ -- "Pass" --> _A1S_',
+    ].join('\n'))
+    const v = validateScenarioTree(broken)
+    expect(v.ok).toBe(false)
+    expect(v.mappable).toBe(false)
+  })
+
+  it('marks an unreachable ending as NOT mappable', () => {
+    const broken = parseScenarioTree([
+      'flowchart LR',
+      ' _Prelude_(["s"])',
+      ' _Prelude_ --> _A1S_',
+      ' _Orphan_(["nothing points here"])',
+      ' _Orphan_ --> _A2S_',
+    ].join('\n'))
+    expect(validateScenarioTree(broken).mappable).toBe(false)
+  })
+
+  it('agrees with ok on a clean diagram', () => {
+    const v = validateScenarioTree(tree)
+    expect(v.ok).toBe(true)
+    expect(v.mappable).toBe(true)
+    expect(v.problems).toEqual([])
+  })
+})
