@@ -59,31 +59,13 @@ export function bankedTimeByMember(participation, fromTimestamp, toTimestamp) {
   }
   return byMember
 }
-// #262: total covered seconds across a member's time intervals, merging any
-// that overlap or touch. Each interval is [start, end] in unix seconds, already
-// clipped to the payout window. Because a member can only be in one OC at a
-// time, their real elapsed time is the UNION of their crime/stint intervals —
-// summing them independently double-counts overlaps (and could exceed the
-// window). The union is bounded by the window, so the total never can.
-export function mergeIntervalSeconds(intervals) {
-  const valid = (intervals || [])
-    .filter(([s, e]) => Number.isFinite(s) && Number.isFinite(e) && e > s)
-    .sort((a, b) => a[0] - b[0])
-  let total = 0
-  let curStart = null
-  let curEnd = null
-  for (const [s, e] of valid) {
-    if (curEnd === null || s > curEnd) {
-      if (curEnd !== null) total += curEnd - curStart
-      curStart = s
-      curEnd = e
-    } else if (e > curEnd) {
-      curEnd = e
-    }
-  }
-  if (curEnd !== null) total += curEnd - curStart
-  return total
-}
+// #262's interval union now lives in ./intervals so occupancyTime can use it
+// without importing this module back. Re-exported: it is part of this module's
+// published surface and the tests import it from here.
+export { mergeIntervalSeconds } from './intervals'
+import { mergeIntervalSeconds } from './intervals'
+import { occupancySecondsByMember, pollCoverage, joinedAtDrift } from './occupancyTime'
+
 
 // Uniform base for the non-tiered modes (Tier-1 value). In flat-weighted this
 // cancels out of the share math — it's only what shows in the Tickets column.
@@ -619,6 +601,23 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     delete member.bankedIntervals
   }
 
+  // #389 part 2: what the occupancy poller OBSERVED for the same window.
+  //
+  // Reported alongside the inferred figures, never instead of them. MonChoon is
+  // watching these for a few weeks before they are allowed to move money, and
+  // switching automatically the moment coverage looked complete would take that
+  // decision away — after four passes where this calculation was confidently
+  // wrong, "the numbers changed and nobody chose that" is the outcome most
+  // worth designing against.
+  //
+  // Everything needed to make the call ships with it: per-member observed
+  // seconds to compare against, whether the poller actually watched the
+  // window, and how far our first sighting sits from Torn's own joined_at.
+  const observed = occupancySecondsByMember(crimesData?.occupancy, fromTimestamp, toTimestamp)
+  for (const member of Object.values(participatingMembers)) {
+    member.observedSeconds = observed[String(member.userId)]?.seconds ?? 0
+  }
+
   console.log('Crimes processed (successful in window):', crimesProcessed)
   console.log('Total money reward:', totalMoneyReward)
   console.log('Total item reward:', totalItemReward)
@@ -762,6 +761,9 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   return {
     members: memberArray,
     payoutMode: mode,
+    // #389 part 2 diagnostics. Present on every payout, load-bearing on none.
+    occupancyCoverage: pollCoverage(crimesData?.occupancy_polls, fromTimestamp, toTimestamp),
+    occupancyDrift: joinedAtDrift(crimesData?.occupancy),
     totalMoneyReward,
     totalItemReward,
     totalItemCost,

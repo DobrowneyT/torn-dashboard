@@ -180,8 +180,39 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
       [from, to]
     )
 
+    // #389 part 2: observed occupancy stints overlapping the window, plus the
+    // poll heartbeats that say whether we were watching.
+    //
+    // Independent of the crime union above, deliberately: a stint belongs to
+    // the window if the member was IN a crime during it, regardless of whether
+    // that crime is one the payout counts rewards for. The two questions —
+    // "which crimes paid out" and "who was occupied when" — are different, and
+    // conflating them is how the legacy path ended up deriving time from crime
+    // status in the first place.
+    const [occupancy, polls] = await Promise.all([
+      db.query(
+        `SELECT crime_id, member_id, position_id, torn_joined_at,
+                first_seen_at, last_seen_at, closed
+           FROM crime_occupancy
+          WHERE COALESCE(torn_joined_at, first_seen_at) < $2 AND last_seen_at > $1
+          ORDER BY member_id, first_seen_at`,
+        [from, to]
+      ),
+      // Heartbeats only — the counters are diagnostics, and a week of
+      // per-minute rows is 10k values the client would never look at.
+      db.query(
+        'SELECT polled_at FROM crime_occupancy_polls WHERE polled_at >= $1 AND polled_at <= $2 ORDER BY polled_at',
+        [from, to]
+      ),
+    ])
+
     if (crimeIds.length === 0) {
-      return { crimes: [], slots: [], reward_items: [], required_items: [], participation: participation.rows }
+      return {
+        crimes: [], slots: [], reward_items: [], required_items: [],
+        participation: participation.rows,
+        occupancy: occupancy.rows,
+        occupancy_polls: polls.rows,
+      }
     }
 
     const [slots, rewards, required] = await Promise.all([
@@ -195,6 +226,8 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
       reward_items: rewards.rows,
       required_items: required.rows,
       participation: participation.rows,
+      occupancy: occupancy.rows,
+      occupancy_polls: polls.rows,
     }
   })
 
