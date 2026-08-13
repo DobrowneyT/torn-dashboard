@@ -114,6 +114,41 @@ CREATE TABLE public.crime_participation_v2 (
 );
 CREATE INDEX crime_participation_v2_member_idx ON public.crime_participation_v2 (member_id);
 
+-- #389: observed OC occupancy. Torn never reports when a member LEFT a crime,
+-- so every "left at" above is inferred. This table records what the minute
+-- poller actually saw. Surrogate key, not (crime_id, member_id): a member who
+-- leaves and rejoins the same crime must keep BOTH stints, which the table
+-- above cannot represent.
+CREATE TABLE public.crime_occupancy (
+  id             bigserial PRIMARY KEY,
+  crime_id       text   NOT NULL,
+  member_id      text   NOT NULL,
+  position_id    text,
+  torn_joined_at bigint,
+  first_seen_at  bigint NOT NULL,
+  last_seen_at   bigint NOT NULL,
+  closed         boolean NOT NULL DEFAULT false,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX crime_occupancy_open_uniq
+  ON public.crime_occupancy (crime_id, member_id, COALESCE(position_id, '')) WHERE NOT closed;
+CREATE INDEX crime_occupancy_member_window_idx
+  ON public.crime_occupancy (member_id, first_seen_at, last_seen_at);
+CREATE INDEX crime_occupancy_crime_idx ON public.crime_occupancy (crime_id);
+
+-- #389: poll heartbeat, so a payout window containing an outage can say so
+-- rather than quietly under-reporting the departures it missed.
+CREATE TABLE public.crime_occupancy_polls (
+  polled_at   bigint PRIMARY KEY,
+  crimes_seen integer NOT NULL DEFAULT 0,
+  slots_seen  integer NOT NULL DEFAULT 0,
+  opened      integer NOT NULL DEFAULT 0,
+  closed      integer NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX crime_occupancy_polls_at_idx ON public.crime_occupancy_polls (polled_at DESC);
+
 CREATE TABLE public.crimes (
   crime_id text NOT NULL,
   name text NOT NULL,
