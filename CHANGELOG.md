@@ -32,6 +32,16 @@ from `VERSION` at runtime) both surface it automatically.
   therefore false on every row in every tenant, and its tests could not see it
   because they drove the tracker with the same invented status.
 
+### Changed
+- **Left-early (banked) time no longer drives the OC payout** (#389), pending
+  verification against the new occupancy poller. It is still fully displayed —
+  `timeSpent` and `bankedSeconds` are unchanged and Payout Management reads
+  exactly as before — but tickets, the sit-out penalty and the payout share are
+  now computed from `ticketTimeSpent`: the completed/current intervals alone.
+  Requested by MonChoon, who wants to observe the banked figures for a few weeks
+  before letting them move money. Reverting to the combined figure is a one-line
+  change once the data is trusted.
+
 ## [3.23.0] - 2026-08-12
 
 ### Added

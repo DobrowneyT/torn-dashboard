@@ -603,6 +603,18 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     const completedSeconds = mergeIntervalSeconds(member.completedIntervals)
     member.timeSpent = mergeIntervalSeconds([...member.completedIntervals, ...member.bankedIntervals])
     member.bankedSeconds = Math.max(0, member.timeSpent - completedSeconds)
+    // Time that DRIVES MONEY, as distinct from time that is displayed (#389).
+    //
+    // MonChoon, 2026-08-12: "do not use the early leave in the calculation,
+    // only have the legacy time spent in crime as part of the ticket portion.
+    // I will observe the data for a few weeks until I can verify its working."
+    //
+    // So banked (left-early) time stays fully visible — timeSpent and
+    // bankedSeconds are unchanged and the page reads exactly as before — but
+    // tickets, the sit-out penalty and the payout share are computed from the
+    // completed/current intervals alone. Once the occupancy poller has enough
+    // history to check banked time against, this collapses back to timeSpent.
+    member.ticketTimeSpent = completedSeconds
     delete member.completedIntervals
     delete member.bankedIntervals
   }
@@ -650,7 +662,7 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     const baseTickets = mode === 'tiered'
       ? (TIER_TICKETS[member.tier] || TIER_TICKETS[6])
       : FLAT_BASE_TICKETS
-    const sitOutPenalty = calculateSitOutPenalty(member.timeSpent, baseTickets)
+    const sitOutPenalty = calculateSitOutPenalty(member.ticketTimeSpent, baseTickets)
 
     member.baseTickets = baseTickets
     member.sitOutPenalty = sitOutPenalty
@@ -672,11 +684,14 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   if (mode === 'equal') {
     // Even split among members who did at least one OC (participated in the
     // window) — no ticket weighting, no sit-out floor.
-    const participants = memberArray.filter(m => m.timeSpent > 0)
+    // ticketTimeSpent, not timeSpent: a member whose only activity was a
+    // left-early stint has no ticket time, so they do not take an equal share
+    // while banked time is excluded from the money (#389).
+    const participants = memberArray.filter(m => m.ticketTimeSpent > 0)
     const share = participants.length > 0 ? 1 / participants.length : 0
     const each = participants.length > 0 ? Math.floor(memberPayoutTotal / participants.length) : 0
     for (const member of memberArray) {
-      const isParticipant = member.timeSpent > 0
+      const isParticipant = member.ticketTimeSpent > 0
       member.sharePercent = isParticipant ? share : 0
       member.payout = isParticipant ? each : 0
     }
