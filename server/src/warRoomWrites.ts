@@ -434,7 +434,34 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
           ORDER BY w.start_at DESC`,
         [factionId, us]
       )
-      return { wars: wars.rows }
+
+      // Their roster from the MOST RECENT previous war only (#398 section 2).
+      //
+      // Deliberately not every war in the list. "New since one of the last six
+      // wars we fought" is not a fact anyone can act on, and the payload for a
+      // faction we fight often would be several hundred rows to answer a
+      // question about one of them.
+      //
+      // ⚠️ This is their war ROSTER as Torn reported it for that war, not their
+      // membership at any given moment — `rows_held` runs 77–100 against a
+      // 100-slot faction, so someone who joined mid-war or left before the
+      // report was cut can be missing. The UI has to say "war roster".
+      const lastWarId = wars.rows[0]?.war_id ?? null
+      const theirRoster = lastWarId
+        ? await db.query(
+            `SELECT member_id, member_name, level, score, attacks
+               FROM war_member_contributions
+              WHERE war_id = $1 AND faction_id = $2
+              ORDER BY score DESC`,
+            [lastWarId, factionId]
+          )
+        : { rows: [] }
+
+      return {
+        wars: wars.rows,
+        last_war_id: lastWarId,
+        their_last_roster: theirRoster.rows,
+      }
     }
   )
 

@@ -82,6 +82,14 @@ export async function getWarNotesPrivate(warId) {
   return warRoomApi('GET', `/api/war-room/notes/${warId}/private`)
 }
 
+/**
+ * Previous matchups against one faction (#398), with their roster from the most
+ * recent of them. Leads-only server side; visitors may read.
+ */
+export async function getOpponentHistory(factionId) {
+  return warRoomApi('GET', `/api/war-room/history/${factionId}`)
+}
+
 export async function claimDibsV2(targetId, warId) {
   return warRoomApi('POST', '/api/war-room/dibs', { target_id: targetId, war_id: warId ?? null })
 }
