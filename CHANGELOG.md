@@ -20,6 +20,17 @@ from `VERSION` at runtime) both surface it automatically.
 ## [3.27.0] - 2026-08-13
 
 ### Added
+- **OC ending mapping derived, not assumed** (#390). `server/src/oc/endingMap.ts`
+  resolves `goodEndingN` to a diagram node id from two independent signals that
+  must agree: the fewest checkpoint failures a path to that ending needs, and
+  which roles' CPR drops actually raise it in a probe sweep.
+  - ⚠️ **Position matching is wrong, not merely unproven.** For Break the Bank
+    the derived mapping swaps positions 3 and 4 against declaration order, so
+    `goodEnding3` and `goodEnding4` would have carried each other's payouts.
+  - Returns `ok: false` with reasons rather than a partial map — a half-derived
+    mapping's resolved endings look exactly as trustworthy as its guesses.
+  - Refuses on: no baseline probe, a diagram/API disagreement about how many
+    endings exist, no role evidence, or a tie between two candidate endings.
 - **OC scenario flowchart parsing** (#390), the substrate for the OC Simulator.
   `server/src/oc/scenarioTree.ts` parses the mermaid diagram tornprobability.com
   serves per scenario, enumerates every path from the prelude to each ending, and
