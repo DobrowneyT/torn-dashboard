@@ -17,7 +17,7 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
-## [3.29.1] - 2026-08-13
+## [3.30.1] - 2026-08-13
 
 ### Fixed
 - **Opponent history panel spun forever** (#398). "Loading history…" never
