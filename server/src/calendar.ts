@@ -48,7 +48,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
     const fromEpoch = Math.floor(win.from.getTime() / 1000)
     const toEpoch = Math.floor(win.to.getTime() / 1000)
 
-    const [wars, competitions, payoutWeeks, events, birthdays, anniversaries] =
+    const [wars, competitions, payoutWeeks, events, birthdays, anniversaries, steadfast, rotationSetting] =
       await Promise.all([
         // Overlap, not containment: a war that started last month is still
         // being fought, and that is precisely when someone opens the calendar.
@@ -123,6 +123,29 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
             WHERE m.is_current = true
             ORDER BY m.member_id, s.snapshot_date DESC`
         ),
+        // Steadfast magnitudes (#395/#458).
+        //
+        // ⚠️ The LATEST snapshot, deliberately ignoring the window. Which stat
+        // is boosted on a given date comes from TNL's rotation, which is pure
+        // calendar arithmetic and works for any month; what it is worth comes
+        // from here. Window-scoping this would blank the percentages on every
+        // future month — and future months are the ones people plan against.
+        //
+        // Before the job's first run this is null, and the calendar names the
+        // boosted stats without claiming a figure.
+        db.query(
+          `SELECT snapshot_date, branch_state, steadfast_strength, steadfast_defense,
+                  steadfast_speed, steadfast_dexterity, steadfast_unparsed
+             FROM faction_upgrade_snapshots
+            ORDER BY snapshot_date DESC
+            LIMIT 1`
+        ),
+        // ⚠️ Off unless a faction opts in. The rotation the calendar draws is
+        // TNL's policy — STR/SPD on the 1st, DEF/DEX on the 16th — and this
+        // stack serves several factions. Showing them all a schedule that is
+        // not theirs is worse than showing none, and worse in the quiet way:
+        // it looks like information.
+        db.query(`SELECT value FROM faction_settings WHERE key = 'steadfast_rotation'`),
       ])
 
     return {
@@ -134,6 +157,8 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
       events: events.rows,
       birthdays: birthdays.rows,
       anniversaries: anniversaries.rows,
+      steadfast_latest: steadfast.rows[0] ?? null,
+      steadfast_rotation: rotationSetting.rows[0]?.value?.enabled === true,
     }
   })
 

@@ -71,6 +71,8 @@ const NEW_TABLES = [
   // Faction calendar (#395): typed-in entries (incl. Torn's own events, which
   // have no API) and real birthdays (which Torn does not hold at all).
   'calendar_events', 'member_birthdays',
+  // Daily faction-upgrade snapshots — Steadfast on the calendar (#395/#458)
+  'faction_upgrade_snapshots',
 ]
 
 let server

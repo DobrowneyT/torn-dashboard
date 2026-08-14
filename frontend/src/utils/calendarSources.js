@@ -30,6 +30,7 @@
  * codebase (#140, #330, #419) and is guarded by a build-failing scanner.
  */
 import { parseDbTime } from './time'
+import { rotationSegments, picksOn, deriveMagnitudes, percentagesFor } from './steadfastRotation'
 
 /** Torn City Time is UTC. Every derived date in this file is built in UTC. */
 const DAY_MS = 86_400_000
@@ -46,6 +47,7 @@ export const EVENT_KINDS = {
   torn: { label: 'Torn event', tone: 'blue' },
   faction: { label: 'Faction', tone: 'slate' },
   personal: { label: 'Personal', tone: 'pink' },
+  steadfast: { label: 'Steadfast', tone: 'amber' },
 }
 
 /** A UTC calendar day key, 'YYYY-MM-DD' — the grid's cell address. */
@@ -270,6 +272,93 @@ export function fromBirthdays(rows, { from, to } = {}) {
   })
 }
 
+/** The four battle stats, in the order Torn lists them. */
+const STEADFAST_STATS = [
+  ['strength', 'STR'],
+  ['defense', 'DEF'],
+  ['speed', 'SPD'],
+  ['dexterity', 'DEX'],
+]
+
+/** "STR 20% · DEF 15% · SPD 10%" — omitting stats we could not read. */
+export function steadfastLabel(row) {
+  const parts = STEADFAST_STATS
+    // ⚠️ `null` is "we could not read it" and is skipped; a real 0 is printed.
+    // Number(null) is 0, so this must test for null explicitly.
+    .filter(([key]) => row?.[`steadfast_${key}`] !== null && row?.[`steadfast_${key}`] !== undefined)
+    .map(([key, short]) => `${short} ${Number(row[`steadfast_${key}`])}%`)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+/**
+ * Steadfast as **bands**, one per stretch of TNL's rotation.
+ *
+ * MonChoon: *"for things that span multiple days, maybe have the event band
+ * stretch across instead of individual ones on each day."*
+ *
+ * ⚠️ Two different sources of truth meet here, and keeping them apart is the
+ * whole design:
+ *
+ *   • **Which** stat is boosted comes from the ROTATION (`steadfastRotation`) —
+ *     pure calendar arithmetic, so it predicts forward indefinitely. That is
+ *     the point: people plan training around it, and a training book is five
+ *     days of commitment.
+ *   • **How much** comes from the observed `/faction/upgrades` snapshot,
+ *     because it depends on what the faction has unlocked. MonChoon,
+ *     2026-08-14: *"We dont have anything at 20% at the moment... it depends
+ *     on what we have unlocked."*
+ *
+ * Deriving the magnitudes from the rotation instead would have been a hardcoded
+ * 15/20 that started lying the day the tertiary tree was bought. Deriving the
+ * schedule from the snapshots would have made future months blank — and future
+ * months are the ones worth looking at.
+ *
+ * With no snapshot at all, the bands still show which stats are boosted and
+ * simply do not claim a percentage.
+ */
+export function fromSteadfast(payload, { from, to } = {}) {
+  if (!(from instanceof Date) || !(to instanceof Date)) return []
+  // ⚠️ Opt-in per faction. The rotation is TNL's policy and this stack serves
+  // several factions; a schedule that is not yours looks exactly like one that
+  // is, which is the worst way for a calendar to be wrong.
+  if (payload?.steadfast_rotation !== true) return []
+
+  // The most recent snapshot, even from outside the window — viewing next
+  // month, every snapshot is in the past, and that is exactly when the
+  // magnitudes are still wanted.
+  const latest = payload?.steadfast_latest ?? null
+  const magnitudes = latest
+    ? deriveMagnitudes(latest, picksOn(fromDateOnly(latest.snapshot_date) ?? from))
+    : null
+
+  return rotationSegments(from, to).map((seg) => {
+    const pct = percentagesFor(seg, magnitudes)
+    const known = STEADFAST_STATS.filter(([key]) => pct[key] !== null && pct[key] !== undefined)
+    const label = known.length > 0
+      ? known.map(([key, short]) => `${short} ${pct[key]}%`).join(' · ')
+      // No snapshot yet: name the boosted stats without inventing figures.
+      : `${seg.strSpd.toUpperCase().slice(0, 3)} + ${seg.defDex.toUpperCase().slice(0, 3)} boosted`
+
+    return evt({
+      id: `steadfast-${dayKey(seg.start)}`,
+      source: 'steadfast',
+      kind: 'steadfast',
+      title: `Steadfast ${label}`,
+      note: [
+        `${seg.strSpd} and ${seg.defDex} carry the secondary trees`,
+        magnitudes ? `percentages observed ${magnitudes.observedOn}` : 'percentages not yet scraped',
+        magnitudes?.strSpd?.suspect || magnitudes?.defDex?.suspect
+          ? '⚠ observed values do not fit the expected pattern — check the faction tree'
+          : null,
+      ].filter(Boolean).join(' · '),
+      startsAt: seg.start,
+      endsAt: seg.end,
+      allDay: true,
+      band: true,
+    })
+  })
+}
+
 /**
  * Torn account anniversaries — derived, not typed in, from the profile blob
  * already snapshotted daily.
@@ -363,6 +452,7 @@ export function aggregate(payload, { from, to } = {}) {
     ...fromEvents(payload?.events, window),
     ...fromBirthdays(payload?.birthdays, window),
     ...fromAnniversaries(payload?.anniversaries, window),
+    ...fromSteadfast(payload, window),
   ]
 
   const clipped = window.from
@@ -410,6 +500,70 @@ export function upcoming(events, { now = new Date(), days = 7, limit = 5 } = {})
     .filter((e) => effectiveEnd(e) >= now && e.startsAt <= horizon)
     .sort((a, b) => a.startsAt - b.startsAt)
     .slice(0, limit)
+}
+
+/**
+ * Lay one week row out: continuous bands for anything spanning days, ordinary
+ * pills for anything that does not.
+ *
+ * MonChoon: *"for things that span multiple days, maybe have the event band
+ * stretch across instead of individual ones on each day."*
+ *
+ * ⚠️ The repeated-pill rendering was not just untidy, it MISCOUNTED. A war
+ * showing in five cells reads as five things; the "+2 more" overflow in each
+ * cell was counting the same war five times, and a genuinely busy day could
+ * hide a one-off behind four repeats of the same war. A band says one thing
+ * once and leaves the cells for what actually happens on them.
+ *
+ * `continuesLeft` / `continuesRight` mark a band clipped by the week boundary,
+ * so the UI can flatten that edge instead of drawing a rounded end where the
+ * event does not actually stop.
+ */
+export function layoutWeek(cells, events) {
+  const keys = cells.map((c) => c.key)
+  const first = cells[0].date
+  const last = cells[6].date
+
+  const bands = []
+  const singles = new Map(keys.map((k) => [k, []]))
+
+  for (const e of events ?? []) {
+    if (!e?.startsAt) continue
+    const end = effectiveEnd(e)
+    const startDay = dayKey(e.startsAt)
+    const endDay = dayKey(end)
+    const multiDay = e.band === true || (endDay !== null && endDay !== startDay)
+
+    if (!multiDay) {
+      if (singles.has(startDay)) singles.get(startDay).push(e)
+      continue
+    }
+
+    // Clip to this week; skip an event that does not reach it at all.
+    if (end < first || e.startsAt > new Date(last.getTime() + DAY_MS - 1)) continue
+    const startCol = Math.max(0, keys.indexOf(startDay) === -1 ? 0 : keys.indexOf(startDay))
+    const endIdx = keys.indexOf(endDay)
+    const endCol = endIdx === -1 ? 6 : endIdx
+    bands.push({
+      event: e,
+      startCol,
+      endCol: Math.max(startCol, endCol),
+      continuesLeft: e.startsAt < first,
+      continuesRight: end > new Date(last.getTime() + DAY_MS - 1),
+    })
+  }
+
+  // Greedy lane packing: the first lane with room. Stable because `events` is
+  // already sorted, so a band does not hop rows as the month is re-rendered.
+  const laneEnds = []
+  for (const band of bands.sort((a, b) => a.startCol - b.startCol || b.endCol - a.endCol)) {
+    let lane = laneEnds.findIndex((e) => e < band.startCol)
+    if (lane === -1) { lane = laneEnds.length; laneEnds.push(-1) }
+    laneEnds[lane] = band.endCol
+    band.lane = lane
+  }
+
+  return { bands, singles, lanes: laneEnds.length }
 }
 
 /** The six-week UTC grid containing `month`, Monday-first. */

@@ -1017,6 +1017,23 @@ CREATE INDEX calendar_events_starts_idx ON public.calendar_events (starts_at);
 -- Real-world birthdays. Month/day are what a faction uses; the year is
 -- optional and separate, because saying happy birthday needs neither someone's
 -- age nor a full date of birth.
+-- #395 / #458: faction upgrades snapshotted daily. One row PER DAY, because a
+-- current-state table repainted every night would show today's percentages
+-- across all of last month — see db/migrations/0038-faction-upgrades.sql.
+CREATE TABLE public.faction_upgrade_snapshots (
+  snapshot_date date PRIMARY KEY,
+  branch_state  text,
+  -- NULL means "could not read it", never zero — a faction that has not bought
+  -- Strength Training genuinely has 0%, which is a different fact.
+  steadfast_strength  numeric,
+  steadfast_defense   numeric,
+  steadfast_speed     numeric,
+  steadfast_dexterity numeric,
+  steadfast_unparsed  jsonb NOT NULL DEFAULT '[]'::jsonb,
+  payload       jsonb NOT NULL,
+  fetched_at    timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE public.member_birthdays (
   member_id   text PRIMARY KEY,
   birth_month integer NOT NULL CHECK (birth_month BETWEEN 1 AND 12),
