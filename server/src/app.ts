@@ -23,6 +23,7 @@ import { registerAdminRoutes } from './admin.js'
 import { registerBrandingRoutes } from './branding.js'
 import { registerManifestRoute } from './manifest.js'
 import { registerCompetitionRoutes, resolveCompetition } from './competitions.js'
+import { registerCalendarRoutes } from './calendar.js'
 import { createCompetitionTimers, type CompetitionTimers } from './competitions/competitionTimers.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
@@ -244,6 +245,7 @@ export async function buildServer(
     }
     registerCompetitionRoutes(app, opts.db, { competitionTimers: app.competitionTimers })
     registerMemberNotesRoutes(app, opts.db)
+    registerCalendarRoutes(app, opts.db)
     // In-app feedback → triaged GitHub issue (#253). Disabled (endpoint 501, nav
     // hidden) when no PAT is configured.
     registerFeedbackRoutes(app, {

@@ -989,6 +989,43 @@ CREATE TABLE public.push_subscriptions (
 
 CREATE INDEX push_subscriptions_member_id_idx ON public.push_subscriptions (member_id);
 
+-- #395: faction calendar. Almost everything the calendar shows is DERIVED from
+-- tables that already exist (ranked_wars, competitions, oc_payout_weeks,
+-- crimes); these two hold only what has no other home. See
+-- db/migrations/0037-calendar.sql for the full rationale.
+CREATE TABLE public.calendar_events (
+  id         bigserial PRIMARY KEY,
+  source     text NOT NULL DEFAULT 'manual'
+             CHECK (source IN ('manual', 'torn_event')),
+  title      text NOT NULL,
+  note       text,
+  starts_at  timestamptz NOT NULL,
+  -- NULL is a point in time, not a zero-length event.
+  ends_at    timestamptz,
+  -- Torn has no events API, so Christmas Town is typed in — and yearly
+  -- recurrence is what keeps a hand-maintained entry from going stale.
+  recurrence text NOT NULL DEFAULT 'none'
+             CHECK (recurrence IN ('none', 'yearly')),
+  created_by text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_by text,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX calendar_events_starts_idx ON public.calendar_events (starts_at);
+
+-- Real-world birthdays. Month/day are what a faction uses; the year is
+-- optional and separate, because saying happy birthday needs neither someone's
+-- age nor a full date of birth.
+CREATE TABLE public.member_birthdays (
+  member_id   text PRIMARY KEY,
+  birth_month integer NOT NULL CHECK (birth_month BETWEEN 1 AND 12),
+  birth_day   integer NOT NULL CHECK (birth_day BETWEEN 1 AND 31),
+  birth_year  integer CHECK (birth_year BETWEEN 1900 AND 2100),
+  updated_by  text,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ── Constraints ───────────────────────────────────────────────────────────────
 
 ALTER TABLE crime_required_items ADD CONSTRAINT crime_required_items_pkey PRIMARY KEY (id);
