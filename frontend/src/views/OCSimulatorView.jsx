@@ -26,7 +26,7 @@
  * one slider recalculates only that crime.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, FlaskConical, Info, LoaderCircle, ListPlus, X } from 'lucide-react'
+import { AlertTriangle, FlaskConical, Info, LoaderCircle, ListPlus, Trophy, X } from 'lucide-react'
 import { apiGet, apiPost } from '../utils/apiClient'
 import { useViewState } from '../contexts/ViewStateContext'
 import { expectedValue } from '../utils/ocExpectedValue'
@@ -39,6 +39,7 @@ import { scopeVerdict } from '../utils/ocScope'
 import { makeCategoryResolver } from '../utils/ocPlanner'
 import { config } from '../config'
 import CrimePickerModal from '../components/oc/CrimePickerModal'
+import CrimeRankingTable from '../components/oc/CrimeRankingTable'
 import {
   selectedScenarios, staleSelections, selectionScopeCost, toggleSelection,
 } from '../utils/ocCrimeSelection'
@@ -53,6 +54,7 @@ export default function OCSimulatorView() {
   const [scenarios, setScenarios] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [rankingOpen, setRankingOpen] = useState(false)
 
   // Persisted: re-picking six crimes on every visit would kill the workflow
   // this screen exists to enable.
@@ -116,10 +118,19 @@ export default function OCSimulatorView() {
               nightly mirror of the community probability model, not from Torn.
             </p>
           </div>
-          <button onClick={() => setPickerOpen(true)} className="btn-primary flex items-center gap-1.5 text-sm">
-            <ListPlus className="w-4 h-4" />
-            {chosen.length > 0 ? `${chosen.length} crime${chosen.length === 1 ? '' : 's'}` : 'Choose crimes'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setRankingOpen((v) => !v)}
+              className="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-slate-600 flex items-center gap-1.5"
+            >
+              <Trophy className="w-4 h-4" />
+              {rankingOpen ? 'Hide ranking' : 'Rank all crimes'}
+            </button>
+            <button onClick={() => setPickerOpen(true)} className="btn-primary flex items-center gap-1.5 text-sm">
+              <ListPlus className="w-4 h-4" />
+              {chosen.length > 0 ? `${chosen.length} crime${chosen.length === 1 ? '' : 's'}` : 'Choose crimes'}
+            </button>
+          </div>
         </div>
 
         {chosen.length > 1 && totalScope != null && (
@@ -136,6 +147,8 @@ export default function OCSimulatorView() {
           </p>
         )}
       </div>
+
+      {rankingOpen && <CrimeRankingTable scenarios={scenarios} />}
 
       {chosen.length === 0 && (
         <div className="card text-sm text-gray-600 dark:text-gray-400">

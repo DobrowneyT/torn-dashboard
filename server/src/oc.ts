@@ -178,7 +178,81 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
            FROM oc_scenarios s
           ORDER BY s.name`
       )
-      return { scenarios: rows.rows }
+
+      // #448: what this crime's ITEM rewards have been worth, from our own
+      // completed runs, at today's market prices.
+      //
+      // ⚠️ The denominator is every successful run, not just the ones that
+      // dropped items. Averaging only over runs with item rows would overstate
+      // the reward of a crime that drops items occasionally — 3 drops worth
+      // $30M across 10 runs is $3M a run, not $10M.
+      //
+      // ⚠️ CURRENT market price, deliberately unlike Payout Management, which
+      // keeps the stored snapshot because a saved week is a record of what
+      // happened. This is a forecast, so it uses what the items are worth now.
+      const items = await deps.db.query(
+        `WITH runs AS (
+           SELECT crime_id, name FROM crimes WHERE status = 'Successful'
+         ), per_run AS (
+           SELECT r.name,
+                  r.crime_id,
+                  COALESCE(SUM(COALESCE(i.market_price, ri.unit_value, 0) * ri.quantity), 0) AS value_now,
+                  COUNT(*) FILTER (WHERE ri.item_id IS NOT NULL AND i.market_price IS NULL) AS unpriced
+             FROM runs r
+             LEFT JOIN crime_reward_items ri ON ri.crime_id = r.crime_id
+             LEFT JOIN items i ON i.id::text = ri.item_id
+            GROUP BY r.name, r.crime_id
+         )
+         SELECT name,
+                COUNT(*)::int          AS runs,
+                AVG(value_now)::bigint AS avg_item_value,
+                SUM(unpriced)::int     AS unpriced_item_rows
+           FROM per_run GROUP BY name`
+      )
+      const itemsByName = new Map(items.rows.map((r) => [r.name, r]))
+
+      // How often we actually spawn each crime. Measured, not modelled.
+      //
+      // ⚠️ Partly a record of past DECISIONS, not just capacity: a crime we
+      // rarely ran because someone judged it not worth it will measure as rare
+      // and, if ranked on, stay rare. The run count travels with the rate so a
+      // thin sample can be shown as uncertain rather than treated as fact.
+      const spawns = await deps.db.query(
+        `SELECT name,
+                COUNT(*)::int AS runs,
+                MIN(created_at)::bigint AS first_at,
+                MAX(created_at)::bigint AS last_at
+           FROM crimes
+          WHERE created_at IS NOT NULL
+          GROUP BY name`
+      )
+      const spawnsByName = new Map(spawns.rows.map((r) => [r.name, r]))
+
+      return {
+        scenarios: rows.rows.map((s) => {
+          const item = itemsByName.get(s.name)
+          const spawn = spawnsByName.get(s.name)
+          return {
+            ...s,
+            // null, not 0, for a crime we have never completed — "we have no
+            // history" must not read as "it drops nothing".
+            item_reward: item
+              ? {
+                  avg_value: Number(item.avg_item_value ?? 0),
+                  runs: item.runs,
+                  unpriced_rows: item.unpriced_item_rows ?? 0,
+                }
+              : null,
+            spawn_history: spawn
+              ? {
+                  runs: spawn.runs,
+                  first_at: spawn.first_at === null ? null : Number(spawn.first_at),
+                  last_at: spawn.last_at === null ? null : Number(spawn.last_at),
+                }
+              : null,
+          }
+        }),
+      }
     }
   )
 
@@ -264,6 +338,80 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
         conflicts: matched.conflicts,
         roster_size: currentMembers.rows[0]?.n ?? 0,
       }
+    }
+  )
+
+  // Success chance for EVERY mirrored crime at one CPR (#444).
+  //
+  // The ranking screen needs a comparable success figure per crime, which means
+  // one CalculateSuccess per crime — ~31 calls to a small third-party server.
+  // Cached in memory keyed by (scenario, cpr): the mirror is static between
+  // nightly runs, so the same CPR asked twice costs nothing.
+  //
+  // ⚠️ A FLAT CPR across every role is an assumption, not a measurement. It
+  // ranks crimes by a crew that does not exist, and the client must state the
+  // number it asked for. It is still the right default for comparison —
+  // ranking each crime by a different crew would compare nothing.
+  const successCache = new Map<string, number>()
+
+  app.get(
+    '/api/oc-simulator/ranking',
+    { preHandler: requireRole(...SIM_ROLES) },
+    async (req, reply) => {
+      const q = req.query as { cpr?: string }
+      const cpr = Number(q.cpr)
+      if (!Number.isFinite(cpr) || cpr < 0 || cpr > 100) {
+        return reply.status(400).send({ error: 'cpr must be a number between 0 and 100' })
+      }
+
+      const scenarios = await deps.db.query(
+        `SELECT s.name, s.parameter_count,
+                (SELECT count(*)::int FROM oc_scenario_roles r WHERE r.scenario_name = s.name) AS role_count
+           FROM oc_scenarios s ORDER BY s.name`
+      )
+
+      const client = createProbabilityClient()
+      const out: Array<Record<string, unknown>> = []
+
+      for (const s of scenarios.rows) {
+        // A crime whose mirrored roles disagree with its parameter count cannot
+        // be given a defensible vector. Reported as unrankable rather than
+        // ranked on a guess.
+        if (s.role_count !== s.parameter_count) {
+          out.push({ name: s.name, success: null, error: 'role count does not match the crime' })
+          continue
+        }
+
+        const key = `${s.name}|${cpr}`
+        const cached = successCache.get(key)
+        if (cached !== undefined) {
+          out.push({ name: s.name, success: cached, cached: true })
+          continue
+        }
+
+        try {
+          const res = await client.calculateSuccess(
+            s.name,
+            Array.from({ length: s.parameter_count }, () => cpr)
+          )
+          const success = Number(res.successChance)
+          if (Number.isFinite(success)) {
+            // Bounded so a long-lived process cannot grow this without limit.
+            if (successCache.size > 2000) successCache.clear()
+            successCache.set(key, success)
+          }
+          out.push({ name: s.name, success: Number.isFinite(success) ? success : null })
+        } catch (e) {
+          // One unreachable crime must not cost the whole table.
+          out.push({
+            name: s.name,
+            success: null,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        }
+      }
+
+      return { cpr, crimes: out }
     }
   )
 

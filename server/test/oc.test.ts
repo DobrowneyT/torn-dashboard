@@ -350,3 +350,135 @@ describe('GET /api/oc-simulator/roster-cpr/:scenario', () => {
     expect(res.status).toBe(403)
   })
 })
+
+// #448 — item rewards, valued from our own completed runs.
+describe('item reward value on the scenarios payload', () => {
+  let simToken2: string
+
+  beforeAll(async () => {
+    const login = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'SIMMANAGERKEY123' }),
+    })
+    simToken2 = ((await login.json()) as any).token
+
+    await stack.db.query(`
+      INSERT INTO items (id, name, market_price) VALUES (500, 'Fancy Car', 40000000)
+      ON CONFLICT (id) DO UPDATE SET market_price = EXCLUDED.market_price
+    `)
+    // Four successful runs of Lock Stock; only two dropped items.
+    await stack.db.query(`
+      INSERT INTO crimes (crime_id, name, difficulty, status, created_at, executed_at) VALUES
+        ('lk1', 'Lock Stock', 5, 'Successful', 1700000000, 1700100000),
+        ('lk2', 'Lock Stock', 5, 'Successful', 1700200000, 1700300000),
+        ('lk3', 'Lock Stock', 5, 'Successful', 1700400000, 1700500000),
+        ('lk4', 'Lock Stock', 5, 'Successful', 1700600000, 1700700000)
+    `)
+    await stack.db.query(`
+      INSERT INTO crime_reward_items (crime_id, item_id, item_name, quantity, unit_value, total_value) VALUES
+        ('lk1', '500', 'Fancy Car', 1, 1000, 1000),
+        ('lk2', '500', 'Fancy Car', 1, 1000, 1000)
+    `)
+    // A mirrored crime we have never completed, for the "no history" case.
+    await stack.db.query(
+      `INSERT INTO oc_scenarios (name, parameter_count, is_complete, diagram_valid)
+       VALUES ('Honey Trap', 3, true, true) ON CONFLICT DO NOTHING`
+    )
+  })
+
+  const get2 = async (path: string) => {
+    const res = await fetch(`${stack.baseUrl}${path}`, { headers: { authorization: `Bearer ${simToken2}` } })
+    return { status: res.status, body: (await res.json()) as any }
+  }
+
+  it('averages over EVERY successful run, not only the ones that dropped items', async () => {
+    // ⚠️ 2 drops worth $40M each across 4 runs is $20M a run, not $40M.
+    // Averaging only over runs with item rows would double the reward of a
+    // crime that drops items occasionally.
+    const { body } = await get2('/api/oc-simulator/scenarios')
+    const lock = body.scenarios.find((s: any) => s.name === 'Lock Stock')
+    expect(lock.item_reward.runs).toBe(4)
+    expect(Number(lock.item_reward.avg_value)).toBe(20_000_000)
+  })
+
+  it('prices at CURRENT market, not the value stored at the time', async () => {
+    // Payout Management deliberately keeps the stored snapshot — a saved week
+    // is a record. This is a forecast, so it uses what the item is worth now:
+    // $40,000,000 today against unit_value 1000 stored on the row.
+    const { body } = await get2('/api/oc-simulator/scenarios')
+    const lock = body.scenarios.find((s: any) => s.name === 'Lock Stock')
+    expect(Number(lock.item_reward.avg_value)).toBeGreaterThan(1_000_000)
+  })
+
+  it('reports null, not zero, for a crime we have never completed', async () => {
+    // ⚠️ "No history" must not read as "drops nothing" — that would rank the
+    // crime we know least about as the worst.
+    const { body } = await get2('/api/oc-simulator/scenarios')
+    const never = body.scenarios.find((s: any) => s.name === 'Honey Trap')
+    expect(never.item_reward).toBeNull()
+    expect(never.spawn_history).toBeNull()
+  })
+
+  it('distinguishes "ran it, dropped nothing" from "never ran it"', async () => {
+    // ⚠️ Break the Bank has one successful run that dropped no items, so an
+    // average of 0 is a real — if thin — measurement. Honey Trap has no runs at
+    // all. Both would render as "0" without the run count travelling alongside.
+    const { body } = await get2('/api/oc-simulator/scenarios')
+    const observed = body.scenarios.find((s: any) => s.name === 'Break the Bank')
+    expect(observed.item_reward).not.toBeNull()
+    expect(Number(observed.item_reward.avg_value)).toBe(0)
+    expect(observed.item_reward.runs).toBe(1)
+  })
+
+  it('carries spawn history so a rate can be measured rather than modelled', async () => {
+    const { body } = await get2('/api/oc-simulator/scenarios')
+    const lock = body.scenarios.find((s: any) => s.name === 'Lock Stock')
+    expect(lock.spawn_history.runs).toBe(4)
+    expect(lock.spawn_history.first_at).toBe(1700000000)
+  })
+})
+
+// #444 — success chance for every crime at one CPR.
+describe('GET /api/oc-simulator/ranking', () => {
+  let rankToken: string
+
+  beforeAll(async () => {
+    const login = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'SIMMANAGERKEY123' }),
+    })
+    rankToken = ((await login.json()) as any).token
+  })
+
+  const rank = async (qs: string) => {
+    const res = await fetch(`${stack.baseUrl}/api/oc-simulator/ranking${qs}`, {
+      headers: { authorization: `Bearer ${rankToken}` },
+    })
+    return { status: res.status, body: (await res.json()) as any }
+  }
+
+  it('rejects a CPR outside 0–100 or missing', async () => {
+    expect((await rank('?cpr=101')).status).toBe(400)
+    expect((await rank('?cpr=-1')).status).toBe(400)
+    expect((await rank('')).status).toBe(400)
+  })
+
+  it('is gated like the rest of the simulator', async () => {
+    const res = await fetch(`${stack.baseUrl}/api/oc-simulator/ranking?cpr=75`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it('marks a crime whose role count disagrees as unrankable, not ranked on a guess', async () => {
+    // ⚠️ 'Lock Stock' is mirrored with parameter_count 5 but has no roles, so
+    // no defensible CPR vector exists. It must be reported, not given a number.
+    const { status, body } = await rank('?cpr=75')
+    expect(status).toBe(200)
+    const lock = body.crimes.find((c: any) => c.name === 'Lock Stock')
+    expect(lock.success).toBeNull()
+    expect(lock.error).toMatch(/role count/)
+  })
+})
