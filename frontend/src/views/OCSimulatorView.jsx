@@ -1,26 +1,34 @@
 /**
- * OC Simulator (#390) — success chance, per-ending probabilities and E(x) for a
- * proposed crew, before the crime is spawned.
+ * OC Simulator (#390, #445) — model a crew before spawning, several crimes at
+ * a time.
  *
  * Gated to OC managers, leadership and admin (MonChoon), matching the Planner.
  *
- * Two things this page is careful about, both of which come down to the same
- * thing — an OC manager schedules real crimes off these numbers:
+ * Things this page is careful about, all of which come down to the same thing —
+ * an OC manager schedules real crimes off these numbers:
  *
  *   1. E(x) is a LOWER BOUND until every good ending is priced. Payouts come
  *      from the mirrored feed (#440), joined to endings through the #390
  *      mapping, so a crime is under-priced when an ending could not be mapped
- *      or has no observations — not because nobody typed it in. A partial sum
- *      shown as "the" expected value understates exactly the crimes whose best
- *      ending happens to be unpriced.
+ *      or has no observations. A partial sum shown as "the" expected value
+ *      understates exactly the crimes whose best ending is unpriced.
  *
- *   2. Four of the 31 upstream models are still in progress, and they answer
- *      with numbers that look exactly as authoritative as the finished ones.
- *      That status is stated on the page, not buried.
+ *   2. Four of the 31 upstream models are still in progress and answer with
+ *      numbers that look exactly as authoritative as the finished ones.
+ *
+ *   3. Headcount is what CAN fill a role, not what is free to (#442).
+ *
+ * ⚠️ Each crime is an independent card owning its own CPR vector, result and
+ * roster readings. That is not just tidiness: a role called "Muscle #1" in one
+ * crime is a DIFFERENT role from "Muscle #1" in another, with its own weights,
+ * checkpoints and per-member CPR (MonChoon, 2026-08-13). Sharing slider state
+ * across cards by role name would model something untrue. It also means moving
+ * one slider recalculates only that crime.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, FlaskConical, Info, LoaderCircle } from 'lucide-react'
+import { AlertTriangle, FlaskConical, Info, LoaderCircle, ListPlus, X } from 'lucide-react'
 import { apiGet, apiPost } from '../utils/apiClient'
+import { useViewState } from '../contexts/ViewStateContext'
 import { expectedValue } from '../utils/ocExpectedValue'
 import {
   payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
@@ -30,6 +38,10 @@ import { headcountAtCpr, maxSustainableCpr } from '../utils/ocRosterFit'
 import { scopeVerdict } from '../utils/ocScope'
 import { makeCategoryResolver } from '../utils/ocPlanner'
 import { config } from '../config'
+import CrimePickerModal from '../components/oc/CrimePickerModal'
+import {
+  selectedScenarios, staleSelections, selectionScopeCost, toggleSelection,
+} from '../utils/ocCrimeSelection'
 
 /** Where a fresh crew starts. Mid-range, so moving a slider shows movement. */
 const DEFAULT_CPR = 50
@@ -40,79 +52,33 @@ const CALC_DEBOUNCE_MS = 250
 export default function OCSimulatorView() {
   const [scenarios, setScenarios] = useState(null)
   const [loadError, setLoadError] = useState(null)
-  const [selected, setSelected] = useState(null)
-  const [cprs, setCprs] = useState([])
-  const [result, setResult] = useState(null)
-  const [calcError, setCalcError] = useState(null)
-  const [calculating, setCalculating] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+
+  // Persisted: re-picking six crimes on every visit would kill the workflow
+  // this screen exists to enable.
+  const [persisted, setPersisted] = useViewState('oc_simulator')
+  const selected = persisted?.selectedCrimes ?? null
 
   useEffect(() => {
     apiGet('/api/oc-simulator/scenarios')
-      .then((res) => {
-        setScenarios(res.scenarios ?? [])
-        if ((res.scenarios ?? []).length > 0) setSelected(res.scenarios[0].name)
-      })
+      .then((res) => setScenarios(res.scenarios ?? []))
       .catch((e) => setLoadError(e?.message || 'Could not load scenarios'))
   }, [])
 
-  const scenario = useMemo(
-    () => (scenarios ?? []).find((s) => s.name === selected) ?? null,
-    [scenarios, selected]
-  )
+  const setSelected = useCallback((next) => {
+    setPersisted({ ...(persisted ?? {}), selectedCrimes: next })
+  }, [persisted, setPersisted])
 
-  // Reset the crew whenever the crime changes — a six-role vector left over
-  // from the last crime would be rejected by the server, and silently reusing
-  // the first N values would model a crew nobody picked.
+  // First visit: show the first crime rather than an empty page, so the screen
+  // explains itself without a trip through the picker.
   useEffect(() => {
-    if (!scenario) return
-    setCprs(Array.from({ length: scenario.parameter_count }, () => DEFAULT_CPR))
-    setResult(null)
-    setCalcError(null)
-  }, [scenario?.name, scenario?.parameter_count])
+    if (selected !== null || !scenarios || scenarios.length === 0) return
+    setSelected([scenarios[0].name])
+  }, [scenarios, selected, setSelected])
 
-  // #442: who on the roster can fill each role. Fetched per crime and held
-  // client-side so moving a slider costs nothing.
-  const [rosterCpr, setRosterCpr] = useState(null)
-  useEffect(() => {
-    if (!scenario?.name) return
-    let cancelled = false
-    setRosterCpr(null)
-    apiGet(`/api/oc-simulator/roster-cpr/${encodeURIComponent(scenario.name)}`)
-      .then((res) => { if (!cancelled) setRosterCpr(res) })
-      .catch(() => { if (!cancelled) setRosterCpr(null) })
-    return () => { cancelled = true }
-  }, [scenario?.name])
-
-  const timerRef = useRef(null)
-  const seqRef = useRef(0)
-
-  const calculate = useCallback((name, parameters) => {
-    const seq = ++seqRef.current
-    setCalculating(true)
-    apiPost('/api/oc-simulator/calculate', { scenario: name, parameters })
-      .then((res) => {
-        // Ignore a response that has been overtaken — sliders fire fast, and
-        // out-of-order replies would show numbers for a crew no longer on screen.
-        if (seq !== seqRef.current) return
-        setResult(res.result)
-        setCalcError(null)
-      })
-      .catch((e) => {
-        if (seq !== seqRef.current) return
-        // No stale result left on screen next to a fresh crew: a success chance
-        // is a number someone acts on.
-        setResult(null)
-        setCalcError(e?.message || 'The probability service could not be reached')
-      })
-      .finally(() => { if (seq === seqRef.current) setCalculating(false) })
-  }, [])
-
-  useEffect(() => {
-    if (!scenario || cprs.length !== scenario.parameter_count) return
-    clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => calculate(scenario.name, cprs), CALC_DEBOUNCE_MS)
-    return () => clearTimeout(timerRef.current)
-  }, [scenario, cprs, calculate])
+  const chosen = useMemo(() => selectedScenarios(scenarios, selected), [scenarios, selected])
+  const stale = useMemo(() => staleSelections(scenarios, selected), [scenarios, selected])
+  const totalScope = useMemo(() => selectionScopeCost(scenarios, selected), [scenarios, selected])
 
   if (loadError) {
     return <div className="card text-sm text-red-600 dark:text-red-400">{loadError}</div>
@@ -139,40 +105,160 @@ export default function OCSimulatorView() {
   return (
     <div className="space-y-6">
       <div className="card">
-        <div className="flex items-center gap-2 mb-1">
-          <FlaskConical className="w-5 h-5 text-gray-400" />
-          <h2 className="text-lg font-semibold">OC Simulator</h2>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <FlaskConical className="w-5 h-5 text-gray-400" />
+              <h2 className="text-lg font-semibold">OC Simulator</h2>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Set each role&apos;s CPR to model a crew before spawning. Numbers come from our
+              nightly mirror of the community probability model, not from Torn.
+            </p>
+          </div>
+          <button onClick={() => setPickerOpen(true)} className="btn-primary flex items-center gap-1.5 text-sm">
+            <ListPlus className="w-4 h-4" />
+            {chosen.length > 0 ? `${chosen.length} crime${chosen.length === 1 ? '' : 's'}` : 'Choose crimes'}
+          </button>
         </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Set each role&apos;s CPR to model a crew before spawning the crime. Numbers come from our
-          nightly mirror of the community probability model, not from Torn.
-        </p>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <select
-            value={selected ?? ''}
-            onChange={(e) => setSelected(e.target.value)}
-            className="input max-w-xs"
+        {chosen.length > 1 && totalScope != null && (
+          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            Spawning one of each would cost <span className="font-medium">{totalScope} scope</span>.
+          </p>
+        )}
+
+        {/* A persisted selection can outlive a crime being renamed upstream.
+            Say what went missing rather than silently showing fewer cards. */}
+        {stale.length > 0 && (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+            No longer in the mirror, so not shown: {stale.join(', ')}.
+          </p>
+        )}
+      </div>
+
+      {chosen.length === 0 && (
+        <div className="card text-sm text-gray-600 dark:text-gray-400">
+          Nothing selected. Use <span className="font-medium">Choose crimes</span> to pick which to
+          compare — they appear in the order you tick them.
+        </div>
+      )}
+
+      {chosen.map((scenario) => (
+        <CrimeCard
+          key={scenario.name}
+          scenario={scenario}
+          onRemove={() => setSelected(toggleSelection(selected, scenario.name))}
+        />
+      ))}
+
+      {pickerOpen && (
+        <CrimePickerModal
+          scenarios={scenarios}
+          selected={selected ?? []}
+          onApply={setSelected}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * One crime, fully self-contained: its own crew, its own result, its own
+ * roster readings, its own debounce.
+ *
+ * Independent state per card is what makes moving a slider recalculate only
+ * that crime — six crimes on screen must not mean six requests per adjustment
+ * against a small third-party server.
+ */
+function CrimeCard({ scenario, onRemove }) {
+  const [cprs, setCprs] = useState(
+    () => Array.from({ length: scenario.parameter_count }, () => DEFAULT_CPR)
+  )
+  const [result, setResult] = useState(null)
+  const [calcError, setCalcError] = useState(null)
+  const [calculating, setCalculating] = useState(false)
+  const [rosterCpr, setRosterCpr] = useState(null)
+
+  // Re-seed if the mirror changes a crime's role count under us.
+  useEffect(() => {
+    setCprs((prev) => (prev.length === scenario.parameter_count
+      ? prev
+      : Array.from({ length: scenario.parameter_count }, () => DEFAULT_CPR)))
+  }, [scenario.parameter_count])
+
+  useEffect(() => {
+    let cancelled = false
+    setRosterCpr(null)
+    apiGet(`/api/oc-simulator/roster-cpr/${encodeURIComponent(scenario.name)}`)
+      .then((res) => { if (!cancelled) setRosterCpr(res) })
+      .catch(() => { if (!cancelled) setRosterCpr(null) })
+    return () => { cancelled = true }
+  }, [scenario.name])
+
+  const timerRef = useRef(null)
+  const seqRef = useRef(0)
+
+  const calculate = useCallback((name, parameters) => {
+    const seq = ++seqRef.current
+    setCalculating(true)
+    apiPost('/api/oc-simulator/calculate', { scenario: name, parameters })
+      .then((res) => {
+        // Ignore a response overtaken by a newer one — sliders fire fast, and
+        // out-of-order replies would show numbers for a crew no longer on screen.
+        if (seq !== seqRef.current) return
+        setResult(res.result)
+        setCalcError(null)
+      })
+      .catch((e) => {
+        if (seq !== seqRef.current) return
+        // No stale result left next to a fresh crew: a success chance is a
+        // number people act on.
+        setResult(null)
+        setCalcError(e?.message || 'The probability service could not be reached')
+      })
+      .finally(() => { if (seq === seqRef.current) setCalculating(false) })
+  }, [])
+
+  useEffect(() => {
+    if (cprs.length !== scenario.parameter_count) return
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => calculate(scenario.name, cprs), CALC_DEBOUNCE_MS)
+    return () => clearTimeout(timerRef.current)
+  }, [scenario.name, scenario.parameter_count, cprs, calculate])
+
+  return (
+    <div className="card">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="font-semibold">{scenario.name}</h3>
+          <ModelQuality scenario={scenario} />
+        </div>
+        <div className="flex items-center gap-3">
+          {result && (
+            <span className="text-sm tabular-nums">
+              <span className="text-gray-500 dark:text-gray-400">success </span>
+              <span className="font-semibold text-green-600 dark:text-green-400">
+                {(result.successChance * 100).toFixed(2)}%
+              </span>
+            </span>
+          )}
+          <button
+            onClick={onRemove}
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400"
+            aria-label={`Remove ${scenario.name}`}
+            title="Remove from comparison"
           >
-            {scenarios.map((s) => (
-              <option key={s.name} value={s.name}>{s.name}</option>
-            ))}
-          </select>
-          {scenario && <ModelQuality scenario={scenario} />}
+            <X className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      {scenario && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <CrewPanel scenario={scenario} cprs={cprs} onChange={setCprs} rosterCpr={rosterCpr} />
-          <ResultPanel
-            scenario={scenario}
-            result={result}
-            calculating={calculating}
-            error={calcError}
-          />
-        </div>
-      )}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <CrewPanel scenario={scenario} cprs={cprs} onChange={setCprs} rosterCpr={rosterCpr} />
+        <ResultPanel scenario={scenario} result={result} calculating={calculating} error={calcError} />
+      </div>
     </div>
   )
 }
