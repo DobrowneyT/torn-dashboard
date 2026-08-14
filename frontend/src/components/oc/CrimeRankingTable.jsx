@@ -145,8 +145,16 @@ export default function CrimeRankingTable({ scenarios }) {
                   {r.name}
                   {r.paysInItems && (
                     <span className="ml-1.5 text-[10px] text-blue-600 dark:text-blue-400"
-                      title="Pays in items rather than cash — valued from our own completed runs">
+                      title="Pays in items rather than cash — valued from our own completed runs at current prices">
                       items
+                    </span>
+                  )}
+                  {/* ⚠️ An item we cannot price contributes nothing, so this
+                      crime's value is an understatement, not an estimate. */}
+                  {r.unpricedItemRows > 0 && (
+                    <span className="ml-1.5 text-[10px] text-amber-600 dark:text-amber-400"
+                      title={`${r.unpricedItemRows} item drop(s) have no market or sell price, so they count as zero — this crime is worth more than shown`}>
+                      under
                     </span>
                   )}
                 </td>

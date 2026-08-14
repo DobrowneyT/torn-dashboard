@@ -180,3 +180,26 @@ describe('sortRanking', () => {
     expect(rows).toEqual(original)
   })
 })
+
+describe('unpriced item drops', () => {
+  it('⚠️ surfaces drops with no price at all, so the row reads as understated', () => {
+    // An item in neither market nor sell price contributes zero. That makes the
+    // crime's value an UNDERSTATEMENT, not an estimate, and the table has to be
+    // able to say so — otherwise it silently ranks the crime too low.
+    const row = rankCrime(
+      btb({ item_reward: { avg_value: 5_000_000, runs: 8, unpriced_rows: 3 } }),
+      0.95,
+      { now: NOW }
+    )
+    expect(row.unpricedItemRows).toBe(3)
+  })
+
+  it('is 0 for a crime whose drops are all priced', () => {
+    const row = rankCrime(
+      btb({ item_reward: { avg_value: 5_000_000, runs: 8, unpriced_rows: 0 } }),
+      0.95,
+      { now: NOW }
+    )
+    expect(row.unpricedItemRows).toBe(0)
+  })
+})

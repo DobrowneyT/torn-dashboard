@@ -364,8 +364,16 @@ describe('item reward value on the scenarios payload', () => {
     simToken2 = ((await login.json()) as any).token
 
     await stack.db.query(`
-      INSERT INTO items (id, name, market_price) VALUES (500, 'Fancy Car', 40000000)
-      ON CONFLICT (id) DO UPDATE SET market_price = EXCLUDED.market_price
+      INSERT INTO items (id, name, market_price, sell_price) VALUES
+        (500, 'Fancy Car', 40000000, 1000000),
+        -- ⚠️ An illiquid item: never trades, so market_price is 0 while
+        -- sell_price carries its real worth. Pricing on market alone would
+        -- value this at nothing.
+        (501, 'Priceless Painting', 0, 70000000),
+        -- Absent from the catalogue entirely: unpriceable, and counted.
+        (502, 'Mystery Thing', 0, 0)
+      ON CONFLICT (id) DO UPDATE SET
+        market_price = EXCLUDED.market_price, sell_price = EXCLUDED.sell_price
     `)
     // Four successful runs of Lock Stock; only two dropped items.
     await stack.db.query(`
@@ -400,6 +408,53 @@ describe('item reward value on the scenarios payload', () => {
     const lock = body.scenarios.find((s: any) => s.name === 'Lock Stock')
     expect(lock.item_reward.runs).toBe(4)
     expect(Number(lock.item_reward.avg_value)).toBe(20_000_000)
+  })
+
+  it('⚠️ prices an illiquid item on sell_price when market_price is 0', async () => {
+    // A Priceless Painting rarely trades, so market_price is 0 while
+    // sell_price holds its real worth. Pricing on market alone would value the
+    // rarest, most expensive drops at nothing — the opposite of the error worth
+    // risking. Payout Management has used max(sell, market) for exactly this.
+    await stack.db.query(`
+      INSERT INTO crimes (crime_id, name, difficulty, status, created_at) VALUES
+        ('pp1', 'Painting Job', 6, 'Successful', 1700000000)
+      ON CONFLICT DO NOTHING
+    `)
+    await stack.db.query(`
+      INSERT INTO crime_reward_items (crime_id, item_id, item_name, quantity, unit_value, total_value)
+      VALUES ('pp1', '501', 'Priceless Painting', 1, 5, 5)
+    `)
+    await stack.db.query(
+      `INSERT INTO oc_scenarios (name, parameter_count, diagram_valid)
+       VALUES ('Painting Job', 3, true) ON CONFLICT DO NOTHING`
+    )
+    const { body } = await get2('/api/oc-simulator/scenarios')
+    const job = body.scenarios.find((s: any) => s.name === 'Painting Job')
+    expect(Number(job.item_reward.avg_value)).toBe(70_000_000)
+  })
+
+  it('counts an item it cannot price at all, rather than using a stale value', async () => {
+    // ⚠️ The row carries a unit_value stored when the crime ran. Falling back
+    // to it would present a stale number as a current one, which is the whole
+    // thing this feature exists to avoid. It contributes 0 and is counted so
+    // the UI can say the estimate is short.
+    await stack.db.query(`
+      INSERT INTO crimes (crime_id, name, difficulty, status, created_at) VALUES
+        ('my1', 'Mystery Job', 6, 'Successful', 1700000000)
+      ON CONFLICT DO NOTHING
+    `)
+    await stack.db.query(`
+      INSERT INTO crime_reward_items (crime_id, item_id, item_name, quantity, unit_value, total_value)
+      VALUES ('my1', '502', 'Mystery Thing', 1, 999999, 999999)
+    `)
+    await stack.db.query(
+      `INSERT INTO oc_scenarios (name, parameter_count, diagram_valid)
+       VALUES ('Mystery Job', 3, true) ON CONFLICT DO NOTHING`
+    )
+    const { body } = await get2('/api/oc-simulator/scenarios')
+    const job = body.scenarios.find((s: any) => s.name === 'Mystery Job')
+    expect(Number(job.item_reward.avg_value)).toBe(0)
+    expect(job.item_reward.unpriced_rows).toBe(1)
   })
 
   it('prices at CURRENT market, not the value stored at the time', async () => {

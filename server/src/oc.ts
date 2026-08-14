@@ -187,17 +187,36 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       // the reward of a crime that drops items occasionally — 3 drops worth
       // $30M across 10 runs is $3M a run, not $10M.
       //
-      // ⚠️ CURRENT market price, deliberately unlike Payout Management, which
-      // keeps the stored snapshot because a saved week is a record of what
-      // happened. This is a forecast, so it uses what the items are worth now.
+      // ⚠️ CURRENT price, deliberately unlike Payout Management, which keeps the
+      // stored snapshot because a saved week is a record of what happened. This
+      // is a forecast, so it uses what the items are worth now — and MonChoon
+      // wants re-running the simulation to pick up price movement.
+      //
+      // ⚠️ GREATEST(market_price, sell_price), not market_price alone. Some
+      // illiquid items carry market_price = 0 because they rarely trade, while
+      // sell_price is always defined — `enrichItemBreakdown` in the payout path
+      // has handled this for a long time and the comment there says so. Pricing
+      // on market alone would value exactly the rare, expensive drops at zero,
+      // which is the opposite of the error worth risking.
+      //
+      // An item in neither state (absent from the catalogue) contributes
+      // nothing and is COUNTED, rather than silently falling back to the stale
+      // unit_value stored on the row at the time — a stale number presented as
+      // a current one is the thing this whole feature is trying to avoid.
       const items = await deps.db.query(
         `WITH runs AS (
            SELECT crime_id, name FROM crimes WHERE status = 'Successful'
          ), per_run AS (
            SELECT r.name,
                   r.crime_id,
-                  COALESCE(SUM(COALESCE(i.market_price, ri.unit_value, 0) * ri.quantity), 0) AS value_now,
-                  COUNT(*) FILTER (WHERE ri.item_id IS NOT NULL AND i.market_price IS NULL) AS unpriced
+                  COALESCE(SUM(
+                    GREATEST(COALESCE(i.market_price, 0), COALESCE(i.sell_price, 0)) * ri.quantity
+                  ), 0) AS value_now,
+                  COUNT(*) FILTER (
+                    WHERE ri.item_id IS NOT NULL
+                      AND COALESCE(i.market_price, 0) = 0
+                      AND COALESCE(i.sell_price, 0) = 0
+                  ) AS unpriced
              FROM runs r
              LEFT JOIN crime_reward_items ri ON ri.crime_id = r.crime_id
              LEFT JOIN items i ON i.id::text = ri.item_id
