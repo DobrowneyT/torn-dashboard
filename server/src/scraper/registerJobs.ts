@@ -47,7 +47,11 @@ export interface ScraperWiringOptions {
 // demand from the war pages); war lifecycle every 3 minutes (the old
 // pg_cron cadence): auto-setup, T-1h enable, war-end disable.
 const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => Promise<{ rows: number; details?: Record<string, unknown> }>]> = [
-  ['items-sync', '0 15 4 * * *', itemsSyncJob],
+  // Every 6 hours (#448). Was once daily at 04:15 — bumped because the OC
+  // Simulator now values item rewards at CURRENT prices, and MonChoon wants
+  // re-running a simulation to pick up price movement. The whole catalogue is
+  // one API call, so 4/day costs nothing worth counting.
+  ['items-sync', '0 15 */6 * * *', itemsSyncJob],
   // Faction armory snapshot hourly (top of the hour) — keeps loaned-item
   // tracking and payout valuations fresh; the manual Leadership "Sync" button
   // still works and writes the same sync_metadata row.

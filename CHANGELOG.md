@@ -17,6 +17,53 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.35.0] - 2026-08-13
+
+### Added
+- **Per-role sensitivity in the OC Simulator** (#441). A *What matters?* button
+  measures, for every role, how much it moves **success** and how much it moves
+  **payout** — and labels each role accordingly:
+  - **Gate** — drives success. Failing it ends the crime.
+  - **Router** — drives payout. Barely changes whether you succeed, but decides
+    which ending you reach, worth ~$159M a step on Break the Bank.
+  - **Barely matters** — measured, and genuinely small. Put your weakest member
+    here.
+  - ⚠️ **Kept as two numbers, never one score.** MonChoon: *"Sometimes they
+    affect the payouts more than success, so its important to see these
+    distinction."* A combined "impact" figure averages a router's huge payout
+    effect together with its negligible success effect and makes it look
+    unimportant — which is exactly the role that would then be under-trained.
+  - ⚠️ **"Barely matters" and "not measured" are different labels.** Both would
+    otherwise invite putting your weakest member there; only one justifies it.
+  - ⚠️ A value delta is **refused** when the probe shifts probability onto
+    endings we cannot price. Otherwise a role that moves mass somewhere
+    invisible looks like it destroys value.
+  - Measured **on demand**, not per slider tick — it costs one extra request per
+    role, and a six-role crime would otherwise fire seven requests per
+    adjustment at a small third-party server. Probes step downward near the
+    ceiling so they stay inside 0–100.
+
+## [3.34.1] - 2026-08-13
+
+### Fixed
+- ⚠️ **Illiquid item drops were valued at zero** (#448). Item rewards priced on
+  `market_price` alone, but some items rarely trade and carry `market_price = 0`
+  while `sell_price` holds their real worth — a Priceless Painting is the
+  obvious case. That valued exactly the rarest, most expensive drops at nothing.
+  Now uses `GREATEST(market_price, sell_price)`, matching what
+  `enrichItemBreakdown` has done in the payout path for a long time.
+- An item in **neither** price list contributes zero and is **counted**, rather
+  than falling back to the `unit_value` stored on the row when the crime ran. A
+  stale number presented as a current one is what this feature exists to avoid.
+  Affected crimes are marked `under` in the ranking table: their value is an
+  understatement, not an estimate.
+
+### Changed
+- **`items-sync` now runs every 6 hours** instead of once daily at 04:15. The
+  simulator prices item rewards at current market, so re-running a simulation
+  should pick up price movement. The whole catalogue is one API call, so four a
+  day costs nothing worth counting.
+
 ## [3.34.0] - 2026-08-13
 
 ### Added
