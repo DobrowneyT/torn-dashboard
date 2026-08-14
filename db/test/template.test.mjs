@@ -68,6 +68,9 @@ const NEW_TABLES = [
   // table rather than columns on war_room_state_v2: that separation is what
   // lets the hub withhold it from non-lead sockets.
   'war_room_member_stats_v2',
+  // Faction calendar (#395): typed-in entries (incl. Torn's own events, which
+  // have no API) and real birthdays (which Torn does not hold at all).
+  'calendar_events', 'member_birthdays',
 ]
 
 let server

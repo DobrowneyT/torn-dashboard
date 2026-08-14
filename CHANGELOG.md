@@ -17,6 +17,41 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.36.0] - 2026-08-13
+
+### Added
+- **Faction calendar** (#395), as a new **Members → Calendar** tab plus an
+  **Upcoming** card on the dashboard.
+  - **Useful before anyone types anything.** Five of the seven sources are
+    derived from tables we already fill: ranked wars, competitions, OC payout
+    weeks, and OCs about to expire (#392 was a lapsed OC quietly costing people
+    payout time — a date on a calendar is the cheap prevention).
+  - **Torn's own events** (folded in from #424) are entered by hand, because
+    there is no API for them: the entire v2 spec offers `/user/calendar` (the
+    caller's preferred start hour) and `/user/competition` (a competition
+    *already running*). Neither can say an event is coming. Entries can be
+    marked **repeating yearly**, so "Christmas Town, every December" survives a
+    year of nobody maintaining the list.
+  - **Birthdays, both kinds.** Torn account anniversaries are derived from the
+    profile blob we already snapshot daily — no new scraping, no new consent
+    surface. Real birthdays are opt-in and self-service: **day and month only**
+    by default, with the year a separate optional field, and *Remove* deletes
+    the row rather than hiding it.
+  - Everything renders in **TCT**, the grid included. A faction spans
+    timezones, and Torn only ever speaks TCT.
+  - **Aggregated entries carry no edit controls.** A war shown here is a view
+    onto `ranked_wars`; a delete button on it would either do nothing or delete
+    the war. Only typed-in rows are editable, by leadership.
+  - The dashboard card renders **nothing at all** when the next seven days are
+    empty — an empty card every day trains people to stop looking at it.
+
+### Fixed
+- **A ranked war with no recorded end no longer disappears from the calendar**
+  (#395). `COALESCE(end_at, start_at)` collapsed an *in-progress* war to a
+  point in time, so any window starting after the war began excluded it — the
+  one war anyone is actually looking for. A null end now means *still running*
+  on both sides of the wire, and the frontend clip had the identical bug.
+
 ## [3.35.0] - 2026-08-13
 
 ### Added
