@@ -5,7 +5,8 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireAuth, requireRole } from './authz.js'
 import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
-import { createProbabilityClient } from './oc/probabilityClient.js'
+import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js'
+import { matchRolesToPositions } from './oc/roleMatch.js'
 
 export interface OcDeps {
   db: pg.Pool
@@ -178,6 +179,91 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
           ORDER BY s.name`
       )
       return { scenarios: rows.rows }
+    }
+  )
+
+  // Who on our roster can actually fill each role (#442).
+  //
+  // The simulator models a hypothetical crew; this connects it to the people we
+  // have. Returns the CPR readings per role so the client can compute headcount
+  // at any threshold without a round trip per slider tick.
+  //
+  // ⚠️ Every reading is an UPPER BOUND on availability. A member with the CPR
+  // may already be in another crime — members cannot be in two OCs at once —
+  // and this endpoint does not know that. The client must label it accordingly
+  // until the occupancy half (#389 data) is wired in.
+  app.get(
+    '/api/oc-simulator/roster-cpr/:scenario',
+    { preHandler: requireRole(...SIM_ROLES) },
+    async (req, reply) => {
+      const { scenario } = req.params as { scenario: string }
+
+      const roles = await deps.db.query(
+        'SELECT position_id, role_name FROM oc_scenario_roles WHERE scenario_name = $1',
+        [scenario]
+      )
+      if (roles.rows.length === 0) {
+        return reply.status(404).send({ error: `no mirrored roles for ${scenario}` })
+      }
+
+      // Torn's own labels for this crime's positions, and its position ids.
+      const positions = await deps.db.query(
+        'SELECT position_label, position_id FROM oc_crime_positions WHERE crime_name = $1',
+        [scenario]
+      )
+
+      // Current members only — a leaver's CPR is not capacity we have.
+      const cpr = await deps.db.query(
+        // last_seen_at, not updated_at: the column records when the reading
+        // was last OBSERVED, which is exactly what staleness should measure.
+        `SELECT c.member_id, m.member_name, c.position_label, c.cpr_value,
+                c.last_seen_at AS updated_at, c.observation_count
+           FROM member_cpr_v2 c
+           JOIN members m ON m.member_id = c.member_id
+          WHERE c.crime_name = $1 AND m.is_current = true`,
+        [scenario]
+      )
+
+      const matched = matchRolesToPositions(roles.rows, positions.rows)
+
+      const byRole: Record<string, unknown[]> = {}
+      for (const role of roles.rows) byRole[role.position_id] = []
+      const readingsByLabel = new Map<string, typeof cpr.rows>()
+      for (const row of cpr.rows) {
+        const key = normaliseKey(row.position_label)
+        const list = readingsByLabel.get(key) ?? []
+        list.push(row)
+        readingsByLabel.set(key, list)
+      }
+
+      for (const m of matched.matches) {
+        const readings = readingsByLabel.get(normaliseKey(m.positionLabel)) ?? []
+        byRole[m.positionId] = readings
+          .map((r) => ({
+            member_id: r.member_id,
+            member_name: r.member_name,
+            cpr: Number(r.cpr_value),
+            updated_at: r.updated_at,
+            observations: r.observation_count,
+          }))
+          .sort((a, b) => b.cpr - a.cpr)
+      }
+
+      const currentMembers = await deps.db.query(
+        'SELECT count(*)::int AS n FROM members WHERE is_current = true'
+      )
+
+      return {
+        scenario,
+        readings: byRole,
+        // ⚠️ Roles we could NOT join to a Torn position are reported, not
+        // silently empty. An unmatched role would otherwise read as "nobody can
+        // fill this", which is a very different and much more alarming claim
+        // than "we could not look".
+        unmatched_roles: matched.unmatched,
+        conflicts: matched.conflicts,
+        roster_size: currentMembers.rows[0]?.n ?? 0,
+      }
     }
   )
 

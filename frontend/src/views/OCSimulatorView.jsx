@@ -26,6 +26,10 @@ import {
   payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
 } from '../utils/ocScenarioPayouts'
 import { formatCurrency } from '../utils/payoutCalculations'
+import { headcountAtCpr, maxSustainableCpr } from '../utils/ocRosterFit'
+import { scopeVerdict } from '../utils/ocScope'
+import { makeCategoryResolver } from '../utils/ocPlanner'
+import { config } from '../config'
 
 /** Where a fresh crew starts. Mid-range, so moving a slider shows movement. */
 const DEFAULT_CPR = 50
@@ -65,6 +69,19 @@ export default function OCSimulatorView() {
     setResult(null)
     setCalcError(null)
   }, [scenario?.name, scenario?.parameter_count])
+
+  // #442: who on the roster can fill each role. Fetched per crime and held
+  // client-side so moving a slider costs nothing.
+  const [rosterCpr, setRosterCpr] = useState(null)
+  useEffect(() => {
+    if (!scenario?.name) return
+    let cancelled = false
+    setRosterCpr(null)
+    apiGet(`/api/oc-simulator/roster-cpr/${encodeURIComponent(scenario.name)}`)
+      .then((res) => { if (!cancelled) setRosterCpr(res) })
+      .catch(() => { if (!cancelled) setRosterCpr(null) })
+    return () => { cancelled = true }
+  }, [scenario?.name])
 
   const timerRef = useRef(null)
   const seqRef = useRef(0)
@@ -147,7 +164,7 @@ export default function OCSimulatorView() {
 
       {scenario && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <CrewPanel scenario={scenario} cprs={cprs} onChange={setCprs} />
+          <CrewPanel scenario={scenario} cprs={cprs} onChange={setCprs} rosterCpr={rosterCpr} />
           <ResultPanel
             scenario={scenario}
             result={result}
@@ -205,7 +222,7 @@ function ModelQuality({ scenario }) {
   )
 }
 
-function CrewPanel({ scenario, cprs, onChange }) {
+function CrewPanel({ scenario, cprs, onChange, rosterCpr }) {
   const setAt = (i, value) => {
     const next = [...cprs]
     next[i] = value
@@ -256,6 +273,7 @@ function CrewPanel({ scenario, cprs, onChange }) {
               className="w-full accent-blue-600"
               aria-label={`${role.role_name} CPR`}
             />
+            <RoleHeadcount role={role} rosterCpr={rosterCpr} cpr={cprs[i] ?? 0} />
           </div>
         ))}
       </div>
@@ -265,6 +283,58 @@ function CrewPanel({ scenario, cprs, onChange }) {
           This crime takes {scenario.parameter_count} roles but only {scenario.roles.length} are
           mirrored, so it cannot be simulated until the next mirror run.
         </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * How many of our members clear this role's bar (#442).
+ *
+ * ⚠️ "Can fill", never "available". A member with the CPR may already be in
+ * another crime — members cannot be in two OCs at once — and this does not know
+ * that. It is an upper bound, and the wording has to keep saying so.
+ */
+function RoleHeadcount({ role, rosterCpr, cpr }) {
+  if (!rosterCpr) return null
+
+  // ⚠️ A role we could not join to a Torn position has no readings, which would
+  // otherwise render as "0 can fill" — a far more alarming claim than "we could
+  // not look", and one that would send someone hunting a training problem that
+  // does not exist.
+  if ((rosterCpr.unmatched_roles ?? []).includes(role.role_name)) {
+    return (
+      <div className="text-xs text-gray-400 mt-0.5">
+        No CPR readings tied to this role yet — headcount unavailable, not zero.
+      </div>
+    )
+  }
+  if ((rosterCpr.conflicts ?? []).some((c) => c.roleName === role.role_name)) {
+    return (
+      <div className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+        This role&apos;s name and slot disagree between sources, so its readings are not
+        trustworthy enough to count.
+      </div>
+    )
+  }
+
+  const readings = rosterCpr.readings?.[role.position_id] ?? []
+  if (readings.length === 0) {
+    return (
+      <div className="text-xs text-gray-400 mt-0.5">
+        Nobody has been observed in this role, so we have no readings for it.
+      </div>
+    )
+  }
+
+  const eligible = headcountAtCpr(readings, cpr)
+  const ceiling = maxSustainableCpr(readings, 1)
+  return (
+    <div className={`text-xs mt-0.5 ${eligible === 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+      <span className="tabular-nums font-medium">{eligible}</span> of {readings.length} can fill
+      this at {cpr}
+      {eligible === 0 && ceiling != null && (
+        <span> — best is {ceiling}</span>
       )}
     </div>
   )
@@ -349,6 +419,8 @@ function ResultPanel({ scenario, result, calculating, error }) {
               tone="text-red-600 dark:text-red-400"
             />
           </div>
+
+          <ScopeVerdict scenario={scenario} successChance={result.successChance} />
 
           <ExpectedValue ev={ev} priced={priced} quality={quality} spread={spread}
             expectedRespect={expectedRespect} itemsOnly={itemsOnly} />
@@ -492,6 +564,62 @@ function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly
           steer which ending you land in are worth.
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * Whether this crew can afford to keep running this crime (#444 groundwork).
+ *
+ * Scope is spent to spawn and only returned on SUCCESS, so every difficulty has
+ * a break-even success chance below which the crime drains the faction's
+ * ability to spawn anything. That line — not the money — is the answer to
+ * "what minimum CPR should we set".
+ *
+ * ⚠️ A crime paying enormous money below its break-even is still one the
+ * faction cannot sustain, and E(x) alone will never say so.
+ */
+function ScopeVerdict({ scenario, successChance }) {
+  const categoryKey = useMemo(() => {
+    const resolve = makeCategoryResolver({
+      scenarios: config.ocScenarios || {},
+      categories: config.ocCategories || {},
+    })
+    return resolve(scenario.name, null)
+  }, [scenario.name])
+
+  const verdict = useMemo(
+    () => scopeVerdict(categoryKey, successChance),
+    [categoryKey, successChance]
+  )
+  // Unknown category: say nothing rather than guess a cost.
+  if (!verdict) return null
+
+  const pct = (v) => `${(v * 100).toFixed(1)}%`
+  return (
+    <div className={`rounded border p-3 mb-3 ${verdict.sustainable
+      ? 'border-gray-200 dark:border-slate-700'
+      : 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20'}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          Scope — {verdict.label}
+        </div>
+        <div className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+          costs {verdict.cost}, pays {verdict.reward} on success
+        </div>
+      </div>
+      <div className={`mt-0.5 text-sm font-semibold ${verdict.sustainable
+        ? 'text-green-600 dark:text-green-400'
+        : 'text-red-600 dark:text-red-400'}`}>
+        {verdict.sustainable
+          ? `Sustainable — nets ${verdict.net.toFixed(2)} scope per run`
+          : `Scope-negative — loses ${Math.abs(verdict.net).toFixed(2)} scope per run`}
+      </div>
+      <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+        Break-even is {pct(verdict.breakEven)} success; this crew is at{' '}
+        {pct(successChance)} ({verdict.margin >= 0 ? '+' : ''}{(verdict.margin * 100).toFixed(1)} pts).
+        {!verdict.sustainable && ' Below the line the faction slowly loses the scope to spawn anything.'}
+      </p>
     </div>
   )
 }
