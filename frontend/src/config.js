@@ -194,12 +194,14 @@ export const config = {
   // The faction spawns a RANDOM scenario within a chosen category, each costing
   // Scope (regens +1/day, caps at 100). `plannable` flags the categories we
   // actually run — the OC Planner only recommends spawns for these.
+  // scopeReward is what a SUCCESSFUL crime pays back; scopeCost is spent either
+  // way. That asymmetry is the whole scope economy — see utils/ocScope.js.
   ocCategories: {
-    introductory: { label: 'Introductory', short: 'Intro',  difficulty: [1, 2],  scopeCost: 1, plannable: false },
-    simple:       { label: 'Simple',       short: 'Simple', difficulty: [3, 4],  scopeCost: 2, plannable: true  },
-    intermediate: { label: 'Intermediate', short: 'Inter',  difficulty: [5, 6],  scopeCost: 3, plannable: true  },
-    advanced:     { label: 'Advanced',     short: 'Adv',    difficulty: [7, 8],  scopeCost: 4, plannable: true  },
-    elaborate:    { label: 'Elaborate',    short: 'Elab',   difficulty: [8, 10], scopeCost: 5, plannable: false },
+    introductory: { label: 'Introductory', short: 'Intro',  difficulty: [1, 2],  scopeCost: 1, scopeReward: 2, plannable: false },
+    simple:       { label: 'Simple',       short: 'Simple', difficulty: [3, 4],  scopeCost: 2, scopeReward: 3, plannable: true  },
+    intermediate: { label: 'Intermediate', short: 'Inter',  difficulty: [5, 6],  scopeCost: 3, scopeReward: 4, plannable: true  },
+    advanced:     { label: 'Advanced',     short: 'Adv',    difficulty: [7, 8],  scopeCost: 4, scopeReward: 5, plannable: true  },
+    elaborate:    { label: 'Elaborate',    short: 'Elab',   difficulty: [8, 10], scopeCost: 5, scopeReward: 6, plannable: false },
   },
 
   // Known OC 2.0 scenarios → { category, difficulty, participants }. Category is

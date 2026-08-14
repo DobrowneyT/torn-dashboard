@@ -54,6 +54,8 @@ const NEW_TABLES = [
   'crime_occupancy', 'crime_occupancy_polls',
   // Mirrored OC probability model (#390)
   'oc_scenarios', 'oc_scenario_roles', 'oc_scenario_endings',
+  // Observed money/respect per ending node (#440)
+  'oc_scenario_node_stats',
   // Per-member war notes (#199)
   'member_notes',
   // Web Push subscriptions (#207)

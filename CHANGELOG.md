@@ -17,6 +17,127 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.33.0] - 2026-08-13
+
+### Added
+- **Compare several crimes at once in the OC Simulator** (#445). A picker modal
+  lists every mirrored crime grouped by difficulty (Elaborate → Introductory)
+  with its scope cost; ticking crimes **enumerates them in selection order**,
+  and that order is the order they appear on the page. The selection persists.
+  - Each selected crime renders its own card — roles and sliders, success
+    chance, endings, scope verdict and E(x) — with #442's live headcount under
+    every slider.
+  - The header totals what spawning one of each would cost in scope, which is
+    the budget question a set of crimes actually raises.
+  - ⚠️ **Sliders are per crime and never shared**, even between roles with the
+    same name. MonChoon, 2026-08-13: *"each role in every crime is unique (even
+    if they are both called Muscle #1)"* — they have different weights,
+    different checkpoints and different per-member CPR. Linking them by name
+    would silently model something untrue. Each card owns its own state, which
+    also means moving one slider recalculates only that crime rather than
+    firing six requests at a small third-party server.
+  - ⚠️ Crimes are grouped using the OC Planner's **name-authoritative** resolver
+    rather than re-deriving from difficulty. Difficulty 8 spans both Advanced
+    and Elaborate — Break the Bank is difficulty 8 and configured Advanced — so
+    re-deriving would file it differently here than the Planner shows, and
+    change its scope cost from 4 to 5 on the way.
+  - A persisted selection can outlive a crime being renamed upstream. Missing
+    crimes are named rather than silently dropped, and never rendered as an
+    empty card.
+  - The scope total is withheld entirely if any selected crime has an unknown
+    category, rather than shown quietly short — it is a number someone budgets
+    against.
+
+## [3.32.0] - 2026-08-13
+
+### Added
+- **Role headcount from the real roster** (#442). Each slider in the OC
+  Simulator now says how many current members clear that CPR for that role,
+  updating as you move it, with the best available CPR shown when nobody does.
+  - ⚠️ **"Can fill", never "available".** A member with the CPR may already be
+    in another crime — members cannot be in two OCs at once — so every figure is
+    an upper bound and the wording says so. Wiring in the occupancy data (#389)
+    is the follow-up.
+  - ⚠️ Three states that all look like "0" are kept apart: **nobody clears the
+    bar** (a training problem), **no readings for this role** (a data problem),
+    and **the role could not be joined to a Torn position** (a matching
+    problem). Collapsing them would send someone hunting a problem that does not
+    exist.
+  - Leavers are excluded — a former member's CPR is not capacity we have.
+- **Scope economy modelled** (`utils/ocScope.js`), and the simulator now says
+  whether a crew can afford to keep running a crime.
+  - Scope is spent to spawn and returned **only on success**, so each difficulty
+    has a **break-even success chance**: 50% Introductory, 66.7% Simple, 75%
+    Intermediate, 80% Advanced, **83.3% Elaborate**. ⚠️ Below that line a crime
+    drains the faction's ability to spawn anything, however much money it pays —
+    and E(x) alone will never say so. **This is the answer to "what minimum CPR
+    should we set".**
+  - `scopeReward` added to `config.js` alongside the existing `scopeCost`, plus
+    the 100 cap. Scope above the cap is discarded, so a full bank is waste
+    rather than a healthy surplus.
+
+### Fixed
+- ⚠️ Corrected a misreading: "scope" is Torn's crime-spawning resource, not
+  respect. The #445 ticket carried that wrong assumption and has been amended.
+
+### Changed
+- Role↔position matching (`server/src/oc/roleMatch.ts`) requires the **name and
+  the position id to agree**, and reports a conflict rather than picking a side.
+  The same string mismatch has now appeared three times ("Thief 1" upstream,
+  "Thief1" in weights, "Thief #1" in Torn), and an off-by-one in position
+  numbering would attach every CPR reading to the wrong role, invisibly.
+
+## [3.31.0] - 2026-08-13
+
+### Added
+- **E(x) is computed, not hand-entered** (#440). The SSE feed that serves each
+  crime's flowchart also emits an `event: stats` frame carrying observed money
+  and respect **per diagram node** — the same node ids the #390 ending map
+  resolves to. We were already receiving that frame on the same connection and
+  discarding it. The nightly mirror now stores it in `oc_scenario_node_stats`
+  and the simulator prices every mapped ending from it, at **no extra
+  requests**. The 167-cell hand-entry table is no longer the source of payouts.
+  - ⚠️ **This independently confirms the #390 mapping.** Joined through the
+    derived map, Break the Bank's endings form a monotonic ladder —
+    $375.8M → $216.8M, respect 450 → 270 in steps of exactly 45. Under
+    declaration order, the shortcut #390 rejected, respect would read
+    450, 405, **315, 360**, 270. Confirmation from money, a signal completely
+    unrelated to the failure-depth and role evidence that derived the mapping.
+    A test asserts the ladder, so a mapping regression fails loudly.
+  - **Respect now shown alongside money** — expected respect per run, and per
+    ending.
+  - **Payout spread** per crime (best vs worst ending, ~$159M on Break the
+    Bank). This is what a role that steers *which* ending you reach is worth,
+    and the groundwork for #441.
+  - ⚠️ **Observation counts travel with the figures.** `n` ranges from 1 to
+    6,419 across the real feed; an average from a single run would otherwise
+    render identically to one from six thousand. Endings priced from few runs
+    are marked, and the three distinct weaknesses — ending unmapped, mapped but
+    unpriced, priced but thin — are reported separately, because each has a
+    different fix.
+  - A run that returns no stats frame **leaves existing prices alone** rather
+    than deleting them. Wiping a priced crime because one nightly run arrived
+    early would turn a real E(x) into a lower bound of zero, silently.
+
+### Changed
+- `expectedValue()`'s lower-bound contract is unchanged and now describes
+  unmapped or unobserved endings rather than un-typed ones — the same honesty
+  for a different reason.
+  
+## [3.30.2] - 2026-08-13
+
+### Fixed
+- **Two scraper jobs had no description in Global Admin** (#390, #389).
+  `crime-occupancy` and `oc-scenarios-mirror` were both registered without a
+  `SCRAPER_JOB_INFO` entry, so hovering their names showed the "details are not
+  available" fallback instead of what they do. Both now describe their purpose,
+  cadence and API footprint like every other job.
+  - Guarded both ways: the test now reads the job names straight out of
+    `server/src/scraper/registerJobs.ts` and fails if a registered job has no
+    summary, or if a summary describes a job that no longer exists. The gap was
+    silent — the row renders perfectly, just uselessly — and would have
+    recurred on the next job added.
+
 ## [3.30.1] - 2026-08-13
 
 ### Fixed
