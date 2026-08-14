@@ -46,6 +46,21 @@ interface StubOptions {
   scenarios?: Array<{ name: string; parameters: number }>
   page?: string | null
   diagrams?: Record<string, string>
+  /** null = send no stats frame at all. */
+  stats?: Record<string, Record<string, unknown>> | null
+}
+
+// Real money/respect captured live 2026-08-13 for Break the Bank's five good
+// endings, plus one bad ending paying nothing.
+const DEFAULT_STATS: Record<string, Record<string, unknown>> = {
+  'Break the Bank': {
+    _A8S_:  { n: 6419, money: { min: 355e6, max: 395e6, avg: 375830861 }, respect: { min: 430, max: 470, avg: 450 } },
+    _A8S2_: { n: 3235, money: { min: 315e6, max: 355e6, avg: 335785147 }, respect: { min: 385, max: 425, avg: 405 } },
+    _A9S_:  { n: 8015, money: { min: 276e6, max: 316e6, avg: 296249359 }, respect: { min: 340, max: 380, avg: 360 } },
+    _A10S_: { n: 3972, money: { min: 236e6, max: 276e6, avg: 256799033 }, respect: { min: 295, max: 335, avg: 315 } },
+    _B3S_:  { n: 2289, money: { min: 196e6, max: 236e6, avg: 216827645 }, respect: { min: 250, max: 290, avg: 270 } },
+    _A4F_:  { n: 1,    money: { min: 0, max: 0, avg: 0 },                 respect: { min: 0, max: 0, avg: 0 } },
+  },
 }
 
 /** A fetch stub speaking the four shapes the real service speaks. */
@@ -88,7 +103,12 @@ function stubFetch(opts: StubOptions = {}) {
       const diagram = diagrams[name]
       if (!diagram) return new Response('event: nothing\ndata: e30=\n\n', { status: 200 })
       const b64 = Buffer.from(diagram, 'utf8').toString('base64')
-      return new Response(`event: diagram\ndata: ${b64}\n\n`, { status: 200 })
+      const stats = opts.stats === null ? null : (opts.stats ?? DEFAULT_STATS)[name]
+      const frames = [`event: diagram\ndata: ${b64}\n\n`]
+      if (stats) {
+        frames.push(`event: stats\ndata: ${Buffer.from(JSON.stringify(stats)).toString('base64')}\n\n`)
+      }
+      return new Response(frames.join(''), { status: 200 })
     }
     if (url.includes('CalculateSuccess')) {
       const body = JSON.parse(String(init?.body ?? '{}'))
@@ -114,6 +134,7 @@ const run = (opts: StubOptions = {}) => {
 beforeAll(async () => { stack = await startTestStack() }, 30000)
 afterAll(async () => { await stack?.close() })
 beforeEach(async () => {
+  await stack.db.query('DELETE FROM oc_scenario_node_stats')
   await stack.db.query('DELETE FROM oc_scenario_endings')
   await stack.db.query('DELETE FROM oc_scenario_roles')
   await stack.db.query('DELETE FROM oc_scenarios')
@@ -249,5 +270,67 @@ describe('ocScenariosMirrorJob', () => {
     const { calls } = await run({ scenarios: [{ name: 'Break the Bank', parameters: 6 }] })
     const probes = calls.filter((c) => c.includes('CalculateSuccess'))
     expect(probes).toHaveLength(7)
+  })
+})
+
+describe('node stats from the feed (#440)', () => {
+  it('stores money and respect per node from the same connection', async () => {
+    await run()
+    const r = await stack.db.query(
+      `SELECT node_id, n, money_avg, respect_avg FROM oc_scenario_node_stats
+        WHERE scenario_name = 'Break the Bank' ORDER BY money_avg DESC`
+    )
+    expect(r.rows).toHaveLength(6)
+    expect(r.rows[0]).toMatchObject({ node_id: '_A8S_', n: 6419, money_avg: 375830861 })
+    expect(Number(r.rows[0].respect_avg)).toBe(450)
+  })
+
+  it('prices the derived endings into a monotonic ladder', async () => {
+    // ⚠️ The independent confirmation of the #390 mapping. Under declaration
+    // order goodEnding3/4 would be $256.8M then $296.2M — non-monotonic, and
+    // this assertion is what would catch a regression in the mapping from a
+    // signal (money) unrelated to what derives it.
+    await run()
+    const r = await stack.db.query(
+      `SELECT e.ending_key, st.money_avg, st.respect_avg
+         FROM oc_scenario_endings e
+         JOIN oc_scenario_node_stats st
+           ON st.scenario_name = e.scenario_name AND st.node_id = e.node_id
+        WHERE e.scenario_name = 'Break the Bank' AND e.kind = 'good'
+        ORDER BY e.ending_key`
+    )
+    const money = r.rows.map((x) => Number(x.money_avg))
+    expect(money).toHaveLength(5)
+    for (let i = 1; i < money.length; i++) expect(money[i]).toBeLessThan(money[i - 1])
+    // Respect steps by exactly 45 in the real data.
+    const respect = r.rows.map((x) => Number(x.respect_avg))
+    expect(respect[0] - respect[1]).toBe(45)
+  })
+
+  it('keeps existing stats when a run returns no stats frame', async () => {
+    // ⚠️ The feed sometimes sends the diagram without stats. Wiping a priced
+    // crime because one nightly run arrived early would turn a real E(x) into a
+    // lower bound of zero, silently and only on that crime.
+    await run()
+    const before = await stack.db.query(
+      `SELECT count(*)::int AS n FROM oc_scenario_node_stats WHERE scenario_name = 'Break the Bank'`
+    )
+    expect(before.rows[0].n).toBe(6)
+
+    await run({ stats: null })
+    const after = await stack.db.query(
+      `SELECT count(*)::int AS n FROM oc_scenario_node_stats WHERE scenario_name = 'Break the Bank'`
+    )
+    expect(after.rows[0].n).toBe(6)
+  })
+
+  it('still mirrors a scenario the feed has no stats for', async () => {
+    // Unpriced is a normal state, not a failure.
+    const { res } = await run()
+    expect(res.details!.mirrored).toBe(2)
+    const mob = await stack.db.query(
+      `SELECT count(*)::int AS n FROM oc_scenario_node_stats WHERE scenario_name = 'Mob Mentality'`
+    )
+    expect(mob.rows[0].n).toBe(0)
   })
 })

@@ -12,6 +12,14 @@
 
 export const PROBABILITY_BASE_URL = 'https://tornprobability.com:3000'
 
+/**
+ * How long to keep the connection open for a stats frame after the diagram.
+ *
+ * Five of the 31 scenarios never send one. Waiting the full request timeout for
+ * them cost ~20s each AND threw away the diagram that had already arrived.
+ */
+const STATS_GRACE_MS = 3_000
+
 export interface ScenarioSummary {
   name: string
   parameters: number
@@ -21,6 +29,20 @@ export interface CalculateSuccessResponse {
   successChance: number
   failureChance: number
   [endingKey: string]: number
+}
+
+/** Observed money/respect for one diagram node, from the feed's stats frame. */
+export interface NodeStats {
+  /** How many observed runs this node's figures come from. */
+  n: number
+  money: { min: number; max: number; avg: number }
+  respect: { min: number; max: number; avg: number }
+}
+
+export interface ScenarioFeed {
+  diagram: string | null
+  /** Keyed by node id (`_A8S_`). Null when the feed sent no stats frame. */
+  stats: Record<string, NodeStats> | null
 }
 
 export interface ProbabilityClientOptions {
@@ -208,6 +230,23 @@ export function createProbabilityClient(opts: ProbabilityClientOptions = {}) {
      * thing to do to someone else's small server on a once-a-day mirror.
      */
     async diagram(scenario: string): Promise<string> {
+      const { diagram } = await this.scenarioFeed(scenario)
+      if (!diagram) throw new Error(`no diagram frame for ${scenario}`)
+      return diagram
+    },
+
+    /**
+     * Diagram AND per-node money/respect, from ONE connection (#440).
+     *
+     * The feed emits `event: diagram` and then `event: stats`, keyed by the same
+     * node ids the ending map resolves to. We were already receiving the stats
+     * frame and discarding it, which is why E(x) was being hand-entered.
+     *
+     * Reading both costs no extra request — just staying on the line a moment
+     * longer. Still hangs up as soon as both have arrived rather than holding a
+     * stream open on someone else's small server.
+     */
+    async scenarioFeed(scenario: string): Promise<ScenarioFeed> {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), timeoutMs)
       try {
@@ -220,16 +259,42 @@ export function createProbabilityClient(opts: ProbabilityClientOptions = {}) {
 
         const decoder = new TextDecoder()
         let buffered = ''
-        for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-          buffered += decoder.decode(chunk as Uint8Array, { stream: true })
-          const diagram = parseDiagramFrame(buffered)
-          if (diagram) return diagram
+        let diagram: string | null = null
+        let stats: Record<string, NodeStats> | null = null
+        let grace: ReturnType<typeof setTimeout> | null = null
+
+        try {
+          for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+            buffered += decoder.decode(chunk as Uint8Array, { stream: true })
+            diagram ??= parseDiagramFrame(buffered)
+            stats ??= parseStatsFrame(buffered)
+            // Both in hand — nothing further to wait for.
+            if (diagram && stats) return { diagram, stats }
+
+            // ⚠️ Stats are OPTIONAL; the diagram is not. Five of the 31
+            // scenarios send no stats frame at all, and simply waiting for one
+            // held the connection to the full timeout and then threw — losing
+            // the diagram we had already received. Once the diagram is in hand,
+            // give stats a short grace period and then take what we have.
+            if (diagram && !grace) {
+              grace = setTimeout(() => controller.abort(), STATS_GRACE_MS)
+            }
+          }
+        } catch (e) {
+          // Aborting after the diagram arrived is the grace period doing its
+          // job, not a failure. Without the diagram it is a real error.
+          if (!diagram) throw e
+        } finally {
+          if (grace) clearTimeout(grace)
         }
-        // Stream ended without one. Try the tail in case the final frame closed
-        // the body rather than being followed by a separator.
-        const diagram = parseDiagramFrame(buffered.endsWith('\n\n') ? buffered : `${buffered}\n\n`)
-        if (!diagram) throw new Error(`no diagram frame for ${scenario}`)
-        return diagram
+
+        // Stream ended. Retry the tail in case the last frame closed the body
+        // rather than being followed by a separator.
+        const tail = buffered.endsWith('\n\n') ? buffered : `${buffered}\n\n`
+        return {
+          diagram: diagram ?? parseDiagramFrame(tail),
+          stats: stats ?? parseStatsFrame(tail),
+        }
       } finally {
         clearTimeout(timer)
         // Closes the connection whether we succeeded, threw, or timed out.
@@ -248,35 +313,89 @@ export function createProbabilityClient(opts: ProbabilityClientOptions = {}) {
  * leave a partial final frame that must not be decoded as if it were whole.
  */
 export function parseDiagramFrame(sse: string): string | null {
-  const frames = sse.split(/\r?\n\r?\n/)
+  for (const decoded of decodedFrames(sse, 'diagram')) {
+    // A partial frame decodes to mojibake rather than throwing, so check it
+    // actually looks like the thing we asked for.
+    if (/^\s*flowchart\s/i.test(decoded)) return decoded
+  }
+  return null
+}
 
-  // ⚠️ An SSE frame is terminated by a blank line, so a trailing segment with
-  // no terminator is by definition incomplete. This matters more than it looks:
-  // truncated base64 does not fail to decode, it decodes to a PREFIX. Half a
-  // diagram still starts with "flowchart LR", passes every sanity check below,
-  // and gets stored as a complete flowchart with most of its nodes missing.
-  // The tree parser would then validate it and report unreachable endings for a
-  // crime that has none.
+/**
+ * Per-node money and respect from the feed's `stats` frame (#440).
+ *
+ * Keyed by diagram node id — the same ids `oc_scenario_endings.node_id` holds,
+ * which is what makes automatic pricing possible at all.
+ *
+ * ⚠️ Returns null rather than {} when there is no usable frame. An empty object
+ * would read as "this crime pays nothing everywhere", which is a claim; null is
+ * the absence of one.
+ */
+export function parseStatsFrame(sse: string): Record<string, NodeStats> | null {
+  for (const decoded of decodedFrames(sse, 'stats')) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(decoded)
+    } catch {
+      // Truncated JSON. Same trap as the diagram: a partial base64 payload
+      // decodes happily and only fails here, so this is the check that catches
+      // it rather than storing half a payout table.
+      continue
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+
+    const out: Record<string, NodeStats> = {}
+    for (const [nodeId, raw] of Object.entries(parsed as Record<string, any>)) {
+      const n = Number(raw?.n)
+      const money = band(raw?.money)
+      const respect = band(raw?.respect)
+      if (!Number.isFinite(n) || !money || !respect) continue
+      out[nodeId] = { n, money, respect }
+    }
+    return Object.keys(out).length > 0 ? out : null
+  }
+  return null
+}
+
+/** A {min,max,avg} triple, or null if any part of it is unusable. */
+function band(raw: unknown): { min: number; max: number; avg: number } | null {
+  const r = raw as Record<string, unknown> | undefined
+  const min = Number(r?.min)
+  const max = Number(r?.max)
+  const avg = Number(r?.avg)
+  // Explicit finite checks: Number(null) is 0, and a payout silently defaulting
+  // to zero is exactly the kind of plausible-looking wrong this codebase keeps
+  // getting bitten by.
+  if (![min, max, avg].every(Number.isFinite)) return null
+  return { min, max, avg }
+}
+
+/**
+ * Every COMPLETE frame of one event type, base64-decoded, in order.
+ *
+ * ⚠️ An SSE frame is terminated by a blank line, so a trailing segment without
+ * one is by definition incomplete — and truncated base64 does not fail to
+ * decode, it decodes to a PREFIX. Half a diagram still starts with
+ * "flowchart LR" and would be stored as a whole one missing most of its nodes.
+ * Dropping the unterminated tail is what prevents that, for both event types.
+ */
+function* decodedFrames(sse: string, eventName: string): Generator<string> {
+  const frames = sse.split(/\r?\n\r?\n/)
   if (!/\r?\n\r?\n$/.test(sse)) frames.pop()
 
   for (const frame of frames) {
     const lines = frame.split(/\r?\n/)
     const event = lines.find((l) => l.startsWith('event:'))?.slice(6).trim()
-    if (event !== 'diagram') continue
+    if (event !== eventName) continue
     const data = lines
       .filter((l) => l.startsWith('data:'))
       .map((l) => l.slice(5).trim())
       .join('')
     if (!data) continue
     try {
-      const decoded = Buffer.from(data, 'base64').toString('utf8')
-      // A partial frame decodes to mojibake rather than throwing, so check it
-      // actually looks like the thing we asked for.
-      if (!/^\s*flowchart\s/i.test(decoded)) continue
-      return decoded
+      yield Buffer.from(data, 'base64').toString('utf8')
     } catch {
       continue
     }
   }
-  return null
 }

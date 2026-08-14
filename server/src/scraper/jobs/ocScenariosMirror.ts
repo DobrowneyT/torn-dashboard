@@ -82,8 +82,13 @@ export async function ocScenariosMirrorJob(
         )
       }
 
-      const diagram = await client.diagram(scenario.name)
+      // ONE connection carries both the flowchart and the per-node money and
+      // respect (#440). Reading the stats frame costs no extra request — we
+      // were already receiving it and throwing it away.
+      const feed = await client.scenarioFeed(scenario.name)
       await sleep(spacing)
+      const diagram = feed.diagram
+      if (!diagram) throw new Error('no diagram frame')
 
       const tree = parseScenarioTree(diagram)
       const validation = validateScenarioTree(tree)
@@ -116,6 +121,7 @@ export async function ocScenariosMirrorJob(
         ]
       )
       await replaceRoles(db, scenario.name, roles)
+      await replaceNodeStats(db, scenario.name, feed.stats)
       mirrored++
 
       if (!validation.mappable) {
@@ -195,6 +201,34 @@ async function replaceRoles(db: JobDeps['db'], scenario: string, roles: Scenario
       `INSERT INTO oc_scenario_roles (scenario_name, position_id, role_name, weight)
        VALUES ($1, $2, $3, $4)`,
       [scenario, role.positionId, role.roleName, role.weight]
+    )
+  }
+}
+
+/**
+ * Store observed money/respect per node (#440).
+ *
+ * ⚠️ A missing stats frame leaves the EXISTING rows alone rather than deleting
+ * them. The feed occasionally sends the diagram without stats, and wiping a
+ * priced crime because one nightly run arrived early would turn a real E(x)
+ * into a lower bound of zero overnight — silently, and only on that crime.
+ */
+async function replaceNodeStats(
+  db: JobDeps['db'],
+  scenario: string,
+  stats: Record<string, { n: number; money: any; respect: any }> | null
+) {
+  if (!stats || Object.keys(stats).length === 0) return
+  await db.query('DELETE FROM oc_scenario_node_stats WHERE scenario_name = $1', [scenario])
+  for (const [nodeId, s] of Object.entries(stats)) {
+    await db.query(
+      `INSERT INTO oc_scenario_node_stats
+         (scenario_name, node_id, n, money_min, money_max, money_avg,
+          respect_min, respect_max, respect_avg, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())`,
+      [scenario, nodeId, s.n,
+       Math.round(s.money.min), Math.round(s.money.max), Math.round(s.money.avg),
+       s.respect.min, s.respect.max, s.respect.avg]
     )
   }
 }
