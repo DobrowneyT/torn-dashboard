@@ -18,7 +18,6 @@
  *   | source          | on the wire                        |
  *   |-----------------|------------------------------------|
  *   | ranked wars     | epoch SECONDS (bigint)             |
- *   | crimes          | epoch SECONDS (bigint)             |
  *   | competitions    | timestamptz text, bare '+00' offset|
  *   | calendar_events | timestamptz text, bare '+00' offset|
  *   | payout weeks    | DATE ('2026-08-10')                |
@@ -44,7 +43,6 @@ export const EVENT_KINDS = {
   war: { label: 'War', tone: 'red' },
   competition: { label: 'Competition', tone: 'purple' },
   payout: { label: 'Payout', tone: 'green' },
-  deadline: { label: 'Deadline', tone: 'amber' },
   torn: { label: 'Torn event', tone: 'blue' },
   faction: { label: 'Faction', tone: 'slate' },
   personal: { label: 'Personal', tone: 'pink' },
@@ -140,46 +138,64 @@ export function fromCompetitions(rows) {
   })
 }
 
-/** OC payout weeks. DATE columns — no time-of-day exists to show. */
+/**
+ * OC payouts — **one marker on the day the money moves**, not a bar across the
+ * week it covers.
+ *
+ * MonChoon: *"I dont like the way that OC Payout spans the entire week. Can we
+ * just have a single flag on Monday's for OC Payout"*. He is right, and the
+ * reason is not only visual: a seven-day bar says "this is happening all week",
+ * when the only date anybody needs is the one they get paid.
+ *
+ * ⚠️ The date is derived as **`week_end + 1 day`**, not "the next Monday". The
+ * week from 3–9 August pays on the 10th because the 10th is the day after it
+ * closed. Hard-coding Monday would produce the same answer today and the wrong
+ * answer the moment a faction runs a week that is not Mon–Sun.
+ *
+ * The link carries the week id so the payouts page can open that week's modal
+ * directly — the same one you get by clicking the row in Payout History.
+ */
 export function fromPayoutWeeks(rows) {
   return (rows ?? []).flatMap((w) => {
-    const startsAt = fromDateOnly(w.week_start)
-    if (!startsAt) return []
+    const close = fromDateOnly(w.week_end)
+    if (!close) return []
+    const paidOn = new Date(close.getTime() + DAY_MS) // db-time-safe
     return [evt({
       id: `payout-${w.id}`,
       source: 'payout_week',
       kind: 'payout',
-      title: 'OC payout week',
-      startsAt,
-      endsAt: fromDateOnly(w.week_end),
+      title: 'OC Payout',
+      note: `for ${w.week_start} – ${w.week_end}`,
+      startsAt: paidOn,
       allDay: true,
-      href: '/oc/payouts',
+      href: `/oc/payouts?week=${w.id}`,
     })]
   })
 }
 
 /**
- * OCs about to expire.
+ * Ranked-war payouts — a marker on the war's **last day**, only where a payout
+ * actually exists.
  *
- * ⚠️ This one is a warning, not a record. #392 was a lapsed OC quietly costing
- * people payout time, and a date on a calendar is the cheapest prevention we
- * have. It is the only source here whose value is entirely in being seen BEFORE
- * the date rather than after.
+ * ⚠️ Driven off the `war_payouts` join, never off the war alone. A "RW Payout"
+ * flag on every war that has ended would be a link to nothing for any war
+ * leadership has not paid out yet, and a dead link on a calendar is worse than
+ * no link — people stop trusting the ones that work.
  */
-export function fromExpiringCrimes(rows) {
-  return (rows ?? []).flatMap((c) => {
-    const startsAt = fromEpochSeconds(c.expired_at)
-    if (!startsAt) return []
+export function fromWarPayouts(rows) {
+  return (rows ?? []).flatMap((w) => {
+    if (w.payout_id == null) return []
+    const endsAt = fromEpochSeconds(w.end_at)
+    if (!endsAt) return []
+    const opponent = w.opponent_name || (w.opponent_id ? `Faction #${w.opponent_id}` : 'unknown faction')
     return [evt({
-      id: `crime-expiry-${c.crime_id}`,
-      source: 'crime_expiry',
-      kind: 'deadline',
-      title: `${c.name || 'OC'} expires`,
-      startsAt,
-      note: c.slots_filled != null && c.slots_total != null
-        ? `${c.slots_filled}/${c.slots_total} slots filled`
-        : null,
-      href: '/oc',
+      id: `war-payout-${w.payout_id}`,
+      source: 'war_payout',
+      kind: 'payout',
+      title: `RW Payout — ${opponent}`,
+      startsAt: new Date(Date.UTC(endsAt.getUTCFullYear(), endsAt.getUTCMonth(), endsAt.getUTCDate())), // db-time-safe
+      allDay: true,
+      href: `/rw/payouts?payout=${w.payout_id}`,
     })]
   })
 }
@@ -341,9 +357,9 @@ export function aggregate(payload, { from, to } = {}) {
   const window = from instanceof Date && to instanceof Date ? { from, to } : {}
   const all = [
     ...fromWars(payload?.wars),
+    ...fromWarPayouts(payload?.wars),
     ...fromCompetitions(payload?.competitions),
     ...fromPayoutWeeks(payload?.payout_weeks),
-    ...fromExpiringCrimes(payload?.expiring_crimes),
     ...fromEvents(payload?.events, window),
     ...fromBirthdays(payload?.birthdays, window),
     ...fromAnniversaries(payload?.anniversaries, window),

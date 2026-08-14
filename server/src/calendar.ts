@@ -48,7 +48,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
     const fromEpoch = Math.floor(win.from.getTime() / 1000)
     const toEpoch = Math.floor(win.to.getTime() / 1000)
 
-    const [wars, competitions, payoutWeeks, expiringCrimes, events, birthdays, anniversaries] =
+    const [wars, competitions, payoutWeeks, events, birthdays, anniversaries] =
       await Promise.all([
         // Overlap, not containment: a war that started last month is still
         // being fought, and that is precisely when someone opens the calendar.
@@ -56,11 +56,21 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
         // ⚠️ `end_at IS NULL` means STILL RUNNING, so it must not collapse to
         // the start via COALESCE — that is the exact case this clause exists
         // for, and coalescing drops the war you are currently in.
+        //
+        // The `war_payouts` join is what puts an "RW Payout" marker on the
+        // war's last day. ⚠️ It must stay a LEFT join reporting a nullable id:
+        // a marker on every finished war would link to nothing for any war
+        // leadership has not paid out yet, and one dead link teaches people to
+        // stop trusting the ones that work.
         db.query(
-          `SELECT id, start_at, end_at, opponent_id, opponent_name
-             FROM ranked_wars
-            WHERE start_at <= $2 AND (end_at IS NULL OR end_at >= $1)
-            ORDER BY start_at`,
+          `SELECT w.id, w.start_at, w.end_at, w.opponent_id, w.opponent_name,
+                  wp.id AS payout_id
+             FROM ranked_wars w
+             LEFT JOIN LATERAL (
+               SELECT id FROM war_payouts WHERE war_id = w.id ORDER BY created_at DESC LIMIT 1
+             ) wp ON true
+            WHERE w.start_at <= $2 AND (w.end_at IS NULL OR w.end_at >= $1)
+            ORDER BY w.start_at`,
           [fromEpoch, toEpoch]
         ),
         db.query(
@@ -72,24 +82,16 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
             ORDER BY window_start`,
           [fromIso, toIso]
         ),
+        // ⚠️ The window is widened by a day at the near end on purpose. The
+        // calendar marks a payout week on `week_end + 1` (the day the money
+        // moves), so a week that closed the day before the grid opens still
+        // has its marker on the grid's first cell.
         db.query(
           `SELECT id, week_start, week_end
              FROM oc_payout_weeks
-            WHERE week_start <= $2::date AND week_end >= $1::date
+            WHERE week_start <= $2::date AND week_end >= ($1::date - 1)
             ORDER BY week_start`,
           [fromIso, toIso]
-        ),
-        // Not yet executed and with an expiry in the window. #392 was a lapsed
-        // OC quietly costing people payout time — this is the cheap prevention.
-        db.query(
-          `SELECT crime_id, name, expired_at,
-                  filled_slots AS slots_filled, total_slots AS slots_total
-             FROM crimes
-            WHERE expired_at IS NOT NULL
-              AND executed_at IS NULL
-              AND expired_at BETWEEN $1 AND $2
-            ORDER BY expired_at`,
-          [fromEpoch, toEpoch]
         ),
         // ⚠️ Recurring rows are fetched regardless of their own date. A yearly
         // entry created in 2024 is what makes December 2027 correct, and a
@@ -129,7 +131,6 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
       wars: wars.rows,
       competitions: competitions.rows,
       payout_weeks: payoutWeeks.rows,
-      expiring_crimes: expiringCrimes.rows,
       events: events.rows,
       birthdays: birthdays.rows,
       anniversaries: anniversaries.rows,
