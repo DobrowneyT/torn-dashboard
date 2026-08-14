@@ -83,6 +83,12 @@ export const SCRAPER_JOB_INFO = {
     'weights, flowcharts and the derived ending map, into our own tables so ' +
     'the OC Simulator never calls the third-party service from a browser. ' +
     'No Torn API calls; ~150 calls to tornprobability.com per run.',
+  'faction-upgrades':
+    'Daily snapshot of the faction\'s purchased upgrades, including the ' +
+    'Steadfast gym-gain percentages and whether the war or peace branch set ' +
+    'is in effect. One row per day rather than one row overall, so the ' +
+    'calendar can show what a bonus was on a given date instead of ' +
+    'repainting history with today\'s numbers. One Torn API call per run.',
   'revives-sync':
     'On-demand only (no schedule): pages incoming revives for a specific ' +
     'ranked war (GET /v2/faction/revives, pages of 100). Feeds RW payout ' +

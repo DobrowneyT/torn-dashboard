@@ -8,7 +8,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   fromWars, fromWarPayouts, fromCompetitions, fromPayoutWeeks,
-  fromEvents, fromBirthdays, fromAnniversaries, parseSignup,
+  fromEvents, fromBirthdays, fromAnniversaries, parseSignup, fromSteadfast,
+  steadfastLabel, layoutWeek,
   aggregate, byDay, upcoming, monthGrid, utcDate, dayKey, EVENT_KINDS,
 } from '../calendarSources'
 
@@ -390,6 +391,163 @@ describe('monthGrid', () => {
     const cells = monthGrid(new Date(Date.UTC(2026, 5, 1))) // 1 June 2026 is a Monday
     expect(cells[0].key).toBe('2026-06-01')
     expect(cells[0].inMonth).toBe(true)
+  })
+})
+
+describe('steadfastLabel', () => {
+  it('lists every stat it could read', () => {
+    expect(steadfastLabel({
+      steadfast_strength: 20, steadfast_defense: 15, steadfast_speed: 10, steadfast_dexterity: 5,
+    })).toBe('STR 20% · DEF 15% · SPD 10% · DEX 5%')
+  })
+
+  it('⚠️ skips a stat we could not read, but prints a real zero', () => {
+    // Number(null) is 0, so a naive numeric check would print "SPD 0%" for a
+    // stat the parser failed on — a fabricated fact indistinguishable from a
+    // measured one.
+    expect(steadfastLabel({
+      steadfast_strength: 20, steadfast_defense: null, steadfast_speed: 0, steadfast_dexterity: undefined,
+    })).toBe('STR 20% · SPD 0%')
+  })
+
+  it('is null when nothing could be read at all', () => {
+    expect(steadfastLabel({ steadfast_strength: null })).toBeNull()
+    expect(steadfastLabel(null)).toBeNull()
+  })
+})
+
+describe('fromSteadfast', () => {
+  // Observed on 14 Aug 2026, when the rotation had SPD and DEF boosted.
+  const snapshot = {
+    snapshot_date: '2026-08-14', branch_state: 'peace',
+    steadfast_strength: 10, steadfast_speed: 15, steadfast_defense: 15, steadfast_dexterity: 10,
+    steadfast_unparsed: [],
+  }
+
+  it('⚠️ is one band per rotation stretch, not a pill per day', () => {
+    // A standing bonus repeated in thirty cells says thirty things happened
+    // when one thing is true — and hides the changeover in the noise.
+    const bands = fromSteadfast({ steadfast_rotation: true, steadfast_latest: snapshot }, AUG)
+    expect(bands).toHaveLength(2)
+    expect(bands.every((b) => b.band === true)).toBe(true)
+    expect(dayKey(bands[0].startsAt)).toBe('2026-08-01')
+    expect(dayKey(bands[0].endsAt)).toBe('2026-08-15')
+    expect(dayKey(bands[1].startsAt)).toBe('2026-08-16')
+  })
+
+  it('moves the observed bonus onto whichever stat the rotation picks', () => {
+    // The magnitudes are observed once; WHICH stat carries them is arithmetic.
+    const [before, after] = fromSteadfast({ steadfast_rotation: true, steadfast_latest: snapshot }, AUG)
+    expect(before.title).toBe('Steadfast STR 10% · DEF 15% · SPD 15% · DEX 10%')
+    // From the 16th the DEF/DEX secondary is on dexterity.
+    expect(after.title).toBe('Steadfast STR 10% · DEF 10% · SPD 15% · DEX 15%')
+  })
+
+  it('⚠️ predicts a future month, where no snapshot exists inside the window', () => {
+    // The reason the endpoint sends the latest snapshot rather than a windowed
+    // series. September 2026 is a STRENGTH month.
+    const bands = fromSteadfast({ steadfast_rotation: true, steadfast_latest: snapshot }, {
+      from: new Date(Date.UTC(2027, 2, 1)), to: new Date(Date.UTC(2027, 2, 31)),
+    })
+    expect(bands.length).toBeGreaterThan(0)
+    expect(bands[0].title).toMatch(/\d+%/)
+  })
+
+  it('⚠️ names the boosted stats but claims no figure before the first scrape', () => {
+    // Not a plausible-looking 15/10 default. The rotation is known; the
+    // percentages are not, and the difference has to survive to the screen.
+    const [band] = fromSteadfast({ steadfast_rotation: true, steadfast_latest: null }, AUG)
+    expect(band.title).toBe('Steadfast SPE + DEF boosted')
+    expect(band.note).toContain('not yet scraped')
+  })
+
+  it('says which stats carry the secondary trees, in words', () => {
+    const [band] = fromSteadfast({ steadfast_rotation: true, steadfast_latest: snapshot }, AUG)
+    expect(band.note).toContain('speed and defense carry the secondary trees')
+    expect(band.note).toContain('observed 2026-08-14')
+  })
+
+  it('flags an observation that does not fit the expected pattern', () => {
+    // The pick reading LOWER than its partner means the equal-mains assumption
+    // has failed, and the split is not trustworthy.
+    const odd = { ...snapshot, steadfast_speed: 8 }
+    const [band] = fromSteadfast({ steadfast_rotation: true, steadfast_latest: odd }, AUG)
+    expect(band.note).toContain('do not fit the expected pattern')
+  })
+
+  it('⚠️ shows nothing at all for a faction that has not opted in', () => {
+    // The rotation encoded here is TNL's policy, and this stack serves several
+    // factions. Another faction's Steadfast schedule looks exactly like their
+    // own — which is the worst way for a calendar to be wrong, because nothing
+    // about it reads as a guess.
+    expect(fromSteadfast({ steadfast_latest: snapshot }, AUG)).toEqual([])
+    expect(fromSteadfast({ steadfast_rotation: false, steadfast_latest: snapshot }, AUG)).toEqual([])
+  })
+
+  it('needs a window, and returns nothing without one', () => {
+    expect(fromSteadfast({ steadfast_rotation: true, steadfast_latest: snapshot }, {})).toEqual([])
+    expect(fromSteadfast(null, {})).toEqual([])
+  })
+})
+
+describe('layoutWeek', () => {
+  // Mon 3 Aug 2026 → Sun 9 Aug 2026.
+  const week = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(Date.UTC(2026, 7, 3 + i))
+    return { date, key: dayKey(date), inMonth: true }
+  })
+  const on = (d, h = 0) => new Date(Date.UTC(2026, 7, d, h))
+
+  it('⚠️ turns a multi-day event into one band, not a pill in each cell', () => {
+    // The repeated-pill rendering MISCOUNTED: a five-day war read as five
+    // things, and each cell's "+N more" counted the same war again.
+    const { bands, singles } = layoutWeek(week, [{ id: 'w', title: 'War', startsAt: on(4), endsAt: on(7) }])
+    expect(bands).toHaveLength(1)
+    expect(bands[0]).toMatchObject({ startCol: 1, endCol: 4, lane: 0 })
+    expect([...singles.values()].flat()).toEqual([])
+  })
+
+  it('leaves a single-day event as a pill in its own cell', () => {
+    const { bands, singles } = layoutWeek(week, [{ id: 'c', title: 'Chain', startsAt: on(5, 20), endsAt: null }])
+    expect(bands).toEqual([])
+    expect(singles.get('2026-08-05')).toHaveLength(1)
+  })
+
+  it('flags a band clipped by the week boundary at each end', () => {
+    // A rounded end where the event does not stop is a lie about the shape.
+    const { bands } = layoutWeek(week, [{ id: 'w', title: 'Long war', startsAt: on(1), endsAt: on(12) }])
+    expect(bands[0]).toMatchObject({ startCol: 0, endCol: 6, continuesLeft: true, continuesRight: true })
+  })
+
+  it('treats an open-ended war as running to the end of the week', () => {
+    const { bands } = layoutWeek(week, [{ id: 'w', title: 'Ongoing', startsAt: on(5), endsAt: null, open: true }])
+    expect(bands[0]).toMatchObject({ startCol: 2, endCol: 6, continuesRight: true })
+  })
+
+  it('stacks overlapping bands into separate lanes, and reuses a free one', () => {
+    const { bands, lanes } = layoutWeek(week, [
+      { id: 'a', title: 'A', startsAt: on(3), endsAt: on(5) },
+      { id: 'b', title: 'B', startsAt: on(4), endsAt: on(8) },
+      { id: 'c', title: 'C', startsAt: on(7), endsAt: on(9) }, // fits back in lane 0
+    ])
+    expect(lanes).toBe(2)
+    expect(bands.find((b) => b.event.id === 'a').lane).toBe(0)
+    expect(bands.find((b) => b.event.id === 'b').lane).toBe(1)
+    expect(bands.find((b) => b.event.id === 'c').lane).toBe(0)
+  })
+
+  it('skips an event that does not reach this week at all', () => {
+    const { bands, lanes } = layoutWeek(week, [{ id: 'x', title: 'Last month', startsAt: on(-20), endsAt: on(-15) }])
+    expect(bands).toEqual([])
+    expect(lanes).toBe(0)
+  })
+
+  it('gives a one-day band its own row when it is explicitly a band', () => {
+    // A single recorded day of Steadfast is still a band — it is a standing
+    // state, not something that happened at a moment.
+    const { bands } = layoutWeek(week, [{ id: 's', title: 'Steadfast', startsAt: on(4), endsAt: on(4), band: true }])
+    expect(bands).toHaveLength(1)
+    expect(bands[0]).toMatchObject({ startCol: 1, endCol: 1 })
   })
 })
 

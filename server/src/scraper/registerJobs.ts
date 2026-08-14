@@ -24,6 +24,7 @@ import { factionsSyncJob } from './jobs/factionsSync.js'
 import { warLifecycleJob } from './jobs/warLifecycle.js'
 import { competitionsResolveJob } from './jobs/competitionsResolve.js'
 import { ocScenariosMirrorJob } from './jobs/ocScenariosMirror.js'
+import { factionUpgradesSyncJob } from './jobs/factionUpgradesSync.js'
 
 export interface ScraperWiringOptions {
   db: pg.Pool
@@ -106,6 +107,12 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // scenario, plus a diagram each). Nothing about the simulator needs fresher.
   // 03:50 keeps it clear of the 01:xx–02:xx daily cluster above.
   ['oc-scenarios-mirror', '0 50 3 * * *', ocScenariosMirrorJob],
+  // #395/#458: one snapshot of the faction's upgrades per day, so the calendar
+  // can say what Steadfast was giving on a given date rather than repainting
+  // history with today's numbers. Perks change on the order of weeks, so daily
+  // is ample resolution and costs exactly one call. 02:10 sits in a gap between
+  // the 01:xx cluster and member-battle-stats at 02:45.
+  ['faction-upgrades', '0 10 2 * * *', factionUpgradesSyncJob],
 ]
 
 function buildDeps(opts: ScraperWiringOptions): JobDeps {

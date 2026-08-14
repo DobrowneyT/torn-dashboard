@@ -26,7 +26,11 @@ const ADMIN_GUARD = { preHandler: [requireNotVisitor(), requireRole('admin')] }
 // the first three; war_room_defaults is written by the admin UI only).
 // payout_mode is the odd one out — a scalar (the faction's default OC payout
 // mode, #136), not a JSON document — so it validates differently below.
-const SETTINGS_KEYS = ['tier_requirements', 'cpr_requirements', 'payout_tickets', 'war_room_defaults', 'payout_mode']
+// ⚠️ `steadfast_rotation` is per-faction and OFF by default on purpose. The
+// rotation encoded in the calendar (STR/SPD on the 1st, DEF/DEX on the 16th)
+// is TNL's own policy, and this stack serves several factions — showing them
+// all a schedule that is not theirs would be worse than showing none.
+const SETTINGS_KEYS = ['tier_requirements', 'cpr_requirements', 'payout_tickets', 'war_room_defaults', 'payout_mode', 'steadfast_rotation']
 // The three OC payout modes (#134). Absent → flat-weighted (see /api/oc-config).
 const PAYOUT_MODES = ['tiered', 'flat-weighted', 'equal']
 

@@ -17,6 +17,39 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.37.0] - 2026-08-14
+
+### Added
+- **Steadfast on the calendar** (#395), so people can plan training — a
+  training book is five days of commitment, and the rotation decides whether
+  they are worth reading now.
+  - **Which stat is boosted comes from TNL's rotation**: Strength/Speed swap on
+    the **1st**, Defense/Dexterity on the **16th**, offset by half a month. It
+    is pure calendar arithmetic, so it predicts **forward indefinitely** — page
+    to any future month and the schedule is there.
+  - **How much comes from the live faction tree.** A new `faction-upgrades`
+    scraper reads `GET /faction/upgrades` daily and the calendar derives the
+    percentages from what is actually unlocked. ⚠️ Nothing is hard-coded to
+    15/20: the day the tertiary tree is bought, the numbers move on their own.
+  - ⚠️ **Off by default, per faction.** The rotation is TNL's policy and this
+    stack serves several factions; another faction's schedule looks exactly
+    like their own. Enable with the `steadfast_rotation` setting.
+  - With no scrape yet, bands name the boosted stats and **decline to claim a
+    percentage** rather than defaulting to a plausible-looking 15/10.
+- **`faction-upgrades` scraper job**, daily at 02:10. One row **per day** — a
+  single current-state row would repaint history with today's numbers, and the
+  calendar's whole premise is that a date shows what was true then. The raw API
+  response is stored alongside the parse, so a wording change costs a
+  re-derivation rather than a lost month.
+
+### Changed
+- **Multi-day events are one continuous band, not a pill repeated in every
+  cell** (#395). ⚠️ The old rendering *miscounted*: a five-day war read as five
+  things, and each cell's "+N more" counted the same war again — so a genuinely
+  busy day could hide a one-off behind four repeats of one war. Bands stack
+  into lanes, and a band clipped by the week boundary loses its rounded end
+  instead of pretending the event stops there.
+
 ## [3.36.1] - 2026-08-14
 
 ### Changed

@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, LoaderCircle, Plus, Pencil, Trash2, X, RefreshCw } from 'lucide-react'
 import { apiGet, apiPost, apiPut, apiDelete } from '../../utils/apiClient'
-import { aggregate, byDay, monthGrid, dayKey, EVENT_KINDS } from '../../utils/calendarSources'
+import { aggregate, byDay, monthGrid, dayKey, layoutWeek, EVENT_KINDS } from '../../utils/calendarSources'
 import { useAuth } from '../../contexts/AuthContext'
 import BirthdayCard from './BirthdayCard'
 
@@ -85,6 +85,12 @@ export default function CalendarSection({ isLeadership }) {
   const events = useMemo(() => aggregate(payload, window), [payload, window])
   const visible = useMemo(() => events.filter((e) => !hidden.has(e.kind)), [events, hidden])
   const cells = useMemo(() => monthGrid(month), [month])
+  const weeks = useMemo(
+    () => Array.from({ length: 6 }, (_, i) => cells.slice(i * 7, i * 7 + 7)),
+    [cells]
+  )
+  // Still keyed by day for the detail panel: clicking a cell should show
+  // everything touching that day, bands included.
   const index = useMemo(() => byDay(visible), [visible])
   const todayKey = dayKey(new Date()) // db-time-safe
 
@@ -178,42 +184,15 @@ export default function CalendarSection({ isLeadership }) {
               <div key={d} className="py-1.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-400">{d}</div>
             ))}
           </div>
-          <div className="grid grid-cols-7">
-            {cells.map((cell) => {
-              const dayEvents = index.get(cell.key) ?? []
-              return (
-                <button
-                  key={cell.key}
-                  onClick={() => dayEvents.length > 0 && setSelectedDay(cell.key)}
-                  className={`min-h-[5.5rem] p-1 text-left align-top border-b border-r border-gray-100 dark:border-slate-700/60 ${
-                    cell.inMonth ? '' : 'bg-gray-50/60 dark:bg-slate-800/40'
-                  } ${dayEvents.length > 0 ? 'hover:bg-gray-100 dark:hover:bg-slate-700/40 cursor-pointer' : 'cursor-default'}`}
-                >
-                  <div className={`text-xs mb-0.5 ${
-                    cell.key === todayKey
-                      ? 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-white font-semibold'
-                      : cell.inMonth ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-600'
-                  }`}>
-                    {cell.date.getUTCDate()}
-                  </div>
-                  <div className="space-y-0.5">
-                    {dayEvents.slice(0, 3).map((e) => (
-                      <div
-                        key={e.id}
-                        className={`truncate text-[10px] leading-tight px-1 py-0.5 rounded ${TONE[EVENT_KINDS[e.kind]?.tone ?? 'slate']}`}
-                        title={e.title}
-                      >
-                        {e.title}
-                      </div>
-                    ))}
-                    {dayEvents.length > 3 && (
-                      <div className="text-[10px] text-gray-500 dark:text-gray-400 px-1">+{dayEvents.length - 3} more</div>
-                    )}
-                  </div>
-                </button>
-              )
-            })}
-          </div>
+          {weeks.map((weekCells) => (
+            <WeekRow
+              key={weekCells[0].key}
+              cells={weekCells}
+              events={visible}
+              todayKey={todayKey}
+              onSelectDay={setSelectedDay}
+            />
+          ))}
         </div>
       </div>
 
@@ -244,6 +223,96 @@ export default function CalendarSection({ isLeadership }) {
         mine={(payload?.birthdays ?? []).find((b) => String(b.member_id) === String(user?.id)) ?? null}
         onChanged={load}
       />
+    </div>
+  )
+}
+
+/**
+ * One week row: continuous bands above, single-day pills in the cells below.
+ *
+ * ⚠️ The band layer is absolutely positioned over the cells because a band has
+ * to cross cell boundaries, which nothing inside a cell can do. The cells
+ * reserve exactly `lanes` rows of space so the two layers cannot overlap —
+ * getting that reservation wrong is how a calendar ends up with text sitting on
+ * top of a bar, and it is invisible until a week happens to be busy.
+ */
+function WeekRow({ cells, events, todayKey, onSelectDay }) {
+  const { bands, singles, lanes } = useMemo(() => layoutWeek(cells, events), [cells, events])
+
+  const DAY_NUM_H = 22   // the day-number line
+  const BAND_H = 18      // one band lane, including its gap
+  const reserved = lanes * BAND_H
+
+  return (
+    <div className="relative">
+      <div className="grid grid-cols-7">
+        {cells.map((cell) => {
+          const dayEvents = singles.get(cell.key) ?? []
+          const clickable = (dayEvents.length > 0) || bands.some((b) => cells[b.startCol].key <= cell.key && cell.key <= cells[b.endCol].key)
+          return (
+            <button
+              key={cell.key}
+              onClick={() => clickable && onSelectDay(cell.key)}
+              className={`min-h-[6rem] px-1 pb-1 text-left align-top border-b border-r border-gray-100 dark:border-slate-700/60 ${
+                cell.inMonth ? '' : 'bg-gray-50/60 dark:bg-slate-800/40'
+              } ${clickable ? 'hover:bg-gray-100 dark:hover:bg-slate-700/40 cursor-pointer' : 'cursor-default'}`}
+            >
+              <div className="flex items-center" style={{ height: DAY_NUM_H }}>
+                <span className={`text-xs ${
+                  cell.key === todayKey
+                    ? 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-white font-semibold'
+                    : cell.inMonth ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-600'
+                }`}>
+                  {cell.date.getUTCDate()}
+                </span>
+              </div>
+              {/* Exactly the height the band layer occupies. */}
+              <div style={{ height: reserved }} />
+              <div className="space-y-0.5">
+                {dayEvents.slice(0, 3).map((e) => (
+                  <div
+                    key={e.id}
+                    className={`truncate text-[10px] leading-tight px-1 py-0.5 rounded ${TONE[EVENT_KINDS[e.kind]?.tone ?? 'slate']}`}
+                    title={e.title}
+                  >
+                    {e.title}
+                  </div>
+                ))}
+                {/* Counts only what is actually hidden in THIS cell. The old
+                    per-day rendering counted a five-day war five times. */}
+                {dayEvents.length > 3 && (
+                  <div className="text-[10px] text-gray-500 dark:text-gray-400 px-1">+{dayEvents.length - 3} more</div>
+                )}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      <div
+        className="absolute left-0 right-0 grid grid-cols-7 gap-y-0.5 pointer-events-none px-px"
+        style={{ top: DAY_NUM_H }}
+      >
+        {bands.map((b) => (
+          <button
+            key={b.event.id}
+            onClick={() => onSelectDay(cells[b.startCol].key)}
+            title={b.event.note ? `${b.event.title} — ${b.event.note}` : b.event.title}
+            className={`pointer-events-auto truncate text-[10px] leading-tight px-1.5 py-0.5 text-left ${
+              TONE[EVENT_KINDS[b.event.kind]?.tone ?? 'slate']
+            } ${b.continuesLeft ? '' : 'rounded-l'} ${b.continuesRight ? '' : 'rounded-r'}`}
+            style={{
+              gridColumn: `${b.startCol + 1} / span ${b.endCol - b.startCol + 1}`,
+              gridRow: b.lane + 1,
+              height: BAND_H - 2,
+            }}
+          >
+            {/* A clipped band repeats its title on the next row, so a war
+                running Thu–Tue is still readable in the second week. */}
+            {b.continuesLeft && '‹ '}{b.event.title}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
