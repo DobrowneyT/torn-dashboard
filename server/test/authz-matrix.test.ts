@@ -309,6 +309,36 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path,
     expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 403, admin: authorized } as Record<Actor, number>,
   })),
+  // #395 — faction calendar. Reads are open to every session, visitors
+  // included; the calendar is a view onto pages they can already see.
+  {
+    path: '/api/calendar',
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 } as Record<Actor, number>,
+  },
+  // Typed-in entries are leadership-only (400 = past the guard on an empty
+  // body, 404 = past it on a nonexistent row).
+  ...(
+    [
+      ['POST /api/calendar/events', 400],
+      ['PUT /api/calendar/events/424242', 400],
+      ['DELETE /api/calendar/events/424242', 404],
+    ] as Array<[string, number]>
+  ).map(([path, authorized]) => ({
+    path,
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: authorized, admin: authorized } as Record<Actor, number>,
+  })),
+  // ⚠️ A birthday is owned by the member it belongs to, so this row is NOT a
+  // role check — it is an ownership check. Nobody here is member 424242, so
+  // every non-leadership actor is refused on that ground alone, and leadership
+  // passes to a 400 on the empty body.
+  {
+    path: 'PUT /api/calendar/birthdays/424242',
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 400, admin: 400 } as Record<Actor, number>,
+  },
+  {
+    path: 'DELETE /api/calendar/birthdays/424242',
+    expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 200, admin: 200 } as Record<Actor, number>,
+  },
   // #119 — silent session renewal: every authenticated actor (visitors
   // included — their tokens age like anyone's) may refresh; anonymous cannot.
   {

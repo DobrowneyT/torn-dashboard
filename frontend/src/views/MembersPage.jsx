@@ -3,6 +3,7 @@
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import MembersView from './MembersView'
 import CompetitionsSection from '../components/CompetitionsSection'
+import CalendarSection from '../components/calendar/CalendarSection'
 
 const tabClass = ({ isActive }) =>
   `px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
@@ -15,6 +16,7 @@ export default function MembersPage({ isLeadership }) {
   const tabs = [
     { to: '/members/overview', label: 'Overview' },
     { to: '/members/competitions', label: 'Competitions' },
+    { to: '/members/calendar', label: 'Calendar' },
   ]
 
   return (
@@ -29,6 +31,7 @@ export default function MembersPage({ isLeadership }) {
         <Route index element={<Navigate to="/members/overview" replace />} />
         <Route path="overview" element={<MembersView isLeadership={isLeadership} />} />
         <Route path="competitions" element={<CompetitionsSection isLeadership={isLeadership} />} />
+        <Route path="calendar" element={<CalendarSection isLeadership={isLeadership} />} />
         <Route path="*" element={<Navigate to="/members/overview" replace />} />
       </Routes>
     </div>
