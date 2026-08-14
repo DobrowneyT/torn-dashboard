@@ -35,6 +35,7 @@ import {
 } from '../utils/ocScenarioPayouts'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { headcountAtCpr, maxSustainableCpr } from '../utils/ocRosterFit'
+import { crimeSensitivity, ROLE_CLASS_LABELS, PROBE_DELTA } from '../utils/ocSensitivity'
 import { scopeVerdict } from '../utils/ocScope'
 import { makeCategoryResolver } from '../utils/ocPlanner'
 import { config } from '../config'
@@ -210,6 +211,55 @@ function CrimeCard({ scenario, onRemove }) {
     return () => { cancelled = true }
   }, [scenario.name])
 
+  // #441: measured ON DEMAND, not per slider tick. It costs one extra request
+  // per role, so firing it continuously would turn a 6-role crime into seven
+  // requests per adjustment against a small third-party server.
+  const [sensitivity, setSensitivity] = useState(null)
+  const [measuring, setMeasuring] = useState(false)
+
+  // Any change to the crew invalidates a previous measurement — showing it
+  // against a different crew would attribute one crew's numbers to another.
+  useEffect(() => { setSensitivity(null) }, [cprs])
+
+  const measure = useCallback(async () => {
+    setMeasuring(true)
+    try {
+      const byRole = {}
+      for (let i = 0; i < scenario.roles.length; i++) {
+        const role = scenario.roles[i]
+        // Step DOWN if the role is already near the ceiling, so the probe stays
+        // inside 0-100 and still measures the same local slope.
+        const up = (cprs[i] ?? 0) + PROBE_DELTA <= 100
+        const delta = up ? PROBE_DELTA : -PROBE_DELTA
+        const probe = cprs.map((v, j) => (j === i ? Math.min(100, Math.max(0, v + delta)) : v))
+        const [base, bumped] = await Promise.all([
+          apiPost('/api/oc-simulator/calculate', { scenario: scenario.name, parameters: cprs }),
+          apiPost('/api/oc-simulator/calculate', { scenario: scenario.name, parameters: probe }),
+        ])
+        byRole[role.position_id] = {
+          base: base.result,
+          bumped: bumped.result,
+          delta,
+        }
+      }
+      // Sign is carried by the probe direction, so a downward probe still
+      // yields the slope rather than its negation.
+      const rows = crimeSensitivity(
+        scenario,
+        Object.fromEntries(Object.entries(byRole).map(([k, v]) => [k, {
+          base: v.delta > 0 ? v.base : v.bumped,
+          bumped: v.delta > 0 ? v.bumped : v.base,
+        }])),
+        PROBE_DELTA
+      )
+      setSensitivity(rows)
+    } catch {
+      setSensitivity(null)
+    } finally {
+      setMeasuring(false)
+    }
+  }, [scenario, cprs])
+
   const timerRef = useRef(null)
   const seqRef = useRef(0)
 
@@ -269,7 +319,15 @@ function CrimeCard({ scenario, onRemove }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <CrewPanel scenario={scenario} cprs={cprs} onChange={setCprs} rosterCpr={rosterCpr} />
+        <CrewPanel
+          scenario={scenario}
+          cprs={cprs}
+          onChange={setCprs}
+          rosterCpr={rosterCpr}
+          sensitivity={sensitivity}
+          measuring={measuring}
+          onMeasure={measure}
+        />
         <ResultPanel scenario={scenario} result={result} calculating={calculating} error={calcError} />
       </div>
     </div>
@@ -321,7 +379,7 @@ function ModelQuality({ scenario }) {
   )
 }
 
-function CrewPanel({ scenario, cprs, onChange, rosterCpr }) {
+function CrewPanel({ scenario, cprs, onChange, rosterCpr, sensitivity, measuring, onMeasure }) {
   const setAt = (i, value) => {
     const next = [...cprs]
     next[i] = value
@@ -333,7 +391,15 @@ function CrewPanel({ scenario, cprs, onChange, rosterCpr }) {
     <div className="card">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold">Crew</h3>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap items-center gap-1">
+          <button
+            onClick={onMeasure}
+            disabled={measuring}
+            title="Measure what each role is worth: how much it moves success, and how much it moves payout"
+            className="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 disabled:opacity-50 mr-1"
+          >
+            {measuring ? 'Measuring…' : 'What matters?'}
+          </button>
           {[25, 50, 75, 95].map((v) => (
             <button
               key={v}
@@ -373,6 +439,7 @@ function CrewPanel({ scenario, cprs, onChange, rosterCpr }) {
               aria-label={`${role.role_name} CPR`}
             />
             <RoleHeadcount role={role} rosterCpr={rosterCpr} cpr={cprs[i] ?? 0} />
+            <RoleSensitivity row={sensitivity?.find((r) => r.positionId === role.position_id)} />
           </div>
         ))}
       </div>
@@ -434,6 +501,48 @@ function RoleHeadcount({ role, rosterCpr, cpr }) {
       this at {cpr}
       {eligible === 0 && ceiling != null && (
         <span> — best is {ceiling}</span>
+      )}
+    </div>
+  )
+}
+
+/**
+ * What this role is worth, as TWO numbers (#441).
+ *
+ * ⚠️ Never collapsed into one score. A role that barely changes success but
+ * decides which ending you reach is a "router", and on Break the Bank the gap
+ * between endings is ~$159M — averaging that together with its negligible
+ * success effect would make it look unimportant, and someone would put their
+ * weakest member there.
+ */
+function RoleSensitivity({ row }) {
+  if (!row || row.kind === 'unknown') return null
+
+  const tone = {
+    gate: 'text-blue-600 dark:text-blue-400',
+    router: 'text-purple-600 dark:text-purple-400',
+    both: 'text-green-600 dark:text-green-400',
+    minor: 'text-gray-400',
+  }[row.kind]
+
+  return (
+    <div className={`text-xs mt-0.5 flex flex-wrap items-center gap-x-3 ${tone}`}>
+      <span className="font-medium">{ROLE_CLASS_LABELS[row.kind]}</span>
+      {row.dSuccess !== null && (
+        <span className="tabular-nums text-gray-500 dark:text-gray-400">
+          {(row.dSuccess * 100).toFixed(3)} pts success / CPR
+        </span>
+      )}
+      {row.dValue !== null ? (
+        <span className="tabular-nums text-gray-500 dark:text-gray-400">
+          {formatCurrency(Math.round(row.dValue))} / CPR
+        </span>
+      ) : (
+        /* ⚠️ Not "$0". We could not measure it — either the crime is unpriced
+           or this role shifts probability onto endings we cannot value. */
+        <span className="text-gray-400" title="Payout effect could not be measured for this role">
+          payout effect unknown
+        </span>
       )}
     </div>
   )

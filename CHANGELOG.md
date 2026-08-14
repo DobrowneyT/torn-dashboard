@@ -17,6 +17,32 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.35.0] - 2026-08-13
+
+### Added
+- **Per-role sensitivity in the OC Simulator** (#441). A *What matters?* button
+  measures, for every role, how much it moves **success** and how much it moves
+  **payout** — and labels each role accordingly:
+  - **Gate** — drives success. Failing it ends the crime.
+  - **Router** — drives payout. Barely changes whether you succeed, but decides
+    which ending you reach, worth ~$159M a step on Break the Bank.
+  - **Barely matters** — measured, and genuinely small. Put your weakest member
+    here.
+  - ⚠️ **Kept as two numbers, never one score.** MonChoon: *"Sometimes they
+    affect the payouts more than success, so its important to see these
+    distinction."* A combined "impact" figure averages a router's huge payout
+    effect together with its negligible success effect and makes it look
+    unimportant — which is exactly the role that would then be under-trained.
+  - ⚠️ **"Barely matters" and "not measured" are different labels.** Both would
+    otherwise invite putting your weakest member there; only one justifies it.
+  - ⚠️ A value delta is **refused** when the probe shifts probability onto
+    endings we cannot price. Otherwise a role that moves mass somewhere
+    invisible looks like it destroys value.
+  - Measured **on demand**, not per slider tick — it costs one extra request per
+    role, and a six-role crime would otherwise fire seven requests per
+    adjustment at a small third-party server. Probes step downward near the
+    ceiling so they stay inside 0–100.
+
 ## [3.34.1] - 2026-08-13
 
 ### Fixed
