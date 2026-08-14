@@ -17,6 +17,50 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.34.0] - 2026-08-13
+
+### Added
+- **Item rewards are valued** (#448). Crimes that pay in items rather than cash
+  — Best of the Lot, Crane Reaction, Gaslight the Way and others report $0 on
+  every ending — now carry a value derived from our own completed runs, priced
+  at today's market. Without it, #444 would rank those crimes last on a number
+  measuring half their reward.
+  - ⚠️ **Averaged over every successful run, not just the ones that dropped
+    items.** Three drops worth $30M across ten runs is $3M a run, not $10M.
+  - ⚠️ **Current market price**, deliberately unlike Payout Management, which
+    keeps the stored snapshot because a saved week is a record of what happened.
+    This is a forecast, so it uses what the items are worth now.
+  - ⚠️ **Per crime, never per ending.** The feed prices endings; our history
+    records items per crime without saying which ending dropped them.
+    Attributing item value to an ending would be inventing a join.
+  - A crime we have never completed reports **null**, not zero — "no history" is
+    not "drops nothing". A crime run once that dropped nothing reports 0 with a
+    run count of 1, which is a real if thin measurement, and the two are kept
+    distinguishable.
+- **Crime ranking** (#444). A sortable table of every mirrored crime with
+  success, scope cost, value per run, **value per scope**, spawns per week and
+  income per week.
+  - ⚠️ **Ranked on value per SCOPE, not E(x).** Scope is what runs out, so the
+    crime turning each point of it into the most value wins even when a pricier
+    crime pays more per run.
+  - ⚠️ Crimes below their difficulty's **break-even success** are struck through
+    and counted in a banner. They drain scope every run whatever they pay, and
+    money alone would rank them highly.
+  - ⚠️ **The CPR assumption is stated on the table**, not buried: every figure
+    assumes one flat CPR across all roles, which is a crew we may not have. So
+    is the fact that value-per-run is an approximation — it weights the mean
+    priced ending by success rather than using the full ending mix, which is
+    what the per-crime cards show.
+  - Spawn rates are measured from our own history, with thin samples marked
+    `?`. ⚠️ They record past *decisions* as much as capacity: a crime avoided
+    because someone judged it not worth it reads as rare, and ranking on that
+    would keep it rare. Said plainly under the table.
+  - Unknowns sink to the bottom in **both** sort directions (the #351 rule)
+    rather than ranking as zero.
+  - Success chances are cached server-side per (crime, CPR) — the mirror is
+    static between nightly runs, so re-asking the same CPR costs nothing
+    upstream.
+
 ## [3.33.0] - 2026-08-13
 
 ### Added
