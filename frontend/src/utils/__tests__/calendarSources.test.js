@@ -7,9 +7,9 @@
 // dates. That is what these tests are for.
 import { describe, expect, it } from 'vitest'
 import {
-  fromWars, fromCompetitions, fromPayoutWeeks, fromExpiringCrimes,
+  fromWars, fromWarPayouts, fromCompetitions, fromPayoutWeeks,
   fromEvents, fromBirthdays, fromAnniversaries, parseSignup,
-  aggregate, byDay, upcoming, monthGrid, utcDate, dayKey,
+  aggregate, byDay, upcoming, monthGrid, utcDate, dayKey, EVENT_KINDS,
 } from '../calendarSources'
 
 const AUG = { from: new Date(Date.UTC(2026, 7, 1)), to: new Date(Date.UTC(2026, 7, 31)) }
@@ -63,30 +63,60 @@ describe('fromCompetitions (timestamptz with a bare offset)', () => {
 })
 
 describe('fromPayoutWeeks (DATE)', () => {
-  it('⚠️ reads a DATE as UTC midnight, not local midnight', () => {
-    // Read in local time, a payout week west of UTC starts the previous day.
-    const [e] = fromPayoutWeeks([{ id: 1, week_start: '2026-08-10', week_end: '2026-08-16' }])
+  it('⚠️ marks the day the money moves, not the week it covers', () => {
+    // The week 3–9 August pays on the 10th. A seven-day bar says "this is
+    // happening all week" when the only date anyone needs is payday.
+    const [e] = fromPayoutWeeks([{ id: 1, week_start: '2026-08-03', week_end: '2026-08-09' }])
     expect(e.startsAt.toISOString()).toBe('2026-08-10T00:00:00.000Z')
-    expect(e.endsAt.toISOString()).toBe('2026-08-16T00:00:00.000Z')
+    expect(e.endsAt).toBeNull()
     expect(e.allDay).toBe(true)
+    expect(e.title).toBe('OC Payout')
+    // The week it covers is still readable, just not occupying seven cells.
+    expect(e.note).toBe('for 2026-08-03 – 2026-08-09')
+  })
+
+  it('⚠️ derives payday from week_end + 1, not from "the next Monday"', () => {
+    // Both rules agree on a Mon–Sun week and disagree the moment a faction
+    // runs one that is not. week_end + 1 is the actual rule.
+    const [midweek] = fromPayoutWeeks([{ id: 2, week_start: '2026-08-05', week_end: '2026-08-11' }])
+    expect(dayKey(midweek.startsAt)).toBe('2026-08-12') // a Wednesday
+  })
+
+  it('reads the DATE as UTC midnight, not local midnight', () => {
+    const [e] = fromPayoutWeeks([{ id: 1, week_start: '2026-08-03', week_end: '2026-08-09' }])
+    expect(e.startsAt.getUTCHours()).toBe(0)
+  })
+
+  it('links to the week so the payouts page can open its modal', () => {
+    const [e] = fromPayoutWeeks([{ id: 42, week_start: '2026-08-03', week_end: '2026-08-09' }])
+    expect(e.href).toBe('/oc/payouts?week=42')
   })
 })
 
-describe('fromExpiringCrimes', () => {
-  it('dates the expiry and carries how full the crime is', () => {
-    const [e] = fromExpiringCrimes([
-      { crime_id: 7, name: 'Break the Bank', expired_at: 1_754_000_000, slots_filled: 3, slots_total: 5 },
-    ])
-    expect(e.kind).toBe('deadline')
-    expect(e.title).toBe('Break the Bank expires')
-    expect(e.note).toBe('3/5 slots filled')
+describe('fromWarPayouts', () => {
+  const war = (over = {}) => ({
+    id: 9, start_at: Math.floor(Date.UTC(2026, 7, 5) / 1000), end_at: Math.floor(Date.UTC(2026, 7, 8, 14) / 1000),
+    opponent_name: 'Bad Company', payout_id: 77, ...over,
   })
 
-  it('says nothing about slots when we do not know', () => {
-    // ⚠️ Not "0/0". #392 was a lapsed OC costing people payout time; a fake
-    // zero here reads as "nobody joined" when it means "we did not look".
-    const [e] = fromExpiringCrimes([{ crime_id: 7, name: 'X', expired_at: 1_754_000_000 }])
-    expect(e.note).toBeNull()
+  it('puts a payout marker on the war\'s last day, linked to the payout', () => {
+    const [e] = fromWarPayouts([war()])
+    expect(dayKey(e.startsAt)).toBe('2026-08-08')
+    expect(e.allDay).toBe(true)
+    expect(e.kind).toBe('payout')
+    expect(e.title).toBe('RW Payout — Bad Company')
+    expect(e.href).toBe('/rw/payouts?payout=77')
+  })
+
+  it('⚠️ emits nothing for a war with no payout saved yet', () => {
+    // A "RW Payout" flag on every finished war is a link to nothing until
+    // leadership pays it out, and one dead link teaches people to stop
+    // trusting the ones that work.
+    expect(fromWarPayouts([war({ payout_id: null })])).toEqual([])
+  })
+
+  it('emits nothing for a war still running', () => {
+    expect(fromWarPayouts([war({ end_at: null })])).toEqual([])
   })
 })
 
@@ -212,10 +242,12 @@ describe('parseSignup', () => {
 
 describe('aggregate', () => {
   const payload = {
-    wars: [{ id: 1, start_at: Math.floor(Date.UTC(2026, 7, 5) / 1000), end_at: Math.floor(Date.UTC(2026, 7, 8) / 1000), opponent_name: 'Z' }],
+    wars: [{
+      id: 1, start_at: Math.floor(Date.UTC(2026, 7, 5) / 1000), end_at: Math.floor(Date.UTC(2026, 7, 8) / 1000),
+      opponent_name: 'Z', payout_id: 55,
+    }],
     competitions: [{ id: 2, name: 'Comp', window_start: '2026-08-03T00:00:00+00', window_end: '2026-08-10T00:00:00+00' }],
     payout_weeks: [{ id: 3, week_start: '2026-08-10', week_end: '2026-08-16' }],
-    expiring_crimes: [{ crime_id: 4, name: 'OC', expired_at: Math.floor(Date.UTC(2026, 7, 20) / 1000) }],
     events: [{ id: 5, source: 'manual', title: 'Chain', starts_at: '2026-08-01T20:00:00+00', recurrence: 'none' }],
     birthdays: [{ member_id: '6', member_name: 'M', birth_month: 8, birth_day: 14 }],
     anniversaries: [{ member_id: '7', member_name: 'N', signup: '2015-08-22 00:00:00' }],
@@ -223,9 +255,23 @@ describe('aggregate', () => {
 
   it('merges every source into one chronological list', () => {
     const events = aggregate(payload, AUG)
+    // war + its payout marker + competition + OC payout + manual + birthday + anniversary
     expect(events).toHaveLength(7)
     const times = events.map((e) => e.startsAt.getTime())
     expect([...times].sort((a, b) => a - b)).toEqual(times)
+  })
+
+  it('⚠️ carries no "deadline" kind — expiring OCs were removed', () => {
+    // MonChoon, 2026-08-14: "I dont need crimes on there at all." Kept as a
+    // test so the source does not quietly return via a copy-paste.
+    expect(Object.keys(EVENT_KINDS)).not.toContain('deadline')
+    expect(aggregate({ expiring_crimes: [{ crime_id: 1, expired_at: 1_754_000_000 }] }, AUG)).toEqual([])
+  })
+
+  it('pairs a war with its payout marker on the last day', () => {
+    const events = aggregate(payload, AUG)
+    const payout = events.find((e) => e.source === 'war_payout')
+    expect(dayKey(payout.startsAt)).toBe('2026-08-08')
   })
 
   it('⚠️ keeps an event that OVERLAPS the window, not just one that starts in it', () => {

@@ -1,9 +1,14 @@
 /**
  * Members → Calendar (#395).
  *
- * A month grid over everything the system already knows — ranked wars,
- * competitions, payout weeks, OCs about to lapse — plus the two things it
- * cannot know: Torn's own events (no API exists) and real birthdays.
+ * A month grid over everything the system already knows — ranked wars, war and
+ * OC payouts, competitions — plus the two things it cannot know: Torn's own
+ * events (no API exists) and real birthdays.
+ *
+ * Payouts are single-day markers on the day the money moves, and they carry a
+ * deep link that opens the very same modal as clicking the row on the payouts
+ * page. That link is the point: a date with no way through to the detail is
+ * just a reminder that the detail exists somewhere else.
  *
  * ⚠️ Everything is in **TCT (= UTC)**, and the whole grid is built in UTC. A
  * faction spans timezones; rendering a war window in the reader's local time
@@ -41,7 +46,13 @@ const monthStart = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(),
 const fmtTime = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
 
 export default function CalendarSection({ isLeadership }) {
-  const { user } = useAuth()
+  const { user, isVisitor } = useAuth()
+  // ⚠️ The `isLeadership` prop is `effectiveIsLeadership`, which deliberately
+  // includes visitors so they can SEE leadership surfaces read-only (App.jsx).
+  // Writing is a different question: the server refuses a visitor on every one
+  // of these routes, so offering the buttons only produces a 403 they cannot
+  // act on. Adding entries is leadership/admin, and never a visitor.
+  const canEdit = isLeadership && !isVisitor
   const [month, setMonth] = useState(() => monthStart(new Date())) // db-time-safe
   const [payload, setPayload] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -131,7 +142,7 @@ export default function CalendarSection({ isLeadership }) {
             <button onClick={load} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-slate-700" title="Refresh" aria-label="Refresh">
               <RefreshCw className="w-4 h-4" />
             </button>
-            {isLeadership && (
+            {canEdit && (
               <button
                 onClick={() => setEditing({ source: 'manual', recurrence: 'none' })}
                 className="btn-primary text-sm px-3 py-1.5 flex items-center gap-1.5"
@@ -210,7 +221,7 @@ export default function CalendarSection({ isLeadership }) {
         <DayPanel
           dayKey={selectedDay}
           events={index.get(selectedDay) ?? []}
-          isLeadership={isLeadership}
+          canEdit={canEdit}
           onClose={() => setSelectedDay(null)}
           onEdit={(e) => setEditing({
             id: e.eventId,
@@ -233,12 +244,6 @@ export default function CalendarSection({ isLeadership }) {
         mine={(payload?.birthdays ?? []).find((b) => String(b.member_id) === String(user?.id)) ?? null}
         onChanged={load}
       />
-
-      <p className="text-xs text-gray-500 dark:text-gray-400">
-        Wars, competitions, payout weeks and expiring OCs are read from the system and cannot be
-        edited here — they are a view onto their own pages. Torn's own events have no API, so they
-        are entered by hand.
-      </p>
     </div>
   )
 }
@@ -248,7 +253,7 @@ function toLocalInput(d) {
   return d.toISOString().slice(0, 16)
 }
 
-function DayPanel({ dayKey: key, events, isLeadership, onClose, onEdit, onDelete }) {
+function DayPanel({ dayKey: key, events, canEdit, onClose, onEdit, onDelete }) {
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-2">
@@ -278,7 +283,7 @@ function DayPanel({ dayKey: key, events, isLeadership, onClose, onEdit, onDelete
               {e.note && <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{e.note}</div>}
             </div>
             {/* ⚠️ Only typed-in entries. Nothing derived gets a delete button. */}
-            {isLeadership && e.editable && (
+            {canEdit && e.editable && (
               <div className="flex gap-1 shrink-0">
                 <button onClick={() => onEdit(e)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700" aria-label="Edit">
                   <Pencil className="w-3.5 h-3.5" />
