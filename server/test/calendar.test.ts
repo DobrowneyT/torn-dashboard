@@ -57,10 +57,14 @@ beforeAll(async () => {
   await stack.db.query(
     `INSERT INTO oc_payout_weeks (week_start, week_end) VALUES ('2026-08-10', '2026-08-16')`
   )
+  // Closes the day BEFORE the window opens; its payout marker lands on the
+  // window's first cell. Seeded here rather than mid-test so no assertion
+  // below depends on the order tests happen to run in.
   await stack.db.query(
-    `INSERT INTO crimes (crime_id, name, difficulty, status, expired_at, total_slots, filled_slots)
-     VALUES ('c900', 'Break the Bank', 8, 'Recruiting', $1, 5, 3)`,
-    [epoch(2026, 8, 20)]
+    `INSERT INTO oc_payout_weeks (week_start, week_end) VALUES ('2026-07-26', '2026-07-31')`
+  )
+  await stack.db.query(
+    `INSERT INTO war_payouts (war_id, war_type) VALUES (900, 'real')`
   )
   await stack.db.query(
     `INSERT INTO member_daily_stats (member_id, snapshot_date, profile)
@@ -76,10 +80,40 @@ describe('GET /api/calendar', () => {
     expect(res.status).toBe(200)
     expect(res.body.wars).toHaveLength(1)
     expect(res.body.competitions).toHaveLength(1)
-    expect(res.body.payout_weeks).toHaveLength(1)
-    expect(res.body.expiring_crimes).toHaveLength(1)
+    expect(res.body.payout_weeks).toHaveLength(2)
     // The acceptance criterion: useful on day one, before any manual entry.
     expect(res.body.events).toEqual([])
+  })
+
+  it('does not serve expiring crimes at all', () => {
+    // MonChoon, 2026-08-14: "I dont need crimes on there at all."
+    return api('GET', `/api/calendar${WINDOW}`, memberToken)
+      .then((res) => expect(res.body.expiring_crimes).toBeUndefined())
+  })
+
+  it('carries the war payout id, so the last day can link to the payout', async () => {
+    const res = await api('GET', `/api/calendar${WINDOW}`, memberToken)
+    expect(res.body.wars[0].payout_id).toBeTruthy()
+  })
+
+  it('⚠️ reports a null payout id for a war nobody has paid out', async () => {
+    // The frontend suppresses the marker on this, and must be able to: a "RW
+    // Payout" flag linking to nothing is worse than no flag.
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, start_at, end_at, opponent_name) VALUES (902, $1, $2, 'Unpaid')`,
+      [epoch(2026, 8, 12), epoch(2026, 8, 15)]
+    )
+    const res = await api('GET', `/api/calendar${WINDOW}`, memberToken)
+    expect(res.body.wars.find((w: any) => w.id === 902).payout_id).toBeNull()
+    await stack.db.query('DELETE FROM ranked_wars WHERE id = 902')
+  })
+
+  it('⚠️ includes a week that closed the day before the window opens', async () => {
+    // Its payout marker lands on `week_end + 1`, which is the window's FIRST
+    // cell. Filtering on week_end >= from would drop payday from the grid.
+    const res = await api('GET', `/api/calendar${WINDOW}`, memberToken)
+    const ends = res.body.payout_weeks.map((w: any) => String(w.week_end).slice(0, 10))
+    expect(ends).toContain('2026-07-31')
   })
 
   it('serves each source in its own native time representation', async () => {
@@ -88,12 +122,8 @@ describe('GET /api/calendar', () => {
     const res = await api('GET', `/api/calendar${WINDOW}`, memberToken)
     expect(Number(res.body.wars[0].start_at)).toBe(epoch(2026, 8, 5)) // epoch SECONDS
     expect(String(res.body.competitions[0].window_start)).toMatch(/^\d{4}-\d{2}-\d{2}/)
-    expect(String(res.body.payout_weeks[0].week_start)).toMatch(/^2026-08-10/)
-  })
-
-  it('carries how full an expiring crime is, so the warning means something', async () => {
-    const res = await api('GET', `/api/calendar${WINDOW}`, memberToken)
-    expect(res.body.expiring_crimes[0]).toMatchObject({ slots_filled: 3, slots_total: 5 })
+    const august = res.body.payout_weeks.find((w: any) => String(w.week_start).startsWith('2026-08-10'))
+    expect(august, 'the August week must be present as a DATE').toBeTruthy()
   })
 
   it('derives Torn anniversaries from the profile blob we already hold', async () => {

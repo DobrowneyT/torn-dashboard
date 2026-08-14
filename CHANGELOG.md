@@ -17,6 +17,31 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.36.1] - 2026-08-14
+
+### Changed
+- **Calendar: payouts are a single marker on payday, and they link through**
+  (#395, on MonChoon's review of the first cut).
+  - **OC Payout** no longer spans the week it covers — one flag on the day the
+    money moves. The date is derived as `week_end + 1`, not "the next Monday":
+    both rules agree on a Mon–Sun week and only one of them survives a faction
+    running a week that is not.
+  - Clicking it opens **that week's payout modal** — the same one you get from
+    the row in Payout History — via `/oc/payouts?week=<id>`.
+  - Ranked wars gain an **RW Payout** marker on the war's last day, linking to
+    the war payout modal. ⚠️ Only where a payout actually exists: a flag on
+    every finished war would be a dead link until leadership pays it out, and
+    one dead link teaches people to distrust the ones that work.
+- **Adding calendar entries is leadership/admin only.** The controls keyed off
+  `effectiveIsLeadership`, which deliberately includes **visitors** so they can
+  read leadership surfaces — so a visitor saw an *Add event* button the server
+  was always going to refuse. Editing now excludes visitors explicitly.
+
+### Removed
+- **Expiring OCs from the calendar** (#395). Not useful there — the OC pages
+  already carry it.
+- The explanatory paragraph under the calendar grid.
+
 ## [3.36.0] - 2026-08-13
 
 ### Added

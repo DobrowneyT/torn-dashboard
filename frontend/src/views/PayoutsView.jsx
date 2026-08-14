@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useFactionConfig } from '../contexts/FactionConfigContext'
 import { useViewState } from '../contexts/ViewStateContext'
@@ -40,6 +41,31 @@ export default function PayoutsView({ isLeadership }) {
 
   // Info modal
   const [showInfo, setShowInfo] = useState(false)
+
+  // Deep link from the faction calendar (#395): /oc/payouts?week=<id> opens
+  // that week's modal — the same one you get by clicking the row here.
+  //
+  // ⚠️ Fires exactly once per id. Without the ref this reopens the modal the
+  // instant you close it, because the query string is still in the URL and the
+  // effect has no memory of having acted on it.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const deepLinked = useRef(null)
+  const [deepLinkMiss, setDeepLinkMiss] = useState(null)
+
+  useEffect(() => {
+    const want = searchParams.get('week')
+    if (!want || loading || deepLinked.current === want) return
+    deepLinked.current = want
+    const week = payoutWeeks.find((w) => String(w.id) === String(want))
+    // A week we do not have is a real distinction, not a no-op: the link came
+    // from somewhere, so saying nothing looks like the click failed.
+    if (week) loadWeekDetails(week.id)
+    else setDeepLinkMiss(want)
+    // Clear the param so a refresh or a back-navigation is not a reopen.
+    const next = new URLSearchParams(searchParams)
+    next.delete('week')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, loading, payoutWeeks, setSearchParams])
 
   // Persist state
   useEffect(() => {
@@ -243,6 +269,13 @@ export default function PayoutsView({ isLeadership }) {
             )}
           </div>
         </div>
+
+        {deepLinkMiss && (
+          <div className="mb-4 text-sm rounded border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-amber-800 dark:text-amber-300 flex items-start justify-between gap-3">
+            <span>That payout week is no longer in the history — it may have been deleted since the calendar was loaded.</span>
+            <button onClick={() => setDeepLinkMiss(null)} className="shrink-0 underline">Dismiss</button>
+          </div>
+        )}
 
         {/* Compare Weeks Section */}
         {compareMode && (

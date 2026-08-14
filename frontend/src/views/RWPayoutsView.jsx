@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { getFactionId } from '../utils/factionIdentity'
 import { useAuth } from '../contexts/AuthContext'
 import { apiGet } from '../utils/apiClient'
@@ -23,9 +24,32 @@ export default function RWPayoutsView() {
   const [loadingModal, setLoadingModal] = useState(false)
   const [modalTab, setModalTab] = useState('sheet')
 
+  // Deep link from the faction calendar (#395): /rw/payouts?payout=<id>.
+  //
+  // ⚠️ This page shows YOUR payouts, not the faction's. A war you sat out has
+  // a payout that is genuinely not in this list, and that is not the same as a
+  // broken link — so the miss gets its own message rather than silence.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const deepLinked = useRef(null)
+  const [deepLinkMiss, setDeepLinkMiss] = useState(false)
+
   useEffect(() => {
     if (user?.id) loadPayoutData()
   }, [user?.id])
+
+  useEffect(() => {
+    const want = searchParams.get('payout')
+    // Fires once per id — the query string outlives the modal, so without the
+    // ref, closing it just reopens it.
+    if (!want || loading || deepLinked.current === want) return
+    deepLinked.current = want
+    const wp = warPayouts.find((p) => String(p.payout_id) === String(want))
+    if (wp) openModal(wp)
+    else setDeepLinkMiss(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('payout')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, loading, warPayouts, setSearchParams])
 
   async function loadPayoutData() {
     try {
@@ -107,6 +131,13 @@ export default function RWPayoutsView() {
             <Info className="w-4 h-4" />
           </button>
         </h2>
+
+        {deepLinkMiss && (
+          <div className="mb-4 text-sm rounded border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-amber-800 dark:text-amber-300 flex items-start justify-between gap-3">
+            <span>That war payout is not in your history — this page only shows wars you were paid for.</span>
+            <button onClick={() => setDeepLinkMiss(false)} className="shrink-0 underline">Dismiss</button>
+          </div>
+        )}
 
         {warPayouts.length === 0 ? (
           <p className="text-gray-500 dark:text-gray-400 py-4">No war payouts yet.</p>
