@@ -278,3 +278,75 @@ describe('OC Simulator endpoints', () => {
     expect(status).toBe(404)
   })
 })
+
+// #442 — who on our roster can fill each role.
+describe('GET /api/oc-simulator/roster-cpr/:scenario', () => {
+  let simToken: string
+
+  beforeAll(async () => {
+    const login = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'SIMMANAGERKEY123' }),
+    })
+    simToken = ((await login.json()) as any).token
+
+    // oc_crime_positions.crime_name is FK'd to oc_crime_types.
+    await stack.db.query(
+      `INSERT INTO oc_crime_types (name, difficulty) VALUES ('Break the Bank', 8)
+       ON CONFLICT DO NOTHING`
+    )
+    await stack.db.query(`
+      INSERT INTO oc_crime_positions (crime_name, position_label, position_id) VALUES
+        ('Break the Bank', 'Robber', 'P1'),
+        ('Break the Bank', 'Muscle #1', 'P2')
+      ON CONFLICT DO NOTHING
+    `)
+    await stack.db.query(`
+      INSERT INTO member_cpr_v2 (member_id, crime_name, position_label, cpr_value) VALUES
+        ('300', 'Break the Bank', 'Robber', 91),
+        ('301', 'Break the Bank', 'Robber', 64),
+        ('302', 'Break the Bank', 'Robber', 88)
+      ON CONFLICT (member_id, crime_name, position_label) DO UPDATE SET cpr_value = EXCLUDED.cpr_value
+    `)
+  })
+
+  const rosterGet = async (path: string) => {
+    const res = await fetch(`${stack.baseUrl}${path}`, { headers: { authorization: `Bearer ${simToken}` } })
+    return { status: res.status, body: (await res.json()) as any }
+  }
+
+  it('joins CPR readings to the mirrored role across the "#" spelling', async () => {
+    const { status, body } = await rosterGet('/api/oc-simulator/roster-cpr/Break%20the%20Bank')
+    expect(status).toBe(200)
+    // 'Muscle 1' upstream vs 'Muscle #1' in Torn's payload.
+    expect(body.unmatched_roles).toEqual([])
+    // Highest first, and 302's reading of 88 is absent — they are a leaver,
+    // which the next test pins explicitly.
+    expect(body.readings.P1.map((r: any) => r.cpr)).toEqual([91, 64])
+  })
+
+  it('excludes members who have left the faction', async () => {
+    // '302' is is_current = false in the fixture roster — their CPR is not
+    // capacity we have, and counting it would overstate every headcount.
+    const { body } = await rosterGet('/api/oc-simulator/roster-cpr/Break%20the%20Bank')
+    expect(body.readings.P1.map((r: any) => r.member_id)).not.toContain('302')
+  })
+
+  it('returns an empty list for a role nobody has been observed in', async () => {
+    const { body } = await rosterGet('/api/oc-simulator/roster-cpr/Break%20the%20Bank')
+    expect(body.readings.P2).toEqual([])
+  })
+
+  it('404s a scenario with no mirrored roles', async () => {
+    const { status } = await rosterGet('/api/oc-simulator/roster-cpr/Not%20A%20Crime')
+    expect(status).toBe(404)
+  })
+
+  it('is gated to the same roles as the rest of the simulator', async () => {
+    const res = await fetch(`${stack.baseUrl}/api/oc-simulator/roster-cpr/Break%20the%20Bank`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.status).toBe(403)
+  })
+})

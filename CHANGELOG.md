@@ -17,6 +17,45 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.32.0] - 2026-08-13
+
+### Added
+- **Role headcount from the real roster** (#442). Each slider in the OC
+  Simulator now says how many current members clear that CPR for that role,
+  updating as you move it, with the best available CPR shown when nobody does.
+  - ⚠️ **"Can fill", never "available".** A member with the CPR may already be
+    in another crime — members cannot be in two OCs at once — so every figure is
+    an upper bound and the wording says so. Wiring in the occupancy data (#389)
+    is the follow-up.
+  - ⚠️ Three states that all look like "0" are kept apart: **nobody clears the
+    bar** (a training problem), **no readings for this role** (a data problem),
+    and **the role could not be joined to a Torn position** (a matching
+    problem). Collapsing them would send someone hunting a problem that does not
+    exist.
+  - Leavers are excluded — a former member's CPR is not capacity we have.
+- **Scope economy modelled** (`utils/ocScope.js`), and the simulator now says
+  whether a crew can afford to keep running a crime.
+  - Scope is spent to spawn and returned **only on success**, so each difficulty
+    has a **break-even success chance**: 50% Introductory, 66.7% Simple, 75%
+    Intermediate, 80% Advanced, **83.3% Elaborate**. ⚠️ Below that line a crime
+    drains the faction's ability to spawn anything, however much money it pays —
+    and E(x) alone will never say so. **This is the answer to "what minimum CPR
+    should we set".**
+  - `scopeReward` added to `config.js` alongside the existing `scopeCost`, plus
+    the 100 cap. Scope above the cap is discarded, so a full bank is waste
+    rather than a healthy surplus.
+
+### Fixed
+- ⚠️ Corrected a misreading: "scope" is Torn's crime-spawning resource, not
+  respect. The #445 ticket carried that wrong assumption and has been amended.
+
+### Changed
+- Role↔position matching (`server/src/oc/roleMatch.ts`) requires the **name and
+  the position id to agree**, and reports a conflict rather than picking a side.
+  The same string mismatch has now appeared three times ("Thief 1" upstream,
+  "Thief1" in weights, "Thief #1" in Torn), and an off-by-one in position
+  numbering would attach every CPR reading to the wrong role, invisibly.
+
 ## [3.31.0] - 2026-08-13
 
 ### Added
