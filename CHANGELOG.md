@@ -53,6 +53,20 @@ from `VERSION` at runtime) both surface it automatically.
 - `expectedValue()`'s lower-bound contract is unchanged and now describes
   unmapped or unobserved endings rather than un-typed ones — the same honesty
   for a different reason.
+  
+## [3.30.2] - 2026-08-13
+
+### Fixed
+- **Two scraper jobs had no description in Global Admin** (#390, #389).
+  `crime-occupancy` and `oc-scenarios-mirror` were both registered without a
+  `SCRAPER_JOB_INFO` entry, so hovering their names showed the "details are not
+  available" fallback instead of what they do. Both now describe their purpose,
+  cadence and API footprint like every other job.
+  - Guarded both ways: the test now reads the job names straight out of
+    `server/src/scraper/registerJobs.ts` and fails if a registered job has no
+    summary, or if a summary describes a job that no longer exists. The gap was
+    silent — the row renders perfectly, just uselessly — and would have
+    recurred on the next job added.
 
 ## [3.30.1] - 2026-08-13
 

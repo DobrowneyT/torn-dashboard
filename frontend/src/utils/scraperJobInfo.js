@@ -70,6 +70,17 @@ export const SCRAPER_JOB_INFO = {
   'competitions-resolve':
     'Auto-resolves competitions at day-boundary closes and interval draws. ' +
     'Feeds competition leaderboards and prize payouts. No API calls (DB only).',
+  'crime-occupancy':
+    'Observed OC occupancy, every minute at the :30 mark ' +
+    '(GET /v2/faction/crimes?cat=available). Records when each member was ' +
+    'actually SEEN in a crime slot, because Torn never reports a departure — ' +
+    'every "left at" elsewhere is inferred. Feeds the payout page\'s observed ' +
+    'time. 1 API call per minute (~1,440/day).',
+  'oc-scenarios-mirror':
+    'Nightly mirror of the community OC probability model: scenarios, roles, ' +
+    'weights, flowcharts and the derived ending map, into our own tables so ' +
+    'the OC Simulator never calls the third-party service from a browser. ' +
+    'No Torn API calls; ~150 calls to tornprobability.com per run.',
   'revives-sync':
     'On-demand only (no schedule): pages incoming revives for a specific ' +
     'ranked war (GET /v2/faction/revives, pages of 100). Feeds RW payout ' +
