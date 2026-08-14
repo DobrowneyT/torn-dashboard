@@ -17,6 +17,27 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.34.1] - 2026-08-13
+
+### Fixed
+- ⚠️ **Illiquid item drops were valued at zero** (#448). Item rewards priced on
+  `market_price` alone, but some items rarely trade and carry `market_price = 0`
+  while `sell_price` holds their real worth — a Priceless Painting is the
+  obvious case. That valued exactly the rarest, most expensive drops at nothing.
+  Now uses `GREATEST(market_price, sell_price)`, matching what
+  `enrichItemBreakdown` has done in the payout path for a long time.
+- An item in **neither** price list contributes zero and is **counted**, rather
+  than falling back to the `unit_value` stored on the row when the crime ran. A
+  stale number presented as a current one is what this feature exists to avoid.
+  Affected crimes are marked `under` in the ranking table: their value is an
+  understatement, not an estimate.
+
+### Changed
+- **`items-sync` now runs every 6 hours** instead of once daily at 04:15. The
+  simulator prices item rewards at current market, so re-running a simulation
+  should pick up price movement. The whole catalogue is one API call, so four a
+  day costs nothing worth counting.
+
 ## [3.34.0] - 2026-08-13
 
 ### Added

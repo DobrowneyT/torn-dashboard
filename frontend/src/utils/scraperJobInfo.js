@@ -6,7 +6,9 @@
 export const SCRAPER_JOB_INFO = {
   'items-sync':
     'Torn item catalog with market/sell/buy prices (GET /v2/torn/items). ' +
-    'Feeds payout item valuations. ~1 API call.',
+    'Feeds payout item valuations and the OC Simulator\'s item-reward values, ' +
+    'which price at current market — so this runs every 6 hours rather than ' +
+    'daily. ~1 API call.',
   'inventory-sync':
     "Faction armory snapshot across every category (GET /faction/{id}). " +
     'Upserts inventory_items for loaned-item tracking and payout valuations. ~1 API call.',

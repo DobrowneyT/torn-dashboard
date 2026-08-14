@@ -127,6 +127,10 @@ export function rankCrime(scenario, successChance, { resolver, now } = {}) {
     pricingComplete: quality?.complete ?? false,
     unpricedEndings: quality ? quality.unmapped.length + quality.unpriced.length : null,
     itemRuns: scenario?.item_reward?.runs ?? 0,
+    // ⚠️ Item drops with neither a market nor a sell price contribute zero, so
+    // a crime with these is UNDER-valued. Distinct from unpriced endings, which
+    // are a mapping problem rather than a catalogue one.
+    unpricedItemRows: scenario?.item_reward?.unpriced_rows ?? 0,
   }
 }
 
