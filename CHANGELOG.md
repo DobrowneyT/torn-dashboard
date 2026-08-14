@@ -17,6 +17,37 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.38.0] - 2026-08-14
+
+### Added
+- **Per-member Torn event start windows** (#459), on Members → Calendar. During
+  an event everyone gets 48 hours opening at their own chosen hour, so where
+  each member's window sits is real coordination information — shown as a
+  per-member list plus a count per hour, so the faction's coverage reads at a
+  glance.
+  - ⚠️ **Opt-in, and off until each member switches it on.** Reading
+    `/user/calendar` is not among the uses members agreed to when they enrolled
+    their key, and silently widening what an existing key does is exactly what
+    a consent record exists to prevent. The grant is recorded separately from
+    `consent_at`.
+  - ⚠️ **Deliberately not a `consent_version` bump.** That gates the whole key
+    pool, so a bump would stop every scraper until each member logged in again
+    — a heavy price for an optional feature.
+  - ⚠️ **Withdrawal deletes.** Turning it off clears the grant *and* removes the
+    stored time; the daily job also sweeps rows whose consent vanished by
+    another route (key removed, member left), so stored data never outlives its
+    permission.
+  - Members who declined are **absent from the list**, never present with a
+    dash — a row reading "did not share" publishes a decision that is nobody
+    else's business.
+  - The enrolment disclosure names the scope as opt-in and lists the extra call.
+- **`member-event-windows` scraper job**, daily at 04:35, one call per
+  **opted-in** member. ⚠️ It uses each member's **own** key, never a pooled one:
+  `/user/calendar` answers for the caller, so a rotating key would report one
+  person's hour under every member's name — plausible-looking data that is
+  entirely wrong. Torn's string is stored verbatim and parsed only at read time,
+  so a format change cannot be silently wrong for everyone at once.
+
 ## [3.37.0] - 2026-08-14
 
 ### Added

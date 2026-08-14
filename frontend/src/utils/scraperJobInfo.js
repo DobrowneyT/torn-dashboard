@@ -89,6 +89,12 @@ export const SCRAPER_JOB_INFO = {
     'is in effect. One row per day rather than one row overall, so the ' +
     'calendar can show what a bonus was on a given date instead of ' +
     'repainting history with today\'s numbers. One Torn API call per run.',
+  'member-event-windows':
+    'Daily read of each member\'s chosen Torn event start hour, for members ' +
+    'who explicitly opted into that scope — nobody else is touched. Uses each ' +
+    'member\'s OWN key, not a pooled one, because the endpoint answers for the ' +
+    'caller: a rotating key would report one person\'s hour under everyone\'s ' +
+    'name. One Torn API call per opted-in member.',
   'revives-sync':
     'On-demand only (no schedule): pages incoming revives for a specific ' +
     'ranked war (GET /v2/faction/revives, pages of 100). Feeds RW payout ' +

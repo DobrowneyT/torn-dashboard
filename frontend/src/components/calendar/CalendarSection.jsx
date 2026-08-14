@@ -26,6 +26,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../../utils/apiClient'
 import { aggregate, byDay, monthGrid, dayKey, layoutWeek, EVENT_KINDS } from '../../utils/calendarSources'
 import { useAuth } from '../../contexts/AuthContext'
 import BirthdayCard from './BirthdayCard'
+import EventWindowPanel from './EventWindowPanel'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -223,6 +224,8 @@ export default function CalendarSection({ isLeadership }) {
         mine={(payload?.birthdays ?? []).find((b) => String(b.member_id) === String(user?.id)) ?? null}
         onChanged={load}
       />
+
+      <EventWindowPanel windows={payload?.event_windows ?? []} onChanged={load} />
     </div>
   )
 }
