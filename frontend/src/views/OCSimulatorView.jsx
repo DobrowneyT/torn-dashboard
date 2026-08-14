@@ -7,10 +7,12 @@
  * Two things this page is careful about, both of which come down to the same
  * thing — an OC manager schedules real crimes off these numbers:
  *
- *   1. E(x) is a LOWER BOUND until every good ending is priced. The payout
- *      table is hand-entered as endings are observed, and is currently mostly
- *      empty. A partial sum shown as "the" expected value understates exactly
- *      the crimes whose best ending happens to be unpriced.
+ *   1. E(x) is a LOWER BOUND until every good ending is priced. Payouts come
+ *      from the mirrored feed (#440), joined to endings through the #390
+ *      mapping, so a crime is under-priced when an ending could not be mapped
+ *      or has no observations — not because nobody typed it in. A partial sum
+ *      shown as "the" expected value understates exactly the crimes whose best
+ *      ending happens to be unpriced.
  *
  *   2. Four of the 31 upstream models are still in progress, and they answer
  *      with numbers that look exactly as authoritative as the finished ones.
@@ -19,7 +21,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, FlaskConical, Info, LoaderCircle } from 'lucide-react'
 import { apiGet, apiPost } from '../utils/apiClient'
-import { expectedValue, payoutsFor } from '../utils/ocExpectedValue'
+import { expectedValue } from '../utils/ocExpectedValue'
+import {
+  payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
+} from '../utils/ocScenarioPayouts'
 import { formatCurrency } from '../utils/payoutCalculations'
 
 /** Where a fresh crew starts. Mid-range, so moving a slider shows movement. */
@@ -279,11 +284,29 @@ function ResultPanel({ scenario, result, calculating, error }) {
     return Object.fromEntries(Object.entries(result).filter(([k]) => k.startsWith('goodEnding')))
   }, [result])
 
+  // #440: payouts come from the mirrored feed, joined to endings through the
+  // #390 mapping. No hand-entered table any more.
+  const priced = useMemo(() => payoutsFromEndings(scenario.endings), [scenario.endings])
+  const respect = useMemo(() => respectFromEndings(scenario.endings), [scenario.endings])
+  const quality = useMemo(() => pricingQuality(scenario.endings), [scenario.endings])
+  const spread = useMemo(() => payoutSpread(scenario.endings), [scenario.endings])
+  const itemsOnly = useMemo(() => paysInItems(scenario.endings), [scenario.endings])
+
   const ev = useMemo(
-    () => (result ? expectedValue(scenario.name, goodProbabilities) : null),
-    [scenario.name, goodProbabilities, result]
+    () => (result ? expectedValue(scenario.name, goodProbabilities, priced) : null),
+    [scenario.name, goodProbabilities, result, priced]
   )
-  const priced = payoutsFor(scenario.name)
+
+  // Expected respect, on the same terms as expected money.
+  const expectedRespect = useMemo(() => {
+    if (!result) return null
+    let total = 0
+    for (const [key, p] of Object.entries(goodProbabilities)) {
+      const r = respect[key]
+      if (typeof r === 'number' && Number.isFinite(p)) total += p * r
+    }
+    return total
+  }, [goodProbabilities, respect, result])
 
   // Which diagram node each ending maps to, so an unresolved one can say so.
   const endingMeta = useMemo(() => {
@@ -327,7 +350,8 @@ function ResultPanel({ scenario, result, calculating, error }) {
             />
           </div>
 
-          <ExpectedValue ev={ev} priced={priced} />
+          <ExpectedValue ev={ev} priced={priced} quality={quality} spread={spread}
+            expectedRespect={expectedRespect} itemsOnly={itemsOnly} />
 
           <div className="mt-4">
             <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
@@ -338,6 +362,7 @@ function ResultPanel({ scenario, result, calculating, error }) {
                 const meta = endingMeta.get(key)
                 const isGood = key.startsWith('goodEnding')
                 const payout = isGood ? priced?.[key] : 0
+                const obs = meta?.observations ?? null
                 return (
                   <div key={key} className="flex items-center justify-between gap-2 text-xs">
                     <span className="flex items-center gap-1.5 min-w-0">
@@ -358,6 +383,12 @@ function ResultPanel({ scenario, result, calculating, error }) {
                           ? 'unpriced'
                           : formatCurrency(payout ?? 0)}
                       </span>
+                      {isGood && payout != null && obs != null && obs < 30 && (
+                        <span className="text-amber-600 dark:text-amber-400"
+                          title={`Averaged from only ${obs} observed run${obs === 1 ? '' : 's'}`}>
+                          n={obs}
+                        </span>
+                      )}
                       <span className="w-16 text-right">{(p * 100).toFixed(3)}%</span>
                     </span>
                   </div>
@@ -378,7 +409,7 @@ function ResultPanel({ scenario, result, calculating, error }) {
  * say yet". Rendering a partial sum as the expected value is the failure this
  * whole module was written to avoid.
  */
-function ExpectedValue({ ev, priced }) {
+function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly }) {
   if (!ev) return null
   const anyPriced = priced && Object.values(priced).some((v) => v != null)
 
@@ -391,8 +422,9 @@ function ExpectedValue({ ev, priced }) {
         <div className="mt-1 flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400">
           <Info className="w-4 h-4 shrink-0 mt-0.5" />
           <span>
-            No payouts recorded for this crime yet, so E(x) cannot be calculated. It is left blank
-            rather than shown as zero — a zero would read as &ldquo;this crime pays nothing&rdquo;.
+            The mirror has no observed payouts for this crime yet, so E(x) cannot be calculated.
+            It is left blank rather than shown as zero — a zero would read as &ldquo;this crime
+            pays nothing&rdquo;.
           </span>
         </div>
       </div>
@@ -401,17 +433,63 @@ function ExpectedValue({ ev, priced }) {
 
   return (
     <div className="rounded border border-gray-200 dark:border-slate-700 p-3">
-      <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-        Expected value {ev.complete ? '' : '(lower bound)'}
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          Expected value {ev.complete ? '' : '(lower bound)'}
+        </div>
+        {expectedRespect != null && expectedRespect > 0 && (
+          <div className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+            {expectedRespect.toFixed(1)} respect
+          </div>
+        )}
       </div>
       <div className="mt-0.5 text-xl font-semibold tabular-nums">
         {ev.complete ? '' : 'at least '}{formatCurrency(Math.round(ev.expected))}
       </div>
+
+      {/* ⚠️ $0 across every ending does not mean worthless — several crimes
+          reward items, which the feed does not price. Saying "pays nothing"
+          here would be a wrong answer, not a missing one. */}
+      {itemsOnly && (
+        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+          Every ending on this crime reports no cash, but it still earns respect — its rewards are
+          items, which the probability feed does not price. Judge this one on respect, not on E(x).
+        </p>
+      )}
+
       {!ev.complete && (
         <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
           {ev.missing.length} ending{ev.missing.length === 1 ? '' : 's'} unpriced, covering{' '}
           {((1 - ev.pricedProbability) * 100).toFixed(2)}% of the probability. The real value is
           higher by an unknown amount — never lower.
+        </p>
+      )}
+
+      {/* The three ways pricing can be weak have three different fixes, so they
+          are reported separately rather than as one "incomplete" badge. */}
+      {quality && (quality.unmapped.length > 0 || quality.thin.length > 0) && (
+        <div className="mt-2 space-y-0.5 text-xs text-gray-500 dark:text-gray-400">
+          {quality.unmapped.length > 0 && (
+            <div>
+              {quality.unmapped.length} ending{quality.unmapped.length === 1 ? '' : 's'} could not
+              be matched to the diagram, so they cannot be priced at all.
+            </div>
+          )}
+          {quality.thin.length > 0 && (
+            <div className="text-amber-600 dark:text-amber-400">
+              {quality.thin.length} priced from very few observed runs — treat those figures as
+              rough.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* What a "router" role is worth: the gap between best and worst ending. */}
+      {spread && spread.gap > 0 && (
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          Endings range {formatCurrency(spread.worst)} – {formatCurrency(spread.best)}, a spread of{' '}
+          <span className="font-medium">{formatCurrency(spread.gap)}</span> — what the roles that
+          steer which ending you land in are worth.
         </p>
       )}
     </div>

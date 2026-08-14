@@ -17,6 +17,43 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.31.0] - 2026-08-13
+
+### Added
+- **E(x) is computed, not hand-entered** (#440). The SSE feed that serves each
+  crime's flowchart also emits an `event: stats` frame carrying observed money
+  and respect **per diagram node** — the same node ids the #390 ending map
+  resolves to. We were already receiving that frame on the same connection and
+  discarding it. The nightly mirror now stores it in `oc_scenario_node_stats`
+  and the simulator prices every mapped ending from it, at **no extra
+  requests**. The 167-cell hand-entry table is no longer the source of payouts.
+  - ⚠️ **This independently confirms the #390 mapping.** Joined through the
+    derived map, Break the Bank's endings form a monotonic ladder —
+    $375.8M → $216.8M, respect 450 → 270 in steps of exactly 45. Under
+    declaration order, the shortcut #390 rejected, respect would read
+    450, 405, **315, 360**, 270. Confirmation from money, a signal completely
+    unrelated to the failure-depth and role evidence that derived the mapping.
+    A test asserts the ladder, so a mapping regression fails loudly.
+  - **Respect now shown alongside money** — expected respect per run, and per
+    ending.
+  - **Payout spread** per crime (best vs worst ending, ~$159M on Break the
+    Bank). This is what a role that steers *which* ending you reach is worth,
+    and the groundwork for #441.
+  - ⚠️ **Observation counts travel with the figures.** `n` ranges from 1 to
+    6,419 across the real feed; an average from a single run would otherwise
+    render identically to one from six thousand. Endings priced from few runs
+    are marked, and the three distinct weaknesses — ending unmapped, mapped but
+    unpriced, priced but thin — are reported separately, because each has a
+    different fix.
+  - A run that returns no stats frame **leaves existing prices alone** rather
+    than deleting them. Wiping a priced crime because one nightly run arrived
+    early would turn a real E(x) into a lower bound of zero, silently.
+
+### Changed
+- `expectedValue()`'s lower-bound contract is unchanged and now describes
+  unmapped or unobserved endings rather than un-typed ones — the same honesty
+  for a different reason.
+  
 ## [3.30.2] - 2026-08-13
 
 ### Fixed

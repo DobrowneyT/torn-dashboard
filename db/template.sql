@@ -194,6 +194,25 @@ CREATE TABLE public.oc_scenario_endings (
 CREATE INDEX oc_scenario_endings_node_idx
   ON public.oc_scenario_endings (scenario_name, node_id);
 
+-- #440: observed money/respect per diagram node, from the same SSE connection
+-- that serves the flowchart. Joined to endings through oc_scenario_endings so
+-- E(x) is computed rather than hand-entered.
+CREATE TABLE public.oc_scenario_node_stats (
+  scenario_name text NOT NULL REFERENCES public.oc_scenarios(name) ON DELETE CASCADE,
+  node_id       text NOT NULL,
+  -- Observation count, 1 to 6,419 across the real feed. Must reach the UI: an
+  -- average from one run looks exactly like an average from six thousand.
+  n             integer NOT NULL DEFAULT 0,
+  money_min     bigint,
+  money_max     bigint,
+  money_avg     bigint,
+  respect_min   numeric,
+  respect_max   numeric,
+  respect_avg   numeric,
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (scenario_name, node_id)
+);
+
 CREATE TABLE public.crimes (
   crime_id text NOT NULL,
   name text NOT NULL,

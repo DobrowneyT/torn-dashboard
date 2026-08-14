@@ -156,12 +156,23 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
                 -- Endings travel with their resolution state. An ending we
                 -- could not map keeps its row so the UI can say WHY, rather
                 -- than silently pricing the crime on a subset of its outcomes.
+                -- #440: the payout for each ending, joined through the derived
+                -- node id. LEFT JOIN on purpose — an ending we mapped but have
+                -- no observations for keeps its row with null money, which
+                -- expectedValue() reports as an unpriced ending and therefore a
+                -- lower bound. Dropping it would silently shrink the crime.
                 COALESCE((
                   SELECT jsonb_agg(jsonb_build_object(
                            'ending_key', e.ending_key, 'node_id', e.node_id,
-                           'kind', e.kind, 'resolved', e.resolved, 'problem', e.problem)
+                           'kind', e.kind, 'resolved', e.resolved, 'problem', e.problem,
+                           'money_avg', st.money_avg, 'money_min', st.money_min,
+                           'money_max', st.money_max, 'respect_avg', st.respect_avg,
+                           'observations', st.n)
                          ORDER BY e.kind, e.ending_key)
-                  FROM oc_scenario_endings e WHERE e.scenario_name = s.name
+                  FROM oc_scenario_endings e
+                  LEFT JOIN oc_scenario_node_stats st
+                    ON st.scenario_name = e.scenario_name AND st.node_id = e.node_id
+                  WHERE e.scenario_name = s.name
                 ), '[]'::jsonb) AS endings
            FROM oc_scenarios s
           ORDER BY s.name`
