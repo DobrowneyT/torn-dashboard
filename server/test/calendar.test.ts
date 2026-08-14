@@ -126,6 +126,49 @@ describe('GET /api/calendar', () => {
     expect(august, 'the August week must be present as a DATE').toBeTruthy()
   })
 
+  it('is null on Steadfast until the upgrades job has ever run', async () => {
+    // Not a zeroed row. The calendar names the boosted stats from the rotation
+    // and declines to claim a percentage it has never observed.
+    const res = await api('GET', `/api/calendar${WINDOW}`, memberToken)
+    expect(res.body.steadfast_latest).toBeNull()
+  })
+
+  it('⚠️ serves the latest Steadfast snapshot regardless of the window', async () => {
+    // Which stat is boosted comes from the rotation and works for any month;
+    // what it is WORTH comes from the last observation. Window-scoping this
+    // would blank the percentages on every future month — the months people
+    // actually plan training against.
+    await stack.db.query(
+      `INSERT INTO faction_upgrade_snapshots
+         (snapshot_date, branch_state, steadfast_strength, steadfast_defense,
+          steadfast_speed, steadfast_dexterity, payload)
+       VALUES ('2026-08-05', 'peace', 10, 15, 15, 10, '{}'::jsonb),
+              ('2026-08-06', 'peace', 10, 15, 15, 10, '{}'::jsonb)`
+    )
+    const future = await api('GET', '/api/calendar?from=2027-03-01T00:00:00Z&to=2027-03-31T00:00:00Z', memberToken)
+    expect(future.body.steadfast_latest.snapshot_date).toBeTruthy()
+    expect(Number(future.body.steadfast_latest.steadfast_speed)).toBe(15)
+  })
+
+  it('serves the newest snapshot, not the first', async () => {
+    const res = await api('GET', `/api/calendar${WINDOW}`, memberToken)
+    expect(String(res.body.steadfast_latest.snapshot_date)).toContain('2026-08-06')
+  })
+
+  it('⚠️ reports the Steadfast rotation OFF unless the faction opted in', async () => {
+    // The rotation is TNL's policy and this stack serves several factions.
+    const off = await api('GET', `/api/calendar${WINDOW}`, memberToken)
+    expect(off.body.steadfast_rotation).toBe(false)
+
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('steadfast_rotation', '{"enabled":true}'::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    )
+    const on = await api('GET', `/api/calendar${WINDOW}`, memberToken)
+    expect(on.body.steadfast_rotation).toBe(true)
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'steadfast_rotation'`)
+  })
+
   it('derives Torn anniversaries from the profile blob we already hold', async () => {
     const res = await api('GET', `/api/calendar${WINDOW}`, memberToken)
     const row = res.body.anniversaries.find((a: any) => a.member_id === '8200')
