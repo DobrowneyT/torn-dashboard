@@ -17,6 +17,37 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.33.0] - 2026-08-13
+
+### Added
+- **Compare several crimes at once in the OC Simulator** (#445). A picker modal
+  lists every mirrored crime grouped by difficulty (Elaborate → Introductory)
+  with its scope cost; ticking crimes **enumerates them in selection order**,
+  and that order is the order they appear on the page. The selection persists.
+  - Each selected crime renders its own card — roles and sliders, success
+    chance, endings, scope verdict and E(x) — with #442's live headcount under
+    every slider.
+  - The header totals what spawning one of each would cost in scope, which is
+    the budget question a set of crimes actually raises.
+  - ⚠️ **Sliders are per crime and never shared**, even between roles with the
+    same name. MonChoon, 2026-08-13: *"each role in every crime is unique (even
+    if they are both called Muscle #1)"* — they have different weights,
+    different checkpoints and different per-member CPR. Linking them by name
+    would silently model something untrue. Each card owns its own state, which
+    also means moving one slider recalculates only that crime rather than
+    firing six requests at a small third-party server.
+  - ⚠️ Crimes are grouped using the OC Planner's **name-authoritative** resolver
+    rather than re-deriving from difficulty. Difficulty 8 spans both Advanced
+    and Elaborate — Break the Bank is difficulty 8 and configured Advanced — so
+    re-deriving would file it differently here than the Planner shows, and
+    change its scope cost from 4 to 5 on the way.
+  - A persisted selection can outlive a crime being renamed upstream. Missing
+    crimes are named rather than silently dropped, and never rendered as an
+    empty card.
+  - The scope total is withheld entirely if any selected crime has an unknown
+    category, rather than shown quietly short — it is a number someone budgets
+    against.
+
 ## [3.32.0] - 2026-08-13
 
 ### Added
