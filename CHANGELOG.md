@@ -17,6 +17,64 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.40.0] - 2026-08-15
+
+### Changed
+- **OC Simulator: the ending map is now derived by simulating the flowchart,
+  not by inferring from it** (#471). Ending mapping goes from **21/31 to 29/31**.
+  - ⚠️ **The diagram is not a hint about the probability model — it IS the
+    model.** Walking it forward reproduces the service's own numbers to five
+    decimal places, so the map falls out of arithmetic rather than heuristics.
+    Three measured attempts at better heuristics gained nothing and one
+    regressed; this replaces them.
+  - Endings are assigned **all at once** by Hungarian matching on their
+    probability vector across the whole probe sweep, not one at a time. The old
+    greedy pass is what produced "no unclaimed ending at depth N": an early
+    ending took a node a later one had no alternative for.
+  - This is what separates endings that are **identical at the baseline** —
+    `_B3S_` and `_C3S_` are both 0.00990 at all-99 and 128x apart once a role is
+    dropped.
+  - **Multi-role checkpoints AVERAGE.** Both MonChoon and I assumed a product;
+    measured against the service's own `successChance`, a product was the worst
+    of five candidate rules and the average the best, landing on *exactly* zero
+    for seven scenarios. Confirmed by MonChoon, including for three roles.
+  - **A complete map and a trustworthy one are now separate facts.**
+    `ending_map_confident` is stored alongside a numeric residual: ten scenarios
+    reproduce `successChance` exactly while the split between endings does not
+    fit, so their per-ending money is flagged rather than quietly trusted.
+  - A **spare terminal no longer fails a crime**. Snow Blind's diagram draws a
+    good ending the API never reports; every ending that needed pricing still
+    got a node.
+
+### Fixed
+- **Two crimes stay unmapped, and now say why precisely** (#471). Blast from the
+  Past and Counter Offer report more endings than their flowchart draws
+  (including keys like `goodEnding35`), so no assignment can be complete. Their
+  `successChance` simulates exactly, which is what proves the mismatch is in the
+  source data rather than in our model.
+
+## [3.39.0] - 2026-08-15
+
+### Fixed
+- **OC Simulator: 21 of 31 crimes now have their endings mapped, up from 18**
+  (#390) — and the *cause* of the remaining failures changed completely.
+  - ⚠️ **The probe design was the bug, not the scoring.** Each role was dropped
+    to **CPR 1** to see which endings that made likelier. That SATURATES: a role
+    gating several checkpoints then fails all of them, so the endings needing
+    exactly *one* of its failures collapse instead of appearing. Pet Project's
+    `goodEnding2` is flat on Picklock at CPR 1 and rises **25x** at CPR 50 — the
+    evidence was there the whole time and the probe could not see it.
+  - Each role is now probed at **two levels (50, then 1)**, and the strongest
+    reading wins: a rise at any level settles it, because saturation can hide a
+    rise but never invent one.
+  - Measured against all 31 live scenarios: **18/31 → 21/31, no regressions**,
+    and the "no role evidence" failure — which accounted for seven crimes — is
+    gone entirely. What remains is seven ties and three crimes where the source
+    contradicts itself.
+  - A **fall now excludes** a candidate: if dropping a role makes an ending
+    rarer, that ending is not the one reached by that role failing. One-way, so
+    it removes wrong candidates without inventing predictions.
+
 ## [3.38.2] - 2026-08-15
 
 ### Fixed

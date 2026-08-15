@@ -165,7 +165,13 @@ CREATE TABLE public.oc_scenarios (
   diagram_valid    boolean,
   diagram_problems jsonb NOT NULL DEFAULT '[]'::jsonb,
   fetched_at       timestamptz,
-  updated_at       timestamptz NOT NULL DEFAULT now()
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  -- #471: how well the simulated distribution matched the API's. `ok` means
+  -- every reported ending got a node; `confident` means the numbers behind that
+  -- assignment line up — a map can be complete and still be wrong about which
+  -- ending is which.
+  ending_map_residual numeric,
+  ending_map_confident boolean
 );
 
 -- GetRoleNames spells a scenario "Mob Mentality" and its role "Looter 1";

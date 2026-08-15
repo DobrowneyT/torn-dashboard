@@ -15,6 +15,7 @@ import {
 } from '../../oc/probabilityClient.js'
 import { parseScenarioTree, validateScenarioTree } from '../../oc/scenarioTree.js'
 import { deriveEndingMap, type Probe } from '../../oc/endingMap.js'
+import { assignEndings } from '../../oc/endingAssignment.js'
 
 /**
  * CPR used for the baseline probe, and for the roles NOT being dropped.
@@ -26,8 +27,22 @@ import { deriveEndingMap, type Probe } from '../../oc/endingMap.js'
  */
 const HIGH_CPR = 99
 
-/** CPR for the single dropped role in each probe. */
-const LOW_CPR = 1
+/**
+ * CPRs the probed role is dropped to, strongest signal first.
+ *
+ * ⚠️ **50 before 1, and 1 alone is not enough.** Dropping a role to CPR 1 was
+ * the original design and it SATURATES: a role gating several checkpoints then
+ * fails all of them, so the endings that need exactly ONE of its failures
+ * collapse instead of appearing. Pet Project's `goodEnding2` is flat on
+ * Picklock at CPR 1 and rises 25x at CPR 50 — the evidence was always there,
+ * the probe was blind to it.
+ *
+ * Measured across all 31 live scenarios: switching to 50 took good-ending
+ * mapping from 18/31 to 21/31 with no regressions, and eliminated the "no role
+ * evidence" failure entirely. 1 is kept as a second level because it still
+ * reveals the deep multi-failure endings that 50 leaves rare.
+ */
+const LOW_CPRS = [50, 1]
 
 /** Be a good neighbour: a small pause between calls to someone else's server. */
 const CALL_SPACING_MS = 250
@@ -136,12 +151,28 @@ export async function ocScenariosMirrorJob(
 
       const probes = await runProbes(client, scenario.name, roles, spacing)
       const roleList = roles.map((r) => r.roleName)
-      const good = deriveEndingMap(tree, roleList, probes, 'good')
+
+      // ⚠️ Simulation, not inference (#471). The old heuristic derivation
+      // mapped 21 of 31 scenarios after three measured attempts to improve it;
+      // evaluating the diagram directly maps 29. `deriveEndingMap` is kept only
+      // for bad endings, which pay nothing and are not worth a second sweep.
+      const good = assignEndings(tree, roleList, probes, 'good')
       const bad = deriveEndingMap(tree, roleList, probes, 'bad')
 
       await writeEndings(db, scenario.name, good, bad)
+      await db.query(
+        `UPDATE oc_scenarios SET ending_map_residual = $2, ending_map_confident = $3
+          WHERE name = $1`,
+        [scenario.name, good.residual, good.confident]
+      )
       if (good.ok) mapped++
-      else problems.push(`${scenario.name}: ${good.problems.join('; ')}`)
+      if (good.problems.length > 0) problems.push(`${scenario.name}: ${good.problems.join('; ')}`)
+      // ⚠️ Reported even when the mapping is complete. Ten scenarios reproduce
+      // successChance exactly while the split between endings does not fit, so
+      // "mapped" and "trustworthy" have to be separately visible.
+      else if (!good.confident) {
+        problems.push(`${scenario.name}: mapped but a loose fit (residual ${good.residual.toFixed(3)})`)
+      }
     } catch (e) {
       problems.push(`${scenario.name}: ${e instanceof Error ? e.message : String(e)}`)
     }
@@ -180,16 +211,24 @@ async function runProbes(
   const probes: Probe[] = []
   const baseline = roles.map(() => HIGH_CPR)
 
-  probes.push({ droppedRole: null, endings: await client.calculateSuccess(scenario, baseline) })
+  probes.push({
+    droppedRole: null,
+    cprs: Object.fromEntries(roles.map((r) => [r.roleName, HIGH_CPR])),
+    endings: await client.calculateSuccess(scenario, baseline),
+  })
   await sleep(spacing)
 
-  for (let i = 0; i < roles.length; i++) {
-    const parameters = baseline.map((v, j) => (j === i ? LOW_CPR : v))
-    probes.push({
-      droppedRole: roles[i].roleName,
-      endings: await client.calculateSuccess(scenario, parameters),
-    })
-    await sleep(spacing)
+  for (const low of LOW_CPRS) {
+    for (let i = 0; i < roles.length; i++) {
+      const parameters = baseline.map((v, j) => (j === i ? low : v))
+      probes.push({
+        droppedRole: roles[i].roleName,
+        droppedTo: low,
+        cprs: Object.fromEntries(roles.map((r, j) => [r.roleName, parameters[j]])),
+        endings: await client.calculateSuccess(scenario, parameters),
+      })
+      await sleep(spacing)
+    }
   }
   return probes
 }
@@ -248,8 +287,11 @@ async function clearEndings(db: JobDeps['db'], scenario: string) {
 async function writeEndings(
   db: JobDeps['db'],
   scenario: string,
-  good: ReturnType<typeof deriveEndingMap>,
-  bad: ReturnType<typeof deriveEndingMap>
+  // Structurally typed: the simulation-based assignment (#471) and the
+  // heuristic derivation both produce a map plus problems, and this only needs
+  // those two fields.
+  good: { map: Record<string, string>; problems: string[] },
+  bad: { map: Record<string, string>; problems: string[] }
 ) {
   await clearEndings(db, scenario)
   for (const [kind, result] of [['good', good], ['bad', bad]] as const) {
