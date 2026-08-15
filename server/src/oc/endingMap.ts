@@ -48,6 +48,14 @@ export interface Probe {
    * and the level is load-bearing — see `observedLift`.
    */
   droppedTo?: number
+  /**
+   * The full CPR vector that produced this response, role → CPR.
+   *
+   * ⚠️ Required by the simulation-based assignment (#471): it re-runs the
+   * diagram for each probe, and a probe whose inputs we did not record is
+   * evidence that cannot be used.
+   */
+  cprs?: Record<string, number>
   /** `goodEnding1` / `badEnding1` → probability. */
   endings: Record<string, number>
 }
