@@ -17,6 +17,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.38.1] - 2026-08-15
+
+### Fixed
+- **An ongoing ranked war no longer spans the calendar forever** (#395). A war
+  with no recorded end was treated as ending at the maximum representable date,
+  so its band ran to the right edge of every week and reappeared in every
+  future month. ⚠️ A running war has not *finished*, but it also has not
+  happened *tomorrow* — the band now stops on today, and the war drops out of
+  months that have not arrived.
+
 ## [3.38.0] - 2026-08-14
 
 ### Added

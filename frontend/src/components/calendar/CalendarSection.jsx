@@ -240,7 +240,13 @@ export default function CalendarSection({ isLeadership }) {
  * top of a bar, and it is invisible until a week happens to be busy.
  */
 function WeekRow({ cells, events, todayKey, onSelectDay }) {
-  const { bands, singles, lanes } = useMemo(() => layoutWeek(cells, events), [cells, events])
+  // ⚠️ `openUntil` is the whole reason a running war does not paint every
+  // future week red. Pinned per render rather than read inside layoutWeek, so
+  // all six rows agree on where "today" is.
+  const { bands, singles, lanes } = useMemo(
+    () => layoutWeek(cells, events, { openUntil: new Date() }), // db-time-safe
+    [cells, events]
+  )
 
   const DAY_NUM_H = 22   // the day-number line
   const BAND_H = 18      // one band lane, including its gap

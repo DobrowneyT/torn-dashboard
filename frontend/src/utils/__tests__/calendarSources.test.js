@@ -284,6 +284,20 @@ describe('aggregate', () => {
     expect(aggregate(july, AUG)).toHaveLength(1)
   })
 
+  it('⚠️ does not carry an ongoing war into future months', () => {
+    // Treating "no end recorded" as "never ends" put a red band across every
+    // month for the rest of time. The war is ongoing as of today; it is not
+    // ongoing in March 2027.
+    const running = {
+      wars: [{ id: 1, start_at: Math.floor(Date.UTC(2026, 7, 10) / 1000), end_at: null, opponent_name: 'Ongoing' }],
+    }
+    const openUntil = new Date(Date.UTC(2026, 7, 20))
+    expect(aggregate(running, { ...AUG, openUntil })).toHaveLength(1)
+    expect(aggregate(running, {
+      from: new Date(Date.UTC(2027, 2, 1)), to: new Date(Date.UTC(2027, 2, 31)), openUntil,
+    })).toEqual([])
+  })
+
   it('⚠️ keeps an in-progress war whose end is not recorded yet', () => {
     // The same trap one level down: `endsAt ?? startsAt` collapses an open war
     // to a point and clips it out of every window after its start date.
@@ -519,9 +533,26 @@ describe('layoutWeek', () => {
     expect(bands[0]).toMatchObject({ startCol: 0, endCol: 6, continuesLeft: true, continuesRight: true })
   })
 
-  it('treats an open-ended war as running to the end of the week', () => {
-    const { bands } = layoutWeek(week, [{ id: 'w', title: 'Ongoing', startsAt: on(5), endsAt: null, open: true }])
-    expect(bands[0]).toMatchObject({ startCol: 2, endCol: 6, continuesRight: true })
+  it('⚠️ stops an open-ended war on TODAY, not at the end of the week', () => {
+    // The first cut used the maximum Date for an open war, reasoning that it
+    // has not finished. True — but it also has not happened tomorrow, and the
+    // band ran to the right edge of every week and reappeared in every future
+    // month. Today is the last day it can honestly occupy.
+    const { bands } = layoutWeek(
+      week,
+      [{ id: 'w', title: 'Ongoing', startsAt: on(4), endsAt: null, open: true }],
+      { openUntil: on(6, 9) } // "today" is Wednesday the 6th
+    )
+    expect(bands[0]).toMatchObject({ startCol: 1, endCol: 3, continuesRight: false })
+  })
+
+  it('does not run an open war backwards when it starts later today', () => {
+    const { bands } = layoutWeek(
+      week,
+      [{ id: 'w', title: 'Starting', startsAt: on(6, 20), endsAt: null, open: true }],
+      { openUntil: on(6, 9) }
+    )
+    expect(bands).toEqual([])
   })
 
   it('stacks overlapping bands into separate lanes, and reuses a free one', () => {

@@ -430,9 +430,20 @@ function shiftToYear(base, year) {
  * When an event stops occupying the calendar. An open-ended event — a war with
  * no recorded end — has not stopped, and must not be treated as instantaneous.
  */
-function effectiveEnd(e) {
+/**
+ * ⚠️ An open-ended war ends **today**, not at the end of time.
+ *
+ * The first cut returned the maximum Date here, reasoning that a war with no
+ * recorded end has not finished. True, but it made the band run to the right
+ * edge of every week and reappear in every future month — an ongoing war drawn
+ * across September 2027. A war has not finished; it also has not happened
+ * tomorrow. Today is the last day it can honestly occupy.
+ */
+function effectiveEnd(e, openUntil = new Date()) { // db-time-safe
   if (e.endsAt) return e.endsAt
-  return e.open ? new Date(8.64e15) : e.startsAt // db-time-safe: max Date
+  if (!e.open) return e.startsAt
+  // A war starting later today is still a single day, not a negative span.
+  return openUntil > e.startsAt ? openUntil : e.startsAt
 }
 
 /**
@@ -442,7 +453,7 @@ function effectiveEnd(e) {
  * otherwise a war that began last month vanishes from this month's grid while
  * it is still being fought, which is the one time anybody looks.
  */
-export function aggregate(payload, { from, to } = {}) {
+export function aggregate(payload, { from, to, openUntil = new Date() } = {}) { // db-time-safe
   const window = from instanceof Date && to instanceof Date ? { from, to } : {}
   const all = [
     ...fromWars(payload?.wars),
@@ -456,7 +467,7 @@ export function aggregate(payload, { from, to } = {}) {
   ]
 
   const clipped = window.from
-    ? all.filter((e) => effectiveEnd(e) >= window.from && e.startsAt <= window.to)
+    ? all.filter((e) => effectiveEnd(e, openUntil) >= window.from && e.startsAt <= window.to)
     : all
 
   return clipped.sort((a, b) => a.startsAt - b.startsAt || String(a.title).localeCompare(String(b.title)))
@@ -497,7 +508,9 @@ export function byDay(events, { maxSpanDays = 90, openUntil = new Date() } = {})
 export function upcoming(events, { now = new Date(), days = 7, limit = 5 } = {}) {
   const horizon = new Date(now.getTime() + days * DAY_MS) // db-time-safe
   return (events ?? [])
-    .filter((e) => effectiveEnd(e) >= now && e.startsAt <= horizon)
+    // `now` doubles as the open-ended cap here, so a running war reads as
+    // ending exactly now — still upcoming, and not stretched past the horizon.
+    .filter((e) => effectiveEnd(e, now) >= now && e.startsAt <= horizon)
     .sort((a, b) => a.startsAt - b.startsAt)
     .slice(0, limit)
 }
@@ -519,7 +532,7 @@ export function upcoming(events, { now = new Date(), days = 7, limit = 5 } = {})
  * so the UI can flatten that edge instead of drawing a rounded end where the
  * event does not actually stop.
  */
-export function layoutWeek(cells, events) {
+export function layoutWeek(cells, events, { openUntil = new Date() } = {}) { // db-time-safe
   const keys = cells.map((c) => c.key)
   const first = cells[0].date
   const last = cells[6].date
@@ -529,7 +542,7 @@ export function layoutWeek(cells, events) {
 
   for (const e of events ?? []) {
     if (!e?.startsAt) continue
-    const end = effectiveEnd(e)
+    const end = effectiveEnd(e, openUntil)
     const startDay = dayKey(e.startsAt)
     const endDay = dayKey(end)
     const multiDay = e.band === true || (endDay !== null && endDay !== startDay)
