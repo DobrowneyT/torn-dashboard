@@ -74,6 +74,26 @@ export function scoreIsEstimated(stats) {
 }
 
 /**
+ * A roster row's battle stats, in whichever of the two shapes it arrives in.
+ *
+ * The desktop table reads flat DB rows (`bsp_str`, `bsp_total`); the mobile
+ * overlay is handed a camelCase projection of the same data (`bspStr`, `bsp`).
+ * Both feed the same FF number, so the mapping lives here once rather than
+ * being retyped at each call site — three copies of "which field is defense"
+ * is exactly how a surface ends up quietly disagreeing with the others.
+ */
+export function targetBattleStats(row) {
+  if (!row) return null
+  return {
+    strength:  row.bsp_str   ?? row.bspStr,
+    speed:     row.bsp_spd   ?? row.bspSpd,
+    defense:   row.bsp_def   ?? row.bspDef,
+    dexterity: row.bsp_dex   ?? row.bspDex,
+    total:     row.bsp_total ?? row.bsp,
+  }
+}
+
+/**
  * FF for `attacker` hitting `defender`, or null when either side is unknown.
  *
  * Null is deliberate and load-bearing: FF drives target selection, and a
