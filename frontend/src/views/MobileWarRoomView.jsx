@@ -13,6 +13,8 @@
  * dibsByEnemyId  Object map of enemy_id → { claimedBy, claimedName }
  * currentUserId  String/number — the logged-in user's id (used to
  *                detect "your dib")
+ * myBattleStats  Object|null — the VIEWER's own battle stats, used for the
+ *                per-card Fair Fight badge. Null hides the badge entirely.
  * factionId      String — enemy faction id, shown in header
  * factionName    String — enemy faction name, shown in header
  * isLeadership   Boolean — gates leadership cog
@@ -65,6 +67,9 @@ import HeadlineBanner from '../components/warroom/HeadlineBanner'
 import MemberNoteButton from '../components/warroom/MemberNoteButton'
 import { isOverdosed } from '../utils/memberNotes'
 import { parseStatInput } from '../utils/statInput'
+import {
+  fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
+} from '../utils/fairFight'
 
 // ───────────────────────────────────────────────────────────────────
 // Static config — status visuals, activity colours, flag icons
@@ -223,11 +228,69 @@ function FlagsRow({ flags, state, description }) {
   )
 }
 
+/**
+ * Fair Fight for the viewer against this target (#422), sat beside the stats.
+ *
+ * Personal by construction — `mine` is the viewer's own battle stats, so the
+ * same card reads differently for every person looking at it. On a phone that
+ * matters more than on desktop: this surface is used mid-chain to pick who to
+ * hit next, and the stat total alone doesn't say what the hit is worth.
+ *
+ * ⚠️ Two different absences, deliberately shown differently. No stats on record
+ * for the VIEWER means FF cannot be computed for anybody, so the badge is
+ * omitted entirely rather than stamping a dash on all forty cards. A dash means
+ * this one target's stats are missing — a data gap worth seeing.
+ */
+function FairFightBadge({ mine, m }) {
+  if (!mine) return null
+  const target = targetBattleStats(m)
+  const ff = fairFight(mine, target)
+
+  if (ff === null) {
+    return (
+      <div className="text-right shrink-0" title="No battle stats for this target yet.">
+        <div className="font-mono text-[15px] font-bold leading-none text-gray-400">—</div>
+        <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">FF</div>
+      </div>
+    )
+  }
+
+  // An estimate on EITHER side makes the result an estimate, and the even-split
+  // assumption inflates FF on the target side — so a number resting on a bare
+  // BSP total must not look as solid as one from a real spy.
+  const estimated = scoreIsEstimated(mine) || scoreIsEstimated(target)
+  // 0 → red (0deg), 1 → green (120deg). Same scale as the desktop column.
+  const hue = Math.round(120 * ffGradientPosition(ff))
+
+  return (
+    <div
+      className="text-right shrink-0"
+      title={[
+        `Fair Fight ${formatFF(ff)} — your respect multiplier against this target.`,
+        isMaxFF(ff) ? 'At the 3.00 cap: full respect.' : '',
+        estimated
+          ? 'Estimated: only a stat total is known for one side, so an even split was assumed. The real FF may be lower.'
+          : 'From a full stat breakdown on both sides.',
+      ].filter(Boolean).join('\n')}
+    >
+      <div
+        style={{ '--grad-hue': hue }}
+        className={`hue-grad font-mono text-[15px] font-bold leading-none tabular-nums ${
+          estimated ? 'underline decoration-dotted decoration-from-font' : ''
+        }`}
+      >
+        {formatFF(ff)}
+      </div>
+      <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">FF</div>
+    </div>
+  )
+}
+
 // ───────────────────────────────────────────────────────────────────
 // Member card — compact, side-by-side actions (per design system spec)
 // ───────────────────────────────────────────────────────────────────
 
-function MemberCard({ m, dib, currentUserId, onClaim, onRelease, note, canEditNote = false, onSaveNote }) {
+function MemberCard({ m, dib, currentUserId, myBattleStats, onClaim, onRelease, note, canEditNote = false, onSaveNote }) {
   const isMyDib = dib && String(dib.claimedBy) === String(currentUserId)
   const claimedByOther = dib && !isMyDib
   const isPending = !!(dib && dib._pending)
@@ -280,21 +343,27 @@ function MemberCard({ m, dib, currentUserId, onClaim, onRelease, note, canEditNo
             />
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => hasBsp && setStatsOpen(o => !o)}
-          aria-expanded={statsOpen}
-          aria-label={hasBsp ? `Toggle stats breakdown for ${m.name}` : 'No stats available'}
-          disabled={!hasBsp}
-          className={`text-right -m-1 p-1 rounded ${hasBsp ? 'cursor-pointer active:bg-gray-100 dark:active:bg-slate-700' : 'cursor-default'}`}
-        >
-          <div className={`font-mono text-[15px] font-bold leading-none tabular-nums ${m.bsp == null ? 'text-gray-400' : 'text-gray-900 dark:text-gray-100'}`}>
-            {formatStats(m.bsp)}
-          </div>
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">
-            {hasBsp ? sourceLabel : 'BSP'}
-          </div>
-        </button>
+        {/* FF sits to the LEFT of the stats: the two are read together — what
+            they are worth, then how big they are — and the stats block keeps
+            the outer edge because it is the tap target. */}
+        <div className="flex items-start gap-2.5 shrink-0">
+          <FairFightBadge mine={myBattleStats} m={m} />
+          <button
+            type="button"
+            onClick={() => hasBsp && setStatsOpen(o => !o)}
+            aria-expanded={statsOpen}
+            aria-label={hasBsp ? `Toggle stats breakdown for ${m.name}` : 'No stats available'}
+            disabled={!hasBsp}
+            className={`text-right -m-1 p-1 rounded ${hasBsp ? 'cursor-pointer active:bg-gray-100 dark:active:bg-slate-700' : 'cursor-default'}`}
+          >
+            <div className={`font-mono text-[15px] font-bold leading-none tabular-nums ${m.bsp == null ? 'text-gray-400' : 'text-gray-900 dark:text-gray-100'}`}>
+              {formatStats(m.bsp)}
+            </div>
+            <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">
+              {hasBsp ? sourceLabel : 'BSP'}
+            </div>
+          </button>
+        </div>
       </div>
 
       {/* Stats breakdown — collapsed by default, expanded on BSP tap. Mirrors
@@ -923,6 +992,9 @@ export default function MobileWarRoomView({
   memberNotes = {},
   canEditNotes = false,
   onSaveNote,
+  // The viewer's own battle stats, for the personal FF badge (#422). Null when
+  // we hold none for them — the badge is then omitted rather than dashed.
+  myBattleStats = null,
   factionId,
   factionName,
   ourCounts = { Online: 0, Idle: 0, Okay: 0, OkayOnline: 0 },
@@ -1151,6 +1223,7 @@ export default function MobileWarRoomView({
             m={m}
             dib={dibsByEnemyId[m.id]}
             currentUserId={currentUserId}
+            myBattleStats={myBattleStats}
             onClaim={onClaim}
             onRelease={onRelease}
             note={memberNotes[m.id]}
