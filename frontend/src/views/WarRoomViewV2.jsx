@@ -31,6 +31,7 @@ import {
   THEM, US, DEFAULT_ROSTER_SIDE,
   selectRosterMembers, rosterColumns, rosterColumnCount, isStatsFilterAvailable,
   canViewOurRoster, effectiveRosterSide, pollingState, effectiveSortCol, passesStatsFilter,
+  passesFfFilter,
 } from '../utils/warRoomRosterSide'
 import {
   formatEnergy, energyHue, energyBand, formatCooldown, remainingCooldown,
@@ -2285,8 +2286,15 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     // separate from the min/max stats filter rather than folded into it — the
     // two express different intents ("in this weight class" vs "worth hitting")
     // and a lead routinely wants one without the other.
+    //
+    // ⚠️ A green attack button survives it regardless (#479), and unlike the
+    // stats filter that holds in every mode, not just farm. Someone online and
+    // out of hospital is the enemy standing up — that is war information, and
+    // "this one wouldn't pay me full respect" is no reason to hide it.
     if (ffMaxOnly && ffFilterUsable) {
-      list = list.filter((m) => isMaxFF(ffFor(m)))
+      list = list.filter((m) => passesFfFilter(ffFor(m), {
+        enabled: true, isGreen: isGreenTarget(m),
+      }))
     }
     if (statsFilterEnabled && statsFilterUsable) {
       const minVal = parseStatInput(statsFilterMin)
@@ -2895,7 +2903,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                   onClick={() => setFfMaxOnly(v => !v)}
                   disabled={!ffFilterUsable}
                   title={ffFilterUsable
-                    ? 'Show only targets at the 3.00 fair-fight cap — full respect for you.'
+                    ? 'Show only targets at the 3.00 fair-fight cap — full respect for you.\nAnyone online and out of hospital stays visible regardless, so you can still see a push forming.'
                     : 'No battle stats on record for you yet, so FF cannot be computed.'}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                     ffMaxOnly && ffFilterUsable
@@ -3369,7 +3377,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           scales it relative to itself rather than revealing more page.
           Desktop WarRoomView still owns all state, realtime
           subscriptions, and handlers — MobileWarRoomView is purely
-          presentational. */}
+          presentational.
+
+          ⚠️ Because this overlay is `fixed inset-0`, ANYTHING the desktop view
+          renders is covered while it is open — which is how the surge banner
+          came to be desktop-only without anyone deciding that (#479). Alerts
+          that must reach a mobile user have to be passed in as props, not
+          merely rendered above. */}
       {mobileOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-center justify-center sm:p-4 overflow-hidden"
@@ -3386,6 +3400,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               canEditNotes={canEditNotes}
               onSaveNote={saveMemberNote}
               myBattleStats={myBattleStats}
+              surgeAlert={surgeAlert}
+              onDismissSurge={() => setSurgeAlert(null)}
+              canPostRally={
+                (isWarLead || isLeadership || isAdmin) && !isVisitor
+                && !!surgeAlert && !!surgeHeadlinePreset(surgeAlert.surge, surgeAlert.direction)
+              }
+              onPostRally={postSurgeHeadline}
+              postingHeadline={postingHeadline}
               factionId={String(config?.faction_id ?? '')}
               factionName={factionName ?? config?.faction_name}
               ourCounts={mobileOurCounts}

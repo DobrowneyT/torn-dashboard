@@ -10,6 +10,7 @@
  * the awkward parts (which columns disappear, which filters stop making sense)
  * are testable without mounting anything.
  */
+import { isMaxFF } from './fairFight'
 
 export const THEM = 'them'
 export const US = 'us'
@@ -149,13 +150,38 @@ export function isStatsFilterAvailable(side, ourBattleStatsCount = 0) {
  *
  * Outside farm mode the filter is a deliberate targeting tool and is left to do
  * what it says.
+ *
+ * Reads the total under either row-shape name (#479) so the mobile overlay can
+ * share this rather than reimplementing it — which it did, without the farm
+ * exemption, so green targets vanished from the phone exactly when they
+ * mattered most.
  */
 export function passesStatsFilter(member, { min = null, max = null, farmMode = false, isGreen = false } = {}) {
   if (farmMode && isGreen) return true
-  const total = member?.bsp_total
+  const total = member?.bsp_total ?? member?.bsp
   if (min !== null && !(total !== null && total !== undefined && total >= min)) return false
   if (max !== null && !(total !== null && total !== undefined && total <= max)) return false
   return true
+}
+
+/**
+ * Does this member survive the "3x FF" filter?
+ *
+ * ⚠️ A green attack button ALWAYS survives, in every mode (#479) — not only in
+ * farm mode, which is where the stats filter draws the line. MonChoon's reason
+ * is situational awareness rather than target selection: *"We want people to
+ * see those targets so they know if a push is coming."* Someone online and out
+ * of hospital is the enemy's readiness showing, and that is worth seeing
+ * whether or not hitting them personally pays full respect.
+ *
+ * The asymmetry with `passesStatsFilter` is therefore deliberate. A min/max is
+ * a deliberate targeting tool outside farm mode; "only full-respect targets" is
+ * never a reason to be blind to who is standing up.
+ */
+export function passesFfFilter(ff, { enabled = false, isGreen = false } = {}) {
+  if (!enabled) return true
+  if (isGreen) return true
+  return isMaxFF(ff)
 }
 
 /** Cycle target for the toggle button. */

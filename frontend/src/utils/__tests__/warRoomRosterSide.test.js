@@ -4,7 +4,7 @@ import {
   THEM, US, DEFAULT_ROSTER_SIDE, DEFAULT_SORT_COL,
   isRosterSide, selectRosterMembers, rosterColumns, rosterColumnCount,
   isStatsFilterAvailable, otherSide, canViewOurRoster, effectiveRosterSide, pollingState,
-  effectiveSortCol, passesStatsFilter,
+  effectiveSortCol, passesStatsFilter, passesFfFilter,
 } from '../warRoomRosterSide'
 
 const members = [{ member_id: 1, member_name: 'Enemy' }]
@@ -266,6 +266,52 @@ describe('passesStatsFilter (#366)', () => {
   it('treats 0 as a real total rather than missing', () => {
     expect(passesStatsFilter({ bsp_total: 0 }, { min: 0 })).toBe(true)
     expect(passesStatsFilter({ bsp_total: 0 }, { min: 1 })).toBe(false)
+  })
+
+  it('⚠️ reads the mobile row shape too, so both surfaces filter alike', () => {
+    // The mobile overlay had its own inline copy of this with no farm
+    // exemption, so green targets disappeared from the phone in exactly the
+    // situation the exemption exists for.
+    expect(passesStatsFilter({ bsp: 50_000_000 }, band)).toBe(true)
+    expect(passesStatsFilter({ bsp: 1_000_000 }, band)).toBe(false)
+    expect(passesStatsFilter({ bsp: 1_000_000 }, { ...band, farmMode: true, isGreen: true })).toBe(true)
+  })
+})
+
+describe('passesFfFilter (#479)', () => {
+  const MAX = 3
+  const POOR = 1.4
+
+  it('keeps everyone when the filter is off', () => {
+    expect(passesFfFilter(POOR, { enabled: false })).toBe(true)
+    expect(passesFfFilter(null, { enabled: false })).toBe(true)
+  })
+
+  it('keeps only full-respect targets when it is on', () => {
+    expect(passesFfFilter(MAX, { enabled: true })).toBe(true)
+    expect(passesFfFilter(POOR, { enabled: true })).toBe(false)
+  })
+
+  it('drops a target whose FF cannot be computed', () => {
+    // An unknown is not a 3.00. Letting nulls through would fill a filter whose
+    // whole job is "only the good ones" with targets nobody has measured.
+    expect(passesFfFilter(null, { enabled: true })).toBe(false)
+  })
+
+  it('⚠️ ALWAYS lets a green attack button through, in every mode', () => {
+    // MonChoon: "We want people to see those targets so they know if a push is
+    // coming." Someone online and out of hospital is the enemy standing up —
+    // information about the war, not a target recommendation. Note there is no
+    // farmMode condition here, unlike the stats filter.
+    expect(passesFfFilter(POOR, { enabled: true, isGreen: true })).toBe(true)
+    expect(passesFfFilter(null, { enabled: true, isGreen: true })).toBe(true)
+  })
+
+  it('tolerates floating-point dust at the cap', () => {
+    // Shares isMaxFF with the desktop cell rather than re-deriving the cap, so
+    // a target cannot be visible in the column and absent from the filter.
+    expect(passesFfFilter(3 - 1e-12, { enabled: true })).toBe(true)
+    expect(passesFfFilter(2.99, { enabled: true })).toBe(false)
   })
 })
 
