@@ -35,6 +35,14 @@ import {
 export interface Probe {
   /** Which role was dropped, or null for the all-high baseline. */
   droppedRole: string | null
+  /**
+   * Two roles dropped together (#390 follow-up). Roles gating the SAME
+   * checkpoint are indistinguishable one at a time — dropping either produces
+   * the same lift on the same endings — so a pair probe is the only evidence
+   * that separates the terminals behind them. Requested lazily: the derivation
+   * reports which pairs it needs, and only those are fetched.
+   */
+  droppedRoles?: string[]
   /** `goodEnding1` / `badEnding1` → probability. */
   endings: Record<string, number>
 }
@@ -45,6 +53,13 @@ export interface EndingMapping {
   ok: boolean
   /** Why it failed, in terms a reader can act on. */
   problems: string[]
+  /**
+   * Role pairs whose joint drop would settle a tie this pass could not. The
+   * caller fetches exactly these probes and re-derives — cheap, because only
+   * scenarios that actually tie ask, and they ask for one or two pairs, not
+   * all N(N-1)/2.
+   */
+  neededPairs: Array<[string, string]>
 }
 
 /** "Muscle #2" in prose vs "Muscle 2" in the role list. */
@@ -100,14 +115,44 @@ export function terminalSignature(
  * broken by guessing.
  */
 export function observedSignature(endingKey: string, probes: Probe[], margin = 1.5): Set<string> {
-  const baseline = probes.find((p) => p.droppedRole === null)?.endings[endingKey]
-  const out = new Set<string>()
+  return new Set(observedLift(endingKey, probes, margin).keys())
+}
+
+/**
+ * The same evidence, keeping HOW MUCH each role's drop raises the ending.
+ *
+ * ⚠️ The magnitude is the discriminator, and discarding it is what left eleven
+ * scenarios unmapped. `observedSignature` answers "does this role lead here",
+ * which two terminals sharing a checkpoint answer identically — so scoring by
+ * the SIZE of the intersection ties them and the derivation gives up.
+ *
+ * The lift is not uniform, though: the role gating the checkpoint immediately
+ * before an ending multiplies it by orders of magnitude, while a role three
+ * checkpoints upstream barely moves it. Summing lift over a terminal's own
+ * failure roles therefore separates terminals that a set-intersection cannot.
+ *
+ * Returned as a ratio to baseline. Endings with a zero baseline use an epsilon
+ * floor — they are exactly the rare endings a drop is meant to reveal, and
+ * dividing by zero would either drop them or rank them infinite.
+ */
+export function observedLift(endingKey: string, probes: Probe[], margin = 1.5): Map<string, number> {
+  const baseline = probes.find((p) => p.droppedRole === null && !p.droppedRoles)?.endings[endingKey]
+  const out = new Map<string, number>()
   if (baseline === undefined) return out
+
+  // The API reports 4 decimal places, so an ending below 1e-4 reads as exactly
+  // 0 at baseline. Half a reporting step is the smallest lift we could have
+  // detected, and using it keeps the ratio finite and comparable.
+  const floor = 5e-5
+  const base = Math.max(baseline, floor)
+
   for (const probe of probes) {
-    if (probe.droppedRole === null) continue
+    // Single-role drops only — a pair probe raises an ending for either of two
+    // reasons and cannot be attributed to one role.
+    if (probe.droppedRole === null || probe.droppedRoles) continue
     const v = probe.endings[endingKey]
     if (v === undefined) continue
-    if (v > Math.max(baseline * margin, baseline + 1e-9)) out.add(probe.droppedRole)
+    if (v > Math.max(baseline * margin, baseline + 1e-9)) out.set(probe.droppedRole, v / base)
   }
   return out
 }
@@ -155,6 +200,28 @@ export function realEndingKeys(prefix: string, probes: Probe[]): string[] {
   return ordered.slice(0, lastReal + 1).map(([, key]) => key)
 }
 
+/**
+ * Two scores are "still tied" when they differ by less than a fifth of an order
+ * of magnitude. A bare `===` would call 2.0000001 vs 2.0 a clean win and pick a
+ * terminal on floating-point noise — the exact failure this guard exists to
+ * prevent, dressed up as a decision.
+ */
+function closeEnough(a: number, b: number): boolean {
+  return Math.abs(a - b) < 0.2
+}
+
+/** The roles that separate two terminals — one each side, for a pair probe. */
+function discriminatingPair(a: Set<string>, b: Set<string>): [string, string] | null {
+  const onlyA = [...a].filter((r) => !b.has(r))
+  const onlyB = [...b].filter((r) => !a.has(r))
+  if (onlyA.length > 0 && onlyB.length > 0) return [onlyA[0], onlyB[0]]
+  // One signature contains the other: dropping the extra role is what tells
+  // them apart, paired with any role they share.
+  const extra = onlyA[0] ?? onlyB[0]
+  const shared = [...a].find((r) => b.has(r))
+  return extra && shared ? [extra, shared] : null
+}
+
 /** Depth implied by a probability at the all-high baseline. */
 function impliedDepth(p: number): number {
   // ~1% failure per checkpoint at CPR 99, so each required failure costs about
@@ -181,9 +248,10 @@ export function deriveEndingMap(
   kind: 'good' | 'bad' = 'good'
 ): EndingMapping {
   const problems: string[] = []
-  const baseline = probes.find((p) => p.droppedRole === null)
+  const neededPairs: Array<[string, string]> = []
+  const baseline = probes.find((p) => p.droppedRole === null && !p.droppedRoles)
   if (!baseline) {
-    return { map: {}, ok: false, problems: ['no baseline probe (all roles high) supplied'] }
+    return { map: {}, ok: false, problems: ['no baseline probe (all roles high) supplied'], neededPairs }
   }
 
   const prefix = kind === 'good' ? 'goodEnding' : 'badEnding'
@@ -195,7 +263,7 @@ export function deriveEndingMap(
       `the API reports ${endingKeys.length} ${kind} endings but the diagram has ` +
       `${terminals.length} — the two disagree about the crime's shape, so no mapping is trustworthy`
     )
-    return { map: {}, ok: false, problems }
+    return { map: {}, ok: false, problems, neededPairs }
   }
 
   const termSigs = new Map(
@@ -211,7 +279,7 @@ export function deriveEndingMap(
   const ranked = endingKeys
     .map((key) => {
       const depth = impliedDepth(baseline.endings[key])
-      const observed = observedSignature(key, probes)
+      const observed = observedLift(key, probes)
       const candidates = terminals.filter((t) => termSigs.get(t.id)!.depth === depth)
       return { key, depth, observed, candidates }
     })
@@ -229,25 +297,44 @@ export function deriveEndingMap(
       continue
     }
 
-    // Several endings at this depth — the roles decide. Score by overlap with
-    // the roles the diagram says lead here.
+    // Several endings at this depth — the roles decide. Score by how much the
+    // observed lift concentrates on the roles the diagram says lead here.
+    //
+    // ⚠️ Weighted, not counted. Two terminals behind the same checkpoint have
+    // the same INTERSECTION with the observed roles, so counting ties them and
+    // the derivation gives up — which is what left eleven scenarios unmapped.
+    // The lift magnitude separates them: the role gating the checkpoint just
+    // before an ending multiplies it by orders of magnitude, one further
+    // upstream barely moves it.
     const scored = free.map((t) => {
       const sig = termSigs.get(t.id)!.failRoles
-      const overlap = [...observed].filter((r) => sig.has(r)).length
-      return { t, overlap }
-    }).sort((a, b) => b.overlap - a.overlap)
+      let score = 0
+      let matched = 0
+      for (const [role, lift] of observed) {
+        if (!sig.has(role)) continue
+        matched++
+        score += Math.log10(Math.max(lift, 1))
+      }
+      // Roles the diagram says lead here that did NOT lift the ending are
+      // evidence AGAINST this terminal, not merely absent evidence.
+      const missing = [...sig].filter((r) => !observed.has(r)).length
+      return { t, score, matched, missing }
+    }).sort((a, b) => b.score - a.score || a.missing - b.missing)
 
-    if (scored[0].overlap === 0) {
+    if (scored[0].matched === 0) {
       problems.push(`${key}: no role evidence links it to any ending at depth ${depth}`)
       continue
     }
-    if (scored.length > 1 && scored[0].overlap === scored[1].overlap) {
-      // ⚠️ Muscle 3 and Thief 2 gate the same checkpoint in Break the Bank and
-      // are indistinguishable under single-role drops. An ending separated only
-      // by such a pair lands here, and must be reported rather than guessed.
+    // Still level after weighting: the two terminals sit behind roles that gate
+    // the SAME checkpoint, and no single-role drop can tell them apart. Ask for
+    // the pair probe rather than guessing — and ask for it by name, so the
+    // caller can fetch exactly the calls needed and re-derive.
+    if (scored.length > 1 && closeEnough(scored[0].score, scored[1].score)) {
+      const pair = discriminatingPair(termSigs.get(scored[0].t.id)!.failRoles, termSigs.get(scored[1].t.id)!.failRoles)
+      if (pair) neededPairs.push(pair)
       problems.push(
         `${key}: ties between ${scored[0].t.id} and ${scored[1].t.id} on role evidence — ` +
-        'needs a paired-role probe to separate them'
+        (pair ? `needs a paired-role probe (${pair.join(' + ')})` : 'needs a paired-role probe')
       )
       continue
     }
@@ -265,5 +352,5 @@ export function deriveEndingMap(
     problems.push('two endings resolved to the same diagram node')
   }
 
-  return { map, ok: problems.length === 0, problems }
+  return { map, ok: problems.length === 0, problems, neededPairs }
 }
