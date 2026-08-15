@@ -82,24 +82,36 @@ export function terminalSignature(
   tree: ScenarioTree,
   terminalId: string,
   roleNames: string[]
-): { depth: number; failRoles: Set<string> } {
+): { depth: number; failRoles: Set<string>; passRoles: Set<string>; ambiguousRoles: Set<string> } {
   const paths = pathsToTerminal(tree, terminalId)
-  if (paths.length === 0) return { depth: Infinity, failRoles: new Set() }
+  if (paths.length === 0) {
+    return { depth: Infinity, failRoles: new Set(), passRoles: new Set(), ambiguousRoles: new Set() }
+  }
 
   const depths = paths.map((p) => checkpointsOnPath(tree, p).failed)
   const depth = Math.min(...depths)
 
   const failRoles = new Set<string>()
+  const passRoles = new Set<string>()
   paths.forEach((path, i) => {
     if (depths[i] !== depth) return
     for (let j = 0; j < path.length; j++) {
       const node = tree.nodes.get(path[j])
       if (node?.kind !== 'checkpoint') continue
       const label = tree.edgeLabels.get(`${node.id}>${path[j + 1]}`)?.toLowerCase()
-      if (label === 'fail') for (const r of rolesInText(node.text, roleNames)) failRoles.add(r)
+      const failed = label === 'fail' || (label !== 'pass' && path[j + 1] === `${node.id.slice(0, -1)}F_`)
+      for (const r of rolesInText(node.text, roleNames)) (failed ? failRoles : passRoles).add(r)
     }
   })
-  return { depth, failRoles }
+
+  // ⚠️ A role on BOTH sides predicts nothing. Pet Project's retry chain has
+  // Picklock fail `_A1_C1_` and then pass `_A1_C3_` on the same path: dropping
+  // Picklock makes the failure likelier AND destroys the later pass, so the net
+  // direction is genuinely unknown. Recorded rather than resolved — scoring
+  // skips these roles instead of predicting a direction and being graded on it.
+  const ambiguousRoles = new Set([...failRoles].filter((r) => passRoles.has(r)))
+
+  return { depth, failRoles, passRoles, ambiguousRoles }
 }
 
 /**
@@ -135,6 +147,53 @@ export function observedSignature(endingKey: string, probes: Probe[], margin = 1
  * floor — they are exactly the rare endings a drop is meant to reveal, and
  * dividing by zero would either drop them or rank them infinite.
  */
+/**
+ * The full signed response: how each role's CPR drop moves this ending.
+ *
+ * ⚠️ **Falls are evidence, and ignoring them is what left nine crimes
+ * unmapped.** The derivation read only rises, so an ending like Pet Project's
+ * `goodEnding2` — which no role raises — reported "no role evidence" while
+ * sitting on an unambiguous fingerprint:
+ *
+ *     goodEnding2  base 0.0097
+ *       drop Kidnapper → 0.00019   (falls)
+ *       drop Muscle    → 0         (falls)
+ *       drop Picklock  → 0.0097    (flat)
+ *
+ * A rise means that role's failure leads here. A FALL means the opposite and is
+ * just as strong: this ending needed that role to pass, so wrecking the role
+ * destroys the path. Flat means the role is not on the path at all — which is
+ * itself the third distinguishable state, and the one that separates endings
+ * sharing every other signal.
+ */
+export type RoleResponse = 'rise' | 'fall' | 'flat'
+
+export function observedResponse(
+  endingKey: string,
+  probes: Probe[],
+  margin = 1.5
+): Map<string, RoleResponse> {
+  const baseline = probes.find((p) => p.droppedRole === null && !p.droppedRoles)?.endings[endingKey]
+  const out = new Map<string, RoleResponse>()
+  if (baseline === undefined) return out
+
+  for (const probe of probes) {
+    if (probe.droppedRole === null || probe.droppedRoles) continue
+    const v = probe.endings[endingKey]
+    if (v === undefined) continue
+
+    // ⚠️ An ending at 0.0001 is at the API's reporting floor: it cannot fall
+    // any further and cannot be read as flat either. Treating "0 → 0" as flat
+    // would invent agreement out of a measurement we never made.
+    if (baseline <= 1e-4 && v <= 1e-4) continue
+
+    if (v > baseline * margin) out.set(probe.droppedRole, 'rise')
+    else if (v * margin < baseline) out.set(probe.droppedRole, 'fall')
+    else out.set(probe.droppedRole, 'flat')
+  }
+  return out
+}
+
 export function observedLift(endingKey: string, probes: Probe[], margin = 1.5): Map<string, number> {
   const baseline = probes.find((p) => p.droppedRole === null && !p.droppedRoles)?.endings[endingKey]
   const out = new Map<string, number>()
@@ -279,7 +338,7 @@ export function deriveEndingMap(
   const ranked = endingKeys
     .map((key) => {
       const depth = impliedDepth(baseline.endings[key])
-      const observed = observedLift(key, probes)
+      const observed = observedResponse(key, probes)
       const candidates = terminals.filter((t) => termSigs.get(t.id)!.depth === depth)
       return { key, depth, observed, candidates }
     })
@@ -297,27 +356,48 @@ export function deriveEndingMap(
       continue
     }
 
-    // Several endings at this depth — the roles decide. Score by how much the
-    // observed lift concentrates on the roles the diagram says lead here.
+    // Several endings at this depth — the roles decide. Score each terminal by
+    // how well the diagram's PREDICTION of every role's effect matches what the
+    // probes actually measured.
     //
-    // ⚠️ Weighted, not counted. Two terminals behind the same checkpoint have
-    // the same INTERSECTION with the observed roles, so counting ties them and
-    // the derivation gives up — which is what left eleven scenarios unmapped.
-    // The lift magnitude separates them: the role gating the checkpoint just
-    // before an ending multiplies it by orders of magnitude, one further
-    // upstream barely moves it.
-    const scored = free.map((t) => {
+    // ⚠️ The prediction is three-valued, and that is the whole improvement.
+    // Scoring only rises made an ending nobody raises look like an ending with
+    // no evidence, and made two terminals behind one checkpoint indistinguish-
+    // able. Predicting rise / fall / flat per role uses the entire sweep.
+    // ⚠️ Falls EXCLUDE; they do not predict.
+    //
+    // The first attempt had the diagram predict a fall for every role the path
+    // passes — and measured WORSE (14/31 against a baseline of 18). Every
+    // terminal passes nearly every role somewhere on a long path, so the
+    // prediction was "everything falls" for every candidate: no discrimination,
+    // and it swallowed the fail-role signal that was already working.
+    //
+    // The sound half of the idea survives as a one-way constraint. If dropping
+    // role R makes an ending RARER, that ending cannot be a terminal reached BY
+    // R failing. That removes wrong candidates without inventing a prediction
+    // the diagram cannot support.
+    const contradicted = (t: { id: string }) => {
+      const sig = termSigs.get(t.id)!
+      for (const r of sig.failRoles) {
+        if (sig.ambiguousRoles.has(r)) continue
+        if (observed.get(r) === 'fall') return true
+      }
+      return false
+    }
+    const plausible = free.filter((t) => !contradicted(t))
+    const pool = plausible.length > 0 ? plausible : free
+
+    const scored = pool.map((t) => {
       const sig = termSigs.get(t.id)!.failRoles
       let score = 0
       let matched = 0
-      for (const [role, lift] of observed) {
-        if (!sig.has(role)) continue
+      for (const role of sig) {
+        const lift = observedLift(key, probes).get(role)
+        if (lift === undefined) continue
         matched++
         score += Math.log10(Math.max(lift, 1))
       }
-      // Roles the diagram says lead here that did NOT lift the ending are
-      // evidence AGAINST this terminal, not merely absent evidence.
-      const missing = [...sig].filter((r) => !observed.has(r)).length
+      const missing = [...sig].filter((r) => observed.get(r) !== 'rise').length
       return { t, score, matched, missing }
     }).sort((a, b) => b.score - a.score || a.missing - b.missing)
 
