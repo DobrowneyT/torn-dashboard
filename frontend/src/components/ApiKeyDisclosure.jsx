@@ -20,7 +20,11 @@ export const ROWS = [
   // member, so they get their own disclosure row rather than being folded into
   // the general "Purpose" line.
   ['Battle Stats', 'Once a day your key is used to read your own battle stats (strength, defense, speed, dexterity). These are visible only to war leads, leadership and admins — never to the faction at large — and are used to plan who can be fielded against whom. If you have not enrolled a key, an estimate may instead be taken from your faction TornStats spy report or from Battle Stats Predictor; the dashboard records which source each figure came from, so an estimate is never presented as fact.'],
-  ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes, bars, cooldowns, battlestats) · GET /v2/faction (crimes, members, contributors, chain, attacks, revives, rankedwars + report, basic)'],
+  // #459: named here as an OPT-IN, because it is the one use on this page that
+  // is off unless you switch it on. Listing it alongside the rest without that
+  // distinction would read as something already happening.
+  ['Event Start Time (opt-in)', 'Off unless you turn it on, from Members → Calendar. When on, your key is used once a day for one extra call that returns only your chosen Torn event start hour ("11:30 TCT"), so the faction can see where everyone\'s 48-hour event window sits. Visible to your faction. Turning it off deletes the stored time rather than hiding it, and no other member can turn it on for you.'],
+  ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes, bars, cooldowns, battlestats) · GET /v2/user/calendar (opt-in only) · GET /v2/faction (crimes, members, contributors, chain, attacks, revives, rankedwars + report, basic)'],
   ['Access Level', 'Limited Access'],
 ]
 

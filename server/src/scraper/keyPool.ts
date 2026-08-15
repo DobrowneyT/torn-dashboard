@@ -130,6 +130,29 @@ export function createKeyPool({ db, encryptionKey }: KeyPoolOptions) {
     },
 
     /**
+     * Keys whose owner opted into the calendar scope (#459).
+     *
+     * ⚠️ This is deliberately NOT `claim()`. `/user/calendar` returns the
+     * CALLER's own start hour, so a rotating pooled key would report the key
+     * owner's setting under someone else's name — every member showing the
+     * same time, and nothing about that failure looks like a failure.
+     *
+     * ⚠️ And it does not filter on `has_faction_access`: this is a `/user`
+     * call, so a key without faction access answers it perfectly well. Reusing
+     * `listKeys()` would have silently skipped every recruit.
+     */
+    async listCalendarScopedKeys(): Promise<ClaimedKey[]> {
+      const res = await db.query(
+        `SELECT member_id, cpr_api_key FROM member_secrets
+         WHERE disabled = false AND cpr_api_key IS NOT NULL
+           AND consent_at IS NOT NULL
+           AND calendar_scope_at IS NOT NULL
+         ORDER BY member_id`
+      )
+      return res.rows.map((r) => ({ member_id: r.member_id, key: decrypt(r.cpr_api_key) }))
+    },
+
+    /**
      * Every enabled + consented key, INCLUDING the ones currently flagged
      * without faction access. `listKeys()` filters those out (they'd fail
      * faction calls), so it can't drive the hourly re-verification (#309),

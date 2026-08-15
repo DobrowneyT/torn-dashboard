@@ -401,7 +401,13 @@ CREATE TABLE public.member_secrets (
   last_claimed_at timestamp with time zone,
   -- Last 4 chars of the key (#264) — shown to its owner as ••••<hint>, never the
   -- full key.
-  key_hint text
+  key_hint text,
+  -- #459: opt-in for reading the member's Torn event start time. Deliberately
+  -- SEPARATE from consent_at — members consented to a stated list of uses, and
+  -- /user/calendar is not on it. Absent means the scraper never touches this
+  -- key for that purpose.
+  calendar_scope_at timestamptz,
+  calendar_scope_version text
 );
 
 CREATE TABLE public.members (
@@ -1032,6 +1038,16 @@ CREATE TABLE public.faction_upgrade_snapshots (
   steadfast_unparsed  jsonb NOT NULL DEFAULT '[]'::jsonb,
   payload       jsonb NOT NULL,
   fetched_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- #459: each member's Torn event start hour, for members who opted into that
+-- scope. Its own table so withdrawal DELETES rather than hides — a stale value
+-- must not outlive the consent that permitted collecting it.
+CREATE TABLE public.member_event_settings (
+  member_id  text PRIMARY KEY,
+  -- Stored exactly as Torn states it ("11:30 TCT"), not parsed on write.
+  start_time text NOT NULL,
+  fetched_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE public.member_birthdays (

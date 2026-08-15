@@ -48,7 +48,8 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
     const fromEpoch = Math.floor(win.from.getTime() / 1000)
     const toEpoch = Math.floor(win.to.getTime() / 1000)
 
-    const [wars, competitions, payoutWeeks, events, birthdays, anniversaries, steadfast, rotationSetting] =
+    const [wars, competitions, payoutWeeks, events, birthdays, anniversaries, steadfast,
+           rotationSetting, eventWindows] =
       await Promise.all([
         // Overlap, not containment: a war that started last month is still
         // being fought, and that is precisely when someone opens the calendar.
@@ -146,6 +147,19 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
         // not theirs is worse than showing none, and worse in the quiet way:
         // it looks like information.
         db.query(`SELECT value FROM faction_settings WHERE key = 'steadfast_rotation'`),
+        // Event start windows for members who opted in (#459).
+        //
+        // ⚠️ Members who did not opt in are simply ABSENT — not present with a
+        // null. The feature degrades to a shorter list rather than being
+        // withheld from everyone, and nobody's row advertises that they
+        // declined.
+        db.query(
+          `SELECT e.member_id, m.member_name, e.start_time, e.fetched_at
+             FROM member_event_settings e
+             JOIN members m ON m.member_id = e.member_id
+            WHERE m.is_current = true
+            ORDER BY m.member_name`
+        ),
       ])
 
     return {
@@ -159,6 +173,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
       anniversaries: anniversaries.rows,
       steadfast_latest: steadfast.rows[0] ?? null,
       steadfast_rotation: rotationSetting.rows[0]?.value?.enabled === true,
+      event_windows: eventWindows.rows,
     }
   })
 
@@ -237,6 +252,84 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
       const res = await db.query('DELETE FROM calendar_events WHERE id = $1', [id])
       if (res.rowCount === 0) return reply.status(404).send({ error: 'not found' })
       return { deleted: Number(id) }
+    }
+  )
+
+  /* ── Torn event start windows, and the scope that permits reading them ─── */
+
+  // ⚠️ This scope is recorded SEPARATELY from `consent_at`, which gates the key
+  // pool. Members consented to a stated list of uses when they enrolled, and
+  // `/user/calendar` is not on that list — widening what an existing key does
+  // without asking again is precisely what a consent record exists to prevent.
+  //
+  // Bumping `consent_version` instead would have re-prompted everyone, but it
+  // also gates every scraper: the whole faction's data collection would stop
+  // until each member logged in again, to add an optional feature. Wrong trade.
+  const CALENDAR_SCOPE_VERSION = 'calendar-v1'
+
+  app.get('/api/calendar/event-window/me', { preHandler: requireAuth() }, async (req) => {
+    const memberId = String(req.session!.torn_user_id)
+    const res = await db.query(
+      `SELECT s.calendar_scope_at, s.calendar_scope_version,
+              e.start_time, e.fetched_at
+         FROM member_secrets s
+         LEFT JOIN member_event_settings e ON e.member_id = s.member_id
+        WHERE s.member_id = $1`,
+      [memberId]
+    )
+    const row = res.rows[0] ?? null
+    return {
+      // ⚠️ Three states, not two: no key enrolled at all, a key without this
+      // scope, and a key with it. The middle one is the only one where an
+      // opt-in control makes sense, and the first needs different words.
+      has_key: row !== null,
+      granted: row?.calendar_scope_at != null,
+      granted_at: row?.calendar_scope_at ?? null,
+      scope_version: row?.calendar_scope_version ?? null,
+      start_time: row?.start_time ?? null,
+      fetched_at: row?.fetched_at ?? null,
+      current_version: CALENDAR_SCOPE_VERSION,
+    }
+  })
+
+  app.put(
+    '/api/calendar/event-window/me',
+    { preHandler: [requireNotVisitor()] },
+    async (req, reply) => {
+      const memberId = String(req.session!.torn_user_id)
+      const granted = (req.body as { granted?: unknown } | null)?.granted
+      if (typeof granted !== 'boolean') {
+        return reply.status(400).send({ error: 'granted must be true or false' })
+      }
+
+      const key = await db.query('SELECT member_id FROM member_secrets WHERE member_id = $1', [memberId])
+      if (key.rowCount === 0) {
+        // Nothing to consent WITH. Storing a grant against no key would be a
+        // permission to use something that does not exist.
+        return reply.status(409).send({ error: 'enrol an API key before granting this scope' })
+      }
+
+      if (granted) {
+        await db.query(
+          `UPDATE member_secrets
+              SET calendar_scope_at = now(), calendar_scope_version = $2, updated_at = now()
+            WHERE member_id = $1`,
+          [memberId, CALENDAR_SCOPE_VERSION]
+        )
+        return { granted: true, scope_version: CALENDAR_SCOPE_VERSION }
+      }
+
+      // ⚠️ Withdrawal DELETES. Clearing the grant while leaving the value
+      // behind would keep data we no longer have permission to hold, and it
+      // would reappear the moment anyone re-read the table.
+      await db.query(
+        `UPDATE member_secrets
+            SET calendar_scope_at = NULL, calendar_scope_version = NULL, updated_at = now()
+          WHERE member_id = $1`,
+        [memberId]
+      )
+      await db.query('DELETE FROM member_event_settings WHERE member_id = $1', [memberId])
+      return { granted: false }
     }
   )
 
