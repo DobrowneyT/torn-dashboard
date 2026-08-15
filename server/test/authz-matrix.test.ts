@@ -339,6 +339,19 @@ const MATRIX: Array<{ path: string; expected: Record<Actor, number> }> = [
     path: 'DELETE /api/calendar/birthdays/424242',
     expected: { unauthenticated: 401, visitor: 403, member: 403, warlead: 403, ocmanager: 403, leadership: 200, admin: 200 } as Record<Actor, number>,
   },
+  // #459 — the calendar scope is owned by the member it belongs to, so this is
+  // an ownership check, not a role check: everyone reads their OWN state, and
+  // nobody can grant or withdraw it for anyone else (there is no route that
+  // takes a member id). Visitors are refused because they have no key to
+  // consent with; the actors here have none either, hence 409 rather than 200.
+  {
+    path: '/api/calendar/event-window/me',
+    expected: { unauthenticated: 401, visitor: 200, member: 200, warlead: 200, ocmanager: 200, leadership: 200, admin: 200 } as Record<Actor, number>,
+  },
+  {
+    path: 'PUT /api/calendar/event-window/me',
+    expected: { unauthenticated: 401, visitor: 403, member: 400, warlead: 400, ocmanager: 400, leadership: 400, admin: 400 } as Record<Actor, number>,
+  },
   // #119 — silent session renewal: every authenticated actor (visitors
   // included — their tokens age like anyone's) may refresh; anonymous cannot.
   {

@@ -265,6 +265,92 @@ describe('calendar events — typed-in entries and Torn events', () => {
   })
 })
 
+describe('event start windows and their consent scope (#459)', () => {
+  it('reports no scope granted until the member grants it', async () => {
+    const res = await api('GET', '/api/calendar/event-window/me', memberToken)
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ has_key: true, granted: false, start_time: null })
+  })
+
+  it('⚠️ granting this scope does NOT touch the key-pool consent', async () => {
+    // The two are separate on purpose. Folding this into consent_version would
+    // have re-prompted everyone AND taken every scraper offline until each
+    // member logged in again — to add an optional feature.
+    const before = await stack.db.query(
+      'SELECT consent_at, consent_version FROM member_secrets WHERE member_id = $1', ['8200']
+    )
+    const put = await api('PUT', '/api/calendar/event-window/me', memberToken, { granted: true })
+    expect(put.status).toBe(200)
+    expect(put.body.granted).toBe(true)
+
+    const after = await stack.db.query(
+      'SELECT consent_at, consent_version, calendar_scope_at, calendar_scope_version FROM member_secrets WHERE member_id = $1',
+      ['8200']
+    )
+    expect(after.rows[0].consent_at).toEqual(before.rows[0].consent_at)
+    expect(after.rows[0].consent_version).toBe(before.rows[0].consent_version)
+    expect(after.rows[0].calendar_scope_at).not.toBeNull()
+    expect(after.rows[0].calendar_scope_version).toBe('calendar-v1')
+  })
+
+  it('⚠️ the scraper only sees keys that granted the scope', async () => {
+    // Enforced in the query rather than at each call site, so there is one
+    // place to get it right. The lead has a key but never granted.
+    const scoped = await stack.db.query(
+      `SELECT member_id FROM member_secrets
+        WHERE disabled = false AND cpr_api_key IS NOT NULL
+          AND consent_at IS NOT NULL AND calendar_scope_at IS NOT NULL`
+    )
+    expect(scoped.rows.map((r: any) => r.member_id)).toEqual(['8200'])
+  })
+
+  it('shows a shared window on the calendar once it has been read', async () => {
+    await stack.db.query(
+      `INSERT INTO member_event_settings (member_id, start_time) VALUES ('8200', '11:30 TCT')`
+    )
+    const res = await api('GET', `/api/calendar${WINDOW}`, memberToken)
+    expect(res.body.event_windows).toHaveLength(1)
+    expect(res.body.event_windows[0]).toMatchObject({ member_id: '8200', start_time: '11:30 TCT' })
+  })
+
+  it('⚠️ withdrawal DELETES the stored time rather than hiding it', async () => {
+    const res = await api('PUT', '/api/calendar/event-window/me', memberToken, { granted: false })
+    expect(res.status).toBe(200)
+
+    // The row is gone from the table, not merely filtered out of a response —
+    // asserted against the database, because "hidden" and "deleted" look
+    // identical from the API.
+    const rows = await stack.db.query('SELECT * FROM member_event_settings WHERE member_id = $1', ['8200'])
+    expect(rows.rowCount).toBe(0)
+    const secrets = await stack.db.query(
+      'SELECT calendar_scope_at, calendar_scope_version FROM member_secrets WHERE member_id = $1', ['8200']
+    )
+    expect(secrets.rows[0].calendar_scope_at).toBeNull()
+    expect(secrets.rows[0].calendar_scope_version).toBeNull()
+  })
+
+  it('⚠️ members who did not opt in are ABSENT, not present with a null', () => {
+    // A row saying "did not share" publishes a decision that is nobody else's
+    // business, and turns an opt-in into a public one.
+    return api('GET', `/api/calendar${WINDOW}`, memberToken).then((res) => {
+      expect(res.body.event_windows).toEqual([])
+    })
+  })
+
+  it('refuses a grant from someone with no key to grant it against', async () => {
+    // Storing a permission against no key is a permission to use something
+    // that does not exist.
+    await stack.db.query('DELETE FROM member_secrets WHERE member_id = $1', ['8100'])
+    const res = await api('PUT', '/api/calendar/event-window/me', leadToken, { granted: true })
+    expect(res.status).toBe(409)
+  })
+
+  it('rejects a body that does not say which way', async () => {
+    expect((await api('PUT', '/api/calendar/event-window/me', memberToken, {})).status).toBe(400)
+    expect((await api('PUT', '/api/calendar/event-window/me', memberToken, { granted: 'yes' })).status).toBe(400)
+  })
+})
+
 describe('birthdays', () => {
   it('a member sets their own, and it comes back on the calendar', async () => {
     const put = await api('PUT', '/api/calendar/birthdays/8200', memberToken, { birth_month: 8, birth_day: 14 })

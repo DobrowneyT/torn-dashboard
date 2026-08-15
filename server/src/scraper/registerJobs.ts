@@ -25,6 +25,7 @@ import { warLifecycleJob } from './jobs/warLifecycle.js'
 import { competitionsResolveJob } from './jobs/competitionsResolve.js'
 import { ocScenariosMirrorJob } from './jobs/ocScenariosMirror.js'
 import { factionUpgradesSyncJob } from './jobs/factionUpgradesSync.js'
+import { memberEventWindowsJob } from './jobs/memberEventWindows.js'
 
 export interface ScraperWiringOptions {
   db: pg.Pool
@@ -113,6 +114,11 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // is ample resolution and costs exactly one call. 02:10 sits in a gap between
   // the 01:xx cluster and member-battle-stats at 02:45.
   ['faction-upgrades', '0 10 2 * * *', factionUpgradesSyncJob],
+  // #459: each opted-in member's Torn event start hour. One string per member
+  // that changes rarely, so daily is generous — and it costs one call per
+  // OPTED-IN member, not per member, which is why it sits well clear of the
+  // 01:xx–02:xx cluster rather than riding an existing sweep.
+  ['member-event-windows', '0 35 4 * * *', memberEventWindowsJob],
 ]
 
 function buildDeps(opts: ScraperWiringOptions): JobDeps {

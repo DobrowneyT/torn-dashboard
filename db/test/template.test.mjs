@@ -73,6 +73,8 @@ const NEW_TABLES = [
   'calendar_events', 'member_birthdays',
   // Daily faction-upgrade snapshots — Steadfast on the calendar (#395/#458)
   'faction_upgrade_snapshots',
+  // Per-member Torn event start windows, behind their own consent scope (#459)
+  'member_event_settings',
 ]
 
 let server
