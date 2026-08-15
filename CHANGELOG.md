@@ -17,6 +17,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.38.2] - 2026-08-15
+
+### Fixed
+- **Calendar date numbers sat mid-cell with event bars printed over them**
+  (#395). ⚠️ A `<button>` centres its content vertically when it is taller than
+  that content, so the `min-h-[6rem]` cell floated the date into the middle —
+  straight into the band layer, which is anchored to the top of the row. The
+  cell is now an explicitly top-aligned column, and the date carries its own
+  stacking context so a mis-measured lane can never cover it again.
+
 ## [3.38.1] - 2026-08-15
 
 ### Fixed

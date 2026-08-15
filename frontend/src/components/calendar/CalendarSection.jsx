@@ -258,15 +258,23 @@ function WeekRow({ cells, events, todayKey, onSelectDay }) {
         {cells.map((cell) => {
           const dayEvents = singles.get(cell.key) ?? []
           const clickable = (dayEvents.length > 0) || bands.some((b) => cells[b.startCol].key <= cell.key && cell.key <= cells[b.endCol].key)
+          // ⚠️ `flex flex-col justify-start` below is load-bearing, not tidying.
+          // A <button> centres its content vertically when it is taller than
+          // that content, so `min-h-[6rem]` floated the date number into the
+          // middle of the cell — where the band layer, anchored to the TOP of
+          // the row, printed straight over it.
           return (
             <button
               key={cell.key}
               onClick={() => clickable && onSelectDay(cell.key)}
-              className={`min-h-[6rem] px-1 pb-1 text-left align-top border-b border-r border-gray-100 dark:border-slate-700/60 ${
+              className={`min-h-[6rem] px-1 pb-1 flex flex-col items-stretch justify-start text-left border-b border-r border-gray-100 dark:border-slate-700/60 ${
                 cell.inMonth ? '' : 'bg-gray-50/60 dark:bg-slate-800/40'
               } ${clickable ? 'hover:bg-gray-100 dark:hover:bg-slate-700/40 cursor-pointer' : 'cursor-default'}`}
             >
-              <div className="flex items-center" style={{ height: DAY_NUM_H }}>
+              {/* `relative z-10` keeps the date above the absolutely-positioned
+                  band layer, so a mis-measured lane can never make the date
+                  unreadable — the one thing every cell must always show. */}
+              <div className="relative z-10 flex items-center shrink-0" style={{ height: DAY_NUM_H }}>
                 <span className={`text-xs ${
                   cell.key === todayKey
                     ? 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-white font-semibold'
