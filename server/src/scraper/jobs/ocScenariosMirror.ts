@@ -26,8 +26,22 @@ import { deriveEndingMap, type Probe } from '../../oc/endingMap.js'
  */
 const HIGH_CPR = 99
 
-/** CPR for the single dropped role in each probe. */
-const LOW_CPR = 1
+/**
+ * CPRs the probed role is dropped to, strongest signal first.
+ *
+ * ⚠️ **50 before 1, and 1 alone is not enough.** Dropping a role to CPR 1 was
+ * the original design and it SATURATES: a role gating several checkpoints then
+ * fails all of them, so the endings that need exactly ONE of its failures
+ * collapse instead of appearing. Pet Project's `goodEnding2` is flat on
+ * Picklock at CPR 1 and rises 25x at CPR 50 — the evidence was always there,
+ * the probe was blind to it.
+ *
+ * Measured across all 31 live scenarios: switching to 50 took good-ending
+ * mapping from 18/31 to 21/31 with no regressions, and eliminated the "no role
+ * evidence" failure entirely. 1 is kept as a second level because it still
+ * reveals the deep multi-failure endings that 50 leaves rare.
+ */
+const LOW_CPRS = [50, 1]
 
 /** Be a good neighbour: a small pause between calls to someone else's server. */
 const CALL_SPACING_MS = 250
@@ -183,13 +197,16 @@ async function runProbes(
   probes.push({ droppedRole: null, endings: await client.calculateSuccess(scenario, baseline) })
   await sleep(spacing)
 
-  for (let i = 0; i < roles.length; i++) {
-    const parameters = baseline.map((v, j) => (j === i ? LOW_CPR : v))
-    probes.push({
-      droppedRole: roles[i].roleName,
-      endings: await client.calculateSuccess(scenario, parameters),
-    })
-    await sleep(spacing)
+  for (const low of LOW_CPRS) {
+    for (let i = 0; i < roles.length; i++) {
+      const parameters = baseline.map((v, j) => (j === i ? low : v))
+      probes.push({
+        droppedRole: roles[i].roleName,
+        droppedTo: low,
+        endings: await client.calculateSuccess(scenario, parameters),
+      })
+      await sleep(spacing)
+    }
   }
   return probes
 }

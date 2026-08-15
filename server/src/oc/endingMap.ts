@@ -43,6 +43,11 @@ export interface Probe {
    * reports which pairs it needs, and only those are fetched.
    */
   droppedRoles?: string[]
+  /**
+   * The CPR the dropped role was set to. ⚠️ Several levels are probed per role
+   * and the level is load-bearing — see `observedLift`.
+   */
+  droppedTo?: number
   /** `goodEnding1` / `badEnding1` → probability. */
   endings: Record<string, number>
 }
@@ -187,9 +192,17 @@ export function observedResponse(
     // would invent agreement out of a measurement we never made.
     if (baseline <= 1e-4 && v <= 1e-4) continue
 
-    if (v > baseline * margin) out.set(probe.droppedRole, 'rise')
-    else if (v * margin < baseline) out.set(probe.droppedRole, 'fall')
-    else out.set(probe.droppedRole, 'flat')
+    const here: RoleResponse = v > baseline * margin ? 'rise'
+      : v * margin < baseline ? 'fall'
+      : 'flat'
+    // ⚠️ A rise at ANY probed level settles it. Saturation hides rises but
+    // never invents them, so one level seeing the ending appear outranks
+    // another level seeing it collapse.
+    const seen = out.get(probe.droppedRole)
+    if (seen === 'rise') continue
+    if (here === 'rise' || seen === undefined || (seen === 'flat' && here === 'fall')) {
+      out.set(probe.droppedRole, here)
+    }
   }
   return out
 }
@@ -211,7 +224,12 @@ export function observedLift(endingKey: string, probes: Probe[], margin = 1.5): 
     if (probe.droppedRole === null || probe.droppedRoles) continue
     const v = probe.endings[endingKey]
     if (v === undefined) continue
-    if (v > Math.max(baseline * margin, baseline + 1e-9)) out.set(probe.droppedRole, v / base)
+    if (v <= Math.max(baseline * margin, baseline + 1e-9)) continue
+    // ⚠️ Strongest level wins. A role is probed at several CPRs and only some
+    // reveal a given ending, so taking the last (or the lowest CPR) throws away
+    // the observation that actually found it.
+    const ratio = v / base
+    if (ratio > (out.get(probe.droppedRole) ?? 0)) out.set(probe.droppedRole, ratio)
   }
   return out
 }
