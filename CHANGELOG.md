@@ -44,10 +44,11 @@ from `VERSION` at runtime) both surface it automatically.
   `passesStatsFilter` with the desktop.
 
 ### Changed
-- **The "3x FF" filter never hides a green attack button (#481)**, on either
-  surface — someone online and out of hospital is the enemy standing up, and
-  that is war information rather than a target recommendation. Note this holds
-  in every mode, unlike the stats filter, which only exempts green in farm mode.
+- **In farm mode the "3x FF" filter never hides a green attack button (#481)**,
+  on either surface — someone online and out of hospital is the enemy standing
+  up, and a filter must not hide what a lead has to react to. It takes the same
+  condition as the stats filter deliberately, so the board never depends on
+  which of the two you reached for.
 - The desktop FF cell, the FF sort and the "3x FF" filter now read a target's
   stats through one shared `targetBattleStats` helper instead of three
   hand-written copies of the same field mapping, which is also what lets the

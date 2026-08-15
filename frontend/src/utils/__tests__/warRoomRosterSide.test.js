@@ -298,13 +298,25 @@ describe('passesFfFilter (#479)', () => {
     expect(passesFfFilter(null, { enabled: true })).toBe(false)
   })
 
-  it('⚠️ ALWAYS lets a green attack button through, in every mode', () => {
+  it('lets a green attack button through in FARM MODE, whatever the FF says', () => {
     // MonChoon: "We want people to see those targets so they know if a push is
     // coming." Someone online and out of hospital is the enemy standing up —
-    // information about the war, not a target recommendation. Note there is no
-    // farmMode condition here, unlike the stats filter.
-    expect(passesFfFilter(POOR, { enabled: true, isGreen: true })).toBe(true)
-    expect(passesFfFilter(null, { enabled: true, isGreen: true })).toBe(true)
+    // information about the war, not a target recommendation.
+    expect(passesFfFilter(POOR, { enabled: true, farmMode: true, isGreen: true })).toBe(true)
+    expect(passesFfFilter(null, { enabled: true, farmMode: true, isGreen: true })).toBe(true)
+  })
+
+  it('still filters non-green members in farm mode', () => {
+    expect(passesFfFilter(POOR, { enabled: true, farmMode: true, isGreen: false })).toBe(false)
+  })
+
+  it('⚠️ does not bypass outside farm mode — same rule as the stats filter', () => {
+    // The two filters take the same condition on purpose (#481). Outside farm
+    // mode a filter is a deliberate targeting tool; having one of them quietly
+    // keep extra rows would make the board depend on which filter you reached
+    // for rather than on what you asked for.
+    expect(passesFfFilter(POOR, { enabled: true, farmMode: false, isGreen: true })).toBe(false)
+    expect(passesStatsFilter({ bsp: 1 }, { min: 5, farmMode: false, isGreen: true })).toBe(false)
   })
 
   it('tolerates floating-point dust at the cap', () => {

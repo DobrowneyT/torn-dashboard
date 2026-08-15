@@ -167,20 +167,21 @@ export function passesStatsFilter(member, { min = null, max = null, farmMode = f
 /**
  * Does this member survive the "3x FF" filter?
  *
- * ⚠️ A green attack button ALWAYS survives, in every mode (#479) — not only in
- * farm mode, which is where the stats filter draws the line. MonChoon's reason
- * is situational awareness rather than target selection: *"We want people to
- * see those targets so they know if a push is coming."* Someone online and out
- * of hospital is the enemy's readiness showing, and that is worth seeing
- * whether or not hitting them personally pays full respect.
+ * In FARM MODE a green attack button always survives, exactly as it does for
+ * the stats filter (#481) — *"We want people to see those targets so they know
+ * if a push is coming"* (MonChoon). Someone online and out of hospital is the
+ * enemy's readiness showing, and a filter that hides what you have to react to
+ * is worse than no filter.
  *
- * The asymmetry with `passesStatsFilter` is therefore deliberate. A min/max is
- * a deliberate targeting tool outside farm mode; "only full-respect targets" is
- * never a reason to be blind to who is standing up.
+ * The two filters deliberately share the same rule and the same condition.
+ * MonChoon first scoped this one as unconditional and then settled on matching
+ * the stats filter: outside farm mode a filter is a deliberate targeting tool
+ * and should do what it says, and having the two behave differently would make
+ * the board's contents depend on which filter you happened to reach for.
  */
-export function passesFfFilter(ff, { enabled = false, isGreen = false } = {}) {
+export function passesFfFilter(ff, { enabled = false, farmMode = false, isGreen = false } = {}) {
   if (!enabled) return true
-  if (isGreen) return true
+  if (farmMode && isGreen) return true
   return isMaxFF(ff)
 }
 

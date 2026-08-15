@@ -741,12 +741,12 @@ function TwoTierFilters({
           live in the More sheet's Activity section. */}
       {chip('Online', activityFilter.has('Online'), () => onToggleActivity('Online'))}
       {/* "3x FF" (#479) — only targets paying the full respect multiplier.
-          Anyone online and out of hospital stays on the board regardless, so
-          the filter can never hide a push forming. */}
+          In farm mode anyone online and out of hospital stays on the board
+          regardless, so the filter cannot hide a push forming. */}
       {chip('3x FF', ffMaxOnly && ffUsable, onToggleFf, 'bg-purple-600 text-white border-purple-600', {
         disabled: !ffUsable,
         title: ffUsable
-          ? 'Only targets at the 3.00 fair-fight cap. Anyone online and out of hospital stays visible regardless.'
+          ? 'Only targets at the 3.00 fair-fight cap. In farm mode anyone online and out of hospital stays visible regardless.'
           : 'No battle stats on record for you yet, so FF cannot be computed.',
       })}
       {/* Farm-mode sort toggle. Distinct emerald active styling so it reads
@@ -904,7 +904,7 @@ function FilterSheet({
           </button>
           <span className="text-[11px] text-gray-500 dark:text-gray-400">
             {ffUsable
-              ? 'Targets at the 3.00 cap. Anyone online and out of hospital stays visible regardless, so a push can’t hide behind the filter.'
+              ? 'Targets at the 3.00 cap. In farm mode anyone online and out of hospital stays visible regardless, so a push can’t hide behind the filter.'
               : 'No battle stats on record for you yet, so FF cannot be computed.'}
           </span>
         </div>
@@ -1201,21 +1201,20 @@ export default function MobileWarRoomView({
     let list = members
     if (statusFilter.size > 0)   list = list.filter(m => statusFilter.has(stateToFilterKey(m.state, m.description)))
     if (activityFilter.size > 0) list = list.filter(m => activityFilter.has(m.activity))
-    // ⚠️ "3x FF" and the min/max both keep a GREEN attack button on screen
-    // (#479) — someone online and out of hospital is the enemy standing up, and
-    // a filter that hides the thing you have to react to is worse than no
-    // filter. The two draw the line differently on purpose: FF always exempts
-    // green, the stats band only does so in farm mode, where it is a farming
-    // aid rather than a deliberate targeting choice.
+    // ⚠️ In FARM MODE both "3x FF" and the min/max keep a GREEN attack button
+    // on screen (#481) — someone online and out of hospital is the enemy
+    // standing up, and a filter that hides the thing you have to react to is
+    // worse than no filter. The two take the same condition deliberately, so
+    // the board never depends on which filter you reached for.
+    const farmMode = sortBy === 'farm'
     if (ffMaxOnly && ffUsable) {
       list = list.filter(m => passesFfFilter(ffFor(m), {
-        enabled: true, isGreen: isGreenTarget(m),
+        enabled: true, farmMode, isGreen: isGreenTarget(m),
       }))
     }
     if (statsEnabled) {
       const minVal = parseStatInput(statsMin)
       const maxVal = parseStatInput(statsMax)
-      const farmMode = sortBy === 'farm'
       list = list.filter(m => passesStatsFilter(m, {
         min: minVal, max: maxVal, farmMode, isGreen: isGreenTarget(m),
       }))
