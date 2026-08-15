@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   battleStatsScore, fairFight, formatFF, ffSortValue, ffBand,
-  scoreIsEstimated, ffGradientPosition, isMaxFF,
+  scoreIsEstimated, ffGradientPosition, isMaxFF, targetBattleStats,
   FF_MAX, FF_CAP_RATIO,
 } from '../fairFight'
 
@@ -193,5 +193,48 @@ describe('the BSP estimate path end to end', () => {
     // The common case: we know our own stats exactly, the target is a BSP guess.
     const ff = fairFight({ strength: 1.25e9, speed: 1.25e9, defense: 1.25e9, dexterity: 1.25e9 }, { total: 1e8 })
     expect(ff).toBeCloseTo(1.377, 3)
+  })
+})
+
+describe('targetBattleStats', () => {
+  // The desktop table and the mobile overlay hold the same numbers under
+  // different field names. Both must produce the same FF — a card that reads
+  // its own stat names wrong would show a plausible number that is simply
+  // someone else's, which is worse than showing a dash.
+  const DESKTOP = { bsp_str: 100, bsp_spd: 200, bsp_def: 300, bsp_dex: 400, bsp_total: 1000 }
+  const MOBILE  = { bspStr: 100, bspSpd: 200, bspDef: 300, bspDex: 400, bsp: 1000 }
+
+  it('reads the desktop row shape', () => {
+    expect(targetBattleStats(DESKTOP)).toEqual({
+      strength: 100, speed: 200, defense: 300, dexterity: 400, total: 1000,
+    })
+  })
+
+  it('reads the mobile row shape', () => {
+    expect(targetBattleStats(MOBILE)).toEqual({
+      strength: 100, speed: 200, defense: 300, dexterity: 400, total: 1000,
+    })
+  })
+
+  it('⚠️ gives the two shapes the SAME fair fight', () => {
+    const mine = even(4e9)
+    expect(fairFight(mine, targetBattleStats(DESKTOP)))
+      .toBe(fairFight(mine, targetBattleStats(MOBILE)))
+  })
+
+  it('keeps a total-only row usable, and marks it estimated', () => {
+    // The common mobile case: BSP gives one number, no breakdown.
+    const stats = targetBattleStats({ bsp: 1e8 })
+    expect(stats.total).toBe(1e8)
+    expect(scoreIsEstimated(stats)).toBe(true)
+    expect(fairFight(even(5e9), stats)).toBeCloseTo(1.377, 3)
+  })
+
+  it('does not invent stats for a row that has none', () => {
+    // `Number(null) === 0` would make an unknown target look like a real one
+    // scoring zero, which reads as "worthless target" rather than "no data".
+    expect(fairFight(even(5e9), targetBattleStats({}))).toBeNull()
+    expect(targetBattleStats(null)).toBeNull()
+    expect(fairFight(even(5e9), targetBattleStats(null))).toBeNull()
   })
 })

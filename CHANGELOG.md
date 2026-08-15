@@ -17,6 +17,22 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.41.0] - 2026-08-15
+
+### Added
+- **War Room mobile — Fair Fight on every card (#477).** The personal FF score
+  now sits immediately left of the battle stats on each mobile member card, with
+  the same red-to-green gradient and the same dotted underline marking a number
+  that rests on an assumed even stat split. The badge is omitted entirely when we
+  hold no battle stats for the viewer, since FF is personal and a dash on every
+  card would say nothing about any target.
+
+### Changed
+- The desktop FF cell, the FF sort and the "3x FF" filter now read a target's
+  stats through one shared `targetBattleStats` helper instead of three
+  hand-written copies of the same field mapping, which is also what lets the
+  mobile card's camelCase rows produce an identical number.
+
 ## [3.40.1] - 2026-08-15
 
 ### Fixed

@@ -77,7 +77,9 @@ import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
 import { isTourSeen, markTourSeen, resetTourSeen } from '../utils/warRoomTour'
 import { parseStatInput, formatStats } from '../utils/statInput'
 import BattleStatsCell from '../components/BattleStatsCell'
-import { fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated } from '../utils/fairFight'
+import {
+  fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
+} from '../utils/fairFight'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -911,11 +913,8 @@ function MemberReviveChanceCell({ revives, loaded }) {
  * underline below carries the information the colour cannot.
  */
 function FairFightCell({ mine, target }) {
-  const ff = fairFight(mine, {
-    strength: target?.bsp_str, speed: target?.bsp_spd,
-    defense: target?.bsp_def, dexterity: target?.bsp_dex,
-    total: target?.bsp_total,
-  })
+  const targetStats = targetBattleStats(target)
+  const ff = fairFight(mine, targetStats)
 
   if (ff === null) {
     return (
@@ -930,11 +929,7 @@ function FairFightCell({ mine, target }) {
   // assumption overstates lopsided builds, and on the target side that inflates
   // FF — so a number built on a bare total should not look as solid as one
   // built on a real spy.
-  const estimated = scoreIsEstimated(mine) || scoreIsEstimated({
-    strength: target?.bsp_str, speed: target?.bsp_spd,
-    defense: target?.bsp_def, dexterity: target?.bsp_dex,
-    total: target?.bsp_total,
-  })
+  const estimated = scoreIsEstimated(mine) || scoreIsEstimated(targetStats)
 
   // 0 → red (0deg), 1 → green (120deg).
   const hue = Math.round(120 * ffGradientPosition(ff))
@@ -2242,10 +2237,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const columns = rosterColumns(effectiveSide)
   // FF for one roster row, from the viewer's perspective. Shared by the sort,
   // the 3x filter and the cell so the three cannot disagree about a number.
-  const ffFor = useCallback((m) => fairFight(myBattleStats, {
-    strength: m?.bsp_str, speed: m?.bsp_spd,
-    defense: m?.bsp_def, dexterity: m?.bsp_dex, total: m?.bsp_total,
-  }), [myBattleStats])
+  const ffFor = useCallback(
+    (m) => fairFight(myBattleStats, targetBattleStats(m)),
+    [myBattleStats]
+  )
   // Only offerable when we can actually compute it — otherwise the button
   // would silently empty the board.
   const ffFilterUsable = columns.ff && myBattleStats != null
@@ -3390,6 +3385,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               memberNotes={memberNotes}
               canEditNotes={canEditNotes}
               onSaveNote={saveMemberNote}
+              myBattleStats={myBattleStats}
               factionId={String(config?.faction_id ?? '')}
               factionName={factionName ?? config?.faction_name}
               ourCounts={mobileOurCounts}
