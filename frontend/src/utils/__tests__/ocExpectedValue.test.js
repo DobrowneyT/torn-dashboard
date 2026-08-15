@@ -92,3 +92,44 @@ describe('the shipped payout table', () => {
     expect(payoutsFor('Guardian Angels')).toBeNull()
   })
 })
+
+describe('unpriced coverage against the FULL probability space (#471)', () => {
+  // The real Clinical Precision distribution, read off the live simulator on
+  // 2026-08-15. Three good endings are priced, three are not, and every bad
+  // ending pays zero by the game's rules.
+  const CLINICAL = {
+    goodEnding5: 0.07178, goodEnding6: 0.07177, goodEnding1: 0.06921,
+    goodEnding2: 0.06922, goodEnding4: 0.06921, goodEnding3: 0.02307,
+    badEnding6: 0.14355, badEnding1: 0.125, badEnding2: 0.12304,
+    badEnding5: 0.09571, badEnding4: 0.06922, badEnding3: 0.04614,
+    badEnding7: 0.02308,
+  }
+  const PRICED = { goodEnding5: 75_959_700, goodEnding6: 66_312_065, goodEnding1: 116_465_857 }
+
+  it('⚠️ counts bad endings as covered mass, not as unpriced', () => {
+    // Passing only the GOOD endings made the bad-endings branch dead code, and
+    // the shortfall was then reported as a share of all the probability: the UI
+    // said 78.72% of Clinical Precision could not be priced when the true
+    // figure is 16.15%. A five-fold overstatement, on the screen an OC manager
+    // uses to decide what to run.
+    const r = expectedValue('Clinical Precision', CLINICAL, PRICED)
+    expect((1 - r.pricedProbability) * 100).toBeCloseTo(16.15, 1)
+    expect((1 - r.pricedProbability) * 100).not.toBeCloseTo(78.72, 1)
+  })
+
+  it('still names exactly the three good endings it could not price', () => {
+    const r = expectedValue('Clinical Precision', CLINICAL, PRICED)
+    expect(r.missing.sort()).toEqual(['goodEnding2', 'goodEnding3', 'goodEnding4'])
+    expect(r.complete).toBe(false)
+  })
+
+  it('leaves the lower bound itself unchanged — only the coverage was wrong', () => {
+    // ⚠️ The money was never affected. Bad endings contribute zero either way,
+    // so E(x) was right and the warning around it was not.
+    const r = expectedValue('Clinical Precision', CLINICAL, PRICED)
+    const goodOnly = Object.fromEntries(
+      Object.entries(CLINICAL).filter(([k]) => k.startsWith('goodEnding'))
+    )
+    expect(r.expected).toBeCloseTo(expectedValue('x', goodOnly, PRICED).expected, 6)
+  })
+})
