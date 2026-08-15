@@ -263,13 +263,19 @@ describe('ocScenariosMirrorJob', () => {
     expect(roles.rows[0].n).toBe(6)
   })
 
-  it('probes with one role dropped at a time, from a high baseline', async () => {
-    // The sweep the derivation reads role evidence from: 1 + N calls per
-    // scenario. Worth asserting because a wrong baseline silently produces a
-    // mapping that is merely plausible.
+  it('probes each role at TWO CPR levels, from a high baseline', async () => {
+    // 1 baseline + N roles x 2 levels. Worth asserting because a wrong sweep
+    // silently produces a mapping that is merely plausible.
+    //
+    // ⚠️ The second level is not redundancy. Dropping a role to CPR 1
+    // SATURATES: a role gating several checkpoints fails all of them, so the
+    // endings needing exactly ONE of its failures collapse rather than appear.
+    // Pet Project's goodEnding2 is flat on Picklock at CPR 1 and rises 25x at
+    // CPR 50. Measured across all 31 live scenarios, adding the 50 level took
+    // good-ending mapping from 18/31 to 21/31 with no regressions.
     const { calls } = await run({ scenarios: [{ name: 'Break the Bank', parameters: 6 }] })
     const probes = calls.filter((c) => c.includes('CalculateSuccess'))
-    expect(probes).toHaveLength(7)
+    expect(probes).toHaveLength(1 + 6 * 2)
   })
 })
 

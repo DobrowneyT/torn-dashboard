@@ -17,6 +17,28 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.39.0] - 2026-08-15
+
+### Fixed
+- **OC Simulator: 21 of 31 crimes now have their endings mapped, up from 18**
+  (#390) — and the *cause* of the remaining failures changed completely.
+  - ⚠️ **The probe design was the bug, not the scoring.** Each role was dropped
+    to **CPR 1** to see which endings that made likelier. That SATURATES: a role
+    gating several checkpoints then fails all of them, so the endings needing
+    exactly *one* of its failures collapse instead of appearing. Pet Project's
+    `goodEnding2` is flat on Picklock at CPR 1 and rises **25x** at CPR 50 — the
+    evidence was there the whole time and the probe could not see it.
+  - Each role is now probed at **two levels (50, then 1)**, and the strongest
+    reading wins: a rise at any level settles it, because saturation can hide a
+    rise but never invent one.
+  - Measured against all 31 live scenarios: **18/31 → 21/31, no regressions**,
+    and the "no role evidence" failure — which accounted for seven crimes — is
+    gone entirely. What remains is seven ties and three crimes where the source
+    contradicts itself.
+  - A **fall now excludes** a candidate: if dropping a role makes an ending
+    rarer, that ending is not the one reached by that role failing. One-way, so
+    it removes wrong candidates without inventing predictions.
+
 ## [3.38.2] - 2026-08-15
 
 ### Fixed
