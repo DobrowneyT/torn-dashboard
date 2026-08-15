@@ -17,6 +17,21 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.40.1] - 2026-08-15
+
+### Fixed
+- **The OC Simulator overstated how much of a crime it could not price, by
+  about five times** (#471). ⚠️ Clinical Precision reported *"78.72% of the
+  probability"* unpriced when the true figure is **16.15%**.
+  - `expectedValue` has an explicit branch counting bad endings as fully
+    covered mass paying zero — but it was being handed only the *good* endings,
+    which made that branch dead code. The shortfall was then a share of the
+    good mass, displayed as a share of **all** the probability.
+  - ⚠️ **E(x) itself was never wrong.** Bad endings contribute zero either way,
+    so the money was right and only the warning around it was inflated — which
+    is the more insidious failure, because it pushed people away from crimes
+    that were fine.
+
 ## [3.40.0] - 2026-08-15
 
 ### Changed

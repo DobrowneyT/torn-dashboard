@@ -562,6 +562,19 @@ function ResultPanel({ scenario, result, calculating, error }) {
     return Object.fromEntries(Object.entries(result).filter(([k]) => k.startsWith('goodEnding')))
   }, [result])
 
+  // ⚠️ E(x) takes BOTH kinds. `expectedValue` has an explicit branch counting
+  // bad endings as fully-covered mass paying zero — passing only the good ones
+  // made that branch dead code, and the "unpriced coverage" figure was then a
+  // share of the good mass reported as a share of ALL the probability. On
+  // Clinical Precision that read 78.72% when the real answer is 16.15%: a
+  // five-fold overstatement of how much of the crime we cannot price.
+  const endingProbabilities = useMemo(() => {
+    if (!result) return {}
+    return Object.fromEntries(
+      Object.entries(result).filter(([k]) => k.startsWith('goodEnding') || k.startsWith('badEnding'))
+    )
+  }, [result])
+
   // #440: payouts come from the mirrored feed, joined to endings through the
   // #390 mapping. No hand-entered table any more.
   const priced = useMemo(() => payoutsFromEndings(scenario.endings), [scenario.endings])
@@ -571,8 +584,8 @@ function ResultPanel({ scenario, result, calculating, error }) {
   const itemsOnly = useMemo(() => paysInItems(scenario.endings), [scenario.endings])
 
   const ev = useMemo(
-    () => (result ? expectedValue(scenario.name, goodProbabilities, priced) : null),
-    [scenario.name, goodProbabilities, result, priced]
+    () => (result ? expectedValue(scenario.name, endingProbabilities, priced) : null),
+    [scenario.name, endingProbabilities, result, priced]
   )
 
   // Expected respect, on the same terms as expected money.
