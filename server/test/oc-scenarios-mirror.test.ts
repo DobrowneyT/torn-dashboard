@@ -214,24 +214,33 @@ describe('ocScenariosMirrorJob', () => {
     expect(JSON.stringify(r.rows[0].diagram_problems)).toContain('_A4F_Cont_')
   })
 
-  it('records an unresolved ending rather than omitting it', async () => {
-    // ⚠️ Mob Mentality's sweep here is flat, so no role evidence separates its
-    // endings. Omitting them would make "we could not work this out" look
-    // identical to "this ending does not exist", and the simulator would price
-    // the crime on a subset of its outcomes.
+  it('⚠️ resolves the endings a flat sweep used to defeat (#471)', async () => {
+    // Mob Mentality's sweep here is flat: no role evidence separates its
+    // endings, and the heuristic derivation left them unresolved. Simulation
+    // does not need role evidence — it computes each terminal's probability
+    // directly — so every ending now gets a node.
     const { res } = await run()
     const r = await stack.db.query(
-      `SELECT ending_key, node_id, resolved, problem FROM oc_scenario_endings
+      `SELECT ending_key, node_id, resolved FROM oc_scenario_endings
         WHERE scenario_name = 'Mob Mentality' AND kind = 'good'`
     )
     expect(r.rows.length).toBeGreaterThan(0)
-    const unresolved = r.rows.filter((x) => !x.resolved)
-    expect(unresolved.length).toBeGreaterThan(0)
-    expect(unresolved.every((x) => x.node_id === null)).toBe(true)
-    expect(unresolved.every((x) => typeof x.problem === 'string' && x.problem.length > 0)).toBe(true)
-    // The run reports it rather than passing silently.
-    expect(res.details!.mapped).toBe(1)
-    expect((res.details!.problems as string[]).join(' ')).toContain('Mob Mentality')
+    expect(r.rows.every((x) => x.resolved && x.node_id !== null)).toBe(true)
+    expect(res.details!.mapped).toBe(2)
+  })
+
+  it('⚠️ reports a loose fit even when every ending was mapped', async () => {
+    // "Mapped" and "trustworthy" are separate facts. Ten of 31 live scenarios
+    // reproduce successChance EXACTLY while the split between endings does not
+    // fit, so a complete map can still be wrong about which ending is which —
+    // and that has to reach the run log rather than passing silently.
+    const { res } = await run()
+    const r = await stack.db.query(
+      `SELECT name, ending_map_residual, ending_map_confident FROM oc_scenarios ORDER BY name`
+    )
+    expect(r.rows.length).toBeGreaterThan(0)
+    expect(r.rows.every((x) => x.ending_map_residual !== null)).toBe(true)
+    expect(res.details).toBeTruthy()
   })
 
   it('refuses to map a scenario whose role count contradicts the crime', async () => {

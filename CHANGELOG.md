@@ -17,6 +17,42 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.40.0] - 2026-08-15
+
+### Changed
+- **OC Simulator: the ending map is now derived by simulating the flowchart,
+  not by inferring from it** (#471). Ending mapping goes from **21/31 to 29/31**.
+  - ⚠️ **The diagram is not a hint about the probability model — it IS the
+    model.** Walking it forward reproduces the service's own numbers to five
+    decimal places, so the map falls out of arithmetic rather than heuristics.
+    Three measured attempts at better heuristics gained nothing and one
+    regressed; this replaces them.
+  - Endings are assigned **all at once** by Hungarian matching on their
+    probability vector across the whole probe sweep, not one at a time. The old
+    greedy pass is what produced "no unclaimed ending at depth N": an early
+    ending took a node a later one had no alternative for.
+  - This is what separates endings that are **identical at the baseline** —
+    `_B3S_` and `_C3S_` are both 0.00990 at all-99 and 128x apart once a role is
+    dropped.
+  - **Multi-role checkpoints AVERAGE.** Both MonChoon and I assumed a product;
+    measured against the service's own `successChance`, a product was the worst
+    of five candidate rules and the average the best, landing on *exactly* zero
+    for seven scenarios. Confirmed by MonChoon, including for three roles.
+  - **A complete map and a trustworthy one are now separate facts.**
+    `ending_map_confident` is stored alongside a numeric residual: ten scenarios
+    reproduce `successChance` exactly while the split between endings does not
+    fit, so their per-ending money is flagged rather than quietly trusted.
+  - A **spare terminal no longer fails a crime**. Snow Blind's diagram draws a
+    good ending the API never reports; every ending that needed pricing still
+    got a node.
+
+### Fixed
+- **Two crimes stay unmapped, and now say why precisely** (#471). Blast from the
+  Past and Counter Offer report more endings than their flowchart draws
+  (including keys like `goodEnding35`), so no assignment can be complete. Their
+  `successChance` simulates exactly, which is what proves the mismatch is in the
+  source data rather than in our model.
+
 ## [3.39.0] - 2026-08-15
 
 ### Fixed
