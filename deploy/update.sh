@@ -122,6 +122,26 @@ echo "==> rebuild + restart (backup sidecar)"
 
 docker image prune -f >/dev/null
 
+# ⚠️ Dangling IMAGES are not what fills this disk — the BUILD CACHE is, and
+# `image prune` does not touch it. BuildKit keeps its cache in a separate store
+# (under /var/lib/containerd, not /var/lib/docker/volumes), and nothing evicts
+# it. Every run above builds five tenant APIs, nginx and the backup sidecar, so
+# each deploy adds layers and none ever leave.
+#
+# Measured on 2026-08-16: 35GB of build cache — 61% of a 72GB disk, against
+# 1.3GB for every faction database put together. The box was at 80% full and
+# the obvious suspects (backups, DB growth) were both innocent. Pruning it back
+# reclaimed 33GB in one command.
+#
+# 4GB rather than zero: `--keep-storage 0` would make the next deploy recompile
+# the world. This keeps the most recently used layers, which are the ones the
+# next build wants. The budget is shared daemon-wide with the staging stack,
+# which prunes to the same figure — two different numbers would have each
+# script evicting the other's layers on every tick.
+echo "==> prune build cache"
+docker builder prune -f --keep-storage 4GB >/dev/null 2>&1 \
+  || echo "[warn] build-cache prune failed — check 'docker system df' for growth"
+
 # Verify every tenant through our nginx. server_name is <slug>.*, so
 # <slug>.localhost matches regardless of the real domain.
 echo "==> readiness"
