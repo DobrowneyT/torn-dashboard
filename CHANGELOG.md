@@ -17,6 +17,32 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.42.0] - 2026-08-16
+
+### Added
+- **API rate limiting (#485).** There was none: every client until now has been
+  the SPA, driven by a handful of people per tenant. The dibs userscript (#487)
+  changes that — it runs on a page members leave open for a whole war, and a
+  retry bug in a client shipped to phones is discovered *after* everyone has it.
+  A generous global cap (600/min) plus a much tighter one on `/api/auth/*`
+  (10/min), which is unauthenticated by nature, calls Torn, and is the first
+  endpoint an attacker reaches. Refusals return **429 with `Retry-After`** so a
+  client can back off by a known amount instead of retrying blindly.
+  - ⚠️ **Keyed on the logged-in member, not the IP.** In production every
+    request arrives from the same nginx container, so an IP-only key would put
+    a whole faction in one bucket and let one busy member 429 everyone else
+    mid-war. Authenticated traffic keys on the JWT-verified user id, which
+    cannot be forged and needs no `X-Forwarded-For` plumbing to be correct.
+  - ⚠️ **Health checks and the war-room WebSocket are exempt.** `update.sh`
+    polls `/api/health/ready` up to 20 times in 40s per tenant to decide
+    whether a deploy worked, and Docker's HEALTHCHECK hits `/api/health` on its
+    own schedule — limiting either would turn ordinary deploys into false FAILs
+    and mark healthy containers unhealthy. The socket is exempt because the war
+    room reconnects on every network blip, and a member whose train goes
+    through a tunnel must not come back to a locked-out roster.
+  - The auth budget is a separate store from the general one, so a burst of
+    ordinary reads can never lock anyone out of logging in.
+
 ### Fixed
 - **⚠️ An interrupted deploy wedged the box silently, and `--if-changed` could
   never recover it.** Both `deploy/update.sh` and `deploy/dev-deploy.sh` advance

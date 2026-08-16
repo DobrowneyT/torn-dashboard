@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify'
+import rateLimit from '@fastify/rate-limit'
 import type pg from 'pg'
 import {
   factionIdentity,
@@ -68,6 +69,60 @@ export interface ServerOptions {
   feedbackLabel?: string
   /** Public origin for embeddable feedback attachment URLs (#254). */
   publicBaseUrl?: string
+  /**
+   * Request rate limiting (#485). Omit for the production defaults; `false`
+   * disables it entirely, which is what the test harness does — a few hundred
+   * tests share one loopback address, and a default-on limit would make
+   * unrelated suites fail in ways that look like the feature under test.
+   */
+  rateLimit?: RateLimitOptions | false
+}
+
+export interface RateLimitOptions {
+  /** Requests per window for ordinary endpoints. */
+  max?: number
+  /** Window length, ms. */
+  timeWindowMs?: number
+  /** Tighter budget for /api/auth/*, which is unauthenticated and calls Torn. */
+  authMax?: number
+}
+
+/**
+ * Generous on purpose. This is a guard against a client stuck in a retry loop
+ * and against casual abuse — not a quota. A human driving the SPA cannot
+ * approach 600/minute: the war-room roster arrives over the WebSocket, so the
+ * REST traffic is page loads and the occasional write.
+ */
+const RATE_LIMIT_MAX = 600
+const RATE_LIMIT_WINDOW_MS = 60_000
+/**
+ * `/api/auth/*` is both the most expensive endpoint (it calls Torn) and the
+ * first one an attacker reaches, since it is unauthenticated by nature.
+ *
+ * 10/minute is still far above honest use — a login is one request, and the
+ * SPA refreshes a 30-day session rarely.
+ */
+const RATE_LIMIT_AUTH_MAX = 10
+
+/**
+ * Requests that must NEVER be refused.
+ *
+ * ⚠️ `deploy/update.sh` polls `/api/health/ready` up to 20 times in 40 seconds
+ * per tenant to decide whether a deploy worked, and Docker's HEALTHCHECK hits
+ * `/api/health` on its own schedule. A limit that caught either would turn
+ * ordinary deploys into false FAILs and mark healthy containers unhealthy. A
+ * monitoring endpoint that stops answering under load is worse than none.
+ *
+ * The WebSocket handshake is exempt for a different reason: the war room
+ * reconnects on every network blip, and a member whose train goes through a
+ * tunnel must not come back to a locked-out roster mid-war. The socket is
+ * authenticated on its token and is one connection, not a request stream.
+ */
+function isRateLimitExempt(url: string): boolean {
+  const path = url.split('?')[0]
+  return path === '/api/health'
+    || path === '/api/health/ready'
+    || path === '/api/war-room/ws'
 }
 
 export async function buildServer(
@@ -109,6 +164,11 @@ export async function buildServer(
 
   app.decorateRequest('session', null)
 
+  // Populated when rate limiting is on; spread onto the auth routes so they get
+  // their OWN store rather than sharing the general budget. Sharing one bucket
+  // would mean a burst of ordinary reads locks people out of logging in.
+  let authRateLimit: { max: number; timeWindow: number } | false = false
+
   if (opts.db && opts.tornBaseUrl && opts.jwtSecret) {
     const deps: AuthDeps = {
       db: opts.db, tornBaseUrl: opts.tornBaseUrl, jwtSecret: opts.jwtSecret,
@@ -123,7 +183,57 @@ export async function buildServer(
       req.session = await verifySessionToken(deps.jwtSecret, header.slice('Bearer '.length))
     })
 
-    app.post('/api/auth/login', async (req, reply) => {
+    // ⚠️ Registered HERE, after the session hook and awaited, on purpose. The
+    // limiter's own onRequest hook is appended after the one above, so
+    // `req.session` is already populated when keyGenerator runs. Register it
+    // earlier and every authenticated request would fall back to keying on IP.
+    if (opts.rateLimit !== false) {
+      const rl = opts.rateLimit ?? {}
+      const timeWindow = rl.timeWindowMs ?? RATE_LIMIT_WINDOW_MS
+      authRateLimit = { max: rl.authMax ?? RATE_LIMIT_AUTH_MAX, timeWindow }
+      await app.register(rateLimit, {
+        max: rl.max ?? RATE_LIMIT_MAX,
+        timeWindow,
+        allowList: (req) => isRateLimitExempt(req.url),
+        /**
+         * ⚠️ Identity first, IP second — and the ordering is load-bearing.
+         *
+         * Every request arrives from the same Docker nginx container, so an
+         * IP-only key would put an entire faction in ONE bucket: one member
+         * with a page open on a slow connection could 429 everybody else in
+         * the middle of a war. Authenticated traffic keys on the JWT-verified
+         * user id, which cannot be forged and needs no X-Forwarded-For
+         * plumbing to be correct.
+         *
+         * Unauthenticated traffic (login, bootstrap) still keys on IP, which
+         * behind the proxy IS one shared bucket — that is why the auth budget
+         * is per-route and why the general one is set so high. Making those
+         * per-client needs correct client IPs, which needs the edge nginx to
+         * RESET X-Forwarded-For rather than append to it; the tenant vhost is
+         * not currently in this repo. Noted rather than half-done.
+         */
+        keyGenerator: (req) => {
+          const userId = req.session?.torn_user_id
+          return userId ? `u:${userId}` : `ip:${req.ip}`
+        },
+        // ⚠️ `statusCode` is REQUIRED here. The plugin THROWS whatever this
+        // returns (`throw params.errorResponseBuilder(...)`), so an object
+        // without it reaches Fastify's error handler as an unrecognised error
+        // and is served as a 500 — with the right body and the wrong status,
+        // which is the sort of bug that reads as "the API is broken" rather
+        // than "you are going too fast".
+        errorResponseBuilder: (_req, context) => ({
+          statusCode: context.statusCode,
+          error: 'Too many requests',
+          // Seconds, so a client can back off by a known amount instead of
+          // guessing — a bare 429 just gets retried, which is the behaviour
+          // the limit exists to stop.
+          retry_after: Math.ceil(context.ttl / 1000),
+        }),
+      })
+    }
+
+    app.post('/api/auth/login', { config: { rateLimit: authRateLimit } }, async (req, reply) => {
       const apiKey = (req.body as { apiKey?: unknown } | null)?.apiKey
       if (typeof apiKey !== 'string' || apiKey.trim() === '') {
         return reply.status(400).send({ error: 'apiKey is required' })
@@ -136,7 +246,7 @@ export async function buildServer(
     // Silent session renewal (#119). Reads the raw header itself: the
     // onRequest hook above deliberately drops STALE tokens (that's the 24h
     // gate), but a stale-yet-unexpired token is exactly what refresh is for.
-    app.post('/api/auth/refresh', async (req, reply) => {
+    app.post('/api/auth/refresh', { config: { rateLimit: authRateLimit } }, async (req, reply) => {
       const header = req.headers.authorization
       if (!header?.startsWith('Bearer ')) {
         return reply.status(401).send({ error: 'Session expired — please log in again' })
