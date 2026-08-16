@@ -26,12 +26,34 @@ from `VERSION` at runtime) both surface it automatically.
   that rests on an assumed even stat split. The badge is omitted entirely when we
   hold no battle stats for the viewer, since FF is personal and a dash on every
   card would say nothing about any target.
+- **War Room mobile — the "3x FF" filter and an FF sort (#481).** Both mirror
+  the desktop controls; the filter is offered only when we hold battle stats for
+  the viewer, since without them it would silently empty the board.
+
+### Fixed
+- **⚠️ The surge warning never reached anyone using the mobile War Room
+  (#481).** The banner renders in the desktop view, and the mobile overlay is a
+  full-screen sheet drawn on top of it — so the warning was rendering the whole
+  time, underneath a cover. The sound and flash always fired; what a mobile user
+  lost was which surge it was, and the leader's one-tap rally call. Both now
+  render inside the overlay, above everything else on the screen.
+- **⚠️ Green targets could be filtered off the mobile board (#481).** The mobile
+  stats filter carried its own copy of the min/max logic without the #366 farm
+  exemption, so the enemies who could be hit *this second* disappeared from the
+  phone in exactly the situation the exemption exists for. It now shares
+  `passesStatsFilter` with the desktop.
 
 ### Changed
+- **In farm mode the "3x FF" filter never hides a green attack button (#481)**,
+  on either surface — someone online and out of hospital is the enemy standing
+  up, and a filter must not hide what a lead has to react to. It takes the same
+  condition as the stats filter deliberately, so the board never depends on
+  which of the two you reached for.
 - The desktop FF cell, the FF sort and the "3x FF" filter now read a target's
   stats through one shared `targetBattleStats` helper instead of three
   hand-written copies of the same field mapping, which is also what lets the
-  mobile card's camelCase rows produce an identical number.
+  mobile card's camelCase rows produce an identical number. `isGreenTarget` and
+  `passesStatsFilter` likewise now read both row shapes.
 
 ## [3.40.1] - 2026-08-15
 

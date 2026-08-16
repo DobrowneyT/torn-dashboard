@@ -49,7 +49,7 @@
  *     npm install lucide-react
  */
 
-import { useState, useEffect, useMemo, useReducer, useRef } from 'react'
+import { useState, useEffect, useMemo, useReducer, useRef, useCallback } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
 import {
   Check, BriefcaseMedical, Plane, MapPin, Skull, Lock, Clock,
@@ -58,7 +58,8 @@ import {
   Settings, Search, Pause, Play,
   SlidersHorizontal, ShoppingBag, HeartPulse, Loader2,
 } from 'lucide-react'
-import { farmCompare } from '../utils/warRoomFarmSort'
+import { farmCompare, isGreenTarget } from '../utils/warRoomFarmSort'
+import { passesStatsFilter, passesFfFilter } from '../utils/warRoomRosterSide'
 import { parseDbTime } from '../utils/time'
 import SpotlightTour from '../components/warroom/SpotlightTour'
 import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
@@ -487,6 +488,61 @@ function MemberCard({ m, dib, currentUserId, myBattleStats, onClaim, onRelease, 
 }
 
 // ───────────────────────────────────────────────────────────────────
+// Surge banner (#208 / #359 / #479)
+// ───────────────────────────────────────────────────────────────────
+
+/**
+ * The server-detected push warning, on the phone.
+ *
+ * ⚠️ This existed only on desktop until #479, and not by decision. The banner
+ * lives in the parent view, and the mobile overlay is a `fixed inset-0` sheet
+ * drawn on top of it — so the warning was rendering the whole time, underneath
+ * a full-screen cover. The parent's own comment is explicit that the banner
+ * shows regardless of a member's alert preferences, because *"silencing a ping
+ * is not the same as hiding the warning"*; on mobile it was hidden anyway.
+ *
+ * The sound and flash were never affected — `useWarRoomAlerts` runs in the
+ * parent and fired normally. What a mobile user lost was WHICH surge it was and
+ * what to do about it.
+ *
+ * Colour carries the direction, matching desktop exactly: green when it is us
+ * pushing, amber for an incoming REVIVE surge (#359 — nothing has landed yet),
+ * red only for "they are hitting us right now".
+ */
+function SurgeBanner({ alert, canPostRally, onPostRally, posting, onDismiss }) {
+  const tone = alert.direction !== 'enemy' ? 'bg-green-600'
+    : alert.surge === 'revive' ? 'bg-amber-600'
+    : 'bg-red-600'
+  return (
+    <div className={`rounded-lg px-3 py-2.5 shadow-lg text-white flex items-start gap-2 ${tone}`}>
+      <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />
+      <div className="min-w-0 flex-1">
+        <div className="font-bold text-[15px] leading-tight">{alert.title}</div>
+        {alert.body && <div className="text-[12px] opacity-90 leading-snug mt-0.5">{alert.body}</div>}
+        {canPostRally && (
+          alert.posted ? (
+            <span className="inline-block mt-2 text-[11px] font-semibold px-2 py-1 rounded bg-white/20">
+              Headline posted ✓
+            </span>
+          ) : (
+            <button
+              onClick={onPostRally}
+              disabled={posting}
+              className="mt-2 min-h-[36px] px-3 rounded-lg bg-white/90 text-gray-900 text-[12px] font-semibold disabled:opacity-60"
+            >
+              {posting ? 'Posting…' : 'Post rally call'}
+            </button>
+          )
+        )}
+      </div>
+      <button onClick={onDismiss} aria-label="Dismiss" className="p-1 rounded hover:bg-black/20 flex-shrink-0">
+        <X size={16} />
+      </button>
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
 // Header bar — sticky, with cog (leadership), close X, filter pill
 // ───────────────────────────────────────────────────────────────────
 
@@ -656,18 +712,21 @@ function ReviveQuickLinkTile({ serviceName, serviceUrl, onRequestRevive, tileBas
 function TwoTierFilters({
   statusFilter, onToggleStatus,
   activityFilter, onToggleActivity,
+  ffMaxOnly, onToggleFf, ffUsable,
   sortBy, onToggleFarm,
   advancedCount, onOpenAdvanced,
 }) {
-  const chip = (label, active, onClick, activeClass = 'bg-blue-600 text-white border-blue-600') => (
+  const chip = (label, active, onClick, activeClass = 'bg-blue-600 text-white border-blue-600', opts = {}) => (
     <button
       key={label}
       onClick={onClick}
+      disabled={opts.disabled}
+      title={opts.title}
       className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border ${
         active
           ? activeClass
           : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700'
-      }`}
+      } ${opts.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       {label}
     </button>
@@ -681,6 +740,15 @@ function TwoTierFilters({
       {/* Activity filter — single-purpose Online toggle. Idle/Offline still
           live in the More sheet's Activity section. */}
       {chip('Online', activityFilter.has('Online'), () => onToggleActivity('Online'))}
+      {/* "3x FF" (#479) — only targets paying the full respect multiplier.
+          In farm mode anyone online and out of hospital stays on the board
+          regardless, so the filter cannot hide a push forming. */}
+      {chip('3x FF', ffMaxOnly && ffUsable, onToggleFf, 'bg-purple-600 text-white border-purple-600', {
+        disabled: !ffUsable,
+        title: ffUsable
+          ? 'Only targets at the 3.00 fair-fight cap. In farm mode anyone online and out of hospital stays visible regardless.'
+          : 'No battle stats on record for you yet, so FF cannot be computed.',
+      })}
       {/* Farm-mode sort toggle. Distinct emerald active styling so it reads
           as "mode" rather than another filter chip. */}
       {chip('Farm', sortBy === 'farm', onToggleFarm, 'bg-emerald-600 text-white border-emerald-600')}
@@ -764,6 +832,7 @@ function BottomSheet({ open, onClose, title, children }) {
 function FilterSheet({
   open, onClose,
   statusFilter, toggleStatus, activityFilter, toggleActivity,
+  ffMaxOnly, setFfMaxOnly, ffUsable,
   statsEnabled, setStatsEnabled, statsMin, setStatsMin, statsMax, setStatsMax,
   sortBy, setSortBy, sortDir, setSortDir,
   onClear,
@@ -793,6 +862,7 @@ function FilterSheet({
             { key: 'activity', label: 'Activity' },
             { key: 'name',     label: 'Name'     },
             { key: 'farm',     label: 'Farm'     },
+            ...(ffUsable ? [{ key: 'ff', label: 'FF' }] : []),
           ].map(opt => chip(opt.label, sortBy === opt.key, () => setSortBy(opt.key)))}
         </div>
         {sortBy === 'farm' ? (
@@ -817,6 +887,26 @@ function FilterSheet({
       <SheetSection title="Activity">
         <div className="flex gap-1.5 flex-wrap">
           {['Online', 'Idle', 'Offline'].map(a => chip(a, activityFilter.has(a), () => toggleActivity(a)))}
+        </div>
+      </SheetSection>
+      <SheetSection title="Fair Fight">
+        <div className="flex gap-2 items-center">
+          <button
+            onClick={() => ffUsable && setFfMaxOnly(!ffMaxOnly)}
+            disabled={!ffUsable}
+            className={`px-3.5 py-2 rounded-full text-[13px] font-medium border ${
+              ffMaxOnly && ffUsable
+                ? 'bg-purple-600 text-white border-purple-600'
+                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700'
+            } ${ffUsable ? '' : 'opacity-50 cursor-not-allowed'}`}
+          >
+            3x FF only
+          </button>
+          <span className="text-[11px] text-gray-500 dark:text-gray-400">
+            {ffUsable
+              ? 'Targets at the 3.00 cap. In farm mode anyone online and out of hospital stays visible regardless, so a push can’t hide behind the filter.'
+              : 'No battle stats on record for you yet, so FF cannot be computed.'}
+          </span>
         </div>
       </SheetSection>
       <SheetSection title="Battle Stats (BSP)">
@@ -995,6 +1085,13 @@ export default function MobileWarRoomView({
   // The viewer's own battle stats, for the personal FF badge (#422). Null when
   // we hold none for them — the badge is then omitted rather than dashed.
   myBattleStats = null,
+  // Server-detected push surge (#208/#359). The parent owns detection, the
+  // sound/flash and the dismiss timer; this component only renders it.
+  surgeAlert = null,
+  onDismissSurge = () => {},
+  canPostRally = false,
+  onPostRally = () => {},
+  postingHeadline = false,
   factionId,
   factionName,
   ourCounts = { Online: 0, Idle: 0, Okay: 0, OkayOnline: 0 },
@@ -1030,6 +1127,7 @@ export default function MobileWarRoomView({
     new Set(persistedState.statusFilter ?? ['Okay'])
   )
   const [activityFilter, setActivityFilter] = useState(() => new Set(persistedState.activityFilter ?? []))
+  const [ffMaxOnly, setFfMaxOnly] = useState(() => persistedState.ffMaxOnly ?? false)
   const [statsEnabled, setStatsEnabled] = useState(() => persistedState.statsEnabled ?? false)
   const [statsMin, setStatsMin] = useState(() => persistedState.statsMin ?? '')
   const [statsMax, setStatsMax] = useState(() => persistedState.statsMax ?? '')
@@ -1049,17 +1147,32 @@ export default function MobileWarRoomView({
     setPersistedState({
       statusFilter: [...statusFilter],
       activityFilter: [...activityFilter],
+      ffMaxOnly,
       statsEnabled,
       statsMin,
       statsMax,
       sortBy,
       sortDir,
     })
-  }, [statusFilter, activityFilter, statsEnabled, statsMin, statsMax, sortBy, sortDir, setPersistedState])
+  }, [statusFilter, activityFilter, ffMaxOnly, statsEnabled, statsMin, statsMax, sortBy, sortDir, setPersistedState])
+
+  // FF for one row, from the viewer's perspective (#422). Shared by the sort
+  // and the 3x filter so the two cannot disagree with the badge on the card.
+  const ffFor = useCallback(
+    (m) => fairFight(myBattleStats, targetBattleStats(m)),
+    [myBattleStats]
+  )
+  // Only offerable when we can actually compute it — a 3x filter with no
+  // attacker stats would silently empty the board.
+  const ffUsable = myBattleStats != null
 
   const toggleStatus = s => setStatusFilter(p => { const n = new Set(p); n.has(s) ? n.delete(s) : n.add(s); return n })
   const toggleActivity = a => setActivityFilter(p => { const n = new Set(p); n.has(a) ? n.delete(a) : n.add(a); return n })
-  const clearFilters = () => { setStatusFilter(new Set()); setActivityFilter(new Set()); setStatsEnabled(false); setStatsMin(''); setStatsMax('') }
+  const clearFilters = () => {
+    setStatusFilter(new Set()); setActivityFilter(new Set())
+    setFfMaxOnly(false)
+    setStatsEnabled(false); setStatsMin(''); setStatsMax('')
+  }
 
   // Farm-mode tracking: remember when each member transitioned INTO Okay
   // during the current session, so freshly-released targets bubble to the
@@ -1088,11 +1201,23 @@ export default function MobileWarRoomView({
     let list = members
     if (statusFilter.size > 0)   list = list.filter(m => statusFilter.has(stateToFilterKey(m.state, m.description)))
     if (activityFilter.size > 0) list = list.filter(m => activityFilter.has(m.activity))
+    // ⚠️ In FARM MODE both "3x FF" and the min/max keep a GREEN attack button
+    // on screen (#481) — someone online and out of hospital is the enemy
+    // standing up, and a filter that hides the thing you have to react to is
+    // worse than no filter. The two take the same condition deliberately, so
+    // the board never depends on which filter you reached for.
+    const farmMode = sortBy === 'farm'
+    if (ffMaxOnly && ffUsable) {
+      list = list.filter(m => passesFfFilter(ffFor(m), {
+        enabled: true, farmMode, isGreen: isGreenTarget(m),
+      }))
+    }
     if (statsEnabled) {
       const minVal = parseStatInput(statsMin)
       const maxVal = parseStatInput(statsMax)
-      if (minVal !== null) list = list.filter(m => m.bsp != null && m.bsp >= minVal)
-      if (maxVal !== null) list = list.filter(m => m.bsp != null && m.bsp <= maxVal)
+      list = list.filter(m => passesStatsFilter(m, {
+        min: minVal, max: maxVal, farmMode, isGreen: isGreenTarget(m),
+      }))
     }
     const dir = sortDir === 'asc' ? 1 : -1
     return [...list].sort((a, b) => {
@@ -1107,6 +1232,17 @@ export default function MobileWarRoomView({
           return dir * (a.state ?? '').localeCompare(b.state ?? '')
         case 'stats':
           return dir * ((a.bsp ?? -1) - (b.bsp ?? -1))
+        case 'ff': {
+          // #351: a target we cannot compute FF for sinks to the bottom in
+          // BOTH directions. Sorting an unknown as 1.00 or as 3.00 buries it
+          // mid-list, which is worse than either end.
+          const av = ffFor(a)
+          const bv = ffFor(b)
+          if (av === null && bv === null) return (a.name || '').localeCompare(b.name || '')
+          if (av === null) return 1
+          if (bv === null) return -1
+          return dir * (av - bv)
+        }
         case 'farm': {
           // Two-tier farm sort (#108): green attack button (Online+Okay) on
           // top by battle stats, everyone else below in the prior ordering.
@@ -1134,7 +1270,7 @@ export default function MobileWarRoomView({
         }
       }
     })
-  }, [members, statusFilter, activityFilter, statsEnabled, statsMin, statsMax, sortBy, sortDir])
+  }, [members, statusFilter, activityFilter, ffMaxOnly, ffUsable, ffFor, statsEnabled, statsMin, statsMax, sortBy, sortDir])
 
   // Phase 7e shape: { Online, Idle, Okay, OkayOnline }. Offline dropped.
   // Okay = strict in-Torn (state AND description both 'Okay');
@@ -1152,7 +1288,11 @@ export default function MobileWarRoomView({
     return c
   }, [members])
 
-  const activeFilterCount = statusFilter.size + activityFilter.size + (statsEnabled && (statsMin || statsMax) ? 1 : 0)
+  const ffFilterActive = ffMaxOnly && ffUsable
+  const activeFilterCount = statusFilter.size + activityFilter.size
+    + (ffFilterActive ? 1 : 0)
+    + (statsEnabled && (statsMin || statsMax) ? 1 : 0)
+  // The 3x chip lives on the top bar, so it does not count towards "More".
   const advancedCount = activityFilter.size + (statsEnabled && (statsMin || statsMax) ? 1 : 0)
 
   return (
@@ -1173,6 +1313,22 @@ export default function MobileWarRoomView({
         onOpenLeadership={() => setLeaderOpen(true)}
         onClose={onClose}
       />
+
+      {/* Surge warning (#479) — above the headline and everything else, because
+          it is the one thing on this screen that is time-critical. z-40 keeps it
+          over the roster and the headline while staying under the bottom
+          sheets (z-50), so opening Filters does not bury it either. */}
+      {surgeAlert && (
+        <div className="sticky top-0 z-40 px-3 pt-2">
+          <SurgeBanner
+            alert={surgeAlert}
+            canPostRally={canPostRally}
+            onPostRally={onPostRally}
+            posting={postingHeadline}
+            onDismiss={onDismissSurge}
+          />
+        </div>
+      )}
 
       {/* Leader headline (#197) — pinned to the top of the overlay so it stays
           visible as the roster scrolls. Only mount the sticky wrapper when the
@@ -1204,6 +1360,9 @@ export default function MobileWarRoomView({
         onToggleStatus={toggleStatus}
         activityFilter={activityFilter}
         onToggleActivity={toggleActivity}
+        ffMaxOnly={ffMaxOnly}
+        onToggleFf={() => setFfMaxOnly(v => !v)}
+        ffUsable={ffUsable}
         sortBy={sortBy}
         onToggleFarm={() => setSortBy(s => s === 'farm' ? 'timer' : 'farm')}
         advancedCount={advancedCount}
@@ -1240,6 +1399,7 @@ export default function MobileWarRoomView({
         open={filterOpen} onClose={() => setFilterOpen(false)}
         statusFilter={statusFilter} toggleStatus={toggleStatus}
         activityFilter={activityFilter} toggleActivity={toggleActivity}
+        ffMaxOnly={ffMaxOnly} setFfMaxOnly={setFfMaxOnly} ffUsable={ffUsable}
         statsEnabled={statsEnabled} setStatsEnabled={setStatsEnabled}
         statsMin={statsMin} setStatsMin={setStatsMin}
         statsMax={statsMax} setStatsMax={setStatsMax}

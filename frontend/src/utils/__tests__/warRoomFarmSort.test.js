@@ -75,6 +75,15 @@ describe('isGreenTarget (#366)', () => {
     expect(isGreenTarget({})).toBe(false)
   })
 
+  it('⚠️ reads the mobile row shape as well as the desktop one (#479)', () => {
+    // Same member, two field namings. A predicate that only understood one
+    // would silently answer "not green" on the other surface, which is the
+    // quiet version of the exact bug it exists to prevent.
+    expect(isGreenTarget({ activity: 'Online', state: 'Okay' })).toBe(true)
+    expect(isGreenTarget({ activity: 'Online', state: 'Hospital' })).toBe(false)
+    expect(isGreenTarget({ activity: 'Idle', state: 'Okay' })).toBe(false)
+  })
+
   it('agrees with the tier the farm sort puts them in', () => {
     // The reason this is shared rather than written twice (#366): the stats
     // filter must never remove a member the farm sort promotes to the top
