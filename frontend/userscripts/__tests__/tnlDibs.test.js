@@ -13,18 +13,33 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(join(here, '..', 'tnl-war-room-dibs.user.js'), 'utf8')
 
-function loadScript() {
+function loadScript({ routes = {}, stored = {} } = {}) {
   const mod = { exports: {} }
+  const calls = []
+  // Route a request by URL substring. Anything unrouted is an explicit failure
+  // rather than a silent undefined — a test that passes because a call was
+  // never made is worse than one that fails.
+  const GM = {
+    xmlHttpRequest(opts) {
+      calls.push(opts)
+      const key = Object.keys(routes).find((k) => opts.url.includes(k))
+      if (!key) return opts.onerror?.(new Error(`unrouted: ${opts.url}`))
+      const { status = 200, body } = routes[key]
+      opts.onload({ status, responseText: JSON.stringify(body) })
+    },
+  }
   // `window`/`document` deliberately undefined: proves the guard holds, and
   // means a future edit that runs DOM work at load time fails here rather than
   // in someone's browser.
-  new Function('module', 'window', 'document', 'GM_getValue', 'GM_setValue', source)(
-    mod, undefined, undefined, () => 'null', () => {}
+  new Function('module', 'window', 'document', 'GM', 'GM_getValue', 'GM_setValue', source)(
+    mod, undefined, undefined, GM,
+    (_k, dflt) => stored.value ?? dflt,
+    (_k, v) => { stored.value = v },
   )
-  return mod.exports
+  return { S: mod.exports, calls, stored }
 }
 
-const S = loadScript()
+const { S } = loadScript()
 
 describe('the script loads without a DOM', () => {
   it('exports its helpers and runs no bootstrap', () => {
@@ -212,5 +227,94 @@ describe('identityMatches', () => {
     // selector missed would be worse than the risk it guards against.
     expect(S.identityMatches('111', null)).toBe(true)
     expect(S.identityMatches(null, 222)).toBe(true)
+  })
+})
+
+describe('establishSession — key → faction → tenant → token', () => {
+  const API_KEY = 'LIMITEDKEY123456'
+  const keyInfo = (over = {}) => ({
+    info: { user: { id: 9001, faction_id: 10739 }, access: { level: 3, faction: true }, ...over },
+  })
+  const routes = (over = {}) => ({
+    '/v2/key/info': { body: keyInfo() },
+    'tenants.json': { body: { '10739': 'forge.monchoon.me' } },
+    '/api/auth/login': { body: { token: 'jwt-abc', expires_at: '2026-09-15T00:00:00Z' } },
+    ...over,
+  })
+
+  it('⚠️ asks /v2/key/info, NOT the v1 basic selection', async () => {
+    // The bug this test exists for. v1 `user/?selections=basic` returns
+    // player_id, name, level, gender and status — and NO FACTION. The first
+    // release used it, so every single login failed with "Torn reports no
+    // faction for that key", which blames the key rather than the request.
+    // key/info is also what the server's verifyTornKey calls, so the script and
+    // the dashboard agree about a key by construction.
+    const { S, calls } = loadScript({ routes: routes() })
+    await S.establishSession(API_KEY)
+    const tornCall = calls.find((c) => c.url.includes('api.torn.com'))
+    expect(tornCall.url).toContain('/v2/key/info')
+    expect(tornCall.url).not.toContain('selections=basic')
+  })
+
+  it('⚠️ reads faction_id as a FLAT property on info.user', async () => {
+    // Not nested under a `faction` object, which is where the v1 profile
+    // selection puts it. Getting this wrong is invisible until a real key.
+    const { S, stored } = loadScript({ routes: routes() })
+    const session = await S.establishSession(API_KEY)
+    expect(session.factionId).toBe('10739')
+    expect(session.host).toBe('forge.monchoon.me')
+    expect(JSON.parse(stored.value).factionId).toBe('10739')
+  })
+
+  it('⚠️ stores the token and NEVER the API key', async () => {
+    // The whole security argument for pasting a key into a userscript.
+    const { S, stored } = loadScript({ routes: routes() })
+    await S.establishSession(API_KEY)
+    expect(stored.value).toContain('jwt-abc')
+    expect(stored.value).not.toContain(API_KEY)
+  })
+
+  it('⚠️ sends require_enrolled so it cannot be a first enrolment', async () => {
+    // Enrolment adds the key to the faction's shared rotating pool, and the
+    // disclosure explaining that lives on the dashboard. This script has no
+    // such screen, so it must refuse to be anyone's first.
+    const { S, calls } = loadScript({ routes: routes() })
+    await S.establishSession(API_KEY)
+    // `data`, not `body` — that is the field name GM.xmlHttpRequest takes, and
+    // gmRequest maps onto it.
+    const login = calls.find((c) => c.url.includes('/api/auth/login'))
+    expect(JSON.parse(login.data).require_enrolled).toBe(true)
+  })
+
+  it('names a Public key as the problem instead of failing vaguely later', async () => {
+    // REQUIRED_KEY_LEVEL is 3. Without this check the login just returns 403
+    // and the member is told something unhelpful about the dashboard.
+    const { S } = loadScript({
+      routes: routes({ '/v2/key/info': { body: keyInfo({ access: { level: 1 } }) } }),
+    })
+    await expect(S.establishSession(API_KEY)).rejects.toThrow(/Limited Access/i)
+  })
+
+  it('surfaces a Torn error verbatim rather than as a generic failure', async () => {
+    const { S } = loadScript({
+      routes: routes({ '/v2/key/info': { body: { error: { code: 2, error: 'Incorrect key' } } } }),
+    })
+    await expect(S.establishSession(API_KEY)).rejects.toThrow(/Incorrect key/)
+  })
+
+  it('says so plainly when the faction has no dashboard', async () => {
+    const { S } = loadScript({ routes: routes({ 'tenants.json': { body: {} } }) })
+    await expect(S.establishSession(API_KEY)).rejects.toThrow(/no TNL dashboard/i)
+  })
+
+  it('passes the dashboard\'s own refusal through to the member', async () => {
+    // e.g. the require_enrolled rejection, which tells them to log into the
+    // dashboard first. Replacing it with "HTTP 403" would lose the instruction.
+    const { S } = loadScript({
+      routes: routes({
+        '/api/auth/login': { status: 403, body: { error: 'Log in to the dashboard once to enrol your API key, then this will work.' } },
+      }),
+    })
+    await expect(S.establishSession(API_KEY)).rejects.toThrow(/enrol your API key/)
   })
 })

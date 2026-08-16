@@ -49,6 +49,16 @@ from `VERSION` at runtime) both surface it automatically.
     skipping one tenant, and `grep -c` returning 1 on no matches would have
     killed it at the final line precisely when *every* tenant had failed — the
     case that most needs its warning to survive.
+- **⚠️ The dibs userscript could not log anyone in.** It asked Torn's v1
+  `user/?selections=basic`, which returns `player_id`, `name`, `level`, `gender`
+  and `status` — and **no faction**. Every attempt therefore failed with *"Torn
+  reports no faction for that key"*, blaming the key rather than the request.
+  It now calls `/v2/key/info`, which is what the server's own `verifyTornKey`
+  uses, so the script and the dashboard agree about a key by construction;
+  `faction_id` is a flat property on `info.user` there. The same call carries
+  the access level, so a Public key is now named as the problem instead of
+  failing later as a vague login error. Eight tests cover the exchange —
+  there were none before, which is why this shipped.
 
 ## [3.43.0] - 2026-08-16
 

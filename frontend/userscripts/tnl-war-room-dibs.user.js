@@ -185,11 +185,27 @@ const TNLDibs = (function () {
    * mean posting the key to a server that might not be the right one.
    */
   async function establishSession(apiKey) {
+    // ⚠️ /v2/key/info, NOT v1 `user/?selections=basic`. The v1 basic selection
+    // returns player_id, name, level, gender and status and NO FACTION — the
+    // first version of this script used it and every login failed with "Torn
+    // reports no faction for that key", which sounds like a problem with the
+    // key rather than with the request.
+    //
+    // key/info is also what the server's own verifyTornKey calls, so the script
+    // and the dashboard agree about a key by construction. faction_id is a FLAT
+    // property on info.user there (not nested under a faction object), and the
+    // access level comes back in the same call, which is what lets a Public key
+    // be named as such below instead of failing later as a vague login error.
     const who = await gmRequest({
-      url: `https://api.torn.com/user/?selections=basic&key=${encodeURIComponent(apiKey)}&comment=TNLDibs`,
+      url: `https://api.torn.com/v2/key/info?key=${encodeURIComponent(apiKey)}&comment=TNLDibs`,
     })
     if (who.body?.error) throw new Error(`Torn rejected the key: ${who.body.error.error}`)
-    const factionId = who.body?.faction?.faction_id
+    const info = who.body?.info
+    if (!info?.user) throw new Error('Torn returned no key info — is the key correct?')
+    if (Number(info.access?.level ?? 0) < 3) {
+      throw new Error('That is not a Limited Access key. Generate one in Torn and use that.')
+    }
+    const factionId = info.user.faction_id
     if (!factionId) throw new Error('Torn reports no faction for that key.')
 
     const tenants = await gmRequest({ url: TENANTS_URL })
@@ -210,7 +226,7 @@ const TNLDibs = (function () {
       host,
       token: login.body.token,
       expiresAt: login.body.expires_at,
-      userId: String(who.body?.player_id ?? ''),
+      userId: String(info.user.id ?? ''),
       factionId: String(factionId),
     }
     store.write(session)
