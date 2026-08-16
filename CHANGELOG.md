@@ -17,6 +17,39 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+- **⚠️ A hand-run `deploy/update.sh` hung forever at the pre-deploy backup.**
+  Not a slow upload — a **stopped process**. `timeout` runs its child in a new
+  process group (that is how it kills the whole tree), which makes that group a
+  *background* group for the controlling terminal; `docker compose run` still
+  opens stdin even with `-T`, a background process reading the terminal gets
+  **SIGTTIN**, and SIGTTIN stops it permanently — it cannot even act on the
+  SIGTERM the timeout later sends. Diagnosed live on 2026-08-16: `pgrp=254751`
+  against `tpgid=254564`, signal 21 pending, state `T`, with the backup itself
+  already finished in 45 seconds. Fixed by detaching the step's stdin from the
+  terminal.
+  - This only ever bit **interactive** runs. Under cron there is no controlling
+    terminal, so no SIGTTIN — which is why auto-deploys were fine while every
+    hand-run appeared to wedge, and why it looked like a Backblaze problem.
+  - It is also the real cause of the 2026-08-15 production wedge, previously
+    recorded as "an interrupted run". The `.last-deployed` marker added then
+    still earns its place; it recovers the state, while this removes the cause.
+- **⚠️ The deploy died silently one line into publishing the userscript.** It
+  read as a hang: the script was written, `tenants.json` was not, and the log
+  simply stopped after `==> publish userscript` with no error. Cause was
+  `PUBLIC_DOMAIN="$(grep -s '^PUBLIC_DOMAIN=' deploy/.env | cut -d= -f2-)"` —
+  the key is not in `.env`, so grep exited 1, `pipefail` propagated it, and
+  `set -e` killed the script mid-assignment with `-s` having suppressed the only
+  output there was. `deploy/dev-deploy.sh` already carried an `env_value` helper
+  with this exact warning attached; `update.sh` had been getting away with the
+  raw pipeline only because every key it read happened to exist. All three
+  readers now go through the sed-based helper, which cannot fail this way.
+  - Two further landmines in the same block, found while fixing it: `curl -f`
+    exiting non-zero on an HTTP error would have killed the deploy instead of
+    skipping one tenant, and `grep -c` returning 1 on no matches would have
+    killed it at the final line precisely when *every* tenant had failed — the
+    case that most needs its warning to survive.
+
 ## [3.43.0] - 2026-08-16
 
 ### Added
