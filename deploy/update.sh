@@ -122,6 +122,26 @@ echo "==> rebuild + restart (backup sidecar)"
 
 docker image prune -f >/dev/null
 
+# ⚠️ Dangling IMAGES are not what fills this disk — the BUILD CACHE is, and
+# `image prune` does not touch it. BuildKit keeps its cache in a separate store
+# (under /var/lib/containerd, not /var/lib/docker/volumes), and nothing evicts
+# it. Every run above builds five tenant APIs, nginx and the backup sidecar, so
+# each deploy adds layers and none ever leave.
+#
+# Measured on 2026-08-16: 35GB of build cache — 61% of a 72GB disk, against
+# 1.3GB for every faction database put together. The box was at 80% full and
+# the obvious suspects (backups, DB growth) were both innocent. Pruning it back
+# reclaimed 33GB in one command.
+#
+# 4GB rather than zero: `--keep-storage 0` would make the next deploy recompile
+# the world. This keeps the most recently used layers, which are the ones the
+# next build wants. The budget is shared daemon-wide with the staging stack,
+# which prunes to the same figure — two different numbers would have each
+# script evicting the other's layers on every tick.
+echo "==> prune build cache"
+docker builder prune -f --keep-storage 4GB >/dev/null 2>&1 \
+  || echo "[warn] build-cache prune failed — check 'docker system df' for growth"
+
 # Verify every tenant through our nginx. server_name is <slug>.*, so
 # <slug>.localhost matches regardless of the real domain.
 echo "==> readiness"
@@ -149,6 +169,62 @@ for conf in deploy/nginx/factions/*.conf; do
     fail=1
   fi
 done
+
+# Publish the War Room dibs userscript (#487).
+#
+# It talks to this API and must version with it, so it ships from this repo
+# rather than its own — the same arrangement torn-armoury already uses for
+# armoury-notes.user.js. Members get updates automatically because the script's
+# @updateURL points here and Tampermonkey re-checks it.
+#
+# ⚠️ Runs AFTER readiness on purpose. The tenant map below is built by ASKING
+# each live tenant which faction it serves, so the containers have to be up and
+# answering or the map would be written short — and a member whose faction went
+# missing from it silently cannot log in.
+#
+# The public host is a static file server outside Docker with no DB access
+# (deploy/host-nginx/files.monchoon.me.conf explains why). Nothing secret is
+# published here: the script is client code and the map is derivable by anyone
+# from Certificate Transparency plus the unauthenticated /api/bootstrap — see
+# #486, which tracks that exposure separately.
+PUBLIC_SCRIPTS_DIR="${PUBLIC_SCRIPTS_DIR:-/srv/public-files/scripts}"
+USERSCRIPT_SRC="$REPO_DIR/frontend/userscripts/tnl-war-room-dibs.user.js"
+if [ "$fail" = 0 ] && [ -d "$PUBLIC_SCRIPTS_DIR" ] && [ -f "$USERSCRIPT_SRC" ]; then
+  echo "==> publish userscript"
+  install -m 0644 "$USERSCRIPT_SRC" "$PUBLIC_SCRIPTS_DIR/tnl-war-room-dibs.user.js"
+
+  # Torn faction id → tenant host, for the script's tenant lookup.
+  #
+  # Generated rather than hand-maintained: a stale entry means a member simply
+  # cannot log in, with an error that points at the wrong thing. Each tenant is
+  # asked through our own nginx for its own faction id, so adding a faction to
+  # the box publishes it here on the next deploy with no one remembering to.
+  PUBLIC_DOMAIN="$(grep -s '^PUBLIC_DOMAIN=' deploy/.env | cut -d= -f2-)"
+  PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-monchoon.me}"
+  tenants_tmp="$(mktemp)"
+  printf '{\n' > "$tenants_tmp"
+  first=1
+  for conf in deploy/nginx/factions/*.conf; do
+    [ -e "$conf" ] || continue
+    slug="$(basename "$conf" .conf)"
+    fid="$(curl -fsS -H "Host: ${slug}.localhost" \
+      "http://127.0.0.1:${HTTP_PORT:-8088}/api/bootstrap" 2>/dev/null \
+      | sed -n 's/.*"torn_faction_id":"\([0-9]*\)".*/\1/p')"
+    # A tenant that cannot name its faction is SKIPPED, not guessed. A wrong
+    # entry would send someone's API key to another faction's dashboard.
+    if [ -z "$fid" ]; then
+      echo "  [warn] $slug did not report a faction id — omitted from tenants.json"
+      continue
+    fi
+    [ "$first" = 1 ] || printf ',\n' >> "$tenants_tmp"
+    printf '  "%s": "%s.%s"' "$fid" "$slug" "$PUBLIC_DOMAIN" >> "$tenants_tmp"
+    first=0
+  done
+  printf '\n}\n' >> "$tenants_tmp"
+  install -m 0644 "$tenants_tmp" "$PUBLIC_SCRIPTS_DIR/tenants.json"
+  rm -f "$tenants_tmp"
+  echo "  published $(grep -c ':' "$PUBLIC_SCRIPTS_DIR/tenants.json") tenant(s)"
+fi
 
 # Re-arm --if-changed, but only on a clean run.
 #

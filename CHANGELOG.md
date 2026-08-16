@@ -17,6 +17,68 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.43.0] - 2026-08-16
+
+### Added
+- **War Room dibs userscript (#487).** Claim and release targets from the Torn
+  faction war page itself, without leaving the game. Badges show the current
+  holder live over the WebSocket; the control claims, releases, or names whoever
+  already has it. Published to `files.monchoon.me/scripts/` on every deploy, so
+  members auto-update.
+  - ⚠️ **It resolves no races itself, deliberately.** The server already does —
+    a row lock, a partial unique index and a 409 naming the owner, proven by
+    #385's concurrency harness. Anything the script decided locally could only
+    be a stale mirror of state another member is mutating, and its failure mode
+    is telling you a target is yours when the server gave it to someone else.
+  - ⚠️ **Only the session token is stored, never the API key.** The key is held
+    in memory long enough to ask Torn which faction it belongs to and to log in,
+    then dropped.
+  - ⚠️ **The script can never be a member's first key enrolment.** Login is sent
+    with the new `require_enrolled` flag: a member who has not already enrolled
+    on the dashboard is turned away and pointed there. Enrolment adds a key to
+    the shared rotating pool, and the dashboard is where the disclosure
+    explaining that is shown — the script has no such screen.
+  - Reads go over the WebSocket and writes through `GM.xmlHttpRequest`, both of
+    which are exempt from CORS, so no CORS policy was added to the API.
+  - Enemy-only: the war page lists both factions, and the socket's `faction_id`
+    is what separates them rather than a guess about the DOM.
+- **`require_enrolled` on `POST /api/auth/login` (#487).** Opt-in and only ever
+  tightening; the SPA omits it and keeps enrolling on first login. Checked per
+  member rather than per key fingerprint — the consent is the person's, not the
+  individual key's.
+- **`deploy/update.sh` publishes the userscript and a generated `tenants.json`**
+  (#487). The faction-id → host map is built by asking each live tenant which
+  faction it serves, so adding a faction to the box publishes it on the next
+  deploy with nobody remembering to. A tenant that cannot name its faction is
+  omitted rather than guessed — a wrong entry would send an API key to another
+  faction's dashboard.
+
+## [3.42.0] - 2026-08-16
+
+### Added
+- **API rate limiting (#485).** There was none: every client until now has been
+  the SPA, driven by a handful of people per tenant. The dibs userscript (#487)
+  changes that — it runs on a page members leave open for a whole war, and a
+  retry bug in a client shipped to phones is discovered *after* everyone has it.
+  A generous global cap (600/min) plus a much tighter one on `/api/auth/*`
+  (10/min), which is unauthenticated by nature, calls Torn, and is the first
+  endpoint an attacker reaches. Refusals return **429 with `Retry-After`** so a
+  client can back off by a known amount instead of retrying blindly.
+  - ⚠️ **Keyed on the logged-in member, not the IP.** In production every
+    request arrives from the same nginx container, so an IP-only key would put
+    a whole faction in one bucket and let one busy member 429 everyone else
+    mid-war. Authenticated traffic keys on the JWT-verified user id, which
+    cannot be forged and needs no `X-Forwarded-For` plumbing to be correct.
+  - ⚠️ **Health checks and the war-room WebSocket are exempt.** `update.sh`
+    polls `/api/health/ready` up to 20 times in 40s per tenant to decide
+    whether a deploy worked, and Docker's HEALTHCHECK hits `/api/health` on its
+    own schedule — limiting either would turn ordinary deploys into false FAILs
+    and mark healthy containers unhealthy. The socket is exempt because the war
+    room reconnects on every network blip, and a member whose train goes
+    through a tunnel must not come back to a locked-out roster.
+  - The auth budget is a separate store from the general one, so a burst of
+    ordinary reads can never lock anyone out of logging in.
+
 ### Fixed
 - **⚠️ An interrupted deploy wedged the box silently, and `--if-changed` could
   never recover it.** Both `deploy/update.sh` and `deploy/dev-deploy.sh` advance

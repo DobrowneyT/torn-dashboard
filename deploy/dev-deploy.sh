@@ -179,6 +179,19 @@ echo "==> rebuild + restart (project tnl-dashboard-dev)"
 "${COMPOSE[@]}" up -d --build
 docker image prune -f >/dev/null
 
+# ⚠️ The BUILD CACHE, not dangling images, is what fills this disk — and
+# `image prune` does not touch it. See the longer note in deploy/update.sh: 35GB
+# of it had accumulated by 2026-08-16 against 1.3GB for every database on the
+# box. Staging builds on the same daemon and into the same cache, so it prunes
+# too: relying on update.sh alone would let the cache grow unchecked whenever
+# production has nothing to deploy and this cron keeps following `dev`.
+#
+# Same 4GB budget as production, deliberately. Two different figures would have
+# each script evicting the other's layers every time it ran.
+echo "==> prune build cache"
+docker builder prune -f --keep-storage 4GB >/dev/null 2>&1 \
+  || echo "[warn] build-cache prune failed — check 'docker system df' for growth"
+
 echo "==> readiness"
 ok=0
 for _ in $(seq 1 20); do
