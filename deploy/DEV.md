@@ -1,9 +1,10 @@
 # Staging / dev instance
 
 A second, private copy of the dashboard running on the same VPS as production,
-serving a **full copy of a real tenant's database** and reachable only through
-an SSH tunnel. It exists so a change can be exercised against real data — the
-key pool included — before it is promoted to `main` and reaches live factions.
+serving a **full copy of a real tenant's database**, reachable at
+**https://dev.monchoon.me** behind HTTP Basic auth (or through an SSH tunnel).
+It exists so a change can be exercised against real data — the key pool
+included — before it is promoted to `main` and reaches live factions.
 
 Introduced by **#292**. Production is untouched by everything on this page.
 
@@ -13,8 +14,9 @@ Introduced by **#292**. Production is untouched by everything on this page.
 
 The live tenant `faction_forge` gets cloned to `faction_forge_dev`. A second git
 worktree, its own compose project (`tnl-dashboard-dev`), and its own nginx bound
-to `127.0.0.1:8090` run the dashboard against that copy. You reach it with
-`ssh -L 8090:127.0.0.1:8090` and browse `http://localhost:8090`. The branch the
+to `127.0.0.1:8090` run the dashboard against that copy. You reach it at
+https://dev.monchoon.me — the host nginx proxies to that loopback port behind
+Basic auth — or with `ssh -L 8090:127.0.0.1:8090` if you prefer. The branch the
 worktree is on decides what it runs: on `dev` a cron auto-follows every merge;
 on anything else the cron stands down and the branch you deployed stays put.
 
@@ -37,9 +39,31 @@ instance is an SSH tunnel to a port bound to loopback. This is also why there is
 no laptop copy — putting decryptable member keys on a laptop was explicitly
 rejected during design.
 
-**Not public.** `nginx-dev` binds `127.0.0.1:8090`. Nothing on the public
-internet can route to it, and the host reverse proxy has no vhost for it. Do not
-change that bind address.
+**Reachable, but gated.** `nginx-dev` still binds `127.0.0.1:8090` and nothing
+on the public internet routes to that port directly — verify with
+`curl --max-time 5 http://<vps-public-ip>:8090/`, which must fail. **Do not
+change that bind address.** Since the `dev.monchoon.me` vhost was added
+(`deploy/host-nginx/dev.monchoon.me.conf`) the instance is reachable from
+anywhere, so what keeps real members' keys safe is no longer one blunt control
+but three:
+
+| Control | What it stops |
+|---|---|
+| Loopback bind on `:8090` | Anything reaching the instance except through the host nginx. ⚠️ UFW is **not** active on this box — the bind *is* the firewall. |
+| TLS (Certbot, auto-renewing) | Session cookies and any key rendered in a settings page crossing the wire in clear text. |
+| HTTP Basic auth (`/etc/nginx/.htpasswd-dev`) | Everything, before the app is reached at all. Staging runs unreleased code, whose auth has had the least exposure — a broken session check on a feature branch should cost a bug report, not a key pool. |
+
+The credential is per-box operator state and is **never** committed. Rotate it:
+
+```bash
+printf 'dev:%s\n' "$(openssl passwd -apr1 'NEW-PASSWORD')" \
+  | sudo tee /etc/nginx/.htpasswd-dev >/dev/null
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Staging is also `noindex, nofollow, noarchive` and serves a blanket
+`robots.txt` — a search result for a copy of a live faction's data is an
+invitation to go looking.
 
 ### ⚠ Blast radius — what IS live
 
@@ -136,14 +160,17 @@ DEV_SLUG=forge ./deploy/dev-deploy.sh dev        # first run — pins the tenant
 `DEV_SLUG` is sticky: it is persisted to `deploy/.env.dev` (generated,
 gitignored) and reused on later runs, including by the cron.
 
-### 3. Tunnel in
+### 3. Reach it
+
+Browse **https://dev.monchoon.me** and enter the Basic-auth credential
+(user `dev`), or tunnel in if you would rather not:
 
 ```bash
-ssh -L 8090:127.0.0.1:8090 <user>@<vps>
+ssh -L 8090:127.0.0.1:8090 <user>@<vps>   # then http://localhost:8090
 ```
 
-Then open **http://localhost:8090** and log in with your own real Torn key. That
-login is one real API call; everything after it reads the copy.
+Either way, log in with your own real Torn key. That login is one real API call;
+everything after it reads the copy.
 
 ---
 
@@ -180,8 +207,11 @@ docker compose -f deploy/docker-compose.yml --project-directory deploy \
   "SELECT datname FROM pg_database
      WHERE datname LIKE 'faction\_%' AND datname NOT LIKE '%\_dev'"
 
-# Staging is not reachable off-box (run from your laptop — expect a timeout).
+# The RAW port is not reachable off-box (run from your laptop — expect a failure).
+# Only the gated vhost may reach the instance.
 curl --max-time 5 http://<vps-public-ip>:8090/     # must fail
+curl -o /dev/null -w '%{http_code}\n' https://dev.monchoon.me/   # must be 401
+curl -o /dev/null -w '%{http_code}\n' -u dev:<pw> https://dev.monchoon.me/  # 200
 
 # The two stacks own different containers.
 docker compose -p tnl-dashboard ps
