@@ -17,6 +17,21 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+- **⚠️ An interrupted deploy wedged the box silently, and `--if-changed` could
+  never recover it.** Both `deploy/update.sh` and `deploy/dev-deploy.sh` advance
+  the checkout *before* the backup, the migrations and the build, so a run cut
+  short anywhere in that gap (a closed SSH session is the usual way) left HEAD
+  already equal to origin with none of the work done. The cron guard compared
+  HEAD to origin, concluded "nothing to do", and from then on exited without
+  writing so much as a log line — production sat five hours behind `main` on
+  2026-08-15 with no error anywhere to find. Both scripts now record the commit
+  of the last **successful** deploy in a gitignored `deploy/.last-deployed`
+  (`-dev` for staging) and compare against that, so an interrupted run is simply
+  retried on the next tick. A readiness failure deliberately leaves the marker
+  stale: a deploy that retries loudly every five minutes beats one that marks
+  itself done and goes quiet.
+
 ## [3.41.0] - 2026-08-15
 
 ### Added
