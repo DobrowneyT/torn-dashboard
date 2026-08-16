@@ -37,6 +37,26 @@ cd "$REPO_DIR"
 exec 9>/tmp/tnl-dashboard-update.lock
 flock -n 9 || { echo "another update is already running — skipping"; exit 0; }
 
+# Read KEY from an env file, tolerating a missing file AND a missing key.
+#
+# ⚠️ `grep … | cut` is the obvious way and is a trap under `set -euo pipefail`:
+# a grep that matches nothing exits 1, pipefail propagates it, and `V="$(...)"`
+# makes that the status of the assignment — so the script dies mid-line with NO
+# message at all, because `-s` suppressed the only output there was.
+#
+# That is exactly what happened on 2026-08-16: PUBLIC_DOMAIN was not in
+# deploy/.env, so the deploy published the userscript and then vanished without
+# a word, one line into generating tenants.json. It read as a hang.
+#
+# deploy/dev-deploy.sh already carried this helper with this warning attached.
+# update.sh got away with the raw pipeline only because every key it read
+# happened to exist; adding one that did not was enough to detonate it. sed
+# always exits 0, so a miss is an empty string and callers apply their default.
+env_value() {  # env_value <KEY>
+  [ -f deploy/.env ] || return 0
+  sed -n "s/^$1=//p" deploy/.env | tail -1
+}
+
 # What the RUNNING stack was last built from — NOT what git happens to point at.
 #
 # ⚠️ Those are different things, and conflating them wedged production for five
@@ -121,7 +141,7 @@ fi
 # never write to a staging database, and deploy/dev-deploy.sh migrates them on
 # its own schedule from whatever branch staging is testing.
 echo "==> migrations"
-POSTGRES_USER="$(grep -s '^POSTGRES_USER=' deploy/.env | cut -d= -f2-)"
+POSTGRES_USER="$(env_value POSTGRES_USER)"
 DBS="$("${COMPOSE[@]}" exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -tAc \
   "SELECT datname FROM pg_database
      WHERE datname LIKE 'faction\_%' AND datname NOT LIKE '%\_dev'
@@ -169,7 +189,7 @@ docker builder prune -f --keep-storage 4GB >/dev/null 2>&1 \
 # Verify every tenant through our nginx. server_name is <slug>.*, so
 # <slug>.localhost matches regardless of the real domain.
 echo "==> readiness"
-HTTP_PORT="$(grep -s '^HTTP_PORT=' deploy/.env | cut -d= -f2-)"
+HTTP_PORT="$(env_value HTTP_PORT)"
 fail=0
 for conf in deploy/nginx/factions/*.conf; do
   [ -e "$conf" ] || continue
@@ -223,23 +243,28 @@ if [ "$fail" = 0 ] && [ -d "$PUBLIC_SCRIPTS_DIR" ] && [ -f "$USERSCRIPT_SRC" ]; 
   # cannot log in, with an error that points at the wrong thing. Each tenant is
   # asked through our own nginx for its own faction id, so adding a faction to
   # the box publishes it here on the next deploy with no one remembering to.
-  PUBLIC_DOMAIN="$(grep -s '^PUBLIC_DOMAIN=' deploy/.env | cut -d= -f2-)"
+  PUBLIC_DOMAIN="$(env_value PUBLIC_DOMAIN)"
   PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-monchoon.me}"
   tenants_tmp="$(mktemp)"
   printf '{\n' > "$tenants_tmp"
   first=1
+  published=0
   for conf in deploy/nginx/factions/*.conf; do
     [ -e "$conf" ] || continue
     slug="$(basename "$conf" .conf)"
+    # ⚠️ `|| true` because -f makes curl exit non-zero on an HTTP error and
+    # pipefail would then kill the whole deploy. One tenant briefly 500ing must
+    # cost that tenant its entry, not everybody their deploy.
     fid="$(curl -fsS -H "Host: ${slug}.localhost" \
       "http://127.0.0.1:${HTTP_PORT:-8088}/api/bootstrap" 2>/dev/null \
-      | sed -n 's/.*"torn_faction_id":"\([0-9]*\)".*/\1/p')"
+      | sed -n 's/.*"torn_faction_id":"\([0-9]*\)".*/\1/p' || true)"
     # A tenant that cannot name its faction is SKIPPED, not guessed. A wrong
     # entry would send someone's API key to another faction's dashboard.
     if [ -z "$fid" ]; then
       echo "  [warn] $slug did not report a faction id — omitted from tenants.json"
       continue
     fi
+    published=$((published + 1))
     [ "$first" = 1 ] || printf ',\n' >> "$tenants_tmp"
     printf '  "%s": "%s.%s"' "$fid" "$slug" "$PUBLIC_DOMAIN" >> "$tenants_tmp"
     first=0
@@ -247,7 +272,12 @@ if [ "$fail" = 0 ] && [ -d "$PUBLIC_SCRIPTS_DIR" ] && [ -f "$USERSCRIPT_SRC" ]; 
   printf '\n}\n' >> "$tenants_tmp"
   install -m 0644 "$tenants_tmp" "$PUBLIC_SCRIPTS_DIR/tenants.json"
   rm -f "$tenants_tmp"
-  echo "  published $(grep -c ':' "$PUBLIC_SCRIPTS_DIR/tenants.json") tenant(s)"
+  # ⚠️ Counted as we went rather than grepped back out of the file: `grep -c`
+  # returns 1 when it matches nothing, which under pipefail would kill the
+  # deploy at the final line precisely when every tenant had failed — the case
+  # that most needs the warning to survive and be read.
+  echo "  published $published tenant(s) → $PUBLIC_SCRIPTS_DIR/tenants.json"
+  [ "$published" -gt 0 ] || echo "  [warn] tenants.json is EMPTY — the userscript cannot resolve any faction"
 fi
 
 # Re-arm --if-changed, but only on a clean run.
