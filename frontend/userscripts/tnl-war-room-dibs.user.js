@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -385,6 +385,20 @@ const TNLDibs = (function () {
   // ── Panel ────────────────────────────────────────────────────────────────
 
   let panelStatus = null
+  let panelBox = null
+
+  /**
+   * Does the panel need to ask for a key?
+   *
+   * ⚠️ Pure, exported and tested, because getting this wrong is invisible in
+   * review and obvious to a user. The first release asked on EVERY page load,
+   * including when a perfectly good session was already stored, because the
+   * panel was built before anything had read the store — so the answer was
+   * always "no session yet". A saved key looked like it had not saved.
+   */
+  function panelNeedsKey(session) {
+    return !session || !session.token
+  }
 
   function setStatus(state) {
     rt.status = state
@@ -397,7 +411,13 @@ const TNLDibs = (function () {
   }
 
   function panel() {
+    // Rebuildable: the panel changes shape when a session appears or goes away,
+    // and the first release never re-rendered it — so after a successful
+    // connect the key field stayed on screen next to the word "Connected".
+    if (panelBox && panelBox.isConnected) panelBox.remove()
+
     const box = document.createElement('div')
+    panelBox = box
     box.style.cssText = [
       'position:fixed', 'right:12px', 'bottom:12px', 'z-index:2147483000',
       'background:#111827', 'color:#e5e7eb', 'border:1px solid #374151',
@@ -419,7 +439,7 @@ const TNLDibs = (function () {
     note.style.cssText = 'opacity:.7;margin-bottom:6px'
     box.appendChild(note)
 
-    if (!rt.session) {
+    if (panelNeedsKey(rt.session)) {
       const input = document.createElement('input')
       input.type = 'password'
       input.placeholder = 'Limited API key'
@@ -432,8 +452,11 @@ const TNLDibs = (function () {
         try {
           rt.session = await establishSession(input.value.trim())
           input.value = ''
-          note.textContent = 'Connected. Reload if badges do not appear.'
           await boot()
+          // Re-render so the key field is replaced by the signed-in panel.
+          // Without this the input stayed on screen and the whole thing looked
+          // like it had not saved anything.
+          panel()
         } catch (err) {
           note.textContent = err.message
           setStatus('error')
@@ -446,7 +469,16 @@ const TNLDibs = (function () {
       const out = document.createElement('button')
       out.textContent = 'Sign out'
       out.style.cssText = 'width:100%;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
-      out.addEventListener('click', () => { store.clear(); location.reload() })
+      out.addEventListener('click', () => {
+        store.clear()
+        rt.session = null
+        if (rt.ws) { try { rt.ws.close() } catch { /* already gone */ } }
+        location.reload()
+      })
+      const who = document.createElement('div')
+      who.style.cssText = 'opacity:.7;margin-bottom:6px'
+      who.textContent = `Signed in as ${rt.session.userId} · ${rt.session.host}`
+      box.insertBefore(who, box.lastChild)
       box.appendChild(out)
     }
 
@@ -466,24 +498,35 @@ const TNLDibs = (function () {
       return
     }
 
-    const boot = await gmRequest({ url: `https://${rt.session.host}/api/bootstrap` })
-    rt.ourFactionId = boot.body?.faction?.torn_faction_id ?? rt.session.factionId
+    // Named `bootstrapRes`, not `boot`: a `const boot` here shadows this very
+    // function inside its own body, which is legal, confusing, and breaks the
+    // moment anyone adds a retry.
+    const bootstrapRes = await gmRequest({ url: `https://${rt.session.host}/api/bootstrap` })
+    rt.ourFactionId = bootstrapRes.body?.faction?.torn_faction_id ?? rt.session.factionId
     connect()
     observe()
   }
 
   function main() {
+    // ⚠️ Read the stored session BEFORE building the panel. The first release
+    // called panel() first, so rt.session was always null at render time and
+    // the panel asked for a key on every single load — a saved session looked
+    // like it had never saved.
+    rt.session = store.read()
     panel()
-    boot().catch((err) => {
-      setStatus('error')
-      // eslint-disable-next-line no-console
-      console.error('[TNL Dibs]', err)
-    })
+    boot()
+      .then(() => panel())   // reflect whatever boot() resolved the session to
+      .catch((err) => {
+        setStatus('error')
+        // eslint-disable-next-line no-console
+        console.error('[TNL Dibs]', err)
+        panel()
+      })
   }
 
   return {
     parseXid, resolveTenant, indexDibs, enemyIds, buttonState, backoffFor,
-    identityMatches, establishSession, store, main,
+    identityMatches, panelNeedsKey, establishSession, store, main,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
   }
 })()
