@@ -107,10 +107,21 @@ export interface FeedbackTestOptions {
   enabled?: boolean
 }
 
+export interface StackOverrides {
+  /**
+   * Rate limiting (#485). ⚠️ OFF by default for every stack: a few hundred
+   * tests share one loopback address, so a default-on limit would make
+   * unrelated suites fail in ways that look like the feature under test.
+   * rate-limit.test.ts opts in with tiny numbers of its own.
+   */
+  rateLimit?: import('../src/app.js').RateLimitOptions | false
+}
+
 /** Boot embedded Postgres + templated faction DB + Torn fixture + GitHub fixture + API. */
 export async function startTestStack(
   extendApp?: (app: FastifyInstance) => void,
-  feedbackOpts: FeedbackTestOptions = {}
+  feedbackOpts: FeedbackTestOptions = {},
+  overrides: StackOverrides = {}
 ): Promise<TestStack> {
   // Real templated Postgres
   const pgPort = await freePort()
@@ -271,6 +282,7 @@ export async function startTestStack(
     feedbackGithubRepo: 'test-owner/test-repo',
     feedbackGithubBaseUrl: githubBaseUrl,
     feedbackLabel: 'needs-triage',
+    rateLimit: overrides.rateLimit ?? false,
   })
   extendApp?.(app)
   await app.listen({ port: 0, host: '127.0.0.1' })
