@@ -234,11 +234,16 @@ export async function buildServer(
     }
 
     app.post('/api/auth/login', { config: { rateLimit: authRateLimit } }, async (req, reply) => {
-      const apiKey = (req.body as { apiKey?: unknown } | null)?.apiKey
+      const body = req.body as { apiKey?: unknown; require_enrolled?: unknown } | null
+      const apiKey = body?.apiKey
       if (typeof apiKey !== 'string' || apiKey.trim() === '') {
         return reply.status(400).send({ error: 'apiKey is required' })
       }
-      const result = await loginWithTornKey(deps, apiKey.trim())
+      // Opt-in, and only ever tightening: the SPA omits it and keeps enrolling
+      // on first login, which is where the disclosure lives (#487).
+      const result = await loginWithTornKey(deps, apiKey.trim(), {
+        requireEnrolled: body?.require_enrolled === true,
+      })
       if (!result.ok) return reply.status(result.status).send({ error: result.error })
       return { token: result.token, expires_at: result.expiresAt }
     })

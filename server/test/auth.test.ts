@@ -249,3 +249,77 @@ describe('key-pool enrollment on login', () => {
     expect(strangers.rows[0].n).toBe(0)
   })
 })
+
+// ── require_enrolled (#487) ──────────────────────────────────────────────────
+// The dibs userscript takes an API key but has no disclosure screen. A plain
+// login enrols the key into the shared rotating pool, so without this flag the
+// script would silently enrol members who never saw ApiKeyDisclosure.
+describe('POST /api/auth/login { require_enrolled: true }', () => {
+  async function loginRequiringEnrolment(apiKey: string) {
+    const res = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey, require_enrolled: true }),
+    })
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> }
+  }
+
+  const enrolledCount = async (memberId: string) =>
+    Number((await stack.db.query(
+      'SELECT count(*) FROM member_secrets WHERE member_id = $1', [memberId]
+    )).rows[0].count)
+
+  it('⚠️ turns away a member who has never enrolled, and enrols NOTHING', async () => {
+    // The whole point: the script must not be anyone's first enrolment, because
+    // enrolment is what the dashboard's disclosure covers.
+    stack.torn.addKey('NEVERENROLLED001', { id: '6001', factionId: TEST_FACTION.tornFactionId })
+    const res = await loginRequiringEnrolment('NEVERENROLLED001')
+    expect(res.status).toBe(403)
+    expect(String(res.body.error)).toMatch(/dashboard/i)
+    expect(await enrolledCount('6001')).toBe(0)
+  })
+
+  it('lets an already-enrolled member straight in', async () => {
+    // They accepted the disclosure on the dashboard; nothing new to consent to.
+    stack.torn.addKey('ALREADYENROLLED1', { id: '6002', factionId: TEST_FACTION.tornFactionId })
+    const first = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'ALREADYENROLLED1' }),
+    })
+    expect(first.status).toBe(200)
+    expect(await enrolledCount('6002')).toBe(1)
+
+    const res = await loginRequiringEnrolment('ALREADYENROLLED1')
+    expect(res.status).toBe(200)
+    expect(res.body.token).toBeTruthy()
+  })
+
+  it('⚠️ accepts a DIFFERENT key from an enrolled member', async () => {
+    // Checked per member, not per key fingerprint: someone who consented on the
+    // dashboard and pastes another limited key into the script has still read
+    // and accepted the disclosure. The consent is the person's, not the key's.
+    stack.torn.addKey('MEMBERKEYONE0001', { id: '6003', factionId: TEST_FACTION.tornFactionId })
+    stack.torn.addKey('MEMBERKEYTWO0002', { id: '6003', factionId: TEST_FACTION.tornFactionId })
+    await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'MEMBERKEYONE0001' }),
+    })
+    const res = await loginRequiringEnrolment('MEMBERKEYTWO0002')
+    expect(res.status).toBe(200)
+  })
+
+  it('leaves the ordinary login path enrolling as before', async () => {
+    // The flag only ever tightens. The SPA omits it, and first-login enrolment
+    // is exactly where the disclosure lives.
+    stack.torn.addKey('PLAINLOGINKEY001', { id: '6004', factionId: TEST_FACTION.tornFactionId })
+    const res = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'PLAINLOGINKEY001' }),
+    })
+    expect(res.status).toBe(200)
+    expect(await enrolledCount('6004')).toBe(1)
+  })
+})

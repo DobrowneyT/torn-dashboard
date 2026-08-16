@@ -17,6 +17,42 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.43.0] - 2026-08-16
+
+### Added
+- **War Room dibs userscript (#487).** Claim and release targets from the Torn
+  faction war page itself, without leaving the game. Badges show the current
+  holder live over the WebSocket; the control claims, releases, or names whoever
+  already has it. Published to `files.monchoon.me/scripts/` on every deploy, so
+  members auto-update.
+  - ⚠️ **It resolves no races itself, deliberately.** The server already does —
+    a row lock, a partial unique index and a 409 naming the owner, proven by
+    #385's concurrency harness. Anything the script decided locally could only
+    be a stale mirror of state another member is mutating, and its failure mode
+    is telling you a target is yours when the server gave it to someone else.
+  - ⚠️ **Only the session token is stored, never the API key.** The key is held
+    in memory long enough to ask Torn which faction it belongs to and to log in,
+    then dropped.
+  - ⚠️ **The script can never be a member's first key enrolment.** Login is sent
+    with the new `require_enrolled` flag: a member who has not already enrolled
+    on the dashboard is turned away and pointed there. Enrolment adds a key to
+    the shared rotating pool, and the dashboard is where the disclosure
+    explaining that is shown — the script has no such screen.
+  - Reads go over the WebSocket and writes through `GM.xmlHttpRequest`, both of
+    which are exempt from CORS, so no CORS policy was added to the API.
+  - Enemy-only: the war page lists both factions, and the socket's `faction_id`
+    is what separates them rather than a guess about the DOM.
+- **`require_enrolled` on `POST /api/auth/login` (#487).** Opt-in and only ever
+  tightening; the SPA omits it and keeps enrolling on first login. Checked per
+  member rather than per key fingerprint — the consent is the person's, not the
+  individual key's.
+- **`deploy/update.sh` publishes the userscript and a generated `tenants.json`**
+  (#487). The faction-id → host map is built by asking each live tenant which
+  faction it serves, so adding a faction to the box publishes it on the next
+  deploy with nobody remembering to. A tenant that cannot name its faction is
+  omitted rather than guessed — a wrong entry would send an API key to another
+  faction's dashboard.
+
 ## [3.42.0] - 2026-08-16
 
 ### Added

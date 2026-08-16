@@ -129,9 +129,51 @@ async function verifyTornKey(deps: AuthDeps, apiKey: string): Promise<
   return { ok: true, userId, tornFactionId, accessLevel, hasFactionAccess, keyHash, fromCache: false }
 }
 
-export async function loginWithTornKey(deps: AuthDeps, apiKey: string): Promise<LoginResult> {
+export interface LoginOptions {
+  /**
+   * Refuse to be a member's FIRST key enrolment (#487).
+   *
+   * ⚠️ A plain login enrols the key into the faction's shared rotating pool,
+   * and the dashboard shows ApiKeyDisclosure before it ever asks for a key —
+   * *"your key joins a rotating pool shared across these automated calls, so it
+   * may occasionally be used to fetch a teammate's public stats or profile."*
+   * The dibs userscript has no such screen, so a member pasting a key into it
+   * would be enrolled having seen no disclosure at all.
+   *
+   * With this set, a member who has never enrolled is turned away and pointed
+   * at the dashboard. Consent happens in the one place that explains it.
+   *
+   * ⚠️ Checked per MEMBER, not per key fingerprint. Someone who consented on
+   * the dashboard and pastes a DIFFERENT limited key into the script has still
+   * read and accepted the disclosure — the consent is the person's, not the
+   * individual key's. (The fingerprint reading is defensible too; this one was
+   * chosen deliberately with MonChoon on 2026-08-16.)
+   */
+  requireEnrolled?: boolean
+}
+
+export async function loginWithTornKey(
+  deps: AuthDeps,
+  apiKey: string,
+  options: LoginOptions = {}
+): Promise<LoginResult> {
   const verified = await verifyTornKey(deps, apiKey)
   if (!verified.ok) return { ok: false, status: verified.status, error: verified.error }
+
+  // Before ANY enrolment side effect below.
+  if (options.requireEnrolled) {
+    const enrolled = await deps.db.query(
+      'SELECT 1 FROM member_secrets WHERE member_id = $1 AND cpr_api_key IS NOT NULL',
+      [verified.userId]
+    )
+    if (enrolled.rows.length === 0) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Log in to the dashboard once to enrol your API key, then this will work.',
+      }
+    }
+  }
 
   const [config, roles] = await Promise.all([
     factionIdentity(deps.db),
