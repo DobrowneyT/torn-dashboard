@@ -2,8 +2,15 @@
 # Deploy the latest code to this server's running stack.
 #
 #   ./deploy/update.sh                # pull + migrate + rebuild + verify
-#   ./deploy/update.sh --if-changed   # exit quietly unless origin moved (cron)
+#   ./deploy/update.sh --if-changed   # cron: quiet unless origin has moved since
+#                                     #   the last SUCCESSFUL deploy (not since
+#                                     #   the last `git pull` — see MARKER below)
 #   SKIP_BACKUP=1 ./deploy/update.sh  # skip the pre-deploy safety dump
+#
+# To force a redeploy of the current checkout — the recovery path when a run was
+# interrupted — drop the flag: `./deploy/update.sh`. Run it detached so a
+# dropped connection cannot kill it half-way:
+#   setsid nohup ./deploy/update.sh >> deploy.log 2>&1 &
 #
 # Deploys whatever branch this checkout is ON. The production checkout is on
 # `main` and STAYS on `main` permanently — that is the deploy model, not a
@@ -29,11 +36,31 @@ cd "$REPO_DIR"
 exec 9>/tmp/tnl-dashboard-update.lock
 flock -n 9 || { echo "another update is already running — skipping"; exit 0; }
 
+# What the RUNNING stack was last built from — NOT what git happens to point at.
+#
+# ⚠️ Those are different things, and conflating them wedged production for five
+# hours on 2026-08-15. The checkout is advanced by the `git merge` below, which
+# happens BEFORE the backup, the migrations and the build. Interrupt a deploy
+# anywhere in that gap — a closed SSH session is the usual way — and HEAD is
+# already equal to origin with none of the work done. A guard comparing HEAD to
+# origin then answers "nothing to do" forever: the 5-minute cron exits at this
+# line, writes nothing to the log, and the stack silently stops updating. There
+# is no error to find, because nothing is running.
+#
+# The marker is written only after a deploy has fully succeeded, so an
+# interrupted run leaves it stale and the next cron tick simply retries.
+# Gitignored: it describes this box, not the code.
+MARKER="$REPO_DIR/deploy/.last-deployed"
+
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 git fetch --quiet origin "$BRANCH"
 LOCAL="$(git rev-parse HEAD)"
 REMOTE="$(git rev-parse "origin/$BRANCH")"
-if [ "${1:-}" = "--if-changed" ] && [ "$LOCAL" = "$REMOTE" ]; then
+# Absent marker reads as "never deployed", so the first run after this change
+# always deploys once and re-arms the mechanism. That is also what recovers a
+# box already stuck in the state described above.
+DEPLOYED="$(cat "$MARKER" 2>/dev/null || true)"
+if [ "${1:-}" = "--if-changed" ] && [ "$DEPLOYED" = "$REMOTE" ]; then
   exit 0
 fi
 
@@ -122,6 +149,17 @@ for conf in deploy/nginx/factions/*.conf; do
     fail=1
   fi
 done
+
+# Re-arm --if-changed, but only on a clean run.
+#
+# ⚠️ A readiness failure deliberately leaves the marker stale, so the next cron
+# tick retries. That is noisy — a genuinely broken commit will rebuild and log
+# FAIL every five minutes until someone pushes a fix — and the noise is the
+# point. The alternative is marking a half-working deploy as done and going
+# quiet, which is the exact failure this marker exists to kill.
+if [ "$fail" = 0 ]; then
+  git rev-parse HEAD > "$MARKER"
+fi
 
 echo "==> deployed $(git rev-parse --short HEAD) ($(date -u +%FT%TZ))"
 exit "$fail"

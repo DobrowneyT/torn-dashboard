@@ -22,9 +22,16 @@
  * The farm sort puts these on top; the stats filter must never remove them.
  * Two copies of this predicate would eventually disagree, and the failure mode
  * is a member who sorts into the top tier and is then filtered off the board.
+ *
+ * Reads both row shapes (#479): the desktop table holds flat DB rows
+ * (`last_action_status`), the mobile overlay a camelCase projection of the same
+ * data (`activity`). The number of surfaces that must not disagree is now
+ * three, which is exactly why this lives in one place.
  */
 export function isGreenTarget(member) {
-  return member?.last_action_status === 'Online' && member?.status_state === 'Okay'
+  const activity = member?.last_action_status ?? member?.activity
+  const state = member?.status_state ?? member?.state
+  return activity === 'Online' && state === 'Okay'
 }
 
 /** Battle stats descending; un-spied (null) targets sink to the bottom. */

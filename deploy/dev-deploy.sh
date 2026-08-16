@@ -32,6 +32,14 @@ flock -n 9 || { echo "another dev deploy is already running — skipping"; exit 
 MODE="${1:-}"
 CURRENT="$(git rev-parse --abbrev-ref HEAD)"
 
+# What this instance was last successfully BUILT from, not what git points at.
+# Same reasoning as deploy/update.sh: the checkout is moved (hard reset, below)
+# before any of the work, so an interrupted run would otherwise leave the guard
+# permanently satisfied and staging would quietly stop following `dev`.
+# Distinct filename from production's so a shared or symlinked deploy/ directory
+# can never have one instance read the other's marker.
+MARKER="$REPO_DIR/deploy/.last-deployed-dev"
+
 if [ "$MODE" = "--if-changed" ]; then
   # The branch guard. Auto-follow is for `dev` only; anything else is a human
   # testing something and must be left exactly as they left it.
@@ -39,7 +47,7 @@ if [ "$MODE" = "--if-changed" ]; then
     exit 0
   fi
   git fetch --quiet origin dev
-  if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/dev)" ]; then
+  if [ "$(cat "$MARKER" 2>/dev/null || true)" = "$(git rev-parse origin/dev)" ]; then
     exit 0
   fi
   TARGET="dev"
@@ -181,6 +189,9 @@ for _ in $(seq 1 20); do
 done
 if [ "$ok" = 1 ]; then
   echo "  ok   staging ($DEV_SLUG @ $DEV_DB)"
+  # Re-arm --if-changed only on a clean run; a failure leaves the marker stale
+  # so the next tick retries rather than declaring a broken instance current.
+  git rev-parse HEAD > "$MARKER"
 else
   echo "  FAIL staging — check: docker compose -f deploy/docker-compose.dev.yml --project-directory deploy logs api-dev"
 fi

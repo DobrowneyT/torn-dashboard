@@ -67,3 +67,8 @@ deploy/nginx/factions/*.conf
 deploy/.env.dev
 # Local backup archives written by db/backup.mjs (slice #76)
 deploy/backups/
+# Which commit this BOX last successfully deployed — per-machine state, and the
+# thing --if-changed compares against so an interrupted deploy retries instead
+# of wedging. Never committed: it describes a server, not the code.
+deploy/.last-deployed
+deploy/.last-deployed-dev
