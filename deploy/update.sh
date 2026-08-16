@@ -235,7 +235,22 @@ PUBLIC_SCRIPTS_DIR="${PUBLIC_SCRIPTS_DIR:-/srv/public-files/scripts}"
 USERSCRIPT_SRC="$REPO_DIR/frontend/userscripts/tnl-war-room-dibs.user.js"
 if [ "$fail" = 0 ] && [ -d "$PUBLIC_SCRIPTS_DIR" ] && [ -f "$USERSCRIPT_SRC" ]; then
   echo "==> publish userscript"
-  install -m 0644 "$USERSCRIPT_SRC" "$PUBLIC_SCRIPTS_DIR/tnl-war-room-dibs.user.js"
+  USERSCRIPT_DST="$PUBLIC_SCRIPTS_DIR/tnl-war-room-dibs.user.js"
+
+  # ⚠️ Tampermonkey gates auto-update on @version ALONE. Ship changed code under
+  # an unchanged version and every existing install keeps running the old file
+  # forever — no error, no prompt, and the fix looks like it did not work. This
+  # has already happened twice on this script. Publishing is not blocked (the
+  # file is still strictly newer), but the run says so loudly.
+  script_version() { sed -n 's|^// @version  *||p' "$1" | head -1; }
+  if [ -f "$USERSCRIPT_DST" ] \
+     && ! cmp -s "$USERSCRIPT_SRC" "$USERSCRIPT_DST" \
+     && [ "$(script_version "$USERSCRIPT_SRC")" = "$(script_version "$USERSCRIPT_DST")" ]; then
+    echo "!!! userscript changed but @version is still $(script_version "$USERSCRIPT_SRC")" >&2
+    echo "!!! installed copies will NOT auto-update — bump @version" >&2
+  fi
+
+  install -m 0644 "$USERSCRIPT_SRC" "$USERSCRIPT_DST"
 
   # Torn faction id → tenant host, for the script's tenant lookup.
   #

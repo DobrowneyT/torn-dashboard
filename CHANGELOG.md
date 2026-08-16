@@ -18,6 +18,32 @@ from `VERSION` at runtime) both surface it automatically.
 ## [Unreleased]
 
 ### Fixed
+- **⚠️ The dibs userscript (#487) never connected, and could not have shown a
+  badge if it had.** Two independent faults behind one symptom:
+  - `boot()` awaited `/api/bootstrap` purely to confirm a faction id the session
+    already carried, and only then opened the socket. With the socket hostage to
+    an HTTP round-trip, a request that never settled meant no `connect()`, no
+    throw and no status change — the panel sat on `idle` ("not connected")
+    indefinitely with nothing in the console. The faction id now comes from the
+    session and **nothing is awaited before `connect()`**.
+  - The `snapshot` frame nests each channel as `{ rows: [...] }` while a `delta`
+    puts the array at the top level (`fullDelta()` in `warRoom.ts`). The script
+    passed the snapshot's wrapper object into `indexDibs`, where `for...of`
+    threw *"rows is not iterable"* **inside the message listener** — invisible:
+    socket open, panel reading live, not one badge on the page. A `frameRows()`
+    helper now normalises both shapes.
+  - Also: `connecting` is now a distinct status from `idle`, so a handshake in
+    progress no longer reads as a dead connection, and socket errors and close
+    codes are logged instead of being swallowed.
+- **The dibs panel no longer parks itself on top of the war page.** Once a
+  session exists it collapses to a 14px status dot in the corner — click for the
+  full panel, `Hide` to send it back. Signing in collapses it automatically. It
+  can never collapse while a key is still needed, which would be a script that
+  silently does nothing and offers no way to fix it.
+- **`deploy/update.sh` now warns when the userscript changes without a
+  `@version` bump.** Tampermonkey gates auto-update on that field alone, so
+  shipping changed code under an unchanged version leaves every install running
+  the old file with no error and no prompt — which has now happened twice.
 - **⚠️ A hand-run `deploy/update.sh` hung forever at the pre-deploy backup.**
   Not a slow upload — a **stopped process**. `timeout` runs its child in a new
   process group (that is how it kills the whole tree), which makes that group a

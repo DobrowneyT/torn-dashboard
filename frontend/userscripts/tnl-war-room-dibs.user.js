@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -102,6 +102,22 @@ const TNLDibs = (function () {
       else byTarget.set(targetId, { by: Number(row.claimed_by), name: row.claimed_name })
     }
     return byTarget
+  }
+
+  /**
+   * The row array out of one channel of a socket frame.
+   *
+   * ⚠️ The two frame types disagree about shape and always have. A `delta`
+   * carries `rows` at the top level, but a `snapshot` nests every channel as
+   * `{ state: { rows }, dibs: { rows } }` — see fullDelta() in warRoom.ts. The
+   * first release passed the snapshot's `{ rows }` OBJECT straight into
+   * indexDibs, where `for...of` threw "rows is not iterable" inside the message
+   * listener. A throw there is silent: the socket stays open and connected, the
+   * panel says live, and not one badge ever appears.
+   */
+  function frameRows(channel) {
+    if (Array.isArray(channel)) return channel
+    return Array.isArray(channel?.rows) ? channel.rows : []
   }
 
   /**
@@ -244,6 +260,7 @@ const TNLDibs = (function () {
     ws: null,
     attempt: 0,
     status: 'idle',
+    expanded: false,        // the panel collapses to a dot once signed in
   }
 
   /** The logged-in Torn user, read from the page's own sidebar profile link. */
@@ -286,6 +303,11 @@ const TNLDibs = (function () {
   function connect() {
     if (!rt.session) return
     const url = `wss://${rt.session.host}/api/war-room/ws?token=${encodeURIComponent(rt.session.token)}`
+    // ⚠️ Say "connecting" BEFORE the socket exists. 'idle' is the state of a
+    // script that has not tried yet, and leaving it up during the handshake
+    // makes a working connection look dead for as long as the handshake takes
+    // — or forever, if the socket then hangs without firing open or close.
+    setStatus('connecting')
     const ws = new WebSocket(url)
     rt.ws = ws
 
@@ -294,21 +316,29 @@ const TNLDibs = (function () {
       let msg
       try { msg = JSON.parse(ev.data) } catch { return }
       if (msg.type === 'snapshot') {
-        rt.dibs = indexDibs(msg.dibs)
-        rt.enemies = enemyIds(msg.state, rt.ourFactionId)
+        rt.dibs = indexDibs(frameRows(msg.dibs))
+        rt.enemies = enemyIds(frameRows(msg.state), rt.ourFactionId)
       } else if (msg.type === 'delta') {
-        if (msg.channel === 'dibs') indexDibs(msg.rows, rt.dibs)
+        if (msg.channel === 'dibs') indexDibs(frameRows(msg.rows), rt.dibs)
         if (msg.channel === 'state') {
-          for (const id of enemyIds(msg.rows, rt.ourFactionId)) rt.enemies.add(id)
+          for (const id of enemyIds(frameRows(msg.rows), rt.ourFactionId)) rt.enemies.add(id)
         }
       } else return
       render()
+    })
+    // An error alone is not fatal — a close always follows it — but it is the
+    // only place a TLS or DNS failure ever surfaces, so log it.
+    ws.addEventListener('error', () => {
+      // eslint-disable-next-line no-console
+      console.warn(`[TNL Dibs] socket error against ${rt.session?.host}`)
     })
     // 4401 is the server refusing the token — reconnecting cannot fix that.
     ws.addEventListener('close', (ev) => {
       if (ev.code === 4401) { setStatus('auth'); return }
       setStatus('reconnecting')
       const wait = backoffFor(rt.attempt++)
+      // eslint-disable-next-line no-console
+      console.warn(`[TNL Dibs] socket closed (${ev.code}) — retrying in ${wait}ms`)
       setTimeout(connect, wait)
     })
   }
@@ -386,6 +416,7 @@ const TNLDibs = (function () {
 
   let panelStatus = null
   let panelBox = null
+  let panelDot = null
 
   /**
    * Does the panel need to ask for a key?
@@ -400,14 +431,42 @@ const TNLDibs = (function () {
     return !session || !session.token
   }
 
+  /**
+   * Should the panel be a full box rather than a dot?
+   *
+   * Only when it has something to ask for, or when the user opened it. Note the
+   * asymmetry: `expanded` cannot suppress the key form. A collapsed dot with no
+   * session would be a script that silently does nothing and gives you no way
+   * to fix it.
+   */
+  function panelExpanded(session, expanded) {
+    if (panelNeedsKey(session)) return true
+    return expanded === true
+  }
+
+  /** Wording for a status, kept pure so the vocabulary itself can be tested. */
+  function statusText(state) {
+    return {
+      live: '● live', connecting: '○ connecting…', reconnecting: '○ reconnecting…',
+      auth: '⚠ session expired', idle: '○ not connected', error: '⚠ error',
+    }[state] || state
+  }
+
+  /** Dot colour for a status — the whole UI when the panel is collapsed. */
+  function statusColor(state) {
+    if (state === 'live') return '#22c55e'
+    if (state === 'connecting' || state === 'reconnecting') return '#f59e0b'
+    if (state === 'auth' || state === 'error') return '#ef4444'
+    return '#6b7280'
+  }
+
   function setStatus(state) {
     rt.status = state
-    if (!panelStatus) return
-    const text = {
-      live: '● live', reconnecting: '○ reconnecting…', auth: '⚠ session expired',
-      idle: '○ not connected', error: '⚠ error',
-    }[state] || state
-    panelStatus.textContent = text
+    if (panelStatus) panelStatus.textContent = statusText(state)
+    if (panelDot) {
+      panelDot.style.background = statusColor(state)
+      panelDot.title = `TNL Dibs — ${statusText(state)}`
+    }
   }
 
   function panel() {
@@ -415,6 +474,30 @@ const TNLDibs = (function () {
     // and the first release never re-rendered it — so after a successful
     // connect the key field stayed on screen next to the word "Connected".
     if (panelBox && panelBox.isConnected) panelBox.remove()
+    panelStatus = null
+    panelDot = null
+
+    // Signed in? Get out of the way. The panel exists to collect a key and to
+    // offer a way out; once there is a session it is a permanent box sitting on
+    // top of the war page, which is exactly where you least want one. Collapsed
+    // is a status dot and nothing else — click it for the full panel back.
+    if (!panelExpanded(rt.session, rt.expanded)) {
+      const dot = document.createElement('button')
+      panelBox = dot
+      panelDot = dot
+      dot.type = 'button'
+      dot.setAttribute('aria-label', 'TNL Dibs')
+      dot.style.cssText = [
+        'position:fixed', 'right:12px', 'bottom:12px', 'z-index:2147483000',
+        'width:14px', 'height:14px', 'padding:0', 'border-radius:50%',
+        'border:1px solid rgba(0,0,0,.5)', 'cursor:pointer', 'opacity:.75',
+        'box-shadow:0 1px 4px rgba(0,0,0,.5)',
+      ].join(';')
+      dot.addEventListener('click', () => { rt.expanded = true; panel() })
+      setStatus(rt.status)
+      document.body.appendChild(dot)
+      return
+    }
 
     const box = document.createElement('div')
     panelBox = box
@@ -455,7 +538,9 @@ const TNLDibs = (function () {
           await boot()
           // Re-render so the key field is replaced by the signed-in panel.
           // Without this the input stayed on screen and the whole thing looked
-          // like it had not saved anything.
+          // like it had not saved anything. Collapsed, because entering a key
+          // is the one moment we can be sure the user is done with this box.
+          rt.expanded = false
           panel()
         } catch (err) {
           note.textContent = err.message
@@ -466,20 +551,31 @@ const TNLDibs = (function () {
       box.appendChild(input)
       box.appendChild(go)
     } else {
+      const row = document.createElement('div')
+      row.style.cssText = 'display:flex;gap:6px'
+
+      const hide = document.createElement('button')
+      hide.textContent = 'Hide'
+      hide.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
+      hide.addEventListener('click', () => { rt.expanded = false; panel() })
+
       const out = document.createElement('button')
       out.textContent = 'Sign out'
-      out.style.cssText = 'width:100%;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
+      out.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
       out.addEventListener('click', () => {
         store.clear()
         rt.session = null
         if (rt.ws) { try { rt.ws.close() } catch { /* already gone */ } }
         location.reload()
       })
+
       const who = document.createElement('div')
       who.style.cssText = 'opacity:.7;margin-bottom:6px'
       who.textContent = `Signed in as ${rt.session.userId} · ${rt.session.host}`
       box.insertBefore(who, box.lastChild)
-      box.appendChild(out)
+      row.appendChild(hide)
+      row.appendChild(out)
+      box.appendChild(row)
     }
 
     document.body.appendChild(box)
@@ -498,11 +594,13 @@ const TNLDibs = (function () {
       return
     }
 
-    // Named `bootstrapRes`, not `boot`: a `const boot` here shadows this very
-    // function inside its own body, which is legal, confusing, and breaks the
-    // moment anyone adds a retry.
-    const bootstrapRes = await gmRequest({ url: `https://${rt.session.host}/api/bootstrap` })
-    rt.ourFactionId = bootstrapRes.body?.faction?.torn_faction_id ?? rt.session.factionId
+    // ⚠️ Nothing may be awaited between here and connect(). The faction id comes
+    // from the session, which Torn already told us at login — the first release
+    // fetched /api/bootstrap first purely to confirm it, and made the socket
+    // hostage to an HTTP round-trip it did not need. When that request hung, so
+    // did boot(): no connect, no throw, no status change, and a panel stuck
+    // reading "not connected" with nothing in the console to explain it.
+    rt.ourFactionId = rt.session.factionId
     connect()
     observe()
   }
@@ -525,8 +623,9 @@ const TNLDibs = (function () {
   }
 
   return {
-    parseXid, resolveTenant, indexDibs, enemyIds, buttonState, backoffFor,
-    identityMatches, panelNeedsKey, establishSession, store, main,
+    parseXid, resolveTenant, indexDibs, enemyIds, frameRows, buttonState, backoffFor,
+    identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
+    establishSession, store, main,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
   }
 })()
