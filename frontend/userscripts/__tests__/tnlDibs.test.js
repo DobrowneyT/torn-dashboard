@@ -318,3 +318,49 @@ describe('establishSession — key → faction → tenant → token', () => {
     await expect(S.establishSession(API_KEY)).rejects.toThrow(/enrol your API key/)
   })
 })
+
+describe('the session survives a reload', () => {
+  // ⚠️ The bug this covers: the panel asked for a key on EVERY page load, even
+  // with a good session stored, because it was built before anything had read
+  // the store. To the member it looked like the key had simply not saved.
+
+  it('round-trips a session through GM storage', () => {
+    const { S, stored } = loadScript()
+    S.store.write({ host: 'forge.monchoon.me', token: 'jwt-abc', userId: '9001' })
+    expect(S.store.read()).toEqual({ host: 'forge.monchoon.me', token: 'jwt-abc', userId: '9001' })
+    expect(stored.value).toContain('jwt-abc')
+  })
+
+  it('⚠️ finds an existing session on a FRESH load', () => {
+    // A second loadScript() with the same backing store is the reload.
+    const stored = {}
+    const a = loadScript({ stored })
+    a.S.store.write({ host: 'forge.monchoon.me', token: 'jwt-abc', userId: '9001' })
+
+    const b = loadScript({ stored })
+    expect(b.S.store.read()).toMatchObject({ token: 'jwt-abc' })
+    expect(b.S.panelNeedsKey(b.S.store.read())).toBe(false)
+  })
+
+  it('asks for a key only when there is no usable session', () => {
+    const { S } = loadScript()
+    expect(S.panelNeedsKey(null)).toBe(true)
+    expect(S.panelNeedsKey(undefined)).toBe(true)
+    expect(S.panelNeedsKey({ host: 'forge.monchoon.me' })).toBe(true)   // no token
+    expect(S.panelNeedsKey({ host: 'forge.monchoon.me', token: 'jwt' })).toBe(false)
+  })
+
+  it('forgets the session on sign out', () => {
+    const { S } = loadScript()
+    S.store.write({ host: 'x', token: 'jwt' })
+    S.store.clear()
+    expect(S.store.read()).toBeNull()
+    expect(S.panelNeedsKey(S.store.read())).toBe(true)
+  })
+
+  it('treats corrupt storage as no session rather than throwing', () => {
+    // A half-written value must show the key prompt, not break the page.
+    const { S } = loadScript({ stored: { value: '{not json' } })
+    expect(S.store.read()).toBeNull()
+  })
+})
