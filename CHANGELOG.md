@@ -17,6 +17,24 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+- **⚠️ A hand-run `deploy/update.sh` hung forever at the pre-deploy backup.**
+  Not a slow upload — a **stopped process**. `timeout` runs its child in a new
+  process group (that is how it kills the whole tree), which makes that group a
+  *background* group for the controlling terminal; `docker compose run` still
+  opens stdin even with `-T`, a background process reading the terminal gets
+  **SIGTTIN**, and SIGTTIN stops it permanently — it cannot even act on the
+  SIGTERM the timeout later sends. Diagnosed live on 2026-08-16: `pgrp=254751`
+  against `tpgid=254564`, signal 21 pending, state `T`, with the backup itself
+  already finished in 45 seconds. Fixed by detaching the step's stdin from the
+  terminal.
+  - This only ever bit **interactive** runs. Under cron there is no controlling
+    terminal, so no SIGTTIN — which is why auto-deploys were fine while every
+    hand-run appeared to wedge, and why it looked like a Backblaze problem.
+  - It is also the real cause of the 2026-08-15 production wedge, previously
+    recorded as "an interrupted run". The `.last-deployed` marker added then
+    still earns its place; it recovers the state, while this removes the cause.
+
 ## [3.43.0] - 2026-08-16
 
 ### Added

@@ -8,8 +8,9 @@
 #   SKIP_BACKUP=1 ./deploy/update.sh  # skip the pre-deploy safety dump
 #
 # To force a redeploy of the current checkout — the recovery path when a run was
-# interrupted — drop the flag: `./deploy/update.sh`. Run it detached so a
-# dropped connection cannot kill it half-way:
+# interrupted — drop the flag: `./deploy/update.sh`. Prefer running it detached,
+# so a dropped connection cannot kill it half-way and it never shares a terminal
+# with the backup step (see the SIGTTIN note further down):
 #   setsid nohup ./deploy/update.sh >> deploy.log 2>&1 &
 #
 # Deploys whatever branch this checkout is ON. The production checkout is on
@@ -41,7 +42,8 @@ flock -n 9 || { echo "another update is already running — skipping"; exit 0; }
 # ⚠️ Those are different things, and conflating them wedged production for five
 # hours on 2026-08-15. The checkout is advanced by the `git merge` below, which
 # happens BEFORE the backup, the migrations and the build. Interrupt a deploy
-# anywhere in that gap — a closed SSH session is the usual way — and HEAD is
+# anywhere in that gap — abandoning a hand-run that appeared to hang is the
+# usual way, see the SIGTTIN note at the backup step — and HEAD is
 # already equal to origin with none of the work done. A guard comparing HEAD to
 # origin then answers "nothing to do" forever: the 5-minute cron exits at this
 # line, writes nothing to the log, and the stack silently stops updating. There
@@ -85,10 +87,32 @@ COMPOSE+=(--project-directory deploy)
 # wedges every subsequent auto-deploy — the 5-min cron just logs "another update
 # is already running" and skips, and the stack silently stops updating. That is
 # exactly what a Backblaze maintenance window did for over an hour.
+#
+# ⚠️ `< /dev/null` is NOT tidiness — without it an interactive run HANGS HERE,
+# forever, and this cost two debugging sessions before it was understood.
+#
+# `timeout` runs its child in a NEW PROCESS GROUP (that is how it kills the
+# whole tree). Relative to the controlling terminal that group is a BACKGROUND
+# group, and `docker compose run` still opens stdin even with `-T`. A background
+# process reading the terminal gets SIGTTIN, and SIGTTIN stops it — permanently,
+# because a stopped process cannot act on the SIGTERM the timeout later sends.
+# Observed 2026-08-16: pgrp=254751 against tpgid=254564, ShdPnd carrying signal
+# 21, state T. The backup itself had already finished in 45 seconds.
+#
+# It only bites INTERACTIVELY. Under cron there is no controlling terminal, so
+# no SIGTTIN and no stop — which is why auto-deploys were fine while every
+# hand-run deploy appeared to wedge at the backup, and why this looked for a
+# while like a slow Backblaze upload rather than a signal.
+#
+# Detaching stdin from the terminal removes the read that raises the signal.
+# `timeout --foreground` would also work by keeping the child in the foreground
+# group, but it costs the ability to kill the whole group on a genuine hang —
+# which is the entire reason the timeout is here.
 if [ "${SKIP_BACKUP:-0}" != "1" ]; then
   echo "==> pre-deploy backup"
   timeout "${BACKUP_TIMEOUT:-15m}" \
     "${COMPOSE[@]}" run --rm -T backup node db/backup.mjs --out /backups \
+    < /dev/null \
     || echo "[warn] pre-deploy backup failed or timed out — continuing (local archives are unaffected)"
 fi
 
