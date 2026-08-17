@@ -364,3 +364,77 @@ describe('the session survives a reload', () => {
     expect(S.store.read()).toBeNull()
   })
 })
+
+describe('frameRows — the two socket frames disagree about shape', () => {
+  // ⚠️ The bug this covers: a `snapshot` nests each channel as { rows: [...] }
+  // while a `delta` puts the array at the top level. Passing the snapshot's
+  // wrapper object into indexDibs threw "rows is not iterable" INSIDE the
+  // message listener, where nothing surfaces it — socket open, panel live, and
+  // not a single badge on the page.
+
+  it('unwraps the snapshot shape', () => {
+    expect(S.frameRows({ rows: [{ target_id: 5 }] })).toEqual([{ target_id: 5 }])
+  })
+
+  it('passes the delta shape through untouched', () => {
+    expect(S.frameRows([{ target_id: 5 }])).toEqual([{ target_id: 5 }])
+  })
+
+  it('is empty — never undefined — for a missing or malformed channel', () => {
+    expect(S.frameRows(undefined)).toEqual([])
+    expect(S.frameRows(null)).toEqual([])
+    expect(S.frameRows({})).toEqual([])
+    expect(S.frameRows({ rows: 'nope' })).toEqual([])
+  })
+
+  it('⚠️ feeds a real snapshot frame through to a dib index', () => {
+    // The exact shape fullDelta() sends: { type, state: {rows}, dibs: {rows} }.
+    const frame = {
+      type: 'snapshot',
+      dibs: { rows: [{ target_id: 77, claimed_by: 42, claimed_name: 'Alice' }] },
+      state: { rows: [{ member_id: 77, faction_id: 999 }, { member_id: 1, faction_id: 10739 }] },
+    }
+    expect(S.indexDibs(S.frameRows(frame.dibs)).get(77)).toEqual({ by: 42, name: 'Alice' })
+    expect([...S.enemyIds(S.frameRows(frame.state), 10739)]).toEqual([77])
+  })
+})
+
+describe('the panel keeps out of the way', () => {
+  const signedIn = { host: 'forge.monchoon.me', token: 'jwt', userId: '9001' }
+
+  it('collapses to a dot once there is a session', () => {
+    expect(S.panelExpanded(signedIn, false)).toBe(false)
+  })
+
+  it('opens again when the user asks for it', () => {
+    expect(S.panelExpanded(signedIn, true)).toBe(true)
+  })
+
+  it('⚠️ never collapses while a key is still needed', () => {
+    // A collapsed dot with no session is a script that does nothing and offers
+    // no way to fix it — `expanded: false` must not be able to cause that.
+    expect(S.panelExpanded(null, false)).toBe(true)
+    expect(S.panelExpanded({ host: 'forge.monchoon.me' }, false)).toBe(true)
+  })
+
+  it('⚠️ distinguishes "connecting" from "not connected"', () => {
+    // These read the same to a user in a hurry, but only one of them means
+    // something is wrong — and the old vocabulary had no word for the handshake
+    // at all, so a live connection showed "not connected" until it opened.
+    expect(S.statusText('connecting')).toBe('○ connecting…')
+    expect(S.statusText('idle')).toBe('○ not connected')
+    expect(S.statusText('live')).toBe('● live')
+  })
+
+  it('colours the collapsed dot by severity', () => {
+    expect(S.statusColor('live')).toBe('#22c55e')
+    expect(S.statusColor('connecting')).toBe(S.statusColor('reconnecting'))
+    expect(S.statusColor('auth')).toBe(S.statusColor('error'))
+    expect(S.statusColor('idle')).toBe('#6b7280')
+  })
+
+  it('falls back to the raw state rather than blanking out', () => {
+    expect(S.statusText('something-new')).toBe('something-new')
+    expect(S.statusColor('something-new')).toBe('#6b7280')
+  })
+})
