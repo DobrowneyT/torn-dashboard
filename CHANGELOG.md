@@ -17,7 +17,30 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+- **The dibs userscript has a debug log**, off by default, toggled by a
+  `Debug log` checkbox in the expanded panel (a checkbox rather than a console
+  command: the script is sandboxed, so `TNLDibs` is not reachable from the
+  page's console). It traces every request, the socket's whole lifecycle with
+  close codes and how long the connection lived, each frame's row counts, and
+  how many badges got painted out of how many players found on the page — the
+  three-way split that tells you *why* nothing appeared. Every URL goes through
+  a redactor first: the trace can never contain a session token or an API key,
+  because pasting a console screenshot into a chat is a normal thing to do.
+
 ### Fixed
+- **⚠️ Every war-room WebSocket died and reconnected on a five-minute cycle.**
+  Not the userscript's fault and not new — the dashboard had been doing it all
+  along. nginx gives an idle upstream `proxy_read_timeout 300s`, the hub only
+  writes when the ticker broadcasts, and the ticker is war-gated: with no war on
+  it never fires, so every socket sat silent until nginx tore the tunnel down.
+  Confirmed in the access log on 2026-08-17 — successive `101`s exactly 5m02s
+  and 5m03s apart, per client. The hub now pings every 30s (browsers answer at
+  the protocol level, so no client change was needed) and terminates any peer
+  that misses two ticks, which also stops the hub broadcasting into sockets
+  whose owner closed the laptop.
+  - This was the "socket error" reported against the #487 userscript. It was
+    real, it was just neither new nor specific to the script.
 - **⚠️ The dibs userscript (#487) never connected, and could not have shown a
   badge if it had.** Two independent faults behind one symptom:
   - `boot()` awaited `/api/bootstrap` purely to confirm a faction id the session

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.0.2
+// @version      1.1.0
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -57,6 +57,35 @@ const TNLDibs = (function () {
   /** Reconnect backoff, ms — caps rather than growing without bound. */
   const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000]
   const BADGE_CLASS = 'tnl-dibs-badge'
+  const DEBUG_KEY = 'tnl-dibs-debug'
+
+  // ── Debug ────────────────────────────────────────────────────────────────
+
+  /**
+   * Verbose tracing, off by default. Toggled by the `Debug log` checkbox in the
+   * expanded panel — deliberately not a console command, because the script is
+   * sandboxed and `TNLDibs` is not reachable from the page's console.
+   *
+   * ⚠️ Nothing logged here may contain the session token or an API key. This
+   * runs on torn.com, where a screenshot of the console is a normal thing for a
+   * member to paste into a support chat — see redactUrl(), which every URL goes
+   * through on its way to the log.
+   */
+  function debugOn() {
+    try { return GM_getValue(DEBUG_KEY, 'false') === 'true' } catch { return false }
+  }
+
+  /** A URL with any token or key stripped, safe to print. */
+  function redactUrl(url) {
+    if (typeof url !== 'string') return String(url)
+    return url.replace(/([?&](?:token|key|apiKey)=)[^&]*/gi, '$1REDACTED')
+  }
+
+  function log(...args) {
+    if (!debugOn()) return
+    // eslint-disable-next-line no-console
+    console.log('[TNL Dibs]', ...args)
+  }
 
   // ── Pure helpers (unit-tested — see __tests__/tnlDibs.test.js) ────────────
 
@@ -171,18 +200,28 @@ const TNLDibs = (function () {
       const xhr = (typeof GM !== 'undefined' && GM.xmlHttpRequest)
         || (typeof GM_xmlhttpRequest !== 'undefined' && GM_xmlhttpRequest)
       if (!xhr) return reject(new Error('GM.xmlHttpRequest unavailable'))
+      const started = Date.now()
+      const method = opts.method || 'GET'
+      log(`→ ${method} ${redactUrl(opts.url)}`)
       xhr({
-        method: opts.method || 'GET',
+        method,
         url: opts.url,
         headers: opts.headers || {},
         data: opts.body,
         onload: (res) => {
           let parsed = null
           try { parsed = JSON.parse(res.responseText) } catch { /* not json */ }
+          log(`← ${res.status} ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
           resolve({ status: res.status, body: parsed })
         },
-        onerror: () => reject(new Error(`request failed: ${opts.url}`)),
-        ontimeout: () => reject(new Error(`request timed out: ${opts.url}`)),
+        onerror: () => {
+          log(`✗ failed ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
+          reject(new Error(`request failed: ${redactUrl(opts.url)}`))
+        },
+        ontimeout: () => {
+          log(`✗ timed out ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
+          reject(new Error(`request timed out: ${redactUrl(opts.url)}`))
+        },
       })
     })
   }
@@ -261,6 +300,7 @@ const TNLDibs = (function () {
     attempt: 0,
     status: 'idle',
     expanded: false,        // the panel collapses to a dot once signed in
+    painted: -1,            // last badge count logged, so render() is not spammy
   }
 
   /** The logged-in Torn user, read from the page's own sidebar profile link. */
@@ -308,22 +348,36 @@ const TNLDibs = (function () {
     // makes a working connection look dead for as long as the handshake takes
     // — or forever, if the socket then hangs without firing open or close.
     setStatus('connecting')
+    const openedAt = Date.now()
+    log(`socket → ${redactUrl(url)} (attempt ${rt.attempt})`)
     const ws = new WebSocket(url)
     rt.ws = ws
 
-    ws.addEventListener('open', () => { rt.attempt = 0; setStatus('live') })
+    ws.addEventListener('open', () => {
+      rt.attempt = 0
+      setStatus('live')
+      log(`socket open after ${Date.now() - openedAt}ms`)
+    })
     ws.addEventListener('message', (ev) => {
       let msg
-      try { msg = JSON.parse(ev.data) } catch { return }
+      try { msg = JSON.parse(ev.data) } catch { log('frame was not JSON'); return }
       if (msg.type === 'snapshot') {
         rt.dibs = indexDibs(frameRows(msg.dibs))
         rt.enemies = enemyIds(frameRows(msg.state), rt.ourFactionId)
+        log(`snapshot: ${frameRows(msg.state).length} roster rows,`,
+          `${frameRows(msg.dibs).length} dib rows →`,
+          `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`)
       } else if (msg.type === 'delta') {
         if (msg.channel === 'dibs') indexDibs(frameRows(msg.rows), rt.dibs)
         if (msg.channel === 'state') {
           for (const id of enemyIds(frameRows(msg.rows), rt.ourFactionId)) rt.enemies.add(id)
         }
-      } else return
+        log(`delta on ${msg.channel}: ${frameRows(msg.rows).length} rows →`,
+          `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`)
+      } else {
+        log(`ignored frame type: ${msg.type}`)
+        return
+      }
       render()
     })
     // An error alone is not fatal — a close always follows it — but it is the
@@ -334,11 +388,16 @@ const TNLDibs = (function () {
     })
     // 4401 is the server refusing the token — reconnecting cannot fix that.
     ws.addEventListener('close', (ev) => {
-      if (ev.code === 4401) { setStatus('auth'); return }
+      const lived = Date.now() - openedAt
+      if (ev.code === 4401) {
+        setStatus('auth')
+        log(`socket refused the token after ${lived}ms`)
+        return
+      }
       setStatus('reconnecting')
       const wait = backoffFor(rt.attempt++)
       // eslint-disable-next-line no-console
-      console.warn(`[TNL Dibs] socket closed (${ev.code}) — retrying in ${wait}ms`)
+      console.warn(`[TNL Dibs] socket closed (${ev.code}) after ${lived}ms — retrying in ${wait}ms`)
       setTimeout(connect, wait)
     })
   }
@@ -373,8 +432,10 @@ const TNLDibs = (function () {
   }
 
   function render() {
+    let painted = 0
     for (const [playerId, anchors] of rt.nodes) {
       if (!rt.enemies.has(playerId)) continue
+      painted++
       const state = buttonState(rt.dibs.get(playerId), rt.session?.userId)
       for (const anchor of anchors) {
         if (!anchor.isConnected) continue
@@ -385,16 +446,27 @@ const TNLDibs = (function () {
         badge.style.cursor = state.action === 'none' ? 'default' : 'pointer'
       }
     }
+    // ⚠️ The single most useful line when "no badges appeared". It separates
+    // the three ways that happens: no profile links found on the page at all,
+    // links found but none of them enemies (an empty or mismatched roster), or
+    // enemies matched and painted — in which case the problem is CSS, not us.
+    if (painted !== rt.painted) {
+      rt.painted = painted
+      log(`painted ${painted} of ${rt.nodes.size} linked players`,
+        `(${rt.enemies.size} known enemies)`)
+    }
   }
 
   function scan(root) {
     if (!root || !root.querySelectorAll) return
+    const before = rt.nodes.size
     for (const anchor of root.querySelectorAll('a[href*="profiles.php?XID="]')) {
       const id = parseXid(anchor.getAttribute('href'))
       if (id === null) continue
       if (!rt.nodes.has(id)) rt.nodes.set(id, new Set())
       rt.nodes.get(id).add(anchor)
     }
+    if (rt.nodes.size !== before) log(`scan: ${rt.nodes.size - before} new players on the page`)
     render()
   }
 
@@ -467,6 +539,31 @@ const TNLDibs = (function () {
       panelDot.style.background = statusColor(state)
       panelDot.title = `TNL Dibs — ${statusText(state)}`
     }
+  }
+
+  /**
+   * The debug switch, in the panel rather than the console.
+   *
+   * The tracing that matters most — the socket's whole lifecycle — happens at
+   * page load, so the setting is persisted and read on the next load. Asking a
+   * member to type a console command on torn.com is also a worse thing to teach
+   * than a checkbox.
+   */
+  function debugToggle() {
+    const wrap = document.createElement('label')
+    wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:8px;opacity:.7;cursor:pointer'
+    const box = document.createElement('input')
+    box.type = 'checkbox'
+    box.checked = debugOn()
+    box.addEventListener('change', () => {
+      GM_setValue(DEBUG_KEY, box.checked ? 'true' : 'false')
+      log('debug logging on — reload to trace startup')
+    })
+    const text = document.createElement('span')
+    text.textContent = 'Debug log (console)'
+    wrap.appendChild(box)
+    wrap.appendChild(text)
+    return wrap
   }
 
   function panel() {
@@ -576,6 +673,7 @@ const TNLDibs = (function () {
       row.appendChild(hide)
       row.appendChild(out)
       box.appendChild(row)
+      box.appendChild(debugToggle())
     }
 
     document.body.appendChild(box)
@@ -583,9 +681,12 @@ const TNLDibs = (function () {
 
   async function boot() {
     rt.session = rt.session || store.read()
-    if (!rt.session) return
+    if (!rt.session) { log('no stored session — waiting for a key'); return }
+    log(`session for ${rt.session.userId} on ${rt.session.host},`,
+      `faction ${rt.session.factionId}, expires ${rt.session.expiresAt ?? 'unknown'}`)
 
     const mine = pageUserId()
+    log(`page identity: ${mine ?? 'unreadable'}`)
     if (!identityMatches(rt.session.userId, mine)) {
       setStatus('error')
       // eslint-disable-next-line no-console
@@ -611,6 +712,11 @@ const TNLDibs = (function () {
     // the panel asked for a key on every single load — a saved session looked
     // like it had never saved.
     rt.session = store.read()
+    // Version from GM_info, never a constant of our own: a hand-kept copy of
+    // @version is exactly the thing that drifts, and the drift is invisible.
+    const version = (typeof GM_info !== 'undefined' && GM_info.script?.version) || 'unknown'
+    const path = typeof location !== 'undefined' ? location.pathname + location.search : 'unknown'
+    log(`v${version} starting on ${path}`)
     panel()
     boot()
       .then(() => panel())   // reflect whatever boot() resolved the session to
@@ -625,7 +731,7 @@ const TNLDibs = (function () {
   return {
     parseXid, resolveTenant, indexDibs, enemyIds, frameRows, buttonState, backoffFor,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
-    establishSession, store, main,
+    redactUrl, debugOn, establishSession, store, main,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
   }
 })()

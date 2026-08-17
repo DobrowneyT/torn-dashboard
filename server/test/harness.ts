@@ -115,6 +115,11 @@ export interface StackOverrides {
    * rate-limit.test.ts opts in with tiny numbers of its own.
    */
   rateLimit?: import('../src/app.js').RateLimitOptions | false
+  /**
+   * War-room socket keepalive period, ms. Production is 30s, which no test can
+   * wait for — war-room.test.ts sets a few tens of ms to watch a real ping.
+   */
+  warRoomHeartbeatMs?: number
 }
 
 /** Boot embedded Postgres + templated faction DB + Torn fixture + GitHub fixture + API. */
@@ -283,6 +288,7 @@ export async function startTestStack(
     feedbackGithubBaseUrl: githubBaseUrl,
     feedbackLabel: 'needs-triage',
     rateLimit: overrides.rateLimit ?? false,
+    warRoomHeartbeatMs: overrides.warRoomHeartbeatMs,
   })
   extendApp?.(app)
   await app.listen({ port: 0, host: '127.0.0.1' })

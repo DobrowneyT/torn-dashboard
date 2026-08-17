@@ -13,7 +13,16 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(join(here, '..', 'tnl-war-room-dibs.user.js'), 'utf8')
 
-function loadScript({ routes = {}, stored = {} } = {}) {
+const SESSION_KEY = 'tnl-dibs-session'
+
+/**
+ * `stored` is the session slot specifically; `values` is every other GM key.
+ *
+ * ⚠️ Keyed, not one shared slot. The first version returned `stored.value` for
+ * ANY key, so a test that set the debug flag was really setting the session too
+ * — and passing for a reason that had nothing to do with what it claimed.
+ */
+function loadScript({ routes = {}, stored = {}, values = {} } = {}) {
   const mod = { exports: {} }
   const calls = []
   // Route a request by URL substring. Anything unrouted is an explicit failure
@@ -33,10 +42,16 @@ function loadScript({ routes = {}, stored = {} } = {}) {
   // in someone's browser.
   new Function('module', 'window', 'document', 'GM', 'GM_getValue', 'GM_setValue', source)(
     mod, undefined, undefined, GM,
-    (_k, dflt) => stored.value ?? dflt,
-    (_k, v) => { stored.value = v },
+    (k, dflt) => {
+      if (k === SESSION_KEY) return stored.value ?? dflt
+      return k in values ? values[k] : dflt
+    },
+    (k, v) => {
+      if (k === SESSION_KEY) stored.value = v
+      else values[k] = v
+    },
   )
-  return { S: mod.exports, calls, stored }
+  return { S: mod.exports, calls, stored, values }
 }
 
 const { S } = loadScript()
@@ -436,5 +451,52 @@ describe('the panel keeps out of the way', () => {
   it('falls back to the raw state rather than blanking out', () => {
     expect(S.statusText('something-new')).toBe('something-new')
     expect(S.statusColor('something-new')).toBe('#6b7280')
+  })
+})
+
+describe('debug logging', () => {
+  it('is off unless it has been switched on', () => {
+    expect(loadScript().S.debugOn()).toBe(false)
+    expect(loadScript({ values: { 'tnl-dibs-debug': 'false' } }).S.debugOn()).toBe(false)
+    expect(loadScript({ values: { 'tnl-dibs-debug': 'true' } }).S.debugOn()).toBe(true)
+  })
+
+  it('⚠️ does not read the debug flag out of the session slot', () => {
+    // Both live in GM storage. Keying them together once made a test pass for
+    // the wrong reason; keying them together in the SCRIPT would turn a stored
+    // session into permanently-on logging on a member's machine.
+    const { S } = loadScript({ stored: { value: 'true' } })
+    expect(S.debugOn()).toBe(false)
+  })
+
+  it('⚠️ never prints a session token', () => {
+    // The trace runs on torn.com, and pasting a console screenshot into a chat
+    // is a normal thing for a member to do. A leaked token IS the account, for
+    // as long as it lives.
+    const url = 'wss://forge.monchoon.me/api/war-room/ws?token=eyJhbGciOiJIUzI1NiJ9.abc.def'
+    expect(S.redactUrl(url)).toBe('wss://forge.monchoon.me/api/war-room/ws?token=REDACTED')
+    expect(S.redactUrl(url)).not.toContain('eyJ')
+  })
+
+  it('⚠️ never prints an API key', () => {
+    expect(S.redactUrl('https://api.torn.com/v2/key/info?key=abc123&comment=TNLDibs'))
+      .toBe('https://api.torn.com/v2/key/info?key=REDACTED&comment=TNLDibs')
+  })
+
+  it('redacts a parameter wherever it sits in the query', () => {
+    expect(S.redactUrl('https://h/x?a=1&token=secret'))
+      .toBe('https://h/x?a=1&token=REDACTED')
+    expect(S.redactUrl('https://h/x?apiKey=secret&b=2'))
+      .toBe('https://h/x?apiKey=REDACTED&b=2')
+  })
+
+  it('leaves a URL with nothing to hide alone', () => {
+    expect(S.redactUrl('https://files.monchoon.me/scripts/tenants.json'))
+      .toBe('https://files.monchoon.me/scripts/tenants.json')
+  })
+
+  it('survives a non-string rather than throwing inside a log call', () => {
+    expect(S.redactUrl(undefined)).toBe('undefined')
+    expect(S.redactUrl(null)).toBe('null')
   })
 })
