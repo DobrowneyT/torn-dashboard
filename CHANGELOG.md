@@ -17,6 +17,34 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+- **⚠️ The dibs userscript's WebSocket never worked on torn.com at all — the
+  read path now falls back to polling.** The debug log settled it: the script
+  logged a connection error on every load while nginx logged **zero** handshakes
+  in the same window, from anyone. The connection was being refused inside the
+  browser, before a packet left it.
+  - The original design note was half right. Sockets *are* exempt from CORS —
+    but CORS was never the binding constraint. A page's CSP `connect-src`
+    governs WebSockets too, and a socket opened by page script gets none of the
+    exemption `GM.xmlHttpRequest` enjoys, because the extension makes that
+    request rather than the page. Every 101 in the access log that looked like
+    the userscript was a dashboard tab.
+  - The socket is still attempted, and still preferred where it works. If it
+    fails to *open* — a close before any open, or ten seconds of silence — the
+    script switches to polling `/api/war-room/delta` over the privileged
+    transport, with the same `since` watermark semantics the endpoint was
+    designed around. 3s while the tab is visible, 30s while hidden.
+  - The socket `error` line is now debug-only. It fired on every page load for
+    as long as the transport was blocked and told nobody anything actionable;
+    the fallback announces itself once instead.
+- **⚠️ The userscript offered dibs on factions nobody was fighting.**
+  `war_room_state_v2` is not pruned when a war ends — forge was holding rosters
+  for six factions on 2026-08-17, four of them months old — and the script
+  treated *every* row that was not ours as an enemy. Enemies are now scoped to
+  the opponent named by the config channel, falling back to the old behaviour
+  only while that channel has yet to arrive. A change of opponent now also
+  clears the cached roster and claims rather than accumulating both wars.
+
 ### Added
 - **The dibs userscript has a debug log**, off by default, toggled by a
   `Debug log` checkbox in the expanded panel (a checkbox rather than a console

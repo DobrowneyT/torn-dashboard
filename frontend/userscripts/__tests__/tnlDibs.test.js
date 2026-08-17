@@ -183,6 +183,75 @@ describe('enemyIds', () => {
   })
 })
 
+describe('enemyIds is scoped to the faction we are actually fighting', () => {
+  // ⚠️ war_room_state_v2 is not pruned when a war ends. On 2026-08-17 forge was
+  // holding rosters for SIX factions, four of them months old. "Not ours" would
+  // therefore offer dibs on people nobody is fighting — and the claim would
+  // succeed, because the server has no opinion about who is worth attacking.
+  const roster = [
+    { member_id: 1, faction_id: 9533 },     // current opponent
+    { member_id: 2, faction_id: 9533 },
+    { member_id: 3, faction_id: 33783 },    // a war that ended in July
+    { member_id: 4, faction_id: 10739 },    // us
+  ]
+
+  it('badges only the current opponent', () => {
+    expect([...S.enemyIds(roster, 10739, '9533')]).toEqual([1, 2])
+  })
+
+  it('⚠️ excludes a stale roster from a finished war', () => {
+    expect([...S.enemyIds(roster, 10739, '9533')]).not.toContain(3)
+  })
+
+  it('never badges our own members, whoever the opponent is', () => {
+    expect([...S.enemyIds(roster, 10739, '9533')]).not.toContain(4)
+    expect([...S.enemyIds(roster, 10739, null)]).not.toContain(4)
+  })
+
+  it('falls back to "everyone not ours" when the opponent is unknown', () => {
+    // Better to over-offer than to show nothing at all before the config
+    // channel has arrived.
+    expect([...S.enemyIds(roster, 10739, null)]).toEqual([1, 2, 3])
+    expect([...S.enemyIds(roster, 10739, undefined)]).toEqual([1, 2, 3])
+  })
+
+  it('compares across the string/number boundary', () => {
+    expect([...S.enemyIds(roster, '10739', 9533)]).toEqual([1, 2])
+  })
+})
+
+describe('opponentFrom', () => {
+  it('reads the opponent out of the config channel', () => {
+    expect(S.opponentFrom([{ enabled: true, faction_id: 9533, faction_name: 'Natural Selection' }]))
+      .toBe('9533')
+  })
+
+  it('reports the opponent even while the war room is switched off', () => {
+    // `enabled` gates the ticker, not who we are pointed at. Ignoring a
+    // disabled config would drop us back to badging every stale roster.
+    expect(S.opponentFrom([{ enabled: false, faction_id: 7282 }])).toBe('7282')
+  })
+
+  it('is null when there is no config yet, rather than undefined', () => {
+    expect(S.opponentFrom([])).toBeNull()
+    expect(S.opponentFrom(undefined)).toBeNull()
+    expect(S.opponentFrom([{ enabled: true }])).toBeNull()
+  })
+})
+
+describe('pollDelay', () => {
+  it('polls briskly while the tab is being looked at', () => {
+    expect(S.pollDelay(false)).toBe(3000)
+  })
+
+  it('backs right off when the tab is hidden', () => {
+    // A hidden tab is a tab nobody is claiming in, and every member of the
+    // faction is polling the same API during a war.
+    expect(S.pollDelay(true)).toBe(30000)
+    expect(S.pollDelay(true)).toBeGreaterThan(S.pollDelay(false))
+  })
+})
+
 describe('buttonState', () => {
   it('offers a claim on an unclaimed target', () => {
     expect(S.buttonState(undefined, '111')).toMatchObject({ action: 'claim', mine: false })
