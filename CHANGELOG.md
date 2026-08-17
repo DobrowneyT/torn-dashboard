@@ -17,6 +17,8 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.44.0] - 2026-08-17
+
 ### Fixed
 - **⚠️ The dibs userscript's WebSocket never worked on torn.com at all — the
   read path now falls back to polling.** The debug log settled it: the script
