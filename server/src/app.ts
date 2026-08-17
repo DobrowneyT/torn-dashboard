@@ -76,6 +76,8 @@ export interface ServerOptions {
    * unrelated suites fail in ways that look like the feature under test.
    */
   rateLimit?: RateLimitOptions | false
+  /** War-room socket keepalive period, ms. Overridden only by tests. */
+  warRoomHeartbeatMs?: number
 }
 
 export interface RateLimitOptions {
@@ -304,7 +306,9 @@ export async function buildServer(
     registerWarRoutes(app, opts.db)
     registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     registerSyncRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
-    app.warRoomHub = await registerWarRoomRoutes(app, { db: opts.db, jwtSecret: opts.jwtSecret })
+    app.warRoomHub = await registerWarRoomRoutes(app, {
+      db: opts.db, jwtSecret: opts.jwtSecret, heartbeatMs: opts.warRoomHeartbeatMs,
+    })
     registerWarRoomWriteRoutes(app, { db: opts.db, hub: app.warRoomHub })
     registerWarRoomSetupRoutes(app, {
       db: opts.db, hub: app.warRoomHub,
