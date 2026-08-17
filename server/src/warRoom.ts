@@ -14,7 +14,26 @@ import { verifySessionToken } from './auth.js'
 export interface WarRoomDeps {
   db: pg.Pool
   jwtSecret: string
+  /** Socket keepalive period. Overridden only by tests. */
+  heartbeatMs?: number
 }
+
+/**
+ * How often to ping an idle socket.
+ *
+ * ⚠️ This is not optional politeness — it is what keeps the connection alive.
+ * nginx gives an idle upstream `proxy_read_timeout 300s` and then tears the
+ * tunnel down (deploy/nginx/default.conf). The hub only ever writes when the
+ * ticker broadcasts, and the ticker is war-gated: with no war on it is idle, so
+ * a socket can sit silent indefinitely. Every client therefore dropped and
+ * reconnected on a five-minute cycle, logging a connection error each time —
+ * visible in the access log on 2026-08-17 as successive 101s exactly 5m02s
+ * apart, from the dashboard and the #487 userscript alike.
+ *
+ * A ping costs nothing and needs no client support: browsers answer at the
+ * protocol level. Well under 300s so a single dropped ping is not fatal.
+ */
+const HEARTBEAT_MS = 30_000
 
 export type WarRoomChannel = 'state' | 'dibs' | 'config' | 'chain' | 'memberstats'
 
@@ -109,8 +128,28 @@ export async function registerWarRoomRoutes(
   })
 
   // Sockets carry their session's lead status: broadcast() needs it per client,
-  // and re-verifying the token on every frame would be absurd.
-  const clients = new Map<WebSocket, { lead: boolean }>()
+  // and re-verifying the token on every frame would be absurd. `alive` is the
+  // heartbeat's view of the same socket — see HEARTBEAT_MS.
+  const clients = new Map<WebSocket, { lead: boolean; alive: boolean }>()
+
+  const heartbeat = setInterval(() => {
+    for (const [socket, meta] of clients) {
+      // No pong since the last tick: the peer is gone (a laptop that slept, a
+      // network that moved) and only we still think otherwise. terminate()
+      // rather than close() — there is nobody left to complete a handshake.
+      if (!meta.alive) {
+        clients.delete(socket)
+        socket.terminate()
+        continue
+      }
+      meta.alive = false
+      try { socket.ping() } catch { clients.delete(socket) }
+    }
+  }, deps.heartbeatMs ?? HEARTBEAT_MS)
+  // Must not hold the process open, and must not outlive the app — a leaked
+  // interval turns every test that builds a stack into a hang.
+  heartbeat.unref?.()
+  app.addHook('onClose', () => { clearInterval(heartbeat) })
 
   // Authenticated socket: ?token= carries the same session JWT as the
   // Authorization header (browsers can't set headers on WebSocket).
@@ -123,7 +162,9 @@ export async function registerWarRoomRoutes(
     }
 
     const lead = canSeeLeadOnlyChannels(session)
-    clients.set(socket, { lead })
+    const meta = { lead, alive: true }
+    clients.set(socket, meta)
+    socket.on('pong', () => { meta.alive = true })
     socket.on('close', () => clients.delete(socket))
     socket.on('error', () => clients.delete(socket))
 
