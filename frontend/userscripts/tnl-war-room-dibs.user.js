@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -35,10 +35,21 @@
  *
  * ⚠️ There is no CORS plugin on the API. A plain fetch() from torn.com is
  * blocked, and a POST with Authorization + JSON triggers a preflight nothing
- * answers. Writes therefore go through GM.xmlHttpRequest, which is privileged
- * and exempt from CORS; reads come over the WebSocket, which is also exempt and
- * authenticates on its token alone. Between them no server-side CORS change is
- * needed. Do not "fix" this by allow-listing torn.com on the API.
+ * answers. Everything therefore goes through GM.xmlHttpRequest, which is
+ * privileged: the extension performs the request, so it is exempt from CORS AND
+ * from the page's Content-Security-Policy. Do not "fix" this by allow-listing
+ * torn.com on the API.
+ *
+ * ⚠️ The socket is an OPTIMISATION, not the transport. Reads were originally
+ * WebSocket-only on the reasoning that sockets are CORS-exempt. True — but CORS
+ * was never the binding constraint. A page's CSP `connect-src` governs
+ * WebSockets too, and unlike GM.xmlHttpRequest a socket opened by page script
+ * gets no exemption from it. On torn.com the socket never left the browser:
+ * nginx logged zero handshakes during a session where the console showed a
+ * connection error every time (2026-08-17). So the socket is tried, and if it
+ * fails to OPEN even once we fall back to polling /api/war-room/delta over the
+ * privileged transport that demonstrably works — the same endpoint, the same
+ * watermark semantics, just chattier.
  *
  * ── The key ─────────────────────────────────────────────────────────────────
  *
@@ -58,6 +69,11 @@ const TNLDibs = (function () {
   const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000]
   const BADGE_CLASS = 'tnl-dibs-badge'
   const DEBUG_KEY = 'tnl-dibs-debug'
+  /** Poll cadence when the socket is unavailable — see the transport note above. */
+  const POLL_MS = 3000
+  const POLL_HIDDEN_MS = 30000
+  /** How long to give the socket before deciding this page will not have one. */
+  const WS_GIVE_UP_MS = 10000
 
   // ── Debug ────────────────────────────────────────────────────────────────
 
@@ -157,12 +173,37 @@ const TNLDibs = (function () {
    * `state` rows carry faction_id, so this comes from data rather than from
    * guessing which part of the DOM a row sits in.
    */
-  function enemyIds(stateRows, ourFactionId) {
+  function enemyIds(stateRows, ourFactionId, opponentId) {
     const out = new Set()
     for (const row of stateRows ?? []) {
-      if (String(row.faction_id) !== String(ourFactionId)) out.add(Number(row.member_id))
+      if (String(row.faction_id) === String(ourFactionId)) continue
+      // ⚠️ "Not ours" is not the same as "the enemy". war_room_state_v2 is not
+      // pruned when a war ends — forge was holding rosters for SIX factions on
+      // 2026-08-17, four of them from wars months gone. Without this the script
+      // offers dibs on people nobody is fighting. The opponent comes from the
+      // config channel, which names exactly one faction.
+      if (opponentId != null && String(row.faction_id) !== String(opponentId)) continue
+      out.add(Number(row.member_id))
     }
     return out
+  }
+
+  /** The faction our war room is currently pointed at, from the config channel. */
+  function opponentFrom(configRows) {
+    for (const row of configRows ?? []) {
+      if (row?.faction_id !== null && row?.faction_id !== undefined) return String(row.faction_id)
+    }
+    return null
+  }
+
+  /**
+   * How long to wait before the next poll.
+   *
+   * A hidden tab is a tab nobody is claiming targets in, and the API is shared
+   * by every member of the faction at once during a war.
+   */
+  function pollDelay(hidden) {
+    return hidden ? POLL_HIDDEN_MS : POLL_MS
   }
 
   /** What the control should say for a target, given who holds it. */
@@ -301,6 +342,9 @@ const TNLDibs = (function () {
     status: 'idle',
     expanded: false,        // the panel collapses to a dot once signed in
     painted: -1,            // last badge count logged, so render() is not spammy
+    opponentId: null,       // the faction the war room is pointed at
+    since: null,            // delta watermark, always the server's own clock
+    polling: false,
   }
 
   /** The logged-in Torn user, read from the page's own sidebar profile link. */
@@ -340,6 +384,80 @@ const TNLDibs = (function () {
     return res.status === 200 ? { ok: true } : { ok: false, message: `HTTP ${res.status}` }
   }
 
+  /**
+   * Fold one full set of channels — a socket snapshot or a poll response — into
+   * the runtime. Both transports land here so they cannot drift apart.
+   */
+  function applyChannels(body) {
+    const stateRows = frameRows(body?.state)
+    const dibRows = frameRows(body?.dibs)
+    const opponent = opponentFrom(frameRows(body?.config))
+
+    // A new opponent invalidates everything we know: the previous war's roster
+    // is still in the table and its members must stop being badgeable.
+    if (opponent !== null && opponent !== rt.opponentId) {
+      log(`opponent is now faction ${opponent} (was ${rt.opponentId ?? 'unknown'}) — resetting`)
+      rt.opponentId = opponent
+      rt.enemies = new Set()
+      rt.dibs = new Map()
+    }
+
+    indexDibs(dibRows, rt.dibs)
+    for (const id of enemyIds(stateRows, rt.ourFactionId, rt.opponentId)) rt.enemies.add(id)
+    log(`${stateRows.length} roster rows, ${dibRows.length} dib rows →`,
+      `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`,
+      `(opponent ${rt.opponentId ?? 'unknown'})`)
+    render()
+  }
+
+  /**
+   * One poll of the REST read path, over the privileged transport.
+   *
+   * `since` is always the server's own `server_now` from the previous response,
+   * never a client clock — the endpoint is explicit about that, and a browser
+   * running a few seconds fast would silently skip rows forever.
+   */
+  async function pollOnce() {
+    const path = rt.since
+      ? `/api/war-room/delta?since=${encodeURIComponent(rt.since)}`
+      : '/api/war-room/delta'
+    const res = await api(path, 'GET')
+    if (res.status === 401 || res.status === 403) {
+      setStatus('auth')
+      return false
+    }
+    if (res.status !== 200 || !res.body) {
+      setStatus('reconnecting')
+      return true          // transient; keep the loop alive
+    }
+    applyChannels(res.body)
+    rt.since = res.body.server_now ?? rt.since
+    setStatus('live')
+    return true
+  }
+
+  function startPolling() {
+    if (rt.polling) return
+    rt.polling = true
+    // One visible line, once. The member should know the page is using the
+    // slower path, and should not have to turn on debug logging to find out.
+    // eslint-disable-next-line no-console
+    console.info(`[TNL Dibs] live socket unavailable on this page — polling ${rt.session.host} every ${POLL_MS / 1000}s instead`)
+    const tick = async () => {
+      let keepGoing = true
+      try {
+        keepGoing = await pollOnce()
+      } catch (err) {
+        setStatus('reconnecting')
+        log('poll failed:', err.message)
+      }
+      if (!keepGoing) { rt.polling = false; return }
+      const hidden = typeof document !== 'undefined' && document.hidden
+      setTimeout(tick, pollDelay(hidden))
+    }
+    tick()
+  }
+
   function connect() {
     if (!rt.session) return
     const url = `wss://${rt.session.host}/api/war-room/ws?token=${encodeURIComponent(rt.session.token)}`
@@ -353,7 +471,9 @@ const TNLDibs = (function () {
     const ws = new WebSocket(url)
     rt.ws = ws
 
+    let opened = false
     ws.addEventListener('open', () => {
+      opened = true
       rt.attempt = 0
       setStatus('live')
       log(`socket open after ${Date.now() - openedAt}ms`)
@@ -362,36 +482,45 @@ const TNLDibs = (function () {
       let msg
       try { msg = JSON.parse(ev.data) } catch { log('frame was not JSON'); return }
       if (msg.type === 'snapshot') {
-        rt.dibs = indexDibs(frameRows(msg.dibs))
-        rt.enemies = enemyIds(frameRows(msg.state), rt.ourFactionId)
-        log(`snapshot: ${frameRows(msg.state).length} roster rows,`,
-          `${frameRows(msg.dibs).length} dib rows →`,
-          `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`)
+        applyChannels(msg)
       } else if (msg.type === 'delta') {
-        if (msg.channel === 'dibs') indexDibs(frameRows(msg.rows), rt.dibs)
-        if (msg.channel === 'state') {
-          for (const id of enemyIds(frameRows(msg.rows), rt.ourFactionId)) rt.enemies.add(id)
-        }
-        log(`delta on ${msg.channel}: ${frameRows(msg.rows).length} rows →`,
-          `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`)
+        // A delta names ONE channel and puts its rows at the top level, so it
+        // reaches applyChannels wearing the snapshot's shape.
+        applyChannels({ [msg.channel]: frameRows(msg.rows) })
       } else {
         log(`ignored frame type: ${msg.type}`)
-        return
       }
-      render()
     })
-    // An error alone is not fatal — a close always follows it — but it is the
-    // only place a TLS or DNS failure ever surfaces, so log it.
-    ws.addEventListener('error', () => {
-      // eslint-disable-next-line no-console
-      console.warn(`[TNL Dibs] socket error against ${rt.session?.host}`)
-    })
+    // Debug-only: a close always follows an error and says far more. Shouting
+    // about it at the console was noise on every page load for as long as the
+    // socket was blocked here, and it told nobody anything actionable.
+    ws.addEventListener('error', () => { log(`socket error against ${rt.session?.host}`) })
+
+    // ⚠️ A socket that neither opens nor closes cannot be waited on forever.
+    // Chrome will sit in CONNECTING for well over a minute against a black
+    // hole, and until it gives up there is no roster and no explanation.
+    setTimeout(() => {
+      if (opened || rt.polling) return
+      log(`socket still not open after ${WS_GIVE_UP_MS}ms — falling back to polling`)
+      try { ws.close() } catch { /* already gone */ }
+      startPolling()
+    }, WS_GIVE_UP_MS)
     // 4401 is the server refusing the token — reconnecting cannot fix that.
     ws.addEventListener('close', (ev) => {
       const lived = Date.now() - openedAt
       if (ev.code === 4401) {
         setStatus('auth')
         log(`socket refused the token after ${lived}ms`)
+        return
+      }
+      // ⚠️ Never opened at all? Then this is not a network blip, it is the
+      // transport being unavailable on this page — a CSP `connect-src`, an
+      // extension, a corporate proxy. Retrying forever produces a console error
+      // every few seconds and never a connection. Poll instead; that transport
+      // is privileged and cannot be blocked the same way.
+      if (!opened) {
+        log(`socket never opened (close ${ev.code} after ${lived}ms) — falling back to polling`)
+        startPolling()
         return
       }
       setStatus('reconnecting')
@@ -731,7 +860,7 @@ const TNLDibs = (function () {
   return {
     parseXid, resolveTenant, indexDibs, enemyIds, frameRows, buttonState, backoffFor,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
-    redactUrl, debugOn, establishSession, store, main,
+    opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
   }
 })()
