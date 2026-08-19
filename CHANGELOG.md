@@ -17,6 +17,35 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+- **⚠️ The dibs userscript stopped working after exactly one day, then 401'd
+  everything.** A session token *lives* 30 days but only *acts* for 24 hours —
+  `verifySessionToken` rejects any token whose `iat` is older than
+  `SESSION_FRESH_SECONDS`, which is how a member removed from the faction loses
+  access within a day (#119). The SPA has always exchanged stale tokens silently
+  via `POST /api/auth/refresh`; the userscript never did. So it worked
+  beautifully for a day and then failed completely, while the `expires_at` it
+  had stored insisted — a month into the future — that the session was fine.
+  Nothing in that picture says "log in again".
+  - The script now refreshes on a 401 and retries the call once. Exactly once:
+    `/api/auth/refresh` is rate limited to 10/min and the read loop runs every
+    three seconds, so a refresh that "succeeds" into a token the server still
+    rejects must surface the 401 rather than ask again. A 401 or 403 *from the
+    refresh itself* clears the session and asks for a key, instead of holding a
+    dead token behind a panel that still claims to be signed in.
+- **⚠️ The userscript's WebSocket is gone, and must not come back.** Torn's CSP
+  names its allowed origins and we are not among them —
+  `connect-src blob: 'self' wss://*.torn.com wss://*.torncity.com …` — so Chrome
+  refused the connection before a packet left the browser. The fallback added
+  earlier worked, but the attempt itself cost ten seconds on every page load
+  and, worse, **leaked the session token**: the browser's own CSP violation
+  message prints the entire blocked URL, and the token travelled in the query
+  string. Every page load wrote a live 30-day JWT into the console. Our logging
+  redacts; Chrome's does not and cannot be asked to. Reads go straight to
+  polling now.
+  - A failing read backs off (1s to 30s) instead of retrying every 3s, which
+    matters when a tenant is mid-deploy and every member is polling at once.
+
 ## [3.44.0] - 2026-08-17
 
 ### Fixed

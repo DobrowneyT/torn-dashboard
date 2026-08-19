@@ -33,7 +33,13 @@ function loadScript({ routes = {}, stored = {}, values = {} } = {}) {
       calls.push(opts)
       const key = Object.keys(routes).find((k) => opts.url.includes(k))
       if (!key) return opts.onerror?.(new Error(`unrouted: ${opts.url}`))
-      const { status = 200, body } = routes[key]
+      // A route may be a function of the call so far, so a test can express
+      // "401 the first time, 200 after the refresh" — which is the whole shape
+      // of the session-renewal bug and cannot be written with a fixed reply.
+      const route = typeof routes[key] === 'function'
+        ? routes[key](calls.filter((c) => c.url.includes(key)).length - 1, opts)
+        : routes[key]
+      const { status = 200, body } = route
       opts.onload({ status, responseText: JSON.stringify(body) })
     },
   }
@@ -567,5 +573,132 @@ describe('debug logging', () => {
   it('survives a non-string rather than throwing inside a log call', () => {
     expect(S.redactUrl(undefined)).toBe('undefined')
     expect(S.redactUrl(null)).toBe('null')
+  })
+})
+
+describe('the session refreshes itself when it goes stale', () => {
+  // ⚠️ The bug this covers. A token LIVES 30 days but only ACTS for 24 hours:
+  // verifySessionToken rejects anything whose `iat` is older than
+  // SESSION_FRESH_SECONDS, so a member removed from the faction loses access
+  // within a day (#119). The SPA has always exchanged stale tokens silently.
+  // This script did not — so it worked perfectly for one day and then answered
+  // 401 to everything, while its stored `expires_at` insisted, a month into the
+  // future, that the session was fine. Nothing about that says "log in again".
+
+  const session = { host: 'forge.monchoon.me', token: 'stale-jwt', userId: '2250591', factionId: '10739' }
+
+  /** 401 until the token changes, 200 afterwards — the server's actual rule. */
+  function freshnessRoutes({ refresh = { status: 200, body: { token: 'fresh-jwt', expires_at: 999 } } } = {}) {
+    return {
+      '/api/auth/refresh': refresh,
+      '/api/war-room/delta': (_n, opts) => (
+        opts.headers.authorization === 'Bearer fresh-jwt'
+          ? { status: 200, body: { state: { rows: [] }, dibs: { rows: [] }, server_now: 'T1' } }
+          : { status: 401, body: { error: 'Authentication required' } }
+      ),
+    }
+  }
+
+  it('⚠️ refreshes on a 401 and retries the original call', async () => {
+    const { S, calls } = loadScript({ routes: freshnessRoutes() })
+    S.setSession({ ...session })
+
+    const res = await S.api('/api/war-room/delta', 'GET')
+
+    expect(res.status).toBe(200)
+    expect(calls.map((c) => c.url.replace('https://forge.monchoon.me', ''))).toEqual([
+      '/api/war-room/delta',      // 401, token is stale
+      '/api/auth/refresh',        // exchange it
+      '/api/war-room/delta',      // retry, now fresh
+    ])
+  })
+
+  it('sends the refreshed token on the retry, not the stale one', async () => {
+    const { S, calls } = loadScript({ routes: freshnessRoutes() })
+    S.setSession({ ...session })
+    await S.api('/api/war-room/delta', 'GET')
+    expect(calls.at(-1).headers.authorization).toBe('Bearer fresh-jwt')
+  })
+
+  it('persists the new token, so the next page load starts fresh', async () => {
+    const { S, stored } = loadScript({ routes: freshnessRoutes() })
+    S.setSession({ ...session })
+    await S.api('/api/war-room/delta', 'GET')
+    expect(S.currentSession().token).toBe('fresh-jwt')
+    expect(stored.value).toContain('fresh-jwt')
+  })
+
+  it('keeps the rest of the session intact across a refresh', async () => {
+    const { S } = loadScript({ routes: freshnessRoutes() })
+    S.setSession({ ...session })
+    await S.api('/api/war-room/delta', 'GET')
+    expect(S.currentSession()).toMatchObject({ host: 'forge.monchoon.me', userId: '2250591', factionId: '10739' })
+  })
+
+  it('⚠️ refreshes ONCE per call, never in a loop', async () => {
+    // /api/auth/refresh is rate limited to 10/min and the read loop runs every
+    // three seconds. A refresh that "succeeds" into a token the server still
+    // rejects must surface the 401, not ask again.
+    const { S, calls } = loadScript({
+      routes: {
+        '/api/auth/refresh': { status: 200, body: { token: 'also-stale', expires_at: 999 } },
+        '/api/war-room/delta': { status: 401, body: { error: 'Authentication required' } },
+      },
+    })
+    S.setSession({ ...session })
+
+    const res = await S.api('/api/war-room/delta', 'GET')
+
+    expect(res.status).toBe(401)
+    expect(calls.filter((c) => c.url.includes('/api/auth/refresh'))).toHaveLength(1)
+  })
+
+  it('⚠️ signs out when the token is past refreshing', async () => {
+    // 401 from refresh: even the signature is dead. Holding the token would
+    // 401 forever behind a panel still claiming to be signed in.
+    const { S, stored } = loadScript({
+      routes: freshnessRoutes({ refresh: { status: 401, body: { error: 'Session expired — please log in again' } } }),
+    })
+    S.setSession({ ...session })
+    stored.value = JSON.stringify(session)
+
+    const res = await S.api('/api/war-room/delta', 'GET')
+
+    expect(res.status).toBe(401)
+    expect(S.currentSession()).toBeNull()
+    expect(S.store.read()).toBeNull()
+  })
+
+  it('signs out when the member lost faction access (403 from refresh)', async () => {
+    const { S } = loadScript({
+      routes: freshnessRoutes({ refresh: { status: 403, body: { error: 'Your faction access was removed.' } } }),
+    })
+    S.setSession({ ...session })
+    await S.api('/api/war-room/delta', 'GET')
+    expect(S.currentSession()).toBeNull()
+  })
+
+  it('does not refresh on failures that have nothing to do with the session', async () => {
+    // A 500, a 409 from a lost dibs race, a 429 — refreshing would waste the
+    // auth rate limit and hide the real error.
+    for (const status of [500, 409, 429]) {
+      const { S, calls } = loadScript({
+        routes: { '/api/war-room/dibs': { status, body: { error: 'nope' } } },
+      })
+      S.setSession({ ...session })
+      const res = await S.api('/api/war-room/dibs', 'POST', { target_id: 1 })
+      expect(res.status).toBe(status)
+      expect(calls.filter((c) => c.url.includes('refresh'))).toHaveLength(0)
+    }
+  })
+
+  it('leaves a successful call completely alone', async () => {
+    const { S, calls } = loadScript({
+      routes: { '/api/war-room/delta': { status: 200, body: { server_now: 'T1' } } },
+    })
+    S.setSession({ ...session })
+    const res = await S.api('/api/war-room/delta', 'GET')
+    expect(res.status).toBe(200)
+    expect(calls).toHaveLength(1)
   })
 })

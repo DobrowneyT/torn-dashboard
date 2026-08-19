@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -40,16 +40,27 @@
  * from the page's Content-Security-Policy. Do not "fix" this by allow-listing
  * torn.com on the API.
  *
- * ⚠️ The socket is an OPTIMISATION, not the transport. Reads were originally
- * WebSocket-only on the reasoning that sockets are CORS-exempt. True — but CORS
- * was never the binding constraint. A page's CSP `connect-src` governs
+ * ⚠️ There is NO WebSocket here, and adding one back will not work. Reads were
+ * originally socket-only, reasoning that sockets are CORS-exempt. True — but
+ * CORS was never the binding constraint. A page's CSP `connect-src` governs
  * WebSockets too, and unlike GM.xmlHttpRequest a socket opened by page script
- * gets no exemption from it. On torn.com the socket never left the browser:
- * nginx logged zero handshakes during a session where the console showed a
- * connection error every time (2026-08-17). So the socket is tried, and if it
- * fails to OPEN even once we fall back to polling /api/war-room/delta over the
- * privileged transport that demonstrably works — the same endpoint, the same
- * watermark semantics, just chattier.
+ * gets no exemption from it. Torn's policy is explicit and we are not on the
+ * list:
+ *
+ *     connect-src blob: 'self' wss://*.torn.com wss://*.torncity.com
+ *                 *.torncity.com *.torn.com api.torn.com …
+ *
+ * Chrome refuses the connection before a packet leaves the browser, which is
+ * why nginx logged zero handshakes while the console showed an error on every
+ * load. Reads are therefore polls of /api/war-room/delta — the REST twin of the
+ * socket snapshot, same `since` watermark, over the privileged transport.
+ *
+ * ⚠️ Removing the socket also stops a credential leak. The browser's own CSP
+ * violation message prints the ENTIRE blocked URL, and the URL carried the
+ * session token as a query parameter — so every page load wrote a live 30-day
+ * JWT into the console, where a member pasting a screenshot hands it to anyone
+ * reading. Our own logging redacts; Chrome's does not, and cannot be asked to.
+ * If a socket is ever reintroduced, its token must not travel in the URL.
  *
  * ── The key ─────────────────────────────────────────────────────────────────
  *
@@ -69,11 +80,9 @@ const TNLDibs = (function () {
   const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000]
   const BADGE_CLASS = 'tnl-dibs-badge'
   const DEBUG_KEY = 'tnl-dibs-debug'
-  /** Poll cadence when the socket is unavailable — see the transport note above. */
+  /** Read cadence — see the transport note above for why this is a poll. */
   const POLL_MS = 3000
   const POLL_HIDDEN_MS = 30000
-  /** How long to give the socket before deciding this page will not have one. */
-  const WS_GIVE_UP_MS = 10000
 
   // ── Debug ────────────────────────────────────────────────────────────────
 
@@ -215,7 +224,7 @@ const TNLDibs = (function () {
     return { label: `🖐 ${dib.name ?? 'Claimed'}`, action: 'none', mine: false }
   }
 
-  /** Backoff for the nth consecutive reconnect attempt (0-based). */
+  /** Backoff for the nth consecutive failed read (0-based). */
   function backoffFor(attempt) {
     return BACKOFF_MS[Math.min(Math.max(attempt, 0), BACKOFF_MS.length - 1)]
   }
@@ -337,8 +346,7 @@ const TNLDibs = (function () {
     enemies: new Set(),     // member ids not in our faction
     nodes: new Map(),       // playerId → Set<HTMLElement> anchors to badge
     ourFactionId: null,
-    ws: null,
-    attempt: 0,
+    attempt: 0,          // consecutive failed polls, for backoff
     status: 'idle',
     expanded: false,        // the panel collapses to a dot once signed in
     painted: -1,            // last badge count logged, so render() is not spammy
@@ -353,7 +361,7 @@ const TNLDibs = (function () {
     return link ? parseXid(link.getAttribute('href')) : null
   }
 
-  function api(path, method, body) {
+  function rawApi(path, method, body) {
     return gmRequest({
       method,
       url: `https://${rt.session.host}${path}`,
@@ -363,6 +371,56 @@ const TNLDibs = (function () {
       },
       body: body ? JSON.stringify(body) : undefined,
     })
+  }
+
+  /**
+   * Trade a stale token for a fresh one.
+   *
+   * ⚠️ A session token LIVES 30 days but only ACTS for 24 hours: the server
+   * rejects anything whose `iat` is older than SESSION_FRESH_SECONDS, so that a
+   * member removed from the faction loses access within a day (#119). The SPA
+   * has always done this exchange silently; this script did not, so it worked
+   * beautifully for one day and then answered 401 to everything, with an
+   * `expires_at` a month away insisting the session was fine.
+   */
+  async function refreshToken() {
+    log('token is stale — refreshing')
+    const res = await gmRequest({
+      method: 'POST',
+      url: `https://${rt.session.host}/api/auth/refresh`,
+      headers: { authorization: `Bearer ${rt.session.token}` },
+    })
+    if (res.status !== 200 || !res.body?.token) {
+      // 401 means even the signature is past saving; 403 means the member lost
+      // faction access. Either way there is nothing to refresh into, and
+      // holding a dead token would just 401 forever.
+      log(`refresh failed (${res.status}) — signing out`)
+      store.clear()
+      rt.session = null
+      setStatus('auth')
+      panel()
+      return false
+    }
+    rt.session = { ...rt.session, token: res.body.token, expiresAt: res.body.expires_at }
+    store.write(rt.session)
+    log('token refreshed')
+    return true
+  }
+
+  /**
+   * An authenticated call, with one automatic retry after a refresh.
+   *
+   * `retried` is what stops a dead session becoming a refresh storm: the second
+   * 401 is returned to the caller, which gives up rather than asking again.
+   * /api/auth/refresh is rate limited to 10/min, and the poll loop runs every
+   * three seconds.
+   */
+  async function api(path, method, body, retried = false) {
+    const res = await rawApi(path, method, body)
+    if (res.status === 401 && !retried && rt.session) {
+      if (await refreshToken()) return api(path, method, body, true)
+    }
+    return res
   }
 
   async function claim(targetId) {
@@ -428,7 +486,8 @@ const TNLDibs = (function () {
     }
     if (res.status !== 200 || !res.body) {
       setStatus('reconnecting')
-      return true          // transient; keep the loop alive
+      log(`read failed: HTTP ${res.status}`)
+      throw new Error(`HTTP ${res.status}`)   // transient: caught, backed off, retried
     }
     applyChannels(res.body)
     rt.since = res.body.server_now ?? rt.since
@@ -439,96 +498,29 @@ const TNLDibs = (function () {
   function startPolling() {
     if (rt.polling) return
     rt.polling = true
-    // One visible line, once. The member should know the page is using the
-    // slower path, and should not have to turn on debug logging to find out.
-    // eslint-disable-next-line no-console
-    console.info(`[TNL Dibs] live socket unavailable on this page — polling ${rt.session.host} every ${POLL_MS / 1000}s instead`)
+    setStatus('connecting')
+    log(`reading ${rt.session.host} every ${POLL_MS}ms`)
     const tick = async () => {
+      let ok = false
       let keepGoing = true
       try {
         keepGoing = await pollOnce()
+        ok = keepGoing
       } catch (err) {
         setStatus('reconnecting')
         log('poll failed:', err.message)
       }
       if (!keepGoing) { rt.polling = false; return }
+
+      // ⚠️ Back off on consecutive failures rather than hammering every 3s.
+      // A tenant that is mid-deploy answers 502 for a minute or two, and every
+      // member of the faction is running this at once during a war.
       const hidden = typeof document !== 'undefined' && document.hidden
-      setTimeout(tick, pollDelay(hidden))
+      if (ok) rt.attempt = 0
+      const wait = ok ? pollDelay(hidden) : Math.max(backoffFor(rt.attempt++), pollDelay(hidden))
+      setTimeout(tick, wait)
     }
     tick()
-  }
-
-  function connect() {
-    if (!rt.session) return
-    const url = `wss://${rt.session.host}/api/war-room/ws?token=${encodeURIComponent(rt.session.token)}`
-    // ⚠️ Say "connecting" BEFORE the socket exists. 'idle' is the state of a
-    // script that has not tried yet, and leaving it up during the handshake
-    // makes a working connection look dead for as long as the handshake takes
-    // — or forever, if the socket then hangs without firing open or close.
-    setStatus('connecting')
-    const openedAt = Date.now()
-    log(`socket → ${redactUrl(url)} (attempt ${rt.attempt})`)
-    const ws = new WebSocket(url)
-    rt.ws = ws
-
-    let opened = false
-    ws.addEventListener('open', () => {
-      opened = true
-      rt.attempt = 0
-      setStatus('live')
-      log(`socket open after ${Date.now() - openedAt}ms`)
-    })
-    ws.addEventListener('message', (ev) => {
-      let msg
-      try { msg = JSON.parse(ev.data) } catch { log('frame was not JSON'); return }
-      if (msg.type === 'snapshot') {
-        applyChannels(msg)
-      } else if (msg.type === 'delta') {
-        // A delta names ONE channel and puts its rows at the top level, so it
-        // reaches applyChannels wearing the snapshot's shape.
-        applyChannels({ [msg.channel]: frameRows(msg.rows) })
-      } else {
-        log(`ignored frame type: ${msg.type}`)
-      }
-    })
-    // Debug-only: a close always follows an error and says far more. Shouting
-    // about it at the console was noise on every page load for as long as the
-    // socket was blocked here, and it told nobody anything actionable.
-    ws.addEventListener('error', () => { log(`socket error against ${rt.session?.host}`) })
-
-    // ⚠️ A socket that neither opens nor closes cannot be waited on forever.
-    // Chrome will sit in CONNECTING for well over a minute against a black
-    // hole, and until it gives up there is no roster and no explanation.
-    setTimeout(() => {
-      if (opened || rt.polling) return
-      log(`socket still not open after ${WS_GIVE_UP_MS}ms — falling back to polling`)
-      try { ws.close() } catch { /* already gone */ }
-      startPolling()
-    }, WS_GIVE_UP_MS)
-    // 4401 is the server refusing the token — reconnecting cannot fix that.
-    ws.addEventListener('close', (ev) => {
-      const lived = Date.now() - openedAt
-      if (ev.code === 4401) {
-        setStatus('auth')
-        log(`socket refused the token after ${lived}ms`)
-        return
-      }
-      // ⚠️ Never opened at all? Then this is not a network blip, it is the
-      // transport being unavailable on this page — a CSP `connect-src`, an
-      // extension, a corporate proxy. Retrying forever produces a console error
-      // every few seconds and never a connection. Poll instead; that transport
-      // is privileged and cannot be blocked the same way.
-      if (!opened) {
-        log(`socket never opened (close ${ev.code} after ${lived}ms) — falling back to polling`)
-        startPolling()
-        return
-      }
-      setStatus('reconnecting')
-      const wait = backoffFor(rt.attempt++)
-      // eslint-disable-next-line no-console
-      console.warn(`[TNL Dibs] socket closed (${ev.code}) after ${lived}ms — retrying in ${wait}ms`)
-      setTimeout(connect, wait)
-    })
   }
 
   // ── DOM ──────────────────────────────────────────────────────────────────
@@ -696,6 +688,9 @@ const TNLDibs = (function () {
   }
 
   function panel() {
+    // No DOM (unit tests evaluate this file with document undefined): nothing
+    // to draw, and the caller should not have to know that.
+    if (typeof document === 'undefined') return
     // Rebuildable: the panel changes shape when a session appears or goes away,
     // and the first release never re-rendered it — so after a successful
     // connect the key field stayed on screen next to the word "Connected".
@@ -791,7 +786,6 @@ const TNLDibs = (function () {
       out.addEventListener('click', () => {
         store.clear()
         rt.session = null
-        if (rt.ws) { try { rt.ws.close() } catch { /* already gone */ } }
         location.reload()
       })
 
@@ -824,14 +818,14 @@ const TNLDibs = (function () {
       return
     }
 
-    // ⚠️ Nothing may be awaited between here and connect(). The faction id comes
-    // from the session, which Torn already told us at login — the first release
-    // fetched /api/bootstrap first purely to confirm it, and made the socket
-    // hostage to an HTTP round-trip it did not need. When that request hung, so
-    // did boot(): no connect, no throw, no status change, and a panel stuck
-    // reading "not connected" with nothing in the console to explain it.
+    // ⚠️ Nothing may be awaited between here and the first read. The faction id
+    // comes from the session, which Torn already told us at login — an early
+    // version fetched /api/bootstrap first purely to confirm it, and made the
+    // read path hostage to an HTTP round-trip it did not need. When that
+    // request hung, so did boot(): no reads, no throw, no status change, and a
+    // panel stuck reading "not connected" with nothing to explain it.
     rt.ourFactionId = rt.session.factionId
-    connect()
+    startPolling()
     observe()
   }
 
@@ -857,7 +851,13 @@ const TNLDibs = (function () {
       })
   }
 
+  // Test seam: the request sequences (401 → refresh → retry) cannot be reached
+  // through the pure helpers, and they are exactly where the bugs have been.
+  function setSession(session) { rt.session = session }
+  function currentSession() { return rt.session }
+
   return {
+    setSession, currentSession, api, refreshToken,
     parseXid, resolveTenant, indexDibs, enemyIds, frameRows, buttonState, backoffFor,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
