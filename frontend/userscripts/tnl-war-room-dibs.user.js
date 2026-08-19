@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.3.0
+// @version      1.5.0
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -82,7 +82,15 @@ const TNLDibs = (function () {
   const DEBUG_KEY = 'tnl-dibs-debug'
   /** Read cadence — see the transport note above for why this is a poll. */
   const POLL_MS = 3000
-  const POLL_HIDDEN_MS = 30000
+  /**
+   * ⚠️ Not 30s. A hidden tab should cost the API little, but this is a war
+   * tool: the gap is paid on the way BACK, as a stretch of stale badges at
+   * exactly the moment someone alt-tabs in to claim a target. A 30s value
+   * read, in the console, as the script having stopped. The visibility
+   * listener below makes the return instant regardless; this only bounds how
+   * stale a background tab gets.
+   */
+  const POLL_HIDDEN_MS = 10000
 
   // ── Debug ────────────────────────────────────────────────────────────────
 
@@ -185,6 +193,10 @@ const TNLDibs = (function () {
   function enemyIds(stateRows, ourFactionId, opponentId) {
     const out = new Set()
     for (const row of stateRows ?? []) {
+      // ⚠️ Roster rows are tombstoned, not removed — 478 of forge's 672 on
+      // 2026-08-19 were dead. A tombstoned row is someone who has LEFT, and
+      // offering a dib on them is offering a target that is not in the war.
+      if (row.deleted_at) continue
       if (String(row.faction_id) === String(ourFactionId)) continue
       // ⚠️ "Not ours" is not the same as "the enemy". war_room_state_v2 is not
       // pruned when a war ends — forge was holding rosters for SIX factions on
@@ -353,6 +365,8 @@ const TNLDibs = (function () {
     opponentId: null,       // the faction the war room is pointed at
     since: null,            // delta watermark, always the server's own clock
     polling: false,
+    timer: null,            // pending poll, so visibilitychange can pre-empt it
+    poke: null,             // runs a poll now; set once the loop is running
   }
 
   /** The logged-in Torn user, read from the page's own sidebar profile link. */
@@ -434,12 +448,43 @@ const TNLDibs = (function () {
       return { ok: false, message: res.body?.error || 'Already claimed' }
     }
     if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
+
+    // ⚠️ Paint it NOW. The file header has always said "paint optimistically,
+    // let the server's answer always overwrite" — but nothing here wrote to
+    // rt.dibs, so the render() that follows a click repainted from unchanged
+    // state and the button snapped straight back to "+ Dibs". It then sat
+    // wrong until a poll happened to carry the row: up to POLL_MS plus a round
+    // trip, for an action the user had already completed. The claim reached
+    // the server in under 300ms; only the button was slow.
+    //
+    // The single-dibs rule is mirrored too, otherwise you briefly hold two.
+    for (const [target, dib] of rt.dibs) {
+      if (String(dib.by) === String(rt.session?.userId)) rt.dibs.delete(target)
+    }
+    rt.dibs.set(targetId, { by: rt.session?.userId, name: 'You' })
+    pokePoll()
     return { ok: true }
   }
 
   async function release(targetId) {
     const res = await api(`/api/war-room/dibs/${targetId}`, 'DELETE')
-    return res.status === 200 ? { ok: true } : { ok: false, message: `HTTP ${res.status}` }
+    if (res.status !== 200) return { ok: false, message: `HTTP ${res.status}` }
+    rt.dibs.delete(targetId)     // optimistic, same rule as claim()
+    pokePoll()
+    return { ok: true }
+  }
+
+  /**
+   * Read again immediately instead of waiting out the scheduled poll.
+   *
+   * Used right after a write: the optimistic paint above is this client's
+   * guess, and the sooner the server's version lands the shorter the window in
+   * which the guess could be wrong.
+   */
+  function pokePoll() {
+    if (!rt.polling || !rt.poke) return
+    if (rt.timer) { clearTimeout(rt.timer); rt.timer = null }
+    rt.poke()
   }
 
   /**
@@ -462,6 +507,11 @@ const TNLDibs = (function () {
 
     indexDibs(dibRows, rt.dibs)
     for (const id of enemyIds(stateRows, rt.ourFactionId, rt.opponentId)) rt.enemies.add(id)
+    // A tombstone in a delta means that member left mid-war. Adding is not
+    // enough: the set only ever grew, so their badge would outlive them.
+    for (const row of stateRows) {
+      if (row.deleted_at) rt.enemies.delete(Number(row.member_id))
+    }
     log(`${stateRows.length} roster rows, ${dibRows.length} dib rows →`,
       `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`,
       `(opponent ${rt.opponentId ?? 'unknown'})`)
@@ -501,6 +551,7 @@ const TNLDibs = (function () {
     setStatus('connecting')
     log(`reading ${rt.session.host} every ${POLL_MS}ms`)
     const tick = async () => {
+      rt.timer = null
       let ok = false
       let keepGoing = true
       try {
@@ -518,8 +569,23 @@ const TNLDibs = (function () {
       const hidden = typeof document !== 'undefined' && document.hidden
       if (ok) rt.attempt = 0
       const wait = ok ? pollDelay(hidden) : Math.max(backoffFor(rt.attempt++), pollDelay(hidden))
-      setTimeout(tick, wait)
+      rt.timer = setTimeout(tick, wait)
     }
+
+    // Coming back to the tab reads immediately rather than waiting out whatever
+    // delay was scheduled while it was hidden. Without this, alt-tabbing in
+    // during a fight means up to POLL_HIDDEN_MS of badges that are quietly
+    // wrong — the worst possible moment for a stale claim.
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden || !rt.polling) return
+        log('tab visible again — reading now')
+        if (rt.timer) { clearTimeout(rt.timer); rt.timer = null }
+        tick()
+      })
+    }
+
+    rt.poke = tick
     tick()
   }
 
@@ -532,10 +598,20 @@ const TNLDibs = (function () {
     badge.type = 'button'
     badge.className = BADGE_CLASS
     badge.dataset.tnlTarget = String(playerId)
+    // ⚠️ position + z-index are load-bearing, not decoration. Torn's war rows
+    // are a grid of cells that paint over anything overflowing a neighbour, so
+    // a statically-positioned badge ends up UNDER the Level column: visible,
+    // and unclickable, because the cell above it takes the pointer. A
+    // positioned element with a z-index makes its own stacking context and
+    // takes its own clicks. `isolation` keeps that from leaking upward.
     badge.style.cssText = [
+      'position:relative', 'z-index:2147483000', 'isolation:isolate',
+      'pointer-events:auto', 'display:inline-block',
       'margin-left:6px', 'padding:1px 6px', 'font-size:10px', 'font-weight:600',
       'border-radius:9px', 'border:1px solid rgba(255,255,255,.25)', 'cursor:pointer',
       'vertical-align:middle', 'line-height:16px', 'white-space:nowrap',
+      // A long enemy name must not push the badge across two more columns.
+      'max-width:96px', 'overflow:hidden', 'text-overflow:ellipsis',
     ].join(';')
     badge.addEventListener('click', async (e) => {
       e.preventDefault(); e.stopPropagation()
@@ -855,9 +931,10 @@ const TNLDibs = (function () {
   // through the pure helpers, and they are exactly where the bugs have been.
   function setSession(session) { rt.session = session }
   function currentSession() { return rt.session }
+  function dibsIndex() { return rt.dibs }
 
   return {
-    setSession, currentSession, api, refreshToken,
+    setSession, currentSession, api, refreshToken, claim, release, dibsIndex,
     parseXid, resolveTenant, indexDibs, enemyIds, frameRows, buttonState, backoffFor,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,

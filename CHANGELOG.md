@@ -18,6 +18,41 @@ from `VERSION` at runtime) both surface it automatically.
 ## [Unreleased]
 
 ### Fixed
+- **⚠️ A full war-room snapshot shipped the faction's entire war history.**
+  Neither `war_room_state_v2` nor `war_room_dibs_v2` is ever pruned, and the
+  snapshot carried tombstones — so first paint meant **2,648 dib rows to
+  describe zero live claims**, and 672 roster rows to describe 194 live
+  members. It cost 2.3s against the 300ms the deltas that followed took. A
+  tombstone cancels a row the client already holds, which makes it essential in
+  a delta and meaningless in a snapshot: a client with no prior state has
+  nothing to cancel. Snapshots now omit them; deltas still carry them, with a
+  mirror test so that cannot be "optimised" away later. Affects the dashboard's
+  first paint as much as the userscript's.
+- **⚠️ The userscript offered dibs on members who had left the war.**
+  `enemyIds` ignored `deleted_at`, and 478 of forge's 672 roster rows were
+  tombstones. The claim would have succeeded — the server has no opinion about
+  whether a target is still in the faction. Departures now also retract an
+  enemy already known, which a growing-only set could never do.
+- **⚠️ A dibs badge took seconds to show your own claim.** It looked like
+  network latency and was not: the POST completed in under 300ms and the
+  dashboard showed the claim instantly, but neither `claim()` nor `release()`
+  wrote to the local index, so the `render()` straight after a click repainted
+  from unchanged state and the badge snapped back to "+ Dibs" until a poll
+  happened to carry the row. The file header had promised "paint optimistically,
+  let the server's answer always overwrite" since the first commit; only the
+  second half was implemented. A successful write now paints immediately,
+  mirrors the single-dibs rule so you never briefly hold two, and pokes the
+  read loop for confirmation instead of waiting out the interval.
+- **The dibs badge was unclickable on Torn's war table.** Statically
+  positioned, so the Level cell painted over it and took the pointer. It now
+  makes its own stacking context, and a long enemy name no longer pushes it
+  across two more columns.
+- **A hidden tab went 30s between reads**, which read in the console as the
+  script having stopped. Now 10s, and returning to the tab reads immediately
+  rather than waiting out whatever was scheduled — the gap was always paid on
+  the way back, as stale badges at the moment someone alt-tabs in to claim.
+
+### Fixed
 - **⚠️ The dibs userscript stopped working after exactly one day, then 401'd
   everything.** A session token *lives* 30 days but only *acts* for 24 hours —
   `verifySessionToken` rejects any token whose `iat` is older than

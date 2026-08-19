@@ -87,9 +87,37 @@ export function canSeeLeadOnlyChannels(claims: {
   return Boolean(claims.is_warlead || claims.is_leadership || claims.is_admin)
 }
 
-async function channelRows(db: pg.Pool, base: string, since: string | undefined) {
-  const res = since
-    ? await db.query(`${base} WHERE updated_at > $1`, [since])
+/**
+ * Channels whose rows are soft-deleted rather than removed.
+ *
+ * ⚠️ Only these two carry `deleted_at`; adding the filter to the others would
+ * be a SQL error, not a no-op.
+ */
+const SOFT_DELETED_CHANNELS = new Set<WarRoomChannel>(['state', 'dibs'])
+
+/**
+ * ⚠️ A FULL snapshot omits tombstones; a delta must carry them.
+ *
+ * A tombstone cancels a row the client already holds, so it is essential in a
+ * delta and meaningless in a snapshot — a client with no prior state has
+ * nothing to cancel. Neither table is ever pruned, so shipping them anyway
+ * meant sending the entire history of the faction's wars on every first load:
+ * on forge, 2026-08-19, that was **2627 dib rows to describe 1 live claim**,
+ * and 672 roster rows to describe 194 live members. First paint cost 2.1
+ * seconds; the deltas that followed took 300ms.
+ */
+async function channelRows(
+  db: pg.Pool,
+  base: string,
+  since: string | undefined,
+  channel: WarRoomChannel
+) {
+  if (since) {
+    const res = await db.query(`${base} WHERE updated_at > $1`, [since])
+    return res.rows
+  }
+  const res = SOFT_DELETED_CHANNELS.has(channel)
+    ? await db.query(`${base} WHERE deleted_at IS NULL`)
     : await db.query(base)
   return res.rows
 }
@@ -97,12 +125,12 @@ async function channelRows(db: pg.Pool, base: string, since: string | undefined)
 async function fullDelta(db: pg.Pool, since: string | undefined, includeLeadOnly: boolean) {
   const now = await db.query('SELECT now() AS server_now')
   const [state, dibs, config, chain, memberstats] = await Promise.all([
-    channelRows(db, CHANNELS.state, since),
-    channelRows(db, CHANNELS.dibs, since),
-    channelRows(db, CHANNELS.config, since),
-    channelRows(db, CHANNELS.chain, since),
+    channelRows(db, CHANNELS.state, since, 'state'),
+    channelRows(db, CHANNELS.dibs, since, 'dibs'),
+    channelRows(db, CHANNELS.config, since, 'config'),
+    channelRows(db, CHANNELS.chain, since, 'chain'),
     // Not merely filtered out of the response — never read for a non-lead.
-    includeLeadOnly ? channelRows(db, CHANNELS.memberstats, since) : Promise.resolve([]),
+    includeLeadOnly ? channelRows(db, CHANNELS.memberstats, since, 'memberstats') : Promise.resolve([]),
   ])
   return {
     state: { rows: state },

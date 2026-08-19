@@ -224,6 +224,22 @@ describe('enemyIds is scoped to the faction we are actually fighting', () => {
   it('compares across the string/number boundary', () => {
     expect([...S.enemyIds(roster, '10739', 9533)]).toEqual([1, 2])
   })
+
+  it('⚠️ skips tombstoned roster rows — those members have left', () => {
+    // Roster rows are soft-deleted, never removed: 478 of forge's 672 were
+    // tombstones on 2026-08-19. Offering a dib on one offers a target who is
+    // not in the war, and the claim would succeed.
+    const withDeparture = [
+      { member_id: 1, faction_id: 9533 },
+      { member_id: 2, faction_id: 9533, deleted_at: '2026-08-18T00:00:00Z' },
+    ]
+    expect([...S.enemyIds(withDeparture, 10739, '9533')]).toEqual([1])
+  })
+
+  it('treats a tombstone as gone even when the opponent is unknown', () => {
+    const withDeparture = [{ member_id: 9, faction_id: 8500, deleted_at: '2026-08-18T00:00:00Z' }]
+    expect([...S.enemyIds(withDeparture, 10739, null)]).toEqual([])
+  })
 })
 
 describe('opponentFrom', () => {
@@ -250,11 +266,15 @@ describe('pollDelay', () => {
     expect(S.pollDelay(false)).toBe(3000)
   })
 
-  it('backs right off when the tab is hidden', () => {
-    // A hidden tab is a tab nobody is claiming in, and every member of the
-    // faction is polling the same API during a war.
-    expect(S.pollDelay(true)).toBe(30000)
+  it('eases off when the tab is hidden, without going to sleep', () => {
+    // A hidden tab should cost the API less — every member of the faction is
+    // polling it during a war. But the gap is paid on the way BACK, as stale
+    // badges at the moment someone alt-tabs in to claim, so this stays in
+    // seconds rather than half a minute. The visibilitychange listener makes
+    // the return itself instant.
+    expect(S.pollDelay(true)).toBe(10000)
     expect(S.pollDelay(true)).toBeGreaterThan(S.pollDelay(false))
+    expect(S.pollDelay(true)).toBeLessThanOrEqual(15000)
   })
 })
 
@@ -700,5 +720,109 @@ describe('the session refreshes itself when it goes stale', () => {
     const res = await S.api('/api/war-room/delta', 'GET')
     expect(res.status).toBe(200)
     expect(calls).toHaveLength(1)
+  })
+})
+
+describe('a claim paints before the server confirms it', () => {
+  // ⚠️ The bug this covers is pure latency, and it looked like a network
+  // problem. The POST reached the server in under 300ms and the dashboard
+  // showed the claim instantly — but the button on Torn stayed on "+ Dibs"
+  // for seconds. Neither claim() nor release() wrote to rt.dibs, so the
+  // render() straight after a click repainted from unchanged state and the
+  // badge reverted until a poll happened to carry the row back.
+  //
+  // The file header has said "paint optimistically, let the server's answer
+  // always overwrite" since the first commit. Only half of that was true.
+
+  const session = { host: 'forge.monchoon.me', token: 'jwt', userId: '2250591', factionId: '10739' }
+
+  it('⚠️ shows the claim as yours the moment the POST succeeds', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/dibs': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+
+    const res = await S.claim(90100)
+
+    expect(res.ok).toBe(true)
+    expect(S.buttonState(S.dibsIndex().get(90100), session.userId)).toMatchObject({
+      label: '✓ Your dib', action: 'release', mine: true,
+    })
+  })
+
+  it('⚠️ mirrors the single-dibs rule, so you never hold two', async () => {
+    // Claiming B releases your claim on A server-side. Painting B without
+    // dropping A would show two of your own dibs until the next poll.
+    const { S } = loadScript({ routes: { '/api/war-room/dibs': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+
+    await S.claim(111)
+    await S.claim(222)
+
+    expect(S.dibsIndex().has(111)).toBe(false)
+    expect(S.dibsIndex().has(222)).toBe(true)
+  })
+
+  it('does not disturb a claim held by someone else', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/dibs': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+    S.indexDibs([{ target_id: 555, claimed_by: 999, claimed_name: 'Someone' }], S.dibsIndex())
+
+    await S.claim(111)
+
+    expect(S.dibsIndex().get(555)).toEqual({ by: 999, name: 'Someone' })
+  })
+
+  it('clears the badge the moment a release succeeds', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/dibs/': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+    S.indexDibs([{ target_id: 90100, claimed_by: 2250591, claimed_name: 'You' }], S.dibsIndex())
+
+    const res = await S.release(90100)
+
+    expect(res.ok).toBe(true)
+    expect(S.dibsIndex().has(90100)).toBe(false)
+  })
+
+  it('⚠️ paints nothing when the server refuses the claim', async () => {
+    // The optimistic paint must be strictly a bet on a 200. Painting a failed
+    // claim tells you a target is yours when it is not — the exact lie the
+    // header forbids.
+    const { S } = loadScript({
+      routes: { '/api/war-room/dibs': { status: 500, body: { error: 'boom' } } },
+    })
+    S.setSession({ ...session })
+
+    const res = await S.claim(90100)
+
+    expect(res.ok).toBe(false)
+    expect(S.dibsIndex().has(90100)).toBe(false)
+  })
+
+  it('⚠️ shows the real owner when it loses a race (409)', async () => {
+    const { S } = loadScript({
+      routes: {
+        '/api/war-room/dibs': {
+          status: 409,
+          body: { error: 'Already claimed', owner: { id: 4242, name: 'Rival' } },
+        },
+      },
+    })
+    S.setSession({ ...session })
+
+    const res = await S.claim(90100)
+
+    expect(res.ok).toBe(false)
+    expect(S.dibsIndex().get(90100)).toEqual({ by: 4242, name: 'Rival' })
+    expect(S.buttonState(S.dibsIndex().get(90100), session.userId).action).toBe('none')
+  })
+
+  it('leaves a failed release alone rather than clearing the badge', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/dibs/': { status: 500, body: {} } } })
+    S.setSession({ ...session })
+    S.indexDibs([{ target_id: 90100, claimed_by: 2250591, claimed_name: 'You' }], S.dibsIndex())
+
+    const res = await S.release(90100)
+
+    expect(res.ok).toBe(false)
+    expect(S.dibsIndex().has(90100)).toBe(true)
   })
 })
