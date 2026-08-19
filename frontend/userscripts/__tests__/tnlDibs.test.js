@@ -1035,3 +1035,17 @@ describe('fairFight matches the dashboard', () => {
     expect(S.fairFight({ total: 0 }, even)).toBeNull()
   })
 })
+
+// ⚠️ NOT UNIT-TESTED, deliberately: rowOf() and headerFor() traverse a real
+// DOM, and this repo has no DOM test environment — all 63 frontend suites are
+// pure logic under `environment: 'node'`. Hand-rolling a fake `closest()` would
+// test the fake, not the selectors.
+//
+// Both have already been wrong once, and neither failed loudly:
+//   - rowOf used `[class*="row"]`, which matches Torn's `rowSection___wdqaD`
+//     INSIDE the name cell, so every column rendered on top of the player name.
+//   - headerFor looked for `.table-header`; Torn's war header is
+//     `<div class="white-grad c-pointer">` and carries no such class, so the
+//     columns went unheaded.
+// Both are now pinned to the markup captured on 2026-08-19 and verified in the
+// browser. Changing either means checking a live war page again.

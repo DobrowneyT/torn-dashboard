@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.8.0
+// @version      1.9.0
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -791,7 +791,13 @@ const TNLDibs = (function () {
    * as parseXid reading the href.
    */
   function rowOf(anchor) {
-    return anchor.closest?.('li, tr, [class*="row"]') ?? null
+    // ⚠️ NOT [class*="row"]. Torn wraps the name in
+    // `<div class="userInfoBox___SpD9F rowSection___wdqaD">`, which that
+    // selector matches — so closest() returned the NAME CELL, and every column
+    // we inserted landed inside it, on top of the player's name. The war rows
+    // really are <li>; `row___` (with Torn's hashed triple underscore) is the
+    // fallback for any table that is not a list.
+    return anchor.closest?.('li, tr') ?? anchor.closest?.('[class*="row___"]') ?? null
   }
 
   /** The cell holding the Attack link, which is where the dibs control goes. */
@@ -874,7 +880,7 @@ const TNLDibs = (function () {
     ].join(';')
     const attack = attackCellOf(row)
     if (attack) attack.parentNode.insertBefore(cell, attack)
-    else row.appendChild(cell)
+    else row.insertBefore(cell, row.querySelector('.clear'))   // never after the float clear
     return cell
   }
 
@@ -902,9 +908,15 @@ const TNLDibs = (function () {
    * list and sometimes its previous sibling, depending on which view rendered.
    */
   function headerFor(row) {
-    const scope = row.closest('.f-war-list, .faction-war, .faction-info-wrap, ul, table') ?? row.parentElement
-    if (!scope) return null
-    return scope.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
+    const list = row.closest('ul, table')
+    if (!list) return null
+    // Torn's war-table header is the element immediately BEFORE the list —
+    // `<div class="white-grad c-pointer">` holding .member/.level/.points/
+    // .status/.attack. It carries no `table-header` class at all, which is why
+    // looking for one found nothing and the columns went unheaded.
+    const prev = list.previousElementSibling
+    if (prev && prev.querySelector('.attack, [class*="attack__"]')) return prev
+    return list.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
   }
 
   /** The cell in a header (or row) that belongs to the Attack column. */
