@@ -464,7 +464,8 @@ const TNLDibs = (function () {
     attempt: 0,          // consecutive failed polls, for backoff
     status: 'idle',
     expanded: false,        // the panel collapses to a dot once signed in
-    painted: -1,            // last badge count logged, so render() is not spammy
+    painted: -1,            // last counts logged, so render() is not spammy
+    attached: -1,
     opponentId: null,       // the faction the war room is pointed at
     since: null,            // delta watermark, always the server's own clock
     polling: false,
@@ -893,7 +894,8 @@ const TNLDibs = (function () {
   }
 
   function render() {
-    let painted = 0
+    let painted = 0      // enemies we INTENDED to badge
+    let attached = 0     // badges that actually exist in the DOM
     for (const [playerId, anchors] of rt.nodes) {
       if (!rt.enemies.has(playerId)) continue
       painted++
@@ -902,6 +904,7 @@ const TNLDibs = (function () {
         if (!anchor.isConnected) continue
         const badge = badgeFor(anchor, playerId)
         if (badge) {
+          attached++
           badge.textContent = state.label
           // Three states, three readings at a glance: yours (blue, actionable),
           // someone else's (amber, hands off), free (grey, take it).
@@ -918,10 +921,16 @@ const TNLDibs = (function () {
     // the three ways that happens: no profile links found on the page at all,
     // links found but none of them enemies (an empty or mismatched roster), or
     // enemies matched and painted — in which case the problem is CSS, not us.
-    if (painted !== rt.painted) {
+    // ⚠️ Report BOTH numbers. The old line counted enemies we meant to badge
+    // and called it "painted", so a run where every badge failed to attach —
+    // rowOf() finding no row, say — still logged a confident "painted 100" and
+    // sent us looking at the data instead of at the DOM.
+    if (painted !== rt.painted || attached !== rt.attached) {
       rt.painted = painted
-      log(`painted ${painted} of ${rt.nodes.size} linked players`,
-        `(${rt.enemies.size} known enemies, ${rt.stats.size} with stats)`)
+      rt.attached = attached
+      log(`${attached} badges attached for ${painted} enemies on this page`,
+        `(${rt.nodes.size} linked players, ${rt.enemies.size} known enemies,`,
+        `${rt.stats.size} with stats)`)
     }
   }
 
