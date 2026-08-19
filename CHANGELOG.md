@@ -18,6 +18,26 @@ from `VERSION` at runtime) both surface it automatically.
 ## [Unreleased]
 
 ### Changed
+- **Dibs is one control now, on both surfaces (#509).** Clicking your own claim
+  releases it; the separate **Release** link is gone from the War Room. Three
+  states, one button: grey `Dibs` for a free target, blue `✓ Yours` for your
+  own, amber with the holder's name for someone else's.
+  - **Admins keep the override**, moved onto the badge itself rather than a
+    second link beside it — and it now works on the Torn userscript too, which
+    never had it. This was never a new capability: the DELETE handler has
+    always released any claim for an admin and filtered to `claimed_by = you`
+    for everyone else. As before, nobody is notified.
+  - The userscript reads `is_admin` out of its own session token to decide
+    whether to offer the click. ⚠️ That is a UI affordance and nothing more —
+    the token is signed and the script cannot verify it, so a member could
+    hand themselves the flag and gain nothing, because the server still filters
+    the release to their own claims.
+  - Both surfaces derive the control from one function, `dibsButtonState`. The
+    userscript mirrors it verbatim rather than importing (one file, no build
+    step); the pair disagreeing about whether a click releases a claim is
+    exactly the sort of thing that would only surface mid-war.
+
+### Changed
 - **⚠️ War Room: 0 now means OFF for dibs auto-drop and both chain pollers.**
   It previously meant "as fast as allowed" — the exact opposite. A lead who set
   the chain poller to 0 got the most aggressive cadence in the table, and a
