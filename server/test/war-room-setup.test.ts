@@ -81,21 +81,50 @@ describe('war-room manual setup', () => {
     expect((await call('PUT', '/api/war-room/config', { enabled: true }, 'visitor')).status).toBe(403)
   })
 
-  it('clamps cadence fields server-side, whatever the client sends (#260)', async () => {
-    // The client clamps these too, but a crafted request would otherwise set a
-    // chain poller to 0s and hammer Torn on every tick.
+  it('⚠️ stores 0 as OFF for the three cadences a lead can disable', async () => {
+    // Before this, 0 was clamped up to the fastest allowed cadence: a lead who
+    // turned the chain poller off got the most aggressive setting instead, and
+    // a dibs auto-drop of 0 would have released every claim 5s after it was
+    // taken. Both silent, both mid-war.
     const { status, body } = await call('PUT', '/api/war-room/config', {
       chain_poll_interval_ours_sec: 0,
-      chain_poll_interval_enemy_sec: -5,
+      chain_poll_interval_enemy_sec: 0,
+      dibs_expiry_seconds: 0,
+    })
+    expect(status).toBe(200)
+    expect(body.config).toMatchObject({
+      chain_poll_interval_ours_sec: 0,
+      chain_poll_interval_enemy_sec: 0,
+      dibs_expiry_seconds: 0,
+    })
+  })
+
+  it('clamps cadence fields server-side, whatever the client sends (#260)', async () => {
+    // The client clamps these too, but a crafted request would otherwise set a
+    // chain poller to a fraction of a second and hammer Torn on every tick.
+    //
+    // ⚠️ A POSITIVE value under the floor is raised to the floor — wanting
+    // polling faster than we allow is not the same as not wanting it. See the
+    // test below for 0, which now means off.
+    const { status, body } = await call('PUT', '/api/war-room/config', {
+      chain_poll_interval_ours_sec: 0.4,
       dibs_expiry_seconds: 1,
       surge_cooldown_sec: 99999,
     })
     expect(status).toBe(200)
     expect(body.config).toMatchObject({
-      chain_poll_interval_ours_sec: 1,
-      chain_poll_interval_enemy_sec: 1,
+      chain_poll_interval_ours_sec: 0,   // 0.4 floors to 0, which is "off"
       dibs_expiry_seconds: 5,
       surge_cooldown_sec: 3600,
+    })
+
+    const raised = await call('PUT', '/api/war-room/config', {
+      chain_poll_interval_ours_sec: 1,
+      chain_poll_interval_enemy_sec: 1,
+    })
+    expect(raised.body.config).toMatchObject({
+      chain_poll_interval_ours_sec: 1,
+      chain_poll_interval_enemy_sec: 1,
     })
 
     // The stored row — not just the response — carries the clamped values.

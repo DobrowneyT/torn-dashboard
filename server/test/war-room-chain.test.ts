@@ -44,3 +44,31 @@ describe('chainNearExpiry', () => {
     expect(chainNearExpiry(null, nowEpoch, CHAIN_FORCE_POLL_SEC)).toBe(false)          // no chain
   })
 })
+
+describe('chainPollDue — 0 disables the poller', () => {
+  const nowMs = 1_700_000_000_000
+
+  it('⚠️ never polls when the interval is 0', () => {
+    // A lead outside a chain turns this off rather than spend Torn calls on a
+    // counter nobody is watching. Before this, 0 was clamped up to the fastest
+    // allowed cadence — the exact opposite.
+    expect(chainPollDue(nowMs / 1000 - 9999, 0, nowMs)).toBe(false)
+  })
+
+  it('⚠️ stays off even with no watermark at all', () => {
+    // The never-fetched shortcut returns true, so this has to be checked
+    // FIRST — otherwise a disabled poller fires once on every boot, which is
+    // precisely the case an operator who turned it off would notice.
+    expect(chainPollDue(null, 0, nowMs)).toBe(false)
+    expect(chainPollDue(undefined, 0, nowMs)).toBe(false)
+  })
+
+  it('treats a negative interval as off rather than as "always due"', () => {
+    expect(chainPollDue(null, -5, nowMs)).toBe(false)
+  })
+
+  it('still polls normally for any positive interval', () => {
+    expect(chainPollDue(nowMs / 1000 - 10, 5, nowMs)).toBe(true)
+    expect(chainPollDue(nowMs / 1000 - 1, 5, nowMs)).toBe(false)
+  })
+})

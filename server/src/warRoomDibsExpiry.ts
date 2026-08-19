@@ -52,6 +52,12 @@ export async function sweepDibsExpiry(
   prevStatus: Map<number, TargetStatus | null>,
   expirySeconds = DIBS_EXPIRY_SECONDS
 ): Promise<any[]> {
+  // ⚠️ 0 means auto-drop is OFF: claims stand until released or the target is
+  // hospitalised. Returning early rather than treating 0 as "expire instantly"
+  // — which is what a naive clamp to the floor would have produced, and would
+  // have dropped every dib the moment it was taken.
+  if (Number(expirySeconds) <= 0) return []
+
   const live = await db.query(
     `SELECT d.id, d.target_id, d.auto_expire_at, s.state->'status' AS status
      FROM war_room_dibs_v2 d

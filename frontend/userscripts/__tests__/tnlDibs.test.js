@@ -283,6 +283,25 @@ describe('buttonState', () => {
     expect(S.buttonState(undefined, '111')).toMatchObject({ action: 'claim', mine: false })
   })
 
+  it('⚠️ NAMES whoever holds a claim, rather than just saying "taken"', () => {
+    // The name is what lets two people sort out a collision in one message in
+    // faction chat instead of three, and it makes a stale claim visible — you
+    // can see it belongs to someone who logged off an hour ago.
+    const other = S.buttonState({ by: 4242, name: 'Thug' }, '2250591')
+    expect(other.label).toContain('Thug')
+    expect(other.action).toBe('none')
+    expect(other.taken).toBe(true)
+    expect(other.mine).toBe(false)
+  })
+
+  it('falls back to "Claimed" when the holder has no name on the row', () => {
+    expect(S.buttonState({ by: 4242 }, '2250591').label).toContain('Claimed')
+  })
+
+  it('marks a free target as not taken, so the colour can differ', () => {
+    expect(S.buttonState(null, '2250591')).toMatchObject({ taken: false, action: 'claim' })
+  })
+
   it('offers a release on your own claim', () => {
     expect(S.buttonState({ by: 111, name: 'Alice' }, '111'))
       .toMatchObject({ action: 'release', mine: true })
@@ -744,7 +763,7 @@ describe('a claim paints before the server confirms it', () => {
 
     expect(res.ok).toBe(true)
     expect(S.buttonState(S.dibsIndex().get(90100), session.userId)).toMatchObject({
-      label: '✓ Your dib', action: 'release', mine: true,
+      label: '✓ Yours', action: 'release', mine: true,
     })
   })
 
@@ -824,5 +843,111 @@ describe('a claim paints before the server confirms it', () => {
 
     expect(res.ok).toBe(false)
     expect(S.dibsIndex().has(90100)).toBe(true)
+  })
+})
+
+describe('battle stats come off the roster we already poll', () => {
+  // No TornStats key, no second request: war_room_state_v2 carries bsp_total
+  // and the four components, and the script is already receiving those rows.
+  // Our OWN row is in there too, which is what makes FF computable locally.
+
+  it('reads the stats off a roster row', () => {
+    expect(S.rowStats({
+      member_id: 1, bsp_total: 9_700_000_000,
+      bsp_str: 3e9, bsp_spd: 2e9, bsp_def: 3.7e9, bsp_dex: 1e9,
+      ts_spy_at: '2026-08-01T00:00:00Z',
+    })).toMatchObject({ total: 9_700_000_000, str: 3e9, spiedAt: '2026-08-01T00:00:00Z' })
+  })
+
+  it('⚠️ treats an unspied member as unknown, not as zero', () => {
+    // Number(null) is 0, and a 0 total would render "N/A" by accident today
+    // and sort to the bottom as a real value tomorrow.
+    expect(S.rowStats({ member_id: 1, bsp_total: null })).toBeNull()
+    expect(S.rowStats({ member_id: 1, bsp_total: 0 })).toBeNull()
+    expect(S.rowStats(null)).toBeNull()
+  })
+})
+
+describe('formatStat', () => {
+  it('writes totals the way Torn does', () => {
+    expect(S.formatStat(9_700_000_000)).toBe('9.7B')
+    expect(S.formatStat(14_500_000_000)).toBe('14.5B')
+    expect(S.formatStat(812_000_000)).toBe('812M')
+  })
+
+  it('drops the decimal above 100 so the column stays one width', () => {
+    expect(S.formatStat(812_400_000)).toBe('812M')
+    expect(S.formatStat(1_240_000_000)).toBe('1.2B')
+  })
+
+  it('says N/A rather than 0 for a missing stat', () => {
+    expect(S.formatStat(null)).toBe('N/A')
+    expect(S.formatStat(0)).toBe('N/A')
+    expect(S.formatStat(undefined)).toBe('N/A')
+  })
+})
+
+describe('dominantStat', () => {
+  it('⚠️ names a stat only when it carries a THIRD of the build', () => {
+    // Everyone's largest stat is largest. Colouring that would fire on every
+    // row and say nothing; a third of the total means genuinely lopsided.
+    const wall = { total: 100, str: 10, spd: 10, def: 70, dex: 10 }
+    expect(S.dominantStat(wall)).toBe('def')
+  })
+
+  it('stays quiet on a balanced build', () => {
+    expect(S.dominantStat({ total: 100, str: 25, spd: 25, def: 25, dex: 25 })).toBeNull()
+  })
+
+  it('is null when there is nothing to judge', () => {
+    expect(S.dominantStat({ total: 100 })).toBeNull()
+    expect(S.dominantStat({ total: 0, str: 1 })).toBeNull()
+    expect(S.dominantStat(null)).toBeNull()
+  })
+})
+
+describe('fairFight matches the dashboard', () => {
+  // ⚠️ The script cannot import fairFight.js — one file, no build step — so
+  // the maths is duplicated. These pin the duplicate to the original: if they
+  // drift, a member with both screens open sees two different FF for one
+  // target and has no way to know which is right.
+
+  const even = { total: 4e9, str: 1e9, spd: 1e9, def: 1e9, dex: 1e9 }
+
+  it('is 1 + 8/3 × (defender score / attacker score)', () => {
+    // Below the cap, so the formula is actually observable. An even split
+    // makes score ∝ √total, so a defender at 0.140625× the total scores
+    // 0.375× — giving 1 + 8/3 × 0.375 = exactly 2.
+    const weaker = { total: 4e9 * 0.140625 }
+    expect(S.fairFight({ total: 4e9 }, weaker)).toBeCloseTo(2, 5)
+  })
+
+  it('⚠️ reads a flat 3.00 for anyone at or above your own stats', () => {
+    // FF saturates at a defender/attacker ratio of 0.75, so an even matchup
+    // is already capped. Worth knowing before designing any colour scale: the
+    // entire useful gradient sits BELOW an even fight.
+    expect(S.fairFight(even, even)).toBe(3)
+  })
+
+  it('caps at 3, as Torn does', () => {
+    const giant = { total: 4e12, str: 1e12, spd: 1e12, def: 1e12, dex: 1e12 }
+    expect(S.fairFight(even, giant)).toBe(3)
+  })
+
+  it('scores the sum of square ROOTS, so splits matter at equal totals', () => {
+    const lopsided = { total: 4e9, str: 4e9, spd: 0, def: 0, dex: 0 }
+    expect(S.statScore(lopsided)).toBeLessThan(S.statScore(even))
+  })
+
+  it('assumes an even split when only a total is known', () => {
+    expect(S.statScore({ total: 4e9 })).toBeCloseTo(2 * Math.sqrt(4e9), 5)
+  })
+
+  it('⚠️ is null — never a number — when either side is unknown', () => {
+    // FF drives target selection. Inventing one sends someone at a target
+    // that pays nothing.
+    expect(S.fairFight(null, even)).toBeNull()
+    expect(S.fairFight(even, null)).toBeNull()
+    expect(S.fairFight({ total: 0 }, even)).toBeNull()
   })
 })

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.5.0
+// @version      1.7.0
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -79,6 +79,10 @@ const TNLDibs = (function () {
   /** Reconnect backoff, ms — caps rather than growing without bound. */
   const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000]
   const BADGE_CLASS = 'tnl-dibs-badge'
+  const STAT_CLASS = 'tnl-dibs-bs'
+  const STAT_HEAD_CLASS = 'tnl-dibs-bs-head'
+  /** FF at which a target is worth pulling the eye across the table. */
+  const FF_HIGHLIGHT = 2.5
   const DEBUG_KEY = 'tnl-dibs-debug'
   /** Read cadence — see the transport note above for why this is a poll. */
   const POLL_MS = 3000
@@ -183,6 +187,98 @@ const TNLDibs = (function () {
   }
 
   /**
+   * A stat total as Torn writes it: 9.7B, 14.5B, 812M.
+   *
+   * Three significant figures below 100 and none above, which is what keeps a
+   * column of these the same width and readable at a glance.
+   */
+  function formatStat(n) {
+    const v = Number(n)
+    if (!Number.isFinite(v) || v <= 0) return 'N/A'
+    const units = ['', 'K', 'M', 'B', 'T', 'Q']
+    let scaled = v
+    let unit = 0
+    while (scaled >= 1000 && unit < units.length - 1) { scaled /= 1000; unit++ }
+    return `${scaled >= 100 ? Math.round(scaled) : scaled.toFixed(1)}${units[unit]}`
+  }
+
+  /**
+   * Which single stat dominates a build, or null for a balanced one.
+   *
+   * ⚠️ The threshold is what makes this worth showing. Everyone's largest stat
+   * is "largest"; only a stat carrying a THIRD of the whole total says the
+   * build is lopsided — a defence wall, or a speed build that cannot take a
+   * hit. Below that the colour would fire on every row and mean nothing.
+   */
+  function dominantStat(stats, threshold = 0.33) {
+    const total = Number(stats?.total)
+    if (!Number.isFinite(total) || total <= 0) return null
+    const named = [
+      ['str', Number(stats.str)], ['def', Number(stats.def)],
+      ['spd', Number(stats.spd)], ['dex', Number(stats.dex)],
+    ].filter(([, v]) => Number.isFinite(v) && v > 0)
+    if (named.length === 0) return null
+    const [name, value] = named.reduce((a, b) => (b[1] > a[1] ? b : a))
+    return value >= threshold * total ? name : null
+  }
+
+  /**
+   * Battle-stat score: the sum of square ROOTS, not of the stats.
+   *
+   * ⚠️ Kept identical to battleStatsScore() in frontend/src/utils/fairFight.js.
+   * A userscript cannot import it — one file, no build step — so the maths is
+   * duplicated and must stay in step. If the two ever disagree, the script and
+   * the War Room show different FF for the same target, and the member with
+   * both screens open believes the wrong one.
+   *
+   * With only a total (a BSP estimate gives one number, not four) an even split
+   * is assumed: 4 × √(total/4) = 2√total. That flatters lopsided builds and so
+   * overstates FF; the dashboard makes the same trade deliberately.
+   */
+  function statScore(stats) {
+    const num = (v) => {
+      if (v === null || v === undefined || v === '') return null
+      const n = Number(v)
+      return Number.isFinite(n) && n >= 0 ? n : null
+    }
+    const s = num(stats?.str), sp = num(stats?.spd)
+    const d = num(stats?.def), dx = num(stats?.dex)
+    if (s !== null && sp !== null && d !== null && dx !== null) {
+      return Math.sqrt(s) + Math.sqrt(sp) + Math.sqrt(d) + Math.sqrt(dx)
+    }
+    const total = num(stats?.total)
+    return total === null ? null : 2 * Math.sqrt(total)
+  }
+
+  /**
+   * FF for hitting `defender`, given our own stats. Null when either is unknown.
+   *
+   * Null is load-bearing, exactly as in the dashboard: FF drives target choice,
+   * and inventing a number sends someone at a target that pays nothing.
+   */
+  function fairFight(mine, theirs) {
+    const attacker = statScore(mine)
+    const defender = statScore(theirs)
+    if (attacker === null || defender === null || attacker <= 0) return null
+    return Math.min(3, 1 + (8 / 3) * (defender / attacker))
+  }
+
+  /** The battle stats carried on a war_room_state_v2 row. */
+  function rowStats(row) {
+    if (!row) return null
+    const total = Number(row.bsp_total)
+    if (!Number.isFinite(total) || total <= 0) return null
+    return {
+      total,
+      str: Number(row.bsp_str) || null,
+      spd: Number(row.bsp_spd) || null,
+      def: Number(row.bsp_def) || null,
+      dex: Number(row.bsp_dex) || null,
+      spiedAt: row.ts_spy_at ?? row.bsp_fetched_at ?? null,
+    }
+  }
+
+  /**
    * Member ids that are NOT ours.
    *
    * ⚠️ The war page lists both factions and dibs are enemy-only — a claim
@@ -227,13 +323,20 @@ const TNLDibs = (function () {
     return hidden ? POLL_HIDDEN_MS : POLL_MS
   }
 
-  /** What the control should say for a target, given who holds it. */
+  /**
+   * What the control should say for a target, given who holds it.
+   *
+   * ⚠️ Someone else's claim must NAME them. "Claimed" tells you not to hit,
+   * which is half the job; the name is what lets two people sort it out in
+   * faction chat in one message instead of three. It also makes a stale claim
+   * obvious — you can see it belongs to someone who logged off an hour ago.
+   */
   function buttonState(dib, currentUserId) {
-    if (!dib) return { label: '+ Dibs', action: 'claim', mine: false }
+    if (!dib) return { label: '+ Dibs', action: 'claim', mine: false, taken: false }
     if (String(dib.by) === String(currentUserId)) {
-      return { label: '✓ Your dib', action: 'release', mine: true }
+      return { label: '✓ Yours', action: 'release', mine: true, taken: true }
     }
-    return { label: `🖐 ${dib.name ?? 'Claimed'}`, action: 'none', mine: false }
+    return { label: dib.name ? `🔒 ${dib.name}` : '🔒 Claimed', action: 'none', mine: false, taken: true }
   }
 
   /** Backoff for the nth consecutive failed read (0-based). */
@@ -367,6 +470,10 @@ const TNLDibs = (function () {
     polling: false,
     timer: null,            // pending poll, so visibilitychange can pre-empt it
     poke: null,             // runs a poll now; set once the loop is running
+    inFlight: false,        // a read is out; a second loop must not start
+    pending: false,         // someone asked to read while one was in flight
+    stats: new Map(),       // memberId → battle stats, straight off the roster
+    mine: null,             // our own stats, so FF needs no second source
   }
 
   /** The logged-in Torn user, read from the page's own sidebar profile link. */
@@ -507,6 +614,17 @@ const TNLDibs = (function () {
 
     indexDibs(dibRows, rt.dibs)
     for (const id of enemyIds(stateRows, rt.ourFactionId, rt.opponentId)) rt.enemies.add(id)
+
+    // Battle stats ride along on the rows we already have — no extra request,
+    // no TornStats key. Our own row is in here too, which is what makes FF
+    // computable client-side.
+    for (const row of stateRows) {
+      const stats = rowStats(row)
+      if (!stats) continue
+      const id = Number(row.member_id)
+      rt.stats.set(id, stats)
+      if (String(id) === String(rt.session?.userId)) rt.mine = stats
+    }
     // A tombstone in a delta means that member left mid-war. Adding is not
     // enough: the set only ever grew, so their badge would outlive them.
     for (const row of stateRows) {
@@ -552,6 +670,14 @@ const TNLDibs = (function () {
     log(`reading ${rt.session.host} every ${POLL_MS}ms`)
     const tick = async () => {
       rt.timer = null
+      // ⚠️ One read at a time, always. tick() awaits a request, so anything
+      // that calls it while one is in flight — the visibility listener, a
+      // claim's pokePoll() — starts a SECOND self-scheduling chain, and from
+      // then on every poll happens twice, forever. That is exactly what the
+      // console showed after the first alt-tab: paired requests all the way
+      // down, doubling the load on the tenant for no extra freshness.
+      if (rt.inFlight) { rt.pending = true; return }
+      rt.inFlight = true
       let ok = false
       let keepGoing = true
       try {
@@ -561,7 +687,12 @@ const TNLDibs = (function () {
         setStatus('reconnecting')
         log('poll failed:', err.message)
       }
+      rt.inFlight = false
       if (!keepGoing) { rt.polling = false; return }
+
+      // Someone asked to read while we were busy. Honour it once, now, rather
+      // than dropping the request or spawning a parallel loop for it.
+      if (rt.pending) { rt.pending = false; rt.timer = setTimeout(tick, 0); return }
 
       // ⚠️ Back off on consecutive failures rather than hammering every 3s.
       // A tenant that is mid-deploy answers 502 for a minute or two, and every
@@ -591,27 +722,45 @@ const TNLDibs = (function () {
 
   // ── DOM ──────────────────────────────────────────────────────────────────
 
+  /**
+   * The row an anchor belongs to.
+   *
+   * ⚠️ Matched on structure, not on a class name. Torn's class names are
+   * hashed per build (`row___a1b2c`) and change without notice; "the ancestor
+   * that is a list item or table row" has been true for years. Same reasoning
+   * as parseXid reading the href.
+   */
+  function rowOf(anchor) {
+    return anchor.closest?.('li, tr, [class*="row"]') ?? null
+  }
+
+  /** The cell holding the Attack link, which is where the dibs control goes. */
+  function attackCellOf(row) {
+    return row?.querySelector?.('.attack, [class*="attack__"], [class*="attack___"]') ?? null
+  }
+
   function badgeFor(anchor, playerId) {
-    let badge = anchor.parentElement?.querySelector(`.${BADGE_CLASS}[data-tnl-target="${playerId}"]`)
+    const row = rowOf(anchor)
+    if (!row) return null
+    let badge = row.querySelector(`.${BADGE_CLASS}[data-tnl-target="${playerId}"]`)
     if (badge) return badge
+
     badge = document.createElement('button')
     badge.type = 'button'
     badge.className = BADGE_CLASS
     badge.dataset.tnlTarget = String(playerId)
     // ⚠️ position + z-index are load-bearing, not decoration. Torn's war rows
     // are a grid of cells that paint over anything overflowing a neighbour, so
-    // a statically-positioned badge ends up UNDER the Level column: visible,
-    // and unclickable, because the cell above it takes the pointer. A
-    // positioned element with a z-index makes its own stacking context and
-    // takes its own clicks. `isolation` keeps that from leaking upward.
+    // a statically-positioned badge ends up UNDER the next column: visible,
+    // and unclickable, because the cell above it takes the pointer.
     badge.style.cssText = [
       'position:relative', 'z-index:2147483000', 'isolation:isolate',
       'pointer-events:auto', 'display:inline-block',
-      'margin-left:6px', 'padding:1px 6px', 'font-size:10px', 'font-weight:600',
-      'border-radius:9px', 'border:1px solid rgba(255,255,255,.25)', 'cursor:pointer',
+      'margin-right:6px', 'padding:3px 9px', 'font-size:11px', 'font-weight:700',
+      'border-radius:10px', 'border:1px solid rgba(255,255,255,.3)', 'cursor:pointer',
       'vertical-align:middle', 'line-height:16px', 'white-space:nowrap',
-      // A long enemy name must not push the badge across two more columns.
-      'max-width:96px', 'overflow:hidden', 'text-overflow:ellipsis',
+      // Wide enough for a name, capped so it cannot shove Attack off the row.
+      'min-width:64px', 'max-width:120px', 'overflow:hidden', 'text-overflow:ellipsis',
     ].join(';')
     badge.addEventListener('click', async (e) => {
       e.preventDefault(); e.stopPropagation()
@@ -622,10 +771,125 @@ const TNLDibs = (function () {
       const res = state.action === 'claim' ? await claim(playerId) : await release(playerId)
       badge.disabled = false
       if (!res.ok) badge.title = res.message
-      render()          // the socket will confirm; this repaints immediately
+      render()
     })
-    anchor.parentElement?.appendChild(badge)
+
+    // Beside Attack, because that is the order the decision is made in: read
+    // the stats, take the dib, hit. Falling back to the name cell keeps the
+    // control reachable if Torn renames the attack cell out from under us —
+    // in the wrong place beats absent.
+    const attack = attackCellOf(row)
+    if (attack) attack.insertBefore(badge, attack.firstChild)
+    else anchor.parentElement?.appendChild(badge)
     return badge
+  }
+
+  /** Colour for the stat that dominates a build. Matches Wall Battlestats. */
+  const STAT_COLORS = { str: '#ef4444', def: '#22c55e', spd: '#60a5fa', dex: '#f59e0b' }
+
+  /**
+   * The header row of the table a war row belongs to.
+   *
+   * ⚠️ Found by walking up to a container and looking for Torn's own header
+   * class, NOT by assuming a position. The war page renders several of these
+   * tables (your side, their side) and the header is sometimes a child of the
+   * list and sometimes its previous sibling, depending on which view rendered.
+   */
+  function headerFor(row) {
+    const scope = row.closest('.f-war-list, .faction-war, .faction-info-wrap, ul, table') ?? row.parentElement
+    if (!scope) return null
+    return scope.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
+  }
+
+  /** The cell in a header (or row) that belongs to the Attack column. */
+  function attackHeaderCell(header) {
+    if (!header) return null
+    const direct = header.querySelector('.attack, [class*="attack__"], [class*="attack___"]')
+    if (direct) return direct
+    // Fall back to matching the word, since the header cell is sometimes a
+    // plain div with no distinguishing class at all.
+    for (const cell of header.children) {
+      if ((cell.textContent || '').trim().toLowerCase() === 'attack') return cell
+    }
+    return null
+  }
+
+  /**
+   * Give the table a `BS` header once, so our column reads as one of Torn's
+   * rather than as a stray value floating in a row.
+   */
+  function ensureStatHeader(row) {
+    const header = headerFor(row)
+    if (!header || header.querySelector(`.${STAT_HEAD_CLASS}`)) return
+    const before = attackHeaderCell(header)
+    const cell = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
+    cell.className = `table-cell ${STAT_HEAD_CLASS}`
+    cell.textContent = 'BS'
+    cell.style.cssText = [
+      'min-width:58px', 'text-align:center', 'white-space:nowrap',
+    ].join(';')
+    if (before) before.parentNode.insertBefore(cell, before)
+    else header.appendChild(cell)
+    log(`BS header added${before ? ' before the Attack column' : ' at the end (no Attack header found)'}`)
+  }
+
+  /**
+   * The BS cell for a row, immediately LEFT of the Attack column.
+   *
+   * Anchored to Attack rather than to the member icons: that is where the eye
+   * already goes to act, and it is the one cell every one of these tables has.
+   */
+  function statCellOf(row) {
+    let cell = row.querySelector(`.${STAT_CLASS}`)
+    if (cell) return cell
+    ensureStatHeader(row)
+    cell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
+    cell.className = `table-cell ${STAT_CLASS}`
+    cell.style.cssText = [
+      'position:relative', 'z-index:1', 'min-width:58px', 'text-align:center',
+      'font-size:11px', 'font-weight:700', 'white-space:nowrap', 'cursor:default',
+      'display:inline-block', 'padding:0 4px', 'border-radius:4px',
+    ].join(';')
+    const attack = attackCellOf(row)
+    if (attack) attack.parentNode.insertBefore(cell, attack)
+    else row.appendChild(cell)
+    return cell
+  }
+
+  /**
+   * Paint one member's stats.
+   *
+   * The figure is the total; the colour says the build is lopsided and which
+   * way; the border says this one is worth hitting. FF is the number that
+   * decides that, so it leads the tooltip.
+   */
+  function paintStats(cell, playerId) {
+    const stats = rt.stats.get(playerId)
+    if (!stats) {
+      cell.textContent = 'N/A'
+      cell.style.color = '#6b7280'
+      cell.style.border = ''
+      cell.title = 'No spy on record'
+      return
+    }
+    const dominant = dominantStat(stats)
+    cell.textContent = formatStat(stats.total)
+    cell.style.color = dominant ? STAT_COLORS[dominant] : '#e5e7eb'
+
+    const ff = fairFight(rt.mine, stats)
+    // ⚠️ FF_HIGHLIGHT, not "any FF". Every target has an FF; only one worth
+    // more than about 2.5× respect deserves to pull the eye across the table.
+    cell.style.border = ff !== null && ff >= FF_HIGHLIGHT
+      ? '1px solid #86efac'
+      : '1px solid transparent'
+
+    const line = (label, v) => `${label} ${formatStat(v)}`
+    cell.title = [
+      `FF ${ff === null ? '—' : ff.toFixed(2)}`,
+      line('STR', stats.str), line('DEF', stats.def),
+      line('SPD', stats.spd), line('DEX', stats.dex),
+      stats.spiedAt ? `spied ${new Date(stats.spiedAt).toLocaleDateString()}` : 'spy date unknown',
+    ].join('\n')
   }
 
   function render() {
@@ -637,10 +901,17 @@ const TNLDibs = (function () {
       for (const anchor of anchors) {
         if (!anchor.isConnected) continue
         const badge = badgeFor(anchor, playerId)
-        badge.textContent = state.label
-        badge.style.background = state.mine ? '#1d4ed8' : state.action === 'none' ? '#6d28d9' : '#374151'
-        badge.style.color = '#fff'
-        badge.style.cursor = state.action === 'none' ? 'default' : 'pointer'
+        if (badge) {
+          badge.textContent = state.label
+          // Three states, three readings at a glance: yours (blue, actionable),
+          // someone else's (amber, hands off), free (grey, take it).
+          badge.style.background = state.mine ? '#1d4ed8' : state.taken ? '#b45309' : '#374151'
+          badge.style.color = '#fff'
+          badge.style.cursor = state.action === 'none' ? 'default' : 'pointer'
+          badge.title = state.taken && !state.mine ? `Claimed by ${state.label.replace('🔒 ', '')}` : ''
+        }
+        const row = rowOf(anchor)
+        if (row) paintStats(statCellOf(row), playerId)
       }
     }
     // ⚠️ The single most useful line when "no badges appeared". It separates
@@ -650,7 +921,7 @@ const TNLDibs = (function () {
     if (painted !== rt.painted) {
       rt.painted = painted
       log(`painted ${painted} of ${rt.nodes.size} linked players`,
-        `(${rt.enemies.size} known enemies)`)
+        `(${rt.enemies.size} known enemies, ${rt.stats.size} with stats)`)
     }
   }
 
@@ -938,6 +1209,7 @@ const TNLDibs = (function () {
     parseXid, resolveTenant, indexDibs, enemyIds, frameRows, buttonState, backoffFor,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
+    formatStat, dominantStat, statScore, fairFight, rowStats,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
   }
 })()
