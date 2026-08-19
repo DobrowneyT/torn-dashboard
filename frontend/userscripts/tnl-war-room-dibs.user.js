@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.3.0
+// @version      1.9.0
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -79,10 +79,24 @@ const TNLDibs = (function () {
   /** Reconnect backoff, ms — caps rather than growing without bound. */
   const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000]
   const BADGE_CLASS = 'tnl-dibs-badge'
+  const STAT_CLASS = 'tnl-dibs-bs'
+  const STAT_HEAD_CLASS = 'tnl-dibs-bs-head'
+  const DIBS_CELL_CLASS = 'tnl-dibs-cell'
+  const DIBS_HEAD_CLASS = 'tnl-dibs-cell-head'
+  /** FF at which a target is worth pulling the eye across the table. */
+  const FF_HIGHLIGHT = 2.5
   const DEBUG_KEY = 'tnl-dibs-debug'
   /** Read cadence — see the transport note above for why this is a poll. */
   const POLL_MS = 3000
-  const POLL_HIDDEN_MS = 30000
+  /**
+   * ⚠️ Not 30s. A hidden tab should cost the API little, but this is a war
+   * tool: the gap is paid on the way BACK, as a stretch of stale badges at
+   * exactly the moment someone alt-tabs in to claim a target. A 30s value
+   * read, in the console, as the script having stopped. The visibility
+   * listener below makes the return instant regardless; this only bounds how
+   * stale a background tab gets.
+   */
+  const POLL_HIDDEN_MS = 10000
 
   // ── Debug ────────────────────────────────────────────────────────────────
 
@@ -175,6 +189,155 @@ const TNLDibs = (function () {
   }
 
   /**
+   * A stat total, formatted EXACTLY as the War Room formats it.
+   *
+   * ⚠️ Two decimals, and `???` — not `N/A`, not `0` — for an absent reading.
+   * This is a straight copy of formatStats() in frontend/src/utils/statInput.js
+   * and must stay one: a member reading 3.99B on the dashboard and 4.0B here
+   * has to wonder which screen is lying, and that doubt costs more than the
+   * duplication does.
+   */
+  function formatStat(n) {
+    if (n === null || n === undefined) return '???'
+    const v = Number(n)
+    if (!Number.isFinite(v)) return '???'
+    if (v >= 1_000_000_000_000) return (v / 1_000_000_000_000).toFixed(2) + 'T'
+    if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(2) + 'B'
+    if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M'
+    if (v >= 1_000) return (v / 1_000).toFixed(1) + 'K'
+    return String(v)
+  }
+
+  /**
+   * A Postgres timestamp, parsed.
+   *
+   * ⚠️ THE #140 TRAP. Postgres serialises timestamptz with a bare "+00" offset
+   * — "2026-08-01T12:00:00+00" — which `new Date()` rejects outright. The
+   * userscript's first tooltip said "spied Invalid Date" for every single
+   * member because of exactly this, and the dashboard hit it once before.
+   * Copied from parseDbTime() in frontend/src/utils/time.js.
+   */
+  function parseDbTime(ts) {
+    if (!ts) return null
+    let str = String(ts)
+    str = str.replace(/([+-]\d{2})$/, '$1:00')
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(str)) str += 'Z'
+    const d = new Date(str)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+
+  /** Relative age, or an em dash. Mirrors fmtAgo() in utils/time.js. */
+  function fmtAgo(ts, nowMs = Date.now()) {
+    const d = parseDbTime(ts)
+    if (!d) return '—'
+    const diff = Math.floor((nowMs - d.getTime()) / 1000)
+    if (diff < 60) return 'just now'
+    if (diff < 3_600) return `${Math.floor(diff / 60)}m ago`
+    if (diff < 86_400) return `${Math.floor(diff / 3_600)}h ago`
+    return `${Math.floor(diff / 86_400)}d ago`
+  }
+
+  /**
+   * Which source a figure came from.
+   *
+   * ⚠️ An unknown source falls back to the WEAKEST claim, never the strongest.
+   * Enemy rows carry no source at all, and calling an estimate "OWN" would
+   * have a lead size up a target against a number nobody ever measured.
+   */
+  function statsSourceLabel(source) {
+    return { torn: 'OWN', tornstats: 'TS', bsp: 'BSP' }[source] ?? 'BSP'
+  }
+
+  /**
+   * Which single stat dominates a build, or null for a balanced one.
+   *
+   * ⚠️ The threshold is what makes this worth showing. Everyone's largest stat
+   * is "largest"; only a stat carrying a THIRD of the whole total says the
+   * build is lopsided — a defence wall, or a speed build that cannot take a
+   * hit. Below that the colour would fire on every row and mean nothing.
+   */
+  function dominantStat(stats, threshold = 0.33) {
+    const total = Number(stats?.total)
+    if (!Number.isFinite(total) || total <= 0) return null
+    const named = [
+      ['str', Number(stats.str)], ['def', Number(stats.def)],
+      ['spd', Number(stats.spd)], ['dex', Number(stats.dex)],
+    ].filter(([, v]) => Number.isFinite(v) && v > 0)
+    if (named.length === 0) return null
+    const [name, value] = named.reduce((a, b) => (b[1] > a[1] ? b : a))
+    return value >= threshold * total ? name : null
+  }
+
+  /**
+   * Battle-stat score: the sum of square ROOTS, not of the stats.
+   *
+   * ⚠️ Kept identical to battleStatsScore() in frontend/src/utils/fairFight.js.
+   * A userscript cannot import it — one file, no build step — so the maths is
+   * duplicated and must stay in step. If the two ever disagree, the script and
+   * the War Room show different FF for the same target, and the member with
+   * both screens open believes the wrong one.
+   *
+   * With only a total (a BSP estimate gives one number, not four) an even split
+   * is assumed: 4 × √(total/4) = 2√total. That flatters lopsided builds and so
+   * overstates FF; the dashboard makes the same trade deliberately.
+   */
+  function statScore(stats) {
+    const num = (v) => {
+      if (v === null || v === undefined || v === '') return null
+      const n = Number(v)
+      return Number.isFinite(n) && n >= 0 ? n : null
+    }
+    const s = num(stats?.str), sp = num(stats?.spd)
+    const d = num(stats?.def), dx = num(stats?.dex)
+    if (s !== null && sp !== null && d !== null && dx !== null) {
+      return Math.sqrt(s) + Math.sqrt(sp) + Math.sqrt(d) + Math.sqrt(dx)
+    }
+    const total = num(stats?.total)
+    return total === null ? null : 2 * Math.sqrt(total)
+  }
+
+  /**
+   * FF for hitting `defender`, given our own stats. Null when either is unknown.
+   *
+   * Null is load-bearing, exactly as in the dashboard: FF drives target choice,
+   * and inventing a number sends someone at a target that pays nothing.
+   */
+  function fairFight(mine, theirs) {
+    const attacker = statScore(mine)
+    const defender = statScore(theirs)
+    if (attacker === null || defender === null || attacker <= 0) return null
+    return Math.min(3, 1 + (8 / 3) * (defender / attacker))
+  }
+
+  /**
+   * The battle stats carried on a war_room_state_v2 row.
+   *
+   * Returns a shape even when the total is unknown, so the cell can render the
+   * War Room's dim `???` rather than vanishing — an empty cell reads as "this
+   * script is broken", a `???` reads as "nobody has spied them".
+   */
+  function rowStats(row) {
+    if (!row) return null
+    const num = (v) => {
+      if (v === null || v === undefined || v === '') return null
+      const n = Number(v)
+      return Number.isFinite(n) ? n : null
+    }
+    const isTs = row.spy_source === 'tornstats'
+    return {
+      total: num(row.bsp_total),
+      str: num(row.bsp_str),
+      spd: num(row.bsp_spd),
+      def: num(row.bsp_def),
+      dex: num(row.bsp_dex),
+      source: row.spy_source ?? null,
+      // ts_spy_at is when the SPY happened; bsp_fetched_at is when we polled.
+      // Only a TornStats row has a real spy time; the rest date from the fetch.
+      spiedAt: (isTs && row.ts_spy_at) ? row.ts_spy_at : (row.bsp_fetched_at ?? row.ts_spy_at ?? null),
+    }
+  }
+
+  /**
    * Member ids that are NOT ours.
    *
    * ⚠️ The war page lists both factions and dibs are enemy-only — a claim
@@ -185,6 +348,10 @@ const TNLDibs = (function () {
   function enemyIds(stateRows, ourFactionId, opponentId) {
     const out = new Set()
     for (const row of stateRows ?? []) {
+      // ⚠️ Roster rows are tombstoned, not removed — 478 of forge's 672 on
+      // 2026-08-19 were dead. A tombstoned row is someone who has LEFT, and
+      // offering a dib on them is offering a target that is not in the war.
+      if (row.deleted_at) continue
       if (String(row.faction_id) === String(ourFactionId)) continue
       // ⚠️ "Not ours" is not the same as "the enemy". war_room_state_v2 is not
       // pruned when a war ends — forge was holding rosters for SIX factions on
@@ -215,13 +382,20 @@ const TNLDibs = (function () {
     return hidden ? POLL_HIDDEN_MS : POLL_MS
   }
 
-  /** What the control should say for a target, given who holds it. */
+  /**
+   * What the control should say for a target, given who holds it.
+   *
+   * ⚠️ Someone else's claim must NAME them. "Claimed" tells you not to hit,
+   * which is half the job; the name is what lets two people sort it out in
+   * faction chat in one message instead of three. It also makes a stale claim
+   * obvious — you can see it belongs to someone who logged off an hour ago.
+   */
   function buttonState(dib, currentUserId) {
-    if (!dib) return { label: '+ Dibs', action: 'claim', mine: false }
+    if (!dib) return { label: '+ Dibs', action: 'claim', mine: false, taken: false }
     if (String(dib.by) === String(currentUserId)) {
-      return { label: '✓ Your dib', action: 'release', mine: true }
+      return { label: '✓ Yours', action: 'release', mine: true, taken: true }
     }
-    return { label: `🖐 ${dib.name ?? 'Claimed'}`, action: 'none', mine: false }
+    return { label: dib.name ? `🔒 ${dib.name}` : '🔒 Claimed', action: 'none', mine: false, taken: true }
   }
 
   /** Backoff for the nth consecutive failed read (0-based). */
@@ -349,10 +523,17 @@ const TNLDibs = (function () {
     attempt: 0,          // consecutive failed polls, for backoff
     status: 'idle',
     expanded: false,        // the panel collapses to a dot once signed in
-    painted: -1,            // last badge count logged, so render() is not spammy
+    painted: -1,            // last counts logged, so render() is not spammy
+    attached: -1,
     opponentId: null,       // the faction the war room is pointed at
     since: null,            // delta watermark, always the server's own clock
     polling: false,
+    timer: null,            // pending poll, so visibilitychange can pre-empt it
+    poke: null,             // runs a poll now; set once the loop is running
+    inFlight: false,        // a read is out; a second loop must not start
+    pending: false,         // someone asked to read while one was in flight
+    stats: new Map(),       // memberId → battle stats, straight off the roster
+    mine: null,             // our own stats, so FF needs no second source
   }
 
   /** The logged-in Torn user, read from the page's own sidebar profile link. */
@@ -434,12 +615,43 @@ const TNLDibs = (function () {
       return { ok: false, message: res.body?.error || 'Already claimed' }
     }
     if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
+
+    // ⚠️ Paint it NOW. The file header has always said "paint optimistically,
+    // let the server's answer always overwrite" — but nothing here wrote to
+    // rt.dibs, so the render() that follows a click repainted from unchanged
+    // state and the button snapped straight back to "+ Dibs". It then sat
+    // wrong until a poll happened to carry the row: up to POLL_MS plus a round
+    // trip, for an action the user had already completed. The claim reached
+    // the server in under 300ms; only the button was slow.
+    //
+    // The single-dibs rule is mirrored too, otherwise you briefly hold two.
+    for (const [target, dib] of rt.dibs) {
+      if (String(dib.by) === String(rt.session?.userId)) rt.dibs.delete(target)
+    }
+    rt.dibs.set(targetId, { by: rt.session?.userId, name: 'You' })
+    pokePoll()
     return { ok: true }
   }
 
   async function release(targetId) {
     const res = await api(`/api/war-room/dibs/${targetId}`, 'DELETE')
-    return res.status === 200 ? { ok: true } : { ok: false, message: `HTTP ${res.status}` }
+    if (res.status !== 200) return { ok: false, message: `HTTP ${res.status}` }
+    rt.dibs.delete(targetId)     // optimistic, same rule as claim()
+    pokePoll()
+    return { ok: true }
+  }
+
+  /**
+   * Read again immediately instead of waiting out the scheduled poll.
+   *
+   * Used right after a write: the optimistic paint above is this client's
+   * guess, and the sooner the server's version lands the shorter the window in
+   * which the guess could be wrong.
+   */
+  function pokePoll() {
+    if (!rt.polling || !rt.poke) return
+    if (rt.timer) { clearTimeout(rt.timer); rt.timer = null }
+    rt.poke()
   }
 
   /**
@@ -462,6 +674,22 @@ const TNLDibs = (function () {
 
     indexDibs(dibRows, rt.dibs)
     for (const id of enemyIds(stateRows, rt.ourFactionId, rt.opponentId)) rt.enemies.add(id)
+
+    // Battle stats ride along on the rows we already have — no extra request,
+    // no TornStats key. Our own row is in here too, which is what makes FF
+    // computable client-side.
+    for (const row of stateRows) {
+      const stats = rowStats(row)
+      if (!stats) continue
+      const id = Number(row.member_id)
+      rt.stats.set(id, stats)
+      if (String(id) === String(rt.session?.userId)) rt.mine = stats
+    }
+    // A tombstone in a delta means that member left mid-war. Adding is not
+    // enough: the set only ever grew, so their badge would outlive them.
+    for (const row of stateRows) {
+      if (row.deleted_at) rt.enemies.delete(Number(row.member_id))
+    }
     log(`${stateRows.length} roster rows, ${dibRows.length} dib rows →`,
       `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`,
       `(opponent ${rt.opponentId ?? 'unknown'})`)
@@ -501,6 +729,15 @@ const TNLDibs = (function () {
     setStatus('connecting')
     log(`reading ${rt.session.host} every ${POLL_MS}ms`)
     const tick = async () => {
+      rt.timer = null
+      // ⚠️ One read at a time, always. tick() awaits a request, so anything
+      // that calls it while one is in flight — the visibility listener, a
+      // claim's pokePoll() — starts a SECOND self-scheduling chain, and from
+      // then on every poll happens twice, forever. That is exactly what the
+      // console showed after the first alt-tab: paired requests all the way
+      // down, doubling the load on the tenant for no extra freshness.
+      if (rt.inFlight) { rt.pending = true; return }
+      rt.inFlight = true
       let ok = false
       let keepGoing = true
       try {
@@ -510,7 +747,12 @@ const TNLDibs = (function () {
         setStatus('reconnecting')
         log('poll failed:', err.message)
       }
+      rt.inFlight = false
       if (!keepGoing) { rt.polling = false; return }
+
+      // Someone asked to read while we were busy. Honour it once, now, rather
+      // than dropping the request or spawning a parallel loop for it.
+      if (rt.pending) { rt.pending = false; rt.timer = setTimeout(tick, 0); return }
 
       // ⚠️ Back off on consecutive failures rather than hammering every 3s.
       // A tenant that is mid-deploy answers 502 for a minute or two, and every
@@ -518,24 +760,73 @@ const TNLDibs = (function () {
       const hidden = typeof document !== 'undefined' && document.hidden
       if (ok) rt.attempt = 0
       const wait = ok ? pollDelay(hidden) : Math.max(backoffFor(rt.attempt++), pollDelay(hidden))
-      setTimeout(tick, wait)
+      rt.timer = setTimeout(tick, wait)
     }
+
+    // Coming back to the tab reads immediately rather than waiting out whatever
+    // delay was scheduled while it was hidden. Without this, alt-tabbing in
+    // during a fight means up to POLL_HIDDEN_MS of badges that are quietly
+    // wrong — the worst possible moment for a stale claim.
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden || !rt.polling) return
+        log('tab visible again — reading now')
+        if (rt.timer) { clearTimeout(rt.timer); rt.timer = null }
+        tick()
+      })
+    }
+
+    rt.poke = tick
     tick()
   }
 
   // ── DOM ──────────────────────────────────────────────────────────────────
 
+  /**
+   * The row an anchor belongs to.
+   *
+   * ⚠️ Matched on structure, not on a class name. Torn's class names are
+   * hashed per build (`row___a1b2c`) and change without notice; "the ancestor
+   * that is a list item or table row" has been true for years. Same reasoning
+   * as parseXid reading the href.
+   */
+  function rowOf(anchor) {
+    // ⚠️ NOT [class*="row"]. Torn wraps the name in
+    // `<div class="userInfoBox___SpD9F rowSection___wdqaD">`, which that
+    // selector matches — so closest() returned the NAME CELL, and every column
+    // we inserted landed inside it, on top of the player's name. The war rows
+    // really are <li>; `row___` (with Torn's hashed triple underscore) is the
+    // fallback for any table that is not a list.
+    return anchor.closest?.('li, tr') ?? anchor.closest?.('[class*="row___"]') ?? null
+  }
+
+  /** The cell holding the Attack link, which is where the dibs control goes. */
+  function attackCellOf(row) {
+    return row?.querySelector?.('.attack, [class*="attack__"], [class*="attack___"]') ?? null
+  }
+
   function badgeFor(anchor, playerId) {
-    let badge = anchor.parentElement?.querySelector(`.${BADGE_CLASS}[data-tnl-target="${playerId}"]`)
+    const row = rowOf(anchor)
+    if (!row) return null
+    let badge = row.querySelector(`.${BADGE_CLASS}[data-tnl-target="${playerId}"]`)
     if (badge) return badge
+
     badge = document.createElement('button')
     badge.type = 'button'
     badge.className = BADGE_CLASS
     badge.dataset.tnlTarget = String(playerId)
+    // ⚠️ position + z-index are load-bearing, not decoration. Torn's war rows
+    // are a grid of cells that paint over anything overflowing a neighbour, so
+    // a statically-positioned badge ends up UNDER the next column: visible,
+    // and unclickable, because the cell above it takes the pointer.
     badge.style.cssText = [
-      'margin-left:6px', 'padding:1px 6px', 'font-size:10px', 'font-weight:600',
-      'border-radius:9px', 'border:1px solid rgba(255,255,255,.25)', 'cursor:pointer',
+      'position:relative', 'z-index:2147483000', 'isolation:isolate',
+      'pointer-events:auto', 'display:inline-block',
+      'padding:3px 9px', 'font-size:11px', 'font-weight:700',
+      'border-radius:10px', 'border:1px solid rgba(255,255,255,.3)', 'cursor:pointer',
       'vertical-align:middle', 'line-height:16px', 'white-space:nowrap',
+      // Wide enough for a name, capped so it cannot shove Attack off the row.
+      'min-width:64px', 'max-width:120px', 'overflow:hidden', 'text-overflow:ellipsis',
     ].join(';')
     badge.addEventListener('click', async (e) => {
       e.preventDefault(); e.stopPropagation()
@@ -546,14 +837,187 @@ const TNLDibs = (function () {
       const res = state.action === 'claim' ? await claim(playerId) : await release(playerId)
       badge.disabled = false
       if (!res.ok) badge.title = res.message
-      render()          // the socket will confirm; this repaints immediately
+      render()
     })
-    anchor.parentElement?.appendChild(badge)
+
+    // ⚠️ Its OWN cell, not inside Attack's. Sharing that cell made the control
+    // overlap the Attack link and the stats beside it — Torn's cells are
+    // fixed-width and a 64px button does not fit in one that was sized for the
+    // word "Attack". A column of our own is also what the War Room does.
+    dibsCellOf(row).appendChild(badge)
     return badge
   }
 
+  /**
+   * A column of ours, inserted immediately left of Attack with a header.
+   *
+   * Anchored to the Attack cell rather than to member icons or a position:
+   * Attack is the one cell every one of these tables has, and its class name
+   * is the only one on the row that has stayed put. Everything else on the war
+   * page is a hashed per-build name.
+   */
+  function ourColumn(row, cellClass, headClass, headText, width) {
+    let cell = row.querySelector(`.${cellClass}`)
+    if (cell) return cell
+
+    const header = headerFor(row)
+    if (header && !header.querySelector(`.${headClass}`)) {
+      const before = attackHeaderCell(header)
+      const head = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
+      head.className = `table-cell ${headClass}`
+      head.textContent = headText
+      head.style.cssText = `min-width:${width}px;text-align:center;white-space:nowrap`
+      if (before) before.parentNode.insertBefore(head, before)
+      else header.appendChild(head)
+      log(`${headText} header added${before ? ' before Attack' : ' at the end (no Attack header found)'}`)
+    }
+
+    cell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
+    cell.className = `table-cell ${cellClass}`
+    cell.style.cssText = [
+      'position:relative', 'z-index:1', `min-width:${width}px`, 'text-align:center',
+      'white-space:nowrap', 'display:inline-block', 'padding:0 4px',
+    ].join(';')
+    const attack = attackCellOf(row)
+    if (attack) attack.parentNode.insertBefore(cell, attack)
+    else row.insertBefore(cell, row.querySelector('.clear'))   // never after the float clear
+    return cell
+  }
+
+  function statCellOf(row) {
+    const cell = ourColumn(row, STAT_CLASS, STAT_HEAD_CLASS, 'BS', 64)
+    cell.style.fontSize = '11px'
+    cell.style.fontWeight = '700'
+    cell.style.cursor = 'help'
+    return cell
+  }
+
+  function dibsCellOf(row) {
+    return ourColumn(row, DIBS_CELL_CLASS, DIBS_HEAD_CLASS, 'DIBS', 76)
+  }
+
+  /** Colour for the stat that dominates a build. Matches Wall Battlestats. */
+  const STAT_COLORS = { str: '#ef4444', def: '#22c55e', spd: '#60a5fa', dex: '#f59e0b' }
+
+  /**
+   * The header row of the table a war row belongs to.
+   *
+   * ⚠️ Found by walking up to a container and looking for Torn's own header
+   * class, NOT by assuming a position. The war page renders several of these
+   * tables (your side, their side) and the header is sometimes a child of the
+   * list and sometimes its previous sibling, depending on which view rendered.
+   */
+  function headerFor(row) {
+    const list = row.closest('ul, table')
+    if (!list) return null
+    // Torn's war-table header is the element immediately BEFORE the list —
+    // `<div class="white-grad c-pointer">` holding .member/.level/.points/
+    // .status/.attack. It carries no `table-header` class at all, which is why
+    // looking for one found nothing and the columns went unheaded.
+    const prev = list.previousElementSibling
+    if (prev && prev.querySelector('.attack, [class*="attack__"]')) return prev
+    return list.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
+  }
+
+  /** The cell in a header (or row) that belongs to the Attack column. */
+  function attackHeaderCell(header) {
+    if (!header) return null
+    const direct = header.querySelector('.attack, [class*="attack__"], [class*="attack___"]')
+    if (direct) return direct
+    // Fall back to matching the word, since the header cell is sometimes a
+    // plain div with no distinguishing class at all.
+    for (const cell of header.children) {
+      if ((cell.textContent || '').trim().toLowerCase() === 'attack') return cell
+    }
+    return null
+  }
+
+  /**
+   * The header row of the table a war row belongs to.
+   *
+   * ⚠️ Found by walking up to a container and looking for Torn's own header
+   * class, NOT by assuming a position. The war page renders several of these
+   * tables (your side, their side) and the header is sometimes a child of the
+   * list and sometimes its previous sibling, depending on which view rendered.
+   */
+  function headerFor(row) {
+    const scope = row.closest('.f-war-list, .faction-war, .faction-info-wrap, ul, table') ?? row.parentElement
+    if (!scope) return null
+    return scope.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
+  }
+
+  /** The cell in a header (or row) that belongs to the Attack column. */
+  function attackHeaderCell(header) {
+    if (!header) return null
+    const direct = header.querySelector('.attack, [class*="attack__"], [class*="attack___"]')
+    if (direct) return direct
+    // Fall back to matching the word, since the header cell is sometimes a
+    // plain div with no distinguishing class at all.
+    for (const cell of header.children) {
+      if ((cell.textContent || '').trim().toLowerCase() === 'attack') return cell
+    }
+    return null
+  }
+
+  /**
+   * Paint one member's stats, the way the War Room paints them.
+   *
+   * Total in the cell; hover gives the per-stat breakdown when we have one,
+   * the total, and "{age} ({SOURCE})" so a lead can see how much to trust it.
+   * A BSP row usually has no breakdown, so it shows Total + source alone —
+   * the same behaviour as BattleStatsCell rather than four rows of N/A.
+   *
+   * ⚠️ Exact and estimated readings must not look identical. An own-key figure
+   * is measured; TornStats and BSP are guesses of varying age. The dashboard
+   * marks that with a solid vs dotted underline, so this does too.
+   */
+  function paintStats(cell, playerId) {
+    const stats = rt.stats.get(playerId)
+    if (!stats || stats.total === null) {
+      cell.textContent = '???'
+      cell.style.color = '#6b7280'
+      cell.style.fontStyle = 'italic'
+      cell.style.textDecoration = 'none'
+      cell.style.border = '1px solid transparent'
+      cell.title = 'No battle stats on record'
+      return
+    }
+
+    cell.style.fontStyle = 'normal'
+    cell.textContent = formatStat(stats.total)
+
+    const dominant = dominantStat(stats)
+    cell.style.color = dominant ? STAT_COLORS[dominant] : '#e5e7eb'
+
+    const exact = stats.source === 'torn'
+    cell.style.textDecoration = 'underline'
+    cell.style.textDecorationStyle = exact ? 'solid' : 'dotted'
+    cell.style.textUnderlineOffset = '2px'
+    cell.style.textDecorationColor = exact ? 'rgba(16,185,129,.7)' : 'rgba(148,163,184,.7)'
+
+    const ff = fairFight(rt.mine, stats)
+    cell.style.border = ff !== null && ff >= FF_HIGHLIGHT
+      ? '1px solid #86efac'
+      : '1px solid transparent'
+
+    // Breakdown rows only where we actually have one, exactly as the War Room
+    // does — four lines of "N/A" is noise pretending to be data.
+    const breakdown = [['STR', stats.str], ['DEF', stats.def], ['SPD', stats.spd], ['DEX', stats.dex]]
+      .filter(([, v]) => v !== null)
+      .map(([label, v]) => `${label}  ${formatStat(v)}`)
+
+    cell.title = [
+      ff === null ? 'FF —' : `FF ${ff.toFixed(2)}`,
+      ...breakdown,
+      `Total ${formatStat(stats.total)}`,
+      `${fmtAgo(stats.spiedAt)} (${statsSourceLabel(stats.source)})`,
+      exact ? 'Exact — read from their own key' : '',
+    ].filter(Boolean).join('\n')
+  }
+
   function render() {
-    let painted = 0
+    let painted = 0      // enemies we INTENDED to badge
+    let attached = 0     // badges that actually exist in the DOM
     for (const [playerId, anchors] of rt.nodes) {
       if (!rt.enemies.has(playerId)) continue
       painted++
@@ -561,20 +1025,34 @@ const TNLDibs = (function () {
       for (const anchor of anchors) {
         if (!anchor.isConnected) continue
         const badge = badgeFor(anchor, playerId)
-        badge.textContent = state.label
-        badge.style.background = state.mine ? '#1d4ed8' : state.action === 'none' ? '#6d28d9' : '#374151'
-        badge.style.color = '#fff'
-        badge.style.cursor = state.action === 'none' ? 'default' : 'pointer'
+        if (badge) {
+          attached++
+          badge.textContent = state.label
+          // Three states, three readings at a glance: yours (blue, actionable),
+          // someone else's (amber, hands off), free (grey, take it).
+          badge.style.background = state.mine ? '#1d4ed8' : state.taken ? '#b45309' : '#374151'
+          badge.style.color = '#fff'
+          badge.style.cursor = state.action === 'none' ? 'default' : 'pointer'
+          badge.title = state.taken && !state.mine ? `Claimed by ${state.label.replace('🔒 ', '')}` : ''
+        }
+        const row = rowOf(anchor)
+        if (row) paintStats(statCellOf(row), playerId)
       }
     }
     // ⚠️ The single most useful line when "no badges appeared". It separates
     // the three ways that happens: no profile links found on the page at all,
     // links found but none of them enemies (an empty or mismatched roster), or
     // enemies matched and painted — in which case the problem is CSS, not us.
-    if (painted !== rt.painted) {
+    // ⚠️ Report BOTH numbers. The old line counted enemies we meant to badge
+    // and called it "painted", so a run where every badge failed to attach —
+    // rowOf() finding no row, say — still logged a confident "painted 100" and
+    // sent us looking at the data instead of at the DOM.
+    if (painted !== rt.painted || attached !== rt.attached) {
       rt.painted = painted
-      log(`painted ${painted} of ${rt.nodes.size} linked players`,
-        `(${rt.enemies.size} known enemies)`)
+      rt.attached = attached
+      log(`${attached} badges attached for ${painted} enemies on this page`,
+        `(${rt.nodes.size} linked players, ${rt.enemies.size} known enemies,`,
+        `${rt.stats.size} with stats)`)
     }
   }
 
@@ -855,12 +1333,15 @@ const TNLDibs = (function () {
   // through the pure helpers, and they are exactly where the bugs have been.
   function setSession(session) { rt.session = session }
   function currentSession() { return rt.session }
+  function dibsIndex() { return rt.dibs }
 
   return {
-    setSession, currentSession, api, refreshToken,
+    setSession, currentSession, api, refreshToken, claim, release, dibsIndex,
     parseXid, resolveTenant, indexDibs, enemyIds, frameRows, buttonState, backoffFor,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
+    formatStat, dominantStat, statScore, fairFight, rowStats,
+    parseDbTime, fmtAgo, statsSourceLabel,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
   }
 })()

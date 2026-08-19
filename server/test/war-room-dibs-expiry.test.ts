@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { startTestStack, TEST_FACTION, TEST_KEY_ENCRYPTION_KEY, type TestStack } from './harness.js'
 import { createKeyPool } from '../src/scraper/keyPool.js'
+import { sweepDibsExpiry } from '../src/warRoomDibsExpiry.js'
 
 let stack: TestStack
 const US = Number(TEST_FACTION.tornFactionId)
@@ -477,5 +478,25 @@ describe('war-room dibs claim-timeout (#159)', () => {
 
     const dib = await stack.db.query(`SELECT deleted_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`)
     expect(dib.rows).toHaveLength(1)
+  })
+})
+
+describe('auto-drop can be turned off entirely', () => {
+  // ⚠️ 0 has to mean "claims stand until released or the target is
+  // hospitalised". The danger in getting this wrong is not a no-op: clamping
+  // 0 up to the 5s floor — which is what the bounds table did before — would
+  // have dropped every dib five seconds after it was taken, mid-war, with no
+  // indication why.
+
+  it('⚠️ does not even query the database when the window is 0', async () => {
+    // Asserted by making a query fatal. A sweep that returned [] only after
+    // reading every live dib would still be wrong under load, and the early
+    // return is the thing worth pinning.
+    const exploding = {
+      query: () => { throw new Error('sweepDibsExpiry must not query when auto-drop is off') },
+    } as unknown as Parameters<typeof sweepDibsExpiry>[0]
+
+    await expect(sweepDibsExpiry(exploding, new Map(), 0)).resolves.toEqual([])
+    await expect(sweepDibsExpiry(exploding, new Map(), -1)).resolves.toEqual([])
   })
 })

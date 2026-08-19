@@ -17,6 +17,99 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Changed
+- **⚠️ War Room: 0 now means OFF for dibs auto-drop and both chain pollers.**
+  It previously meant "as fast as allowed" — the exact opposite. A lead who set
+  the chain poller to 0 got the most aggressive cadence in the table, and a
+  dibs auto-drop of 0 would have released every claim five seconds after it was
+  taken. Both silent, both mid-war. The three fields join the existing
+  off-or-floored group: exactly 0, or [floor, 600]. A *positive* value under
+  the floor is still raised to the floor, because wanting polling faster than
+  we allow is not the same as not wanting it.
+  - The field also appeared to revert on screen, which is what made it look
+    like a UI bug: the client used `Math.max(floor, Number(x) || 30)`, and **0
+    is falsy**, so a deliberate 0 came back as the default before it was ever
+    sent. All three inputs now share one `clampCadence` helper that can express
+    "off". No helper text — 0 reads as off on its own.
+  - Both consumers honour it: `chainPollDue` returns false at 0 (checked
+    *before* the never-fetched shortcut, or a disabled poller would still fire
+    once per boot), and `sweepDibsExpiry` returns without so much as a query.
+
+### Fixed
+- **⚠️ The userscript's read loop forked in two after the first tab switch.**
+  `tick()` awaits its request, so the visibility listener — and `pokePoll()`
+  after a claim — could start a second self-scheduling chain while one was
+  already in flight. From then on every poll happened twice, forever, doubling
+  the load on the tenant for no extra freshness. Visible in the console as
+  paired requests all the way down. One read at a time now, with a pending flag
+  so a request made mid-flight is honoured once rather than dropped.
+- **The BS column now has a header and sits where it was asked to.** It was
+  landing wherever it could find an anchor — and with no header at all — so it
+  read as a stray number rather than a column. It is now inserted immediately
+  left of the Attack column, with a Torn-style `BS` header, both located by
+  structure rather than by Torn's hashed class names.
+- **A dib held by someone else now names them** and is far easier to read: a
+  larger control, and three colours that separate at a glance — blue for yours
+  and actionable, amber for taken, grey for free. "Claimed" alone tells you not
+  to hit, which is half the job; the name is what settles a collision in one
+  message in faction chat instead of three.
+
+### Added
+- **Battle stats and Fair Fight on the Torn war page.** A `BS` column sits
+  where Wall Battlestats puts its own, so the two read as one table and
+  dropping that script leaves no hole. The figure is the total; the colour
+  fires only when a single stat carries a third of the build (a wall, a speed
+  build) rather than on every row, where it would mean nothing; a green border
+  marks FF ≥ 2.5. The tooltip carries FF, the four components and the spy date.
+  - **No new requests and no TornStats key.** `war_room_state_v2` already
+    carries `bsp_total` and the components, and the script was already polling
+    those rows. Our own row is in the same payload, which is what makes FF
+    computable client-side with nothing to look up.
+  - ⚠️ The FF maths is duplicated from `frontend/src/utils/fairFight.js` — a
+    userscript has one file and no build step, so it cannot import. Tests pin
+    the copy to the original: if the two drift, a member with the dashboard and
+    Torn side by side sees two different FF for one target and cannot tell
+    which is right.
+- **The dibs control now sits beside the Attack link**, which is the order the
+  decision is actually made in: read the stats, take the dib, hit. It falls
+  back to the name cell if Torn renames the attack cell — in the wrong place
+  beats absent.
+
+### Fixed
+- **⚠️ A full war-room snapshot shipped the faction's entire war history.**
+  Neither `war_room_state_v2` nor `war_room_dibs_v2` is ever pruned, and the
+  snapshot carried tombstones — so first paint meant **2,648 dib rows to
+  describe zero live claims**, and 672 roster rows to describe 194 live
+  members. It cost 2.3s against the 300ms the deltas that followed took. A
+  tombstone cancels a row the client already holds, which makes it essential in
+  a delta and meaningless in a snapshot: a client with no prior state has
+  nothing to cancel. Snapshots now omit them; deltas still carry them, with a
+  mirror test so that cannot be "optimised" away later. Affects the dashboard's
+  first paint as much as the userscript's.
+- **⚠️ The userscript offered dibs on members who had left the war.**
+  `enemyIds` ignored `deleted_at`, and 478 of forge's 672 roster rows were
+  tombstones. The claim would have succeeded — the server has no opinion about
+  whether a target is still in the faction. Departures now also retract an
+  enemy already known, which a growing-only set could never do.
+- **⚠️ A dibs badge took seconds to show your own claim.** It looked like
+  network latency and was not: the POST completed in under 300ms and the
+  dashboard showed the claim instantly, but neither `claim()` nor `release()`
+  wrote to the local index, so the `render()` straight after a click repainted
+  from unchanged state and the badge snapped back to "+ Dibs" until a poll
+  happened to carry the row. The file header had promised "paint optimistically,
+  let the server's answer always overwrite" since the first commit; only the
+  second half was implemented. A successful write now paints immediately,
+  mirrors the single-dibs rule so you never briefly hold two, and pokes the
+  read loop for confirmation instead of waiting out the interval.
+- **The dibs badge was unclickable on Torn's war table.** Statically
+  positioned, so the Level cell painted over it and took the pointer. It now
+  makes its own stacking context, and a long enemy name no longer pushes it
+  across two more columns.
+- **A hidden tab went 30s between reads**, which read in the console as the
+  script having stopped. Now 10s, and returning to the tab reads immediately
+  rather than waiting out whatever was scheduled — the gap was always paid on
+  the way back, as stale badges at the moment someone alt-tabs in to claim.
+
 ### Fixed
 - **⚠️ The dibs userscript stopped working after exactly one day, then 401'd
   everything.** A session token *lives* 30 days but only *acts* for 24 hours —

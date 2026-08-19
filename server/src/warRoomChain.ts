@@ -72,6 +72,10 @@ export function chainPollDue(
   intervalSec: number,
   nowMs: number
 ): boolean {
+  // ⚠️ 0 means OFF, and must be checked before the never-fetched shortcut
+  // below — otherwise a disabled poller with no watermark would fire once on
+  // every boot, which is the one case an operator turning it off would notice.
+  if (Number(intervalSec) <= 0) return false
   const last = Number(lastFetchedEpochSec)
   if (lastFetchedEpochSec == null || !Number.isFinite(last)) return true
   return nowMs / 1000 - last >= Math.max(1, intervalSec)
