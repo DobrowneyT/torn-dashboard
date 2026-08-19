@@ -33,7 +33,13 @@ function loadScript({ routes = {}, stored = {}, values = {} } = {}) {
       calls.push(opts)
       const key = Object.keys(routes).find((k) => opts.url.includes(k))
       if (!key) return opts.onerror?.(new Error(`unrouted: ${opts.url}`))
-      const { status = 200, body } = routes[key]
+      // A route may be a function of the call so far, so a test can express
+      // "401 the first time, 200 after the refresh" — which is the whole shape
+      // of the session-renewal bug and cannot be written with a fixed reply.
+      const route = typeof routes[key] === 'function'
+        ? routes[key](calls.filter((c) => c.url.includes(key)).length - 1, opts)
+        : routes[key]
+      const { status = 200, body } = route
       opts.onload({ status, responseText: JSON.stringify(body) })
     },
   }
@@ -218,6 +224,22 @@ describe('enemyIds is scoped to the faction we are actually fighting', () => {
   it('compares across the string/number boundary', () => {
     expect([...S.enemyIds(roster, '10739', 9533)]).toEqual([1, 2])
   })
+
+  it('⚠️ skips tombstoned roster rows — those members have left', () => {
+    // Roster rows are soft-deleted, never removed: 478 of forge's 672 were
+    // tombstones on 2026-08-19. Offering a dib on one offers a target who is
+    // not in the war, and the claim would succeed.
+    const withDeparture = [
+      { member_id: 1, faction_id: 9533 },
+      { member_id: 2, faction_id: 9533, deleted_at: '2026-08-18T00:00:00Z' },
+    ]
+    expect([...S.enemyIds(withDeparture, 10739, '9533')]).toEqual([1])
+  })
+
+  it('treats a tombstone as gone even when the opponent is unknown', () => {
+    const withDeparture = [{ member_id: 9, faction_id: 8500, deleted_at: '2026-08-18T00:00:00Z' }]
+    expect([...S.enemyIds(withDeparture, 10739, null)]).toEqual([])
+  })
 })
 
 describe('opponentFrom', () => {
@@ -244,17 +266,40 @@ describe('pollDelay', () => {
     expect(S.pollDelay(false)).toBe(3000)
   })
 
-  it('backs right off when the tab is hidden', () => {
-    // A hidden tab is a tab nobody is claiming in, and every member of the
-    // faction is polling the same API during a war.
-    expect(S.pollDelay(true)).toBe(30000)
+  it('eases off when the tab is hidden, without going to sleep', () => {
+    // A hidden tab should cost the API less — every member of the faction is
+    // polling it during a war. But the gap is paid on the way BACK, as stale
+    // badges at the moment someone alt-tabs in to claim, so this stays in
+    // seconds rather than half a minute. The visibilitychange listener makes
+    // the return itself instant.
+    expect(S.pollDelay(true)).toBe(10000)
     expect(S.pollDelay(true)).toBeGreaterThan(S.pollDelay(false))
+    expect(S.pollDelay(true)).toBeLessThanOrEqual(15000)
   })
 })
 
 describe('buttonState', () => {
   it('offers a claim on an unclaimed target', () => {
     expect(S.buttonState(undefined, '111')).toMatchObject({ action: 'claim', mine: false })
+  })
+
+  it('⚠️ NAMES whoever holds a claim, rather than just saying "taken"', () => {
+    // The name is what lets two people sort out a collision in one message in
+    // faction chat instead of three, and it makes a stale claim visible — you
+    // can see it belongs to someone who logged off an hour ago.
+    const other = S.buttonState({ by: 4242, name: 'Thug' }, '2250591')
+    expect(other.label).toContain('Thug')
+    expect(other.action).toBe('none')
+    expect(other.taken).toBe(true)
+    expect(other.mine).toBe(false)
+  })
+
+  it('falls back to "Claimed" when the holder has no name on the row', () => {
+    expect(S.buttonState({ by: 4242 }, '2250591').label).toContain('Claimed')
+  })
+
+  it('marks a free target as not taken, so the colour can differ', () => {
+    expect(S.buttonState(null, '2250591')).toMatchObject({ taken: false, action: 'claim' })
   })
 
   it('offers a release on your own claim', () => {
@@ -569,3 +614,438 @@ describe('debug logging', () => {
     expect(S.redactUrl(null)).toBe('null')
   })
 })
+
+describe('the session refreshes itself when it goes stale', () => {
+  // ⚠️ The bug this covers. A token LIVES 30 days but only ACTS for 24 hours:
+  // verifySessionToken rejects anything whose `iat` is older than
+  // SESSION_FRESH_SECONDS, so a member removed from the faction loses access
+  // within a day (#119). The SPA has always exchanged stale tokens silently.
+  // This script did not — so it worked perfectly for one day and then answered
+  // 401 to everything, while its stored `expires_at` insisted, a month into the
+  // future, that the session was fine. Nothing about that says "log in again".
+
+  const session = { host: 'forge.monchoon.me', token: 'stale-jwt', userId: '2250591', factionId: '10739' }
+
+  /** 401 until the token changes, 200 afterwards — the server's actual rule. */
+  function freshnessRoutes({ refresh = { status: 200, body: { token: 'fresh-jwt', expires_at: 999 } } } = {}) {
+    return {
+      '/api/auth/refresh': refresh,
+      '/api/war-room/delta': (_n, opts) => (
+        opts.headers.authorization === 'Bearer fresh-jwt'
+          ? { status: 200, body: { state: { rows: [] }, dibs: { rows: [] }, server_now: 'T1' } }
+          : { status: 401, body: { error: 'Authentication required' } }
+      ),
+    }
+  }
+
+  it('⚠️ refreshes on a 401 and retries the original call', async () => {
+    const { S, calls } = loadScript({ routes: freshnessRoutes() })
+    S.setSession({ ...session })
+
+    const res = await S.api('/api/war-room/delta', 'GET')
+
+    expect(res.status).toBe(200)
+    expect(calls.map((c) => c.url.replace('https://forge.monchoon.me', ''))).toEqual([
+      '/api/war-room/delta',      // 401, token is stale
+      '/api/auth/refresh',        // exchange it
+      '/api/war-room/delta',      // retry, now fresh
+    ])
+  })
+
+  it('sends the refreshed token on the retry, not the stale one', async () => {
+    const { S, calls } = loadScript({ routes: freshnessRoutes() })
+    S.setSession({ ...session })
+    await S.api('/api/war-room/delta', 'GET')
+    expect(calls.at(-1).headers.authorization).toBe('Bearer fresh-jwt')
+  })
+
+  it('persists the new token, so the next page load starts fresh', async () => {
+    const { S, stored } = loadScript({ routes: freshnessRoutes() })
+    S.setSession({ ...session })
+    await S.api('/api/war-room/delta', 'GET')
+    expect(S.currentSession().token).toBe('fresh-jwt')
+    expect(stored.value).toContain('fresh-jwt')
+  })
+
+  it('keeps the rest of the session intact across a refresh', async () => {
+    const { S } = loadScript({ routes: freshnessRoutes() })
+    S.setSession({ ...session })
+    await S.api('/api/war-room/delta', 'GET')
+    expect(S.currentSession()).toMatchObject({ host: 'forge.monchoon.me', userId: '2250591', factionId: '10739' })
+  })
+
+  it('⚠️ refreshes ONCE per call, never in a loop', async () => {
+    // /api/auth/refresh is rate limited to 10/min and the read loop runs every
+    // three seconds. A refresh that "succeeds" into a token the server still
+    // rejects must surface the 401, not ask again.
+    const { S, calls } = loadScript({
+      routes: {
+        '/api/auth/refresh': { status: 200, body: { token: 'also-stale', expires_at: 999 } },
+        '/api/war-room/delta': { status: 401, body: { error: 'Authentication required' } },
+      },
+    })
+    S.setSession({ ...session })
+
+    const res = await S.api('/api/war-room/delta', 'GET')
+
+    expect(res.status).toBe(401)
+    expect(calls.filter((c) => c.url.includes('/api/auth/refresh'))).toHaveLength(1)
+  })
+
+  it('⚠️ signs out when the token is past refreshing', async () => {
+    // 401 from refresh: even the signature is dead. Holding the token would
+    // 401 forever behind a panel still claiming to be signed in.
+    const { S, stored } = loadScript({
+      routes: freshnessRoutes({ refresh: { status: 401, body: { error: 'Session expired — please log in again' } } }),
+    })
+    S.setSession({ ...session })
+    stored.value = JSON.stringify(session)
+
+    const res = await S.api('/api/war-room/delta', 'GET')
+
+    expect(res.status).toBe(401)
+    expect(S.currentSession()).toBeNull()
+    expect(S.store.read()).toBeNull()
+  })
+
+  it('signs out when the member lost faction access (403 from refresh)', async () => {
+    const { S } = loadScript({
+      routes: freshnessRoutes({ refresh: { status: 403, body: { error: 'Your faction access was removed.' } } }),
+    })
+    S.setSession({ ...session })
+    await S.api('/api/war-room/delta', 'GET')
+    expect(S.currentSession()).toBeNull()
+  })
+
+  it('does not refresh on failures that have nothing to do with the session', async () => {
+    // A 500, a 409 from a lost dibs race, a 429 — refreshing would waste the
+    // auth rate limit and hide the real error.
+    for (const status of [500, 409, 429]) {
+      const { S, calls } = loadScript({
+        routes: { '/api/war-room/dibs': { status, body: { error: 'nope' } } },
+      })
+      S.setSession({ ...session })
+      const res = await S.api('/api/war-room/dibs', 'POST', { target_id: 1 })
+      expect(res.status).toBe(status)
+      expect(calls.filter((c) => c.url.includes('refresh'))).toHaveLength(0)
+    }
+  })
+
+  it('leaves a successful call completely alone', async () => {
+    const { S, calls } = loadScript({
+      routes: { '/api/war-room/delta': { status: 200, body: { server_now: 'T1' } } },
+    })
+    S.setSession({ ...session })
+    const res = await S.api('/api/war-room/delta', 'GET')
+    expect(res.status).toBe(200)
+    expect(calls).toHaveLength(1)
+  })
+})
+
+describe('a claim paints before the server confirms it', () => {
+  // ⚠️ The bug this covers is pure latency, and it looked like a network
+  // problem. The POST reached the server in under 300ms and the dashboard
+  // showed the claim instantly — but the button on Torn stayed on "+ Dibs"
+  // for seconds. Neither claim() nor release() wrote to rt.dibs, so the
+  // render() straight after a click repainted from unchanged state and the
+  // badge reverted until a poll happened to carry the row back.
+  //
+  // The file header has said "paint optimistically, let the server's answer
+  // always overwrite" since the first commit. Only half of that was true.
+
+  const session = { host: 'forge.monchoon.me', token: 'jwt', userId: '2250591', factionId: '10739' }
+
+  it('⚠️ shows the claim as yours the moment the POST succeeds', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/dibs': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+
+    const res = await S.claim(90100)
+
+    expect(res.ok).toBe(true)
+    expect(S.buttonState(S.dibsIndex().get(90100), session.userId)).toMatchObject({
+      label: '✓ Yours', action: 'release', mine: true,
+    })
+  })
+
+  it('⚠️ mirrors the single-dibs rule, so you never hold two', async () => {
+    // Claiming B releases your claim on A server-side. Painting B without
+    // dropping A would show two of your own dibs until the next poll.
+    const { S } = loadScript({ routes: { '/api/war-room/dibs': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+
+    await S.claim(111)
+    await S.claim(222)
+
+    expect(S.dibsIndex().has(111)).toBe(false)
+    expect(S.dibsIndex().has(222)).toBe(true)
+  })
+
+  it('does not disturb a claim held by someone else', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/dibs': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+    S.indexDibs([{ target_id: 555, claimed_by: 999, claimed_name: 'Someone' }], S.dibsIndex())
+
+    await S.claim(111)
+
+    expect(S.dibsIndex().get(555)).toEqual({ by: 999, name: 'Someone' })
+  })
+
+  it('clears the badge the moment a release succeeds', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/dibs/': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+    S.indexDibs([{ target_id: 90100, claimed_by: 2250591, claimed_name: 'You' }], S.dibsIndex())
+
+    const res = await S.release(90100)
+
+    expect(res.ok).toBe(true)
+    expect(S.dibsIndex().has(90100)).toBe(false)
+  })
+
+  it('⚠️ paints nothing when the server refuses the claim', async () => {
+    // The optimistic paint must be strictly a bet on a 200. Painting a failed
+    // claim tells you a target is yours when it is not — the exact lie the
+    // header forbids.
+    const { S } = loadScript({
+      routes: { '/api/war-room/dibs': { status: 500, body: { error: 'boom' } } },
+    })
+    S.setSession({ ...session })
+
+    const res = await S.claim(90100)
+
+    expect(res.ok).toBe(false)
+    expect(S.dibsIndex().has(90100)).toBe(false)
+  })
+
+  it('⚠️ shows the real owner when it loses a race (409)', async () => {
+    const { S } = loadScript({
+      routes: {
+        '/api/war-room/dibs': {
+          status: 409,
+          body: { error: 'Already claimed', owner: { id: 4242, name: 'Rival' } },
+        },
+      },
+    })
+    S.setSession({ ...session })
+
+    const res = await S.claim(90100)
+
+    expect(res.ok).toBe(false)
+    expect(S.dibsIndex().get(90100)).toEqual({ by: 4242, name: 'Rival' })
+    expect(S.buttonState(S.dibsIndex().get(90100), session.userId).action).toBe('none')
+  })
+
+  it('leaves a failed release alone rather than clearing the badge', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/dibs/': { status: 500, body: {} } } })
+    S.setSession({ ...session })
+    S.indexDibs([{ target_id: 90100, claimed_by: 2250591, claimed_name: 'You' }], S.dibsIndex())
+
+    const res = await S.release(90100)
+
+    expect(res.ok).toBe(false)
+    expect(S.dibsIndex().has(90100)).toBe(true)
+  })
+})
+
+describe('battle stats come off the roster we already poll', () => {
+  // No TornStats key, no second request: war_room_state_v2 carries bsp_total
+  // and the four components, and the script is already receiving those rows.
+  // Our OWN row is in there too, which is what makes FF computable locally.
+
+  it('reads the stats off a roster row', () => {
+    expect(S.rowStats({
+      member_id: 1, bsp_total: 9_700_000_000,
+      bsp_str: 3e9, bsp_spd: 2e9, bsp_def: 3.7e9, bsp_dex: 1e9,
+      ts_spy_at: '2026-08-01T00:00:00Z',
+    })).toMatchObject({ total: 9_700_000_000, str: 3e9, spiedAt: '2026-08-01T00:00:00Z' })
+  })
+
+  it('⚠️ keeps an unspied member, with a null total', () => {
+    // Returning null for the whole row made the cell vanish, which reads as a
+    // broken script. A row with total: null lets the cell say `???` — the
+    // dashboard's word for "nobody has spied them".
+    expect(S.rowStats({ member_id: 1, bsp_total: null })).toMatchObject({ total: null })
+    expect(S.rowStats(null)).toBeNull()
+  })
+
+  it('⚠️ prefers the SPY time over the fetch time, but only for TornStats', () => {
+    // ts_spy_at is when the spy happened; bsp_fetched_at is when we polled.
+    // Only a TornStats row has a real spy time — dating a BSP estimate by
+    // someone else's spy would overstate how fresh it is.
+    expect(S.rowStats({
+      bsp_total: 1e9, spy_source: 'tornstats',
+      ts_spy_at: '2026-08-01T00:00:00+00', bsp_fetched_at: '2026-08-19T00:00:00+00',
+    }).spiedAt).toBe('2026-08-01T00:00:00+00')
+
+    expect(S.rowStats({
+      bsp_total: 1e9, spy_source: 'bsp',
+      ts_spy_at: '2026-08-01T00:00:00+00', bsp_fetched_at: '2026-08-19T00:00:00+00',
+    }).spiedAt).toBe('2026-08-19T00:00:00+00')
+  })
+
+  it('carries the source through so the tooltip can name it', () => {
+    expect(S.rowStats({ bsp_total: 1e9, spy_source: 'torn' }).source).toBe('torn')
+    expect(S.rowStats({ bsp_total: 1e9 }).source).toBeNull()
+  })
+})
+
+describe('formatStat matches the War Room exactly', () => {
+  // ⚠️ A member reading 3.99B on the dashboard and 4.0B on Torn has to wonder
+  // which screen is lying. These pin the copy to formatStats() in
+  // frontend/src/utils/statInput.js — two decimals, and `???` for absent.
+
+  it('uses two decimals, as the dashboard does', () => {
+    expect(S.formatStat(3_990_000_000)).toBe('3.99B')
+    expect(S.formatStat(9_700_000_000)).toBe('9.70B')
+    expect(S.formatStat(1_060_000_000)).toBe('1.06B')
+    expect(S.formatStat(812_000_000)).toBe('812.00M')
+  })
+
+  it('⚠️ says ??? for an absent reading, not N/A and not 0', () => {
+    // `???` is the dashboard's word for "nobody has spied them". An empty cell
+    // or a 0 reads as a broken script instead.
+    expect(S.formatStat(null)).toBe('???')
+    expect(S.formatStat(undefined)).toBe('???')
+    expect(S.formatStat('nonsense')).toBe('???')
+  })
+
+  it('renders a genuine zero as zero', () => {
+    expect(S.formatStat(0)).toBe('0')
+  })
+})
+
+describe('parseDbTime — the #140 trap', () => {
+  // ⚠️ Postgres serialises timestamptz with a BARE "+00" offset, which
+  // `new Date()` rejects outright. The first tooltip said "spied Invalid Date"
+  // for every member because of exactly this. The dashboard hit it once before
+  // and fixed it in utils/time.js; this is the same fix.
+
+  it('parses the bare +00 offset Postgres emits', () => {
+    expect(S.fmtAgo('2026-08-19T09:00:00+00', Date.parse('2026-08-19T10:00:00Z')))
+      .toBe('1h ago')
+  })
+
+  it('parses a fractional-second bare offset', () => {
+    // Deliberately not sitting on a minute boundary: the microseconds push
+    // this to 59m59s, and asserting "1h ago" would be testing the rounding
+    // rather than the parse.
+    const parsed = S.parseDbTime('2026-08-19T09:00:00.123456+00')
+    expect(parsed).toBeInstanceOf(Date)
+    expect(parsed.toISOString()).toBe('2026-08-19T09:00:00.123Z')
+    expect(S.fmtAgo('2026-08-19T09:00:00.123456+00', Date.parse('2026-08-19T11:00:00Z')))
+      .toBe('1h ago')
+  })
+
+  it('treats an offsetless timestamp as UTC', () => {
+    expect(S.fmtAgo('2026-08-19T09:00:00', Date.parse('2026-08-19T10:00:00Z')))
+      .toBe('1h ago')
+  })
+
+  it('⚠️ gives a dash, never "Invalid Date", for junk or absence', () => {
+    expect(S.fmtAgo(null)).toBe('—')
+    expect(S.fmtAgo('not a date')).toBe('—')
+    expect(S.fmtAgo(undefined)).toBe('—')
+  })
+
+  it('reads the same scale as the dashboard', () => {
+    const now = Date.parse('2026-08-19T10:00:00Z')
+    expect(S.fmtAgo('2026-08-19T09:59:30+00', now)).toBe('just now')
+    expect(S.fmtAgo('2026-08-19T09:30:00+00', now)).toBe('30m ago')
+    expect(S.fmtAgo('2026-08-16T10:00:00+00', now)).toBe('3d ago')
+  })
+})
+
+describe('statsSourceLabel', () => {
+  it('names the three sources as the dashboard does', () => {
+    expect(S.statsSourceLabel('torn')).toBe('OWN')
+    expect(S.statsSourceLabel('tornstats')).toBe('TS')
+    expect(S.statsSourceLabel('bsp')).toBe('BSP')
+  })
+
+  it('⚠️ falls back to the WEAKEST claim for an unknown source', () => {
+    // Enemy rows carry no source. Calling an estimate "OWN" would have a lead
+    // size up a target against a number nobody ever measured; under-claiming
+    // is the safe error.
+    expect(S.statsSourceLabel(null)).toBe('BSP')
+    expect(S.statsSourceLabel(undefined)).toBe('BSP')
+    expect(S.statsSourceLabel('something-new')).toBe('BSP')
+  })
+})
+
+describe('dominantStat', () => {
+  it('⚠️ names a stat only when it carries a THIRD of the build', () => {
+    // Everyone's largest stat is largest. Colouring that would fire on every
+    // row and say nothing; a third of the total means genuinely lopsided.
+    const wall = { total: 100, str: 10, spd: 10, def: 70, dex: 10 }
+    expect(S.dominantStat(wall)).toBe('def')
+  })
+
+  it('stays quiet on a balanced build', () => {
+    expect(S.dominantStat({ total: 100, str: 25, spd: 25, def: 25, dex: 25 })).toBeNull()
+  })
+
+  it('is null when there is nothing to judge', () => {
+    expect(S.dominantStat({ total: 100 })).toBeNull()
+    expect(S.dominantStat({ total: 0, str: 1 })).toBeNull()
+    expect(S.dominantStat(null)).toBeNull()
+  })
+})
+
+describe('fairFight matches the dashboard', () => {
+  // ⚠️ The script cannot import fairFight.js — one file, no build step — so
+  // the maths is duplicated. These pin the duplicate to the original: if they
+  // drift, a member with both screens open sees two different FF for one
+  // target and has no way to know which is right.
+
+  const even = { total: 4e9, str: 1e9, spd: 1e9, def: 1e9, dex: 1e9 }
+
+  it('is 1 + 8/3 × (defender score / attacker score)', () => {
+    // Below the cap, so the formula is actually observable. An even split
+    // makes score ∝ √total, so a defender at 0.140625× the total scores
+    // 0.375× — giving 1 + 8/3 × 0.375 = exactly 2.
+    const weaker = { total: 4e9 * 0.140625 }
+    expect(S.fairFight({ total: 4e9 }, weaker)).toBeCloseTo(2, 5)
+  })
+
+  it('⚠️ reads a flat 3.00 for anyone at or above your own stats', () => {
+    // FF saturates at a defender/attacker ratio of 0.75, so an even matchup
+    // is already capped. Worth knowing before designing any colour scale: the
+    // entire useful gradient sits BELOW an even fight.
+    expect(S.fairFight(even, even)).toBe(3)
+  })
+
+  it('caps at 3, as Torn does', () => {
+    const giant = { total: 4e12, str: 1e12, spd: 1e12, def: 1e12, dex: 1e12 }
+    expect(S.fairFight(even, giant)).toBe(3)
+  })
+
+  it('scores the sum of square ROOTS, so splits matter at equal totals', () => {
+    const lopsided = { total: 4e9, str: 4e9, spd: 0, def: 0, dex: 0 }
+    expect(S.statScore(lopsided)).toBeLessThan(S.statScore(even))
+  })
+
+  it('assumes an even split when only a total is known', () => {
+    expect(S.statScore({ total: 4e9 })).toBeCloseTo(2 * Math.sqrt(4e9), 5)
+  })
+
+  it('⚠️ is null — never a number — when either side is unknown', () => {
+    // FF drives target selection. Inventing one sends someone at a target
+    // that pays nothing.
+    expect(S.fairFight(null, even)).toBeNull()
+    expect(S.fairFight(even, null)).toBeNull()
+    expect(S.fairFight({ total: 0 }, even)).toBeNull()
+  })
+})
+
+// ⚠️ NOT UNIT-TESTED, deliberately: rowOf() and headerFor() traverse a real
+// DOM, and this repo has no DOM test environment — all 63 frontend suites are
+// pure logic under `environment: 'node'`. Hand-rolling a fake `closest()` would
+// test the fake, not the selectors.
+//
+// Both have already been wrong once, and neither failed loudly:
+//   - rowOf used `[class*="row"]`, which matches Torn's `rowSection___wdqaD`
+//     INSIDE the name cell, so every column rendered on top of the player name.
+//   - headerFor looked for `.table-header`; Torn's war header is
+//     `<div class="white-grad c-pointer">` and carries no such class, so the
+//     columns went unheaded.
+// Both are now pinned to the markup captured on 2026-08-19 and verified in the
+// browser. Changing either means checking a live war page again.

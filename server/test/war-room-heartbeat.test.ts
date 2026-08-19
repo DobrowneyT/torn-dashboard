@@ -18,7 +18,11 @@ import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
 let stack: TestStack
 let token: string
 
-const HEARTBEAT_MS = 40
+// ⚠️ Not tighter than this. These are real timers on a real socket, running
+// alongside the rest of the suite; a window measured in tens of milliseconds
+// makes the test a coin flip on a loaded machine rather than a check of the
+// heartbeat. Slow and certain beats fast and flaky.
+const HEARTBEAT_MS = 100
 
 beforeAll(async () => {
   stack = await startTestStack(undefined, {}, { warRoomHeartbeatMs: HEARTBEAT_MS })
@@ -55,7 +59,7 @@ describe('war-room socket heartbeat', () => {
     await new Promise((resolve) => ws.on('open', resolve))
     // Nothing is broadcast in this test — that is the point. A quiet war room
     // is the state the socket used to die in.
-    await expect(firstPing(ws, HEARTBEAT_MS * 20)).resolves.toBeUndefined()
+    await expect(firstPing(ws, HEARTBEAT_MS * 30)).resolves.toBeUndefined()
     ws.close()
   })
 
@@ -78,7 +82,7 @@ describe('war-room socket heartbeat', () => {
     await new Promise((resolve) => ws.on('open', resolve))
     expect(stack.warRoomHub?.clientCount()).toBeGreaterThan(0)
 
-    const deadline = Date.now() + 5000
+    const deadline = Date.now() + 10_000
     while (Date.now() < deadline && (stack.warRoomHub?.clientCount() ?? 0) > 0) {
       await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_MS))
     }

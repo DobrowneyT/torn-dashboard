@@ -304,3 +304,68 @@ describe('war-room ticker', () => {
     expect(stack.torn.hits()).toBeGreaterThan(before)
   })
 })
+
+describe('a full snapshot omits tombstones', () => {
+  // ⚠️ Neither war_room_state_v2 nor war_room_dibs_v2 is ever pruned, so a
+  // snapshot that carried tombstones shipped the faction's entire war history
+  // on every first load. On forge, 2026-08-19: 2627 dib rows to describe ONE
+  // live claim, 672 roster rows for 194 live members, 2.1s to first paint
+  // against 300ms for the deltas that followed.
+  //
+  // A tombstone cancels a row the client already holds. A client with no prior
+  // state has nothing to cancel, which is exactly what "no since" means.
+
+  beforeAll(async () => {
+    await stack.db.query(`
+      INSERT INTO war_room_dibs_v2 (target_id, claimed_by, claimed_name, deleted_at)
+      VALUES (90777, 1300, 'Member', now())
+    `)
+    await stack.db.query(`
+      INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, deleted_at)
+      VALUES (90778, ${ENEMY}, 'DepartedEnemy', now())
+    `)
+    // Live counterparts of our own, rather than leaning on rows the earlier
+    // tests in this file have since tombstoned.
+    await stack.db.query(`
+      INSERT INTO war_room_dibs_v2 (target_id, claimed_by, claimed_name)
+      VALUES (90779, 1300, 'Member')
+    `)
+    await stack.db.query(`
+      INSERT INTO war_room_state_v2 (member_id, faction_id, member_name)
+      VALUES (90780, ${ENEMY}, 'LiveEnemy')
+    `)
+  })
+
+  it('leaves released dibs out of the snapshot', async () => {
+    const { body } = await get('/api/war-room/delta')
+    expect(body.dibs.rows.map((r: any) => Number(r.target_id))).not.toContain(90777)
+  })
+
+  it('leaves departed members out of the snapshot', async () => {
+    const { body } = await get('/api/war-room/delta')
+    expect(body.state.rows.map((r: any) => Number(r.member_id))).not.toContain(90778)
+  })
+
+  it('still returns the live rows', async () => {
+    const { body } = await get('/api/war-room/delta')
+    expect(body.dibs.rows.map((r: any) => Number(r.target_id))).toContain(90779)
+    expect(body.state.rows.map((r: any) => Number(r.member_id))).toContain(90780)
+  })
+
+  it('⚠️ STILL carries tombstones in a delta, where they are the whole point', async () => {
+    // The mirror test. Dropping them here instead would leave released dibs
+    // painted on every open client until it reloaded.
+    const before = new Date(Date.now() - 60_000).toISOString()
+    const { body } = await get(`/api/war-room/delta?since=${encodeURIComponent(before)}`)
+    expect(body.dibs.rows.map((r: any) => Number(r.target_id))).toContain(90777)
+    expect(body.state.rows.map((r: any) => Number(r.member_id))).toContain(90778)
+  })
+
+  it('does not break channels that have no deleted_at column', async () => {
+    // config/chain/memberstats are not soft-deletable; filtering them would be
+    // a SQL error rather than a no-op.
+    const { body } = await get('/api/war-room/delta')
+    expect(body.config.rows.length).toBeGreaterThan(0)
+    expect(body.chain.rows.length).toBeGreaterThan(0)
+  })
+})

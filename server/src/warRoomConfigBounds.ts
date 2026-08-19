@@ -21,13 +21,15 @@ export interface Bounds {
  * CONFIG_COLUMNS in warRoomSetup.ts.
  */
 export const CONFIG_BOUNDS: Record<string, Bounds> = {
-  // The #260 floor. These are integer seconds, so 1s is the practical minimum
-  // and is comfortably above the 0.5s safety floor the UI refresh uses.
-  chain_poll_interval_ours_sec: { min: 1, max: 600 },
-  chain_poll_interval_enemy_sec: { min: 1, max: 600 },
+  // The #260 floor, now with 0 as a real "off". `min` is 0 so a plain clamp
+  // cannot rewrite a deliberate 0 into the fastest cadence; ZERO_OR_FLOOR
+  // below carries the real 1s floor for any ENABLED value.
+  chain_poll_interval_ours_sec: { min: 0, max: 600 },
+  chain_poll_interval_enemy_sec: { min: 0, max: 600 },
 
-  // A dib that expires almost instantly is indistinguishable from no dibs.
-  dibs_expiry_seconds: { min: 5, max: 600 },
+  // 0 disables auto-drop entirely; any enabled window floors at 5s, because a
+  // dib that expires almost instantly is indistinguishable from no dibs.
+  dibs_expiry_seconds: { min: 0, max: 600 },
 
   // PUSH-surge alerts (#208). A 0-threshold or 0-window would alert on
   // everything and spam every subscribed member's phone.
@@ -70,9 +72,16 @@ export const CONFIG_BOUNDS: Record<string, Bounds> = {
  * operator's deliberate 0 into the fastest allowed cadence — the exact
  * opposite of the intent, and silently.
  */
-const ZERO_OR_FLOOR: Record<string, number> = {
+export const ZERO_OR_FLOOR: Record<string, number> = {
   member_stats_poll_interval_sec: 30,
   roster_poll_interval_ms: 500,
+  // 0 = never poll the chain. Leads turn these off outside a chain rather than
+  // spend Torn calls on a counter nobody is watching.
+  chain_poll_interval_ours_sec: 1,
+  chain_poll_interval_enemy_sec: 1,
+  // 0 = dibs never auto-drop; a claim stands until it is released or the
+  // target is hospitalised.
+  dibs_expiry_seconds: 5,
 }
 
 export type ClampResult =

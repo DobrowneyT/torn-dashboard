@@ -81,6 +81,7 @@ import BattleStatsCell from '../components/BattleStatsCell'
 import {
   fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
 } from '../utils/fairFight'
+import { clampCadence } from '../utils/warRoomCadence.js'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -1042,32 +1043,37 @@ function ConfigPanel({
   }
 
   // Chain poll cadences — how often the cron fetches /v2/faction/{id}/chain.
-  // Ours defaults to 5s (we care a lot), enemy 30s (intel only). Both clamp
-  // server-side to [1, 600]s in the Edge Function. Same commit-on-blur pattern.
+  // Ours defaults to 5s (we care a lot), enemy 30s (intel only).
+  //
+  // ⚠️ 0 means OFF and must survive as 0. `Number(x) || 5` cannot express that
+  // — 0 is falsy, so a deliberate "off" came back as the default and the field
+  // silently reverted in front of the operator. All three cadences below had
+  // the same bug. Server-side the range is non-contiguous: 0, or [floor, 600].
   const [chainOursSec,  setChainOursSec]  = useState(String(config?.chain_poll_interval_ours_sec  ?? 5))
   const [chainEnemySec, setChainEnemySec] = useState(String(config?.chain_poll_interval_enemy_sec ?? 30))
   useEffect(() => { setChainOursSec(String(config?.chain_poll_interval_ours_sec  ?? 5)) },  [config?.chain_poll_interval_ours_sec])
   useEffect(() => { setChainEnemySec(String(config?.chain_poll_interval_enemy_sec ?? 30)) }, [config?.chain_poll_interval_enemy_sec])
   async function commitChainOurs() {
-    const next = Math.min(600, Math.max(1, Math.floor(Number(chainOursSec) || 5)))
+    const next = clampCadence(chainOursSec, 5, 1)
     if (next === (config?.chain_poll_interval_ours_sec ?? 5)) return
     try { await onSaveReviveService({ chain_poll_interval_ours_sec: next });  setMsg({ ok: true, text: `Our chain poll set to ${next}s.` }) }
     catch (e) { setMsg({ ok: false, text: e.message }) }
   }
   async function commitChainEnemy() {
-    const next = Math.min(600, Math.max(1, Math.floor(Number(chainEnemySec) || 30)))
+    const next = clampCadence(chainEnemySec, 30, 1)
     if (next === (config?.chain_poll_interval_enemy_sec ?? 30)) return
     try { await onSaveReviveService({ chain_poll_interval_enemy_sec: next }); setMsg({ ok: true, text: `Enemy chain poll set to ${next}s.` }) }
     catch (e) { setMsg({ ok: false, text: e.message }) }
   }
 
   // Dibs auto-drop window (#159): a claim on an already-alive target releases
-  // this many seconds later if the holder still hasn't killed them. Default 30s,
-  // clamped [5, 600]s. Same commit-on-blur pattern as the chain cadences.
+  // this many seconds later if the holder still hasn't killed them. Default
+  // 30s; 0 turns auto-drop off, and a claim then stands until it is released
+  // or the target is hospitalised. Otherwise [5, 600]s.
   const [dibsExpirySec, setDibsExpirySec] = useState(String(config?.dibs_expiry_seconds ?? 30))
   useEffect(() => { setDibsExpirySec(String(config?.dibs_expiry_seconds ?? 30)) }, [config?.dibs_expiry_seconds])
   async function commitDibsExpiry() {
-    const next = Math.min(600, Math.max(5, Math.floor(Number(dibsExpirySec) || 30)))
+    const next = clampCadence(dibsExpirySec, 30, 5)
     if (next === (config?.dibs_expiry_seconds ?? 30)) return
     try { await onSaveReviveService({ dibs_expiry_seconds: next }); setMsg({ ok: true, text: `Dibs auto-drop set to ${next}s.` }) }
     catch (e) { setMsg({ ok: false, text: e.message }) }
