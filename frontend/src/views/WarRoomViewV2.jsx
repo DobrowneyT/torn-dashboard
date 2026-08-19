@@ -79,9 +79,9 @@ import { isTourSeen, markTourSeen, resetTourSeen } from '../utils/warRoomTour'
 import { parseStatInput, formatStats } from '../utils/statInput'
 import BattleStatsCell from '../components/BattleStatsCell'
 import {
-import { clampCadence } from '../utils/warRoomCadence.js'
   fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
 } from '../utils/fairFight'
+import { clampCadence } from '../utils/warRoomCadence.js'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat

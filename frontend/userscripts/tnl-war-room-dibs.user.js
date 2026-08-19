@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.7.0
+// @version      1.8.0
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -81,6 +81,8 @@ const TNLDibs = (function () {
   const BADGE_CLASS = 'tnl-dibs-badge'
   const STAT_CLASS = 'tnl-dibs-bs'
   const STAT_HEAD_CLASS = 'tnl-dibs-bs-head'
+  const DIBS_CELL_CLASS = 'tnl-dibs-cell'
+  const DIBS_HEAD_CLASS = 'tnl-dibs-cell-head'
   /** FF at which a target is worth pulling the eye across the table. */
   const FF_HIGHLIGHT = 2.5
   const DEBUG_KEY = 'tnl-dibs-debug'
@@ -187,19 +189,63 @@ const TNLDibs = (function () {
   }
 
   /**
-   * A stat total as Torn writes it: 9.7B, 14.5B, 812M.
+   * A stat total, formatted EXACTLY as the War Room formats it.
    *
-   * Three significant figures below 100 and none above, which is what keeps a
-   * column of these the same width and readable at a glance.
+   * ⚠️ Two decimals, and `???` — not `N/A`, not `0` — for an absent reading.
+   * This is a straight copy of formatStats() in frontend/src/utils/statInput.js
+   * and must stay one: a member reading 3.99B on the dashboard and 4.0B here
+   * has to wonder which screen is lying, and that doubt costs more than the
+   * duplication does.
    */
   function formatStat(n) {
+    if (n === null || n === undefined) return '???'
     const v = Number(n)
-    if (!Number.isFinite(v) || v <= 0) return 'N/A'
-    const units = ['', 'K', 'M', 'B', 'T', 'Q']
-    let scaled = v
-    let unit = 0
-    while (scaled >= 1000 && unit < units.length - 1) { scaled /= 1000; unit++ }
-    return `${scaled >= 100 ? Math.round(scaled) : scaled.toFixed(1)}${units[unit]}`
+    if (!Number.isFinite(v)) return '???'
+    if (v >= 1_000_000_000_000) return (v / 1_000_000_000_000).toFixed(2) + 'T'
+    if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(2) + 'B'
+    if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M'
+    if (v >= 1_000) return (v / 1_000).toFixed(1) + 'K'
+    return String(v)
+  }
+
+  /**
+   * A Postgres timestamp, parsed.
+   *
+   * ⚠️ THE #140 TRAP. Postgres serialises timestamptz with a bare "+00" offset
+   * — "2026-08-01T12:00:00+00" — which `new Date()` rejects outright. The
+   * userscript's first tooltip said "spied Invalid Date" for every single
+   * member because of exactly this, and the dashboard hit it once before.
+   * Copied from parseDbTime() in frontend/src/utils/time.js.
+   */
+  function parseDbTime(ts) {
+    if (!ts) return null
+    let str = String(ts)
+    str = str.replace(/([+-]\d{2})$/, '$1:00')
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(str)) str += 'Z'
+    const d = new Date(str)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+
+  /** Relative age, or an em dash. Mirrors fmtAgo() in utils/time.js. */
+  function fmtAgo(ts, nowMs = Date.now()) {
+    const d = parseDbTime(ts)
+    if (!d) return '—'
+    const diff = Math.floor((nowMs - d.getTime()) / 1000)
+    if (diff < 60) return 'just now'
+    if (diff < 3_600) return `${Math.floor(diff / 60)}m ago`
+    if (diff < 86_400) return `${Math.floor(diff / 3_600)}h ago`
+    return `${Math.floor(diff / 86_400)}d ago`
+  }
+
+  /**
+   * Which source a figure came from.
+   *
+   * ⚠️ An unknown source falls back to the WEAKEST claim, never the strongest.
+   * Enemy rows carry no source at all, and calling an estimate "OWN" would
+   * have a lead size up a target against a number nobody ever measured.
+   */
+  function statsSourceLabel(source) {
+    return { torn: 'OWN', tornstats: 'TS', bsp: 'BSP' }[source] ?? 'BSP'
   }
 
   /**
@@ -263,18 +309,31 @@ const TNLDibs = (function () {
     return Math.min(3, 1 + (8 / 3) * (defender / attacker))
   }
 
-  /** The battle stats carried on a war_room_state_v2 row. */
+  /**
+   * The battle stats carried on a war_room_state_v2 row.
+   *
+   * Returns a shape even when the total is unknown, so the cell can render the
+   * War Room's dim `???` rather than vanishing — an empty cell reads as "this
+   * script is broken", a `???` reads as "nobody has spied them".
+   */
   function rowStats(row) {
     if (!row) return null
-    const total = Number(row.bsp_total)
-    if (!Number.isFinite(total) || total <= 0) return null
+    const num = (v) => {
+      if (v === null || v === undefined || v === '') return null
+      const n = Number(v)
+      return Number.isFinite(n) ? n : null
+    }
+    const isTs = row.spy_source === 'tornstats'
     return {
-      total,
-      str: Number(row.bsp_str) || null,
-      spd: Number(row.bsp_spd) || null,
-      def: Number(row.bsp_def) || null,
-      dex: Number(row.bsp_dex) || null,
-      spiedAt: row.ts_spy_at ?? row.bsp_fetched_at ?? null,
+      total: num(row.bsp_total),
+      str: num(row.bsp_str),
+      spd: num(row.bsp_spd),
+      def: num(row.bsp_def),
+      dex: num(row.bsp_dex),
+      source: row.spy_source ?? null,
+      // ts_spy_at is when the SPY happened; bsp_fetched_at is when we polled.
+      // Only a TornStats row has a real spy time; the rest date from the fetch.
+      spiedAt: (isTs && row.ts_spy_at) ? row.ts_spy_at : (row.bsp_fetched_at ?? row.ts_spy_at ?? null),
     }
   }
 
@@ -757,7 +816,7 @@ const TNLDibs = (function () {
     badge.style.cssText = [
       'position:relative', 'z-index:2147483000', 'isolation:isolate',
       'pointer-events:auto', 'display:inline-block',
-      'margin-right:6px', 'padding:3px 9px', 'font-size:11px', 'font-weight:700',
+      'padding:3px 9px', 'font-size:11px', 'font-weight:700',
       'border-radius:10px', 'border:1px solid rgba(255,255,255,.3)', 'cursor:pointer',
       'vertical-align:middle', 'line-height:16px', 'white-space:nowrap',
       // Wide enough for a name, capped so it cannot shove Attack off the row.
@@ -775,14 +834,60 @@ const TNLDibs = (function () {
       render()
     })
 
-    // Beside Attack, because that is the order the decision is made in: read
-    // the stats, take the dib, hit. Falling back to the name cell keeps the
-    // control reachable if Torn renames the attack cell out from under us —
-    // in the wrong place beats absent.
-    const attack = attackCellOf(row)
-    if (attack) attack.insertBefore(badge, attack.firstChild)
-    else anchor.parentElement?.appendChild(badge)
+    // ⚠️ Its OWN cell, not inside Attack's. Sharing that cell made the control
+    // overlap the Attack link and the stats beside it — Torn's cells are
+    // fixed-width and a 64px button does not fit in one that was sized for the
+    // word "Attack". A column of our own is also what the War Room does.
+    dibsCellOf(row).appendChild(badge)
     return badge
+  }
+
+  /**
+   * A column of ours, inserted immediately left of Attack with a header.
+   *
+   * Anchored to the Attack cell rather than to member icons or a position:
+   * Attack is the one cell every one of these tables has, and its class name
+   * is the only one on the row that has stayed put. Everything else on the war
+   * page is a hashed per-build name.
+   */
+  function ourColumn(row, cellClass, headClass, headText, width) {
+    let cell = row.querySelector(`.${cellClass}`)
+    if (cell) return cell
+
+    const header = headerFor(row)
+    if (header && !header.querySelector(`.${headClass}`)) {
+      const before = attackHeaderCell(header)
+      const head = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
+      head.className = `table-cell ${headClass}`
+      head.textContent = headText
+      head.style.cssText = `min-width:${width}px;text-align:center;white-space:nowrap`
+      if (before) before.parentNode.insertBefore(head, before)
+      else header.appendChild(head)
+      log(`${headText} header added${before ? ' before Attack' : ' at the end (no Attack header found)'}`)
+    }
+
+    cell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
+    cell.className = `table-cell ${cellClass}`
+    cell.style.cssText = [
+      'position:relative', 'z-index:1', `min-width:${width}px`, 'text-align:center',
+      'white-space:nowrap', 'display:inline-block', 'padding:0 4px',
+    ].join(';')
+    const attack = attackCellOf(row)
+    if (attack) attack.parentNode.insertBefore(cell, attack)
+    else row.appendChild(cell)
+    return cell
+  }
+
+  function statCellOf(row) {
+    const cell = ourColumn(row, STAT_CLASS, STAT_HEAD_CLASS, 'BS', 64)
+    cell.style.fontSize = '11px'
+    cell.style.fontWeight = '700'
+    cell.style.cursor = 'help'
+    return cell
+  }
+
+  function dibsCellOf(row) {
+    return ourColumn(row, DIBS_CELL_CLASS, DIBS_HEAD_CLASS, 'DIBS', 76)
   }
 
   /** Colour for the stat that dominates a build. Matches Wall Battlestats. */
@@ -816,81 +921,86 @@ const TNLDibs = (function () {
   }
 
   /**
-   * Give the table a `BS` header once, so our column reads as one of Torn's
-   * rather than as a stray value floating in a row.
+   * The header row of the table a war row belongs to.
+   *
+   * ⚠️ Found by walking up to a container and looking for Torn's own header
+   * class, NOT by assuming a position. The war page renders several of these
+   * tables (your side, their side) and the header is sometimes a child of the
+   * list and sometimes its previous sibling, depending on which view rendered.
    */
-  function ensureStatHeader(row) {
-    const header = headerFor(row)
-    if (!header || header.querySelector(`.${STAT_HEAD_CLASS}`)) return
-    const before = attackHeaderCell(header)
-    const cell = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
-    cell.className = `table-cell ${STAT_HEAD_CLASS}`
-    cell.textContent = 'BS'
-    cell.style.cssText = [
-      'min-width:58px', 'text-align:center', 'white-space:nowrap',
-    ].join(';')
-    if (before) before.parentNode.insertBefore(cell, before)
-    else header.appendChild(cell)
-    log(`BS header added${before ? ' before the Attack column' : ' at the end (no Attack header found)'}`)
+  function headerFor(row) {
+    const scope = row.closest('.f-war-list, .faction-war, .faction-info-wrap, ul, table') ?? row.parentElement
+    if (!scope) return null
+    return scope.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
+  }
+
+  /** The cell in a header (or row) that belongs to the Attack column. */
+  function attackHeaderCell(header) {
+    if (!header) return null
+    const direct = header.querySelector('.attack, [class*="attack__"], [class*="attack___"]')
+    if (direct) return direct
+    // Fall back to matching the word, since the header cell is sometimes a
+    // plain div with no distinguishing class at all.
+    for (const cell of header.children) {
+      if ((cell.textContent || '').trim().toLowerCase() === 'attack') return cell
+    }
+    return null
   }
 
   /**
-   * The BS cell for a row, immediately LEFT of the Attack column.
+   * Paint one member's stats, the way the War Room paints them.
    *
-   * Anchored to Attack rather than to the member icons: that is where the eye
-   * already goes to act, and it is the one cell every one of these tables has.
-   */
-  function statCellOf(row) {
-    let cell = row.querySelector(`.${STAT_CLASS}`)
-    if (cell) return cell
-    ensureStatHeader(row)
-    cell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
-    cell.className = `table-cell ${STAT_CLASS}`
-    cell.style.cssText = [
-      'position:relative', 'z-index:1', 'min-width:58px', 'text-align:center',
-      'font-size:11px', 'font-weight:700', 'white-space:nowrap', 'cursor:default',
-      'display:inline-block', 'padding:0 4px', 'border-radius:4px',
-    ].join(';')
-    const attack = attackCellOf(row)
-    if (attack) attack.parentNode.insertBefore(cell, attack)
-    else row.appendChild(cell)
-    return cell
-  }
-
-  /**
-   * Paint one member's stats.
+   * Total in the cell; hover gives the per-stat breakdown when we have one,
+   * the total, and "{age} ({SOURCE})" so a lead can see how much to trust it.
+   * A BSP row usually has no breakdown, so it shows Total + source alone —
+   * the same behaviour as BattleStatsCell rather than four rows of N/A.
    *
-   * The figure is the total; the colour says the build is lopsided and which
-   * way; the border says this one is worth hitting. FF is the number that
-   * decides that, so it leads the tooltip.
+   * ⚠️ Exact and estimated readings must not look identical. An own-key figure
+   * is measured; TornStats and BSP are guesses of varying age. The dashboard
+   * marks that with a solid vs dotted underline, so this does too.
    */
   function paintStats(cell, playerId) {
     const stats = rt.stats.get(playerId)
-    if (!stats) {
-      cell.textContent = 'N/A'
+    if (!stats || stats.total === null) {
+      cell.textContent = '???'
       cell.style.color = '#6b7280'
-      cell.style.border = ''
-      cell.title = 'No spy on record'
+      cell.style.fontStyle = 'italic'
+      cell.style.textDecoration = 'none'
+      cell.style.border = '1px solid transparent'
+      cell.title = 'No battle stats on record'
       return
     }
-    const dominant = dominantStat(stats)
+
+    cell.style.fontStyle = 'normal'
     cell.textContent = formatStat(stats.total)
+
+    const dominant = dominantStat(stats)
     cell.style.color = dominant ? STAT_COLORS[dominant] : '#e5e7eb'
 
+    const exact = stats.source === 'torn'
+    cell.style.textDecoration = 'underline'
+    cell.style.textDecorationStyle = exact ? 'solid' : 'dotted'
+    cell.style.textUnderlineOffset = '2px'
+    cell.style.textDecorationColor = exact ? 'rgba(16,185,129,.7)' : 'rgba(148,163,184,.7)'
+
     const ff = fairFight(rt.mine, stats)
-    // ⚠️ FF_HIGHLIGHT, not "any FF". Every target has an FF; only one worth
-    // more than about 2.5× respect deserves to pull the eye across the table.
     cell.style.border = ff !== null && ff >= FF_HIGHLIGHT
       ? '1px solid #86efac'
       : '1px solid transparent'
 
-    const line = (label, v) => `${label} ${formatStat(v)}`
+    // Breakdown rows only where we actually have one, exactly as the War Room
+    // does — four lines of "N/A" is noise pretending to be data.
+    const breakdown = [['STR', stats.str], ['DEF', stats.def], ['SPD', stats.spd], ['DEX', stats.dex]]
+      .filter(([, v]) => v !== null)
+      .map(([label, v]) => `${label}  ${formatStat(v)}`)
+
     cell.title = [
-      `FF ${ff === null ? '—' : ff.toFixed(2)}`,
-      line('STR', stats.str), line('DEF', stats.def),
-      line('SPD', stats.spd), line('DEX', stats.dex),
-      stats.spiedAt ? `spied ${new Date(stats.spiedAt).toLocaleDateString()}` : 'spy date unknown',
-    ].join('\n')
+      ff === null ? 'FF —' : `FF ${ff.toFixed(2)}`,
+      ...breakdown,
+      `Total ${formatStat(stats.total)}`,
+      `${fmtAgo(stats.spiedAt)} (${statsSourceLabel(stats.source)})`,
+      exact ? 'Exact — read from their own key' : '',
+    ].filter(Boolean).join('\n')
   }
 
   function render() {
@@ -1219,6 +1329,7 @@ const TNLDibs = (function () {
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,
+    parseDbTime, fmtAgo, statsSourceLabel,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
   }
 })()

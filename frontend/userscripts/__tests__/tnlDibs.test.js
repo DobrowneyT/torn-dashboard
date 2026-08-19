@@ -859,31 +859,115 @@ describe('battle stats come off the roster we already poll', () => {
     })).toMatchObject({ total: 9_700_000_000, str: 3e9, spiedAt: '2026-08-01T00:00:00Z' })
   })
 
-  it('⚠️ treats an unspied member as unknown, not as zero', () => {
-    // Number(null) is 0, and a 0 total would render "N/A" by accident today
-    // and sort to the bottom as a real value tomorrow.
-    expect(S.rowStats({ member_id: 1, bsp_total: null })).toBeNull()
-    expect(S.rowStats({ member_id: 1, bsp_total: 0 })).toBeNull()
+  it('⚠️ keeps an unspied member, with a null total', () => {
+    // Returning null for the whole row made the cell vanish, which reads as a
+    // broken script. A row with total: null lets the cell say `???` — the
+    // dashboard's word for "nobody has spied them".
+    expect(S.rowStats({ member_id: 1, bsp_total: null })).toMatchObject({ total: null })
     expect(S.rowStats(null)).toBeNull()
+  })
+
+  it('⚠️ prefers the SPY time over the fetch time, but only for TornStats', () => {
+    // ts_spy_at is when the spy happened; bsp_fetched_at is when we polled.
+    // Only a TornStats row has a real spy time — dating a BSP estimate by
+    // someone else's spy would overstate how fresh it is.
+    expect(S.rowStats({
+      bsp_total: 1e9, spy_source: 'tornstats',
+      ts_spy_at: '2026-08-01T00:00:00+00', bsp_fetched_at: '2026-08-19T00:00:00+00',
+    }).spiedAt).toBe('2026-08-01T00:00:00+00')
+
+    expect(S.rowStats({
+      bsp_total: 1e9, spy_source: 'bsp',
+      ts_spy_at: '2026-08-01T00:00:00+00', bsp_fetched_at: '2026-08-19T00:00:00+00',
+    }).spiedAt).toBe('2026-08-19T00:00:00+00')
+  })
+
+  it('carries the source through so the tooltip can name it', () => {
+    expect(S.rowStats({ bsp_total: 1e9, spy_source: 'torn' }).source).toBe('torn')
+    expect(S.rowStats({ bsp_total: 1e9 }).source).toBeNull()
   })
 })
 
-describe('formatStat', () => {
-  it('writes totals the way Torn does', () => {
-    expect(S.formatStat(9_700_000_000)).toBe('9.7B')
-    expect(S.formatStat(14_500_000_000)).toBe('14.5B')
-    expect(S.formatStat(812_000_000)).toBe('812M')
+describe('formatStat matches the War Room exactly', () => {
+  // ⚠️ A member reading 3.99B on the dashboard and 4.0B on Torn has to wonder
+  // which screen is lying. These pin the copy to formatStats() in
+  // frontend/src/utils/statInput.js — two decimals, and `???` for absent.
+
+  it('uses two decimals, as the dashboard does', () => {
+    expect(S.formatStat(3_990_000_000)).toBe('3.99B')
+    expect(S.formatStat(9_700_000_000)).toBe('9.70B')
+    expect(S.formatStat(1_060_000_000)).toBe('1.06B')
+    expect(S.formatStat(812_000_000)).toBe('812.00M')
   })
 
-  it('drops the decimal above 100 so the column stays one width', () => {
-    expect(S.formatStat(812_400_000)).toBe('812M')
-    expect(S.formatStat(1_240_000_000)).toBe('1.2B')
+  it('⚠️ says ??? for an absent reading, not N/A and not 0', () => {
+    // `???` is the dashboard's word for "nobody has spied them". An empty cell
+    // or a 0 reads as a broken script instead.
+    expect(S.formatStat(null)).toBe('???')
+    expect(S.formatStat(undefined)).toBe('???')
+    expect(S.formatStat('nonsense')).toBe('???')
   })
 
-  it('says N/A rather than 0 for a missing stat', () => {
-    expect(S.formatStat(null)).toBe('N/A')
-    expect(S.formatStat(0)).toBe('N/A')
-    expect(S.formatStat(undefined)).toBe('N/A')
+  it('renders a genuine zero as zero', () => {
+    expect(S.formatStat(0)).toBe('0')
+  })
+})
+
+describe('parseDbTime — the #140 trap', () => {
+  // ⚠️ Postgres serialises timestamptz with a BARE "+00" offset, which
+  // `new Date()` rejects outright. The first tooltip said "spied Invalid Date"
+  // for every member because of exactly this. The dashboard hit it once before
+  // and fixed it in utils/time.js; this is the same fix.
+
+  it('parses the bare +00 offset Postgres emits', () => {
+    expect(S.fmtAgo('2026-08-19T09:00:00+00', Date.parse('2026-08-19T10:00:00Z')))
+      .toBe('1h ago')
+  })
+
+  it('parses a fractional-second bare offset', () => {
+    // Deliberately not sitting on a minute boundary: the microseconds push
+    // this to 59m59s, and asserting "1h ago" would be testing the rounding
+    // rather than the parse.
+    const parsed = S.parseDbTime('2026-08-19T09:00:00.123456+00')
+    expect(parsed).toBeInstanceOf(Date)
+    expect(parsed.toISOString()).toBe('2026-08-19T09:00:00.123Z')
+    expect(S.fmtAgo('2026-08-19T09:00:00.123456+00', Date.parse('2026-08-19T11:00:00Z')))
+      .toBe('1h ago')
+  })
+
+  it('treats an offsetless timestamp as UTC', () => {
+    expect(S.fmtAgo('2026-08-19T09:00:00', Date.parse('2026-08-19T10:00:00Z')))
+      .toBe('1h ago')
+  })
+
+  it('⚠️ gives a dash, never "Invalid Date", for junk or absence', () => {
+    expect(S.fmtAgo(null)).toBe('—')
+    expect(S.fmtAgo('not a date')).toBe('—')
+    expect(S.fmtAgo(undefined)).toBe('—')
+  })
+
+  it('reads the same scale as the dashboard', () => {
+    const now = Date.parse('2026-08-19T10:00:00Z')
+    expect(S.fmtAgo('2026-08-19T09:59:30+00', now)).toBe('just now')
+    expect(S.fmtAgo('2026-08-19T09:30:00+00', now)).toBe('30m ago')
+    expect(S.fmtAgo('2026-08-16T10:00:00+00', now)).toBe('3d ago')
+  })
+})
+
+describe('statsSourceLabel', () => {
+  it('names the three sources as the dashboard does', () => {
+    expect(S.statsSourceLabel('torn')).toBe('OWN')
+    expect(S.statsSourceLabel('tornstats')).toBe('TS')
+    expect(S.statsSourceLabel('bsp')).toBe('BSP')
+  })
+
+  it('⚠️ falls back to the WEAKEST claim for an unknown source', () => {
+    // Enemy rows carry no source. Calling an estimate "OWN" would have a lead
+    // size up a target against a number nobody ever measured; under-claiming
+    // is the safe error.
+    expect(S.statsSourceLabel(null)).toBe('BSP')
+    expect(S.statsSourceLabel(undefined)).toBe('BSP')
+    expect(S.statsSourceLabel('something-new')).toBe('BSP')
   })
 })
 
