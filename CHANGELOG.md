@@ -36,6 +36,15 @@ from `VERSION` at runtime) both surface it automatically.
   the list.
 
 ### Fixed
+- **Userscript: names render as text, so activity tinting is visible.** Torn draws
+  the name as a decorative honor-bar image with a text twin alongside; the gradient
+  had nothing to land on. The image is now hidden and the text shown — but only on
+  rows where the text twin was actually found, so a row can never end up nameless.
+  Torn's own online dot is hidden while we tint, which also buys back its width.
+- **Userscript: the battle-stat total is capped at five characters.** Three
+  significant digits — `1.23B`, `12.3B`, `123B` — so it stops spilling out of the
+  column. The tooltip still shows the full dashboard figure.
+- **Userscript: the dibs control and the stat total sit on the row's centre line.**
 - **Userscript: clicking a battle-stat total opens the fight again.** Torn retired
   `loader.php` for attacks — it now answers with a JSON error — so the link goes to
   `page.php?sid=attack&user2ID=…`.

@@ -1929,3 +1929,70 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
     expect(sheet).not.toContain('data-tnl-tip]:hover::after')
   })
 })
+
+describe('formatStatShort', () => {
+  it('⚠️ never exceeds five characters, whatever the magnitude', () => {
+    // The column has room for five and the number was spilling out of it.
+    // Three significant digits keeps the width fixed: 1.23B, 12.3B, 123B.
+    for (const v of [1, 950, 1234, 156_340_000, 1_234_567_890, 12_340_000_000,
+                     123_400_000_000, 999_999_999_999]) {
+      expect(S.formatStatShort(v).length, String(v)).toBeLessThanOrEqual(5)
+    }
+  })
+
+  it('holds three significant digits across the decades', () => {
+    expect(S.formatStatShort(1_234_567_890)).toBe('1.23B')
+    expect(S.formatStatShort(12_340_000_000)).toBe('12.3B')
+    expect(S.formatStatShort(123_400_000_000)).toBe('123B')
+    expect(S.formatStatShort(156_340_000)).toBe('156M')
+  })
+
+  it('⚠️ carries into the next unit when rounding pushes past 999', () => {
+    // 999.6M is 1.00B, not "1000M" — which is six characters and reads wrong.
+    // The first implementation recursed here instead of promoting, and hung.
+    expect(S.formatStatShort(999_600_000)).toBe('1.00B')
+    expect(S.formatStatShort(999_999_999_999)).toBe('1.00T')
+  })
+
+  it('leaves small numbers alone and reports an unknown as ???', () => {
+    expect(S.formatStatShort(950)).toBe('950')
+    expect(S.formatStatShort(0)).toBe('0')
+    expect(S.formatStatShort(null)).toBe('???')
+    expect(S.formatStatShort('nonsense')).toBe('???')
+  })
+
+  it('⚠️ does not replace formatStat, which the tooltip still uses', () => {
+    // formatStat is kept byte-identical to the dashboard's formatStats so the
+    // two screens never disagree. The compact form is for the column only, and
+    // the tooltip remains the place the exact dashboard figure is readable.
+    expect(S.formatStat(1_234_567_890)).toBe('1.23B')
+    expect(S.formatStat(156_340_000)).toBe('156.34M')
+    expect(S.statsTip({ total: 156_340_000, str: null, def: null, spd: null, dex: null, source: 'bsp' }, null))
+      .toContain('156.34M')
+  })
+})
+
+describe('the stylesheet handles Torn’s honor-bar names', () => {
+  const css = () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    return appended[0].textContent
+  }
+
+  it('hides the honor image and the SVG twin, showing the plain text', () => {
+    const sheet = css()
+    expect(sheet).toMatch(/tnl-plain-name img\s*\{\s*display: none/)
+    expect(sheet).toContain('honor-text-svg')
+    expect(sheet).toMatch(/honor-text:not\(\.honor-text-svg\)/)
+  })
+
+  it('drops Torn’s own online dot only while we are tinting names', () => {
+    expect(css()).toMatch(/html\.tnl-tinting \[class\*="userStatusWrap___"\]/)
+  })
+
+  it('centres both halves of the column on the row', () => {
+    const sheet = css()
+    expect(sheet).toMatch(/tnl-col-dibs[\s\S]*?align-items: center/)
+    expect(sheet).toMatch(/tnl-col-bs[\s\S]*?align-items: center/)
+  })
+})

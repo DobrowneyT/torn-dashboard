@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.15.0
+// @version      1.16.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -205,6 +205,38 @@ const TNLDibs = (function () {
     const defender = statScore(theirs)
     if (attacker === null || defender === null || attacker <= 0) return null
     return Math.min(3, 1 + (8 / 3) * (defender / attacker))
+  }
+
+  /**
+   * A stat total in at most 5 characters: 1.23B, 12.3B, 123B.
+   *
+   * Three significant digits, so the width is fixed whatever the magnitude.
+   * ⚠️ This is NOT formatStat() and must not replace it — formatStat is kept
+   * byte-identical to the dashboard's formatStats() so the two screens never
+   * disagree, and it is what the tooltip still shows. This one is for the
+   * column, where five characters is all there is.
+   */
+  function formatStatShort(n) {
+    if (n === null || n === undefined) return '???'
+    const v = Number(n)
+    if (!Number.isFinite(v)) return '???'
+    const units = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K'], [1, '']]
+    for (let i = 0; i < units.length; i++) {
+      const [scale, suffix] = units[i]
+      if (Math.abs(v) < scale) continue
+      const x = v / scale
+      const ax = Math.abs(x)
+      const digits = ax >= 100 ? 0 : ax >= 10 ? 1 : 2
+      const rounded = Number(x.toFixed(digits))
+      // ⚠️ Rounding can carry into the next unit — 999.6M is 1.00B, not 1000M,
+      // which would be six characters and the wrong number.
+      if (Math.abs(rounded) >= 1000 && i > 0) {
+        const [upScale, upSuffix] = units[i - 1]
+        return Number((v / upScale).toFixed(2)).toFixed(2) + upSuffix
+      }
+      return suffix === '' ? String(Math.round(v)) : rounded.toFixed(digits) + suffix
+    }
+    return String(Math.round(v))
   }
 
   /** Torn's direct-attack URL for a player. */
@@ -925,6 +957,10 @@ const TNLDibs = (function () {
   const STYLE_ID = 'tnl-dibs-style'
   const TIP_ID = 'tnl-dibs-tip'
   const NO_BS_CLASS = 'tnl-no-bs'
+  /** Set on a name wrap once we have confirmed a text version exists to show. */
+  const PLAIN_NAME_CLASS = 'tnl-plain-name'
+  /** Set on <html> while we own activity colour, so Torn's own dot can go. */
+  const TINTING_CLASS = 'tnl-tinting'
   /** Column hairline. Semi-transparent grey so it reads on Torn's light and dark. */
   const RULE = 'rgba(128,128,128,.35)'
   /** Marks a name we have tinted, so the tint can be lifted cleanly (#525). */
@@ -963,7 +999,7 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .${COL_CLASS}, .${COL_HEAD_CLASS} {
   width: ${COL_WIDTH}px; min-width: ${COL_WIDTH}px; max-width: ${COL_WIDTH}px;
   flex: 0 0 ${COL_WIDTH}px;
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; align-self: center; gap: 6px;
   box-sizing: border-box; padding: 0 4px;
   vertical-align: middle; white-space: nowrap;
   position: relative; z-index: 1;
@@ -976,12 +1012,16 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .${DIBS_SLOT_CLASS} {
   width: ${DIBS_WIDTH}px; min-width: ${DIBS_WIDTH}px; max-width: ${DIBS_WIDTH}px;
   flex: 0 0 ${DIBS_WIDTH}px;
-  text-align: left;
+  display: flex; align-items: center; justify-content: center;
+  align-self: stretch;
 }
 .${STAT_SLOT_CLASS} {
   flex: 1 1 auto; min-width: 0;
   position: relative; overflow: visible;
+  display: flex; align-items: center; justify-content: flex-end;
+  align-self: stretch;
   font-size: 11px; font-weight: 700; text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .${STAT_VALUE_CLASS} {
   display: block; max-width: 100%;
@@ -1039,6 +1079,23 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   color: transparent !important;
 }
 a.${TINT_CLASS}, .${TINT_CLASS} > a { color: var(--tnl-tint) !important; }
+
+.${PLAIN_NAME_CLASS} img { display: none !important; }
+.${PLAIN_NAME_CLASS} .honor-text-svg { display: none !important; }
+.${PLAIN_NAME_CLASS} .honor-text:not(.honor-text-svg) {
+  display: inline !important;
+  visibility: visible !important; opacity: 1 !important;
+  font-size: 11px !important; font-weight: 600 !important;
+  line-height: 1.2 !important; text-align: left !important;
+  white-space: nowrap !important;
+}
+.${PLAIN_NAME_CLASS} {
+  width: auto !important; min-width: 0 !important;
+  justify-content: flex-start !important; text-align: left !important;
+  padding: 0 !important;
+}
+
+html.${TINTING_CLASS} [class*="userStatusWrap___"] { display: none !important; }
 
 .${STATUS_CLASS} {
   color: var(--tnl-status) !important;
@@ -1270,7 +1327,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     }
 
     cell.style.fontStyle = 'normal'
-    cell.textContent = formatStat(stats.total)
+    cell.textContent = formatStatShort(stats.total)
     const dominant = dominantStat(stats)
     cell.style.color = dominant ? STAT_COLORS[dominant] : '#e5e7eb'
 
@@ -1412,7 +1469,15 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
   function nameTargetOf(row, anchor) {
     let el = row._tnlName
     if (el && el.isConnected) return el
-    el = row.querySelector('.honor-text-wrap, [class*="honorWrap___"]') ?? anchor
+    const wrap = row.querySelector('.honor-text-wrap, [class*="honorWrap___"]')
+    // ⚠️ Only drop Torn's honor IMAGE once we have found the text version that
+    // replaces it. Torn renders the name as a decorative bar image with a text
+    // twin alongside; hiding the image without confirming the twin exists would
+    // leave the row with no name at all.
+    if (wrap && wrap.querySelector('.honor-text:not(.honor-text-svg)')) {
+      wrap.classList.add(PLAIN_NAME_CLASS)
+    }
+    el = wrap ?? anchor
     row._tnlName = el
     return el
   }
@@ -1581,6 +1646,9 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     if (typeof document === 'undefined') return
     injectStyles()
     document.documentElement.classList.toggle(NO_BS_CLASS, !settings.on(SETTING_STATS))
+    // Torn's own online dot is redundant once the name carries the same signal,
+    // and dropping it buys back the width it occupied.
+    document.documentElement.classList.toggle(TINTING_CLASS, settings.on(SETTING_TINT))
     let painted = 0      // enemies we INTENDED to badge
     let attached = 0     // badges that actually exist in the DOM
     let repainted = 0    // rows whose state actually changed — see #516
@@ -1921,7 +1989,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     formatStat, dominantStat, statScore, fairFight, rowStats,
     parseDbTime, fmtAgo, statsSourceLabel, tokenClaims, sessionIsAdmin,
     settingOn, settings, settingsSignature, paintSignature,
-    attackUrl, statsTip, injectStyles, tipPosition,
+    attackUrl, statsTip, injectStyles, tipPosition, formatStatShort,
     countryCode, travelDestination, travelPhase, methodsForPlaneType, travelEta,
     fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
     statusView, statusSortValue, sortEntries, nextSort, rowState,
