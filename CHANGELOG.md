@@ -35,7 +35,24 @@ from `VERSION` at runtime) both surface it automatically.
   with flexbox `order` rather than moved, so the sort survives Torn re-rendering
   the list.
 
+### Fixed
+- **Userscript: the stylesheet no longer breaks the script.** A backtick inside a
+  CSS comment sat within `injectStyles()`'s template literal, terminated it early,
+  and the remainder parsed as JavaScript — `ReferenceError: button is not defined`,
+  with nothing on the page. `node --check` does not catch this. `injectStyles()` is
+  now covered by a stub-DOM test that asserts the rendered CSS carries no backtick
+  and no un-interpolated `${`.
+
 ### Changed
+- **Userscript: comments moved out of the file.** 889 comment lines in 2526 became
+  ~120; the provenance, constraints and traps now live in
+  `docs/userscript-references.md`.
+- **Userscript: Attack is relabelled `Atk` and its column narrowed**, buying ~30px
+  a row. The dibs control keeps its previous flat-pill look but at a compact size
+  with the holder's name truncated, and the column drops to 100px.
+- **Userscript: the battle-stat tooltip is stacked like the War Room's** — FF, one
+  line per stat, Total, then age and source — and clicking the total opens the
+  attack page, as Wall Battlestats does.
 - **Userscript: the dibs control is a compact chip, not a full-width pill.** The
   column drops from 132px to 104px and the button from a fixed 78px block to
   `auto / min 28px / max 40px`, both measured off CAT's `.call-button` rather

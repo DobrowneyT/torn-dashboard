@@ -1741,3 +1741,127 @@ describe('the dibs label fits the chip it has to live in', () => {
       .toBe('SomeVeryLongName')
   })
 })
+
+// ── The stylesheet ─────────────────────────────────────────────────────────
+//
+// injectStyles() is the one function the rest of this file cannot reach: it
+// returns early when `document` is undefined, which is exactly the guard every
+// other test relies on. That blind spot shipped a broken script — a backtick
+// inside a CSS comment terminated the template literal early, the remainder
+// parsed as JavaScript, and the browser threw `ReferenceError: button is not
+// defined`. `node --check` passes, because the result is still valid syntax.
+
+/** Load the script with a stub `document` but no `window`, so main() stays off. */
+function loadWithDom() {
+  const mod = { exports: {} }
+  const created = []
+  const appended = []
+  const document = {
+    getElementById: () => null,
+    querySelectorAll: () => [],
+    createElement: (tag) => {
+      const el = { tagName: tag, style: {}, dataset: {}, classList: { add() {}, remove() {} } }
+      created.push(el)
+      return el
+    },
+    head: { appendChild: (el) => appended.push(el) },
+    documentElement: { appendChild: (el) => appended.push(el) },
+  }
+  new Function('module', 'window', 'document', 'GM', 'GM_getValue', 'GM_setValue', source)(
+    mod, undefined, document, { xmlHttpRequest() {} }, (_k, d) => d, () => {},
+  )
+  return { S: mod.exports, document, created, appended }
+}
+
+describe('injectStyles', () => {
+  it('builds a stylesheet and appends it', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    expect(appended).toHaveLength(1)
+    expect(typeof appended[0].textContent).toBe('string')
+    expect(appended[0].textContent.length).toBeGreaterThan(500)
+  })
+
+  it('⚠️ interpolates every class name instead of leaking a raw ${…}', () => {
+    // A template literal that terminated early would stop interpolating, so the
+    // rendered sheet is the only place this is observable.
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const css = appended[0].textContent
+    expect(css).not.toMatch(/\$\{/)
+    for (const cls of ['tnl-dibs-badge', 'tnl-col', 'tnl-col-bs', 'tnl-tint', 'tnl-status']) {
+      expect(css, cls).toContain(cls)
+    }
+  })
+
+  it('⚠️ contains no backtick — one would have closed the template early', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    expect(appended[0].textContent).not.toContain('`')
+  })
+
+  it('carries the rules the layout depends on', () => {
+    const { S: s, appended } = loadWithDom()
+    const css = (s.injectStyles(), appended[0].textContent)
+    // The row clearfix: without it a row collapses once it holds one more float
+    // than Torn designed it for, and the enemy list drops below our own.
+    expect(css).toContain('clear: both')
+    // Room is made by narrowing Torn's columns, never by widening ours.
+    expect(css).toMatch(/points___/)
+    expect(css).toMatch(/attack___/)
+  })
+})
+
+describe('attackUrl', () => {
+  it('builds Torn’s direct-attack link', () => {
+    expect(S.attackUrl(2139172)).toBe('https://www.torn.com/loader.php?sid=attack&user2ID=2139172')
+    expect(S.attackUrl('2139172')).toBe('https://www.torn.com/loader.php?sid=attack&user2ID=2139172')
+  })
+
+  it('refuses a missing or non-positive id rather than linking to nobody', () => {
+    expect(S.attackUrl(0)).toBeNull()
+    expect(S.attackUrl(null)).toBeNull()
+    expect(S.attackUrl('abc')).toBeNull()
+  })
+})
+
+describe('statsTip', () => {
+  const stats = {
+    total: 5_000_000, str: 2_100_000, def: 900_000, spd: 1_200_000, dex: 800_000,
+    source: 'tornstats', spiedAt: null,
+  }
+
+  it('stacks one line per stat, then Total, then the source', () => {
+    const lines = S.statsTip(stats, 2.4).split('\n').filter((l) => !/^─+$/.test(l))
+    expect(lines[0]).toMatch(/^FF/)
+    expect(lines.slice(1, 5).map((l) => l.trim().split(/\s+/)[0])).toEqual(['STR', 'DEF', 'SPD', 'DEX'])
+    expect(lines[5]).toMatch(/^Total/)
+    expect(lines.at(-1)).toContain('(TS)')
+  })
+
+  it('aligns the two columns, which is what white-space: pre is for', () => {
+    const lines = S.statsTip(stats, 2.4).split('\n')
+    const str = lines.find((l) => l.startsWith('STR'))
+    const dex = lines.find((l) => l.startsWith('DEX'))
+    expect(str.length).toBe(dex.length)
+  })
+
+  it('omits stats we do not have rather than printing N/A', () => {
+    // A BSP estimate is one number, not four. Four lines of N/A is noise
+    // pretending to be data.
+    const tip = S.statsTip({ total: 4_000_000, str: null, def: null, spd: null, dex: null, source: 'bsp' }, null)
+    expect(tip).not.toContain('STR')
+    expect(tip).toContain('Total')
+    expect(tip).toContain('FF')
+  })
+
+  it('marks an own-key reading as exact', () => {
+    expect(S.statsTip({ ...stats, source: 'torn' }, 1.5)).toContain('Exact')
+    expect(S.statsTip(stats, 1.5)).not.toContain('Exact')
+  })
+
+  it('says so plainly when there is nothing on record', () => {
+    expect(S.statsTip(null, null)).toBe('No battle stats on record')
+    expect(S.statsTip({ total: null }, null)).toBe('No battle stats on record')
+  })
+})
