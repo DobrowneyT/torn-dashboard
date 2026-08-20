@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.9.0
+// @version      1.10.0
 // @description  Claim and release War Room dibs from the Torn faction war page.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -383,19 +383,55 @@ const TNLDibs = (function () {
   }
 
   /**
-   * What the control should say for a target, given who holds it.
+   * The claims carried in our session token.
    *
-   * ⚠️ Someone else's claim must NAME them. "Claimed" tells you not to hit,
-   * which is half the job; the name is what lets two people sort it out in
-   * faction chat in one message instead of three. It also makes a stale claim
-   * obvious — you can see it belongs to someone who logged off an hour ago.
+   * ⚠️ Read for UI ONLY. The token is signed and we do not verify it here —
+   * we cannot, the secret is server-side — so a member could edit their stored
+   * session and hand themselves `is_admin`. That buys nothing: the server's
+   * DELETE handler filters to `claimed_by = you` for anyone it does not
+   * consider an admin, so the forged click releases nothing. Never promote
+   * this to an actual guard.
    */
-  function buttonState(dib, currentUserId) {
-    if (!dib) return { label: '+ Dibs', action: 'claim', mine: false, taken: false }
-    if (String(dib.by) === String(currentUserId)) {
+  function tokenClaims(token) {
+    if (typeof token !== 'string') return {}
+    const body = token.split('.')[1]
+    if (!body) return {}
+    try {
+      // base64url → base64, then decode. atob rejects the URL alphabet.
+      const b64 = body.replace(/-/g, '+').replace(/_/g, '/')
+      return JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))) ?? {}
+    } catch { return {} }
+  }
+
+  /** Can this session take a dib off someone else? Mirrors the server's isAdmin. */
+  function sessionIsAdmin(session) {
+    return tokenClaims(session?.token).is_admin === true
+  }
+
+  /**
+   * What the control should say and do, given who holds the target.
+   *
+   * ⚠️ Mirrors dibsButtonState() in frontend/src/utils/dibsButton.js verbatim.
+   * A userscript is one file with no build step and cannot import it, so the
+   * two copies have to be kept in step by hand — and the failure mode is the
+   * War Room and Torn disagreeing about whether a click releases a claim,
+   * mid-war, which nobody would think to check.
+   */
+  function buttonState(dib, currentUserId, isAdmin = false) {
+    const id = dib?.by ?? dib?.claimed_by
+    if (id === null || id === undefined) {
+      return { label: '+ Dibs', action: 'claim', mine: false, taken: false }
+    }
+    const name = dib?.name ?? dib?.claimed_name ?? null
+    if (String(id) === String(currentUserId)) {
       return { label: '✓ Yours', action: 'release', mine: true, taken: true }
     }
-    return { label: dib.name ? `🔒 ${dib.name}` : '🔒 Claimed', action: 'none', mine: false, taken: true }
+    return {
+      label: name ?? 'Claimed',
+      action: isAdmin ? 'release' : 'none',
+      mine: false,
+      taken: true,
+    }
   }
 
   /** Backoff for the nth consecutive failed read (0-based). */
@@ -534,6 +570,7 @@ const TNLDibs = (function () {
     pending: false,         // someone asked to read while one was in flight
     stats: new Map(),       // memberId → battle stats, straight off the roster
     mine: null,             // our own stats, so FF needs no second source
+    isAdmin: false,         // UI affordance only; the server decides
   }
 
   /** The logged-in Torn user, read from the page's own sidebar profile link. */
@@ -636,7 +673,7 @@ const TNLDibs = (function () {
   async function release(targetId) {
     const res = await api(`/api/war-room/dibs/${targetId}`, 'DELETE')
     if (res.status !== 200) return { ok: false, message: `HTTP ${res.status}` }
-    rt.dibs.delete(targetId)     // optimistic, same rule as claim()
+    rt.dibs.delete(targetId)     // optimistic; covers an admin override too
     pokePoll()
     return { ok: true }
   }
@@ -830,7 +867,7 @@ const TNLDibs = (function () {
     ].join(';')
     badge.addEventListener('click', async (e) => {
       e.preventDefault(); e.stopPropagation()
-      const state = buttonState(rt.dibs.get(playerId), rt.session?.userId)
+      const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
       if (state.action === 'none') return
       badge.disabled = true
       badge.textContent = '…'
@@ -1021,7 +1058,7 @@ const TNLDibs = (function () {
     for (const [playerId, anchors] of rt.nodes) {
       if (!rt.enemies.has(playerId)) continue
       painted++
-      const state = buttonState(rt.dibs.get(playerId), rt.session?.userId)
+      const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
       for (const anchor of anchors) {
         if (!anchor.isConnected) continue
         const badge = badgeFor(anchor, playerId)
@@ -1303,6 +1340,8 @@ const TNLDibs = (function () {
     // request hung, so did boot(): no reads, no throw, no status change, and a
     // panel stuck reading "not connected" with nothing to explain it.
     rt.ourFactionId = rt.session.factionId
+    rt.isAdmin = sessionIsAdmin(rt.session)
+    log(`admin: ${rt.isAdmin}`)
     startPolling()
     observe()
   }
@@ -1341,7 +1380,7 @@ const TNLDibs = (function () {
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,
-    parseDbTime, fmtAgo, statsSourceLabel,
+    parseDbTime, fmtAgo, statsSourceLabel, tokenClaims, sessionIsAdmin,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
   }
 })()

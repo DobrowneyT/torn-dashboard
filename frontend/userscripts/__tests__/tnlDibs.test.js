@@ -283,12 +283,26 @@ describe('buttonState', () => {
     expect(S.buttonState(undefined, '111')).toMatchObject({ action: 'claim', mine: false })
   })
 
+  it('⚠️ lets an ADMIN release someone else\'s claim from the same control', () => {
+    // This already worked in the War Room as a separate "Release" link, and is
+    // enforced server-side (the DELETE handler filters to claimed_by = you for
+    // anyone it does not consider an admin). It has to survive the move to a
+    // toggle, and has to exist on Torn too.
+    const s = S.buttonState({ by: 4242, name: 'Thug' }, '2250591', true)
+    expect(s.action).toBe('release')
+    expect(s.label).toBe('Thug')
+  })
+
+  it('⚠️ stays inert on someone else\'s claim for a NON-admin', () => {
+    expect(S.buttonState({ by: 4242, name: 'Thug' }, '2250591', false).action).toBe('none')
+  })
+
   it('⚠️ NAMES whoever holds a claim, rather than just saying "taken"', () => {
     // The name is what lets two people sort out a collision in one message in
     // faction chat instead of three, and it makes a stale claim visible — you
     // can see it belongs to someone who logged off an hour ago.
     const other = S.buttonState({ by: 4242, name: 'Thug' }, '2250591')
-    expect(other.label).toContain('Thug')
+    expect(other.label).toBe('Thug')
     expect(other.action).toBe('none')
     expect(other.taken).toBe(true)
     expect(other.mine).toBe(false)
@@ -1049,3 +1063,45 @@ describe('fairFight matches the dashboard', () => {
 //     columns went unheaded.
 // Both are now pinned to the markup captured on 2026-08-19 and verified in the
 // browser. Changing either means checking a live war page again.
+
+describe('admin rights come from the session token', () => {
+  // ⚠️ UI affordance only. The token is signed and the script cannot verify it
+  // — the secret is server-side — so a member could hand themselves is_admin by
+  // editing their stored session. That buys nothing: the DELETE handler filters
+  // to `claimed_by = you` for anyone it does not consider an admin, so the
+  // forged click releases nothing. These tests pin the READ, not a guard.
+
+  function tokenFor(claims) {
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    return `${b64({ alg: 'HS256' })}.${b64(claims)}.signature`
+  }
+
+  it('reads is_admin out of the JWT payload', () => {
+    expect(S.sessionIsAdmin({ token: tokenFor({ is_admin: true }) })).toBe(true)
+    expect(S.sessionIsAdmin({ token: tokenFor({ is_admin: false }) })).toBe(false)
+  })
+
+  it('⚠️ decodes base64url, not plain base64', () => {
+    // JWT payloads use the URL alphabet (- and _), which atob rejects. A claim
+    // set containing either character would otherwise throw and silently
+    // demote a real admin.
+    const claims = { torn_user_id: '2250591', is_admin: true, sub: 'torn-2250591?>' }
+    expect(S.tokenClaims(tokenFor(claims))).toMatchObject({ is_admin: true })
+  })
+
+  it('is false — never a crash — for a malformed or absent token', () => {
+    expect(S.sessionIsAdmin(null)).toBe(false)
+    expect(S.sessionIsAdmin({})).toBe(false)
+    expect(S.sessionIsAdmin({ token: 'not-a-jwt' })).toBe(false)
+    expect(S.sessionIsAdmin({ token: 'a.!!!!.c' })).toBe(false)
+    expect(S.tokenClaims(undefined)).toEqual({})
+  })
+
+  it('⚠️ requires exactly true, not merely truthy', () => {
+    // A claim of "false" or 1 must not read as admin — the server checks a
+    // boolean, and the two surfaces disagreeing is the bug this avoids.
+    expect(S.sessionIsAdmin({ token: tokenFor({ is_admin: 'false' }) })).toBe(false)
+    expect(S.sessionIsAdmin({ token: tokenFor({ is_admin: 1 }) })).toBe(false)
+  })
+})
