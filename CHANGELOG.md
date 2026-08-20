@@ -17,6 +17,42 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+- **Data Export: raw CSV out of the dashboard, by table and TCT date range** (#517).
+  A new Leadership tab lets you pick a table, pick a start and end day (and
+  optionally a time), and download the rows as raw CSV. Every date and time on
+  the screen and in the file is TCT.
+  - **The tables are a hand-curated allowlist, not the schema.** Anything absent
+    from it is not exportable and the endpoint 404s, so a new table holding
+    something sensitive is not published the day it is created. `member_secrets`
+    is not on the list and must never be — it holds API keys. Each table carries
+    its own role floor: Torn returns and OC payouts at leadership, anything
+    personal (roster, CPR, stints) at admin. Visitors get nothing.
+  - **⚠️ Each table declares its own time column AND that column's type**, which
+    is the whole reason the registry exists. `created_at` means opposite things
+    in two of our tables: in `crimes` it is a bigint holding *Torn's*
+    crime-creation time, in `faction_attacks` it is a timestamptz holding *when
+    we inserted the row*. A generic exporter filtering on "created_at" would
+    filter on the event in one and on our scrape time in the other — and both
+    exports would look entirely correct.
+  - Nothing stored is altered or dropped: readable columns are *added* beside
+    the raw ones. An epoch integer keeps its value and gains a `<col>_tct`
+    column next to it; a bare member id gains a `<col>_name` resolved against
+    the roster. Attacks and revives are deliberately *not* joined — they already
+    store the name as-of-the-event, and joining would rewrite history and blank
+    every opponent.
+  - Exports **stream from a server-side cursor**, so a 444k-row attacks export
+    never sits in the API's heap. ⚠️ The known cost: once the first byte is sent
+    the response is already a 200, so a failure part way through cannot become
+    an error — the browser would save a short file that opens perfectly. Every
+    export therefore ends with a `# complete: <n> rows` marker; the UI checks
+    for it, strips it from the saved file, and says plainly when it is missing.
+  - **⚠️ CSV injection is guarded.** Torn display names are user-controlled, and
+    a field starting `=`, `+`, `-` or `@` is *executed* as a formula when Excel
+    opens the file — and an exported roster is exactly the file someone
+    double-clicks. Such fields are prefixed with an apostrophe, except plain
+    negative numbers, so payout adjustments still sum.
+
 ### Changed
 - **⚠️ War Room: 0 now means OFF for dibs auto-drop and both chain pollers.**
   It previously meant "as fast as allowed" — the exact opposite. A lead who set

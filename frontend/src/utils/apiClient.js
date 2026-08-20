@@ -85,6 +85,18 @@ async function authorizedFetch(path, init = {}) {
   return res
 }
 
+/**
+ * Authorized request returning the raw Response.
+ *
+ * The JSON helpers below consume the body; a CSV export (#517) must NOT — it
+ * streams hundreds of thousands of rows and reads them chunk by chunk. Exposed
+ * so that path still gets the shared 401-refresh-and-retry behaviour rather
+ * than reimplementing it with a bare fetch.
+ */
+export function apiFetch(path, init) {
+  return authorizedFetch(path, init)
+}
+
 /** Authorized GET against the faction API. Throws with the server's error message. */
 export async function apiGet(path) {
   const res = await authorizedFetch(path)
