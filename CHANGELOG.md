@@ -17,6 +17,8 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.45.0] - 2026-08-19
+
 ### Changed
 - **⚠️ War Room: 0 now means OFF for dibs auto-drop and both chain pollers.**
   It previously meant "as fast as allowed" — the exact opposite. A lead who set
