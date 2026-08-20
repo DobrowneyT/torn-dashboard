@@ -35,7 +35,21 @@ from `VERSION` at runtime) both surface it automatically.
   with flexbox `order` rather than moved, so the sort survives Torn re-rendering
   the list.
 
+### Changed
+- **Userscript: the Attack column is renamed "Atk" and narrowed to 30px**, header
+  included — the data cells already did this per row; the header now matches.
+- **Userscript: the BS header reads centered**, rather than right-aligned like
+  the numbers underneath it.
+- **Userscript: the TNL column narrows 92px → 88px.**
+
 ### Fixed
+- **Userscript: a blank gap between Level and Score, only when name tinting is
+  on.** The name-trim reclaim margin was a generous 54px estimate against a
+  combined icon width closer to 46px, and the columns it operates beside carry
+  no defence against whatever native margin Torn's own classes add once
+  narrowed. Pulled the estimate in to 46px and stripped margin explicitly on
+  every column this script resizes (level, score, status, attack) so nothing
+  Torn's own CSS was contributing can reopen a gap once the box shrinks.
 - **Userscript: our faction table sits beside the enemy's on a fresh page load**,
   not only after toggling the tint setting off and back on. Root cause: the
   runtime measurement that sized the width reclaimed from the hidden status dot

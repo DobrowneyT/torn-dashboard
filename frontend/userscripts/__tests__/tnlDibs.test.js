@@ -2042,3 +2042,31 @@ describe('the score column', () => {
     expect(css).toMatch(/points___[\s\S]*?width: 44px !important/)
   })
 })
+
+describe('the BS header is centered, not right-aligned like its numbers', () => {
+  it('overrides justify-content for the header box specifically', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const css = appended[0].textContent
+    expect(css).toMatch(/tnl-col-head \.tnl-col-bs \{[\s\S]*?justify-content: center/)
+  })
+})
+
+describe('the Attack column stays narrow, header included', () => {
+  it('caps the column at 30px', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    expect(appended[0].textContent).toMatch(/attack___[\s\S]*?width: 30px !important/)
+  })
+})
+
+describe('the narrowed columns carry no leftover Torn margin', () => {
+  it('zeroes margin on level, score and status alongside their width', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const css = appended[0].textContent
+    // Three separate rule blocks; each narrows a column AND strips its margin,
+    // so nothing Torn's own class carried can reopen a gap once the box shrinks.
+    expect(css.match(/margin: 0 !important/g)?.length).toBeGreaterThanOrEqual(3)
+  })
+})

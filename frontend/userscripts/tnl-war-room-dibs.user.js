@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.19.0
+// @version      1.20.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -946,7 +946,7 @@ const TNLDibs = (function () {
   // ── DOM ──────────────────────────────────────────────────────────────────
 
   /** Our column's width, in px. */
-  const COL_WIDTH = 92
+  const COL_WIDTH = 88
   /** The dibs control's share of it — also fixed, so its left edge never moves. */
   const DIBS_WIDTH = 46
   /** Badge cap. Fits "Yours"; longer holder names ellipsis, tooltip has the rest. */
@@ -977,7 +977,7 @@ const TNLDibs = (function () {
    * touch of name width; reclaiming too little reproduces the wrap this exists
    * to fix. See the ⚠️ on the stylesheet rule that consumes it.
    */
-  const NAME_TRIM_PX = 54
+  const NAME_TRIM_PX = 46
   /** Marks a name we have tinted, so the tint can be lifted cleanly (#525). */
   const TINT_CLASS = 'tnl-tint'
   /** Marks a Status cell we have taken over (#515). */
@@ -1009,7 +1009,7 @@ const TNLDibs = (function () {
 ul.members-list > li, .table-body > .table-row { clear: both !important; width: 100% !important; position: relative; }
 ul.members-list > li::after { content: ""; display: table; clear: both; }
 
-.members-cont .level { width: 27px !important; }
+.members-cont .level { width: 27px !important; margin: 0 !important; }
 
 .${COL_CLASS}, .${COL_HEAD_CLASS} {
   width: ${COL_WIDTH}px; min-width: ${COL_WIDTH}px; max-width: ${COL_WIDTH}px;
@@ -1026,7 +1026,7 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .members-cont .attack, .members-cont [class*="attack___"] { border-left: 1px solid ${RULE}; }
 .members-cont .status, .white-grad > .status {
   width: 66px !important; max-width: 66px !important; flex: 0 0 66px !important;
-  overflow: hidden !important;
+  margin: 0 !important; overflow: hidden !important;
 }
 
 .${DIBS_SLOT_CLASS} {
@@ -1048,6 +1048,9 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   cursor: pointer;
 }
+/* The header reuses the data cell's class for its layout box, but "BS" reads as
+   a label and should sit centered, not right-aligned like the numbers below it. */
+.${COL_HEAD_CLASS} .${STAT_SLOT_CLASS} { justify-content: center; text-align: center; }
 
 #${TIP_ID} {
   position: fixed; left: 0; top: 0; display: none;
@@ -1082,13 +1085,13 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .members-cont [class*="points___"]:not([class*="tab___"]),
 .white-grad > [class*="points___"] {
   width: 44px !important; max-width: 44px !important; flex: 0 0 44px !important;
-  overflow: hidden !important; text-overflow: ellipsis !important;
+  margin: 0 !important; overflow: hidden !important; text-overflow: ellipsis !important;
 }
 
 .members-cont .attack, .members-cont [class*="attack___"],
 .white-grad > .attack, .white-grad > [class*="attack___"] {
-  width: 42px !important; max-width: 42px !important; flex: 0 0 42px !important;
-  overflow: hidden !important;
+  width: 30px !important; max-width: 30px !important; flex: 0 0 30px !important;
+  margin: 0 !important; overflow: hidden !important;
 }
 
 /* The honor bar is an <img>; the name also ships as a plain <span class="honor-text">
@@ -1215,6 +1218,10 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     const header = headerFor(row)
     if (header && !header.querySelector(`.${COL_HEAD_CLASS}`)) {
       const before = attackHeaderCell(header)
+      // The header says "Attack" the same way every data cell does before
+      // shrinkAttack() touches it (#516's row loop, not this one-time build) —
+      // relabel it here, once, alongside inserting our own header.
+      if (before && (before.textContent || '').trim() === 'Attack') before.textContent = 'Atk'
       const head = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
       head.className = `table-cell ${COL_HEAD_CLASS}`
       slot(head, DIBS_SLOT_CLASS, 'DIBS')
