@@ -36,6 +36,18 @@ from `VERSION` at runtime) both surface it automatically.
   the list.
 
 ### Fixed
+- **Userscript: tinted names are actually visible.** Torn ships the war-list name
+  three ways — an honor-bar `<img>`, a per-character SVG twin, and a plain
+  `<span class="honor-text">`. Showing the plain one was not enough: Torn paints
+  honor text with a gradient clipped to the glyphs, which sets
+  `-webkit-text-fill-color: transparent`, and that wins over `color`. The name is
+  now given a flat colour through both properties with the background cleared.
+- **Userscript: the faction tag goes with the status dot**, and the member column
+  is pulled back by their measured combined width, so removing them actually
+  gives the row space instead of leaving a gap.
+- **Userscript: the dibs control and stat total are centred on the row.** The
+  previous attempt assumed the rows were flex containers; they are floats, so it
+  was a no-op. The column now takes Torn's measured row height.
 - **Userscript: names come back when tinting is off.** The honor-bar image was
   being hidden on every row regardless of the setting, and the check for a text
   replacement only asked whether the element existed — not whether it carried any

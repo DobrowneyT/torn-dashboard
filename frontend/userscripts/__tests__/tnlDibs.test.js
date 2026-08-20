@@ -1903,15 +1903,34 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
     return appended[0].textContent
   }
 
-  it('⚠️ tints the name by replacing the gradient, not by setting color', () => {
-    // Torn paints war-list names with a gradient clipped to the glyphs
-    // (background-clip: text; color: transparent) inside .honor-text, so a
-    // `color` on the anchor changes nothing visible. This is why the first
-    // attempt at activity tinting did nothing at all.
+  it('⚠️ sets -webkit-text-fill-color, not just color', () => {
+    // Torn's war-list name is an honor-bar <img> with a plain
+    // <span class="honor-text"> twin behind it. Showing the twin is not enough:
+    // Torn paints honor text with a gradient clipped to the glyphs, which needs
+    // BOTH `color: transparent` and `-webkit-text-fill-color: transparent` —
+    // and text-fill-color wins over color. Setting colour alone left every name
+    // invisible, twice.
     const sheet = css()
     expect(sheet).toContain('honor-text')
-    expect(sheet).toContain('background-clip: text')
-    expect(sheet).toMatch(/\[data-tnl-activity\]/)
+    expect(sheet).toContain('-webkit-text-fill-color')
+    expect(sheet).toMatch(/honor-text:not\(\.honor-text-svg\)/)
+    // And the background must be cleared, or the gradient paints over it.
+    expect(sheet).toMatch(/background: none/)
+  })
+
+  it('hides the honor image, the SVG twin, the dot and the faction tag', () => {
+    const sheet = css()
+    expect(sheet).toMatch(/tnl-plain-name img\s*\{\s*display: none/)
+    expect(sheet).toContain('honor-text-svg')
+    expect(sheet).toContain('userStatusWrap___')
+    expect(sheet).toContain('factionWrap___')
+  })
+
+  it('⚠️ pulls the member column back by the width it removed', () => {
+    // Hiding children of a fixed-width float does not shrink it, so the row
+    // would keep the space and our column would still overflow. The negative
+    // margin is measured at runtime rather than guessed.
+    expect(css()).toMatch(/--tnl-name-trim/)
   })
 
   it('hides the whole battle-stat column, header included, when it is off', () => {

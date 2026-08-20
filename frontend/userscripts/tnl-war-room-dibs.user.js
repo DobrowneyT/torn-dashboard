@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.17.0
+// @version      1.18.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -747,7 +747,9 @@ const TNLDibs = (function () {
     state: new Map(),       // memberId → rowState(): status, last action, revive (#525)
     mstats: new Map(),      // memberId → energy + cooldowns. LEAD-ONLY, OURS-ONLY.
     sort: { key: null, dir: 0 },
-    sorted: false,          // a sort is currently applied to the DOM  // our sort control; null means Torn's own order
+    sorted: false,          // a sort is currently applied to the DOM
+    rowH: null,             // Torn's row height, measured once
+    nameTrim: null,         // width of the dot + faction tag, measured once  // our sort control; null means Torn's own order
     tick: null,             // the 1 Hz countdown timer
   }
 
@@ -945,7 +947,7 @@ const TNLDibs = (function () {
   // ── DOM ──────────────────────────────────────────────────────────────────
 
   /** Our column's width, in px. */
-  const COL_WIDTH = 100
+  const COL_WIDTH = 92
   /** The dibs control's share of it — also fixed, so its left edge never moves. */
   const DIBS_WIDTH = 46
   /** Badge cap. Fits "Yours"; longer holder names ellipsis, tooltip has the rest. */
@@ -1005,7 +1007,8 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .${COL_CLASS}, .${COL_HEAD_CLASS} {
   width: ${COL_WIDTH}px; min-width: ${COL_WIDTH}px; max-width: ${COL_WIDTH}px;
   flex: 0 0 ${COL_WIDTH}px;
-  display: inline-flex; align-items: center; align-self: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--tnl-row-h, auto);
   box-sizing: border-box; padding: 0 4px;
   vertical-align: middle; white-space: nowrap;
   position: relative; z-index: 1;
@@ -1014,6 +1017,10 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .${COL_CLASS}, .${COL_HEAD_CLASS} { border-left: 1px solid ${RULE}; }
 .${DIBS_SLOT_CLASS} { border-right: 1px solid ${RULE}; }
 .members-cont .attack, .members-cont [class*="attack___"] { border-left: 1px solid ${RULE}; }
+.members-cont .status, .white-grad > .status {
+  width: 66px !important; max-width: 66px !important; flex: 0 0 66px !important;
+  overflow: hidden !important;
+}
 
 .${DIBS_SLOT_CLASS} {
   width: ${DIBS_WIDTH}px; min-width: ${DIBS_WIDTH}px; max-width: ${DIBS_WIDTH}px;
@@ -1077,15 +1084,8 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   overflow: hidden !important;
 }
 
-[data-tnl-activity] .honor-text:not(.honor-text-svg),
-[data-tnl-activity] > .honor-text:not(.honor-text-svg) {
-  background: var(--tnl-tint-bg) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  color: transparent !important;
-}
-a.${TINT_CLASS}, .${TINT_CLASS} > a { color: var(--tnl-tint) !important; }
-
+/* The honor bar is an <img>; the name also ships as a plain <span class="honor-text">
+   next to a per-character SVG twin. Hide the image and the twin, show the text. */
 .${PLAIN_NAME_CLASS} img { display: none !important; }
 .${PLAIN_NAME_CLASS} .honor-text-svg { display: none !important; }
 .${PLAIN_NAME_CLASS} .honor-text:not(.honor-text-svg) {
@@ -1094,14 +1094,31 @@ a.${TINT_CLASS}, .${TINT_CLASS} > a { color: var(--tnl-tint) !important; }
   font-size: 11px !important; font-weight: 600 !important;
   line-height: 1.2 !important; text-align: left !important;
   white-space: nowrap !important;
+  /* text-fill-color WINS over color, and Torn sets it transparent for the
+     honor gradient — setting colour alone leaves the name invisible. */
+  background: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  color: var(--tnl-tint, #e5e7eb) !important;
+  -webkit-text-fill-color: var(--tnl-tint, #e5e7eb) !important;
+  text-shadow: none !important;
 }
 .${PLAIN_NAME_CLASS} {
   width: auto !important; min-width: 0 !important;
   justify-content: flex-start !important; text-align: left !important;
   padding: 0 !important;
 }
+a.${TINT_CLASS}, .${TINT_CLASS} > a { color: var(--tnl-tint) !important; }
 
-html.${TINTING_CLASS} [class*="userStatusWrap___"] { display: none !important; }
+/* The dot and the faction tag both go: the name carries activity now, and in a
+   two-faction war view the tag says nothing. --tnl-name-trim is their measured
+   combined width, pulled back off the member column so the row does not grow. */
+html.${TINTING_CLASS} [class*="userStatusWrap___"],
+html.${TINTING_CLASS} [class*="factionWrap___"] { display: none !important; }
+html.${TINTING_CLASS} .members-cont [class*="member___"],
+html.${TINTING_CLASS} .white-grad > [class*="member___"] {
+  margin-right: calc(-1 * var(--tnl-name-trim, 0px)) !important;
+}
 
 .${STATUS_CLASS} {
   color: var(--tnl-status) !important;
@@ -1492,6 +1509,35 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     return Boolean(t && (t.textContent || '').trim())
   }
 
+  /**
+   * Measure Torn's own geometry once, before we change any of it.
+   *
+   * Two numbers we cannot get any other way: the row height (the rows are a
+   * FLOAT layout, so there is nothing to align against), and the combined width
+   * of the status dot and faction tag (hiding children of a fixed-width float
+   * does not shrink it, so the space has to be pulled back explicitly).
+   */
+  function measureRow(row) {
+    if (rt.rowH === null) {
+      const h = Math.round(row.getBoundingClientRect().height)
+      if (h > 0) {
+        rt.rowH = h
+        document.documentElement.style.setProperty('--tnl-row-h', `${h}px`)
+      }
+    }
+    if (rt.nameTrim === null) {
+      let trim = 0
+      for (const sel of ['[class*="userStatusWrap___"]', '[class*="factionWrap___"]']) {
+        const el = row.querySelector(sel)
+        if (el) trim += el.getBoundingClientRect().width
+      }
+      if (trim > 0) {
+        rt.nameTrim = Math.round(trim)
+        document.documentElement.style.setProperty('--tnl-name-trim', `${rt.nameTrim}px`)
+      }
+    }
+  }
+
   function paintName(row, anchor, playerId) {
     const el = nameTargetOf(row, anchor)
     const tone = settings.on(SETTING_TINT) ? activityTone(rt.state.get(playerId)) : null
@@ -1660,9 +1706,6 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     if (typeof document === 'undefined') return
     injectStyles()
     document.documentElement.classList.toggle(NO_BS_CLASS, !settings.on(SETTING_STATS))
-    // Torn's own online dot is redundant once the name carries the same signal,
-    // and dropping it buys back the width it occupied.
-    document.documentElement.classList.toggle(TINTING_CLASS, settings.on(SETTING_TINT))
     let painted = 0      // enemies we INTENDED to badge
     let attached = 0     // badges that actually exist in the DOM
     let repainted = 0    // rows whose state actually changed — see #516
@@ -1670,6 +1713,8 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     const nowMs = Date.now()
     const sigs = new Map()
     eachRow((playerId, anchor, row) => {
+      // ⚠️ Before anything is hidden — see measureRow().
+      measureRow(row)
       const isEnemy = rt.enemies.has(playerId)
       if (!isEnemy && !rt.state.has(playerId)) return
 
@@ -1702,6 +1747,9 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
         `${rt.stats.size} with stats)`)
     }
     if (repainted > 0) log(`repainted ${repainted} of ${attached} rows`)
+    // After the loop: measureRow() has to read Torn's geometry before this
+    // class hides the elements it is measuring.
+    document.documentElement.classList.toggle(TINTING_CLASS, settings.on(SETTING_TINT))
     paintSortHeaders()
     applySort(nowMs)
   }
