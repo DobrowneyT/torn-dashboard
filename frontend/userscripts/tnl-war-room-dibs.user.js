@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.18.0
+// @version      1.19.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -746,10 +746,9 @@ const TNLDibs = (function () {
     isAdmin: false,         // UI affordance only; the server decides
     state: new Map(),       // memberId → rowState(): status, last action, revive (#525)
     mstats: new Map(),      // memberId → energy + cooldowns. LEAD-ONLY, OURS-ONLY.
-    sort: { key: null, dir: 0 },
+    sort: { key: null, dir: 0 },  // our sort control; null means Torn's own order
     sorted: false,          // a sort is currently applied to the DOM
     rowH: null,             // Torn's row height, measured once
-    nameTrim: null,         // width of the dot + faction tag, measured once  // our sort control; null means Torn's own order
     tick: null,             // the 1 Hz countdown timer
   }
 
@@ -971,6 +970,14 @@ const TNLDibs = (function () {
   const TINTING_CLASS = 'tnl-tinting'
   /** Column hairline. Semi-transparent grey so it reads on Torn's light and dark. */
   const RULE = 'rgba(128,128,128,.35)'
+  /**
+   * Combined width of Torn's status dot + faction tag, generously estimated:
+   * ~18px icon + ~22px faction image + their gaps and margins. Deliberately on
+   * the generous side — reclaiming a few px more than strictly needed costs a
+   * touch of name width; reclaiming too little reproduces the wrap this exists
+   * to fix. See the ⚠️ on the stylesheet rule that consumes it.
+   */
+  const NAME_TRIM_PX = 54
   /** Marks a name we have tinted, so the tint can be lifted cleanly (#525). */
   const TINT_CLASS = 'tnl-tint'
   /** Marks a Status cell we have taken over (#515). */
@@ -1008,7 +1015,7 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   width: ${COL_WIDTH}px; min-width: ${COL_WIDTH}px; max-width: ${COL_WIDTH}px;
   flex: 0 0 ${COL_WIDTH}px;
   display: inline-flex; align-items: center; gap: 6px;
-  height: var(--tnl-row-h, auto);
+  height: var(--tnl-row-h, 32px);
   box-sizing: border-box; padding: 0 4px;
   vertical-align: middle; white-space: nowrap;
   position: relative; z-index: 1;
@@ -1074,7 +1081,7 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 
 .members-cont [class*="points___"]:not([class*="tab___"]),
 .white-grad > [class*="points___"] {
-  width: 50px !important; max-width: 50px !important; flex: 0 0 50px !important;
+  width: 44px !important; max-width: 44px !important; flex: 0 0 44px !important;
   overflow: hidden !important; text-overflow: ellipsis !important;
 }
 
@@ -1091,6 +1098,7 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .${PLAIN_NAME_CLASS} .honor-text:not(.honor-text-svg) {
   display: inline !important;
   visibility: visible !important; opacity: 1 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
   font-size: 11px !important; font-weight: 600 !important;
   line-height: 1.2 !important; text-align: left !important;
   white-space: nowrap !important;
@@ -1111,13 +1119,19 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 a.${TINT_CLASS}, .${TINT_CLASS} > a { color: var(--tnl-tint) !important; }
 
 /* The dot and the faction tag both go: the name carries activity now, and in a
-   two-faction war view the tag says nothing. --tnl-name-trim is their measured
-   combined width, pulled back off the member column so the row does not grow. */
+   two-faction war view the tag says nothing.
+   ⚠️ NAME_TRIM_PX is a measured constant, not a runtime measurement, and that is
+   deliberate. The obvious approach — measure the icons' real width in JS, feed
+   it back as a CSS custom property — deadlocks: the moment this class is added
+   it hides the icons, so a LATER measurement of a display:none element always
+   reads 0, and the correction never gets a real value again. The only way out
+   was toggling the setting off and on, which briefly un-hides the icons long
+   enough to measure them. A hardcoded constant has no such cycle to break. */
 html.${TINTING_CLASS} [class*="userStatusWrap___"],
 html.${TINTING_CLASS} [class*="factionWrap___"] { display: none !important; }
 html.${TINTING_CLASS} .members-cont [class*="member___"],
 html.${TINTING_CLASS} .white-grad > [class*="member___"] {
-  margin-right: calc(-1 * var(--tnl-name-trim, 0px)) !important;
+  margin-right: -${NAME_TRIM_PX}px !important;
 }
 
 .${STATUS_CLASS} {
@@ -1510,31 +1524,15 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
   }
 
   /**
-   * Measure Torn's own geometry once, before we change any of it.
-   *
-   * Two numbers we cannot get any other way: the row height (the rows are a
-   * FLOAT layout, so there is nothing to align against), and the combined width
-   * of the status dot and faction tag (hiding children of a fixed-width float
-   * does not shrink it, so the space has to be pulled back explicitly).
+   * Torn's row height, measured once — the rows are a FLOAT layout, so there is
+   * nothing to align our column against otherwise.
    */
   function measureRow(row) {
-    if (rt.rowH === null) {
-      const h = Math.round(row.getBoundingClientRect().height)
-      if (h > 0) {
-        rt.rowH = h
-        document.documentElement.style.setProperty('--tnl-row-h', `${h}px`)
-      }
-    }
-    if (rt.nameTrim === null) {
-      let trim = 0
-      for (const sel of ['[class*="userStatusWrap___"]', '[class*="factionWrap___"]']) {
-        const el = row.querySelector(sel)
-        if (el) trim += el.getBoundingClientRect().width
-      }
-      if (trim > 0) {
-        rt.nameTrim = Math.round(trim)
-        document.documentElement.style.setProperty('--tnl-name-trim', `${rt.nameTrim}px`)
-      }
+    if (rt.rowH !== null) return
+    const h = Math.round(row.getBoundingClientRect().height)
+    if (h > 0) {
+      rt.rowH = h
+      document.documentElement.style.setProperty('--tnl-row-h', `${h}px`)
     }
   }
 

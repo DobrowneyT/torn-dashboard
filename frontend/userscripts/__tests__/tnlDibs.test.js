@@ -1926,11 +1926,15 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
     expect(sheet).toContain('factionWrap___')
   })
 
-  it('⚠️ pulls the member column back by the width it removed', () => {
-    // Hiding children of a fixed-width float does not shrink it, so the row
-    // would keep the space and our column would still overflow. The negative
-    // margin is measured at runtime rather than guessed.
-    expect(css()).toMatch(/--tnl-name-trim/)
+  it('⚠️ pulls the member column back by a HARDCODED constant, not a runtime measurement', () => {
+    // The obvious approach — measure the icons in JS, feed the width back as a
+    // CSS var — deadlocks: as soon as the tinting class is added it hides the
+    // icons via display:none, so any LATER measurement of them reads 0 forever.
+    // The only escape was toggling the setting off and on, which is exactly
+    // the bug report this fixes. A literal constant has no cycle to deadlock.
+    const sheet = css()
+    expect(sheet).toMatch(/margin-right: -\d+px !important/)
+    expect(sheet).not.toContain('tnl-name-trim')
   })
 
   it('hides the whole battle-stat column, header included, when it is off', () => {
@@ -2018,5 +2022,23 @@ describe('the stylesheet handles Torn’s honor-bar names', () => {
     const sheet = css()
     expect(sheet).toMatch(/tnl-col-dibs[\s\S]*?align-items: center/)
     expect(sheet).toMatch(/tnl-col-bs[\s\S]*?align-items: center/)
+  })
+})
+
+describe('the tinted name uses a plain, readable font', () => {
+  it('sets an explicit sans-serif stack, not whatever Torn styled honor-text with', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const css = appended[0].textContent
+    expect(css).toMatch(/honor-text:not\(\.honor-text-svg\)[\s\S]*?font-family:\s*-apple-system/)
+  })
+})
+
+describe('the score column', () => {
+  it('is narrower than the battle-stat total needs, since the content is short', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const css = appended[0].textContent
+    expect(css).toMatch(/points___[\s\S]*?width: 44px !important/)
   })
 })

@@ -36,6 +36,20 @@ from `VERSION` at runtime) both surface it automatically.
   the list.
 
 ### Fixed
+- **Userscript: our faction table sits beside the enemy's on a fresh page load**,
+  not only after toggling the tint setting off and back on. Root cause: the
+  runtime measurement that sized the width reclaimed from the hidden status dot
+  and faction tag deadlocked with itself — the moment the tinting class was
+  added it hid those icons via `display:none`, so any later measurement of them
+  read zero forever, and the correction never got a real value. Toggling the
+  setting worked only because it briefly un-hid the icons long enough to
+  measure them once. Replaced with a hardcoded, generously-sized constant that
+  has no such cycle to deadlock on.
+- **Userscript: tinted names use a plain, readable font.** Torn's honor-text
+  span carries whatever styling the badge component intends, which reads badly
+  once shown as a name; it now gets an explicit system-UI sans-serif stack.
+- **Userscript: the score column is narrower** (44px), since its content is a
+  handful of digits.
 - **Userscript: tinted names are actually visible.** Torn ships the war-list name
   three ways — an honor-bar `<img>`, a per-character SVG twin, and a plain
   `<span class="honor-text">`. Showing the plain one was not enough: Torn paints
