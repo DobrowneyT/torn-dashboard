@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.20.0
+// @version      1.21.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1009,7 +1009,11 @@ const TNLDibs = (function () {
 ul.members-list > li, .table-body > .table-row { clear: both !important; width: 100% !important; position: relative; }
 ul.members-list > li::after { content: ""; display: table; clear: both; }
 
-.members-cont .level { width: 27px !important; margin: 0 !important; }
+.members-cont .level {
+  width: 27px !important; max-width: 27px !important; flex: 0 0 27px !important;
+  margin: 0 !important; padding: 0 2px !important; border: 0 !important;
+  box-sizing: border-box !important; overflow: hidden !important;
+}
 
 .${COL_CLASS}, .${COL_HEAD_CLASS} {
   width: ${COL_WIDTH}px; min-width: ${COL_WIDTH}px; max-width: ${COL_WIDTH}px;
@@ -1026,7 +1030,8 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .members-cont .attack, .members-cont [class*="attack___"] { border-left: 1px solid ${RULE}; }
 .members-cont .status, .white-grad > .status {
   width: 66px !important; max-width: 66px !important; flex: 0 0 66px !important;
-  margin: 0 !important; overflow: hidden !important;
+  margin: 0 !important; padding: 0 2px !important; border: 0 !important;
+  box-sizing: border-box !important; overflow: hidden !important;
 }
 
 .${DIBS_SLOT_CLASS} {
@@ -1085,13 +1090,15 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .members-cont [class*="points___"]:not([class*="tab___"]),
 .white-grad > [class*="points___"] {
   width: 44px !important; max-width: 44px !important; flex: 0 0 44px !important;
-  margin: 0 !important; overflow: hidden !important; text-overflow: ellipsis !important;
+  margin: 0 !important; padding: 0 2px !important; border: 0 !important;
+  box-sizing: border-box !important; overflow: hidden !important; text-overflow: ellipsis !important;
 }
 
 .members-cont .attack, .members-cont [class*="attack___"],
 .white-grad > .attack, .white-grad > [class*="attack___"] {
   width: 30px !important; max-width: 30px !important; flex: 0 0 30px !important;
-  margin: 0 !important; overflow: hidden !important;
+  margin: 0 !important; padding: 0 2px !important; border: 0 !important;
+  box-sizing: border-box !important; overflow: hidden !important;
 }
 
 /* The honor bar is an <img>; the name also ships as a plain <span class="honor-text">

@@ -44,12 +44,16 @@ from `VERSION` at runtime) both surface it automatically.
 
 ### Fixed
 - **Userscript: a blank gap between Level and Score, only when name tinting is
-  on.** The name-trim reclaim margin was a generous 54px estimate against a
-  combined icon width closer to 46px, and the columns it operates beside carry
-  no defence against whatever native margin Torn's own classes add once
-  narrowed. Pulled the estimate in to 46px and stripped margin explicitly on
-  every column this script resizes (level, score, status, attack) so nothing
-  Torn's own CSS was contributing can reopen a gap once the box shrinks.
+  on.** Torn's war-list markup confirmed the actual cause: our forced `width`
+  on Level/Score/Status/Attack only sets the *content* width, and Torn's own
+  padding on those cells (content-box by default) sat on top of it, invisibly
+  widening the box past what we declared. The narrower the forced width, the
+  more that leftover padding stood out as blank space. Every column this
+  script resizes now sets `box-sizing: border-box` with an explicit small
+  padding, so the declared px value is the true rendered width — no
+  unaccounted-for Torn padding left to reopen a gap. (Supersedes the 46px
+  reclaim-margin estimate from the previous release, which addressed a
+  different, smaller contributor to the same symptom.)
 - **Userscript: our faction table sits beside the enemy's on a fresh page load**,
   not only after toggling the tint setting off and back on. Root cause: the
   runtime measurement that sized the width reclaimed from the hidden status dot
