@@ -3,12 +3,14 @@ import InventoryManagement from '../components/InventoryManagement'
 import MemberOverview from './MemberOverview'
 import FactionSettingsView from './FactionSettingsView'
 import GlobalAdminView from './GlobalAdminView'
+import DataExportView from './DataExportView'
 import ErrorBoundary from '../components/ErrorBoundary'
 
 const TABS = [
   { to: '/leadership/member-overview',   label: 'Member Overview', admin: false },
   { to: '/leadership/inventory',         label: 'Inventory',       admin: false },
   { to: '/leadership/settings',          label: 'Settings',        admin: false },
+  { to: '/leadership/export',            label: 'Data Export',     admin: false },
   { to: '/leadership/global-admin',      label: 'Global Admin',    admin: true  },
 ]
 
@@ -38,6 +40,11 @@ export default function LeadershipPage({ isLeadership, isAdmin }) {
           </ErrorBoundary>
         } />
         <Route path="inventory"       element={<InventoryManagement />} />
+        <Route path="export" element={
+          <ErrorBoundary name="Data Export">
+            <DataExportView />
+          </ErrorBoundary>
+        } />
         <Route path="settings" element={
           <ErrorBoundary name="Faction Settings">
             <FactionSettingsView />
