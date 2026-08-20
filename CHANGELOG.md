@@ -17,6 +17,8 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.46.0] - 2026-08-19
+
 ### Added
 - **Data Export: raw CSV out of the dashboard, by table and TCT date range** (#517).
   A new Leadership tab lets you pick a table, pick a start and end day (and
