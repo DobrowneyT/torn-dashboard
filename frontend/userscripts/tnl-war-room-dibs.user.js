@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.10.0
-// @description  Claim and release War Room dibs from the Torn faction war page.
+// @version      1.12.0
+// @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
 // @run-at       document-end
@@ -79,13 +79,82 @@ const TNLDibs = (function () {
   /** Reconnect backoff, ms — caps rather than growing without bound. */
   const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000]
   const BADGE_CLASS = 'tnl-dibs-badge'
-  const STAT_CLASS = 'tnl-dibs-bs'
-  const STAT_HEAD_CLASS = 'tnl-dibs-bs-head'
-  const DIBS_CELL_CLASS = 'tnl-dibs-cell'
-  const DIBS_HEAD_CLASS = 'tnl-dibs-cell-head'
   /** FF at which a target is worth pulling the eye across the table. */
   const FF_HIGHLIGHT = 2.5
   const DEBUG_KEY = 'tnl-dibs-debug'
+  const SETTING_STATS = 'tnl-dibs-show-stats'
+  const SETTING_FF_BOX = 'tnl-dibs-ff-box'
+  /** #515 — rewrite Torn's Status cell: hospital countdown, travel ETA, last action. */
+  const SETTING_STATUS = 'tnl-dibs-status'
+  /** #525 — tint the member's name by activity. The one signal that costs no width. */
+  const SETTING_TINT = 'tnl-dibs-tint'
+
+  /**
+   * User settings (#514).
+   *
+   * ⚠️ One GM key PER setting, never a single JSON blob shared with the
+   * session. Sharing a slot has already cost us once: a test passed because the
+   * value it read happened to be the session's, not the flag's, and nothing
+   * about the assertion said so. Separate keys also mean a corrupt value in one
+   * setting cannot take the session down with it.
+   *
+   * ⚠️ The DEFAULTS matter more than the toggles. Someone installs this, never
+   * opens settings, and must still get the useful configuration — so everything
+   * that makes the script worth running is ON, and only the developer switch is
+   * off.
+   */
+  const SETTING_DEFAULTS = {
+    [SETTING_STATS]: true,
+    [SETTING_FF_BOX]: true,
+    [SETTING_STATUS]: true,
+    [SETTING_TINT]: true,
+    [DEBUG_KEY]: false,
+  }
+
+  /** Is a setting on? Unknown keys are off — a typo must not enable anything. */
+  function settingOn(raw, key) {
+    if (raw === 'true') return true
+    if (raw === 'false') return false
+    return SETTING_DEFAULTS[key] ?? false
+  }
+
+  const settings = {
+    on(key) {
+      try { return settingOn(GM_getValue(key, null), key) } catch { return SETTING_DEFAULTS[key] ?? false }
+    },
+    set(key, value) { GM_setValue(key, value ? 'true' : 'false') },
+  }
+
+  /**
+   * The settings that change what a row LOOKS like, as a string.
+   *
+   * Part of the repaint signature (#516): flipping "show battle stats" has to
+   * repaint every row, and without this the dirty check would decide nothing
+   * had changed and leave the old paint on screen.
+   */
+  function settingsSignature() {
+    return `${settings.on(SETTING_STATS) ? 1 : 0}${settings.on(SETTING_FF_BOX) ? 1 : 0}`
+  }
+
+  /**
+   * Everything about a row that is visible, as one short string.
+   *
+   * ⚠️ Must cover every input to paintDibs and paintStats and nothing else. Too
+   * little and a row silently stops updating; too much (a clock, say) and the
+   * dirty check never fires and we are back to repainting 200 rows a tick.
+   */
+  function paintSignature(state, stats, settingsSig, mineTotal) {
+    return [
+      state?.label, state?.action, state?.mine ? 1 : 0, state?.taken ? 1 : 0,
+      stats?.total ?? '', stats?.str ?? '', stats?.def ?? '', stats?.spd ?? '', stats?.dex ?? '',
+      stats?.source ?? '', stats?.spiedAt ?? '',
+      // ⚠️ Our OWN total belongs here too. The FF highlight is a comparison, so
+      // it changes when our stats refresh even though the target's have not —
+      // and without this the row would keep a stale green box forever.
+      mineTotal ?? '',
+      settingsSig,
+    ].join('|')
+  }
   /** Read cadence — see the transport note above for why this is a poll. */
   const POLL_MS = 3000
   /**
@@ -111,7 +180,7 @@ const TNLDibs = (function () {
    * through on its way to the log.
    */
   function debugOn() {
-    try { return GM_getValue(DEBUG_KEY, 'false') === 'true' } catch { return false }
+    return settings.on(DEBUG_KEY)
   }
 
   /** A URL with any token or key stripped, safe to print. */
@@ -453,6 +522,410 @@ const TNLDibs = (function () {
     return String(sessionUserId) === String(pageUserId)
   }
 
+  // ── Roster intelligence (#525, #515) ─────────────────────────────────────
+  //
+  // ⚠️ Everything below renders data that ALREADY arrives on the delta poll.
+  // war_room_state_v2 rows carry the whole `state` jsonb memberState() writes
+  // on every roster sync — last_action, status, is_revivable, revive_setting,
+  // is_on_wall — plus travel_departed_at. The script used to read only the
+  // battle-stat columns off those rows and discard the rest. No new endpoint,
+  // no extra Torn call, no second API key: that is the entire argument for
+  // doing this here rather than keeping Wall Battlestats, which re-polls
+  // /v2/faction/{id}/members every 15s per faction to learn what we are already
+  // told.
+
+  /** Torn's published flight-time variance: up to ±3%. */
+  const TRAVEL_VARIANCE = 0.03
+
+  /**
+   * Flight times in seconds, by destination and method.
+   *
+   * ⚠️ A verbatim copy of FLIGHT_SECONDS in frontend/src/utils/warRoomTravel.js,
+   * and it must stay one. Same standing rule as statScore(): a userscript is a
+   * single file with no build step, so the maths is duplicated rather than
+   * imported, and the moment the two drift a member with both screens open sees
+   * two different landing times and believes the wrong one.
+   */
+  const FLIGHT_SECONDS = {
+    'mexico':          { standard: 1440, airstrip: 1020, wlt:  720, business:  420 },
+    'cayman islands':  { standard: 1980, airstrip: 1380, wlt: 1020, business:  600 },
+    'canada':          { standard: 2340, airstrip: 1620, wlt: 1140, business:  720 },
+    'hawaii':          { standard: 7620, airstrip: 5340, wlt: 3780, business: 2280 },
+    'united kingdom':  { standard: 9060, airstrip: 6360, wlt: 4500, business: 2700 },
+    'argentina':       { standard: 9480, airstrip: 6660, wlt: 4740, business: 2820 },
+    'switzerland':     { standard: 9960, airstrip: 6960, wlt: 4980, business: 3000 },
+    'japan':           { standard: 12780, airstrip: 8940, wlt: 6420, business: 3840 },
+    'china':           { standard: 13740, airstrip: 9600, wlt: 6840, business: 4140 },
+    'uae':             { standard: 15420, airstrip: 10800, wlt: 7680, business: 4620 },
+    'south africa':    { standard: 16920, airstrip: 11820, wlt: 8460, business: 5100 },
+  }
+
+  /** Fastest to slowest — elimination and band-building both rely on this order. */
+  const TRAVEL_METHODS = ['business', 'wlt', 'airstrip', 'standard']
+
+  /**
+   * `status.plane_image_type` → travel method.
+   *
+   * ⚠️ This is where we beat the reference scripts rather than copy them. CAT
+   * has four speed tiers but the tier is a GLOBAL USER SETTING — one assumption
+   * applied to every traveller on the board, so its ETA is confidently wrong
+   * for anyone flying differently. Torn tells us the aircraft per member, so we
+   * read it per member.
+   */
+  const PLANE_TYPE_METHOD = { airliner: 'business', light_aircraft: 'airstrip', private_jet: 'wlt' }
+
+  /** Destination names Torn uses in more than one form. */
+  const DESTINATION_ALIASES = {
+    'united arab emirates': 'uae',
+    'uk': 'united kingdom',
+    'great britain': 'united kingdom',
+    'cayman': 'cayman islands',
+  }
+
+  /**
+   * Substring → short code, in match order.
+   *
+   * Lifted from Wall Battlestats' getCountryCode(): tedious, already correct,
+   * and it matches on stems (`argentin`, `canad`, `mexic`) so it survives both
+   * the country and the demonym Torn uses in hospital descriptions.
+   *
+   * ⚠️ Order matters. 'south africa' must be tested before nothing else claims
+   * it, and the stems must not be shortened further — 'can' would match
+   * "Cayman".
+   */
+  const COUNTRY_NEEDLES = [
+    ['south africa', 'SA'], ['south african', 'SA'],
+    ['china', 'CN'], ['chinese', 'CN'],
+    ['japan', 'JP'], ['japanese', 'JP'],
+    ['hawaii', 'HAW'], ['hawaiian', 'HAW'],
+    ['argentin', 'ARG'],
+    ['cayman', 'CAY'],
+    ['canad', 'CAN'],
+    ['switz', 'SWI'], ['swiss', 'SWI'],
+    ['emirat', 'UAE'], ['uae', 'UAE'],
+    ['united kingdom', 'UK'], ['british', 'UK'],
+    ['mexic', 'MX'],
+  ]
+
+  /** The short code for whichever country a status description names, or null. */
+  function countryCode(text) {
+    const d = String(text ?? '').toLowerCase()
+    if (!d) return null
+    for (const [needle, code] of COUNTRY_NEEDLES) if (d.includes(needle)) return code
+    return null
+  }
+
+  function normaliseCountry(name) {
+    return String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+  }
+
+  /**
+   * The country whose flight time applies, or null.
+   *
+   * A return leg takes the same time as the outbound, so the answer is
+   * whichever end of the route is not Torn. Copied from warRoomTravel.js.
+   */
+  function travelDestination(description) {
+    const d = String(description ?? '')
+    let candidate = null
+    const between = d.match(/^Traveling from (.+) to (.+)$/i)
+    if (between) {
+      const [, from, to] = between
+      candidate = normaliseCountry(to) === 'torn' ? from : to
+    } else {
+      const to = d.match(/^Traveling to (.+)$/i)
+      const back = d.match(/^Returning (?:to Torn )?from (.+)$/i)
+      candidate = to?.[1] ?? back?.[1] ?? null
+    }
+    if (candidate == null) return null
+    const key = normaliseCountry(candidate)
+    const resolved = DESTINATION_ALIASES[key] ?? key
+    // Unknown destination → null, so the caller shows nothing rather than an
+    // estimate built on a duration we invented.
+    return FLIGHT_SECONDS[resolved] ? resolved : null
+  }
+
+  /** Which way they are pointed: 'out' abroad, 'back' to Torn, 'in' already there. */
+  function travelPhase(description) {
+    const d = String(description ?? '')
+    if (/^Returning/i.test(d) || / to Torn$/i.test(d)) return 'back'
+    if (/^Traveling/i.test(d)) return 'out'
+    if (/^In /i.test(d)) return 'in'
+    return null
+  }
+
+  /** Candidate methods for an aircraft type — all four when we can't tell. */
+  function methodsForPlaneType(planeType) {
+    const known = PLANE_TYPE_METHOD[planeType]
+    return known ? [known] : [...TRAVEL_METHODS]
+  }
+
+  /**
+   * Estimated arrival for a traveller. Copied from warRoomTravel.js.
+   *
+   * Returns { state: 'unknown' } | { state: 'overdue' }
+   *       | { state: 'estimate', earliestSec, latestSec, methods }
+   */
+  function travelEta({ description, planeType, departedAt, nowMs = Date.now() } = {}) {
+    const destination = travelDestination(description)
+    // ⚠️ parseDbTime, never Date.parse — the #140 bare-offset trap. It shipped
+    // in the dashboard's own copy of this and meant the feature never rendered
+    // a single estimate in production.
+    const parsed = departedAt ? parseDbTime(departedAt) : null
+    const departed = parsed ? parsed.getTime() : NaN
+    if (!destination || !Number.isFinite(departed)) return { state: 'unknown' }
+
+    const times = FLIGHT_SECONDS[destination]
+    const elapsed = (nowMs - departed) / 1000
+    if (elapsed < 0) return { state: 'unknown' }
+
+    // Eliminate a method only once its UPPER bound has passed — cutting at the
+    // nominal figure rules out a flight legitimately still in the air on the
+    // slow side of the variance.
+    const surviving = methodsForPlaneType(planeType)
+      .filter((m) => times[m] * (1 + TRAVEL_VARIANCE) >= elapsed)
+    if (surviving.length === 0) return { state: 'overdue' }
+
+    const durations = surviving.map((m) => times[m])
+    const earliest = Math.min(...durations) * (1 - TRAVEL_VARIANCE)
+    const latest = Math.max(...durations) * (1 + TRAVEL_VARIANCE)
+    return {
+      state: 'estimate',
+      methods: TRAVEL_METHODS.filter((m) => surviving.includes(m)),
+      earliestSec: Math.max(0, Math.round(earliest) - Math.round(elapsed)),
+      latestSec: Math.max(0, Math.round(latest) - Math.round(elapsed)),
+    }
+  }
+
+  /**
+   * A duration as a countdown: 1h23m over an hour, 45m12s under it, 9s at the end.
+   *
+   * ⚠️ Seconds are dropped above an hour on purpose. The cell is a handful of
+   * pixels wide and "1h23m45s" does not fit; nobody planning around an 83-minute
+   * hospital stay needs the seconds, and everybody watching the last minute of
+   * one does.
+   */
+  function fmtCountdown(seconds) {
+    const s = Math.max(0, Math.floor(Number(seconds) || 0))
+    if (s >= 3600) return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`
+    if (s >= 60) return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`
+    return `${s}s`
+  }
+
+  /** An ETA band, compacted for a cell that has room for about six characters. */
+  function fmtEtaShort(eta) {
+    if (!eta || eta.state === 'unknown') return null
+    if (eta.state === 'overdue') return 'land'
+    const mid = (eta.earliestSec + eta.latestSec) / 2
+    // Always prefixed ~: this number is INFERRED and must not read like the
+    // exact hospital countdown sitting beside it in the same column.
+    return `~${fmtCountdown(mid)}`
+  }
+
+  /**
+   * How long since their last action, at a glance: 3m, 2h, 4d.
+   *
+   * Torn's last_action.relative is already a string ("3 minutes ago") but it is
+   * far too wide for the cell and stops updating between polls; the timestamp
+   * ticks locally.
+   */
+  function fmtLastActionShort(lastAction, nowMs = Date.now()) {
+    const ts = Number(lastAction?.timestamp)
+    if (!Number.isFinite(ts) || ts <= 0) return null
+    const diff = Math.max(0, Math.floor(nowMs / 1000 - ts))
+    if (diff < 60) return `${diff}s`
+    if (diff < 3600) return `${Math.floor(diff / 60)}m`
+    if (diff < 86_400) return `${Math.floor(diff / 3600)}h`
+    return `${Math.floor(diff / 86_400)}d`
+  }
+
+  /**
+   * Activity, as a tone name. Torn reports Online / Idle / Offline.
+   *
+   * ⚠️ This is the one signal that costs NO horizontal space, which is why it
+   * goes on the name rather than in a cell. Our column is a fixed 132px inside
+   * Torn's float layout (#511) and there is no room for another field — a cell
+   * that grows overflows the row and drops the enemy list below our own.
+   */
+  function activityTone(state) {
+    const s = String(state?.last_action?.status ?? '').toLowerCase()
+    if (s === 'online') return 'online'
+    if (s === 'idle') return 'idle'
+    if (s === 'offline') return 'offline'
+    return null
+  }
+
+  /**
+   * Who can actually revive this member right now: 'anyone' | 'friends' | null.
+   *
+   * ⚠️ Kept identical to reviveAudience() in frontend/src/utils/warRoomFlags.js,
+   * including the #342 decision that an UNKNOWN setting means 'anyone'. Torn
+   * reports Unknown when it will not disclose the preference, which is the
+   * normal case for an enemy — i.e. most of the roster. Degrading that to
+   * 'friends' paints the whole enemy side muted and buries the real
+   * distinction, which is that we hire OUTSIDE revivers: a target set to
+   * "Friends & faction" is revivable in Torn's sense but not by anyone we can
+   * pay.
+   */
+  function reviveAudience(state) {
+    if (!state?.is_revivable) return null
+    const setting = state.revive_setting
+    if (setting === 'No one') return null
+    if (setting === 'Friends & faction') return 'friends'
+    return 'anyone'
+  }
+
+  /**
+   * Everything the Status cell should say for one member, or null when we know
+   * nothing and Torn's own text must stand.
+   *
+   * Returns { kind, text, tone, title }.
+   *
+   * ⚠️ `kind` is OUR cached reading and the caller must treat Torn's own status
+   * class as authoritative when the two disagree (#515). The roster is up to
+   * three seconds stale, and a member who just left hospital must not keep
+   * counting down on a page that already knows better.
+   */
+  function statusView(entry, nowMs = Date.now()) {
+    const st = entry?.status
+    const kind = st?.state
+    if (!kind) return null
+
+    if (kind === 'Hospital' || kind === 'Jail') {
+      const untilSec = Number(st.until)
+      if (!Number.isFinite(untilSec) || untilSec <= 0) return null
+      const left = untilSec - Math.floor(nowMs / 1000)
+      // Expired by our clock: say Okay rather than 0s. The next poll will agree
+      // within three seconds, and a stuck 0s reads as a frozen script.
+      if (left <= 0) return { kind: 'okay', text: 'Okay', tone: 'okay', title: st.description ?? '' }
+      const clock = fmtCountdown(left)
+      // An abroad hospital stay is a different proposition from a local one —
+      // they cannot be hit OR revived by anyone at home until they fly back.
+      const code = kind === 'Hospital' ? countryCode(st.description) : null
+      return {
+        kind: kind === 'Jail' ? 'jail' : 'hospital',
+        text: code ? `${code}:${clock}` : clock,
+        tone: kind === 'Jail' ? 'jail' : 'hospital',
+        title: st.description ?? '',
+      }
+    }
+
+    if (kind === 'Traveling') {
+      const code = countryCode(st.description) ?? '??'
+      const phase = travelPhase(st.description)
+      const eta = fmtEtaShort(travelEta({
+        description: st.description,
+        planeType: st.plane_image_type ?? st.plane_type,
+        departedAt: entry.travel_departed_at,
+        nowMs,
+      }))
+      const label = phase === 'back' ? `${code}>` : `>${code}`
+      return {
+        kind: 'traveling',
+        text: eta ? `${label} ${eta}` : label,
+        tone: 'traveling',
+        title: eta ? `${st.description ?? 'Traveling'} — landing in about ${eta.replace('~', '')}` : (st.description ?? 'Traveling'),
+      }
+    }
+
+    if (kind === 'Abroad') {
+      const code = countryCode(st.description)
+      return { kind: 'abroad', text: code ? `In ${code}` : 'Abroad', tone: 'abroad', title: st.description ?? '' }
+    }
+
+    if (kind === 'Okay') {
+      // The cell Torn leaves nearly empty is exactly the cell where last action
+      // matters, so this is where it goes — no width added anywhere.
+      const ago = fmtLastActionShort(entry.last_action, nowMs)
+      const audience = reviveAudience(entry)
+      const glyph = audience === 'anyone' ? ' 💉' : audience === 'friends' ? ' 💉' : ''
+      return {
+        kind: 'okay',
+        text: `${ago ?? 'Okay'}${glyph}`,
+        tone: 'okay',
+        title: [
+          entry.last_action?.status ? `${entry.last_action.status}${ago ? ` — last action ${ago} ago` : ''}` : null,
+          audience === 'anyone' ? 'Revivable — a hired reviver can bring them up'
+            : audience === 'friends' ? 'Revivable by their friends & faction only' : null,
+          entry.is_on_wall ? 'Defending a territory wall' : null,
+          entry.has_early_discharge ? 'Early discharge available' : null,
+        ].filter(Boolean).join('\n'),
+      }
+    }
+    return null
+  }
+
+  /**
+   * Sort rank for a status: lower is more attackable.
+   *
+   * Folded into ONE number with the release time so the comparator stays a
+   * plain subtraction — rank dominates, and members in the same state are
+   * ordered by who is out first.
+   */
+  const STATUS_RANK = { okay: 0, hospital: 1, jail: 2, traveling: 3, abroad: 4 }
+
+  function statusSortValue(entry, nowMs = Date.now()) {
+    const view = statusView(entry, nowMs)
+    if (!view) return null
+    const rank = STATUS_RANK[view.kind] ?? 5
+    const until = Number(entry?.status?.until)
+    return rank * 1e11 + (Number.isFinite(until) && until > 0 ? until : 0)
+  }
+
+  /**
+   * Order rows for our sort control. PURE — takes precomputed values.
+   *
+   * `entries` is [{ id, pos, value }] where `pos` is the row's ORIGINAL index.
+   *
+   * ⚠️ Unknown values sort LAST in both directions, never first. Half a war
+   * roster has no battle stats on record, and an ascending sort that opens with
+   * two hundred `???` rows has buried the answer rather than found it.
+   *
+   * ⚠️ `pos` is the tiebreak, which is what makes this stable across repeated
+   * sorts. Without it two members on the same value swap places every repaint
+   * and the list visibly churns.
+   */
+  function sortEntries(entries, dir) {
+    const missing = (v) => v === null || v === undefined || !Number.isFinite(Number(v))
+    return [...(entries ?? [])].sort((a, b) => {
+      const am = missing(a.value), bm = missing(b.value)
+      if (am && bm) return a.pos - b.pos
+      if (am) return 1
+      if (bm) return -1
+      const diff = (Number(a.value) - Number(b.value)) * (dir < 0 ? -1 : 1)
+      return diff === 0 ? a.pos - b.pos : diff
+    })
+  }
+
+  /** Click cycle for a sort header: off → descending → ascending → off. */
+  function nextSort(current, key) {
+    if (current?.key !== key) return { key, dir: -1 }
+    if (current.dir === -1) return { key, dir: 1 }
+    return { key: null, dir: 0 }
+  }
+
+  /**
+   * The war_room_state_v2 fields we keep, flattened.
+   *
+   * travel_departed_at is a COLUMN, not part of the `state` jsonb — the ticker
+   * latches it when the roster poll observes the transition into Traveling
+   * (#330), and the ETA is meaningless without it.
+   */
+  function rowState(row) {
+    if (!row) return null
+    const s = row.state ?? {}
+    return {
+      last_action: s.last_action ?? null,
+      status: s.status ?? null,
+      is_revivable: Boolean(s.is_revivable),
+      has_early_discharge: Boolean(s.has_early_discharge),
+      is_in_oc: Boolean(s.is_in_oc),
+      is_on_wall: Boolean(s.is_on_wall),
+      revive_setting: s.revive_setting ?? null,
+      travel_departed_at: row.travel_departed_at ?? null,
+    }
+  }
+
   // ── Transport ────────────────────────────────────────────────────────────
 
   function gmRequest(opts) {
@@ -559,6 +1032,7 @@ const TNLDibs = (function () {
     attempt: 0,          // consecutive failed polls, for backoff
     status: 'idle',
     expanded: false,        // the panel collapses to a dot once signed in
+    settingsOpen: false,    // the expanded panel is showing settings (#514)
     painted: -1,            // last counts logged, so render() is not spammy
     attached: -1,
     opponentId: null,       // the faction the war room is pointed at
@@ -571,6 +1045,10 @@ const TNLDibs = (function () {
     stats: new Map(),       // memberId → battle stats, straight off the roster
     mine: null,             // our own stats, so FF needs no second source
     isAdmin: false,         // UI affordance only; the server decides
+    state: new Map(),       // memberId → rowState(): status, last action, revive (#525)
+    mstats: new Map(),      // memberId → energy + cooldowns. LEAD-ONLY, OURS-ONLY.
+    sort: { key: null, dir: 0 },  // our sort control; null means Torn's own order
+    tick: null,             // the 1 Hz countdown timer
   }
 
   /** The logged-in Torn user, read from the page's own sidebar profile link. */
@@ -584,7 +1062,15 @@ const TNLDibs = (function () {
       method,
       url: `https://${rt.session.host}${path}`,
       headers: {
-        'content-type': 'application/json',
+        // ⚠️ ONLY when there IS a body. Sending `content-type: application/json`
+        // on a bodyless request makes Fastify parse a zero-length body as JSON
+        // and answer 400 FST_ERR_CTP_EMPTY_JSON_BODY — before the route is ever
+        // reached. That is what broke release-from-Torn while release from the
+        // War Room kept working: the SPA's apiDelete sends no content-type, and
+        // this sent one on every request. GET was unaffected because Fastify
+        // does not parse a body it never expects, so the fault looked specific
+        // to DELETE and therefore looked like a permissions problem.
+        ...(body ? { 'content-type': 'application/json' } : {}),
         authorization: `Bearer ${rt.session.token}`,
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -672,7 +1158,11 @@ const TNLDibs = (function () {
 
   async function release(targetId) {
     const res = await api(`/api/war-room/dibs/${targetId}`, 'DELETE')
-    if (res.status !== 200) return { ok: false, message: `HTTP ${res.status}` }
+    // The server's own wording where it gave one — `HTTP 400` on the badge
+    // tooltip told us nothing, and the 400 above went unexplained for a release.
+    if (res.status !== 200) {
+      return { ok: false, message: res.body?.message ?? res.body?.error ?? `HTTP ${res.status}` }
+    }
     rt.dibs.delete(targetId)     // optimistic; covers an admin override too
     pokePoll()
     return { ok: true }
@@ -715,17 +1205,45 @@ const TNLDibs = (function () {
     // Battle stats ride along on the rows we already have — no extra request,
     // no TornStats key. Our own row is in here too, which is what makes FF
     // computable client-side.
+    //
+    // ⚠️ And so does everything else (#525). These rows carry the full `state`
+    // jsonb; the script used to take the four stat columns and drop the rest on
+    // the floor, then Wall Battlestats re-fetched the same facts from Torn.
     for (const row of stateRows) {
-      const stats = rowStats(row)
-      if (!stats) continue
       const id = Number(row.member_id)
-      rt.stats.set(id, stats)
-      if (String(id) === String(rt.session?.userId)) rt.mine = stats
+      if (!Number.isFinite(id) || id <= 0) continue
+      const stats = rowStats(row)
+      if (stats) {
+        rt.stats.set(id, stats)
+        if (String(id) === String(rt.session?.userId)) rt.mine = stats
+      }
+      const st = rowState(row)
+      if (st) rt.state.set(id, st)
     }
     // A tombstone in a delta means that member left mid-war. Adding is not
     // enough: the set only ever grew, so their badge would outlive them.
     for (const row of stateRows) {
-      if (row.deleted_at) rt.enemies.delete(Number(row.member_id))
+      if (!row.deleted_at) continue
+      const id = Number(row.member_id)
+      rt.enemies.delete(id)
+      // Drop the cached state too, or a departed member keeps a live countdown
+      // that nothing will ever update again.
+      rt.state.delete(id)
+    }
+
+    // ⚠️ Energy and cooldowns, when the server sends them at all. Two hard
+    // limits, both upstream of anything we can do here:
+    //   • OUR OWN MEMBERS ONLY. Torn's `bars` and `cooldowns` are SELF-only
+    //     selections — a teammate's energy needs that teammate's own key, and
+    //     an enemy's cannot be read at any price. This can never appear on an
+    //     enemy row.
+    //   • LEAD-ONLY. `memberstats` is in LEAD_ONLY_CHANNELS (warRoom.ts); for a
+    //     non-lead the server does not filter it out, it never reads it. An
+    //     empty map here is the correct outcome for most of the faction, not a
+    //     failure to render.
+    for (const row of frameRows(body?.memberstats)) {
+      const id = Number(row.member_id)
+      if (Number.isFinite(id) && id > 0) rt.mstats.set(id, row)
     }
     log(`${stateRows.length} roster rows, ${dibRows.length} dib rows →`,
       `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`,
@@ -820,6 +1338,135 @@ const TNLDibs = (function () {
   // ── DOM ──────────────────────────────────────────────────────────────────
 
   /**
+   * Our column's width, in px. FIXED, and that is the whole point (#511).
+   *
+   * ⚠️ Torn's war table is a FLOAT layout with fixed per-column widths. A cell
+   * that grows with its content overflows the row, the last float wraps, and
+   * the enemy list drops BELOW our own faction's list instead of sitting beside
+   * it. Room is made by narrowing Torn's own columns in the injected stylesheet
+   * — never by adding width here.
+   */
+  const COL_WIDTH = 132
+  /** The dibs control's share of it — also fixed, so its left edge never moves. */
+  const DIBS_WIDTH = 78
+  /** Below this the stats half is hidden and only dibs survives. */
+  const NARROW_PX = 1000
+  const COL_CLASS = 'tnl-col'
+  const COL_HEAD_CLASS = 'tnl-col-head'
+  const DIBS_SLOT_CLASS = 'tnl-col-dibs'
+  const STAT_SLOT_CLASS = 'tnl-col-bs'
+  const STYLE_ID = 'tnl-dibs-style'
+  /** Marks a name we have tinted, so the tint can be lifted cleanly (#525). */
+  const TINT_CLASS = 'tnl-tint'
+  /** Marks a Status cell we have taken over (#515). */
+  const STATUS_CLASS = 'tnl-status'
+  /** A header cell bound to our sort control. */
+  const SORT_CLASS = 'tnl-sort'
+
+  /**
+   * Activity colours. Green / amber / grey is the convention every Torn script
+   * uses for Online / Idle / Offline, and matching it means a member does not
+   * have to learn ours.
+   */
+  const TINT_COLORS = { online: '#4ade80', idle: '#facc15', offline: '#9ca3af' }
+
+  /** Status-cell tones. Muted deliberately — the cell is scanned, not read. */
+  const STATUS_COLORS = {
+    okay: '#9ca3af', hospital: '#f87171', jail: '#fb923c',
+    traveling: '#60a5fa', abroad: '#22d3ee',
+  }
+
+  /**
+   * One stylesheet, injected once.
+   *
+   * Everything that does not change per row lives here rather than in inline
+   * `style.cssText` per element. That is not tidiness: `render()` runs every
+   * poll over every row, and each inline style write after a DOM read forces a
+   * synchronous layout (#516). A class costs one write, once.
+   *
+   * ⚠️ The row rules are lifted from `Wall Battlestats Colored`, which has done
+   * this correctly through years of Torn's churn. `clear: both` and the
+   * `::after` clearfix are what keep a row from collapsing once it holds one
+   * more float than Torn designed it for.
+   */
+  function injectStyles() {
+    if (typeof document === 'undefined') return
+    if (document.getElementById(STYLE_ID)) return
+    const el = document.createElement('style')
+    el.id = STYLE_ID
+    el.textContent = `
+ul.members-list > li, .table-body > .table-row { clear: both !important; width: 100% !important; position: relative; }
+ul.members-list > li::after { content: ""; display: table; clear: both; }
+
+/* Room is made by NARROWING Torn's columns, not by widening the row. */
+.members-cont .level { width: 27px !important; }
+
+.${COL_CLASS}, .${COL_HEAD_CLASS} {
+  width: ${COL_WIDTH}px; min-width: ${COL_WIDTH}px; max-width: ${COL_WIDTH}px;
+  flex: 0 0 ${COL_WIDTH}px;
+  display: inline-flex; align-items: center; gap: 6px;
+  box-sizing: border-box; padding: 0 4px;
+  vertical-align: middle; white-space: nowrap;
+  position: relative; z-index: 1;
+}
+.${COL_HEAD_CLASS} { font-weight: 700; opacity: .85; }
+
+.${DIBS_SLOT_CLASS} {
+  width: ${DIBS_WIDTH}px; min-width: ${DIBS_WIDTH}px; max-width: ${DIBS_WIDTH}px;
+  flex: 0 0 ${DIBS_WIDTH}px;
+  text-align: left;
+}
+.${STAT_SLOT_CLASS} {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
+  font-size: 11px; font-weight: 700; text-align: right; cursor: help;
+}
+
+.${BADGE_CLASS} {
+  /* ⚠️ position + z-index are load-bearing. Torn's cells paint over anything
+     overflowing a neighbour, so a statically-positioned badge ends up UNDER
+     the next column: visible, and unclickable. */
+  position: relative; z-index: 2147483000; isolation: isolate; pointer-events: auto;
+  /* Fixed width, left-anchored: the control's left edge must not move between
+     rows, and a long holder name must truncate rather than push the row (#512). */
+  display: block; width: 100%; box-sizing: border-box;
+  padding: 3px 6px; font-size: 11px; font-weight: 700; line-height: 16px;
+  border-radius: 10px; border: 1px solid rgba(255,255,255,.3);
+  color: #fff; text-align: center; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ⚠️ Tinting the NAME, not adding a cell. There is no width left (#511), and
+   colour on something already on the row is free. !important because Torn's own
+   rules for the name link are more specific than anything we can write here. */
+.${TINT_CLASS} { color: var(--tnl-tint) !important; }
+
+/* Our takeover of Torn's Status cell keeps Torn's own box model — we only
+   rewrite the text and recolour it, so nothing about the row's geometry moves. */
+.${STATUS_CLASS} {
+  color: var(--tnl-status) !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.${SORT_CLASS} { cursor: pointer; user-select: none; }
+.${SORT_CLASS}:hover { text-decoration: underline; }
+
+/* ⚠️ The stats half goes first when space runs out — dibs is the point of the
+   script, and a member on a phone still needs to claim a target. */
+@media screen and (max-width: ${NARROW_PX}px) {
+  .${STAT_SLOT_CLASS}, .${COL_HEAD_CLASS} .${STAT_SLOT_CLASS} { display: none; }
+  .${COL_CLASS}, .${COL_HEAD_CLASS} {
+    width: ${DIBS_WIDTH + 8}px; min-width: ${DIBS_WIDTH + 8}px; max-width: ${DIBS_WIDTH + 8}px;
+    flex-basis: ${DIBS_WIDTH + 8}px;
+  }
+}
+`
+    ;(document.head || document.documentElement).appendChild(el)
+    log('stylesheet injected')
+  }
+
+  /**
    * The row an anchor belongs to.
    *
    * ⚠️ Matched on structure, not on a class name. Torn's class names are
@@ -837,34 +1484,112 @@ const TNLDibs = (function () {
     return anchor.closest?.('li, tr') ?? anchor.closest?.('[class*="row___"]') ?? null
   }
 
-  /** The cell holding the Attack link, which is where the dibs control goes. */
+  /** The Attack cell — the anchor our column is inserted before. */
   function attackCellOf(row) {
     return row?.querySelector?.('.attack, [class*="attack__"], [class*="attack___"]') ?? null
   }
 
-  function badgeFor(anchor, playerId) {
-    const row = rowOf(anchor)
-    if (!row) return null
-    let badge = row.querySelector(`.${BADGE_CLASS}[data-tnl-target="${playerId}"]`)
+  /**
+   * The header row of the table a war row belongs to.
+   *
+   * ⚠️ Torn's war-table header is the element immediately BEFORE the list —
+   * `<div class="white-grad c-pointer">` holding .member/.level/.points/
+   * .status/.attack. It carries no `table-header` class at all, which is why
+   * looking for one found nothing and the columns went unheaded for weeks.
+   *
+   * ⚠️ There used to be a SECOND copy of this function further down the file,
+   * left behind by a bad splice. Later declarations win, so the copy that only
+   * looked for `.table-header` was the one that ran, and this one — the correct
+   * one — was dead code the whole time.
+   */
+  function headerFor(row) {
+    const list = row.closest('ul, table')
+    if (!list) return null
+    const prev = list.previousElementSibling
+    if (prev && prev.querySelector('.attack, [class*="attack__"]')) return prev
+    return list.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
+  }
+
+  /** The cell in a header that belongs to the Attack column. */
+  function attackHeaderCell(header) {
+    if (!header) return null
+    const direct = header.querySelector('.attack, [class*="attack__"], [class*="attack___"]')
+    if (direct) return direct
+    // Fall back to matching the word, since the header cell is sometimes a
+    // plain div with no distinguishing class at all.
+    for (const cell of header.children) {
+      if ((cell.textContent || '').trim().toLowerCase() === 'attack') return cell
+    }
+    return null
+  }
+
+  /** True for anything this script put on the page — see observe(). */
+  function isOurs(node) {
+    return Boolean(node?.closest?.(`.${COL_CLASS}, .${COL_HEAD_CLASS}, #${STYLE_ID}`))
+  }
+
+  function slot(parent, cls, text) {
+    let el = parent.querySelector(`.${cls}`)
+    if (el) return el
+    el = document.createElement('span')
+    el.className = cls
+    if (text) el.textContent = text
+    parent.appendChild(el)
+    return el
+  }
+
+  /**
+   * ONE combined TNL column — dibs and battle stats together — inserted in the
+   * row's own flow immediately left of Attack, with a matching header cell.
+   *
+   * ⚠️ Not two columns, and not nested inside Torn's Attack cell. Both of those
+   * were tried. Two columns cost ~140px per row and wrapped the float, which is
+   * what pushed the enemy table below our own; nesting inside `.attack` put the
+   * control on top of the Attack link and left the header cells missing
+   * entirely, because a nested element has no header to align with.
+   *
+   * Anchored to the Attack cell rather than to a position or a member icon:
+   * Attack is the one cell every one of these tables has, and its class is the
+   * only name on the row that has stayed put across Torn's builds.
+   */
+  function tnlCellOf(row) {
+    let cell = row.querySelector(`.${COL_CLASS}`)
+    if (cell) return cell
+
+    const header = headerFor(row)
+    if (header && !header.querySelector(`.${COL_HEAD_CLASS}`)) {
+      const before = attackHeaderCell(header)
+      const head = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
+      head.className = `table-cell ${COL_HEAD_CLASS}`
+      slot(head, DIBS_SLOT_CLASS, 'DIBS')
+      // The BS header is also the sort control — one click to order the whole
+      // war table by battle stats, which is the point of showing them.
+      bindSort(slot(head, STAT_SLOT_CLASS, 'BS'), 'bs', 'BS')
+      if (before) before.parentNode.insertBefore(head, before)
+      else header.appendChild(head)
+      log(`column header added${before ? ' before Attack' : ' at the end (no Attack header found)'}`)
+    }
+
+    cell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
+    cell.className = `table-cell ${COL_CLASS}`
+    slot(cell, DIBS_SLOT_CLASS)
+    slot(cell, STAT_SLOT_CLASS)
+    const attack = attackCellOf(row)
+    if (attack) attack.parentNode.insertBefore(cell, attack)
+    else row.insertBefore(cell, row.querySelector('.clear'))   // never after the float clear
+    return cell
+  }
+
+  function badgeFor(cell, playerId) {
+    const host = cell.querySelector(`.${DIBS_SLOT_CLASS}`)
+    if (!host) return null
+    let badge = host.querySelector(`.${BADGE_CLASS}`)
     if (badge) return badge
 
     badge = document.createElement('button')
     badge.type = 'button'
     badge.className = BADGE_CLASS
     badge.dataset.tnlTarget = String(playerId)
-    // ⚠️ position + z-index are load-bearing, not decoration. Torn's war rows
-    // are a grid of cells that paint over anything overflowing a neighbour, so
-    // a statically-positioned badge ends up UNDER the next column: visible,
-    // and unclickable, because the cell above it takes the pointer.
-    badge.style.cssText = [
-      'position:relative', 'z-index:2147483000', 'isolation:isolate',
-      'pointer-events:auto', 'display:inline-block',
-      'padding:3px 9px', 'font-size:11px', 'font-weight:700',
-      'border-radius:10px', 'border:1px solid rgba(255,255,255,.3)', 'cursor:pointer',
-      'vertical-align:middle', 'line-height:16px', 'white-space:nowrap',
-      // Wide enough for a name, capped so it cannot shove Attack off the row.
-      'min-width:64px', 'max-width:120px', 'overflow:hidden', 'text-overflow:ellipsis',
-    ].join(';')
     badge.addEventListener('click', async (e) => {
       e.preventDefault(); e.stopPropagation()
       const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
@@ -874,126 +1599,34 @@ const TNLDibs = (function () {
       const res = state.action === 'claim' ? await claim(playerId) : await release(playerId)
       badge.disabled = false
       if (!res.ok) badge.title = res.message
+      // The signature is stale by definition after a write — force the repaint.
+      delete cell.dataset.tnlSig
       render()
     })
-
-    // ⚠️ Its OWN cell, not inside Attack's. Sharing that cell made the control
-    // overlap the Attack link and the stats beside it — Torn's cells are
-    // fixed-width and a 64px button does not fit in one that was sized for the
-    // word "Attack". A column of our own is also what the War Room does.
-    dibsCellOf(row).appendChild(badge)
+    host.appendChild(badge)
     return badge
-  }
-
-  /**
-   * A column of ours, inserted immediately left of Attack with a header.
-   *
-   * Anchored to the Attack cell rather than to member icons or a position:
-   * Attack is the one cell every one of these tables has, and its class name
-   * is the only one on the row that has stayed put. Everything else on the war
-   * page is a hashed per-build name.
-   */
-  function ourColumn(row, cellClass, headClass, headText, width) {
-    let cell = row.querySelector(`.${cellClass}`)
-    if (cell) return cell
-
-    const header = headerFor(row)
-    if (header && !header.querySelector(`.${headClass}`)) {
-      const before = attackHeaderCell(header)
-      const head = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
-      head.className = `table-cell ${headClass}`
-      head.textContent = headText
-      head.style.cssText = `min-width:${width}px;text-align:center;white-space:nowrap`
-      if (before) before.parentNode.insertBefore(head, before)
-      else header.appendChild(head)
-      log(`${headText} header added${before ? ' before Attack' : ' at the end (no Attack header found)'}`)
-    }
-
-    cell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
-    cell.className = `table-cell ${cellClass}`
-    cell.style.cssText = [
-      'position:relative', 'z-index:1', `min-width:${width}px`, 'text-align:center',
-      'white-space:nowrap', 'display:inline-block', 'padding:0 4px',
-    ].join(';')
-    const attack = attackCellOf(row)
-    if (attack) attack.parentNode.insertBefore(cell, attack)
-    else row.insertBefore(cell, row.querySelector('.clear'))   // never after the float clear
-    return cell
-  }
-
-  function statCellOf(row) {
-    const cell = ourColumn(row, STAT_CLASS, STAT_HEAD_CLASS, 'BS', 64)
-    cell.style.fontSize = '11px'
-    cell.style.fontWeight = '700'
-    cell.style.cursor = 'help'
-    return cell
-  }
-
-  function dibsCellOf(row) {
-    return ourColumn(row, DIBS_CELL_CLASS, DIBS_HEAD_CLASS, 'DIBS', 76)
   }
 
   /** Colour for the stat that dominates a build. Matches Wall Battlestats. */
   const STAT_COLORS = { str: '#ef4444', def: '#22c55e', spd: '#60a5fa', dex: '#f59e0b' }
 
   /**
-   * The header row of the table a war row belongs to.
+   * Three states, three readings at a glance, and no lock icon — the colour is
+   * the state (#512). Grey: free, take it. Blue: yours, click to release.
+   * Orange: someone else's, hands off.
    *
-   * ⚠️ Found by walking up to a container and looking for Torn's own header
-   * class, NOT by assuming a position. The war page renders several of these
-   * tables (your side, their side) and the header is sometimes a child of the
-   * list and sometimes its previous sibling, depending on which view rendered.
+   * ⚠️ A truncated name must stay recoverable. The whole reason for naming the
+   * holder is settling a collision in one message in faction chat, so the full
+   * name always goes in the tooltip even when the label is clipped.
    */
-  function headerFor(row) {
-    const list = row.closest('ul, table')
-    if (!list) return null
-    // Torn's war-table header is the element immediately BEFORE the list —
-    // `<div class="white-grad c-pointer">` holding .member/.level/.points/
-    // .status/.attack. It carries no `table-header` class at all, which is why
-    // looking for one found nothing and the columns went unheaded.
-    const prev = list.previousElementSibling
-    if (prev && prev.querySelector('.attack, [class*="attack__"]')) return prev
-    return list.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
-  }
-
-  /** The cell in a header (or row) that belongs to the Attack column. */
-  function attackHeaderCell(header) {
-    if (!header) return null
-    const direct = header.querySelector('.attack, [class*="attack__"], [class*="attack___"]')
-    if (direct) return direct
-    // Fall back to matching the word, since the header cell is sometimes a
-    // plain div with no distinguishing class at all.
-    for (const cell of header.children) {
-      if ((cell.textContent || '').trim().toLowerCase() === 'attack') return cell
-    }
-    return null
-  }
-
-  /**
-   * The header row of the table a war row belongs to.
-   *
-   * ⚠️ Found by walking up to a container and looking for Torn's own header
-   * class, NOT by assuming a position. The war page renders several of these
-   * tables (your side, their side) and the header is sometimes a child of the
-   * list and sometimes its previous sibling, depending on which view rendered.
-   */
-  function headerFor(row) {
-    const scope = row.closest('.f-war-list, .faction-war, .faction-info-wrap, ul, table') ?? row.parentElement
-    if (!scope) return null
-    return scope.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
-  }
-
-  /** The cell in a header (or row) that belongs to the Attack column. */
-  function attackHeaderCell(header) {
-    if (!header) return null
-    const direct = header.querySelector('.attack, [class*="attack__"], [class*="attack___"]')
-    if (direct) return direct
-    // Fall back to matching the word, since the header cell is sometimes a
-    // plain div with no distinguishing class at all.
-    for (const cell of header.children) {
-      if ((cell.textContent || '').trim().toLowerCase() === 'attack') return cell
-    }
-    return null
+  function paintDibs(badge, state) {
+    if (!badge) return
+    badge.textContent = state.label
+    badge.style.background = state.mine ? '#1d4ed8' : state.taken ? '#c2410c' : '#374151'
+    badge.style.cursor = state.action === 'none' ? 'default' : 'pointer'
+    badge.title = state.taken && !state.mine
+      ? `Claimed by ${state.label}${state.action === 'release' ? ' — click to release (admin)' : ''}`
+      : ''
   }
 
   /**
@@ -1009,6 +1642,13 @@ const TNLDibs = (function () {
    * marks that with a solid vs dotted underline, so this does too.
    */
   function paintStats(cell, playerId) {
+    if (!cell) return
+    if (!settings.on(SETTING_STATS)) {
+      cell.textContent = ''
+      cell.title = ''
+      cell.style.border = '1px solid transparent'
+      return
+    }
     const stats = rt.stats.get(playerId)
     if (!stats || stats.total === null) {
       cell.textContent = '???'
@@ -1033,15 +1673,19 @@ const TNLDibs = (function () {
     cell.style.textDecorationColor = exact ? 'rgba(16,185,129,.7)' : 'rgba(148,163,184,.7)'
 
     const ff = fairFight(rt.mine, stats)
-    cell.style.border = ff !== null && ff >= FF_HIGHLIGHT
+    cell.style.border = settings.on(SETTING_FF_BOX) && ff !== null && ff >= FF_HIGHLIGHT
       ? '1px solid #86efac'
       : '1px solid transparent'
 
     // Breakdown rows only where we actually have one, exactly as the War Room
     // does — four lines of "N/A" is noise pretending to be data.
-    const breakdown = [['STR', stats.str], ['DEF', stats.def], ['SPD', stats.spd], ['DEX', stats.dex]]
-      .filter(([, v]) => v !== null)
-      .map(([label, v]) => `${label}  ${formatStat(v)}`)
+    //
+    // ⚠️ The dominant stat is MARKED, not bolded (#513). The reference script
+    // bolds it, but this is a title attribute — plain text, no markup — so a
+    // caret carries the same information rather than pretending we can style it.
+    const breakdown = [['str', 'STR', stats.str], ['def', 'DEF', stats.def], ['spd', 'SPD', stats.spd], ['dex', 'DEX', stats.dex]]
+      .filter(([, , v]) => v !== null)
+      .map(([key, label, v]) => `${label}  ${formatStat(v)}${key === dominant ? '  ◄' : ''}`)
 
     cell.title = [
       ff === null ? 'FF —' : `FF ${ff.toFixed(2)}`,
@@ -1052,28 +1696,348 @@ const TNLDibs = (function () {
     ].filter(Boolean).join('\n')
   }
 
-  function render() {
-    let painted = 0      // enemies we INTENDED to badge
-    let attached = 0     // badges that actually exist in the DOM
-    for (const [playerId, anchors] of rt.nodes) {
-      if (!rt.enemies.has(playerId)) continue
-      painted++
-      const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
+  /**
+   * A row we are willing to touch.
+   *
+   * ⚠️ rt.nodes indexes EVERY profile link on the page — the sidebar, faction
+   * chat, a news item. Tinting those would recolour half of Torn. Matched
+   * structurally rather than by class name, for the same reason rowOf() is:
+   * a member row is a list item or table row that carries a status or level
+   * cell, and that has been true across every one of Torn's rebuilds.
+   */
+  function isMemberRow(row) {
+    const tag = row?.tagName?.toLowerCase?.()
+    if (tag !== 'li' && tag !== 'tr') return false
+    return Boolean(row.querySelector(
+      '.status, [class*="status___"], [class*="status__"], .level, [class*="level___"]'
+    ))
+  }
+
+  /** Torn's own Status cell for a row. */
+  function statusCellOf(row) {
+    return row?.querySelector?.('.status, [class*="status___"], [class*="status__"]') ?? null
+  }
+
+  /**
+   * What TORN says this member's status is — the authority (#515).
+   *
+   * Read from Torn's class name and from the text Torn last put in the cell,
+   * never from what we wrote. Our roster copy is up to three seconds stale, and
+   * a member who has just left hospital must not keep counting down on a page
+   * that already knows better.
+   */
+  function tornStatusKind(cell) {
+    const c = String(cell?.className ?? '').toLowerCase()
+    const t = String(cell?.dataset?.tnlTorn ?? '').toLowerCase().trim()
+    const has = (w) => c.includes(w) || t.includes(w)
+    if (has('hospital') || has('hosp')) return 'hospital'
+    if (has('federal') || has('jail')) return 'jail'
+    if (has('travel')) return 'traveling'
+    if (has('abroad') || /^in [a-z]/.test(t)) return 'abroad'
+    if (has('okay')) return 'okay'
+    return null
+  }
+
+  /**
+   * Remember what Torn had in the cell before we touched it.
+   *
+   * ⚠️ Self-healing on purpose. Torn re-renders these rows on its own schedule
+   * and will blow our text away; when the text in the cell is not the text WE
+   * last wrote, it is fresh from Torn and becomes the new baseline. Stashing it
+   * only once would poison the authority check the first time React repainted.
+   */
+  function rememberTornStatus(cell) {
+    const shown = (cell.textContent ?? '').trim()
+    if (shown !== cell.dataset.tnlWrote) cell.dataset.tnlTorn = shown
+    return cell.dataset.tnlTorn ?? ''
+  }
+
+  /** Hand the cell back to Torn, exactly as we found it. */
+  function releaseStatusCell(cell) {
+    if (!cell || !cell.dataset.tnlWrote) return
+    if ((cell.textContent ?? '').trim() === cell.dataset.tnlWrote) {
+      cell.textContent = cell.dataset.tnlTorn ?? ''
+    }
+    cell.classList.remove(STATUS_CLASS)
+    cell.style.removeProperty('--tnl-status')
+    delete cell.dataset.tnlWrote
+    delete cell.dataset.tnlStatusSig
+  }
+
+  /**
+   * Energy and cooldowns, for the tooltip only.
+   *
+   * ⚠️ Tooltip and nothing else. There is no width for it (#511), it exists for
+   * our own members only, and only a lead's poll carries it at all — so a
+   * visible column would be blank for most of the faction and misread as broken.
+   */
+  function memberStatsNote(playerId) {
+    const m = rt.mstats.get(playerId)
+    if (!m) return []
+    const out = []
+    if (m.energy_current !== null && m.energy_current !== undefined) {
+      out.push(`Energy ${m.energy_current}/${m.energy_maximum ?? '?'}`)
+    }
+    const cd = (label, secs) => {
+      const n = Number(secs)
+      if (!Number.isFinite(n) || n <= 0) return
+      out.push(`${label} ${fmtCountdown(n)}`)
+    }
+    cd('Drug CD', m.cooldown_drug)
+    cd('Medical CD', m.cooldown_medical)
+    cd('Booster CD', m.cooldown_booster)
+    // The #357 latch: cooldown_drug is overwritten every sweep, so an overdose
+    // is only recoverable from the absolute expiry the server derived once.
+    const od = parseDbTime(m.overdose_until)
+    if (od && od.getTime() > Date.now()) out.push('☠ Overdosed')
+    return out
+  }
+
+  /**
+   * Rewrite Torn's Status cell with the live countdown / ETA / last action.
+   *
+   * Returns true when we own the cell this pass.
+   */
+  function paintStatus(row, playerId, nowMs) {
+    const cell = statusCellOf(row)
+    if (!cell) return false
+    if (!settings.on(SETTING_STATUS)) { releaseStatusCell(cell); return false }
+
+    rememberTornStatus(cell)
+    const entry = rt.state.get(playerId)
+    const view = entry ? statusView(entry, nowMs) : null
+    if (!view) { releaseStatusCell(cell); return false }
+
+    // ⚠️ Torn wins any disagreement. Our copy is up to a poll old; theirs is the
+    // page they just rendered. Deferring costs one stale cell, overriding costs
+    // a member queueing a hit on a countdown that already ran out.
+    const theirs = tornStatusKind(cell)
+    if (theirs && theirs !== view.kind) { releaseStatusCell(cell); return false }
+
+    const extra = memberStatsNote(playerId)
+    const title = [view.title, ...extra].filter(Boolean).join('\n')
+    const sig = `${view.text}|${title}`
+    if (cell.dataset.tnlStatusSig === sig) return true
+    cell.dataset.tnlStatusSig = sig
+
+    cell.textContent = view.text
+    cell.dataset.tnlWrote = view.text
+    cell.classList.add(STATUS_CLASS)
+    cell.style.setProperty('--tnl-status', STATUS_COLORS[view.tone] ?? '#9ca3af')
+    if (title) cell.title = title
+    return true
+  }
+
+  /** Tint the member's name by activity — the one signal that costs no width. */
+  function paintName(anchor, playerId) {
+    if (!settings.on(SETTING_TINT)) {
+      if (anchor.classList.contains(TINT_CLASS)) {
+        anchor.classList.remove(TINT_CLASS)
+        anchor.style.removeProperty('--tnl-tint')
+      }
+      return
+    }
+    const tone = activityTone(rt.state.get(playerId))
+    const colour = tone ? TINT_COLORS[tone] : null
+    if (!colour) {
+      // Guarded, like everything else that runs per row per poll (#516) — an
+      // enemy Torn tells us nothing about must not cost two DOM writes a tick.
+      if (!anchor.dataset.tnlTint) return
+      delete anchor.dataset.tnlTint
+      anchor.classList.remove(TINT_CLASS)
+      anchor.style.removeProperty('--tnl-tint')
+      return
+    }
+    if (anchor.dataset.tnlTint === tone) return
+    anchor.dataset.tnlTint = tone
+    anchor.style.setProperty('--tnl-tint', colour)
+    anchor.classList.add(TINT_CLASS)
+  }
+
+  // ── Sorting ──────────────────────────────────────────────────────────────
+  //
+  // ⚠️ Nothing here MOVES a DOM node, and that is the whole design. Torn owns
+  // these lists and re-renders them on its own schedule; a script that splices
+  // rows fights React and loses. Both reference scripts solved it the same way
+  // — make the list a flex column and write a CSS `order` onto each row — so
+  // the document order Torn maintains is never disturbed and our sort simply
+  // survives its next render. Copied deliberately.
+
+  /** The member a row is about, or null for a header / spacer / advert. */
+  function idOfRow(row) {
+    const a = row?.querySelector?.('a[href*="profiles.php?XID="]')
+    return a ? parseXid(a.getAttribute('href')) : null
+  }
+
+  /** The number our current sort key ranks a member by, or null when unknown. */
+  function sortValueFor(playerId, nowMs) {
+    switch (rt.sort.key) {
+      case 'bs': {
+        const total = rt.stats.get(playerId)?.total
+        return total === null || total === undefined ? null : Number(total)
+      }
+      case 'status': return statusSortValue(rt.state.get(playerId), nowMs)
+      default: return null
+    }
+  }
+
+  /**
+   * Permute one list's rows into sorted order using flex `order`.
+   *
+   * Non-member children (headers, adverts, Torn's own spacers) keep the slot
+   * they already occupy; only the member rows are permuted among their OWN
+   * slots. Sorting the whole child list instead would drag the header into the
+   * middle of the table.
+   */
+  function orderList(list, nowMs) {
+    const children = Array.from(list.children)
+    if (!rt.sort.key) {
+      if (!list.dataset.tnlFlex) return
+      for (const c of children) c.style.order = ''
+      list.style.removeProperty('display')
+      list.style.removeProperty('flex-direction')
+      delete list.dataset.tnlFlex
+      delete list.dataset.tnlOrderSig
+      return
+    }
+
+    const rows = []
+    children.forEach((c, i) => {
+      const id = idOfRow(c)
+      if (id !== null) rows.push({ id, row: c, pos: i, slot: i + 1, value: sortValueFor(id, nowMs) })
+    })
+    if (rows.length < 2) return
+
+    const ordered = sortEntries(rows, rt.sort.dir)
+    const sig = `${rt.sort.key}:${rt.sort.dir}:${ordered.map((e) => e.id).join(',')}`
+    // ⚠️ THE #516 RULE AGAIN. render() runs every poll and applySort() with it,
+    // so writing style.order unconditionally would touch every child of every
+    // list every three seconds — the exact synchronous-layout storm the dirty
+    // check was added to stop. A settled sort must cost one string compare.
+    //
+    // ⚠️ …but the signature alone is not enough. When Torn re-renders the list
+    // the rows are NEW elements carrying no order at all, while the id sequence
+    // is unchanged — so the signature matches, we skip, and the sort silently
+    // vanishes on the next thing that touches the table. Checking that the
+    // first row still carries an order catches exactly that case.
+    if (list.dataset.tnlOrderSig === sig && rows[0].row.style.order !== '') return
+    list.dataset.tnlOrderSig = sig
+
+    list.style.display = 'flex'
+    list.style.flexDirection = 'column'
+    list.dataset.tnlFlex = '1'
+    // Document order is the original order — permanently, because we never move
+    // a node. That is what makes `pos` a stable tiebreak with nothing to store.
+    children.forEach((c, i) => { c.style.order = String(i + 1) })
+    const slots = rows.map((r) => r.slot).sort((a, b) => a - b)
+    ordered.forEach((e, i) => { e.row.style.order = String(slots[i]) })
+  }
+
+  /** Apply the current sort to every member list we have rows on. */
+  function applySort(nowMs = Date.now()) {
+    const lists = new Set()
+    for (const anchors of rt.nodes.values()) {
       for (const anchor of anchors) {
         if (!anchor.isConnected) continue
-        const badge = badgeFor(anchor, playerId)
-        if (badge) {
-          attached++
-          badge.textContent = state.label
-          // Three states, three readings at a glance: yours (blue, actionable),
-          // someone else's (amber, hands off), free (grey, take it).
-          badge.style.background = state.mine ? '#1d4ed8' : state.taken ? '#b45309' : '#374151'
-          badge.style.color = '#fff'
-          badge.style.cursor = state.action === 'none' ? 'default' : 'pointer'
-          badge.title = state.taken && !state.mine ? `Claimed by ${state.label.replace('🔒 ', '')}` : ''
-        }
         const row = rowOf(anchor)
-        if (row) paintStats(statCellOf(row), playerId)
+        if (row && isMemberRow(row) && row.parentNode) lists.add(row.parentNode)
+      }
+    }
+    for (const list of lists) orderList(list, nowMs)
+  }
+
+  /** Turn a header cell into a sort control. Idempotent. */
+  function bindSort(el, key, label) {
+    if (!el || el.dataset.tnlSortKey) return
+    el.dataset.tnlSortKey = key
+    el.dataset.tnlSortLabel = label
+    el.classList.add(SORT_CLASS)
+    el.addEventListener('click', (e) => {
+      // ⚠️ Both, and in this order. Torn's own sort handler is bound by React at
+      // the root container, not on this cell, so stopPropagation is what stops
+      // it — otherwise every click sorts the table twice, once each way, and
+      // the result looks random. stopImmediatePropagation covers a listener
+      // bound directly to the cell by another script.
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation()
+      rt.sort = nextSort(rt.sort, key)
+      log(`sort ${rt.sort.key ?? 'off'} ${rt.sort.dir === -1 ? 'desc' : rt.sort.dir === 1 ? 'asc' : ''}`)
+      paintSortHeaders()
+      applySort()
+    })
+  }
+
+  /** Keep every bound header's arrow in step with the one active sort. */
+  function paintSortHeaders() {
+    if (typeof document === 'undefined') return
+    for (const el of document.querySelectorAll(`.${SORT_CLASS}`)) {
+      const key = el.dataset.tnlSortKey
+      const label = el.dataset.tnlSortLabel ?? ''
+      const arrow = rt.sort.key !== key ? '' : rt.sort.dir === -1 ? ' ▾' : ' ▴'
+      const text = `${label}${arrow}`
+      if (el.textContent !== text) el.textContent = text
+    }
+  }
+
+  /** Bind Torn's own Status header, so status sorting lives where it belongs. */
+  function bindStatusHeader(row) {
+    const list = row.parentNode
+    // ⚠️ Once per list, not once per row per poll. headerFor() walks up to the
+    // table and back out to its previous sibling; running that 200 times every
+    // three seconds to re-discover the same header is the kind of cost #516 was
+    // about.
+    if (!list || list.dataset.tnlHeaderBound) return
+    list.dataset.tnlHeaderBound = '1'
+    const header = headerFor(row)
+    if (!header) return
+    const cell = header.querySelector('.status, [class*="status___"], [class*="status__"]')
+    if (cell && !cell.dataset.tnlSortKey) {
+      bindSort(cell, 'status', (cell.textContent ?? 'Status').trim() || 'Status')
+    }
+  }
+
+  function render() {
+    injectStyles()
+    let painted = 0      // enemies we INTENDED to badge
+    let attached = 0     // badges that actually exist in the DOM
+    let repainted = 0    // rows whose state actually changed — see #516
+    const settingsSig = settingsSignature()   // loop-invariant; read once
+    const nowMs = Date.now()
+    for (const [playerId, anchors] of rt.nodes) {
+      const isEnemy = rt.enemies.has(playerId)
+      // ⚠️ Roster intelligence is for BOTH sides (#525). Dibs is enemy-only —
+      // a claim button beside a teammate is nonsense — but a hospital
+      // countdown, a travel ETA and an activity tint are worth as much on our
+      // own faction page as on the war page, and energy/cooldowns only ever
+      // exist for our own members.
+      const known = rt.state.has(playerId)
+      if (!isEnemy && !known) continue
+      if (isEnemy) painted++
+      const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
+      const sig = paintSignature(state, rt.stats.get(playerId), settingsSig, rt.mine?.total)
+      for (const anchor of anchors) {
+        if (!anchor.isConnected) continue
+        const row = rowOf(anchor)
+        if (!row || !isMemberRow(row)) continue
+
+        // Free of the dibs column and free of its width budget, so these run
+        // for every row we recognise.
+        paintName(anchor, playerId)
+        paintStatus(row, playerId, nowMs)
+        bindStatusHeader(row)
+
+        if (!isEnemy) continue
+        const cell = tnlCellOf(row)
+        if (badgeFor(cell, playerId)) attached++
+        // ⚠️ THE #516 FIX, half of it. render() used to rewrite ~10 style
+        // properties on every one of ~200 rows every 3 seconds, each write
+        // landing after a DOM read and so forcing a synchronous layout. Almost
+        // none of those rows had changed. Skipping the unchanged ones takes a
+        // full-table repaint down to the handful of rows that actually moved.
+        if (cell.dataset.tnlSig === sig) continue
+        cell.dataset.tnlSig = sig
+        repainted++
+        paintDibs(cell.querySelector(`.${BADGE_CLASS}`), state)
+        paintStats(cell.querySelector(`.${STAT_SLOT_CLASS}`), playerId)
       }
     }
     // ⚠️ The single most useful line when "no badges appeared". It separates
@@ -1091,8 +2055,53 @@ const TNLDibs = (function () {
         `(${rt.nodes.size} linked players, ${rt.enemies.size} known enemies,`,
         `${rt.stats.size} with stats)`)
     }
+    // Cheap to log and the only way to confirm the dirty check is working on a
+    // live page: a steady war room should print single digits, not 200.
+    if (repainted > 0) log(`repainted ${repainted} of ${attached} rows`)
+    paintSortHeaders()
+    applySort(nowMs)
   }
 
+  /**
+   * The 1 Hz local tick (#515).
+   *
+   * ⚠️ Countdowns tick locally rather than by polling. The roster poll is every
+   * three seconds and the API is shared by the whole faction during a war; a
+   * hospital timer that only moved on a poll would visibly stutter, and moving
+   * the poll to 1 Hz to fix that would triple the load on the tenant for a
+   * number we can compute ourselves.
+   *
+   * Only the status cells are repainted here — never the dibs column, whose
+   * state cannot change without a poll — and each cell's own signature means an
+   * unchanged one costs a string compare.
+   */
+  function renderTimers() {
+    if (typeof document === 'undefined' || document.hidden) return
+    const nowMs = Date.now()
+    for (const [playerId, anchors] of rt.nodes) {
+      if (!rt.state.has(playerId)) continue
+      for (const anchor of anchors) {
+        if (!anchor.isConnected) continue
+        const row = rowOf(anchor)
+        if (row && isMemberRow(row)) paintStatus(row, playerId, nowMs)
+      }
+    }
+  }
+
+  function startTimers() {
+    if (rt.tick || typeof setInterval !== 'function') return
+    rt.tick = setInterval(renderTimers, 1000)
+  }
+
+  /**
+   * Index the profile anchors under `root`.
+   *
+   * ⚠️ Does NOT render. It used to, and that was the other half of #516:
+   * sorting a column re-adds every row at once, the observer batches those into
+   * ~200 touched nodes, and scan() was called once per node — so ONE sort ran
+   * render() two hundred times, each pass walking all two hundred rows. The
+   * observer now scans each node and renders once, at the end.
+   */
   function scan(root) {
     if (!root || !root.querySelectorAll) return
     const before = rt.nodes.size
@@ -1103,7 +2112,6 @@ const TNLDibs = (function () {
       rt.nodes.get(id).add(anchor)
     }
     if (rt.nodes.size !== before) log(`scan: ${rt.nodes.size - before} new players on the page`)
-    render()
   }
 
   function observe() {
@@ -1112,12 +2120,26 @@ const TNLDibs = (function () {
     const observer = new MutationObserver((mutations) => {
       const touched = new Set()
       for (const m of mutations) {
-        for (const node of m.addedNodes) if (node.nodeType === 1) touched.add(node)
+        for (const node of m.addedNodes) {
+          // ⚠️ Skip our own insertions. Every column and badge we add is itself
+          // a mutation, so without this the observer answers its own work —
+          // and on a page that is still rendering, that is a feedback loop
+          // running a full scan per element we create.
+          if (node.nodeType === 1 && !isOurs(node)) touched.add(node)
+        }
       }
+      if (touched.size === 0) return
       for (const node of touched) scan(node)
+      render()   // ⚠️ ONCE per batch, not once per touched node — see scan().
     })
     observer.observe(document, { childList: true, subtree: true })
     scan(document)
+    render()
+    // ⚠️ Safe to start alongside the observer: our own writes here are text
+    // nodes and attributes, and the observer only watches childList for
+    // ELEMENT additions — so the countdown cannot answer its own mutations the
+    // way scan() once did (#516).
+    startTimers()
   }
 
   // ── Panel ────────────────────────────────────────────────────────────────
@@ -1178,28 +2200,59 @@ const TNLDibs = (function () {
   }
 
   /**
-   * The debug switch, in the panel rather than the console.
+   * One labelled checkbox, persisted immediately.
    *
-   * The tracing that matters most — the socket's whole lifecycle — happens at
-   * page load, so the setting is persisted and read on the next load. Asking a
+   * Persisted rather than held in memory because the tracing that matters most
+   * — the whole startup sequence — happens before any panel exists. Asking a
    * member to type a console command on torn.com is also a worse thing to teach
    * than a checkbox.
    */
-  function debugToggle() {
+  function settingToggle(key, label, hint) {
     const wrap = document.createElement('label')
-    wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:8px;opacity:.7;cursor:pointer'
+    wrap.style.cssText = 'display:flex;align-items:flex-start;gap:6px;margin-top:8px;cursor:pointer'
     const box = document.createElement('input')
     box.type = 'checkbox'
-    box.checked = debugOn()
+    box.checked = settings.on(key)
+    box.style.cssText = 'margin-top:2px'
     box.addEventListener('change', () => {
-      GM_setValue(DEBUG_KEY, box.checked ? 'true' : 'false')
-      log('debug logging on — reload to trace startup')
+      settings.set(key, box.checked)
+      log(`setting ${key} = ${box.checked}`)
+      // ⚠️ Repaint, do not reload. The setting is in the paint signature, so
+      // the dirty check picks up the change on the next pass — but waiting up
+      // to a full poll for a checkbox to do anything reads as a broken toggle.
+      render()
     })
     const text = document.createElement('span')
-    text.textContent = 'Debug log (console)'
+    text.textContent = label
+    if (hint) {
+      const small = document.createElement('div')
+      small.textContent = hint
+      small.style.cssText = 'opacity:.6;font-size:11px'
+      text.appendChild(small)
+    }
     wrap.appendChild(box)
     wrap.appendChild(text)
     return wrap
+  }
+
+  /** The settings view (#514) — behind the panel, not on top of the war page. */
+  function settingsView(box) {
+    const title = document.createElement('div')
+    title.textContent = 'Settings'
+    title.style.cssText = 'font-weight:700;margin-bottom:2px'
+    box.appendChild(title)
+
+    box.appendChild(settingToggle(SETTING_STATS, 'Show battle stats', 'Off leaves the dibs control alone.'))
+    box.appendChild(settingToggle(SETTING_FF_BOX, 'Highlight high fair fight', `A green box at FF ${FF_HIGHLIGHT} and up.`))
+    box.appendChild(settingToggle(SETTING_STATUS, 'Live status column', 'Hospital countdown, travel ETA and last action, in Torn\u2019s own Status cell.'))
+    box.appendChild(settingToggle(SETTING_TINT, 'Tint names by activity', 'Green online, amber idle, grey offline.'))
+    box.appendChild(settingToggle(DEBUG_KEY, 'Debug log (console)', 'Reload to trace startup.'))
+
+    const back = document.createElement('button')
+    back.textContent = 'Back'
+    back.style.cssText = 'width:100%;margin-top:10px;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
+    back.addEventListener('click', () => { rt.settingsOpen = false; panel() })
+    box.appendChild(back)
   }
 
   function panel() {
@@ -1223,8 +2276,11 @@ const TNLDibs = (function () {
       panelDot = dot
       dot.type = 'button'
       dot.setAttribute('aria-label', 'TNL Dibs')
+      // ⚠️ LEFT, not right. Torn anchors its own chat window to the
+      // bottom-right, so that corner is the one place on the page guaranteed
+      // to already be occupied — the dot sat on top of the chat tabs (#514).
       dot.style.cssText = [
-        'position:fixed', 'right:12px', 'bottom:12px', 'z-index:2147483000',
+        'position:fixed', 'left:12px', 'bottom:12px', 'z-index:2147483000',
         'width:14px', 'height:14px', 'padding:0', 'border-radius:50%',
         'border:1px solid rgba(0,0,0,.5)', 'cursor:pointer', 'opacity:.75',
         'box-shadow:0 1px 4px rgba(0,0,0,.5)',
@@ -1238,11 +2294,17 @@ const TNLDibs = (function () {
     const box = document.createElement('div')
     panelBox = box
     box.style.cssText = [
-      'position:fixed', 'right:12px', 'bottom:12px', 'z-index:2147483000',
+      'position:fixed', 'left:12px', 'bottom:12px', 'z-index:2147483000',
       'background:#111827', 'color:#e5e7eb', 'border:1px solid #374151',
       'border-radius:10px', 'padding:10px 12px', 'font:12px/1.4 system-ui,sans-serif',
       'box-shadow:0 6px 24px rgba(0,0,0,.4)', 'max-width:260px',
     ].join(';')
+
+    if (rt.settingsOpen) {
+      settingsView(box)
+      document.body.appendChild(box)
+      return
+    }
 
     const title = document.createElement('div')
     title.textContent = 'TNL Dibs'
@@ -1293,7 +2355,7 @@ const TNLDibs = (function () {
       const hide = document.createElement('button')
       hide.textContent = 'Hide'
       hide.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
-      hide.addEventListener('click', () => { rt.expanded = false; panel() })
+      hide.addEventListener('click', () => { rt.expanded = false; rt.settingsOpen = false; panel() })
 
       const out = document.createElement('button')
       out.textContent = 'Sign out'
@@ -1311,7 +2373,12 @@ const TNLDibs = (function () {
       row.appendChild(hide)
       row.appendChild(out)
       box.appendChild(row)
-      box.appendChild(debugToggle())
+
+      const gear = document.createElement('button')
+      gear.textContent = '⚙ Settings'
+      gear.style.cssText = 'width:100%;margin-top:6px;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
+      gear.addEventListener('click', () => { rt.settingsOpen = true; panel() })
+      box.appendChild(gear)
     }
 
     document.body.appendChild(box)
@@ -1381,7 +2448,13 @@ const TNLDibs = (function () {
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,
     parseDbTime, fmtAgo, statsSourceLabel, tokenClaims, sessionIsAdmin,
+    settingOn, settings, settingsSignature, paintSignature,
+    countryCode, travelDestination, travelPhase, methodsForPlaneType, travelEta,
+    fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
+    statusView, statusSortValue, sortEntries, nextSort, rowState,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
+    SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT, DEBUG_KEY,
+    FLIGHT_SECONDS, PLANE_TYPE_METHOD,
   }
 })()
 

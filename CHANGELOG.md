@@ -17,6 +17,28 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+- **Userscript: live status column (#515).** The Torn Status cell now carries a
+  1 Hz hospital countdown (`1h23m` / `45m12s`), an abbreviated travel leg with an
+  inferred ETA (`>CN ~54m`, `CN>`), and `In CN` for a member already abroad — all
+  computed from data the delta poll already carried. An abroad hospital stay is
+  marked with the country (`SWI:12m00s`), because it is a different proposition
+  from a local one. Torn's own status stays authoritative on any disagreement.
+- **Userscript: roster intelligence (#525).** Member names are tinted by activity
+  (green online / amber idle / grey offline), an Okay member's Status cell shows
+  their last action and a revive glyph, and the tooltip carries revive audience,
+  wall and early-discharge flags plus — for leads, on our own members only —
+  energy and drug/medical/booster cooldowns.
+- **Userscript: sortable battle-stat column.** Clicking the `BS` header orders the
+  whole table by battle stats (descending, then ascending, then off); Torn's own
+  Status header sorts by how soon each member is attackable. Rows are permuted
+  with flexbox `order` rather than moved, so the sort survives Torn re-rendering
+  the list.
+
+### Changed
+- **Userscript: the stat breakdown marks the dominant stat (#513).** Matches the
+  reference script's intent within the limits of a plain-text tooltip.
+
 ## [3.46.0] - 2026-08-19
 
 ### Added

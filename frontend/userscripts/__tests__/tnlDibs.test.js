@@ -1105,3 +1105,618 @@ describe('admin rights come from the session token', () => {
     expect(S.sessionIsAdmin({ token: tokenFor({ is_admin: 1 }) })).toBe(false)
   })
 })
+
+// ── Settings (#514) ────────────────────────────────────────────────────────
+
+describe('settingOn', () => {
+  it('reads the stored strings', () => {
+    expect(S.settingOn('true', S.SETTING_STATS)).toBe(true)
+    expect(S.settingOn('false', S.SETTING_STATS)).toBe(false)
+  })
+
+  it('falls back to the DEFAULT when nothing is stored, not to off', () => {
+    // Someone who installs this and never opens settings must still get the
+    // useful configuration — that is the point of the defaults.
+    expect(S.settingOn(null, S.SETTING_STATS)).toBe(true)
+    expect(S.settingOn(undefined, S.SETTING_FF_BOX)).toBe(true)
+  })
+
+  it('leaves the developer switch off by default', () => {
+    expect(S.settingOn(null, S.DEBUG_KEY)).toBe(false)
+  })
+
+  it('treats an unknown key as off, so a typo enables nothing', () => {
+    expect(S.settingOn(null, 'tnl-dibs-not-a-setting')).toBe(false)
+  })
+
+  it('ignores a corrupt value rather than reading it as truthy', () => {
+    // A half-written GM value must not turn a setting on by accident.
+    expect(S.settingOn('yes', S.DEBUG_KEY)).toBe(false)
+    expect(S.settingOn('1', S.DEBUG_KEY)).toBe(false)
+  })
+})
+
+describe('settings storage', () => {
+  it('keeps each setting in its own GM key, never in the session slot', () => {
+    // ⚠️ The collision this guards against has already happened once: a shared
+    // slot made a debug-flag test pass by writing the session.
+    const { S: s, values, stored } = loadScript({ stored: { value: JSON.stringify({ token: 'keep-me' }) } })
+    s.settings.set(s.SETTING_STATS, false)
+    s.settings.set(s.DEBUG_KEY, true)
+    expect(values[s.SETTING_STATS]).toBe('false')
+    expect(values[s.DEBUG_KEY]).toBe('true')
+    expect(JSON.parse(stored.value).token).toBe('keep-me')
+  })
+
+  it('round-trips a setting through the store', () => {
+    const { S: s } = loadScript({ values: { 'tnl-dibs-show-stats': 'false' } })
+    expect(s.settings.on(s.SETTING_STATS)).toBe(false)
+    expect(s.settings.on(s.SETTING_FF_BOX)).toBe(true)
+  })
+
+  it('turns the debug log on through the same store as the other settings', () => {
+    expect(loadScript({ values: { 'tnl-dibs-debug': 'true' } }).S.debugOn()).toBe(true)
+    expect(loadScript().S.debugOn()).toBe(false)
+  })
+})
+
+// ── Repaint signature (#516) ───────────────────────────────────────────────
+
+describe('paintSignature', () => {
+  const state = { label: '+ Dibs', action: 'claim', mine: false, taken: false }
+  const stats = { total: 5e6, str: 1e6, def: 1e6, spd: 1e6, dex: 2e6, source: 'torn', spiedAt: '2026-08-19' }
+  const sig = (st = state, sx = stats, set = '11', mine = 4e6) => S.paintSignature(st, sx, set, mine)
+
+  it('is stable when nothing visible has changed', () => {
+    // The whole basis of the dirty check: an unchanged row must produce an
+    // identical string, or we are back to repainting 200 rows every 3 seconds.
+    expect(sig()).toBe(sig())
+  })
+
+  it('changes when the dibs state changes', () => {
+    expect(sig({ label: '✓ Yours', action: 'release', mine: true, taken: true })).not.toBe(sig())
+  })
+
+  it('changes when the holder changes, even between two taken states', () => {
+    const a = { label: 'Alice', action: 'none', mine: false, taken: true }
+    const b = { label: 'Bob', action: 'none', mine: false, taken: true }
+    expect(sig(a)).not.toBe(sig(b))
+  })
+
+  it('changes when the target stats change', () => {
+    expect(sig(state, { ...stats, total: 6e6 })).not.toBe(sig())
+  })
+
+  it('changes when a spy is refreshed at the same total', () => {
+    // Same numbers, newer reading — the tooltip's age line has to update.
+    expect(sig(state, { ...stats, spiedAt: '2026-08-20' })).not.toBe(sig())
+  })
+
+  it('changes when OUR OWN stats change', () => {
+    // ⚠️ FF is a comparison. Leaving our total out would freeze the green
+    // highlight on every row the moment our own stats refreshed.
+    expect(sig(state, stats, '11', 9e6)).not.toBe(sig())
+  })
+
+  it('changes when a display setting is toggled', () => {
+    expect(sig(state, stats, '00')).not.toBe(sig())
+    expect(sig(state, stats, '10')).not.toBe(sig(state, stats, '11'))
+  })
+
+  it('survives a row with no stats on record', () => {
+    // `undefined` would pick up the helper's default, so this must be explicit.
+    expect(() => sig(state, null)).not.toThrow()
+    expect(sig(state, null)).not.toBe(sig())
+  })
+
+  it('does not fold in a clock, which would defeat the check entirely', () => {
+    const before = sig()
+    const after = sig()
+    expect(before).toBe(after)
+    expect(before).not.toMatch(/\d{13}/)   // no Date.now() smuggled in
+  })
+})
+
+describe('settingsSignature', () => {
+  it('differs between every combination of the display settings', () => {
+    const seen = new Set()
+    for (const stats of ['true', 'false']) {
+      for (const ff of ['true', 'false']) {
+        const { S: s } = loadScript({
+          values: { 'tnl-dibs-show-stats': stats, 'tnl-dibs-ff-box': ff },
+        })
+        seen.add(s.settingsSignature())
+      }
+    }
+    expect(seen.size).toBe(4)
+  })
+
+  it('ignores the debug flag, which changes nothing on screen', () => {
+    const plain = loadScript().S.settingsSignature()
+    const debug = loadScript({ values: { 'tnl-dibs-debug': 'true' } }).S.settingsSignature()
+    expect(debug).toBe(plain)
+  })
+})
+
+// ── Request shape ──────────────────────────────────────────────────────────
+
+describe('bodyless requests carry no content-type', () => {
+  // ⚠️ The regression this exists for. Every request used to send
+  // `content-type: application/json`, so a bodyless DELETE made Fastify try to
+  // parse a zero-length body and answer 400 FST_ERR_CTP_EMPTY_JSON_BODY before
+  // the route was reached. Releasing a dib from Torn failed while the same
+  // action from the War Room worked, which read as a permissions bug — the SPA
+  // sends no content-type on a DELETE.
+  const session = { token: 't', host: 'forge.example', userId: '1', factionId: '9' }
+
+  function callFor(method, path, calls) {
+    return calls.find((c) => c.method === method && c.url.includes(path))
+  }
+
+  it('omits it on DELETE, which has no body', async () => {
+    const { S: s, calls } = loadScript({ routes: { '/api/war-room/dibs/': { status: 200, body: { ok: true } } } })
+    s.setSession(session)
+    await s.release(77)
+    const call = callFor('DELETE', '/api/war-room/dibs/77', calls)
+    expect(call).toBeDefined()
+    expect(call.data).toBeUndefined()
+    expect(Object.keys(call.headers).map((h) => h.toLowerCase())).not.toContain('content-type')
+  })
+
+  it('still sends it on POST, which does have one', async () => {
+    const { S: s, calls } = loadScript({ routes: { '/api/war-room/dibs': { status: 200, body: { ok: true } } } })
+    s.setSession(session)
+    await s.claim(77)
+    const call = callFor('POST', '/api/war-room/dibs', calls)
+    expect(call.headers['content-type']).toBe('application/json')
+    expect(JSON.parse(call.data)).toMatchObject({ target_id: 77 })
+  })
+
+  it('always sends the bearer token, body or not', async () => {
+    const { S: s, calls } = loadScript({ routes: { '/api/war-room/dibs/': { status: 200, body: { ok: true } } } })
+    s.setSession(session)
+    await s.release(77)
+    expect(callFor('DELETE', '/api/war-room/dibs/77', calls).headers.authorization).toBe('Bearer t')
+  })
+
+  it('reports the server wording on a failed release, not a bare status', async () => {
+    const { S: s } = loadScript({
+      routes: { '/api/war-room/dibs/': { status: 400, body: { error: 'Body cannot be empty' } } },
+    })
+    s.setSession(session)
+    expect(await s.release(77)).toEqual({ ok: false, message: 'Body cannot be empty' })
+  })
+
+  it('falls back to the status when the server sent no message', async () => {
+    const { S: s } = loadScript({ routes: { '/api/war-room/dibs/': { status: 502, body: {} } } })
+    s.setSession(session)
+    expect(await s.release(77)).toEqual({ ok: false, message: 'HTTP 502' })
+  })
+})
+
+// ── Roster intelligence (#525, #515) ───────────────────────────────────────
+
+describe('countryCode', () => {
+  it('reads the country out of whatever wording Torn used', () => {
+    expect(S.countryCode('Traveling to South Africa')).toBe('SA')
+    expect(S.countryCode('In hospital in Switzerland')).toBe('SWI')
+    expect(S.countryCode('Returning to Torn from the United Kingdom')).toBe('UK')
+    expect(S.countryCode('In Mexico')).toBe('MX')
+  })
+
+  it('matches on stems, so the demonym works as well as the country', () => {
+    // Torn writes "In a Mexican hospital" in some places and "In Mexico" in
+    // others; a whole-word match would only ever catch one of them.
+    expect(S.countryCode('In a Mexican hospital')).toBe('MX')
+    expect(S.countryCode('In a Canadian hospital')).toBe('CAN')
+    expect(S.countryCode('In a Chinese hospital')).toBe('CN')
+  })
+
+  it('⚠️ prefers Cayman over Canada — the stems overlap', () => {
+    // 'canad' cannot be shortened to 'can' precisely because "Cayman" would
+    // then match it, sending a lead to the wrong flight time entirely.
+    expect(S.countryCode('Traveling to Cayman Islands')).toBe('CAY')
+  })
+
+  it('returns null rather than guessing at home or at an unknown place', () => {
+    expect(S.countryCode('Okay')).toBeNull()
+    expect(S.countryCode('')).toBeNull()
+    expect(S.countryCode(null)).toBeNull()
+  })
+})
+
+describe('travelDestination', () => {
+  it('takes whichever end of the route is not Torn', () => {
+    expect(S.travelDestination('Traveling to China')).toBe('china')
+    expect(S.travelDestination('Returning to Torn from China')).toBe('china')
+    expect(S.travelDestination('Traveling from Torn to Japan')).toBe('japan')
+    expect(S.travelDestination('Traveling from Japan to Torn')).toBe('japan')
+  })
+
+  it('resolves the aliases Torn uses for the same place', () => {
+    expect(S.travelDestination('Traveling to United Arab Emirates')).toBe('uae')
+    expect(S.travelDestination('Traveling to UK')).toBe('united kingdom')
+  })
+
+  it('⚠️ returns null for a destination we have no flight time for', () => {
+    // Null means the caller shows nothing. An estimate built on a duration we
+    // invented is worse than no estimate — a lead queues a hit on it.
+    expect(S.travelDestination('Traveling to Atlantis')).toBeNull()
+    expect(S.travelDestination('Okay')).toBeNull()
+    expect(S.travelDestination(null)).toBeNull()
+  })
+})
+
+describe('travelPhase', () => {
+  it('tells outbound from inbound from already-there', () => {
+    expect(S.travelPhase('Traveling to China')).toBe('out')
+    expect(S.travelPhase('Returning to Torn from China')).toBe('back')
+    expect(S.travelPhase('Traveling from China to Torn')).toBe('back')
+    expect(S.travelPhase('In China')).toBe('in')
+    expect(S.travelPhase('Okay')).toBeNull()
+  })
+})
+
+describe('methodsForPlaneType', () => {
+  it('narrows to the one method Torn told us about', () => {
+    expect(S.methodsForPlaneType('private_jet')).toEqual(['wlt'])
+    expect(S.methodsForPlaneType('light_aircraft')).toEqual(['airstrip'])
+    expect(S.methodsForPlaneType('airliner')).toEqual(['business'])
+  })
+
+  it('⚠️ falls through to every method when the aircraft is unknown', () => {
+    // A wrong method gives a confidently wrong landing time, which is the
+    // failure the whole estimate exists to avoid. Four candidates give a wide
+    // band, and a wide band is honest.
+    expect(S.methodsForPlaneType('zeppelin')).toHaveLength(4)
+    expect(S.methodsForPlaneType(undefined)).toHaveLength(4)
+  })
+})
+
+describe('travelEta', () => {
+  const departedAt = '2026-08-20T12:00:00+00'
+  const at = (mins) => Date.parse('2026-08-20T12:00:00Z') + mins * 60_000
+
+  it('estimates a landing from the departure we witnessed', () => {
+    // Mexico by private jet (wlt) is 720s = 12 minutes.
+    const eta = S.travelEta({
+      description: 'Traveling to Mexico', planeType: 'private_jet',
+      departedAt, nowMs: at(6),
+    })
+    expect(eta.state).toBe('estimate')
+    expect(eta.methods).toEqual(['wlt'])
+    // Six minutes in, six left, ±3%.
+    expect(eta.earliestSec).toBeGreaterThan(300)
+    expect(eta.latestSec).toBeLessThan(400)
+  })
+
+  it('⚠️ parses the bare Postgres offset — the #140 trap', () => {
+    // "+00" is not valid ISO 8601, so Date.parse returns NaN. This shipped in
+    // the dashboard's own copy and meant the feature never rendered a single
+    // estimate in production.
+    expect(S.travelEta({
+      description: 'Traveling to Mexico', planeType: 'private_jet',
+      departedAt: '2026-08-20T12:00:00+00', nowMs: at(6),
+    }).state).toBe('estimate')
+  })
+
+  it('is unknown without a witnessed departure, rather than guessing', () => {
+    expect(S.travelEta({ description: 'Traveling to Mexico', departedAt: null }).state).toBe('unknown')
+    expect(S.travelEta({ description: 'Traveling to Atlantis', departedAt }).state).toBe('unknown')
+  })
+
+  it('reports overdue once every candidate has expired', () => {
+    // Reachable in ordinary play — a Detective Agency can extend a flight.
+    // Refusing to show a landing time in the past beats inventing one.
+    expect(S.travelEta({
+      description: 'Traveling to Mexico', planeType: 'private_jet',
+      departedAt, nowMs: at(60),
+    }).state).toBe('overdue')
+  })
+
+  it('⚠️ eliminates a method only once its UPPER bound has passed', () => {
+    // Mexico business is 420s; at 425s in, a business flight is still legally
+    // in the air on the slow side of the ±3% variance and must not be cut.
+    const eta = S.travelEta({
+      description: 'Traveling to Mexico', departedAt, nowMs: at(0) + 425_000,
+    })
+    expect(eta.methods).toContain('business')
+  })
+})
+
+describe('fmtCountdown', () => {
+  it('⚠️ drops seconds above an hour and keeps them below a minute', () => {
+    // The cell is a handful of pixels wide. Nobody planning around an 83-minute
+    // hospital stay needs the seconds; everybody watching the last minute does.
+    expect(S.fmtCountdown(5025)).toBe('1h23m')
+    expect(S.fmtCountdown(2712)).toBe('45m12s')
+    expect(S.fmtCountdown(9)).toBe('9s')
+  })
+
+  it('zero-pads so the countdown does not jitter in width', () => {
+    expect(S.fmtCountdown(3605)).toBe('1h00m')
+    expect(S.fmtCountdown(65)).toBe('1m05s')
+  })
+
+  it('clamps a negative or unusable duration to zero', () => {
+    expect(S.fmtCountdown(-40)).toBe('0s')
+    expect(S.fmtCountdown(null)).toBe('0s')
+  })
+})
+
+describe('fmtEtaShort', () => {
+  it('⚠️ always prefixes ~, because the number is inferred', () => {
+    // It sits in the same column as the exact hospital countdown and must not
+    // read like one.
+    expect(S.fmtEtaShort({ state: 'estimate', earliestSec: 300, latestSec: 360 })).toMatch(/^~/)
+  })
+
+  it('says land when every candidate has expired, and nothing when unknown', () => {
+    expect(S.fmtEtaShort({ state: 'overdue' })).toBe('land')
+    expect(S.fmtEtaShort({ state: 'unknown' })).toBeNull()
+    expect(S.fmtEtaShort(null)).toBeNull()
+  })
+})
+
+describe('fmtLastActionShort', () => {
+  const now = Date.parse('2026-08-20T12:00:00Z')
+  const ago = (s) => ({ timestamp: Math.floor(now / 1000) - s })
+
+  it('compacts to one unit, because the cell has no room for two', () => {
+    expect(S.fmtLastActionShort(ago(30), now)).toBe('30s')
+    expect(S.fmtLastActionShort(ago(300), now)).toBe('5m')
+    expect(S.fmtLastActionShort(ago(7200), now)).toBe('2h')
+    expect(S.fmtLastActionShort(ago(345_600), now)).toBe('4d')
+  })
+
+  it('returns null for a missing timestamp rather than 1970', () => {
+    expect(S.fmtLastActionShort(null, now)).toBeNull()
+    expect(S.fmtLastActionShort({ timestamp: 0 }, now)).toBeNull()
+  })
+
+  it('never reads negative when their clock is ahead of ours', () => {
+    expect(S.fmtLastActionShort({ timestamp: Math.floor(now / 1000) + 60 }, now)).toBe('0s')
+  })
+})
+
+describe('activityTone', () => {
+  it('maps Torn’s three activity states', () => {
+    expect(S.activityTone({ last_action: { status: 'Online' } })).toBe('online')
+    expect(S.activityTone({ last_action: { status: 'Idle' } })).toBe('idle')
+    expect(S.activityTone({ last_action: { status: 'Offline' } })).toBe('offline')
+  })
+
+  it('is null when Torn told us nothing, so the name keeps its own colour', () => {
+    expect(S.activityTone({ last_action: {} })).toBeNull()
+    expect(S.activityTone(null)).toBeNull()
+  })
+})
+
+describe('reviveAudience', () => {
+  it('separates a revive we can buy from one only their faction can do', () => {
+    expect(S.reviveAudience({ is_revivable: true, revive_setting: 'Everyone' })).toBe('anyone')
+    expect(S.reviveAudience({ is_revivable: true, revive_setting: 'Friends & faction' })).toBe('friends')
+  })
+
+  it('is null when a revive is impossible at all', () => {
+    expect(S.reviveAudience({ is_revivable: false, revive_setting: 'Everyone' })).toBeNull()
+    expect(S.reviveAudience({ is_revivable: true, revive_setting: 'No one' })).toBeNull()
+  })
+
+  it('⚠️ treats Unknown as anyone — the #342 decision', () => {
+    // Torn reports Unknown when it will not disclose the preference, which is
+    // the normal case for an ENEMY, i.e. most of the roster. Degrading to
+    // friends painted the whole enemy side muted and buried the distinction.
+    expect(S.reviveAudience({ is_revivable: true, revive_setting: 'Unknown' })).toBe('anyone')
+    expect(S.reviveAudience({ is_revivable: true, revive_setting: null })).toBe('anyone')
+  })
+
+  it('stays identical to reviveAudience() in warRoomFlags.js', () => {
+    // Duplicated for the same reason statScore() is — one file, no build step.
+    // If these drift the script and the board disagree about the same target.
+    expect(S.reviveAudience({ is_revivable: true })).toBe('anyone')
+  })
+})
+
+describe('statusView', () => {
+  const now = Date.parse('2026-08-20T12:00:00Z')
+  const inSec = (s) => Math.floor(now / 1000) + s
+
+  it('renders a hospital stay as a live countdown', () => {
+    const v = S.statusView({ status: { state: 'Hospital', until: inSec(5025) } }, now)
+    expect(v).toMatchObject({ kind: 'hospital', text: '1h23m' })
+  })
+
+  it('⚠️ marks an abroad hospital stay with the country', () => {
+    // Out of reach of anyone at home until they fly back — a different
+    // proposition from a local stay, and the same countdown would hide it.
+    const v = S.statusView({
+      status: { state: 'Hospital', until: inSec(720), description: 'In a Swiss hospital' },
+    }, now)
+    expect(v.text).toBe('SWI:12m00s')
+  })
+
+  it('⚠️ says Okay rather than 0s once our copy has expired', () => {
+    // The next poll agrees within three seconds. A stuck 0s reads as a frozen
+    // script, which is the complaint this whole feature is meant to remove.
+    const v = S.statusView({ status: { state: 'Hospital', until: inSec(-10) } }, now)
+    expect(v.kind).toBe('okay')
+  })
+
+  it('abbreviates travel with the direction and an inferred ETA', () => {
+    const out = S.statusView({
+      status: { state: 'Traveling', description: 'Traveling to China', plane_image_type: 'private_jet' },
+      travel_departed_at: '2026-08-20T11:00:00+00',
+    }, now)
+    expect(out.kind).toBe('traveling')
+    expect(out.text).toMatch(/^>CN ~/)
+
+    const back = S.statusView({
+      status: { state: 'Traveling', description: 'Returning to Torn from China' },
+    }, now)
+    expect(back.text).toBe('CN>')
+  })
+
+  it('shows the direction even when the ETA is unknowable', () => {
+    // travel_departed_at is null whenever we did not witness the departure,
+    // which is normal — not missing data. Direction still helps.
+    const v = S.statusView({ status: { state: 'Traveling', description: 'Traveling to Japan' } }, now)
+    expect(v.text).toBe('>JP')
+  })
+
+  it('puts last action in the Status cell of an Okay member', () => {
+    // ⚠️ The cell Torn leaves nearly empty is exactly the cell where last
+    // action matters, which is what makes this cost no width (#511).
+    const v = S.statusView({
+      status: { state: 'Okay' },
+      last_action: { status: 'Idle', timestamp: Math.floor(now / 1000) - 300 },
+    }, now)
+    expect(v).toMatchObject({ kind: 'okay', text: '5m' })
+  })
+
+  it('adds the revive glyph to an Okay member who can be revived', () => {
+    const v = S.statusView({
+      status: { state: 'Okay' }, is_revivable: true, revive_setting: 'Everyone',
+      last_action: { timestamp: Math.floor(now / 1000) - 60 },
+    }, now)
+    expect(v.text).toBe('1m 💉')
+  })
+
+  it('is null when we know nothing, so Torn’s own text stands', () => {
+    expect(S.statusView({ status: null }, now)).toBeNull()
+    expect(S.statusView(null, now)).toBeNull()
+    // A hospital row with no release time is not a countdown we can render.
+    expect(S.statusView({ status: { state: 'Hospital', until: null } }, now)).toBeNull()
+  })
+})
+
+describe('statusSortValue', () => {
+  const now = Date.parse('2026-08-20T12:00:00Z')
+  const inSec = (s) => Math.floor(now / 1000) + s
+  const v = (entry) => S.statusSortValue(entry, now)
+
+  it('ranks by how attackable they are, soonest first', () => {
+    const okay = v({ status: { state: 'Okay' } })
+    const hosp = v({ status: { state: 'Hospital', until: inSec(600) } })
+    const abroad = v({ status: { state: 'Abroad', description: 'In China' } })
+    expect(okay).toBeLessThan(hosp)
+    expect(hosp).toBeLessThan(abroad)
+  })
+
+  it('orders members in the same state by who is out first', () => {
+    const soon = v({ status: { state: 'Hospital', until: inSec(60) } })
+    const later = v({ status: { state: 'Hospital', until: inSec(6000) } })
+    expect(soon).toBeLessThan(later)
+  })
+
+  it('is null when we cannot rank them, so they sort last', () => {
+    expect(v({ status: null })).toBeNull()
+  })
+})
+
+describe('sortEntries', () => {
+  const rows = [
+    { id: 1, pos: 0, value: 300 },
+    { id: 2, pos: 1, value: null },
+    { id: 3, pos: 2, value: 100 },
+    { id: 4, pos: 3, value: 200 },
+  ]
+  const ids = (out) => out.map((r) => r.id)
+
+  it('orders ascending and descending', () => {
+    expect(ids(S.sortEntries(rows, 1))).toEqual([3, 4, 1, 2])
+    expect(ids(S.sortEntries(rows, -1))).toEqual([1, 4, 3, 2])
+  })
+
+  it('⚠️ sorts unknown values LAST in both directions', () => {
+    // Half a war roster has no battle stats on record. An ascending sort that
+    // opens with two hundred ??? rows has buried the answer, not found it.
+    expect(ids(S.sortEntries(rows, 1)).at(-1)).toBe(2)
+    expect(ids(S.sortEntries(rows, -1)).at(-1)).toBe(2)
+  })
+
+  it('⚠️ breaks ties on original position, so repeated sorts do not churn', () => {
+    // Without the tiebreak two members on the same value swap places on every
+    // repaint and the list visibly shuffles under the cursor.
+    const tied = [
+      { id: 1, pos: 0, value: 5 }, { id: 2, pos: 1, value: 5 }, { id: 3, pos: 2, value: 5 },
+    ]
+    expect(ids(S.sortEntries(tied, -1))).toEqual([1, 2, 3])
+    expect(ids(S.sortEntries(tied, 1))).toEqual([1, 2, 3])
+  })
+
+  it('does not mutate the array it was given', () => {
+    const before = rows.map((r) => r.id)
+    S.sortEntries(rows, -1)
+    expect(rows.map((r) => r.id)).toEqual(before)
+  })
+
+  it('survives an empty or missing list', () => {
+    expect(S.sortEntries([], 1)).toEqual([])
+    expect(S.sortEntries(undefined, 1)).toEqual([])
+  })
+})
+
+describe('nextSort', () => {
+  it('cycles off → descending → ascending → off', () => {
+    // Descending first: the question is almost always "who is biggest".
+    const a = S.nextSort({ key: null, dir: 0 }, 'bs')
+    expect(a).toEqual({ key: 'bs', dir: -1 })
+    const b = S.nextSort(a, 'bs')
+    expect(b).toEqual({ key: 'bs', dir: 1 })
+    expect(S.nextSort(b, 'bs')).toEqual({ key: null, dir: 0 })
+  })
+
+  it('switching column starts that column descending', () => {
+    expect(S.nextSort({ key: 'bs', dir: 1 }, 'status')).toEqual({ key: 'status', dir: -1 })
+  })
+})
+
+describe('rowState', () => {
+  it('keeps every field memberState() writes, plus the travel latch', () => {
+    // ⚠️ travel_departed_at is a COLUMN, not part of the state jsonb — the
+    // ticker latches it when the poll observes the transition (#330), and the
+    // ETA is meaningless without it.
+    const st = S.rowState({
+      member_id: 7,
+      state: { last_action: { status: 'Online' }, status: { state: 'Okay' }, is_revivable: true, revive_setting: 'Everyone' },
+      travel_departed_at: '2026-08-20T11:00:00+00',
+    })
+    expect(st).toMatchObject({
+      is_revivable: true, revive_setting: 'Everyone',
+      travel_departed_at: '2026-08-20T11:00:00+00',
+    })
+    expect(st.last_action.status).toBe('Online')
+  })
+
+  it('coerces the flags, so a missing one is false rather than undefined', () => {
+    const st = S.rowState({ member_id: 7, state: {} })
+    expect(st.is_revivable).toBe(false)
+    expect(st.is_on_wall).toBe(false)
+    expect(st.status).toBeNull()
+  })
+
+  it('returns null for no row at all', () => {
+    expect(S.rowState(null)).toBeNull()
+  })
+})
+
+describe('the flight table stays in step with the dashboard', () => {
+  it('⚠️ carries all eleven destinations and four methods', () => {
+    // Duplicated from warRoomTravel.js because a userscript is one file with no
+    // build step. If a destination is dropped here its travellers silently show
+    // no ETA at all, which looks like the poll is broken.
+    expect(Object.keys(S.FLIGHT_SECONDS)).toHaveLength(11)
+    for (const [name, times] of Object.entries(S.FLIGHT_SECONDS)) {
+      expect(Object.keys(times).sort(), name).toEqual(['airstrip', 'business', 'standard', 'wlt'])
+      expect(times.business, name).toBeLessThan(times.standard)
+    }
+  })
+
+  it('⚠️ resolves the ambiguous airliner to business, not standard', () => {
+    // Torn draws three aircraft for four methods, so `airliner` covers both the
+    // fastest and the slowest. In a war the question is "how soon could they be
+    // back", so the earlier candidate is the one worth planning against.
+    expect(S.PLANE_TYPE_METHOD.airliner).toBe('business')
+  })
+})
