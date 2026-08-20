@@ -1658,13 +1658,18 @@ describe('sortEntries', () => {
 })
 
 describe('nextSort', () => {
-  it('cycles off → descending → ascending → off', () => {
-    // Descending first: the question is almost always "who is biggest".
-    const a = S.nextSort({ key: null, dir: 0 }, 'bs')
-    expect(a).toEqual({ key: 'bs', dir: -1 })
-    const b = S.nextSort(a, 'bs')
-    expect(b).toEqual({ key: 'bs', dir: 1 })
-    expect(S.nextSort(b, 'bs')).toEqual({ key: null, dir: 0 })
+  it('opens descending — the question is almost always "who is biggest"', () => {
+    expect(S.nextSort({ key: null, dir: 0 }, 'bs')).toEqual({ key: 'bs', dir: -1 })
+  })
+
+  it('⚠️ toggles between two states, never a third "off"', () => {
+    // A third step means two of every three clicks land somewhere you did not
+    // want. You leave a sort by choosing another column.
+    let st = { key: 'bs', dir: -1 }
+    st = S.nextSort(st, 'bs'); expect(st).toEqual({ key: 'bs', dir: 1 })
+    st = S.nextSort(st, 'bs'); expect(st).toEqual({ key: 'bs', dir: -1 })
+    st = S.nextSort(st, 'bs'); expect(st).toEqual({ key: 'bs', dir: 1 })
+    expect(st.key).not.toBeNull()
   })
 
   it('switching column starts that column descending', () => {

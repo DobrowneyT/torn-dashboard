@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.16.0
+// @version      1.17.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -613,11 +613,17 @@ const TNLDibs = (function () {
     })
   }
 
-  /** Click cycle for a sort header: off → descending → ascending → off. */
+  /**
+   * Click cycle for a sort header: descending, then ascending, then back.
+   *
+   * Two states, not three. A third "off" step means two of every three clicks
+   * land somewhere you did not want, and Torn's original order is not a thing
+   * anyone sorts back to on purpose — you leave a sort by choosing another
+   * column.
+   */
   function nextSort(current, key) {
     if (current?.key !== key) return { key, dir: -1 }
-    if (current.dir === -1) return { key, dir: 1 }
-    return { key: null, dir: 0 }
+    return { key, dir: current.dir === -1 ? 1 : -1 }
   }
 
   /** The war_room_state_v2 fields we keep, flattened. */
@@ -1469,17 +1475,21 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
   function nameTargetOf(row, anchor) {
     let el = row._tnlName
     if (el && el.isConnected) return el
-    const wrap = row.querySelector('.honor-text-wrap, [class*="honorWrap___"]')
-    // ⚠️ Only drop Torn's honor IMAGE once we have found the text version that
-    // replaces it. Torn renders the name as a decorative bar image with a text
-    // twin alongside; hiding the image without confirming the twin exists would
-    // leave the row with no name at all.
-    if (wrap && wrap.querySelector('.honor-text:not(.honor-text-svg)')) {
-      wrap.classList.add(PLAIN_NAME_CLASS)
-    }
-    el = wrap ?? anchor
+    el = row.querySelector('.honor-text-wrap, [class*="honorWrap___"]') ?? anchor
     row._tnlName = el
     return el
+  }
+
+  /**
+   * Is there a NON-EMPTY text twin we can show in place of the honor image?
+   *
+   * ⚠️ Non-empty is the whole point. Testing that the element merely exists is
+   * what blanked every name on the page: the node is present but carries no
+   * text, so hiding the image left nothing behind it.
+   */
+  function hasPlainName(wrap) {
+    const t = wrap?.querySelector?.('.honor-text:not(.honor-text-svg)')
+    return Boolean(t && (t.textContent || '').trim())
   }
 
   function paintName(row, anchor, playerId) {
@@ -1487,11 +1497,13 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     const tone = settings.on(SETTING_TINT) ? activityTone(rt.state.get(playerId)) : null
     if ((el.dataset.tnlTint ?? '') === (tone ?? '')) return
     if (!tone) {
+      // Hand the row back exactly as Torn built it: honor bar, dot and all.
       delete el.dataset.tnlTint
       el.removeAttribute('data-tnl-activity')
       el.style.removeProperty('--tnl-tint')
       el.style.removeProperty('--tnl-tint-bg')
       el.classList.remove(TINT_CLASS)
+      el.classList.remove(PLAIN_NAME_CLASS)
       return
     }
     el.dataset.tnlTint = tone
@@ -1499,6 +1511,8 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     el.style.setProperty('--tnl-tint', TINT_COLORS[tone])
     el.style.setProperty('--tnl-tint-bg', TINT_GRADIENTS[tone])
     el.classList.add(TINT_CLASS)
+    // Swap the honor bar for text ONLY where there is text to swap to.
+    if (hasPlainName(el)) el.classList.add(PLAIN_NAME_CLASS)
   }
 
   // ── Sorting ──────────────────────────────────────────────────────────────

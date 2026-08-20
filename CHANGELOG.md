@@ -36,6 +36,13 @@ from `VERSION` at runtime) both surface it automatically.
   the list.
 
 ### Fixed
+- **Userscript: names come back when tinting is off.** The honor-bar image was
+  being hidden on every row regardless of the setting, and the check for a text
+  replacement only asked whether the element existed — not whether it carried any
+  text — so rows were left blank. The swap is now part of the tint setting and
+  needs non-empty text to fire.
+- **Userscript: sort headers toggle between two states**, not three. Leave a sort
+  by choosing another column.
 - **Userscript: names render as text, so activity tinting is visible.** Torn draws
   the name as a decorative honor-bar image with a text twin alongside; the gradient
   had nothing to land on. The image is now hidden and the text shown — but only on
