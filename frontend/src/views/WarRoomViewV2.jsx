@@ -82,6 +82,7 @@ import {
   fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
 } from '../utils/fairFight'
 import { clampCadence } from '../utils/warRoomCadence.js'
+import { dibsButtonState } from '../utils/dibsButton.js'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -3267,31 +3268,39 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             stub until polling clears the row entirely. */}
                         {columns.dibs && (
                         <td className="py-2.5 px-3 whitespace-nowrap">
-                          {dib ? (
-                            <div className={`flex items-center gap-1.5 ${dib._pending ? 'opacity-70' : ''}`}>
-                              <span className={`text-xs font-medium ${isMyDib ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>
-                                {isMyDib ? 'You' : dib.claimed_name}
-                              </span>
-                              {dib._pending && <Loader2 size={11} className="animate-spin text-blue-500 dark:text-blue-400" />}
-                              {(isMyDib || isAdmin) && !dib._pending && (
-                                <button onClick={() => handleReleaseDibs(m.member_id)}
-                                  title={isMyDib ? 'Release your dibs' : 'Admin override: release this claim'}
-                                  className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 underline">
-                                  Release
-                                </button>
-                              )}
-                            </div>
-                          ) : isPendingRelease ? (
+                          {isPendingRelease ? (
                             <span className="inline-flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
                               <Loader2 size={11} className="animate-spin" />
                               Releasing…
                             </span>
-                          ) : (
-                            <button onClick={() => handleClaimDibs(m.member_id)}
-                              className="text-xs px-2 py-0.5 rounded border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                              Dibs
-                            </button>
-                          )}
+                          ) : (() => {
+                            // ONE control, three states (#509) — the same shape
+                            // the Torn userscript shows, from the same
+                            // function, so the two cannot drift.
+                            const st = dibsButtonState(dib, user?.id, { isAdmin })
+                            const tone = st.tone === 'mine'
+                              ? 'border-blue-400 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                              : st.tone === 'taken'
+                                ? 'border-amber-400 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20'
+                                : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400'
+                            const inert = st.action === 'none'
+                            return (
+                              <button
+                                onClick={() => {
+                                  if (st.action === 'claim') handleClaimDibs(m.member_id)
+                                  else if (st.action === 'release') handleReleaseDibs(m.member_id)
+                                }}
+                                disabled={inert || dib?._pending}
+                                title={st.title ?? (st.mine ? 'Click to release' : undefined)}
+                                className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border max-w-[9rem] transition-colors ${tone} ${
+                                  inert ? 'cursor-default' : 'cursor-pointer'
+                                } ${dib?._pending ? 'opacity-70' : ''}`}
+                              >
+                                <span className="truncate">{st.label}</span>
+                                {dib?._pending && <Loader2 size={11} className="animate-spin shrink-0" />}
+                              </button>
+                            )
+                          })()}
                         </td>
                         )}
 
