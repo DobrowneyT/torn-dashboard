@@ -1765,7 +1765,7 @@ function loadWithDom() {
       return el
     },
     head: { appendChild: (el) => appended.push(el) },
-    documentElement: { appendChild: (el) => appended.push(el) },
+    documentElement: { appendChild: (el) => appended.push(el), classList: { toggle() {} } },
   }
   new Function('module', 'window', 'document', 'GM', 'GM_getValue', 'GM_setValue', source)(
     mod, undefined, document, { xmlHttpRequest() {} }, (_k, d) => d, () => {},
@@ -1813,9 +1813,13 @@ describe('injectStyles', () => {
 })
 
 describe('attackUrl', () => {
-  it('builds Torn’s direct-attack link', () => {
-    expect(S.attackUrl(2139172)).toBe('https://www.torn.com/loader.php?sid=attack&user2ID=2139172')
-    expect(S.attackUrl('2139172')).toBe('https://www.torn.com/loader.php?sid=attack&user2ID=2139172')
+  it('⚠️ uses page.php — Torn retired loader.php for attacks', () => {
+    // loader.php now answers {"error":"This endpoint is no longer available.
+    // Please use the new endpoints instead (page.php)."} — so the link opened a
+    // JSON error page rather than the fight.
+    expect(S.attackUrl(2139172)).toBe('https://www.torn.com/page.php?sid=attack&user2ID=2139172')
+    expect(S.attackUrl('2139172')).toBe('https://www.torn.com/page.php?sid=attack&user2ID=2139172')
+    expect(S.attackUrl(2139172)).not.toContain('loader.php')
   })
 
   it('refuses a missing or non-positive id rather than linking to nobody', () => {
@@ -1863,5 +1867,65 @@ describe('statsTip', () => {
   it('says so plainly when there is nothing on record', () => {
     expect(S.statsTip(null, null)).toBe('No battle stats on record')
     expect(S.statsTip({ total: null }, null)).toBe('No battle stats on record')
+  })
+})
+
+describe('tipPosition', () => {
+  const W = 1000, H = 800
+
+  it('opens below-right of the cursor', () => {
+    expect(S.tipPosition(100, 100, 160, 120, W, H)).toEqual({ left: 114, top: 114 })
+  })
+
+  it('flips rather than spilling off the right or bottom edge', () => {
+    // The tooltip lives on <body> at position:fixed, so nothing clips it — but
+    // nothing stops it leaving the viewport either.
+    expect(S.tipPosition(950, 100, 160, 120, W, H).left).toBe(950 - 14 - 160)
+    expect(S.tipPosition(100, 780, 160, 120, W, H).top).toBe(780 - 14 - 120)
+  })
+
+  it('never goes negative on a tooltip larger than the space either side', () => {
+    const { left, top } = S.tipPosition(20, 20, 900, 700, W, H)
+    expect(left).toBeGreaterThanOrEqual(0)
+    expect(top).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('the stylesheet carries the fixes from v1.15.0', () => {
+  const css = () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    return appended[0].textContent
+  }
+
+  it('⚠️ tints the name by replacing the gradient, not by setting color', () => {
+    // Torn paints war-list names with a gradient clipped to the glyphs
+    // (background-clip: text; color: transparent) inside .honor-text, so a
+    // `color` on the anchor changes nothing visible. This is why the first
+    // attempt at activity tinting did nothing at all.
+    const sheet = css()
+    expect(sheet).toContain('honor-text')
+    expect(sheet).toContain('background-clip: text')
+    expect(sheet).toMatch(/\[data-tnl-activity\]/)
+  })
+
+  it('hides the whole battle-stat column, header included, when it is off', () => {
+    expect(css()).toMatch(/tnl-no-bs[\s\S]*?display: none/)
+  })
+
+  it('draws the column separators', () => {
+    expect(css()).toMatch(/border-left: 1px solid/)
+    expect(css()).toMatch(/border-right: 1px solid/)
+  })
+
+  it('⚠️ puts the tooltip on body, not inside the column', () => {
+    // An ::after inside .tnl-col can never paint above the rows below it:
+    // .tnl-col has a z-index and therefore a stacking context, and a descendant
+    // cannot escape its ancestor's. The tooltip is a fixed-position element on
+    // <body> for exactly that reason.
+    const sheet = css()
+    expect(sheet).toContain('#tnl-dibs-tip')
+    expect(sheet).toMatch(/#tnl-dibs-tip[\s\S]*?position: fixed/)
+    expect(sheet).not.toContain('data-tnl-tip]:hover::after')
   })
 })

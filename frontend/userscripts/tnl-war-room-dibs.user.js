@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.14.0
+// @version      1.15.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -211,7 +211,7 @@ const TNLDibs = (function () {
   function attackUrl(playerId) {
     const id = Number(playerId)
     if (!Number.isFinite(id) || id <= 0) return null
-    return `https://www.torn.com/loader.php?sid=attack&user2ID=${id}`
+    return `https://www.torn.com/page.php?sid=attack&user2ID=${id}`
   }
 
   /**
@@ -708,7 +708,8 @@ const TNLDibs = (function () {
     isAdmin: false,         // UI affordance only; the server decides
     state: new Map(),       // memberId → rowState(): status, last action, revive (#525)
     mstats: new Map(),      // memberId → energy + cooldowns. LEAD-ONLY, OURS-ONLY.
-    sort: { key: null, dir: 0 },  // our sort control; null means Torn's own order
+    sort: { key: null, dir: 0 },
+    sorted: false,          // a sort is currently applied to the DOM  // our sort control; null means Torn's own order
     tick: null,             // the 1 Hz countdown timer
   }
 
@@ -922,6 +923,10 @@ const TNLDibs = (function () {
   const STAT_SLOT_CLASS = 'tnl-col-bs'
   const STAT_VALUE_CLASS = 'tnl-col-bsv'
   const STYLE_ID = 'tnl-dibs-style'
+  const TIP_ID = 'tnl-dibs-tip'
+  const NO_BS_CLASS = 'tnl-no-bs'
+  /** Column hairline. Semi-transparent grey so it reads on Torn's light and dark. */
+  const RULE = 'rgba(128,128,128,.35)'
   /** Marks a name we have tinted, so the tint can be lifted cleanly (#525). */
   const TINT_CLASS = 'tnl-tint'
   /** Marks a Status cell we have taken over (#515). */
@@ -930,7 +935,12 @@ const TNLDibs = (function () {
   const SORT_CLASS = 'tnl-sort'
 
   /** Activity colours. */
-  const TINT_COLORS = { online: '#4ade80', idle: '#facc15', offline: '#9ca3af' }
+  const TINT_GRADIENTS = {
+    online: 'linear-gradient(to bottom, #A3DA00, #648600)',
+    idle: 'linear-gradient(to bottom, #FBB904, #B65F01)',
+    offline: 'linear-gradient(to bottom, #C6C6C6, #737373)',
+  }
+  const TINT_COLORS = { online: '#8CBF00', idle: '#D89400', offline: '#9ca3af' }
 
   /** Status-cell tones. */
   const STATUS_COLORS = {
@@ -959,6 +969,9 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   position: relative; z-index: 1;
 }
 .${COL_HEAD_CLASS} { font-weight: 700; opacity: .85; }
+.${COL_CLASS}, .${COL_HEAD_CLASS} { border-left: 1px solid ${RULE}; }
+.${DIBS_SLOT_CLASS} { border-right: 1px solid ${RULE}; }
+.members-cont .attack, .members-cont [class*="attack___"] { border-left: 1px solid ${RULE}; }
 
 .${DIBS_SLOT_CLASS} {
   width: ${DIBS_WIDTH}px; min-width: ${DIBS_WIDTH}px; max-width: ${DIBS_WIDTH}px;
@@ -976,16 +989,15 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   cursor: pointer;
 }
 
-.${STAT_SLOT_CLASS}[data-tnl-tip]:hover::after {
-  content: attr(data-tnl-tip);
-  position: absolute; right: 0; top: 100%; margin-top: 4px;
-  z-index: 2147483001; pointer-events: none;
+#${TIP_ID} {
+  position: fixed; left: 0; top: 0; display: none;
+  z-index: 2147483647; pointer-events: none;
   white-space: pre; text-align: left; line-height: 1.55;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px; font-weight: 400;
   padding: 8px 10px; border-radius: 8px;
-  background: #0f172a; color: #e2e8f0;
-  border: 1px solid #334155; box-shadow: 0 8px 20px rgba(0,0,0,.45);
+  background: #4b5563; color: #f3f4f6;
+  border: 1px solid #6b7280; box-shadow: 0 8px 24px rgba(0,0,0,.5);
 }
 
 .${BADGE_CLASS} {
@@ -1019,7 +1031,14 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   overflow: hidden !important;
 }
 
-.${TINT_CLASS} { color: var(--tnl-tint) !important; }
+[data-tnl-activity] .honor-text:not(.honor-text-svg),
+[data-tnl-activity] > .honor-text:not(.honor-text-svg) {
+  background: var(--tnl-tint-bg) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+}
+a.${TINT_CLASS}, .${TINT_CLASS} > a { color: var(--tnl-tint) !important; }
 
 .${STATUS_CLASS} {
   color: var(--tnl-status) !important;
@@ -1029,6 +1048,13 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 
 .${SORT_CLASS} { cursor: pointer; user-select: none; }
 .${SORT_CLASS}:hover { text-decoration: underline; }
+
+html.${NO_BS_CLASS} .${STAT_SLOT_CLASS} { display: none; }
+html.${NO_BS_CLASS} .${DIBS_SLOT_CLASS} { border-right: none; }
+html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
+  width: ${DIBS_WIDTH + 10}px; min-width: ${DIBS_WIDTH + 10}px; max-width: ${DIBS_WIDTH + 10}px;
+  flex: 0 0 ${DIBS_WIDTH + 10}px;
+}
 
 @media screen and (max-width: ${NARROW_PX}px) {
   .${STAT_SLOT_CLASS}, .${COL_HEAD_CLASS} .${STAT_SLOT_CLASS} { display: none; }
@@ -1158,6 +1184,40 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   }
 
   /** Paint one member's stats, the way the War Room paints them. */
+  /** Where a cursor-anchored tooltip should sit: below-right, kept on screen. */
+  function tipPosition(x, y, tipW, tipH, viewW, viewH, offset = 14) {
+    const left = x + offset + tipW > viewW ? Math.max(0, x - offset - tipW) : x + offset
+    const top = y + offset + tipH > viewH ? Math.max(0, y - offset - tipH) : y + offset
+    return { left, top }
+  }
+
+  function tipNode() {
+    let el = document.getElementById(TIP_ID)
+    if (!el) {
+      el = document.createElement('div')
+      el.id = TIP_ID
+      el.setAttribute('role', 'tooltip')
+      document.body.appendChild(el)
+    }
+    return el
+  }
+
+  function showTip(text, x, y) {
+    const el = tipNode()
+    if (el.textContent !== text) el.textContent = text
+    el.style.display = 'block'
+    const { left, top } = tipPosition(
+      x, y, el.offsetWidth, el.offsetHeight, window.innerWidth, window.innerHeight
+    )
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+  }
+
+  function hideTip() {
+    const el = document.getElementById(TIP_ID)
+    if (el) el.style.display = 'none'
+  }
+
   function statValueOf(slotEl, playerId) {
     let v = slotEl.querySelector(`.${STAT_VALUE_CLASS}`)
     if (!v) {
@@ -1165,15 +1225,23 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
       v.className = STAT_VALUE_CLASS
       slotEl.appendChild(v)
     }
-    // Clicking the total opens the attack page, as Wall Battlestats does.
+    // Bound once per row, never per poll.
     if (!v.dataset.tnlAtk) {
       v.dataset.tnlAtk = '1'
+      // Clicking the total opens the attack page, as Wall Battlestats does.
       v.addEventListener('click', (e) => {
         const url = attackUrl(Number(v.dataset.tnlTarget))
         if (!url) return
         e.preventDefault(); e.stopPropagation()
         window.open(url, '_blank', 'noopener')
       })
+      const move = (e) => {
+        const tip = slotEl.dataset.tnlTip
+        if (tip) showTip(tip, e.clientX, e.clientY)
+      }
+      v.addEventListener('mouseenter', move)
+      v.addEventListener('mousemove', move)
+      v.addEventListener('mouseleave', hideTip)
     }
     v.dataset.tnlTarget = String(playerId)
     return v
@@ -1219,6 +1287,8 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 
   /** Relabel Torn's Attack button to "Atk" — it buys about 30px per row. */
   function shrinkAttack(row) {
+    if (row._tnlAtk) return
+    row._tnlAtk = true
     const attack = attackCellOf(row)
     if (!attack || attack.dataset.tnlAtk) return
     for (const el of [attack, ...attack.querySelectorAll('span, a')]) {
@@ -1241,7 +1311,11 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 
   /** Torn's own Status cell for a row. */
   function statusCellOf(row) {
-    return row?.querySelector?.('.status, [class*="status___"], [class*="status__"]') ?? null
+    const cached = row?._tnlStatusCell
+    if (cached && cached.isConnected) return cached
+    const el = row?.querySelector?.('.status, [class*="status___"], [class*="status__"]') ?? null
+    if (row) row._tnlStatusCell = el
+    return el
   }
 
   /** What TORN says this member's status is — the authority (#515). */
@@ -1326,27 +1400,40 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   }
 
   /** Tint the member's name by activity — the one signal that costs no width. */
-  function paintName(anchor, playerId) {
-    if (!settings.on(SETTING_TINT)) {
-      if (anchor.classList.contains(TINT_CLASS)) {
-        anchor.classList.remove(TINT_CLASS)
-        anchor.style.removeProperty('--tnl-tint')
-      }
+  /**
+   * The element that actually carries the name's colour.
+   *
+   * Torn paints war-list names with a gradient clipped to the glyphs
+   * (`background-clip: text; color: transparent`) inside `.honor-text`, so
+   * setting `color` on the anchor changes nothing visible. The gradient has to
+   * be replaced instead — which means finding the honor wrap, not the link.
+   * Falls back to the anchor on pages that render a plain name.
+   */
+  function nameTargetOf(row, anchor) {
+    let el = row._tnlName
+    if (el && el.isConnected) return el
+    el = row.querySelector('.honor-text-wrap, [class*="honorWrap___"]') ?? anchor
+    row._tnlName = el
+    return el
+  }
+
+  function paintName(row, anchor, playerId) {
+    const el = nameTargetOf(row, anchor)
+    const tone = settings.on(SETTING_TINT) ? activityTone(rt.state.get(playerId)) : null
+    if ((el.dataset.tnlTint ?? '') === (tone ?? '')) return
+    if (!tone) {
+      delete el.dataset.tnlTint
+      el.removeAttribute('data-tnl-activity')
+      el.style.removeProperty('--tnl-tint')
+      el.style.removeProperty('--tnl-tint-bg')
+      el.classList.remove(TINT_CLASS)
       return
     }
-    const tone = activityTone(rt.state.get(playerId))
-    const colour = tone ? TINT_COLORS[tone] : null
-    if (!colour) {
-      if (!anchor.dataset.tnlTint) return
-      delete anchor.dataset.tnlTint
-      anchor.classList.remove(TINT_CLASS)
-      anchor.style.removeProperty('--tnl-tint')
-      return
-    }
-    if (anchor.dataset.tnlTint === tone) return
-    anchor.dataset.tnlTint = tone
-    anchor.style.setProperty('--tnl-tint', colour)
-    anchor.classList.add(TINT_CLASS)
+    el.dataset.tnlTint = tone
+    el.dataset.tnlActivity = tone
+    el.style.setProperty('--tnl-tint', TINT_COLORS[tone])
+    el.style.setProperty('--tnl-tint-bg', TINT_GRADIENTS[tone])
+    el.classList.add(TINT_CLASS)
   }
 
   // ── Sorting ──────────────────────────────────────────────────────────────
@@ -1404,14 +1491,11 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 
   /** Apply the current sort to every member list we have rows on. */
   function applySort(nowMs = Date.now()) {
+    // Nothing to do, and nothing to undo — skip the whole walk.
+    if (!rt.sort.key && !rt.sorted) return
+    rt.sorted = Boolean(rt.sort.key)
     const lists = new Set()
-    for (const anchors of rt.nodes.values()) {
-      for (const anchor of anchors) {
-        if (!anchor.isConnected) continue
-        const row = rowOf(anchor)
-        if (row && isMemberRow(row) && row.parentNode) lists.add(row.parentNode)
-      }
-    }
+    eachRow((_id, _anchor, row) => { if (row.parentNode) lists.add(row.parentNode) })
     for (const list of lists) orderList(list, nowMs)
   }
 
@@ -1455,40 +1539,79 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
     }
   }
 
+  /**
+   * The member row an anchor belongs to, cached and validated.
+   *
+   * rowOf() + isMemberRow() are two DOM walks, and three separate loops used to
+   * run them per anchor: render() per poll, renderTimers() at 1 Hz, applySort()
+   * per poll. On a 200-row table that is thousands of tree walks a second.
+   */
+  function rowFor(anchor) {
+    const cached = anchor._tnlRow
+    if (cached !== undefined && (cached === null || cached.isConnected)) return cached
+    const row = rowOf(anchor)
+    // No row ancestor at all (a sidebar or chat link) is a permanent fact.
+    if (!row) { anchor._tnlRow = null; return null }
+    if (isMemberRow(row)) { anchor._tnlRow = row; return row }
+    // A row without a status or level cell yet may still be mid-build, so this
+    // miss is deliberately NOT cached.
+    return null
+  }
+
+  /**
+   * Walk every live (player, anchor, row) on the page, pruning as it goes.
+   *
+   * ⚠️ The pruning is the point. scan() only ever ADDED anchors, and Torn
+   * replaces rows constantly, so rt.nodes accumulated dead nodes for the life
+   * of the tab — each one still costing an isConnected check on every pass of
+   * all three loops. That is the slowdown.
+   */
+  function eachRow(fn) {
+    for (const [playerId, anchors] of rt.nodes) {
+      for (const anchor of anchors) {
+        if (!anchor.isConnected) { anchors.delete(anchor); continue }
+        const row = rowFor(anchor)
+        if (row) fn(playerId, anchor, row)
+      }
+      if (anchors.size === 0) rt.nodes.delete(playerId)
+    }
+  }
+
   function render() {
+    if (typeof document === 'undefined') return
     injectStyles()
+    document.documentElement.classList.toggle(NO_BS_CLASS, !settings.on(SETTING_STATS))
     let painted = 0      // enemies we INTENDED to badge
     let attached = 0     // badges that actually exist in the DOM
     let repainted = 0    // rows whose state actually changed — see #516
     const settingsSig = settingsSignature()   // loop-invariant; read once
     const nowMs = Date.now()
-    for (const [playerId, anchors] of rt.nodes) {
+    const sigs = new Map()
+    eachRow((playerId, anchor, row) => {
       const isEnemy = rt.enemies.has(playerId)
-      const known = rt.state.has(playerId)
-      if (!isEnemy && !known) continue
-      if (isEnemy) painted++
-      const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
-      const sig = paintSignature(state, rt.stats.get(playerId), settingsSig, rt.mine?.total)
-      for (const anchor of anchors) {
-        if (!anchor.isConnected) continue
-        const row = rowOf(anchor)
-        if (!row || !isMemberRow(row)) continue
+      if (!isEnemy && !rt.state.has(playerId)) return
 
-        paintName(anchor, playerId)
-        paintStatus(row, playerId, nowMs)
-        bindStatusHeader(row)
-        shrinkAttack(row)
+      paintName(row, anchor, playerId)
+      paintStatus(row, playerId, nowMs)
+      bindStatusHeader(row)
+      shrinkAttack(row)
+      if (!isEnemy) return
 
-        if (!isEnemy) continue
-        const cell = tnlCellOf(row)
-        if (badgeFor(cell, playerId)) attached++
-        if (cell.dataset.tnlSig === sig) continue
-        cell.dataset.tnlSig = sig
-        repainted++
-        paintDibs(cell.querySelector(`.${BADGE_CLASS}`), state)
-        paintStats(cell.querySelector(`.${STAT_SLOT_CLASS}`), playerId)
+      painted++
+      let entry = sigs.get(playerId)
+      if (!entry) {
+        const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
+        entry = { state, sig: paintSignature(state, rt.stats.get(playerId), settingsSig, rt.mine?.total) }
+        sigs.set(playerId, entry)
       }
-    }
+      const cell = tnlCellOf(row)
+      if (badgeFor(cell, playerId)) attached++
+      if (cell.dataset.tnlSig === entry.sig) return
+      cell.dataset.tnlSig = entry.sig
+      repainted++
+      paintDibs(cell.querySelector(`.${BADGE_CLASS}`), entry.state)
+      paintStats(cell.querySelector(`.${STAT_SLOT_CLASS}`), playerId)
+    })
     if (painted !== rt.painted || attached !== rt.attached) {
       rt.painted = painted
       rt.attached = attached
@@ -1501,18 +1624,13 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
     applySort(nowMs)
   }
 
-  /** The 1 Hz local tick (#515). */
+  /** The 1 Hz local tick (#515). Status cells only — dibs cannot change without a poll. */
   function renderTimers() {
     if (typeof document === 'undefined' || document.hidden) return
     const nowMs = Date.now()
-    for (const [playerId, anchors] of rt.nodes) {
-      if (!rt.state.has(playerId)) continue
-      for (const anchor of anchors) {
-        if (!anchor.isConnected) continue
-        const row = rowOf(anchor)
-        if (row && isMemberRow(row)) paintStatus(row, playerId, nowMs)
-      }
-    }
+    eachRow((playerId, _anchor, row) => {
+      if (rt.state.has(playerId)) paintStatus(row, playerId, nowMs)
+    })
   }
 
   function startTimers() {
@@ -1803,7 +1921,7 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
     formatStat, dominantStat, statScore, fairFight, rowStats,
     parseDbTime, fmtAgo, statsSourceLabel, tokenClaims, sessionIsAdmin,
     settingOn, settings, settingsSignature, paintSignature,
-    attackUrl, statsTip, injectStyles,
+    attackUrl, statsTip, injectStyles, tipPosition,
     countryCode, travelDestination, travelPhase, methodsForPlaneType, travelEta,
     fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
     statusView, statusSortValue, sortEntries, nextSort, rowState,

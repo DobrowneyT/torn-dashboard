@@ -36,6 +36,24 @@ from `VERSION` at runtime) both surface it automatically.
   the list.
 
 ### Fixed
+- **Userscript: clicking a battle-stat total opens the fight again.** Torn retired
+  `loader.php` for attacks — it now answers with a JSON error — so the link goes to
+  `page.php?sid=attack&user2ID=…`.
+- **Userscript: the stat tooltip paints above the table.** As an `::after` it was
+  trapped inside `.tnl-col`'s stacking context and could never rise above the rows
+  below it. It is now a single fixed-position element on `<body>`, anchored
+  below-right of the cursor, flipping rather than spilling off screen, in grey.
+- **Userscript: activity tinting works.** Torn paints war-list names with a
+  gradient clipped to the glyphs (`background-clip: text; color: transparent`), so
+  setting `color` on the anchor changed nothing visible. The gradient is now
+  replaced on `.honor-text` instead, as CAT does.
+- **Userscript: the page is fast again.** `scan()` only ever added anchors and Torn
+  replaces rows constantly, so the node index accumulated dead anchors for the life
+  of the tab — each still walked by `render()`, the 1 Hz tick and `applySort()`. The
+  index now prunes as it walks, row lookups are cached per anchor, and `applySort()`
+  returns immediately when no sort is applied.
+- **Userscript: turning off battle stats removes the whole column**, header
+  included, and the TNL column shrinks to the dibs control alone.
 - **Userscript: the stylesheet no longer breaks the script.** A backtick inside a
   CSS comment sat within `injectStyles()`'s template literal, terminated it early,
   and the remainder parsed as JavaScript — `ReferenceError: button is not defined`,
@@ -47,6 +65,8 @@ from `VERSION` at runtime) both surface it automatically.
 - **Userscript: comments moved out of the file.** 889 comment lines in 2526 became
   ~120; the provenance, constraints and traps now live in
   `docs/userscript-references.md`.
+- **Userscript: column separators.** Vertical hairlines between the dibs and
+  battle-stat halves and against Torn's Attack column, matching Torn's own table.
 - **Userscript: Attack is relabelled `Atk` and its column narrowed**, buying ~30px
   a row. The dibs control keeps its previous flat-pill look but at a compact size
   with the holder's name truncated, and the column drops to 100px.
