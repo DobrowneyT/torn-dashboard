@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.12.0
+// @version      1.13.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -489,11 +489,11 @@ const TNLDibs = (function () {
   function buttonState(dib, currentUserId, isAdmin = false) {
     const id = dib?.by ?? dib?.claimed_by
     if (id === null || id === undefined) {
-      return { label: '+ Dibs', action: 'claim', mine: false, taken: false }
+      return { label: 'Dibs', action: 'claim', mine: false, taken: false }
     }
     const name = dib?.name ?? dib?.claimed_name ?? null
     if (String(id) === String(currentUserId)) {
-      return { label: '✓ Yours', action: 'release', mine: true, taken: true }
+      return { label: 'Yours', action: 'release', mine: true, taken: true }
     }
     return {
       label: name ?? 'Claimed',
@@ -1346,14 +1346,26 @@ const TNLDibs = (function () {
    * it. Room is made by narrowing Torn's own columns in the injected stylesheet
    * — never by adding width here.
    */
-  const COL_WIDTH = 132
-  /** The dibs control's share of it — also fixed, so its left edge never moves. */
-  const DIBS_WIDTH = 78
+  const COL_WIDTH = 104
+  /**
+   * The dibs control's share of it — also fixed, so its left edge never moves.
+   *
+   * ⚠️ 50, not 78, and the number is measured rather than chosen: it is exactly
+   * CAT's `.call-column`. Their whole control fits in 50px because the button
+   * inside it is `width:auto; min-width:28px; max-width:40px` and TRUNCATES the
+   * holder's name to an ellipsis, leaning on colour to say whose it is and on
+   * the tooltip to say who exactly. Ours was a full-width block sized to keep a
+   * name legible, which is what pushed the row over.
+   */
+  const DIBS_WIDTH = 50
   /** Below this the stats half is hidden and only dibs survives. */
   const NARROW_PX = 1000
   const COL_CLASS = 'tnl-col'
   const COL_HEAD_CLASS = 'tnl-col-head'
   const DIBS_SLOT_CLASS = 'tnl-col-dibs'
+  /** Badge state classes — see paintDibs(). */
+  const MINE_CLASS = 'tnl-mine'
+  const TAKEN_CLASS = 'tnl-taken'
   const STAT_SLOT_CLASS = 'tnl-col-bs'
   const STYLE_ID = 'tnl-dibs-style'
   /** Marks a name we have tinted, so the tint can be lifted cleanly (#525). */
@@ -1422,18 +1434,60 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   font-size: 11px; font-weight: 700; text-align: right; cursor: help;
 }
 
+/* ⚠️ Lifted from CAT's `.call-button`, dimensions and all. Ours was a
+   full-width pill sized so a holder's name stayed legible inside it, and that
+   is what kept overflowing Torn's float row. CAT's answer is the opposite
+   trade and it is the right one: a small fixed-height chip that truncates hard,
+   with COLOUR carrying whose claim it is and the tooltip carrying the name. */
 .${BADGE_CLASS} {
   /* ⚠️ position + z-index are load-bearing. Torn's cells paint over anything
      overflowing a neighbour, so a statically-positioned badge ends up UNDER
      the next column: visible, and unclickable. */
   position: relative; z-index: 2147483000; isolation: isolate; pointer-events: auto;
-  /* Fixed width, left-anchored: the control's left edge must not move between
-     rows, and a long holder name must truncate rather than push the row (#512). */
-  display: block; width: 100%; box-sizing: border-box;
-  padding: 3px 6px; font-size: 11px; font-weight: 700; line-height: 16px;
-  border-radius: 10px; border: 1px solid rgba(255,255,255,.3);
-  color: #fff; text-align: center; cursor: pointer;
+  display: inline-block; box-sizing: border-box;
+  width: auto; min-width: 28px; max-width: 40px; height: 22px;
+  flex: 0 0 auto;
+  padding: 4px 2px;
+  border: 1px solid #111; border-radius: 3px;
+  font-size: .65em; font-weight: 600; line-height: normal; letter-spacing: .3px;
+  text-transform: uppercase; text-align: center; text-shadow: 0 0 5px #000;
+  color: #eee; cursor: pointer;
+  background: linear-gradient(180deg, #111 0%, #555 25%, #333 60%, #333 78%, #111 100%);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background .15s ease;
+}
+.${BADGE_CLASS}:hover {
+  background: linear-gradient(180deg, #333 0%, #777 25%, #333 59%, #666 78%, #333 100%);
+  color: #fff; text-shadow: 0 0 5px rgba(255,255,255,.25);
+}
+.${BADGE_CLASS}:active { background: linear-gradient(180deg, #000 0%, #333 100%); }
+
+/* ⚠️ State is a CLASS, not an inline style. paintDibs() runs per row per poll,
+   and every inline style write after a DOM read forces a synchronous layout —
+   the #516 fault. Three class swaps cost nothing. */
+.${BADGE_CLASS}.${MINE_CLASS} {
+  background: linear-gradient(180deg, #1e4400 0%, #5a9a00 25%, #4a7a00 60%, #4a7a00 78%, #1e4400 100%);
+  color: #fff; border-color: #1a3000;
+}
+.${BADGE_CLASS}.${MINE_CLASS}:hover {
+  background: linear-gradient(180deg, #2e5500 0%, #6aaa00 25%, #4a7a00 59%, #5a9a00 78%, #2e5500 100%);
+}
+.${BADGE_CLASS}.${TAKEN_CLASS} {
+  background: linear-gradient(180deg, #2e1008 0%, #6b2e1a 25%, #4d2010 60%, #4d2010 78%, #2e1008 100%);
+  color: rgba(243,117,75,.9); border-color: #1a0800; cursor: not-allowed;
+}
+.${BADGE_CLASS}.${TAKEN_CLASS}:hover {
+  background: linear-gradient(180deg, #2e1008 0%, #6b2e1a 25%, #4d2010 60%, #4d2010 78%, #2e1008 100%);
+}
+
+/* ⚠️ Room is made by NARROWING Torn's own columns, exactly as CAT does — the
+   score column is 50px there and the level column caps at 30px. Widening our
+   own cell to fit is the thing that wraps the float and drops the enemy list
+   below our own faction's (#511). */
+.members-cont [class*="points___"]:not([class*="tab___"]),
+.white-grad > [class*="points___"] {
+  width: 50px !important; max-width: 50px !important; flex: 0 0 50px !important;
+  overflow: hidden !important; text-overflow: ellipsis !important;
 }
 
 /* ⚠️ Tinting the NAME, not adding a cell. There is no width left (#511), and
@@ -1622,11 +1676,17 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
   function paintDibs(badge, state) {
     if (!badge) return
     badge.textContent = state.label
-    badge.style.background = state.mine ? '#1d4ed8' : state.taken ? '#c2410c' : '#374151'
-    badge.style.cursor = state.action === 'none' ? 'default' : 'pointer'
-    badge.title = state.taken && !state.mine
-      ? `Claimed by ${state.label}${state.action === 'release' ? ' — click to release (admin)' : ''}`
-      : ''
+    badge.classList.toggle(MINE_CLASS, Boolean(state.mine))
+    badge.classList.toggle(TAKEN_CLASS, Boolean(state.taken) && !state.mine)
+    // ⚠️ The name is now truncated to about five characters, so the tooltip is
+    // the ONLY place the holder is fully recoverable — and settling a collision
+    // in one message in faction chat is the entire reason for naming them
+    // (#512). It has to be set on every state, not just the taken one.
+    badge.title = state.mine
+      ? 'Yours — click to release'
+      : state.taken
+        ? `Claimed by ${state.label}${state.action === 'release' ? ' — click to release (admin)' : ''}`
+        : 'Claim this target'
   }
 
   /**

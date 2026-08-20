@@ -777,7 +777,7 @@ describe('a claim paints before the server confirms it', () => {
 
     expect(res.ok).toBe(true)
     expect(S.buttonState(S.dibsIndex().get(90100), session.userId)).toMatchObject({
-      label: '✓ Yours', action: 'release', mine: true,
+      label: 'Yours', action: 'release', mine: true,
     })
   })
 
@@ -1163,7 +1163,7 @@ describe('settings storage', () => {
 // ── Repaint signature (#516) ───────────────────────────────────────────────
 
 describe('paintSignature', () => {
-  const state = { label: '+ Dibs', action: 'claim', mine: false, taken: false }
+  const state = { label: 'Dibs', action: 'claim', mine: false, taken: false }
   const stats = { total: 5e6, str: 1e6, def: 1e6, spd: 1e6, dex: 2e6, source: 'torn', spiedAt: '2026-08-19' }
   const sig = (st = state, sx = stats, set = '11', mine = 4e6) => S.paintSignature(st, sx, set, mine)
 
@@ -1174,7 +1174,7 @@ describe('paintSignature', () => {
   })
 
   it('changes when the dibs state changes', () => {
-    expect(sig({ label: '✓ Yours', action: 'release', mine: true, taken: true })).not.toBe(sig())
+    expect(sig({ label: 'Yours', action: 'release', mine: true, taken: true })).not.toBe(sig())
   })
 
   it('changes when the holder changes, even between two taken states', () => {
@@ -1718,5 +1718,26 @@ describe('the flight table stays in step with the dashboard', () => {
     // fastest and the slowest. In a war the question is "how soon could they be
     // back", so the earlier candidate is the one worth planning against.
     expect(S.PLANE_TYPE_METHOD.airliner).toBe('business')
+  })
+})
+
+describe('the dibs label fits the chip it has to live in', () => {
+  it('⚠️ keeps every unclaimed/own label inside the 40px cap', () => {
+    // The badge is copied from CAT's .call-button: width auto, max-width 40px,
+    // font-size .65em, uppercase. At that size roughly five characters fit
+    // before the ellipsis bites. A decorated label like "+ Dibs" or "✓ Yours"
+    // spends two of those five on a glyph saying nothing the colour does not
+    // already say — and the extra width is what pushed the row over Torn's
+    // float layout in the first place (#511).
+    expect(S.buttonState(null, '2250591').label).toBe('Dibs')
+    expect(S.buttonState({ by: 2250591 }, '2250591').label).toBe('Yours')
+    for (const label of ['Dibs', 'Yours']) expect(label.length).toBeLessThanOrEqual(5)
+  })
+
+  it('a holder’s name is still the label, and truncation is the CSS’s job', () => {
+    // Not shortened here. The tooltip is what makes a truncated name
+    // recoverable, and paintDibs sets it on every state for exactly that reason.
+    expect(S.buttonState({ by: 4242, name: 'SomeVeryLongName' }, '2250591').label)
+      .toBe('SomeVeryLongName')
   })
 })

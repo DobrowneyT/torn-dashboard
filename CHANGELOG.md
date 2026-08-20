@@ -36,6 +36,12 @@ from `VERSION` at runtime) both surface it automatically.
   the list.
 
 ### Changed
+- **Userscript: the dibs control is a compact chip, not a full-width pill.** The
+  column drops from 132px to 104px and the button from a fixed 78px block to
+  `auto / min 28px / max 40px`, both measured off CAT's `.call-button` rather
+  than guessed. The label is now `DIBS` / `YOURS` / the holder's name truncated,
+  with colour saying whose claim it is and the tooltip — now set on every state
+  — saying who exactly. Torn's score column is narrowed to 50px to match.
 - **Userscript: the stat breakdown marks the dominant stat (#513).** Matches the
   reference script's intent within the limits of a plain-text tooltip.
 
