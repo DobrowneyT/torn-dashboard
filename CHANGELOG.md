@@ -17,6 +17,113 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Added
+- **Userscript: live status column (#515).** The Torn Status cell now carries a
+  1 Hz hospital countdown (`1h23m` / `45m12s`), an abbreviated travel leg with an
+  inferred ETA (`>CN ~54m`, `CN>`), and `In CN` for a member already abroad — all
+  computed from data the delta poll already carried. An abroad hospital stay is
+  marked with the country (`SWI:12m00s`), because it is a different proposition
+  from a local one. Torn's own status stays authoritative on any disagreement.
+- **Userscript: roster intelligence (#525).** Member names are tinted by activity
+  (green online / amber idle / grey offline), an Okay member's Status cell shows
+  their last action and a revive glyph, and the tooltip carries revive audience,
+  wall and early-discharge flags plus — for leads, on our own members only —
+  energy and drug/medical/booster cooldowns.
+- **Userscript: sortable battle-stat column.** Clicking the `BS` header orders the
+  whole table by battle stats (descending, then ascending, then off); Torn's own
+  Status header sorts by how soon each member is attackable. Rows are permuted
+  with flexbox `order` rather than moved, so the sort survives Torn re-rendering
+  the list.
+
+### Fixed
+- **Userscript: our faction table sits beside the enemy's on a fresh page load**,
+  not only after toggling the tint setting off and back on. Root cause: the
+  runtime measurement that sized the width reclaimed from the hidden status dot
+  and faction tag deadlocked with itself — the moment the tinting class was
+  added it hid those icons via `display:none`, so any later measurement of them
+  read zero forever, and the correction never got a real value. Toggling the
+  setting worked only because it briefly un-hid the icons long enough to
+  measure them once. Replaced with a hardcoded, generously-sized constant that
+  has no such cycle to deadlock on.
+- **Userscript: tinted names use a plain, readable font.** Torn's honor-text
+  span carries whatever styling the badge component intends, which reads badly
+  once shown as a name; it now gets an explicit system-UI sans-serif stack.
+- **Userscript: the score column is narrower** (44px), since its content is a
+  handful of digits.
+- **Userscript: tinted names are actually visible.** Torn ships the war-list name
+  three ways — an honor-bar `<img>`, a per-character SVG twin, and a plain
+  `<span class="honor-text">`. Showing the plain one was not enough: Torn paints
+  honor text with a gradient clipped to the glyphs, which sets
+  `-webkit-text-fill-color: transparent`, and that wins over `color`. The name is
+  now given a flat colour through both properties with the background cleared.
+- **Userscript: the faction tag goes with the status dot**, and the member column
+  is pulled back by their measured combined width, so removing them actually
+  gives the row space instead of leaving a gap.
+- **Userscript: the dibs control and stat total are centred on the row.** The
+  previous attempt assumed the rows were flex containers; they are floats, so it
+  was a no-op. The column now takes Torn's measured row height.
+- **Userscript: names come back when tinting is off.** The honor-bar image was
+  being hidden on every row regardless of the setting, and the check for a text
+  replacement only asked whether the element existed — not whether it carried any
+  text — so rows were left blank. The swap is now part of the tint setting and
+  needs non-empty text to fire.
+- **Userscript: sort headers toggle between two states**, not three. Leave a sort
+  by choosing another column.
+- **Userscript: names render as text, so activity tinting is visible.** Torn draws
+  the name as a decorative honor-bar image with a text twin alongside; the gradient
+  had nothing to land on. The image is now hidden and the text shown — but only on
+  rows where the text twin was actually found, so a row can never end up nameless.
+  Torn's own online dot is hidden while we tint, which also buys back its width.
+- **Userscript: the battle-stat total is capped at five characters.** Three
+  significant digits — `1.23B`, `12.3B`, `123B` — so it stops spilling out of the
+  column. The tooltip still shows the full dashboard figure.
+- **Userscript: the dibs control and the stat total sit on the row's centre line.**
+- **Userscript: clicking a battle-stat total opens the fight again.** Torn retired
+  `loader.php` for attacks — it now answers with a JSON error — so the link goes to
+  `page.php?sid=attack&user2ID=…`.
+- **Userscript: the stat tooltip paints above the table.** As an `::after` it was
+  trapped inside `.tnl-col`'s stacking context and could never rise above the rows
+  below it. It is now a single fixed-position element on `<body>`, anchored
+  below-right of the cursor, flipping rather than spilling off screen, in grey.
+- **Userscript: activity tinting works.** Torn paints war-list names with a
+  gradient clipped to the glyphs (`background-clip: text; color: transparent`), so
+  setting `color` on the anchor changed nothing visible. The gradient is now
+  replaced on `.honor-text` instead, as CAT does.
+- **Userscript: the page is fast again.** `scan()` only ever added anchors and Torn
+  replaces rows constantly, so the node index accumulated dead anchors for the life
+  of the tab — each still walked by `render()`, the 1 Hz tick and `applySort()`. The
+  index now prunes as it walks, row lookups are cached per anchor, and `applySort()`
+  returns immediately when no sort is applied.
+- **Userscript: turning off battle stats removes the whole column**, header
+  included, and the TNL column shrinks to the dibs control alone.
+- **Userscript: the stylesheet no longer breaks the script.** A backtick inside a
+  CSS comment sat within `injectStyles()`'s template literal, terminated it early,
+  and the remainder parsed as JavaScript — `ReferenceError: button is not defined`,
+  with nothing on the page. `node --check` does not catch this. `injectStyles()` is
+  now covered by a stub-DOM test that asserts the rendered CSS carries no backtick
+  and no un-interpolated `${`.
+
+### Changed
+- **Userscript: comments moved out of the file.** 889 comment lines in 2526 became
+  ~120; the provenance, constraints and traps now live in
+  `docs/userscript-references.md`.
+- **Userscript: column separators.** Vertical hairlines between the dibs and
+  battle-stat halves and against Torn's Attack column, matching Torn's own table.
+- **Userscript: Attack is relabelled `Atk` and its column narrowed**, buying ~30px
+  a row. The dibs control keeps its previous flat-pill look but at a compact size
+  with the holder's name truncated, and the column drops to 100px.
+- **Userscript: the battle-stat tooltip is stacked like the War Room's** — FF, one
+  line per stat, Total, then age and source — and clicking the total opens the
+  attack page, as Wall Battlestats does.
+- **Userscript: the dibs control is a compact chip, not a full-width pill.** The
+  column drops from 132px to 104px and the button from a fixed 78px block to
+  `auto / min 28px / max 40px`, both measured off CAT's `.call-button` rather
+  than guessed. The label is now `DIBS` / `YOURS` / the holder's name truncated,
+  with colour saying whose claim it is and the tooltip — now set on every state
+  — saying who exactly. Torn's score column is narrowed to 50px to match.
+- **Userscript: the stat breakdown marks the dominant stat (#513).** Matches the
+  reference script's intent within the limits of a plain-text tooltip.
+
 ## [3.46.0] - 2026-08-19
 
 ### Added
