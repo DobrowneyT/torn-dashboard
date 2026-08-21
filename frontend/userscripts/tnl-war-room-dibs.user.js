@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.27.0
+// @version      1.28.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1778,19 +1778,57 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       : Array.from(document.querySelectorAll('ul.members-list, ul[class*="membersCont"]'))
   }
 
-  /** Online + idle counts for one list's rows, off War Room state — no offline
-   *  count, matching the standalone Warline script this replicates. */
-  function activityCounts(list) {
-    let online = 0
-    let idle = 0
-    for (const row of list.children) {
-      const id = idOfRow(row)
-      if (id === null) continue
-      const tone = activityTone(rt.state.get(id))
-      if (tone === 'online') online++
-      else if (tone === 'idle') idle++
+  /** Online / idle / offline across a set of member states. */
+  function tallyActivity(states) {
+    const out = { online: 0, idle: 0, offline: 0 }
+    for (const state of states) {
+      const tone = activityTone(state)
+      if (tone !== null) out[tone] += 1
     }
-    return { online, idle }
+    return out
+  }
+
+  /** The badge's text: online leads, idle only when there is some. */
+  function countLabel({ online, idle }) {
+    return `${online} online` + (idle ? ` / ${idle} idle` : '')
+  }
+
+  /** The full breakdown, including the offline count the badge never shows. */
+  function countTooltip({ online, idle, offline }) {
+    return `${online} online, ${idle} idle, ${offline} offline`
+  }
+
+  /**
+   * One side's tally, taken from the ROSTER rather than the rendered rows.
+   *
+   * ⚠️ Counting `list.children` — the obvious implementation, and the one this
+   * replaced — only ever sees what Torn has painted, so it silently undercounts
+   * anything paginated, virtualised or collapsed. We already hold every member
+   * of both factions in rt.state off the delta poll, so the true number costs
+   * nothing extra to compute (#531).
+   */
+  function sideTally(wantEnemy) {
+    const states = []
+    for (const [id, state] of rt.state) {
+      if (rt.enemies.has(id) !== wantEnemy) continue
+      states.push(state)
+    }
+    return tallyActivity(states)
+  }
+
+  /**
+   * Which faction a member list belongs to: true enemy, false ours, null when
+   * the page does not say. Torn marks the two panels, and each row carries its
+   * own side class as a second opinion — which side is ours comes from the
+   * roster, never from left/right, since either faction can be on either side.
+   */
+  function listIsEnemy(list) {
+    if (list.closest?.('.enemy-faction')) return true
+    if (list.closest?.('.your-faction')) return false
+    const row = list.firstElementChild
+    if (row?.classList?.contains?.('enemy')) return true
+    if (row?.classList?.contains?.('your')) return false
+    return null
   }
 
   /** The header's own "Members" cell for a given member list. */
@@ -1809,16 +1847,19 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const cell = membersHeaderCellOf(list)
       if (!cell) continue
       if (!on) { cell.querySelector(`.${MEMBER_COUNT_CLASS}`)?.remove(); continue }
-      const { online, idle } = activityCounts(list)
+      const side = listIsEnemy(list)
+      if (side === null) continue          // unlabelled panel — say nothing rather than guess
+      const counts = sideTally(side)
       let badge = cell.querySelector(`.${MEMBER_COUNT_CLASS}`)
       if (!badge) {
         badge = document.createElement('span')
         badge.className = MEMBER_COUNT_CLASS
         cell.appendChild(badge)
       }
-      const text = `${online} online` + (idle ? ` / ${idle} idle` : '')
+      const text = countLabel(counts)
       if (badge.textContent !== text) badge.textContent = text
-      badge.style.display = online + idle === 0 ? 'none' : ''
+      badge.title = countTooltip(counts)
+      badge.style.display = counts.online + counts.idle === 0 ? 'none' : ''
     }
   }
 
@@ -2288,6 +2329,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     ensureLauncher, LAUNCHER_ID, LAUNCHER_NAME,
     countryCode, travelDestination, travelPhase, methodsForPlaneType, travelEta,
     fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
+    tallyActivity, countLabel, countTooltip,
     statusView, statusSortValue, sortEntries, nextSort, rowState,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
     SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT,
