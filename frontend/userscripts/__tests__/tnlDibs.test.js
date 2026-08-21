@@ -2102,19 +2102,40 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
     expect(css()).toMatch(/tnl-no-bs[\s\S]*?display: none/)
   })
 
-  it('⚠️ a narrow screen drops NO data column — only the online/idle badge', () => {
-    // Both earlier versions of this rule dropped a column on phones: first BS,
-    // then Score. That was the float layout's reasoning, where a row that did
-    // not fit wrapped. Under flex the name column is flex:1 1 auto with
-    // min-width:0, so the row absorbs the squeeze by ellipsising the name and
-    // every column survives. Only the header badge, which cannot shrink,
-    // stands down.
+  it('⚠️ a narrow screen hides NOTHING — not a column, not the badge', () => {
+    // Three earlier versions of this rule dropped something on phones: BS,
+    // then Score, then the badge. All were the float layout's reasoning, where
+    // a row that did not fit wrapped. Under flex the name column is
+    // flex:1 1 auto with min-width:0, so the row absorbs the squeeze by
+    // ellipsising the name and everything survives.
     const sheet = css()
     const media = sheet.slice(sheet.indexOf('@media screen and (max-width:'))
-    expect(media).toMatch(/tnl-member-count/)
-    for (const col of ['tnl-col-bs', 'points___', 'tnl-col-dibs', 'attack___', 'level___']) {
-      expect(media, col).not.toContain(col)
+    // The badge itself is never display:none — only the WORDS inside it are,
+    // which is what turns "3 online / 8 idle" into "3 / 8".
+    expect(media).toMatch(/\.tnl-member-count \.tnl-mc-word \{ display: none/)
+    expect(media).not.toMatch(/\.tnl-member-count \{[^}]*display: none/)
+    // Colour replaces the words it drops.
+    expect(media).toMatch(/tnl-mc-on \{ color:/)
+    expect(media).toMatch(/tnl-mc-idle \{ color:/)
+    // Data columns appear only to be NARROWED, never hidden.
+    for (const col of ['tnl-col-bs', 'points___', 'tnl-col-dibs', 'level___', 'status']) {
+      const rule = new RegExp(`${col}[^{]*\\{[^}]*display: none`)
+      expect(media, `${col} must not be hidden`).not.toMatch(rule)
     }
+    expect(media).toMatch(/tnl-col-bs \{ width: \d+px/)
+  })
+
+  it('⚠️ declares the badge BEFORE the media query that compacts it', () => {
+    // Same selector, same specificity, no !important — so source order is the
+    // only thing deciding which padding/font-size wins. Emitted the other way
+    // round (as it first was), the base rule silently overrides the compact
+    // one and the badge stays full-size on a phone.
+    const sheet = css()
+    const base = sheet.indexOf('.tnl-member-count {')
+    const query = sheet.indexOf('@media screen and (max-width:')
+    expect(base).toBeGreaterThan(-1)
+    expect(query).toBeGreaterThan(-1)
+    expect(base).toBeLessThan(query)
   })
 
   it('draws the column separators', () => {

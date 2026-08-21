@@ -71,14 +71,15 @@ from `VERSION` at runtime) both surface it automatically.
   column any net width.
 
 ### Fixed
-- **Userscript: the battle-stat column was missing on every phone**, and the
-  narrow breakpoint no longer drops a data column at all. The rule hid `BS`
+- **Userscript: nothing is hidden on a narrow screen any more** — not the
+  battle-stat column, not Score, not the online/idle badge. The rule hid `BS`
   under 1000px, inherited from the float layout where a row that did not fit
   wrapped, so something had to go. Under flex nothing does: every data column
   is fixed-width and the name column is `flex: 1 1 auto` with `min-width: 0`,
-  so a narrow screen is absorbed by ellipsising the name. Only the header's
-  online/idle badge stands down there — it is `white-space: nowrap` and wider
-  than the name column on a phone, so it is the one thing that cannot shrink.
+  so a narrow screen is absorbed by ellipsising the name. The badge keeps its
+  numbers and drops only its words — `3 online / 8 idle` becomes `3 / 8`, with
+  green and amber carrying what the words said (the same tones the names are
+  tinted with), and the fixed columns give back a few px each.
 - **Userscript: rows wrapped onto a second line, and the header disagreed with
   the rows about the column order** — BS sat before Score in the header but
   after it in every row, from the same markup. One cause for both: Torn lays

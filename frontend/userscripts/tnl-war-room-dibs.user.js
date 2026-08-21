@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.28.0
+// @version      1.29.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -974,6 +974,10 @@ const TNLDibs = (function () {
   /** Warline-style online/idle badge on the "Members" header — colour and class. */
   const MEMBER_COUNT_COLOR = '#0b8a0b'
   const MEMBER_COUNT_CLASS = 'tnl-member-count'
+  /** Badge internals, so a narrow screen can drop the words and keep the numbers. */
+  const MC_ONLINE_CLASS = 'tnl-mc-on'
+  const MC_IDLE_CLASS = 'tnl-mc-idle'
+  const MC_WORD_CLASS = 'tnl-mc-word'
   /** Set on a name wrap once we have confirmed a text version exists to show. */
   const PLAIN_NAME_CLASS = 'tnl-plain-name'
   /** Set on <html> while we own activity colour, so Torn's own dot can go. */
@@ -1204,22 +1208,6 @@ html.${TINTING_CLASS} [class*="factionWrap___"] { display: none !important; }
 
 html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
-/* ⚠️ Narrow screens drop no DATA column at all — only the online/idle badge.
-   This rule used to hide BS under ${NARROW_PX}px (so the column the script
-   exists for was missing on every phone), and then briefly hid Score instead.
-   Both were the float layout's reasoning carried forward: back then a row that
-   did not fit wrapped, so something had to go. Under flex nothing has to —
-   every data column is fixed-width and the NAME column is flex:1 1 auto with
-   min-width:0, so the row absorbs the squeeze by ellipsising the name.
-
-   The one thing that genuinely cannot shrink is the header's name cell: it is
-   white-space:nowrap and carries "N online / M idle", which is wider than the
-   name column itself on a phone and would push the whole header out. So the
-   badge is what stands down — a nice-to-have, not a column. */
-@media screen and (max-width: ${NARROW_PX}px) {
-  .${MEMBER_COUNT_CLASS} { display: none !important; }
-}
-
 .${MEMBER_COUNT_CLASS} {
   margin-left: 8px;
   padding: 2px 8px;
@@ -1230,6 +1218,39 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   color: ${MEMBER_COUNT_COLOR};
   background: ${MEMBER_COUNT_COLOR}1f;
 }
+
+/* ⚠️ Narrow screens lose NOTHING — not a data column, not the badge.
+   Two earlier versions of this rule hid BS, then Score, then the online/idle
+   badge. All three were the float layout's reasoning carried forward: back
+   then a row that did not fit wrapped, so something had to go. Under flex
+   nothing does — every data column is fixed-width and the NAME column is
+   flex:1 1 auto with min-width:0, so the row absorbs the squeeze by
+   ellipsising the name.
+
+   The badge was the last casualty because it is white-space:nowrap and so
+   cannot shrink. It does not have to: "3 online / 8 idle" becomes "3 / 8" by
+   hiding the words, and colour carries what they said — green online, amber
+   idle, the same tones the names are tinted with. That is ~65px back, and the
+   modest column trims below buy the name column a little more. */
+@media screen and (max-width: ${NARROW_PX}px) {
+  .${MEMBER_COUNT_CLASS} .${MC_WORD_CLASS} { display: none; }
+  .${MEMBER_COUNT_CLASS} .${MC_ONLINE_CLASS} { color: ${TINT_COLORS.online}; }
+  .${MEMBER_COUNT_CLASS} .${MC_IDLE_CLASS} { color: ${TINT_COLORS.idle}; }
+  .${MEMBER_COUNT_CLASS} { margin-left: 5px; padding: 1px 6px; font-size: 11px; }
+
+  /* A few px off each fixed column — the name column takes the difference. */
+  .members-cont .level { width: 24px !important; max-width: 24px !important; flex: 0 0 24px !important; }
+  .${BS_CLASS} { width: 46px; min-width: 46px; max-width: 46px; flex: 0 0 46px; }
+  .members-cont [class*="points___"]:not([class*="tab___"]),
+  .white-grad > [class*="points___"] {
+    width: 38px !important; max-width: 38px !important; flex: 0 0 38px !important;
+  }
+  .members-cont .status, .white-grad > .status {
+    width: 58px !important; max-width: 58px !important; flex: 0 0 58px !important;
+  }
+  .${DIBS_CLASS} { width: 42px; min-width: 42px; max-width: 42px; flex: 0 0 42px; }
+}
+
 `
     ;(document.head || document.documentElement).appendChild(el)
     log('stylesheet injected')
@@ -1851,6 +1872,34 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return header?.querySelector('.member, [class*="member___"]') ?? null
   }
 
+  /**
+   * Fill the badge, in parts rather than as one string.
+   *
+   * The words live in their own spans so a narrow screen can hide them and
+   * leave "3 / 8" — colour then carries what the words did, green for online
+   * and amber for idle, matching the name tint. Rebuilt only when the numbers
+   * actually change; this runs on every poll.
+   */
+  function paintCountBadge(badge, counts) {
+    const sig = `${counts.online}|${counts.idle}`
+    if (badge.dataset.tnlCount === sig) return
+    badge.dataset.tnlCount = sig
+    badge.textContent = ''
+    const part = (cls, text) => {
+      const el = document.createElement('span')
+      el.className = cls
+      el.textContent = text
+      badge.appendChild(el)
+    }
+    part(MC_ONLINE_CLASS, String(counts.online))
+    part(MC_WORD_CLASS, ' online')
+    if (counts.idle) {
+      part('', ' / ')
+      part(MC_IDLE_CLASS, String(counts.idle))
+      part(MC_WORD_CLASS, ' idle')
+    }
+  }
+
   /** Warline-style "N online / M idle" badge on each faction's Members header. */
   function paintMemberCounts() {
     if (typeof document === 'undefined') return
@@ -1868,8 +1917,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
         badge.className = MEMBER_COUNT_CLASS
         cell.appendChild(badge)
       }
-      const text = countLabel(counts)
-      if (badge.textContent !== text) badge.textContent = text
+      paintCountBadge(badge, counts)
       badge.title = countTooltip(counts)
       badge.style.display = counts.online + counts.idle === 0 ? 'none' : ''
     }
