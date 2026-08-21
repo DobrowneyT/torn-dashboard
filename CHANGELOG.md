@@ -17,6 +17,20 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+- **Backups: a deploy no longer costs a second full set of archives (#510).**
+  Every deploy dumped all six databases twice — `update.sh` takes a pre-deploy
+  archive, then the restarted sidecar dumped the lot again on start — turning a
+  correct 6-a-day into a measured 65, 70 and 95 on deploy days. The sidecar's
+  start-up run now stands down for any database already archived within
+  `BACKUP_FRESH_HOURS` (default 20). The pre-deploy backup and the scheduled
+  daily run are both untouched: the first is the rollback path and the second is
+  the actual daily backup, and neither may be skipped.
+- **Backups: the offsite prune now collects B2's hidden versions (#510).**
+  Deleting a file on B2 leaves a hidden version that goes on being billed until
+  something collects it, and nothing did — 3 GiB of the 9.34 GiB stored was
+  deleted data. The remote prune is now followed by an `rclone cleanup`.
+
 ### Added
 - **Userscript: live status column (#515).** The Torn Status cell now carries a
   1 Hz hospital countdown (`1h23m` / `45m12s`), an abbreviated travel leg with an

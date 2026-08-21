@@ -23,6 +23,7 @@ import dotenv from 'dotenv'
 import pg from 'pg'
 import {
   factionDbsFromRows, backupName, selectExpired, remotePruneArgs, rcloneFlags, summarize,
+  hasFreshBackup, remoteCleanupArgs,
 } from './backupLib.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -34,6 +35,10 @@ const { values: args } = parseArgs({
     out: { type: 'string' },
     'retention-days': { type: 'string' },
     db: { type: 'string' },
+    // #510: stand down for any database already archived this recently. Passed
+    // by the sidecar's START-UP run only — never by update.sh's pre-deploy
+    // backup, which is the rollback path and must always take a fresh dump.
+    'skip-if-fresh-hours': { type: 'string' },
   },
 })
 
@@ -45,6 +50,9 @@ const conn = {
 }
 const outDir = args.out ?? join(here, '..', 'deploy', 'backups')
 const retentionDays = Number(args['retention-days'] ?? 14)
+const skipIfFreshHours = args['skip-if-fresh-hours'] === undefined
+  ? null
+  : Number(args['skip-if-fresh-hours'])
 const rcloneRemote = process.env.RCLONE_REMOTE // e.g. b2:tnl-dashboard-backups
 
 const pgEnv = { ...process.env, PGPASSWORD: conn.password ?? '' }
@@ -137,6 +145,11 @@ function prune() {
     // names so nothing else in the bucket path can ever be swept (#117).
     // Also non-fatal: failing to prune the remote costs storage, never data.
     rclone(remotePruneArgs(rcloneRemote, retentionDays), 'remote prune')
+    // ...and then collect what that delete left behind. On B2 a deleted file
+    // keeps a hidden version that goes on being billed until something
+    // collects it; nothing did, so a third of the bucket was deleted data
+    // (#510). Runs after the prune so it sweeps the versions just orphaned.
+    rclone(remoteCleanupArgs(rcloneRemote), 'remote cleanup')
   }
   return local.length
 }
@@ -151,8 +164,21 @@ if (dbs.length === 0) {
 }
 
 let uploadFailures = 0
+let archived = 0
+let skipped = 0
+// Read once, not per database: the set of archives on disk is the record of
+// what today already has, and dumping into it as we go must not move the line.
+const existing = skipIfFreshHours === null ? [] : readdirSync(outDir)
+const startedAt = new Date()
 for (const target of dbs) {
+  if (skipIfFreshHours !== null
+      && hasFreshBackup(existing, target.slug, startedAt, skipIfFreshHours)) {
+    skipped += 1
+    console.log(`skipped ${target.db} — archived within the last ${skipIfFreshHours}h`)
+    continue
+  }
   const { name } = await dump(target)
+  archived += 1
   const sent = upload(join(outDir, name))
   if (!sent) uploadFailures += 1
   const where = !rcloneRemote ? ' (local only)' : sent ? ` (+ ${rcloneRemote})` : ' (LOCAL ONLY — upload failed)'
@@ -160,7 +186,7 @@ for (const target of dbs) {
 }
 const pruned = prune()
 console.log(summarize({
-  archived: dbs.length, uploadFailures, pruned, retentionDays, remote: rcloneRemote,
+  archived, skipped, uploadFailures, pruned, retentionDays, remote: rcloneRemote,
 }))
 // Non-zero when the offsite copy did not happen. The sidecar loop and
 // update.sh both tolerate this (`|| ...`), so it surfaces the problem without
