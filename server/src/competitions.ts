@@ -463,7 +463,7 @@ export async function computeStandings(db: pg.Pool, competition: CompetitionRow)
        WHERE r.member_id = m.member_id AND r.at <= $2
        ORDER BY r.at ASC LIMIT 1
      ) fst ON true
-     WHERE m.is_current = true
+     WHERE m.is_current = true AND m.is_fallen = false
      ORDER BY value ${order}, m.member_name`,
     params
   )

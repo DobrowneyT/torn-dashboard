@@ -97,7 +97,7 @@ export async function captureBoundarySamples(
   if (active.length === 0) return 0
 
   const members = await db.query(
-    `SELECT member_id FROM members WHERE is_current = true ORDER BY member_id`
+    `SELECT member_id FROM members WHERE is_current = true AND is_fallen = false ORDER BY member_id`
   )
   const psById = new Map<string, unknown>()
   for (const m of members.rows) {

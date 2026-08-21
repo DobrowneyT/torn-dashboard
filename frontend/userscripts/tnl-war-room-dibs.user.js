@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.27.0
+// @version      1.28.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1204,8 +1204,15 @@ html.${TINTING_CLASS} [class*="factionWrap___"] { display: none !important; }
 
 html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
+/* ⚠️ Narrow screens drop SCORE, never BS.
+   This used to hide the battle-stat column on anything under ${NARROW_PX}px,
+   inherited from the float layout where there was genuinely no room for it —
+   which meant the column the whole script exists for was missing on every
+   phone. Under flex there is room, and if something has to go it should be the
+   column that says nothing: Score reads 0.00 for every member for most of a
+   war, while BS is what the target is picked on. */
 @media screen and (max-width: ${NARROW_PX}px) {
-  .${BS_CLASS} { display: none; }
+  .members-cont [class*="points___"] { display: none !important; }
 }
 
 .${MEMBER_COUNT_CLASS} {

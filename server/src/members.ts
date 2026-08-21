@@ -18,7 +18,7 @@ export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
              count(c.cpr_value)::int AS role_count
       FROM members m
       LEFT JOIN member_cpr_v2 c ON c.member_id = m.member_id
-      WHERE m.is_current = true
+      WHERE m.is_current = true AND m.is_fallen = false
       GROUP BY m.member_id
       ORDER BY m.member_id
     `)
@@ -196,7 +196,7 @@ export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
                b.source, b.fetched_at, b.spy_at
           FROM member_battle_stats b
           JOIN members m ON m.member_id = b.member_id
-         WHERE m.is_current = true
+         WHERE m.is_current = true AND m.is_fallen = false
          ORDER BY b.total DESC NULLS LAST
       `)
       return { battle_stats: res.rows }
