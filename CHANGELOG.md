@@ -18,6 +18,7 @@ from `VERSION` at runtime) both surface it automatically.
 ## [Unreleased]
 
 ### Added
+
 - **Userscript: live status column (#515).** The Torn Status cell now carries a
   1 Hz hospital countdown (`1h23m` / `45m12s`), an abbreviated travel leg with an
   inferred ETA (`>CN ~54m`, `CN>`), and `In CN` for a member already abroad — all
@@ -44,6 +45,7 @@ from `VERSION` at runtime) both surface it automatically.
   breakdown including offline. Toggleable in Settings, on by default.
 
 ### Changed
+
 - **Userscript: the panel shows which version is running.** Soft grey beside the
   "Torn War Room" title, `v1.32.0`, in the same gray-400 the dashboard footer
   uses. Nothing renders when there is no version to read, rather than the
@@ -74,17 +76,7 @@ from `VERSION` at runtime) both surface it automatically.
   to make room (4px → 2px a side) so the wider badge padding doesn't cost the
   column any net width.
 
-### Fixed
-- **Userscript: Torn's own column sorts work again after sorting by BS.** We
-  reorder rows with the flex `order` property, which overrides DOM order
-  outright. Torn sorts by moving the nodes themselves — so once our sort was
-  active, its header arrow moved and not a single row did. Sorting by Status
-  appeared to break the spell only by accident: status values tie constantly and
-  `sortEntries` breaks ties on DOM position, so Torn's reordering leaked through.
-  Clicking one of Torn's own sortable headers now drops our sort and clears the
-  `order` values before its handler runs.
 
-### Changed
 - **Userscript: comments cut back to the ones that earn their place.** Issue
   numbers, section banners and doc comments restating the function name are
   gone. What stays: Torn's own formulas and published constants, the DOM
@@ -231,7 +223,7 @@ from `VERSION` at runtime) both surface it automatically.
   now covered by a stub-DOM test that asserts the rendered CSS carries no backtick
   and no un-interpolated `${`.
 
-### Changed
+
 - **Userscript: comments moved out of the file.** 889 comment lines in 2526 became
   ~120; the provenance, constraints and traps now live in
   `docs/userscript-references.md`.
@@ -251,6 +243,17 @@ from `VERSION` at runtime) both surface it automatically.
   — saying who exactly. Torn's score column is narrowed to 50px to match.
 - **Userscript: the stat breakdown marks the dominant stat (#513).** Matches the
   reference script's intent within the limits of a plain-text tooltip.
+
+### Fixed
+
+- **Userscript: Torn's own column sorts work again after sorting by BS.** We
+  reorder rows with the flex `order` property, which overrides DOM order
+  outright. Torn sorts by moving the nodes themselves — so once our sort was
+  active, its header arrow moved and not a single row did. Sorting by Status
+  appeared to break the spell only by accident: status values tie constantly and
+  `sortEntries` breaks ties on DOM position, so Torn's reordering leaked through.
+  Clicking one of Torn's own sortable headers now drops our sort and clears the
+  `order` values before its handler runs.
 
 ## [3.46.0] - 2026-08-19
 
