@@ -36,9 +36,12 @@ from `VERSION` at runtime) both surface it automatically.
   the list.
 - **Userscript: a Warline-style online/idle count on the "Members" header**, on
   both factions' tables. Same look as the standalone Warline script (green
-  pill, no offline count), but sourced from War Room's own live state instead
-  of scraping Torn's status dots, since we already poll it for tint and status.
-  Toggleable in Settings, on by default.
+  pill, no offline count in the label), but counted from the **roster** we
+  already hold in `rt.state` rather than scraped off the rendered rows — a DOM
+  count only ever sees what Torn has painted, so it silently undercounts
+  anything paginated, virtualised or collapsed. Which side is which comes from
+  the roster too, never from left/right. The tooltip carries the full
+  breakdown including offline. Toggleable in Settings, on by default.
 
 ### Changed
 - **Userscript: the panel opens from a "Torn War Room" link in Torn's own page

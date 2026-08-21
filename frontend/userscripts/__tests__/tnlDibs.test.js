@@ -1492,6 +1492,52 @@ describe('activityTone', () => {
   })
 })
 
+// ── The online/idle counter (#531) ─────────────────────────────────────────
+//
+// ⚠️ Counted from the ROSTER, never from the rendered rows. A DOM scrape only
+// ever sees what Torn has painted, so it silently undercounts anything
+// paginated, virtualised or collapsed — which is the whole reason #531 says to
+// take Warline's interface but not its implementation. The first cut of this
+// walked `list.children` and had exactly that bug.
+describe('tallyActivity', () => {
+  const on = { last_action: { status: 'Online' } }
+  const idle = { last_action: { status: 'Idle' } }
+  const off = { last_action: { status: 'Offline' } }
+
+  it('counts all three states across the roster', () => {
+    expect(S.tallyActivity([on, on, idle, off, off, off]))
+      .toEqual({ online: 2, idle: 1, offline: 3 })
+  })
+
+  it('keeps the offline count the badge itself does not show', () => {
+    // The label is "N online / M idle", but the tooltip gives the full
+    // breakdown — so offline has to be tallied even though it is never
+    // the headline.
+    expect(S.tallyActivity([off, off]).offline).toBe(2)
+  })
+
+  it('ignores members Torn told us nothing about', () => {
+    expect(S.tallyActivity([on, { last_action: {} }, null, undefined]))
+      .toEqual({ online: 1, idle: 0, offline: 0 })
+  })
+
+  it('is all zeroes for an empty roster', () => {
+    expect(S.tallyActivity([])).toEqual({ online: 0, idle: 0, offline: 0 })
+  })
+})
+
+describe('countLabel / countTooltip', () => {
+  it('leads with online and mentions idle only when there is some', () => {
+    expect(S.countLabel({ online: 12, idle: 3, offline: 47 })).toBe('12 online / 3 idle')
+    expect(S.countLabel({ online: 12, idle: 0, offline: 47 })).toBe('12 online')
+  })
+
+  it('gives the full breakdown, offline included, in the tooltip', () => {
+    expect(S.countTooltip({ online: 12, idle: 3, offline: 47 }))
+      .toBe('12 online, 3 idle, 47 offline')
+  })
+})
+
 describe('reviveAudience', () => {
   it('separates a revive we can buy from one only their faction can do', () => {
     expect(S.reviveAudience({ is_revivable: true, revive_setting: 'Everyone' })).toBe('anyone')
