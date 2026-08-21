@@ -1871,7 +1871,28 @@ describe('injectStyles', () => {
     const sheet = appended[0].textContent
     expect(sheet).toMatch(/\.white-grad[^{]*\{[^}]*display: flex/)
     expect(sheet).toMatch(/ul\.members-list,[^{]*\{[^}]*display: flex/)
-    expect(sheet).toMatch(/ul\.members-list > li,[^{]*\{[^}]*display: flex/)
+    expect(sheet).toMatch(/ul\.members-list > li[^,{]*,[^{]*\{[^}]*display: flex/)
+  })
+
+  it('⚠️ never un-hides a row TornTools has filtered out', () => {
+    // TornTools is a browser extension a lot of players run; its Ranked War
+    // Filter hides rows with .tt-hidden on the <li>. Our row rule targets the
+    // same element and is MORE specific (ul.members-list > li = 0,1,2 vs their
+    // 0,1,0), so at equal !important an unqualified display:flex wins and
+    // their filter silently does nothing while our script is on. The :not()
+    // is what keeps their rule the only one in play for a filtered row.
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const sheet = appended[0].textContent
+    // Anchored to line start: the explanatory comment above the rule names the
+    // same selector, and a bare indexOf finds the prose instead of the CSS.
+    const rowRule = sheet.slice(sheet.indexOf('\nul.members-list > li') + 1)
+    const selector = rowRule.slice(0, rowRule.indexOf('{'))
+    expect(selector).toContain(':not(.tt-hidden)')
+    // Both halves, or the .table-body variant leaks through unqualified.
+    const parts = selector.split(',').filter(p => p.trim())
+    expect(parts).toHaveLength(2)
+    for (const part of parts) expect(part, part).toContain(':not(.tt-hidden)')
   })
 })
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.29.0
+// @version      1.30.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -982,6 +982,14 @@ const TNLDibs = (function () {
   const PLAIN_NAME_CLASS = 'tnl-plain-name'
   /** Set on <html> while we own activity colour, so Torn's own dot can go. */
   const TINTING_CLASS = 'tnl-tinting'
+  /**
+   * TornTools' "row is filtered out" marker.
+   *
+   * Not ours — it belongs to the TornTools browser extension, which a lot of
+   * players run, and which hides war-list rows by adding this class. We only
+   * ever read it, never set it. See the stylesheet rule that excludes it.
+   */
+  const TT_HIDDEN_CLASS = 'tt-hidden'
   /** Column hairline. Semi-transparent grey so it reads on Torn's light and dark. */
   const RULE = 'rgba(128,128,128,.35)'
   /** Marks a name we have tinted, so the tint can be lifted cleanly (#525). */
@@ -1033,7 +1041,18 @@ ul.members-list, .table-body {
   flex-direction: column !important;
   width: 100% !important;
 }
-ul.members-list > li, .table-body > .table-row {
+/* ⚠️ :not(.tt-hidden) is TornTools' filter, and it is not optional.
+   Many players run the TornTools extension, whose Ranked War Filter (activity,
+   status, level) hides rows by putting .tt-hidden on the <li> — the very
+   element we are laying out here. Their rule is .tt-hidden (specificity
+   0,1,0); ours is ul.members-list > li (0,1,2). At equal !important the more
+   specific one wins, so an unqualified display:flex here silently un-hides
+   every row they filtered out, and their filter appears to do nothing at all
+   while our script is on. Excluding the class means this selector never
+   matches a filtered row, leaving theirs the only display rule in play.
+   Any future third-party hider goes in the same :not() list. */
+ul.members-list > li:not(.${TT_HIDDEN_CLASS}),
+.table-body > .table-row:not(.${TT_HIDDEN_CLASS}) {
   display: flex !important;
   flex-wrap: nowrap !important;
   align-items: center !important;

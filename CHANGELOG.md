@@ -71,6 +71,20 @@ from `VERSION` at runtime) both surface it automatically.
   column any net width.
 
 ### Fixed
+- **Userscript: TornTools' war-list filters work again.** TornTools is a browser
+  extension many players run; its Ranked War Filter (activity / status / level)
+  hides rows by putting `.tt-hidden` on the `<li>`. Our flex-layout rule targets
+  that same element and is *more specific* — `ul.members-list > li` (0,1,2)
+  against their `.tt-hidden` (0,1,0) — so at equal `!important` ours won and
+  `display: flex` silently un-hid every row they had filtered out. With the
+  script on, their filter appeared to do nothing. Both halves of our row
+  selector now carry `:not(.tt-hidden)`, so a filtered row is never matched and
+  theirs stays the only display rule in play.
+
+  ⚠️ The online/idle badge still counts the **whole roster**, not the filtered
+  view — that is deliberate (#531): it answers "how many of that faction are
+  online", which a filter does not change. TornTools shows its own
+  "Showing N of M" for the filtered count.
 - **Userscript: nothing is hidden on a narrow screen any more** — not the
   battle-stat column, not Score, not the online/idle badge. The rule hid `BS`
   under 1000px, inherited from the float layout where a row that did not fit
