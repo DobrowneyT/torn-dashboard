@@ -17,6 +17,8 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.47.0] - 2026-08-21
+
 ### Fixed
 - **Backups: a deploy no longer costs a second full set of archives (#510).**
   Every deploy dumped all six databases twice — `update.sh` takes a pre-deploy
