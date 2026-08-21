@@ -17,6 +17,20 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+## [3.47.1] - 2026-08-21
+
+### Fixed
+- **Userscript: middle-clicking a battle-stat total opens a new tab, instead of
+  starting autoscroll.** The total was a `<span>` with a click handler that called
+  `preventDefault()` and `window.open()` — which works for a plain left click and
+  silently breaks every other way of opening a link. Middle-click fell through to
+  the browser's autoscroll (the scroll-wheel cursor), and ctrl/cmd-click, "open
+  link in new tab" and the status-bar URL preview did nothing at all. It is now a
+  real `<a href target="_blank" rel="noopener noreferrer">`, so opening the attack
+  page is the anchor's own default action and every one of those gestures works
+  without us implementing any of them. The click handler is kept only to stop the
+  event reaching Torn's row handler.
+
 ## [3.47.0] - 2026-08-21
 
 ### Fixed
