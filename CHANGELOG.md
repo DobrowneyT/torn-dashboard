@@ -17,6 +17,20 @@ from `VERSION` at runtime) both surface it automatically.
 
 ## [Unreleased]
 
+### Fixed
+- **Backups: a deploy no longer costs a second full set of archives (#510).**
+  Every deploy dumped all six databases twice — `update.sh` takes a pre-deploy
+  archive, then the restarted sidecar dumped the lot again on start — turning a
+  correct 6-a-day into a measured 65, 70 and 95 on deploy days. The sidecar's
+  start-up run now stands down for any database already archived within
+  `BACKUP_FRESH_HOURS` (default 20). The pre-deploy backup and the scheduled
+  daily run are both untouched: the first is the rollback path and the second is
+  the actual daily backup, and neither may be skipped.
+- **Backups: the offsite prune now collects B2's hidden versions (#510).**
+  Deleting a file on B2 leaves a hidden version that goes on being billed until
+  something collects it, and nothing did — 3 GiB of the 9.34 GiB stored was
+  deleted data. The remote prune is now followed by an `rclone cleanup`.
+
 ### Added
 - **Fallen members are excluded from every roster, count and scrape.** Torn
   preserves the account of a player who has died (status `Fallen`, "Resting in
@@ -33,6 +47,7 @@ from `VERSION` at runtime) both surface it automatically.
   untouched: they have not left the faction, and flipping it would rewrite
   their history as a departure. Nothing is deleted — a direct lookup still
   resolves, so old links and past payout rows keep working.
+
 - **Userscript: live status column (#515).** The Torn Status cell now carries a
   1 Hz hospital countdown (`1h23m` / `45m12s`), an abbreviated travel leg with an
   inferred ETA (`>CN ~54m`, `CN>`), and `In CN` for a member already abroad — all
@@ -51,11 +66,19 @@ from `VERSION` at runtime) both surface it automatically.
   the list.
 - **Userscript: a Warline-style online/idle count on the "Members" header**, on
   both factions' tables. Same look as the standalone Warline script (green
-  pill, no offline count), but sourced from War Room's own live state instead
-  of scraping Torn's status dots, since we already poll it for tint and status.
-  Toggleable in Settings, on by default.
+  pill, no offline count in the label), but counted from the **roster** we
+  already hold in `rt.state` rather than scraped off the rendered rows — a DOM
+  count only ever sees what Torn has painted, so it silently undercounts
+  anything paginated, virtualised or collapsed. Which side is which comes from
+  the roster too, never from left/right. The tooltip carries the full
+  breakdown including offline. Toggleable in Settings, on by default.
 
 ### Changed
+
+- **Userscript: the panel shows which version is running.** Soft grey beside the
+  "Torn War Room" title, `v1.32.0`, in the same gray-400 the dashboard footer
+  uses. Nothing renders when there is no version to read, rather than the
+  "vundefined" an unguarded read would put on screen.
 - **Userscript: the panel opens from a "Torn War Room" link in Torn's own page
   title**, beside Faction Warfare / Forum / Leave Faction, instead of a floating
   dot in the bottom-left corner. The amber/green connectivity light rides along
@@ -82,7 +105,37 @@ from `VERSION` at runtime) both surface it automatically.
   to make room (4px → 2px a side) so the wider badge padding doesn't cost the
   column any net width.
 
-### Fixed
+
+- **Userscript: comments cut back to the ones that earn their place.** Issue
+  numbers, section banners and doc comments restating the function name are
+  gone. What stays: Torn's own formulas and published constants, the DOM
+  quirks we work around, the references to the scripts and extensions we
+  interoperate with (Warline, Wall Battlestats, TornTools), and the handful of
+  warnings marking a trap someone has already fallen into. No behaviour change
+  — every line of code is byte-identical.
+- **Userscript: TornTools' war-list filters work again.** TornTools is a browser
+  extension many players run; its Ranked War Filter (activity / status / level)
+  hides rows by putting `.tt-hidden` on the `<li>`. Our flex-layout rule targets
+  that same element and is *more specific* — `ul.members-list > li` (0,1,2)
+  against their `.tt-hidden` (0,1,0) — so at equal `!important` ours won and
+  `display: flex` silently un-hid every row they had filtered out. With the
+  script on, their filter appeared to do nothing. Both halves of our row
+  selector now carry `:not(.tt-hidden)`, so a filtered row is never matched and
+  theirs stays the only display rule in play.
+
+  ⚠️ The online/idle badge still counts the **whole roster**, not the filtered
+  view — that is deliberate (#531): it answers "how many of that faction are
+  online", which a filter does not change. TornTools shows its own
+  "Showing N of M" for the filtered count.
+- **Userscript: nothing is hidden on a narrow screen any more** — not the
+  battle-stat column, not Score, not the online/idle badge. The rule hid `BS`
+  under 1000px, inherited from the float layout where a row that did not fit
+  wrapped, so something had to go. Under flex nothing does: every data column
+  is fixed-width and the name column is `flex: 1 1 auto` with `min-width: 0`,
+  so a narrow screen is absorbed by ellipsising the name. The badge keeps its
+  numbers and drops only its words — `3 online / 8 idle` becomes `3 / 8`, with
+  green and amber carrying what the words said (the same tones the names are
+  tinted with), and the fixed columns give back a few px each.
 - **Userscript: rows wrapped onto a second line, and the header disagreed with
   the rows about the column order** — BS sat before Score in the header but
   after it in every row, from the same markup. One cause for both: Torn lays
@@ -199,7 +252,7 @@ from `VERSION` at runtime) both surface it automatically.
   now covered by a stub-DOM test that asserts the rendered CSS carries no backtick
   and no un-interpolated `${`.
 
-### Changed
+
 - **Userscript: comments moved out of the file.** 889 comment lines in 2526 became
   ~120; the provenance, constraints and traps now live in
   `docs/userscript-references.md`.
@@ -219,6 +272,17 @@ from `VERSION` at runtime) both surface it automatically.
   — saying who exactly. Torn's score column is narrowed to 50px to match.
 - **Userscript: the stat breakdown marks the dominant stat (#513).** Matches the
   reference script's intent within the limits of a plain-text tooltip.
+
+### Fixed
+
+- **Userscript: Torn's own column sorts work again after sorting by BS.** We
+  reorder rows with the flex `order` property, which overrides DOM order
+  outright. Torn sorts by moving the nodes themselves — so once our sort was
+  active, its header arrow moved and not a single row did. Sorting by Status
+  appeared to break the spell only by accident: status values tie constantly and
+  `sortEntries` breaks ties on DOM position, so Torn's reordering leaked through.
+  Clicking one of Torn's own sortable headers now drops our sort and clears the
+  `order` values before its handler runs.
 
 ## [3.46.0] - 2026-08-19
 

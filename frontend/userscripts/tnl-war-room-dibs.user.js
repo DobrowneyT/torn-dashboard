@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.28.0
+// @version      1.32.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -15,29 +15,22 @@
 // @downloadURL  https://files.monchoon.me/scripts/tnl-war-room-dibs.user.js
 // ==/UserScript==
 
-/** Dibs, on the Torn war page itself (#487). */
-
 const TNLDibs = (function () {
   'use strict'
 
   const TENANTS_URL = 'https://files.monchoon.me/scripts/tenants.json'
   const STORE_KEY = 'tnl-dibs-session'
-  /** Reconnect backoff, ms — caps rather than growing without bound. */
   const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000]
   const BADGE_CLASS = 'tnl-dibs-badge'
-  /** FF at which a target is worth pulling the eye across the table. */
   const FF_HIGHLIGHT = 2.5
   const DEBUG_KEY = 'tnl-dibs-debug'
   const SETTING_STATS = 'tnl-dibs-show-stats'
   const SETTING_FF_BOX = 'tnl-dibs-ff-box'
-  /** #515 — rewrite Torn's Status cell: hospital countdown, travel ETA, last action. */
   const SETTING_STATUS = 'tnl-dibs-status'
-  /** #525 — tint the member's name by activity. */
   const SETTING_TINT = 'tnl-dibs-tint'
   /** Warline-style online/idle count on the Members header. */
   const SETTING_MEMBER_COUNT = 'tnl-dibs-member-count'
 
-  /** User settings (#514). */
   const SETTING_DEFAULTS = {
     [SETTING_STATS]: true,
     [SETTING_FF_BOX]: true,
@@ -47,7 +40,6 @@ const TNLDibs = (function () {
     [DEBUG_KEY]: false,
   }
 
-  /** Is a setting on? */
   function settingOn(raw, key) {
     if (raw === 'true') return true
     if (raw === 'false') return false
@@ -61,12 +53,10 @@ const TNLDibs = (function () {
     set(key, value) { GM_setValue(key, value ? 'true' : 'false') },
   }
 
-  /** The settings that change what a row LOOKS like, as a string. */
   function settingsSignature() {
     return `${settings.on(SETTING_STATS) ? 1 : 0}${settings.on(SETTING_FF_BOX) ? 1 : 0}`
   }
 
-  /** Everything about a row that is visible, as one short string. */
   function paintSignature(state, stats, settingsSig, mineTotal) {
     return [
       state?.label, state?.action, state?.mine ? 1 : 0, state?.taken ? 1 : 0,
@@ -76,18 +66,13 @@ const TNLDibs = (function () {
       settingsSig,
     ].join('|')
   }
-  /** Read cadence — see the transport note above for why this is a poll. */
   const POLL_MS = 3000
   const POLL_HIDDEN_MS = 10000
 
-  // ── Debug ────────────────────────────────────────────────────────────────
-
-  /** Verbose tracing, off by default. */
   function debugOn() {
     return settings.on(DEBUG_KEY)
   }
 
-  /** A URL with any token or key stripped, safe to print. */
   function redactUrl(url) {
     if (typeof url !== 'string') return String(url)
     return url.replace(/([?&](?:token|key|apiKey)=)[^&]*/gi, '$1REDACTED')
@@ -99,9 +84,6 @@ const TNLDibs = (function () {
     console.log('[TNL Dibs]', ...args)
   }
 
-  // ── Pure helpers (unit-tested — see __tests__/tnlDibs.test.js) ────────────
-
-  /** The Torn user id in a profile link, or null. */
   function parseXid(href) {
     if (typeof href !== 'string') return null
     const parts = href.split('?XID=')
@@ -110,14 +92,12 @@ const TNLDibs = (function () {
     return Number.isFinite(id) && id > 0 ? id : null
   }
 
-  /** Which tenant host serves this faction, or null when it is not one of ours. */
   function resolveTenant(map, factionId) {
     if (!map || factionId === null || factionId === undefined) return null
     const host = map[String(factionId)]
     return typeof host === 'string' && host.length > 0 ? host : null
   }
 
-  /** Fold dib rows into "who holds what". */
   function indexDibs(rows, into) {
     const byTarget = into ?? new Map()
     for (const row of rows ?? []) {
@@ -129,13 +109,12 @@ const TNLDibs = (function () {
     return byTarget
   }
 
-  /** The row array out of one channel of a socket frame. */
   function frameRows(channel) {
     if (Array.isArray(channel)) return channel
     return Array.isArray(channel?.rows) ? channel.rows : []
   }
 
-  /** A stat total, formatted EXACTLY as the War Room formats it. */
+  /** Kept byte-identical to the dashboard's formatStats() so the two never disagree. */
   function formatStat(n) {
     if (n === null || n === undefined) return '???'
     const v = Number(n)
@@ -147,7 +126,6 @@ const TNLDibs = (function () {
     return String(v)
   }
 
-  /** A Postgres timestamp, parsed. */
   function parseDbTime(ts) {
     if (!ts) return null
     let str = String(ts)
@@ -157,7 +135,6 @@ const TNLDibs = (function () {
     return Number.isNaN(d.getTime()) ? null : d
   }
 
-  /** Relative age, or an em dash. */
   function fmtAgo(ts, nowMs = Date.now()) {
     const d = parseDbTime(ts)
     if (!d) return '—'
@@ -168,12 +145,11 @@ const TNLDibs = (function () {
     return `${Math.floor(diff / 86_400)}d ago`
   }
 
-  /** Which source a figure came from. */
   function statsSourceLabel(source) {
     return { torn: 'OWN', tornstats: 'TS', bsp: 'BSP' }[source] ?? 'BSP'
   }
 
-  /** Which single stat dominates a build, or null for a balanced one. */
+  /** 0.33 is Wall Battlestats' whore_threshold, so our colouring matches theirs. */
   function dominantStat(stats, threshold = 0.33) {
     const total = Number(stats?.total)
     if (!Number.isFinite(total) || total <= 0) return null
@@ -186,7 +162,7 @@ const TNLDibs = (function () {
     return value >= threshold * total ? name : null
   }
 
-  /** Battle-stat score: the sum of square ROOTS, not of the stats. */
+  /** Torn's stat score: the sum of the square ROOTS, not of the stats. */
   function statScore(stats) {
     const num = (v) => {
       if (v === null || v === undefined || v === '') return null
@@ -202,7 +178,7 @@ const TNLDibs = (function () {
     return total === null ? null : 2 * Math.sqrt(total)
   }
 
-  /** FF for hitting `defender`, given our own stats. */
+  /** Torn's fair-fight formula, capped at 3. */
   function fairFight(mine, theirs) {
     const attacker = statScore(mine)
     const defender = statScore(theirs)
@@ -211,13 +187,8 @@ const TNLDibs = (function () {
   }
 
   /**
-   * A stat total in at most 5 characters: 1.23B, 12.3B, 123B.
-   *
-   * Three significant digits, so the width is fixed whatever the magnitude.
-   * ⚠️ This is NOT formatStat() and must not replace it — formatStat is kept
-   * byte-identical to the dashboard's formatStats() so the two screens never
-   * disagree, and it is what the tooltip still shows. This one is for the
-   * column, where five characters is all there is.
+   * Three significant digits, so a total is always 5 characters: 1.23B, 12.3B, 123B.
+   * Not a replacement for formatStat() — that one has to keep matching the dashboard.
    */
   function formatStatShort(n) {
     if (n === null || n === undefined) return '???'
@@ -231,8 +202,7 @@ const TNLDibs = (function () {
       const ax = Math.abs(x)
       const digits = ax >= 100 ? 0 : ax >= 10 ? 1 : 2
       const rounded = Number(x.toFixed(digits))
-      // ⚠️ Rounding can carry into the next unit — 999.6M is 1.00B, not 1000M,
-      // which would be six characters and the wrong number.
+      // Rounding can carry into the next unit: 999.6M is 1.00B, not 1000M.
       if (Math.abs(rounded) >= 1000 && i > 0) {
         const [upScale, upSuffix] = units[i - 1]
         return Number((v / upScale).toFixed(2)).toFixed(2) + upSuffix
@@ -242,21 +212,15 @@ const TNLDibs = (function () {
     return String(Math.round(v))
   }
 
-  /** Torn's direct-attack URL for a player. */
   function attackUrl(playerId) {
     const id = Number(playerId)
     if (!Number.isFinite(id) || id <= 0) return null
     return `https://www.torn.com/page.php?sid=attack&user2ID=${id}`
   }
 
-  /**
-   * The stat tooltip, stacked the way the War Room's BattleStatsCell stacks it:
-   * one line per stat, Total on its own line, source last.
-   */
   function statsTip(stats, ff) {
     if (!stats || stats.total === null) return 'No battle stats on record'
-    // padEnd/padStart, with `white-space: pre` on the tooltip, is what keeps the
-    // two columns aligned without a table.
+    // padEnd/padStart plus `white-space: pre` is what aligns the columns.
     const line = (label, value) => `${label.padEnd(5)}${String(value).padStart(9)}`
     const rule = '─'.repeat(14)
     const out = [line('FF', ff === null || ff === undefined ? '—' : ff.toFixed(2)), rule]
@@ -271,7 +235,6 @@ const TNLDibs = (function () {
     return out.join('\n')
   }
 
-  /** The battle stats carried on a war_room_state_v2 row. */
   function rowStats(row) {
     if (!row) return null
     const num = (v) => {
@@ -291,7 +254,6 @@ const TNLDibs = (function () {
     }
   }
 
-  /** Member ids that are NOT ours. */
   function enemyIds(stateRows, ourFactionId, opponentId) {
     const out = new Set()
     for (const row of stateRows ?? []) {
@@ -303,7 +265,6 @@ const TNLDibs = (function () {
     return out
   }
 
-  /** The faction our war room is currently pointed at, from the config channel. */
   function opponentFrom(configRows) {
     for (const row of configRows ?? []) {
       if (row?.faction_id !== null && row?.faction_id !== undefined) return String(row.faction_id)
@@ -311,12 +272,10 @@ const TNLDibs = (function () {
     return null
   }
 
-  /** How long to wait before the next poll. */
   function pollDelay(hidden) {
     return hidden ? POLL_HIDDEN_MS : POLL_MS
   }
 
-  /** The claims carried in our session token. */
   function tokenClaims(token) {
     if (typeof token !== 'string') return {}
     const body = token.split('.')[1]
@@ -328,12 +287,10 @@ const TNLDibs = (function () {
     } catch { return {} }
   }
 
-  /** Can this session take a dib off someone else? */
   function sessionIsAdmin(session) {
     return tokenClaims(session?.token).is_admin === true
   }
 
-  /** What the control should say and do, given who holds the target. */
   function buttonState(dib, currentUserId, isAdmin = false) {
     const id = dib?.by ?? dib?.claimed_by
     if (id === null || id === undefined) {
@@ -351,23 +308,19 @@ const TNLDibs = (function () {
     }
   }
 
-  /** Backoff for the nth consecutive failed read (0-based). */
   function backoffFor(attempt) {
     return BACKOFF_MS[Math.min(Math.max(attempt, 0), BACKOFF_MS.length - 1)]
   }
 
-  /** Does the stored session belong to whoever is logged into this tab? */
   function identityMatches(sessionUserId, pageUserId) {
     if (!sessionUserId || !pageUserId) return true
     return String(sessionUserId) === String(pageUserId)
   }
 
-  // ── Roster intelligence (#525, #515) ─────────────────────────────────────
-
   /** Torn's published flight-time variance: up to ±3%. */
   const TRAVEL_VARIANCE = 0.03
 
-  /** Flight times in seconds, by destination and method. */
+  /** Seconds, by destination and travel method. */
   const FLIGHT_SECONDS = {
     'mexico':          { standard: 1440, airstrip: 1020, wlt:  720, business:  420 },
     'cayman islands':  { standard: 1980, airstrip: 1380, wlt: 1020, business:  600 },
@@ -388,7 +341,6 @@ const TNLDibs = (function () {
   /** `status.plane_image_type` → travel method. */
   const PLANE_TYPE_METHOD = { airliner: 'business', light_aircraft: 'airstrip', private_jet: 'wlt' }
 
-  /** Destination names Torn uses in more than one form. */
   const DESTINATION_ALIASES = {
     'united arab emirates': 'uae',
     'uk': 'united kingdom',
@@ -396,7 +348,7 @@ const TNLDibs = (function () {
     'cayman': 'cayman islands',
   }
 
-  /** Substring → short code, in match order. */
+  /** Substring → code, in match order. */
   const COUNTRY_NEEDLES = [
     ['south africa', 'SA'], ['south african', 'SA'],
     ['china', 'CN'], ['chinese', 'CN'],
@@ -411,7 +363,6 @@ const TNLDibs = (function () {
     ['mexic', 'MX'],
   ]
 
-  /** The short code for whichever country a status description names, or null. */
   function countryCode(text) {
     const d = String(text ?? '').toLowerCase()
     if (!d) return null
@@ -423,7 +374,6 @@ const TNLDibs = (function () {
     return String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
   }
 
-  /** The country whose flight time applies, or null. */
   function travelDestination(description) {
     const d = String(description ?? '')
     let candidate = null
@@ -451,13 +401,11 @@ const TNLDibs = (function () {
     return null
   }
 
-  /** Candidate methods for an aircraft type — all four when we can't tell. */
   function methodsForPlaneType(planeType) {
     const known = PLANE_TYPE_METHOD[planeType]
     return known ? [known] : [...TRAVEL_METHODS]
   }
 
-  /** Estimated arrival for a traveller. */
   function travelEta({ description, planeType, departedAt, nowMs = Date.now() } = {}) {
     const destination = travelDestination(description)
     const parsed = departedAt ? parseDbTime(departedAt) : null
@@ -483,7 +431,6 @@ const TNLDibs = (function () {
     }
   }
 
-  /** A duration as a countdown: 1h23m over an hour, 45m12s under it, 9s at the end. */
   function fmtCountdown(seconds) {
     const s = Math.max(0, Math.floor(Number(seconds) || 0))
     if (s >= 3600) return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`
@@ -491,7 +438,6 @@ const TNLDibs = (function () {
     return `${s}s`
   }
 
-  /** An ETA band, compacted for a cell that has room for about six characters. */
   function fmtEtaShort(eta) {
     if (!eta || eta.state === 'unknown') return null
     if (eta.state === 'overdue') return 'land'
@@ -499,7 +445,6 @@ const TNLDibs = (function () {
     return `~${fmtCountdown(mid)}`
   }
 
-  /** How long since their last action, at a glance: 3m, 2h, 4d. */
   function fmtLastActionShort(lastAction, nowMs = Date.now()) {
     const ts = Number(lastAction?.timestamp)
     if (!Number.isFinite(ts) || ts <= 0) return null
@@ -510,7 +455,6 @@ const TNLDibs = (function () {
     return `${Math.floor(diff / 86_400)}d`
   }
 
-  /** Activity, as a tone name. */
   function activityTone(state) {
     const s = String(state?.last_action?.status ?? '').toLowerCase()
     if (s === 'online') return 'online'
@@ -528,7 +472,6 @@ const TNLDibs = (function () {
     return 'anyone'
   }
 
-  /** Everything the Status cell should say for one member, or null when we know nothing and Torn's own… */
   function statusView(entry, nowMs = Date.now()) {
     const st = entry?.status
     const kind = st?.state
@@ -603,7 +546,6 @@ const TNLDibs = (function () {
     return rank * 1e11 + (Number.isFinite(until) && until > 0 ? until : 0)
   }
 
-  /** Order rows for our sort control. */
   function sortEntries(entries, dir) {
     const missing = (v) => v === null || v === undefined || !Number.isFinite(Number(v))
     return [...(entries ?? [])].sort((a, b) => {
@@ -616,20 +558,12 @@ const TNLDibs = (function () {
     })
   }
 
-  /**
-   * Click cycle for a sort header: descending, then ascending, then back.
-   *
-   * Two states, not three. A third "off" step means two of every three clicks
-   * land somewhere you did not want, and Torn's original order is not a thing
-   * anyone sorts back to on purpose — you leave a sort by choosing another
-   * column.
-   */
+  /** Two states, not three: a third "off" step wastes two clicks in every cycle. */
   function nextSort(current, key) {
     if (current?.key !== key) return { key, dir: -1 }
     return { key, dir: current.dir === -1 ? 1 : -1 }
   }
 
-  /** The war_room_state_v2 fields we keep, flattened. */
   function rowState(row) {
     if (!row) return null
     const s = row.state ?? {}
@@ -644,8 +578,6 @@ const TNLDibs = (function () {
       travel_departed_at: row.travel_departed_at ?? null,
     }
   }
-
-  // ── Transport ────────────────────────────────────────────────────────────
 
   function gmRequest(opts) {
     return new Promise((resolve, reject) => {
@@ -723,39 +655,36 @@ const TNLDibs = (function () {
     return session
   }
 
-  // ── Runtime ──────────────────────────────────────────────────────────────
-
   const rt = {
     session: null,
     dibs: new Map(),        // targetId → { by, name }
     enemies: new Set(),     // member ids not in our faction
     nodes: new Map(),       // playerId → Set<HTMLElement> anchors to badge
     ourFactionId: null,
-    attempt: 0,          // consecutive failed polls, for backoff
+    attempt: 0,             // consecutive failed polls, for backoff
     status: 'idle',
-    expanded: false,        // the panel collapses to a dot once signed in
-    settingsOpen: false,    // the expanded panel is showing settings (#514)
+    expanded: false,
+    settingsOpen: false,
     painted: -1,            // last counts logged, so render() is not spammy
     attached: -1,
-    opponentId: null,       // the faction the war room is pointed at
+    opponentId: null,
     since: null,            // delta watermark, always the server's own clock
     polling: false,
     timer: null,            // pending poll, so visibilitychange can pre-empt it
     poke: null,             // runs a poll now; set once the loop is running
-    inFlight: false,        // a read is out; a second loop must not start
+    inFlight: false,
     pending: false,         // someone asked to read while one was in flight
-    stats: new Map(),       // memberId → battle stats, straight off the roster
-    mine: null,             // our own stats, so FF needs no second source
+    stats: new Map(),       // memberId → battle stats
+    mine: null,
     isAdmin: false,         // UI affordance only; the server decides
-    state: new Map(),       // memberId → rowState(): status, last action, revive (#525)
-    mstats: new Map(),      // memberId → energy + cooldowns. LEAD-ONLY, OURS-ONLY.
-    sort: { key: null, dir: 0 },  // our sort control; null means Torn's own order
-    sorted: false,          // a sort is currently applied to the DOM
-    rowH: null,             // Torn's row height, measured once
-    tick: null,             // the 1 Hz countdown timer
+    state: new Map(),       // memberId → rowState()
+    mstats: new Map(),      // memberId → energy + cooldowns. Lead-only, ours-only.
+    sort: { key: null, dir: 0 },  // null key means Torn's own order
+    sorted: false,
+    rowH: null,
+    tick: null,
   }
 
-  /** The logged-in Torn user, read from the page's own sidebar profile link. */
   function pageUserId() {
     const link = document.querySelector('#sidebarroot a[href*="profiles.php?XID="], .sidebar a[href*="profiles.php?XID="]')
     return link ? parseXid(link.getAttribute('href')) : null
@@ -773,7 +702,6 @@ const TNLDibs = (function () {
     })
   }
 
-  /** Trade a stale token for a fresh one. */
   async function refreshToken() {
     log('token is stale — refreshing')
     const res = await gmRequest({
@@ -795,7 +723,6 @@ const TNLDibs = (function () {
     return true
   }
 
-  /** An authenticated call, with one automatic retry after a refresh. */
   async function api(path, method, body, retried = false) {
     const res = await rawApi(path, method, body)
     if (res.status === 401 && !retried && rt.session) {
@@ -827,19 +754,17 @@ const TNLDibs = (function () {
     if (res.status !== 200) {
       return { ok: false, message: res.body?.message ?? res.body?.error ?? `HTTP ${res.status}` }
     }
-    rt.dibs.delete(targetId)     // optimistic; covers an admin override too
+    rt.dibs.delete(targetId)   // optimistic; covers an admin override too
     pokePoll()
     return { ok: true }
   }
 
-  /** Read again immediately instead of waiting out the scheduled poll. */
   function pokePoll() {
     if (!rt.polling || !rt.poke) return
     if (rt.timer) { clearTimeout(rt.timer); rt.timer = null }
     rt.poke()
   }
 
-  /** Fold one full set of channels — a socket snapshot or a poll response — into the runtime. */
   function applyChannels(body) {
     const stateRows = frameRows(body?.state)
     const dibRows = frameRows(body?.dibs)
@@ -883,7 +808,6 @@ const TNLDibs = (function () {
     render()
   }
 
-  /** One poll of the REST read path, over the privileged transport. */
   async function pollOnce() {
     const path = rt.since
       ? `/api/war-room/delta?since=${encodeURIComponent(rt.since)}`
@@ -946,20 +870,14 @@ const TNLDibs = (function () {
     tick()
   }
 
-  // ── DOM ──────────────────────────────────────────────────────────────────
-
-  /** The battle-stats cell's own width, in px — enough for a 5-char reading like "21.5B". */
+  /** Enough for a 5-character reading like "21.5B". */
   const BS_WIDTH = 48
-  /** The dibs control's own width, fixed so its left edge never moves. */
   const DIBS_WIDTH = 46
-  /** Badge cap. Fits "Yours"; longer holder names ellipsis, tooltip has the rest. */
+  /** Fits "Yours"; longer holder names ellipsis, and the tooltip has the rest. */
   const BADGE_MAX = 44
-  /** Below this the stats column is hidden and only dibs survives. */
   const NARROW_PX = 1000
-  /** Shared marker for both of our header cells (bold weight, isOurs() detection). */
   const COL_HEAD_CLASS = 'tnl-col-head'
   const DIBS_CLASS = 'tnl-col-dibs'
-  /** Badge state classes — see paintDibs(). */
   const MINE_CLASS = 'tnl-mine'
   const TAKEN_CLASS = 'tnl-taken'
   const BS_CLASS = 'tnl-col-bs'
@@ -967,27 +885,25 @@ const TNLDibs = (function () {
   const STYLE_ID = 'tnl-dibs-style'
   const TIP_ID = 'tnl-dibs-tip'
   const NO_BS_CLASS = 'tnl-no-bs'
-  /** Our entry point in Torn's own page-title links, beside Faction Warfare. */
   const LAUNCHER_ID = 'tnl-war-room-link'
   const LAUNCHER_LABEL_ID = 'tnl-war-room-label'
   const LAUNCHER_NAME = 'Torn War Room'
-  /** Warline-style online/idle badge on the "Members" header — colour and class. */
+  /** Warline-style online/idle badge on the "Members" header. */
   const MEMBER_COUNT_COLOR = '#0b8a0b'
   const MEMBER_COUNT_CLASS = 'tnl-member-count'
-  /** Set on a name wrap once we have confirmed a text version exists to show. */
+  const MC_ONLINE_CLASS = 'tnl-mc-on'
+  const MC_IDLE_CLASS = 'tnl-mc-idle'
+  const MC_WORD_CLASS = 'tnl-mc-word'
   const PLAIN_NAME_CLASS = 'tnl-plain-name'
-  /** Set on <html> while we own activity colour, so Torn's own dot can go. */
   const TINTING_CLASS = 'tnl-tinting'
-  /** Column hairline. Semi-transparent grey so it reads on Torn's light and dark. */
+  /** TornTools' own "row is filtered out" marker. We read it, never set it. */
+  const TT_HIDDEN_CLASS = 'tt-hidden'
+  /** Semi-transparent, so the hairline reads on Torn's light theme and its dark one. */
   const RULE = 'rgba(128,128,128,.35)'
-  /** Marks a name we have tinted, so the tint can be lifted cleanly (#525). */
   const TINT_CLASS = 'tnl-tint'
-  /** Marks a Status cell we have taken over (#515). */
   const STATUS_CLASS = 'tnl-status'
-  /** A header cell bound to our sort control. */
   const SORT_CLASS = 'tnl-sort'
 
-  /** Activity colours. */
   const TINT_GRADIENTS = {
     online: 'linear-gradient(to bottom, #A3DA00, #648600)',
     idle: 'linear-gradient(to bottom, #FBB904, #B65F01)',
@@ -995,29 +911,21 @@ const TNLDibs = (function () {
   }
   const TINT_COLORS = { online: '#8CBF00', idle: '#D89400', offline: '#9ca3af' }
 
-  /** Status-cell tones. */
   const STATUS_COLORS = {
     okay: '#9ca3af', hospital: '#f87171', jail: '#fb923c',
     traveling: '#60a5fa', abroad: '#22d3ee',
   }
 
-  /** One stylesheet, injected once. */
   function injectStyles() {
     if (typeof document === 'undefined') return
     if (document.getElementById(STYLE_ID)) return
     const el = document.createElement('style')
     el.id = STYLE_ID
     el.textContent = `
-/* ⚠️ The header, the list AND each row are flex — all three, or none.
-   Torn lays rows out with floats (its cells carry a "left" class), but the
-   cells we inject are not floated, and non-floated content does not sit in
-   DOM order relative to floats — it flows around them. Leave the row on
-   floats and our BS cell renders after Score no matter where in the DOM it
-   sits, while a flex header honours DOM order and shows it before Score:
-   two layout models, two different column orders, same markup. Floats also
-   wrap the overflow onto a second line instead of overflowing, which is the
-   row-splitting this fixes. Sorting appeared to help only because the sort
-   permutation forced the list into flex as a side effect. */
+/* The header, the list AND each row are flex — all three, or none. Torn lays
+   rows out with floats, but the cells we inject are not floated, and non-floated
+   content does not sit in DOM order relative to floats. Mixing the two models
+   gives the header and the rows two different column orders. */
 .white-grad, .table-header, [class*="tableHeader"] {
   display: flex !important;
   flex-wrap: nowrap !important;
@@ -1029,7 +937,12 @@ ul.members-list, .table-body {
   flex-direction: column !important;
   width: 100% !important;
 }
-ul.members-list > li, .table-body > .table-row {
+/* :not(.tt-hidden) is not optional. The TornTools extension hides filtered rows
+   with .tt-hidden (specificity 0,1,0) on the same <li> we lay out here (0,1,2),
+   so unqualified our display:flex out-specifies theirs and un-hides every row
+   they filtered. Any future third-party hider goes in the same :not() list. */
+ul.members-list > li:not(.${TT_HIDDEN_CLASS}),
+.table-body > .table-row:not(.${TT_HIDDEN_CLASS}) {
   display: flex !important;
   flex-wrap: nowrap !important;
   align-items: center !important;
@@ -1039,16 +952,13 @@ ul.members-list > li, .table-body > .table-row {
 /* Torn's float-clearing spacers would each take a flex slot of their own. */
 ul.members-list > li > .clear, .white-grad > .clear { display: none !important; }
 
-/* The name column takes whatever the fixed columns leave, and never pushes
-   them off the row — min-width:0 is what lets a long name ellipsis instead
-   of forcing the row wider than it has. */
+/* min-width:0 is what lets a long name ellipsis instead of widening the row. */
 .members-cont [class*="member___"], .white-grad > [class*="member___"] {
   flex: 1 1 auto !important;
   min-width: 0 !important;
   overflow: hidden !important;
 }
-/* The header's name cell also carries the online/idle badge — keep the label,
-   the sort arrow and the badge on one line instead of stacking them. */
+/* This cell carries the label, the sort arrow and the online/idle badge. */
 .white-grad > [class*="member___"] {
   display: flex !important;
   align-items: center !important;
@@ -1061,8 +971,7 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
   box-sizing: border-box !important; overflow: hidden !important;
 }
 
-/* Battle stats sit between Level and Score — a decision column, read before the
-   score/status/attack housekeeping to its right. */
+/* Battle stats sit between Level and Score. */
 .${BS_CLASS} {
   width: ${BS_WIDTH}px; min-width: ${BS_WIDTH}px; max-width: ${BS_WIDTH}px;
   flex: 0 0 ${BS_WIDTH}px;
@@ -1076,12 +985,9 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
   position: relative; z-index: 1;
 }
 .${COL_HEAD_CLASS} { font-weight: 700; opacity: .85; }
-/* "BS" reads as a label and should sit centered, not right-aligned like the
-   numbers below it — the header cell carries both classes at once now. */
+/* The label centres; the numbers below it stay right-aligned. */
 .${COL_HEAD_CLASS}.${BS_CLASS} { justify-content: center; text-align: center; }
-/* The border hugs the number itself, not the full row height — a fixed-height
-   box around one line of 11px text read as "wrong size", and any mismatch
-   between this height and Torn's real row height clipped it besides. */
+/* The FF border hugs the number, not the row height, or it clips. */
 .${STAT_VALUE_CLASS} {
   display: inline-block; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1155,8 +1061,8 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
   box-sizing: border-box !important; overflow: hidden !important;
 }
 
-/* The honor bar is an <img>; the name also ships as a plain <span class="honor-text">
-   next to a per-character SVG twin. Hide the image and the twin, show the text. */
+/* Torn ships the name three ways: an honor-bar <img>, a per-character SVG twin,
+   and a plain .honor-text span. Hide the first two, show the third. */
 .${PLAIN_NAME_CLASS} img { display: none !important; }
 .${PLAIN_NAME_CLASS} .honor-text-svg { display: none !important; }
 .${PLAIN_NAME_CLASS} .honor-text:not(.honor-text-svg) {
@@ -1166,8 +1072,8 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
   font-size: 11px !important; font-weight: 600 !important;
   line-height: 1.2 !important; text-align: left !important;
   white-space: nowrap !important;
-  /* text-fill-color WINS over color, and Torn sets it transparent for the
-     honor gradient — setting colour alone leaves the name invisible. */
+  /* text-fill-color WINS over color, and Torn sets it transparent for the honor
+     gradient, so setting colour alone leaves the name invisible. */
   background: none !important;
   -webkit-background-clip: border-box !important;
   background-clip: border-box !important;
@@ -1183,13 +1089,8 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
 a.${TINT_CLASS}, .${TINT_CLASS} > a { color: var(--tnl-tint) !important; }
 
 /* The dot and the faction tag both go: the name carries activity now, and in a
-   two-faction war view the tag says nothing.
-   ⚠️ There is no width-reclaim margin here any more, and there must not be one.
-   Hiding the icons used to leave a hole the float layout could not reabsorb, so
-   the name column was pulled back over it by a hardcoded -46px. Under flex the
-   name column is flex:1 1 auto and simply takes the freed space by itself — and
-   a negative margin now does real damage, dragging the next column into an
-   overlap rather than closing a gap. */
+   two-faction view the tag says nothing. No negative margin to reclaim the space
+   — under flex the name column takes it, and a negative one causes an overlap. */
 html.${TINTING_CLASS} [class*="userStatusWrap___"],
 html.${TINTING_CLASS} [class*="factionWrap___"] { display: none !important; }
 
@@ -1204,17 +1105,6 @@ html.${TINTING_CLASS} [class*="factionWrap___"] { display: none !important; }
 
 html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
-/* ⚠️ Narrow screens drop SCORE, never BS.
-   This used to hide the battle-stat column on anything under ${NARROW_PX}px,
-   inherited from the float layout where there was genuinely no room for it —
-   which meant the column the whole script exists for was missing on every
-   phone. Under flex there is room, and if something has to go it should be the
-   column that says nothing: Score reads 0.00 for every member for most of a
-   war, while BS is what the target is picked on. */
-@media screen and (max-width: ${NARROW_PX}px) {
-  .members-cont [class*="points___"] { display: none !important; }
-}
-
 .${MEMBER_COUNT_CLASS} {
   margin-left: 8px;
   padding: 2px 8px;
@@ -1225,22 +1115,42 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   color: ${MEMBER_COUNT_COLOR};
   background: ${MEMBER_COUNT_COLOR}1f;
 }
+
+/* Narrow screens lose no column and no badge — the name column absorbs the
+   squeeze. The badge cannot shrink (nowrap), so instead "3 online / 8 idle"
+   becomes "3 / 8" and colour carries what the words did. */
+@media screen and (max-width: ${NARROW_PX}px) {
+  .${MEMBER_COUNT_CLASS} .${MC_WORD_CLASS} { display: none; }
+  .${MEMBER_COUNT_CLASS} .${MC_ONLINE_CLASS} { color: ${TINT_COLORS.online}; }
+  .${MEMBER_COUNT_CLASS} .${MC_IDLE_CLASS} { color: ${TINT_COLORS.idle}; }
+  .${MEMBER_COUNT_CLASS} { margin-left: 5px; padding: 1px 6px; font-size: 11px; }
+
+  /* A few px off each fixed column — the name column takes the difference. */
+  .members-cont .level { width: 24px !important; max-width: 24px !important; flex: 0 0 24px !important; }
+  .${BS_CLASS} { width: 46px; min-width: 46px; max-width: 46px; flex: 0 0 46px; }
+  .members-cont [class*="points___"]:not([class*="tab___"]),
+  .white-grad > [class*="points___"] {
+    width: 38px !important; max-width: 38px !important; flex: 0 0 38px !important;
+  }
+  .members-cont .status, .white-grad > .status {
+    width: 58px !important; max-width: 58px !important; flex: 0 0 58px !important;
+  }
+  .${DIBS_CLASS} { width: 42px; min-width: 42px; max-width: 42px; flex: 0 0 42px; }
+}
+
 `
     ;(document.head || document.documentElement).appendChild(el)
     log('stylesheet injected')
   }
 
-  /** The row an anchor belongs to. */
   function rowOf(anchor) {
     return anchor.closest?.('li, tr') ?? anchor.closest?.('[class*="row___"]') ?? null
   }
 
-  /** The Attack cell — the anchor our column is inserted before. */
   function attackCellOf(row) {
     return row?.querySelector?.('.attack, [class*="attack__"], [class*="attack___"]') ?? null
   }
 
-  /** The header row of the table a war row belongs to. */
   function headerFor(row) {
     const list = row.closest('ul, table')
     if (!list) return null
@@ -1249,7 +1159,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return list.querySelector('.table-header, [class*="tableHeader"], thead') ?? null
   }
 
-  /** The cell in a header that belongs to the Attack column. */
   function attackHeaderCell(header) {
     if (!header) return null
     const direct = header.querySelector('.attack, [class*="attack__"], [class*="attack___"]')
@@ -1260,12 +1169,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return null
   }
 
-  /** The row/header's own Score cell — the anchor the BS column is inserted before. */
   function scoreCellOf(scope) {
     return scope?.querySelector?.('[class*="points___"]') ?? null
   }
 
-  /** True for anything this script put on the page — see observe(). */
   function isOurs(node) {
     return Boolean(node?.closest?.(`.${DIBS_CLASS}, .${BS_CLASS}, #${STYLE_ID}, #${LAUNCHER_ID}`))
   }
@@ -1280,14 +1187,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return el
   }
 
-  /** Replace a header cell's own label text, leaving any child icon (e.g. the
-   *  native sort arrow) untouched — a blind `.textContent =` would eat it. */
+  /** Leaves any child icon alone — a blind `.textContent =` would eat the arrow. */
   function relabelHeaderText(cell, from, to) {
     if (!cell) return
     for (const node of cell.childNodes) {
       if (node.nodeType === 3 && node.textContent.trim() === from) { node.textContent = to; return }
-      // "Members" ships wrapped in a <span> of its own, where Level and Attack
-      // are bare text — match a leaf element too, never a container.
+      // "Members" ships wrapped in a span, where Level and Attack are bare
+      // text — match a leaf element too, never a container.
       if (node.nodeType === 1 && node.children.length === 0
           && (node.textContent || '').trim() === from) {
         node.textContent = to
@@ -1296,10 +1202,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
-  /**
-   * Both of our cells for one row — dibs (before Attack) and battle stats
-   * (before Score) — plus the matching header cells, built once per table.
-   */
   function ensureColumns(row) {
     let dibsCell = row.querySelector(`.${DIBS_CLASS}`)
     let bsCell = row.querySelector(`.${BS_CLASS}`)
@@ -1358,7 +1260,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const res = state.action === 'claim' ? await claim(playerId) : await release(playerId)
       badge.disabled = false
       if (!res.ok) badge.title = res.message
-      // The signature is stale by definition after a write — force the repaint.
+      // Stale by definition after a write — force the repaint.
       delete cell.dataset.tnlSig
       render()
     })
@@ -1366,10 +1268,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return badge
   }
 
-  /** Colour for the stat that dominates a build. */
   const STAT_COLORS = { str: '#ef4444', def: '#22c55e', spd: '#60a5fa', dex: '#f59e0b' }
 
-  /** Three states, three readings at a glance, and no lock icon — the colour is the state (#512). */
   function paintDibs(badge, state) {
     if (!badge) return
     badge.textContent = state.label
@@ -1382,8 +1282,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
         : 'Claim this target'
   }
 
-  /** Paint one member's stats, the way the War Room paints them. */
-  /** Where a cursor-anchored tooltip should sit: below-right, kept on screen. */
+  /** Below-right of the cursor, flipped when it would leave the viewport. */
   function tipPosition(x, y, tipW, tipH, viewW, viewH, offset = 14) {
     const left = x + offset + tipW > viewW ? Math.max(0, x - offset - tipW) : x + offset
     const top = y + offset + tipH > viewH ? Math.max(0, y - offset - tipH) : y + offset
@@ -1484,7 +1383,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       : '1px solid transparent'
   }
 
-  /** Relabel Torn's Attack button to "Atk" — it buys about 30px per row. */
+  /** "Atk" buys about 30px per row. */
   function shrinkAttack(row) {
     if (row._tnlAtk) return
     row._tnlAtk = true
@@ -1499,7 +1398,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
-  /** A row we are willing to touch. */
   function isMemberRow(row) {
     const tag = row?.tagName?.toLowerCase?.()
     if (tag !== 'li' && tag !== 'tr') return false
@@ -1508,7 +1406,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     ))
   }
 
-  /** Torn's own Status cell for a row. */
   function statusCellOf(row) {
     const cached = row?._tnlStatusCell
     if (cached && cached.isConnected) return cached
@@ -1517,7 +1414,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return el
   }
 
-  /** What TORN says this member's status is — the authority (#515). */
+  /** What Torn says the status is. Torn is the authority; we only reformat. */
   function tornStatusKind(cell) {
     const c = String(cell?.className ?? '').toLowerCase()
     const t = String(cell?.dataset?.tnlTorn ?? '').toLowerCase().trim()
@@ -1530,14 +1427,12 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return null
   }
 
-  /** Remember what Torn had in the cell before we touched it. */
   function rememberTornStatus(cell) {
     const shown = (cell.textContent ?? '').trim()
     if (shown !== cell.dataset.tnlWrote) cell.dataset.tnlTorn = shown
     return cell.dataset.tnlTorn ?? ''
   }
 
-  /** Hand the cell back to Torn, exactly as we found it. */
   function releaseStatusCell(cell) {
     if (!cell || !cell.dataset.tnlWrote) return
     if ((cell.textContent ?? '').trim() === cell.dataset.tnlWrote) {
@@ -1549,7 +1444,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     delete cell.dataset.tnlStatusSig
   }
 
-  /** Energy and cooldowns, for the tooltip only. */
   function memberStatsNote(playerId) {
     const m = rt.mstats.get(playerId)
     if (!m) return []
@@ -1570,7 +1464,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return out
   }
 
-  /** Rewrite Torn's Status cell with the live countdown / ETA / last action. */
   function paintStatus(row, playerId, nowMs) {
     const cell = statusCellOf(row)
     if (!cell) return false
@@ -1598,15 +1491,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return true
   }
 
-  /** Tint the member's name by activity — the one signal that costs no width. */
   /**
-   * The element that actually carries the name's colour.
-   *
-   * Torn paints war-list names with a gradient clipped to the glyphs
-   * (`background-clip: text; color: transparent`) inside `.honor-text`, so
-   * setting `color` on the anchor changes nothing visible. The gradient has to
-   * be replaced instead — which means finding the honor wrap, not the link.
-   * Falls back to the anchor on pages that render a plain name.
+   * Torn clips a gradient to the glyphs inside .honor-text, so setting `color`
+   * on the anchor changes nothing visible — the gradient itself has to go, which
+   * means finding the honor wrap rather than the link.
    */
   function nameTargetOf(row, anchor) {
     let el = row._tnlName
@@ -1616,22 +1504,12 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return el
   }
 
-  /**
-   * Is there a NON-EMPTY text twin we can show in place of the honor image?
-   *
-   * ⚠️ Non-empty is the whole point. Testing that the element merely exists is
-   * what blanked every name on the page: the node is present but carries no
-   * text, so hiding the image left nothing behind it.
-   */
+  /** Non-empty is the point: the node exists even when it carries no text. */
   function hasPlainName(wrap) {
     const t = wrap?.querySelector?.('.honor-text:not(.honor-text-svg)')
     return Boolean(t && (t.textContent || '').trim())
   }
 
-  /**
-   * Torn's row height, measured once — the rows are a FLOAT layout, so there is
-   * nothing to align our column against otherwise.
-   */
   function measureRow(row) {
     if (rt.rowH !== null) return
     const h = Math.round(row.getBoundingClientRect().height)
@@ -1660,19 +1538,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     el.style.setProperty('--tnl-tint', TINT_COLORS[tone])
     el.style.setProperty('--tnl-tint-bg', TINT_GRADIENTS[tone])
     el.classList.add(TINT_CLASS)
-    // Swap the honor bar for text ONLY where there is text to swap to.
+    // Swap the honor bar for text only where there is text to swap to.
     if (hasPlainName(el)) el.classList.add(PLAIN_NAME_CLASS)
   }
 
-  // ── Sorting ──────────────────────────────────────────────────────────────
-
-  /** The member a row is about, or null for a header / spacer / advert. */
   function idOfRow(row) {
     const a = row?.querySelector?.('a[href*="profiles.php?XID="]')
     return a ? parseXid(a.getAttribute('href')) : null
   }
 
-  /** The number our current sort key ranks a member by, or null when unknown. */
   function sortValueFor(playerId, nowMs) {
     switch (rt.sort.key) {
       case 'bs': {
@@ -1684,9 +1558,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
-  /** Permute one list's rows into sorted order using flex `order` — the list
-   *  is a permanent flex column (see injectStyles()), so no display toggling
-   *  is needed here, only the order values themselves. */
+  /** Permutes with flex `order`, never by moving nodes — Torn owns the DOM order. */
   function orderList(list, nowMs) {
     const children = Array.from(list.children)
     if (!rt.sort.key) {
@@ -1713,7 +1585,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     ordered.forEach((e, i) => { e.row.style.order = String(slots[i]) })
   }
 
-  /** Apply the current sort to every member list we have rows on. */
   function applySort(nowMs = Date.now()) {
     // Nothing to do, and nothing to undo — skip the whole walk.
     if (!rt.sort.key && !rt.sorted) return
@@ -1723,7 +1594,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     for (const list of lists) orderList(list, nowMs)
   }
 
-  /** Turn a header cell into a sort control. */
   function bindSort(el, key, label) {
     if (!el || el.dataset.tnlSortKey) return
     el.dataset.tnlSortKey = key
@@ -1738,7 +1608,45 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     })
   }
 
-  /** Keep every bound header's arrow in step with the one active sort. */
+  /**
+   * Is this header cell one of Torn's own sort controls?
+   *
+   * Torn marks a sortable header with a sortIcon child; ours carry SORT_CLASS
+   * instead. The Attack header has neither and sorts nothing.
+   */
+  function isTornSortHeader(cell) {
+    if (!cell || cell.classList?.contains?.(SORT_CLASS)) return false
+    return Boolean(cell.querySelector?.('[class*="sortIcon___"]'))
+  }
+
+  /** The direct child of `header` that contains `node`. */
+  function headerCellOf(header, node) {
+    let el = node
+    while (el && el.parentNode && el.parentNode !== header) el = el.parentNode
+    return el?.parentNode === header ? el : null
+  }
+
+  /**
+   * Hand the list back to Torn when one of its own sort headers is clicked.
+   *
+   * We permute with flex `order`, which overrides DOM order outright, so a list
+   * still carrying our order values ignores Torn's reordering completely — its
+   * header arrow moves and not one row does. Clearing our sort here drops those
+   * values before Torn's own handler runs.
+   */
+  function releaseSortOnTornHeader(header) {
+    if (header.dataset.tnlReleaseBound) return
+    header.dataset.tnlReleaseBound = '1'
+    header.addEventListener('click', (e) => {
+      if (!rt.sort.key) return
+      if (!isTornSortHeader(headerCellOf(header, e.target))) return
+      log('Torn header clicked — releasing our sort')
+      rt.sort = { key: null, dir: 0 }
+      paintSortHeaders()
+      applySort()
+    }, true)
+  }
+
   function paintSortHeaders() {
     if (typeof document === 'undefined') return
     for (const el of document.querySelectorAll(`.${SORT_CLASS}`)) {
@@ -1750,7 +1658,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
-  /** Bind Torn's own Status header, so status sorting lives where it belongs. */
   function bindStatusHeader(row) {
     const list = row.parentNode
     if (!list || list.dataset.tnlHeaderBound) return
@@ -1761,10 +1668,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (cell && !cell.dataset.tnlSortKey) {
       bindSort(cell, 'status', (cell.textContent ?? 'Status').trim() || 'Status')
     }
+    releaseSortOnTornHeader(header)
   }
 
-  /** Torn's own header labels, shortened to buy back space — both sides get
-   *  this (unlike the DIBS/BS columns, which are enemy-only), once per list. */
+  /** Unlike the DIBS/BS columns, both sides get this. */
   function relabelColumnHeaders(row) {
     const list = row.parentNode
     if (!list || list.dataset.tnlLabelsBound) return
@@ -1773,39 +1680,85 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (!header) return
     relabelHeaderText(attackHeaderCell(header), 'Attack', 'Atk')
     relabelHeaderText(header.querySelector('.level, [class*="level___"]'), 'Level', 'Lv')
-    // "Name" is what the column holds, and the width it gives back is what the
-    // online/idle badge sits in.
+    // The width "Name" gives back is what the online/idle badge sits in.
     relabelHeaderText(header.querySelector('.member, [class*="member___"]'), 'Members', 'Name')
   }
 
-  /** Both war member lists currently on the page — enemy and own. */
   function memberLists() {
     return typeof document === 'undefined'
       ? []
       : Array.from(document.querySelectorAll('ul.members-list, ul[class*="membersCont"]'))
   }
 
-  /** Online + idle counts for one list's rows, off War Room state — no offline
-   *  count, matching the standalone Warline script this replicates. */
-  function activityCounts(list) {
-    let online = 0
-    let idle = 0
-    for (const row of list.children) {
-      const id = idOfRow(row)
-      if (id === null) continue
-      const tone = activityTone(rt.state.get(id))
-      if (tone === 'online') online++
-      else if (tone === 'idle') idle++
+  function tallyActivity(states) {
+    const out = { online: 0, idle: 0, offline: 0 }
+    for (const state of states) {
+      const tone = activityTone(state)
+      if (tone !== null) out[tone] += 1
     }
-    return { online, idle }
+    return out
   }
 
-  /** The header's own "Members" cell for a given member list. */
+  function countLabel({ online, idle }) {
+    return `${online} online` + (idle ? ` / ${idle} idle` : '')
+  }
+
+  function countTooltip({ online, idle, offline }) {
+    return `${online} online, ${idle} idle, ${offline} offline`
+  }
+
+  /**
+   * Counted off the roster, not the rendered rows: list.children only ever sees
+   * what Torn has painted, and undercounts anything paginated or collapsed.
+   */
+  function sideTally(wantEnemy) {
+    const states = []
+    for (const [id, state] of rt.state) {
+      if (rt.enemies.has(id) !== wantEnemy) continue
+      states.push(state)
+    }
+    return tallyActivity(states)
+  }
+
+  /**
+   * True enemy, false ours, null when the page does not say. Which side is ours
+   * comes from the roster, never from left/right — either faction can be either.
+   */
+  function listIsEnemy(list) {
+    if (list.closest?.('.enemy-faction')) return true
+    if (list.closest?.('.your-faction')) return false
+    const row = list.firstElementChild
+    if (row?.classList?.contains?.('enemy')) return true
+    if (row?.classList?.contains?.('your')) return false
+    return null
+  }
+
   function membersHeaderCellOf(list) {
     const anchor = list.firstElementChild
     if (!anchor) return null
     const header = headerFor(anchor)
     return header?.querySelector('.member, [class*="member___"]') ?? null
+  }
+
+  /** The words live in their own spans so a narrow screen can hide them. */
+  function paintCountBadge(badge, counts) {
+    const sig = `${counts.online}|${counts.idle}`
+    if (badge.dataset.tnlCount === sig) return
+    badge.dataset.tnlCount = sig
+    badge.textContent = ''
+    const part = (cls, text) => {
+      const el = document.createElement('span')
+      el.className = cls
+      el.textContent = text
+      badge.appendChild(el)
+    }
+    part(MC_ONLINE_CLASS, String(counts.online))
+    part(MC_WORD_CLASS, ' online')
+    if (counts.idle) {
+      part('', ' / ')
+      part(MC_IDLE_CLASS, String(counts.idle))
+      part(MC_WORD_CLASS, ' idle')
+    }
   }
 
   /** Warline-style "N online / M idle" badge on each faction's Members header. */
@@ -1816,26 +1769,22 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const cell = membersHeaderCellOf(list)
       if (!cell) continue
       if (!on) { cell.querySelector(`.${MEMBER_COUNT_CLASS}`)?.remove(); continue }
-      const { online, idle } = activityCounts(list)
+      const side = listIsEnemy(list)
+      if (side === null) continue   // unlabelled panel — say nothing rather than guess
+      const counts = sideTally(side)
       let badge = cell.querySelector(`.${MEMBER_COUNT_CLASS}`)
       if (!badge) {
         badge = document.createElement('span')
         badge.className = MEMBER_COUNT_CLASS
         cell.appendChild(badge)
       }
-      const text = `${online} online` + (idle ? ` / ${idle} idle` : '')
-      if (badge.textContent !== text) badge.textContent = text
-      badge.style.display = online + idle === 0 ? 'none' : ''
+      paintCountBadge(badge, counts)
+      badge.title = countTooltip(counts)
+      badge.style.display = counts.online + counts.idle === 0 ? 'none' : ''
     }
   }
 
-  /**
-   * The member row an anchor belongs to, cached and validated.
-   *
-   * rowOf() + isMemberRow() are two DOM walks, and three separate loops used to
-   * run them per anchor: render() per poll, renderTimers() at 1 Hz, applySort()
-   * per poll. On a 200-row table that is thousands of tree walks a second.
-   */
+  /** Cached: three loops ask per anchor, per poll, across every row on the page. */
   function rowFor(anchor) {
     const cached = anchor._tnlRow
     if (cached !== undefined && (cached === null || cached.isConnected)) return cached
@@ -1843,19 +1792,11 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // No row ancestor at all (a sidebar or chat link) is a permanent fact.
     if (!row) { anchor._tnlRow = null; return null }
     if (isMemberRow(row)) { anchor._tnlRow = row; return row }
-    // A row without a status or level cell yet may still be mid-build, so this
-    // miss is deliberately NOT cached.
+    // A row with no status or level cell yet may be mid-build — do not cache.
     return null
   }
 
-  /**
-   * Walk every live (player, anchor, row) on the page, pruning as it goes.
-   *
-   * ⚠️ The pruning is the point. scan() only ever ADDED anchors, and Torn
-   * replaces rows constantly, so rt.nodes accumulated dead nodes for the life
-   * of the tab — each one still costing an isConnected check on every pass of
-   * all three loops. That is the slowdown.
-   */
+  /** Prunes as it walks — scan() only adds, and Torn replaces rows constantly. */
   function eachRow(fn) {
     for (const [playerId, anchors] of rt.nodes) {
       for (const anchor of anchors) {
@@ -1870,19 +1811,17 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   function render() {
     if (typeof document === 'undefined') return
     injectStyles()
-    // Cheap by-id lookup on the hit; puts the link back after Torn re-renders
-    // the page title out from under it.
+    // Puts the link back after Torn re-renders the page title out from under it.
     ensureLauncher()
     document.documentElement.classList.toggle(NO_BS_CLASS, !settings.on(SETTING_STATS))
-    let painted = 0      // enemies we INTENDED to badge
+    let painted = 0      // enemies we intended to badge
     let attached = 0     // badges that actually exist in the DOM
-    let repainted = 0    // rows whose state actually changed — see #516
+    let repainted = 0    // rows whose state actually changed
     const settingsSig = settingsSignature()   // loop-invariant; read once
     const nowMs = Date.now()
     const sigs = new Map()
     eachRow((playerId, anchor, row) => {
-      // ⚠️ Before anything is hidden — see measureRow().
-      measureRow(row)
+      measureRow(row)   // before anything below hides what it measures
       const isEnemy = rt.enemies.has(playerId)
       if (!isEnemy && !rt.state.has(playerId)) return
 
@@ -1917,15 +1856,14 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
         `${rt.stats.size} with stats)`)
     }
     if (repainted > 0) log(`repainted ${repainted} of ${attached} rows`)
-    // After the loop: measureRow() has to read Torn's geometry before this
-    // class hides the elements it is measuring.
+    // After the loop: measureRow() reads Torn's geometry before this hides it.
     document.documentElement.classList.toggle(TINTING_CLASS, settings.on(SETTING_TINT))
     paintSortHeaders()
     applySort(nowMs)
     paintMemberCounts()
   }
 
-  /** The 1 Hz local tick (#515). Status cells only — dibs cannot change without a poll. */
+  /** Status cells only — a dib cannot change without a poll. */
   function renderTimers() {
     if (typeof document === 'undefined' || document.hidden) return
     const nowMs = Date.now()
@@ -1939,7 +1877,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     rt.tick = setInterval(renderTimers, 1000)
   }
 
-  /** Index the profile anchors under `root`. */
   function scan(root) {
     if (!root || !root.querySelectorAll) return
     const before = rt.nodes.size
@@ -1962,7 +1899,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       }
       if (touched.size === 0) return
       for (const node of touched) scan(node)
-      render()   // ⚠️ ONCE per batch, not once per touched node — see scan().
+      render()   // once per batch, not once per touched node
     })
     observer.observe(document, { childList: true, subtree: true })
     scan(document)
@@ -1970,21 +1907,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     startTimers()
   }
 
-  // ── Panel ────────────────────────────────────────────────────────────────
-
   let panelStatus = null
   let panelBox = null
   let panelDot = null
   let launcher = null
 
   /**
-   * Our entry point, built to look like one of Torn's own page-title links and
-   * inserted among them. It replaces the old fixed dot in the bottom-left
-   * corner: the connectivity light now rides along as this link's icon, so one
-   * element is both "open the panel" and "are we connected".
-   *
-   * Rebuilt on demand rather than once, because Torn re-renders the page title
-   * on navigation and would otherwise drop it.
+   * Our entry point among Torn's own page-title links, doubling as the
+   * connectivity light. Rebuilt on demand: Torn re-renders the page title on
+   * navigation and would otherwise drop it.
    */
   function ensureLauncher() {
     if (typeof document === 'undefined') return null
@@ -2036,7 +1967,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return link
   }
 
-  /** Sit the panel under the launcher, or fall back to the corner without one. */
   function placePanel(box) {
     box.style.position = 'fixed'
     box.style.zIndex = '2147483000'
@@ -2053,18 +1983,26 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     box.style.left = `${Math.round(Math.min(Math.max(8, r.left), maxLeft))}px`
   }
 
-  /** Does the panel need to ask for a key? */
   function panelNeedsKey(session) {
     return !session || !session.token
   }
 
-  /** Should the panel be a full box rather than a dot? */
   function panelExpanded(session, expanded) {
     if (panelNeedsKey(session)) return true
     return expanded === true
   }
 
-  /** Wording for a status, kept pure so the vocabulary itself can be tested. */
+  /** "v1.32.0", or null when there is no version to show rather than a lie. */
+  function versionLabel(version) {
+    const v = typeof version === 'string' ? version.trim() : ''
+    return v ? `v${v}` : null
+  }
+
+  /** What Tampermonkey says it is running us as. */
+  function scriptVersion() {
+    return (typeof GM_info !== 'undefined' && GM_info.script?.version) || null
+  }
+
   function statusText(state) {
     return {
       live: '● live', connecting: '○ connecting…', reconnecting: '○ reconnecting…',
@@ -2072,7 +2010,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }[state] || state
   }
 
-  /** Dot colour for a status — the whole UI when the panel is collapsed. */
   function statusColor(state) {
     if (state === 'live') return '#22c55e'
     if (state === 'connecting' || state === 'reconnecting') return '#f59e0b'
@@ -2089,7 +2026,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
-  /** One labelled checkbox, persisted immediately. */
   function settingToggle(key, label, hint) {
     const wrap = document.createElement('label')
     wrap.style.cssText = 'display:flex;align-items:flex-start;gap:6px;margin-top:8px;cursor:pointer'
@@ -2115,7 +2051,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return wrap
   }
 
-  /** The settings view (#514) — behind the panel, not on top of the war page. */
   function settingsView(box) {
     const title = document.createElement('div')
     title.textContent = 'Settings'
@@ -2138,8 +2073,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   function panel() {
     if (typeof document === 'undefined') return
-    // The launcher owns the status light, so it is built (and re-built) first
-    // and outlives the panel box, which comes and goes with every open/close.
+    // The launcher owns the status light and outlives the box, which comes and
+    // goes with every open and close.
     ensureLauncher()
     if (panelBox && panelBox.isConnected) panelBox.remove()
     panelBox = null
@@ -2166,8 +2101,19 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
 
     const title = document.createElement('div')
-    title.textContent = LAUNCHER_NAME
-    title.style.cssText = 'font-weight:700;margin-bottom:4px'
+    title.style.cssText = 'display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px'
+    const name = document.createElement('span')
+    name.textContent = LAUNCHER_NAME
+    name.style.cssText = 'font-weight:700'
+    title.appendChild(name)
+    const version = versionLabel(scriptVersion())
+    if (version) {
+      const tag = document.createElement('span')
+      tag.textContent = version
+      // The dashboard's own footer grey, so the two read as one product.
+      tag.style.cssText = 'font-weight:400;font-size:11px;color:#9ca3af'
+      title.appendChild(tag)
+    }
     box.appendChild(title)
 
     panelStatus = document.createElement('div')
@@ -2265,7 +2211,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   function main() {
     rt.session = store.read()
-    const version = (typeof GM_info !== 'undefined' && GM_info.script?.version) || 'unknown'
+    const version = scriptVersion() ?? 'unknown'
     const path = typeof location !== 'undefined' ? location.pathname + location.search : 'unknown'
     log(`v${version} starting on ${path}`)
     panel()
@@ -2295,7 +2241,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     ensureLauncher, LAUNCHER_ID, LAUNCHER_NAME,
     countryCode, travelDestination, travelPhase, methodsForPlaneType, travelEta,
     fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
-    statusView, statusSortValue, sortEntries, nextSort, rowState,
+    tallyActivity, countLabel, countTooltip,
+    statusView, statusSortValue, sortEntries, nextSort, rowState, isTornSortHeader,
+    versionLabel, scriptVersion,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
     SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT,
     SETTING_MEMBER_COUNT, DEBUG_KEY,
