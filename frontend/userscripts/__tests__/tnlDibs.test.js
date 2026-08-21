@@ -1808,12 +1808,124 @@ describe('injectStyles', () => {
   it('carries the rules the layout depends on', () => {
     const { S: s, appended } = loadWithDom()
     const css = (s.injectStyles(), appended[0].textContent)
-    // The row clearfix: without it a row collapses once it holds one more float
-    // than Torn designed it for, and the enemy list drops below our own.
-    expect(css).toContain('clear: both')
     // Room is made by narrowing Torn's columns, never by widening ours.
     expect(css).toMatch(/points___/)
     expect(css).toMatch(/attack___/)
+  })
+
+  it('⚠️ makes the header, the list AND the row flex — all three, or none', () => {
+    // Torn floats its cells; the cells we inject are not floated, and
+    // non-floated content does not sit in DOM order relative to floats. Leave
+    // any one of the three on floats and the columns disagree about their own
+    // order — a flex header showed BS before Score while a float row rendered
+    // it after, from the very same markup. (Superseded the float clearfix that
+    // used to live here.)
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const sheet = appended[0].textContent
+    expect(sheet).toMatch(/\.white-grad[^{]*\{[^}]*display: flex/)
+    expect(sheet).toMatch(/ul\.members-list,[^{]*\{[^}]*display: flex/)
+    expect(sheet).toMatch(/ul\.members-list > li,[^{]*\{[^}]*display: flex/)
+  })
+})
+
+// ── The launcher ───────────────────────────────────────────────────────────
+
+/**
+ * Load the script with a document that has Torn's page-title links list, so
+ * ensureLauncher() has somewhere to mount.
+ */
+function loadWithLinksList() {
+  const mod = { exports: {} }
+  const byId = new Map()
+  const makeEl = (tag) => {
+    const el = {
+      tagName: tag,
+      style: { cssText: '' },
+      dataset: {},
+      children: [],
+      isConnected: true,
+      classList: { add() {}, remove() {}, toggle() {} },
+      setAttribute(k, v) { this[k] = v },
+      addEventListener() {},
+      appendChild(child) { this.children.push(child); return child },
+      insertBefore(child) { this.children.unshift(child); return child },
+      getBoundingClientRect: () => ({ left: 100, bottom: 40 }),
+    }
+    return el
+  }
+  const list = makeEl('div')
+  const existingLink = makeEl('a')
+  list.children.push(existingLink)
+  byId.set('top-page-links-list', list)
+
+  const document = {
+    getElementById: (id) => byId.get(id) ?? null,
+    querySelectorAll: () => [],
+    createElement: (tag) => {
+      const el = makeEl(tag)
+      // Mimic the browser: an element with an id is findable by it once mounted.
+      Object.defineProperty(el, 'id', {
+        get() { return this._id },
+        set(v) { this._id = v; byId.set(v, this) },
+        configurable: true,
+      })
+      return el
+    },
+    head: { appendChild() {} },
+    documentElement: { appendChild() {}, classList: { toggle() {} } },
+  }
+  new Function('module', 'window', 'document', 'GM', 'GM_getValue', 'GM_setValue', source)(
+    mod, undefined, document, { xmlHttpRequest() {} }, (_k, d) => d, () => {},
+  )
+  return { S: mod.exports, list, existingLink, byId }
+}
+
+describe('ensureLauncher', () => {
+  it('mounts a link among Torn’s own page-title links', () => {
+    const { S: s, list } = loadWithLinksList()
+    const link = s.ensureLauncher()
+    expect(link).toBeTruthy()
+    expect(list.children).toContain(link)
+    expect(link.tagName).toBe('a')
+  })
+
+  it('is named for the tool and labelled for screen readers', () => {
+    const { S: s } = loadWithLinksList()
+    const link = s.ensureLauncher()
+    const label = link.children.find((c) => c.textContent === s.LAUNCHER_NAME)
+    expect(label, 'a visible text label').toBeTruthy()
+    expect(link['aria-labelledby']).toBeTruthy()
+  })
+
+  it('⚠️ mounts once, however many times it is called', () => {
+    // It runs on every render pass (so Torn re-rendering the title cannot lose
+    // it), which makes duplicate-suppression the whole contract, not a nicety.
+    const { S: s, list } = loadWithLinksList()
+    const before = list.children.length
+    s.ensureLauncher()
+    s.ensureLauncher()
+    s.ensureLauncher()
+    expect(list.children.length).toBe(before + 1)
+  })
+
+  it('carries the connectivity light as its icon', () => {
+    // The light used to be a separate fixed dot in the corner; it rides along
+    // with the link now, so one element answers both "open it" and "is it up".
+    const { S: s } = loadWithLinksList()
+    const link = s.ensureLauncher()
+    const iconWrap = link.children.find((c) => c.children.length > 0)
+    expect(iconWrap, 'an icon wrapper').toBeTruthy()
+    const dot = iconWrap.children[0].children[0]
+    expect(dot.style.cssText).toContain('border-radius:50%')
+  })
+
+  it('does nothing, and does not throw, when the links list is absent', () => {
+    // Every Torn page that is not the faction page, and the moment before the
+    // title renders on the one that is.
+    const { S: s } = loadWithDom()
+    expect(() => s.ensureLauncher()).not.toThrow()
+    expect(s.ensureLauncher()).toBeNull()
   })
 })
 
@@ -1926,15 +2038,18 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
     expect(sheet).toContain('factionWrap___')
   })
 
-  it('⚠️ pulls the member column back by a HARDCODED constant, not a runtime measurement', () => {
-    // The obvious approach — measure the icons in JS, feed the width back as a
-    // CSS var — deadlocks: as soon as the tinting class is added it hides the
-    // icons via display:none, so any LATER measurement of them reads 0 forever.
-    // The only escape was toggling the setting off and on, which is exactly
-    // the bug report this fixes. A literal constant has no cycle to deadlock.
+  it('⚠️ reclaims the hidden icons’ width with flex, NEVER a negative margin', () => {
+    // Under the old float layout, hiding the dot and faction tag left a hole
+    // the row could not reabsorb, so the name column was dragged back over it
+    // by a hardcoded -46px. The name column is flex:1 1 auto now and takes the
+    // freed space on its own; a negative margin would instead pull the NEXT
+    // column into an overlap. Neither that constant nor a runtime measurement
+    // (which deadlocked — measuring a display:none icon always reads 0) may
+    // come back.
     const sheet = css()
-    expect(sheet).toMatch(/margin-right: -\d+px !important/)
+    expect(sheet).not.toMatch(/margin-right: -\d+px/)
     expect(sheet).not.toContain('tnl-name-trim')
+    expect(sheet).toMatch(/member___[\s\S]*?flex: 1 1 auto/)
   })
 
   it('hides the whole battle-stat column, header included, when it is off', () => {
@@ -1942,8 +2057,11 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
   })
 
   it('draws the column separators', () => {
-    expect(css()).toMatch(/border-left: 1px solid/)
-    expect(css()).toMatch(/border-right: 1px solid/)
+    // Every divider is a border-left on the right-hand cell of its pair (BS,
+    // Score, Status, Attack, Dibs each carry their own) — no shared
+    // border-right mechanism anymore.
+    const matches = css().match(/border-left: 1px solid/g) ?? []
+    expect(matches.length).toBeGreaterThanOrEqual(2)
   })
 
   it('⚠️ puts the tooltip on body, not inside the column', () => {
@@ -2040,5 +2158,35 @@ describe('the score column', () => {
     s.injectStyles()
     const css = appended[0].textContent
     expect(css).toMatch(/points___[\s\S]*?width: 44px !important/)
+  })
+})
+
+describe('the BS header is centered, not right-aligned like its numbers', () => {
+  it('overrides justify-content for the header box specifically', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const css = appended[0].textContent
+    // The BS header cell carries both classes directly now (no wrapping
+    // ancestor), so the override is a compound selector, not a descendant one.
+    expect(css).toMatch(/tnl-col-head\.tnl-col-bs \{[\s\S]*?justify-content: center/)
+  })
+})
+
+describe('the Attack column stays narrow, header included', () => {
+  it('caps the column at 30px', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    expect(appended[0].textContent).toMatch(/attack___[\s\S]*?width: 30px !important/)
+  })
+})
+
+describe('the narrowed columns carry no leftover Torn margin', () => {
+  it('zeroes margin on level, score and status alongside their width', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const css = appended[0].textContent
+    // Three separate rule blocks; each narrows a column AND strips its margin,
+    // so nothing Torn's own class carried can reopen a gap once the box shrinks.
+    expect(css.match(/margin: 0 !important/g)?.length).toBeGreaterThanOrEqual(3)
   })
 })
