@@ -32,6 +32,21 @@ from `VERSION` at runtime) both surface it automatically.
   deleted data. The remote prune is now followed by an `rclone cleanup`.
 
 ### Added
+- **Fallen members are excluded from every roster, count and scrape.** Torn
+  preserves the account of a player who has died (status `Fallen`, "Resting in
+  Peace") and keeps them on the faction roster indefinitely — which is also how
+  a faction comes to hold more than 100 members. A new `members.is_fallen`,
+  set by the roster sync, is paired with `is_current` across the members page,
+  the battle-stat leaderboard, OC rosters and member counts, the calendar, and
+  the profile / stats / CPR / battle-stat scrapers (which also stops spending
+  Torn calls on an account that can never change). The War Room drops them for
+  both factions at the one place its rosters are built, so roll-call turnout
+  and activity counts no longer include them.
+
+  ⚠️ `is_current` is deliberately left true and the faction-stint history
+  untouched: they have not left the faction, and flipping it would rewrite
+  their history as a departure. Nothing is deleted — a direct lookup still
+  resolves, so old links and past payout rows keep working.
 
 - **Userscript: live status column (#515).** The Torn Status cell now carries a
   1 Hz hospital countdown (`1h23m` / `45m12s`), an abbreviated travel leg with an

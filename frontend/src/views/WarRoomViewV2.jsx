@@ -1574,18 +1574,20 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     onAlert: onSurgeAlert,
   })
 
-  // Hide enemy members who are effectively non-combatants:
-  //   • Fallen   — Torn's "Resting in Peace" status; account is preserved
-  //                so the faction can exceed 100 members but the player
-  //                can't act and shouldn't be a chain target.
-  //   • Federal  — federal jail, regular or permanent. Account is held
-  //                and unreachable for the foreseeable future.
-  // Both statuses still persist in war_room_state_v2 (we just filter at
-  // render time) so any audit/history queries keep the original snapshot.
-  // The polling delta keeps flowing for them, so when a player exits
-  // federal jail they automatically reappear on the next tick.
+  // Hide enemy members in federal jail, regular or permanent — the account is
+  // held and unreachable for the foreseeable future, so they are not a chain
+  // target. This is enemy-only on purpose: one of our own in fed is still a
+  // faction member who comes back, and should stay on our roster.
+  //
+  // Fallen is NOT filtered here any more — it is dropped upstream in
+  // useWarRoomSocket's publishState, for both factions at once, because it has
+  // to apply to roll call and member stats too, not just this list.
+  //
+  // Either way the rows persist in war_room_state_v2 and the delta keeps
+  // flowing, so a player leaving fed reappears on the next tick and audit
+  // queries keep the original snapshot.
   const members = useMemo(
-    () => rawMembers.filter(m => m.status_state !== 'Fallen' && m.status_state !== 'Federal'),
+    () => rawMembers.filter(m => m.status_state !== 'Federal'),
     [rawMembers]
   )
 

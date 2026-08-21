@@ -427,7 +427,11 @@ CREATE TABLE public.members (
   last_seen timestamp without time zone DEFAULT now(),
   first_seen timestamp without time zone DEFAULT now(),
   has_cpr_key boolean DEFAULT false NOT NULL,
-  total_days_in_faction integer
+  total_days_in_faction integer,
+  -- Torn's "Resting in Peace" status: the account is preserved on the roster
+  -- forever, so is_current stays true, but they are excluded from every
+  -- member listing, stat and scrape. See 0042-fallen-members.sql.
+  is_fallen boolean DEFAULT false NOT NULL
 );
 
 CREATE TABLE public.oc_crime_positions (

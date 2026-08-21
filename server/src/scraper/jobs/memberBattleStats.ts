@@ -30,7 +30,7 @@ export async function memberBattleStatsJob(deps: JobDeps) {
 
   // Current roster only — no point spending calls on people who have left.
   const roster = await db.query(
-    'SELECT member_id FROM members WHERE is_current = true'
+    'SELECT member_id FROM members WHERE is_current = true AND is_fallen = false'
   )
   const rosterIds = new Set(roster.rows.map((r: any) => String(r.member_id)))
   if (rosterIds.size === 0) return { rows: 0, details: { note: 'empty roster' } }

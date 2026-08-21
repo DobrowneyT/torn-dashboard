@@ -139,7 +139,7 @@ export async function cprScanJob({ db, pool, client }: JobDeps): Promise<RunResu
     }
 
     const assignments = assignTiers(memberCpr, crimeTypes, requirements)
-    const current = await db.query('SELECT member_id FROM members WHERE is_current = true')
+    const current = await db.query('SELECT member_id FROM members WHERE is_current = true AND is_fallen = false')
     for (const m of current.rows) {
       const tier = assignments[m.member_id]?.tier ?? 0
       await db.query(

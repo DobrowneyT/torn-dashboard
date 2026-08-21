@@ -14,7 +14,7 @@ export async function memberProfileJob({ db, pool, client }: JobDeps): Promise<R
   if (!claimed) throw new Error('no pooled key available')
 
   const members = await db.query(
-    `SELECT member_id FROM members WHERE is_current = true ORDER BY member_id`
+    `SELECT member_id FROM members WHERE is_current = true AND is_fallen = false ORDER BY member_id`
   )
   if (members.rows.length === 0) return { rows: 0, details: { note: 'no current members' } }
 

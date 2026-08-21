@@ -1,0 +1,26 @@
+-- Which tables actually hold rows for a Fallen member. Run per faction DB,
+-- substituting the member id. Read-only.
+\set mid '2569218'
+
+SELECT 'members'                    AS t, count(*) FROM members                    WHERE member_id = :'mid'
+UNION ALL SELECT 'war_room_state_v2',       count(*) FROM war_room_state_v2         WHERE member_id = :'mid'
+UNION ALL SELECT 'member_faction_stints',   count(*) FROM member_faction_stints     WHERE member_id = :'mid'
+UNION ALL SELECT 'member_secrets (KEY!)',   count(*) FROM member_secrets            WHERE member_id = :'mid'
+UNION ALL SELECT 'member_daily_stats',      count(*) FROM member_daily_stats        WHERE member_id = :'mid'
+UNION ALL SELECT 'member_battle_stats',     count(*) FROM member_battle_stats       WHERE member_id = :'mid'
+UNION ALL SELECT 'member_stat_samples',     count(*) FROM member_stat_samples       WHERE member_id = :'mid'
+UNION ALL SELECT 'member_cpr_v2',           count(*) FROM member_cpr_v2             WHERE member_id = :'mid'
+UNION ALL SELECT 'member_cpr_data',         count(*) FROM member_cpr_data           WHERE member_id = :'mid'
+UNION ALL SELECT 'member_notes',            count(*) FROM member_notes              WHERE member_id = :'mid'
+UNION ALL SELECT 'member_birthdays',        count(*) FROM member_birthdays          WHERE member_id = :'mid'
+UNION ALL SELECT 'member_event_settings',   count(*) FROM member_event_settings     WHERE member_id = :'mid'
+UNION ALL SELECT 'push_subscriptions',      count(*) FROM push_subscriptions        WHERE member_id = :'mid'
+UNION ALL SELECT 'war_room_roll_call_v2',   count(*) FROM war_room_roll_call_v2     WHERE member_id = :'mid'
+UNION ALL SELECT 'war_room_member_stats_v2',count(*) FROM war_room_member_stats_v2  WHERE member_id = :'mid'
+UNION ALL SELECT 'crime_participation_v2',  count(*) FROM crime_participation_v2    WHERE member_id = :'mid'
+UNION ALL SELECT 'crime_occupancy',         count(*) FROM crime_occupancy           WHERE member_id = :'mid'
+UNION ALL SELECT 'oc_payout_members',       count(*) FROM oc_payout_members         WHERE member_id = :'mid'
+UNION ALL SELECT 'war_payout_members',      count(*) FROM war_payout_members        WHERE member_id = :'mid'
+UNION ALL SELECT 'war_member_contributions',count(*) FROM war_member_contributions  WHERE member_id = :'mid'
+UNION ALL SELECT 'competition_results',     count(*) FROM competition_results       WHERE member_id = :'mid'
+ORDER BY 2 DESC, 1;

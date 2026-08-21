@@ -533,3 +533,89 @@ describe('cpr-scan applies tier assignment (always-apply)', () => {
     ])
   })
 })
+
+// ── Fallen members ──────────────────────────────────────────────────────────
+//
+// Torn preserves the account of a player who has died — status "Fallen",
+// described as "Resting in Peace". They stay on the roster indefinitely, which
+// is also how a faction comes to exceed 100 members. They cannot act, so they
+// must not be counted, scraped or chased for roll call; but they have not left
+// the faction, so is_current and their stint history are left alone.
+describe('fallen members', () => {
+  const rosterWith = (members: Array<Record<string, unknown>>) => ({ members })
+
+  afterAll(async () => {
+    await stack.db.query(`DELETE FROM member_faction_stints WHERE member_id = '4001'`)
+    await stack.db.query(`DELETE FROM members WHERE member_id = '4001'`)
+  })
+
+  it('marks a Fallen member without treating them as having left', async () => {
+    stack.torn.setPath('/v2/faction/members', rosterWith([
+      { id: 1001, name: 'Stayer', days_in_faction: 590, status: { state: 'Okay' } },
+      { id: 4001, name: 'Remembered', days_in_faction: 900, status: { state: 'Fallen', description: 'Fallen' } },
+    ]))
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    await membersSyncJob(deps())
+
+    const res = await stack.db.query(
+      'SELECT is_current, is_fallen FROM members WHERE member_id = $1', ['4001']
+    )
+    expect(res.rows[0].is_fallen).toBe(true)
+    // ⚠️ Still a member. Flipping is_current would close their stint and read
+    // as "left the faction", which is both wrong and the sort of thing nobody
+    // wants to see happen to a memorial account.
+    expect(res.rows[0].is_current).toBe(true)
+  })
+
+  it('leaves a living member untouched, and clears the flag if it ever lifts', async () => {
+    stack.torn.setPath('/v2/faction/members', rosterWith([
+      { id: 1001, name: 'Stayer', days_in_faction: 591, status: { state: 'Okay' } },
+      { id: 4001, name: 'Remembered', days_in_faction: 901, status: { state: 'Okay' } },
+    ]))
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    await membersSyncJob(deps())
+
+    const res = await stack.db.query(
+      'SELECT member_id, is_fallen FROM members WHERE member_id = ANY($1) ORDER BY member_id',
+      [['1001', '4001']]
+    )
+    expect(res.rows.map((r: any) => r.is_fallen)).toEqual([false, false])
+  })
+
+  it('tolerates a roster row with no status at all', async () => {
+    // Not every Torn payload carries status; absence must read as "not fallen"
+    // rather than throwing or flagging everyone.
+    stack.torn.setPath('/v2/faction/members', rosterWith([
+      { id: 1001, name: 'Stayer', days_in_faction: 592 },
+    ]))
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    await membersSyncJob(deps())
+    const res = await stack.db.query('SELECT is_fallen FROM members WHERE member_id = $1', ['1001'])
+    expect(res.rows[0].is_fallen).toBe(false)
+  })
+
+  it('⚠️ is excluded from every member listing and scrape target', async () => {
+    // The point of the flag. Each of these is a separate query in a separate
+    // file, and each one would otherwise count or scrape a dead account.
+    await stack.db.query(
+      `INSERT INTO members (member_id, member_name, tier, is_current, is_fallen)
+       VALUES ('4001', 'Remembered', 3, true, true)
+       ON CONFLICT (member_id) DO UPDATE SET is_current = true, is_fallen = true`
+    )
+    const listed = async (sql: string) => {
+      const r = await stack.db.query(sql)
+      return r.rows.map((x: any) => String(x.member_id))
+    }
+    // members page / battle-stat leaderboard / OC roster / scrape targets
+    for (const sql of [
+      `SELECT m.member_id FROM members m WHERE m.is_current = true AND m.is_fallen = false`,
+      `SELECT member_id FROM members WHERE is_current = true AND is_fallen = false`,
+      `SELECT member_id FROM members WHERE is_fallen = false`,
+    ]) {
+      expect(await listed(sql), sql).not.toContain('4001')
+    }
+    // ...but a direct lookup still finds them, so nothing 404s on an old link.
+    const direct = await stack.db.query('SELECT member_name FROM members WHERE member_id = $1', ['4001'])
+    expect(direct.rows[0].member_name).toBe('Remembered')
+  })
+})

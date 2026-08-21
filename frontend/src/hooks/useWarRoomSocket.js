@@ -18,6 +18,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { getApiSession, apiGet, apiRefresh } from '../utils/apiClient'
 import { mergeVersionedRows, liveRows } from '../utils/warRoomMerge'
+import { isActiveMember } from '../utils/memberVisibility'
 
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15_000
@@ -75,7 +76,16 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
   // mergeVersionedRows for why deleting them loses the ability to reject a
   // stale row for that member.
   const publishState = useCallback(() => {
-    const all = liveRows(stateMapRef.current).map(flattenStateRow)
+    // ⚠️ Fallen is dropped HERE, at the one place both lists are built, rather
+    // than at each render site. Torn preserves the account of a player who has
+    // died ("Resting in Peace") and keeps them on the roster forever, so they
+    // would otherwise be counted in roll-call turnout, activity totals and
+    // every roster view — on our own side as much as the enemy's. The row
+    // stays in war_room_state_v2 either way; this is a display filter, so any
+    // audit or history query still sees the original snapshot.
+    const all = liveRows(stateMapRef.current)
+      .map(flattenStateRow)
+      .filter(isActiveMember)
     const fid = ourFactionIdRef.current
     setMembers(all.filter(m => Number(m.faction_id) !== Number(fid)))
     setOurMembers(all.filter(m => Number(m.faction_id) === Number(fid)))
