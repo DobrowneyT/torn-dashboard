@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.21.0
+// @version      1.27.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -34,6 +34,8 @@ const TNLDibs = (function () {
   const SETTING_STATUS = 'tnl-dibs-status'
   /** #525 — tint the member's name by activity. */
   const SETTING_TINT = 'tnl-dibs-tint'
+  /** Warline-style online/idle count on the Members header. */
+  const SETTING_MEMBER_COUNT = 'tnl-dibs-member-count'
 
   /** User settings (#514). */
   const SETTING_DEFAULTS = {
@@ -41,6 +43,7 @@ const TNLDibs = (function () {
     [SETTING_FF_BOX]: true,
     [SETTING_STATUS]: true,
     [SETTING_TINT]: true,
+    [SETTING_MEMBER_COUNT]: true,
     [DEBUG_KEY]: false,
   }
 
@@ -945,39 +948,38 @@ const TNLDibs = (function () {
 
   // ── DOM ──────────────────────────────────────────────────────────────────
 
-  /** Our column's width, in px. */
-  const COL_WIDTH = 88
-  /** The dibs control's share of it — also fixed, so its left edge never moves. */
+  /** The battle-stats cell's own width, in px — enough for a 5-char reading like "21.5B". */
+  const BS_WIDTH = 48
+  /** The dibs control's own width, fixed so its left edge never moves. */
   const DIBS_WIDTH = 46
   /** Badge cap. Fits "Yours"; longer holder names ellipsis, tooltip has the rest. */
   const BADGE_MAX = 44
-  /** Below this the stats half is hidden and only dibs survives. */
+  /** Below this the stats column is hidden and only dibs survives. */
   const NARROW_PX = 1000
-  const COL_CLASS = 'tnl-col'
+  /** Shared marker for both of our header cells (bold weight, isOurs() detection). */
   const COL_HEAD_CLASS = 'tnl-col-head'
-  const DIBS_SLOT_CLASS = 'tnl-col-dibs'
+  const DIBS_CLASS = 'tnl-col-dibs'
   /** Badge state classes — see paintDibs(). */
   const MINE_CLASS = 'tnl-mine'
   const TAKEN_CLASS = 'tnl-taken'
-  const STAT_SLOT_CLASS = 'tnl-col-bs'
+  const BS_CLASS = 'tnl-col-bs'
   const STAT_VALUE_CLASS = 'tnl-col-bsv'
   const STYLE_ID = 'tnl-dibs-style'
   const TIP_ID = 'tnl-dibs-tip'
   const NO_BS_CLASS = 'tnl-no-bs'
+  /** Our entry point in Torn's own page-title links, beside Faction Warfare. */
+  const LAUNCHER_ID = 'tnl-war-room-link'
+  const LAUNCHER_LABEL_ID = 'tnl-war-room-label'
+  const LAUNCHER_NAME = 'Torn War Room'
+  /** Warline-style online/idle badge on the "Members" header — colour and class. */
+  const MEMBER_COUNT_COLOR = '#0b8a0b'
+  const MEMBER_COUNT_CLASS = 'tnl-member-count'
   /** Set on a name wrap once we have confirmed a text version exists to show. */
   const PLAIN_NAME_CLASS = 'tnl-plain-name'
   /** Set on <html> while we own activity colour, so Torn's own dot can go. */
   const TINTING_CLASS = 'tnl-tinting'
   /** Column hairline. Semi-transparent grey so it reads on Torn's light and dark. */
   const RULE = 'rgba(128,128,128,.35)'
-  /**
-   * Combined width of Torn's status dot + faction tag, generously estimated:
-   * ~18px icon + ~22px faction image + their gaps and margins. Deliberately on
-   * the generous side — reclaiming a few px more than strictly needed costs a
-   * touch of name width; reclaiming too little reproduces the wrap this exists
-   * to fix. See the ⚠️ on the stylesheet rule that consumes it.
-   */
-  const NAME_TRIM_PX = 46
   /** Marks a name we have tinted, so the tint can be lifted cleanly (#525). */
   const TINT_CLASS = 'tnl-tint'
   /** Marks a Status cell we have taken over (#515). */
@@ -1006,56 +1008,106 @@ const TNLDibs = (function () {
     const el = document.createElement('style')
     el.id = STYLE_ID
     el.textContent = `
-ul.members-list > li, .table-body > .table-row { clear: both !important; width: 100% !important; position: relative; }
-ul.members-list > li::after { content: ""; display: table; clear: both; }
+/* ⚠️ The header, the list AND each row are flex — all three, or none.
+   Torn lays rows out with floats (its cells carry a "left" class), but the
+   cells we inject are not floated, and non-floated content does not sit in
+   DOM order relative to floats — it flows around them. Leave the row on
+   floats and our BS cell renders after Score no matter where in the DOM it
+   sits, while a flex header honours DOM order and shows it before Score:
+   two layout models, two different column orders, same markup. Floats also
+   wrap the overflow onto a second line instead of overflowing, which is the
+   row-splitting this fixes. Sorting appeared to help only because the sort
+   permutation forced the list into flex as a side effect. */
+.white-grad, .table-header, [class*="tableHeader"] {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  width: 100% !important;
+}
+ul.members-list, .table-body {
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+}
+ul.members-list > li, .table-body > .table-row {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  width: 100% !important;
+  position: relative;
+}
+/* Torn's float-clearing spacers would each take a flex slot of their own. */
+ul.members-list > li > .clear, .white-grad > .clear { display: none !important; }
+
+/* The name column takes whatever the fixed columns leave, and never pushes
+   them off the row — min-width:0 is what lets a long name ellipsis instead
+   of forcing the row wider than it has. */
+.members-cont [class*="member___"], .white-grad > [class*="member___"] {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+/* The header's name cell also carries the online/idle badge — keep the label,
+   the sort arrow and the badge on one line instead of stacking them. */
+.white-grad > [class*="member___"] {
+  display: flex !important;
+  align-items: center !important;
+  white-space: nowrap !important;
+}
 
 .members-cont .level {
   width: 27px !important; max-width: 27px !important; flex: 0 0 27px !important;
-  margin: 0 !important; padding: 0 2px !important; border: 0 !important;
+  margin: 0 !important; padding: 0 2px !important;
   box-sizing: border-box !important; overflow: hidden !important;
 }
 
-.${COL_CLASS}, .${COL_HEAD_CLASS} {
-  width: ${COL_WIDTH}px; min-width: ${COL_WIDTH}px; max-width: ${COL_WIDTH}px;
-  flex: 0 0 ${COL_WIDTH}px;
-  display: inline-flex; align-items: center; gap: 6px;
+/* Battle stats sit between Level and Score — a decision column, read before the
+   score/status/attack housekeeping to its right. */
+.${BS_CLASS} {
+  width: ${BS_WIDTH}px; min-width: ${BS_WIDTH}px; max-width: ${BS_WIDTH}px;
+  flex: 0 0 ${BS_WIDTH}px;
+  display: inline-flex; align-items: center; justify-content: flex-end;
   height: var(--tnl-row-h, 32px);
-  box-sizing: border-box; padding: 0 4px;
+  box-sizing: border-box; padding: 0 2px;
+  border-left: 1px solid ${RULE};
+  font-size: 11px; font-weight: 700; text-align: right;
+  font-variant-numeric: tabular-nums;
   vertical-align: middle; white-space: nowrap;
   position: relative; z-index: 1;
 }
 .${COL_HEAD_CLASS} { font-weight: 700; opacity: .85; }
-.${COL_CLASS}, .${COL_HEAD_CLASS} { border-left: 1px solid ${RULE}; }
-.${DIBS_SLOT_CLASS} { border-right: 1px solid ${RULE}; }
-.members-cont .attack, .members-cont [class*="attack___"] { border-left: 1px solid ${RULE}; }
+/* "BS" reads as a label and should sit centered, not right-aligned like the
+   numbers below it — the header cell carries both classes at once now. */
+.${COL_HEAD_CLASS}.${BS_CLASS} { justify-content: center; text-align: center; }
+/* The border hugs the number itself, not the full row height — a fixed-height
+   box around one line of 11px text read as "wrong size", and any mismatch
+   between this height and Torn's real row height clipped it besides. */
+.${STAT_VALUE_CLASS} {
+  display: inline-block; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+
 .members-cont .status, .white-grad > .status {
   width: 66px !important; max-width: 66px !important; flex: 0 0 66px !important;
-  margin: 0 !important; padding: 0 2px !important; border: 0 !important;
+  margin: 0 !important; padding: 0 2px !important;
+  border: 0 !important; border-left: 1px solid ${RULE} !important;
   box-sizing: border-box !important; overflow: hidden !important;
 }
 
-.${DIBS_SLOT_CLASS} {
+.${DIBS_CLASS} {
   width: ${DIBS_WIDTH}px; min-width: ${DIBS_WIDTH}px; max-width: ${DIBS_WIDTH}px;
   flex: 0 0 ${DIBS_WIDTH}px;
-  display: flex; align-items: center; justify-content: center;
-  align-self: stretch;
+  display: inline-flex; align-items: center; justify-content: center;
+  height: var(--tnl-row-h, 32px);
+  box-sizing: border-box; padding: 0 4px;
+  border-left: 1px solid ${RULE};
+  vertical-align: middle; white-space: nowrap;
+  position: relative; z-index: 1;
 }
-.${STAT_SLOT_CLASS} {
-  flex: 1 1 auto; min-width: 0;
-  position: relative; overflow: visible;
-  display: flex; align-items: center; justify-content: flex-end;
-  align-self: stretch;
-  font-size: 11px; font-weight: 700; text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.${STAT_VALUE_CLASS} {
-  display: block; max-width: 100%;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  cursor: pointer;
-}
-/* The header reuses the data cell's class for its layout box, but "BS" reads as
-   a label and should sit centered, not right-aligned like the numbers below it. */
-.${COL_HEAD_CLASS} .${STAT_SLOT_CLASS} { justify-content: center; text-align: center; }
 
 #${TIP_ID} {
   position: fixed; left: 0; top: 0; display: none;
@@ -1090,14 +1142,16 @@ ul.members-list > li::after { content: ""; display: table; clear: both; }
 .members-cont [class*="points___"]:not([class*="tab___"]),
 .white-grad > [class*="points___"] {
   width: 44px !important; max-width: 44px !important; flex: 0 0 44px !important;
-  margin: 0 !important; padding: 0 2px !important; border: 0 !important;
+  margin: 0 !important; padding: 0 2px !important;
+  border: 0 !important; border-left: 1px solid ${RULE} !important;
   box-sizing: border-box !important; overflow: hidden !important; text-overflow: ellipsis !important;
 }
 
 .members-cont .attack, .members-cont [class*="attack___"],
 .white-grad > .attack, .white-grad > [class*="attack___"] {
   width: 30px !important; max-width: 30px !important; flex: 0 0 30px !important;
-  margin: 0 !important; padding: 0 2px !important; border: 0 !important;
+  margin: 0 !important; padding: 0 2px !important;
+  border: 0 !important; border-left: 1px solid ${RULE} !important;
   box-sizing: border-box !important; overflow: hidden !important;
 }
 
@@ -1130,19 +1184,14 @@ a.${TINT_CLASS}, .${TINT_CLASS} > a { color: var(--tnl-tint) !important; }
 
 /* The dot and the faction tag both go: the name carries activity now, and in a
    two-faction war view the tag says nothing.
-   ⚠️ NAME_TRIM_PX is a measured constant, not a runtime measurement, and that is
-   deliberate. The obvious approach — measure the icons' real width in JS, feed
-   it back as a CSS custom property — deadlocks: the moment this class is added
-   it hides the icons, so a LATER measurement of a display:none element always
-   reads 0, and the correction never gets a real value again. The only way out
-   was toggling the setting off and on, which briefly un-hides the icons long
-   enough to measure them. A hardcoded constant has no such cycle to break. */
+   ⚠️ There is no width-reclaim margin here any more, and there must not be one.
+   Hiding the icons used to leave a hole the float layout could not reabsorb, so
+   the name column was pulled back over it by a hardcoded -46px. Under flex the
+   name column is flex:1 1 auto and simply takes the freed space by itself — and
+   a negative margin now does real damage, dragging the next column into an
+   overlap rather than closing a gap. */
 html.${TINTING_CLASS} [class*="userStatusWrap___"],
 html.${TINTING_CLASS} [class*="factionWrap___"] { display: none !important; }
-html.${TINTING_CLASS} .members-cont [class*="member___"],
-html.${TINTING_CLASS} .white-grad > [class*="member___"] {
-  margin-right: -${NAME_TRIM_PX}px !important;
-}
 
 .${STATUS_CLASS} {
   color: var(--tnl-status) !important;
@@ -1153,19 +1202,21 @@ html.${TINTING_CLASS} .white-grad > [class*="member___"] {
 .${SORT_CLASS} { cursor: pointer; user-select: none; }
 .${SORT_CLASS}:hover { text-decoration: underline; }
 
-html.${NO_BS_CLASS} .${STAT_SLOT_CLASS} { display: none; }
-html.${NO_BS_CLASS} .${DIBS_SLOT_CLASS} { border-right: none; }
-html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
-  width: ${DIBS_WIDTH + 10}px; min-width: ${DIBS_WIDTH + 10}px; max-width: ${DIBS_WIDTH + 10}px;
-  flex: 0 0 ${DIBS_WIDTH + 10}px;
-}
+html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
 @media screen and (max-width: ${NARROW_PX}px) {
-  .${STAT_SLOT_CLASS}, .${COL_HEAD_CLASS} .${STAT_SLOT_CLASS} { display: none; }
-  .${COL_CLASS}, .${COL_HEAD_CLASS} {
-    width: ${DIBS_WIDTH + 8}px; min-width: ${DIBS_WIDTH + 8}px; max-width: ${DIBS_WIDTH + 8}px;
-    flex-basis: ${DIBS_WIDTH + 8}px;
-  }
+  .${BS_CLASS} { display: none; }
+}
+
+.${MEMBER_COUNT_CLASS} {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 12px;
+  vertical-align: middle;
+  color: ${MEMBER_COUNT_COLOR};
+  background: ${MEMBER_COUNT_COLOR}1f;
 }
 `
     ;(document.head || document.documentElement).appendChild(el)
@@ -1202,9 +1253,14 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     return null
   }
 
+  /** The row/header's own Score cell — the anchor the BS column is inserted before. */
+  function scoreCellOf(scope) {
+    return scope?.querySelector?.('[class*="points___"]') ?? null
+  }
+
   /** True for anything this script put on the page — see observe(). */
   function isOurs(node) {
-    return Boolean(node?.closest?.(`.${COL_CLASS}, .${COL_HEAD_CLASS}, #${STYLE_ID}`))
+    return Boolean(node?.closest?.(`.${DIBS_CLASS}, .${BS_CLASS}, #${STYLE_ID}, #${LAUNCHER_ID}`))
   }
 
   function slot(parent, cls, text) {
@@ -1217,41 +1273,69 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     return el
   }
 
-  /** ONE combined TNL column — dibs and battle stats together — inserted in the row's own flow… */
-  function tnlCellOf(row) {
-    let cell = row.querySelector(`.${COL_CLASS}`)
-    if (cell) return cell
+  /** Replace a header cell's own label text, leaving any child icon (e.g. the
+   *  native sort arrow) untouched — a blind `.textContent =` would eat it. */
+  function relabelHeaderText(cell, from, to) {
+    if (!cell) return
+    for (const node of cell.childNodes) {
+      if (node.nodeType === 3 && node.textContent.trim() === from) { node.textContent = to; return }
+      // "Members" ships wrapped in a <span> of its own, where Level and Attack
+      // are bare text — match a leaf element too, never a container.
+      if (node.nodeType === 1 && node.children.length === 0
+          && (node.textContent || '').trim() === from) {
+        node.textContent = to
+        return
+      }
+    }
+  }
+
+  /**
+   * Both of our cells for one row — dibs (before Attack) and battle stats
+   * (before Score) — plus the matching header cells, built once per table.
+   */
+  function ensureColumns(row) {
+    let dibsCell = row.querySelector(`.${DIBS_CLASS}`)
+    let bsCell = row.querySelector(`.${BS_CLASS}`)
+    if (dibsCell && bsCell) return { dibsCell, bsCell }
 
     const header = headerFor(row)
     if (header && !header.querySelector(`.${COL_HEAD_CLASS}`)) {
-      const before = attackHeaderCell(header)
-      // The header says "Attack" the same way every data cell does before
-      // shrinkAttack() touches it (#516's row loop, not this one-time build) —
-      // relabel it here, once, alongside inserting our own header.
-      if (before && (before.textContent || '').trim() === 'Attack') before.textContent = 'Atk'
-      const head = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
-      head.className = `table-cell ${COL_HEAD_CLASS}`
-      slot(head, DIBS_SLOT_CLASS, 'DIBS')
-      bindSort(slot(head, STAT_SLOT_CLASS, 'BS'), 'bs', 'BS')
-      if (before) before.parentNode.insertBefore(head, before)
-      else header.appendChild(head)
-      log(`column header added${before ? ' before Attack' : ' at the end (no Attack header found)'}`)
+      const attackHead = attackHeaderCell(header)
+      const bsHead = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
+      bsHead.className = `table-cell ${COL_HEAD_CLASS} ${BS_CLASS}`
+      bindSort(bsHead, 'bs', 'BS')
+      const scoreHead = scoreCellOf(header)
+      if (scoreHead) scoreHead.parentNode.insertBefore(bsHead, scoreHead)
+      else header.appendChild(bsHead)
+
+      const dibsHead = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
+      dibsHead.className = `table-cell ${COL_HEAD_CLASS} ${DIBS_CLASS}`
+      dibsHead.textContent = 'DIBS'
+      if (attackHead) attackHead.parentNode.insertBefore(dibsHead, attackHead)
+      else header.appendChild(dibsHead)
+      log('column headers added (BS before Score, Dibs before Attack)')
     }
 
-    cell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
-    cell.className = `table-cell ${COL_CLASS}`
-    slot(cell, DIBS_SLOT_CLASS)
-    slot(slot(cell, STAT_SLOT_CLASS), STAT_VALUE_CLASS)
-    const attack = attackCellOf(row)
-    if (attack) attack.parentNode.insertBefore(cell, attack)
-    else row.insertBefore(cell, row.querySelector('.clear'))   // never after the float clear
-    return cell
+    if (!bsCell) {
+      bsCell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
+      bsCell.className = `table-cell ${BS_CLASS}`
+      slot(bsCell, STAT_VALUE_CLASS)
+      const score = scoreCellOf(row)
+      if (score) score.parentNode.insertBefore(bsCell, score)
+      else row.insertBefore(bsCell, row.querySelector('.clear'))
+    }
+    if (!dibsCell) {
+      dibsCell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
+      dibsCell.className = `table-cell ${DIBS_CLASS}`
+      const attack = attackCellOf(row)
+      if (attack) attack.parentNode.insertBefore(dibsCell, attack)
+      else row.insertBefore(dibsCell, row.querySelector('.clear'))   // never after the float clear
+    }
+    return { dibsCell, bsCell }
   }
 
   function badgeFor(cell, playerId) {
-    const host = cell.querySelector(`.${DIBS_SLOT_CLASS}`)
-    if (!host) return null
-    let badge = host.querySelector(`.${BADGE_CLASS}`)
+    let badge = cell.querySelector(`.${BADGE_CLASS}`)
     if (badge) return badge
 
     badge = document.createElement('button')
@@ -1271,7 +1355,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
       delete cell.dataset.tnlSig
       render()
     })
-    host.appendChild(badge)
+    cell.appendChild(badge)
     return badge
   }
 
@@ -1361,7 +1445,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     if (!settings.on(SETTING_STATS)) {
       cell.textContent = ''
       slotEl.removeAttribute('data-tnl-tip')
-      slotEl.style.border = '1px solid transparent'
+      cell.style.border = '1px solid transparent'
       return
     }
     const stats = rt.stats.get(playerId)
@@ -1373,7 +1457,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
       cell.style.color = '#6b7280'
       cell.style.fontStyle = 'italic'
       cell.style.textDecoration = 'none'
-      slotEl.style.border = '1px solid transparent'
+      cell.style.border = '1px solid transparent'
       return
     }
 
@@ -1388,7 +1472,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     cell.style.textUnderlineOffset = '2px'
     cell.style.textDecorationColor = exact ? 'rgba(16,185,129,.7)' : 'rgba(148,163,184,.7)'
 
-    slotEl.style.border = settings.on(SETTING_FF_BOX) && ff !== null && ff >= FF_HIGHLIGHT
+    cell.style.border = settings.on(SETTING_FF_BOX) && ff !== null && ff >= FF_HIGHLIGHT
       ? '1px solid #86efac'
       : '1px solid transparent'
   }
@@ -1593,15 +1677,14 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     }
   }
 
-  /** Permute one list's rows into sorted order using flex `order`. */
+  /** Permute one list's rows into sorted order using flex `order` — the list
+   *  is a permanent flex column (see injectStyles()), so no display toggling
+   *  is needed here, only the order values themselves. */
   function orderList(list, nowMs) {
     const children = Array.from(list.children)
     if (!rt.sort.key) {
-      if (!list.dataset.tnlFlex) return
+      if (!list.dataset.tnlOrderSig) return
       for (const c of children) c.style.order = ''
-      list.style.removeProperty('display')
-      list.style.removeProperty('flex-direction')
-      delete list.dataset.tnlFlex
       delete list.dataset.tnlOrderSig
       return
     }
@@ -1618,9 +1701,6 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     if (list.dataset.tnlOrderSig === sig && rows[0].row.style.order !== '') return
     list.dataset.tnlOrderSig = sig
 
-    list.style.display = 'flex'
-    list.style.flexDirection = 'column'
-    list.dataset.tnlFlex = '1'
     children.forEach((c, i) => { c.style.order = String(i + 1) })
     const slots = rows.map((r) => r.slot).sort((a, b) => a - b)
     ordered.forEach((e, i) => { e.row.style.order = String(slots[i]) })
@@ -1676,6 +1756,72 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     }
   }
 
+  /** Torn's own header labels, shortened to buy back space — both sides get
+   *  this (unlike the DIBS/BS columns, which are enemy-only), once per list. */
+  function relabelColumnHeaders(row) {
+    const list = row.parentNode
+    if (!list || list.dataset.tnlLabelsBound) return
+    list.dataset.tnlLabelsBound = '1'
+    const header = headerFor(row)
+    if (!header) return
+    relabelHeaderText(attackHeaderCell(header), 'Attack', 'Atk')
+    relabelHeaderText(header.querySelector('.level, [class*="level___"]'), 'Level', 'Lv')
+    // "Name" is what the column holds, and the width it gives back is what the
+    // online/idle badge sits in.
+    relabelHeaderText(header.querySelector('.member, [class*="member___"]'), 'Members', 'Name')
+  }
+
+  /** Both war member lists currently on the page — enemy and own. */
+  function memberLists() {
+    return typeof document === 'undefined'
+      ? []
+      : Array.from(document.querySelectorAll('ul.members-list, ul[class*="membersCont"]'))
+  }
+
+  /** Online + idle counts for one list's rows, off War Room state — no offline
+   *  count, matching the standalone Warline script this replicates. */
+  function activityCounts(list) {
+    let online = 0
+    let idle = 0
+    for (const row of list.children) {
+      const id = idOfRow(row)
+      if (id === null) continue
+      const tone = activityTone(rt.state.get(id))
+      if (tone === 'online') online++
+      else if (tone === 'idle') idle++
+    }
+    return { online, idle }
+  }
+
+  /** The header's own "Members" cell for a given member list. */
+  function membersHeaderCellOf(list) {
+    const anchor = list.firstElementChild
+    if (!anchor) return null
+    const header = headerFor(anchor)
+    return header?.querySelector('.member, [class*="member___"]') ?? null
+  }
+
+  /** Warline-style "N online / M idle" badge on each faction's Members header. */
+  function paintMemberCounts() {
+    if (typeof document === 'undefined') return
+    const on = settings.on(SETTING_MEMBER_COUNT)
+    for (const list of memberLists()) {
+      const cell = membersHeaderCellOf(list)
+      if (!cell) continue
+      if (!on) { cell.querySelector(`.${MEMBER_COUNT_CLASS}`)?.remove(); continue }
+      const { online, idle } = activityCounts(list)
+      let badge = cell.querySelector(`.${MEMBER_COUNT_CLASS}`)
+      if (!badge) {
+        badge = document.createElement('span')
+        badge.className = MEMBER_COUNT_CLASS
+        cell.appendChild(badge)
+      }
+      const text = `${online} online` + (idle ? ` / ${idle} idle` : '')
+      if (badge.textContent !== text) badge.textContent = text
+      badge.style.display = online + idle === 0 ? 'none' : ''
+    }
+  }
+
   /**
    * The member row an anchor belongs to, cached and validated.
    *
@@ -1717,6 +1863,9 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
   function render() {
     if (typeof document === 'undefined') return
     injectStyles()
+    // Cheap by-id lookup on the hit; puts the link back after Torn re-renders
+    // the page title out from under it.
+    ensureLauncher()
     document.documentElement.classList.toggle(NO_BS_CLASS, !settings.on(SETTING_STATS))
     let painted = 0      // enemies we INTENDED to badge
     let attached = 0     // badges that actually exist in the DOM
@@ -1733,6 +1882,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
       paintName(row, anchor, playerId)
       paintStatus(row, playerId, nowMs)
       bindStatusHeader(row)
+      relabelColumnHeaders(row)
       shrinkAttack(row)
       if (!isEnemy) return
 
@@ -1743,13 +1893,14 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
         entry = { state, sig: paintSignature(state, rt.stats.get(playerId), settingsSig, rt.mine?.total) }
         sigs.set(playerId, entry)
       }
-      const cell = tnlCellOf(row)
-      if (badgeFor(cell, playerId)) attached++
-      if (cell.dataset.tnlSig === entry.sig) return
-      cell.dataset.tnlSig = entry.sig
+      const { dibsCell, bsCell } = ensureColumns(row)
+      if (badgeFor(dibsCell, playerId)) attached++
+      if (dibsCell.dataset.tnlSig === entry.sig) return
+      dibsCell.dataset.tnlSig = entry.sig
+      bsCell.dataset.tnlSig = entry.sig
       repainted++
-      paintDibs(cell.querySelector(`.${BADGE_CLASS}`), entry.state)
-      paintStats(cell.querySelector(`.${STAT_SLOT_CLASS}`), playerId)
+      paintDibs(dibsCell.querySelector(`.${BADGE_CLASS}`), entry.state)
+      paintStats(bsCell, playerId)
     })
     if (painted !== rt.painted || attached !== rt.attached) {
       rt.painted = painted
@@ -1764,6 +1915,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     document.documentElement.classList.toggle(TINTING_CLASS, settings.on(SETTING_TINT))
     paintSortHeaders()
     applySort(nowMs)
+    paintMemberCounts()
   }
 
   /** The 1 Hz local tick (#515). Status cells only — dibs cannot change without a poll. */
@@ -1816,6 +1968,83 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
   let panelStatus = null
   let panelBox = null
   let panelDot = null
+  let launcher = null
+
+  /**
+   * Our entry point, built to look like one of Torn's own page-title links and
+   * inserted among them. It replaces the old fixed dot in the bottom-left
+   * corner: the connectivity light now rides along as this link's icon, so one
+   * element is both "open the panel" and "are we connected".
+   *
+   * Rebuilt on demand rather than once, because Torn re-renders the page title
+   * on navigation and would otherwise drop it.
+   */
+  function ensureLauncher() {
+    if (typeof document === 'undefined') return null
+    const found = document.getElementById(LAUNCHER_ID)
+    if (found && found.isConnected) { launcher = found; return found }
+
+    const list = document.getElementById('top-page-links-list')
+    if (!list) { launcher = null; return null }
+
+    const link = document.createElement('a')
+    link.id = LAUNCHER_ID
+    link.href = '#'
+    // Torn's own classes, so it inherits their type, hover and spacing.
+    link.className = 't-clear h c-pointer m-icon line-h24 right'
+    link.setAttribute('aria-labelledby', LAUNCHER_LABEL_ID)
+
+    const iconWrap = document.createElement('span')
+    iconWrap.className = 'icon-wrap svg-icon-wrap'
+    const icon = document.createElement('span')
+    icon.className = 'link-icon-svg'
+    icon.style.cssText = 'display:inline-flex;align-items:center;justify-content:center'
+
+    const dot = document.createElement('span')
+    dot.style.cssText = [
+      'display:inline-block', 'width:10px', 'height:10px', 'border-radius:50%',
+      'border:1px solid rgba(0,0,0,.5)', 'box-shadow:0 1px 3px rgba(0,0,0,.4)',
+    ].join(';')
+    panelDot = dot
+    icon.appendChild(dot)
+    iconWrap.appendChild(icon)
+
+    const label = document.createElement('span')
+    label.id = LAUNCHER_LABEL_ID
+    label.textContent = LAUNCHER_NAME
+
+    link.appendChild(iconWrap)
+    link.appendChild(label)
+    link.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation()
+      rt.expanded = !rt.expanded
+      rt.settingsOpen = false
+      panel()
+    })
+
+    list.insertBefore(link, list.firstChild)
+    launcher = link
+    setStatus(rt.status)
+    log('launcher added to the page-title links')
+    return link
+  }
+
+  /** Sit the panel under the launcher, or fall back to the corner without one. */
+  function placePanel(box) {
+    box.style.position = 'fixed'
+    box.style.zIndex = '2147483000'
+    const anchor = launcher
+    if (!anchor || !anchor.isConnected || typeof anchor.getBoundingClientRect !== 'function') {
+      box.style.left = '12px'
+      box.style.bottom = '12px'
+      return
+    }
+    const r = anchor.getBoundingClientRect()
+    const width = 260
+    const maxLeft = Math.max(8, (window.innerWidth || width) - width - 8)
+    box.style.top = `${Math.round(r.bottom + 6)}px`
+    box.style.left = `${Math.round(Math.min(Math.max(8, r.left), maxLeft))}px`
+  }
 
   /** Does the panel need to ask for a key? */
   function panelNeedsKey(session) {
@@ -1847,9 +2076,9 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
   function setStatus(state) {
     rt.status = state
     if (panelStatus) panelStatus.textContent = statusText(state)
-    if (panelDot) {
-      panelDot.style.background = statusColor(state)
-      panelDot.title = `TNL Dibs — ${statusText(state)}`
+    if (panelDot) panelDot.style.background = statusColor(state)
+    if (launcher && launcher.isConnected) {
+      launcher.title = `${LAUNCHER_NAME} — ${statusText(state)}`
     }
   }
 
@@ -1890,6 +2119,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     box.appendChild(settingToggle(SETTING_FF_BOX, 'Highlight high fair fight', `A green box at FF ${FF_HIGHLIGHT} and up.`))
     box.appendChild(settingToggle(SETTING_STATUS, 'Live status column', 'Hospital countdown, travel ETA and last action, in Torn\u2019s own Status cell.'))
     box.appendChild(settingToggle(SETTING_TINT, 'Tint names by activity', 'Green online, amber idle, grey offline.'))
+    box.appendChild(settingToggle(SETTING_MEMBER_COUNT, 'Online/idle count', 'A Warline-style count on each Members header.'))
     box.appendChild(settingToggle(DEBUG_KEY, 'Debug log (console)', 'Reload to trace startup.'))
 
     const back = document.createElement('button')
@@ -1901,32 +2131,21 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
 
   function panel() {
     if (typeof document === 'undefined') return
+    // The launcher owns the status light, so it is built (and re-built) first
+    // and outlives the panel box, which comes and goes with every open/close.
+    ensureLauncher()
     if (panelBox && panelBox.isConnected) panelBox.remove()
+    panelBox = null
     panelStatus = null
-    panelDot = null
 
     if (!panelExpanded(rt.session, rt.expanded)) {
-      const dot = document.createElement('button')
-      panelBox = dot
-      panelDot = dot
-      dot.type = 'button'
-      dot.setAttribute('aria-label', 'TNL Dibs')
-      dot.style.cssText = [
-        'position:fixed', 'left:12px', 'bottom:12px', 'z-index:2147483000',
-        'width:14px', 'height:14px', 'padding:0', 'border-radius:50%',
-        'border:1px solid rgba(0,0,0,.5)', 'cursor:pointer', 'opacity:.75',
-        'box-shadow:0 1px 4px rgba(0,0,0,.5)',
-      ].join(';')
-      dot.addEventListener('click', () => { rt.expanded = true; panel() })
       setStatus(rt.status)
-      document.body.appendChild(dot)
       return
     }
 
     const box = document.createElement('div')
     panelBox = box
     box.style.cssText = [
-      'position:fixed', 'left:12px', 'bottom:12px', 'z-index:2147483000',
       'background:#111827', 'color:#e5e7eb', 'border:1px solid #374151',
       'border-radius:10px', 'padding:10px 12px', 'font:12px/1.4 system-ui,sans-serif',
       'box-shadow:0 6px 24px rgba(0,0,0,.4)', 'max-width:260px',
@@ -1934,12 +2153,13 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
 
     if (rt.settingsOpen) {
       settingsView(box)
+      placePanel(box)
       document.body.appendChild(box)
       return
     }
 
     const title = document.createElement('div')
-    title.textContent = 'TNL Dibs'
+    title.textContent = LAUNCHER_NAME
     title.style.cssText = 'font-weight:700;margin-bottom:4px'
     box.appendChild(title)
 
@@ -2009,6 +2229,7 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
       box.appendChild(gear)
     }
 
+    placePanel(box)
     document.body.appendChild(box)
   }
 
@@ -2064,11 +2285,13 @@ html.${NO_BS_CLASS} .${COL_CLASS}, html.${NO_BS_CLASS} .${COL_HEAD_CLASS} {
     parseDbTime, fmtAgo, statsSourceLabel, tokenClaims, sessionIsAdmin,
     settingOn, settings, settingsSignature, paintSignature,
     attackUrl, statsTip, injectStyles, tipPosition, formatStatShort,
+    ensureLauncher, LAUNCHER_ID, LAUNCHER_NAME,
     countryCode, travelDestination, travelPhase, methodsForPlaneType, travelEta,
     fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
     statusView, statusSortValue, sortEntries, nextSort, rowState,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
-    SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT, DEBUG_KEY,
+    SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT,
+    SETTING_MEMBER_COUNT, DEBUG_KEY,
     FLIGHT_SECONDS, PLANE_TYPE_METHOD,
   }
 })()
