@@ -44,6 +44,10 @@ from `VERSION` at runtime) both surface it automatically.
   breakdown including offline. Toggleable in Settings, on by default.
 
 ### Changed
+- **Userscript: the panel shows which version is running.** Soft grey beside the
+  "Torn War Room" title, `v1.32.0`, in the same gray-400 the dashboard footer
+  uses. Nothing renders when there is no version to read, rather than the
+  "vundefined" an unguarded read would put on screen.
 - **Userscript: the panel opens from a "Torn War Room" link in Torn's own page
   title**, beside Faction Warfare / Forum / Leave Faction, instead of a floating
   dot in the bottom-left corner. The amber/green connectivity light rides along

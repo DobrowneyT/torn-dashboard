@@ -1756,6 +1756,36 @@ describe('a click on one of Torn\u2019s own sort headers releases ours', () => {
   })
 })
 
+describe('the panel shows which version is running', () => {
+  it('prefixes a v, the way the dashboard footer does', () => {
+    expect(S.versionLabel('1.32.0')).toBe('v1.32.0')
+    expect(S.versionLabel('  1.32.0  ')).toBe('v1.32.0')
+  })
+
+  it('says nothing rather than something wrong when there is no version', () => {
+    // Tampermonkey always supplies one, but the test seam and a hand-pasted
+    // copy of the file do not \u2014 "vundefined" in the panel is worse than a
+    // panel with no version in it at all.
+    expect(S.versionLabel(undefined)).toBeNull()
+    expect(S.versionLabel(null)).toBeNull()
+    expect(S.versionLabel('')).toBeNull()
+    expect(S.versionLabel('   ')).toBeNull()
+    expect(S.versionLabel(1.32)).toBeNull()
+  })
+
+  it('reads GM_info, and survives its absence', () => {
+    expect(S.scriptVersion()).toBeNull()
+  })
+
+  it('is the version the file actually declares', () => {
+    // Bumping @version without the CHANGELOG is the usual slip; this at least
+    // keeps the panel honest about the file it came from.
+    const declared = source.match(/^\/\/ @version\s+(\S+)$/m)?.[1]
+    expect(declared).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(S.versionLabel(declared)).toBe(`v${declared}`)
+  })
+})
+
 describe('rowState', () => {
   it('keeps every field memberState() writes, plus the travel latch', () => {
     // ⚠️ travel_departed_at is a COLUMN, not part of the state jsonb — the

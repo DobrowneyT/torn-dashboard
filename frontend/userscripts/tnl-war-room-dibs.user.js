@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.31.0
+// @version      1.32.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1992,6 +1992,17 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return expanded === true
   }
 
+  /** "v1.32.0", or null when there is no version to show rather than a lie. */
+  function versionLabel(version) {
+    const v = typeof version === 'string' ? version.trim() : ''
+    return v ? `v${v}` : null
+  }
+
+  /** What Tampermonkey says it is running us as. */
+  function scriptVersion() {
+    return (typeof GM_info !== 'undefined' && GM_info.script?.version) || null
+  }
+
   function statusText(state) {
     return {
       live: '● live', connecting: '○ connecting…', reconnecting: '○ reconnecting…',
@@ -2090,8 +2101,19 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
 
     const title = document.createElement('div')
-    title.textContent = LAUNCHER_NAME
-    title.style.cssText = 'font-weight:700;margin-bottom:4px'
+    title.style.cssText = 'display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px'
+    const name = document.createElement('span')
+    name.textContent = LAUNCHER_NAME
+    name.style.cssText = 'font-weight:700'
+    title.appendChild(name)
+    const version = versionLabel(scriptVersion())
+    if (version) {
+      const tag = document.createElement('span')
+      tag.textContent = version
+      // The dashboard's own footer grey, so the two read as one product.
+      tag.style.cssText = 'font-weight:400;font-size:11px;color:#9ca3af'
+      title.appendChild(tag)
+    }
     box.appendChild(title)
 
     panelStatus = document.createElement('div')
@@ -2189,7 +2211,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   function main() {
     rt.session = store.read()
-    const version = (typeof GM_info !== 'undefined' && GM_info.script?.version) || 'unknown'
+    const version = scriptVersion() ?? 'unknown'
     const path = typeof location !== 'undefined' ? location.pathname + location.search : 'unknown'
     log(`v${version} starting on ${path}`)
     panel()
@@ -2221,6 +2243,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
     tallyActivity, countLabel, countTooltip,
     statusView, statusSortValue, sortEntries, nextSort, rowState, isTornSortHeader,
+    versionLabel, scriptVersion,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
     SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT,
     SETTING_MEMBER_COUNT, DEBUG_KEY,
