@@ -2056,6 +2056,17 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
     expect(css()).toMatch(/tnl-no-bs[\s\S]*?display: none/)
   })
 
+  it('⚠️ a narrow screen drops Score, NEVER the battle-stat column', () => {
+    // The column the script exists for was missing on every phone: the media
+    // query hid BS, inherited from the float layout that had no room for it.
+    // Score is the one that can go — it reads 0.00 for everyone for most of a
+    // war, while BS is what a target gets picked on.
+    const sheet = css()
+    const media = sheet.slice(sheet.indexOf('@media screen and (max-width:'))
+    expect(media).toMatch(/points___/)
+    expect(media).not.toMatch(/\.tnl-col-bs \{[^}]*display: none/)
+  })
+
   it('draws the column separators', () => {
     // Every divider is a border-left on the right-hand cell of its pair (BS,
     // Score, Status, Attack, Dibs each carry their own) — no shared

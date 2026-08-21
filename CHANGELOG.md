@@ -68,6 +68,11 @@ from `VERSION` at runtime) both surface it automatically.
   column any net width.
 
 ### Fixed
+- **Userscript: the battle-stat column was missing on every phone.** The narrow
+  breakpoint hid `BS` under 1000px — inherited from the float layout, which
+  genuinely had no room for it. Under flex there is room, and if a column has
+  to go on a narrow screen it should be **Score**, which reads `0.00` for every
+  member for most of a war, not the number targets are actually picked on.
 - **Userscript: rows wrapped onto a second line, and the header disagreed with
   the rows about the column order** — BS sat before Score in the header but
   after it in every row, from the same markup. One cause for both: Torn lays
