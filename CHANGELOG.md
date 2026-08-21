@@ -71,6 +71,23 @@ from `VERSION` at runtime) both surface it automatically.
   column any net width.
 
 ### Fixed
+- **Userscript: Torn's own column sorts work again after sorting by BS.** We
+  reorder rows with the flex `order` property, which overrides DOM order
+  outright. Torn sorts by moving the nodes themselves — so once our sort was
+  active, its header arrow moved and not a single row did. Sorting by Status
+  appeared to break the spell only by accident: status values tie constantly and
+  `sortEntries` breaks ties on DOM position, so Torn's reordering leaked through.
+  Clicking one of Torn's own sortable headers now drops our sort and clears the
+  `order` values before its handler runs.
+
+### Changed
+- **Userscript: comments cut back to the ones that earn their place.** Issue
+  numbers, section banners and doc comments restating the function name are
+  gone. What stays: Torn's own formulas and published constants, the DOM
+  quirks we work around, the references to the scripts and extensions we
+  interoperate with (Warline, Wall Battlestats, TornTools), and the handful of
+  warnings marking a trap someone has already fallen into. No behaviour change
+  — every line of code is byte-identical.
 - **Userscript: TornTools' war-list filters work again.** TornTools is a browser
   extension many players run; its Ranked War Filter (activity / status / level)
   hides rows by putting `.tt-hidden` on the `<li>`. Our flex-layout rule targets

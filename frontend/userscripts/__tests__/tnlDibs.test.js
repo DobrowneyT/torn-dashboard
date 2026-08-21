@@ -1723,6 +1723,39 @@ describe('nextSort', () => {
   })
 })
 
+describe('a click on one of Torn\u2019s own sort headers releases ours', () => {
+  // We permute with flex `order`, which beats DOM order outright, so a list left
+  // under our sort ignores Torn's reordering entirely \u2014 its arrow moves and no
+  // row does. The sort has to be handed back when Torn's own header is clicked.
+  const cell = (classes, hasSortIcon) => ({
+    classList: { contains: (c) => classes.includes(c) },
+    querySelector: (sel) => (hasSortIcon && sel.includes('sortIcon') ? {} : null),
+  })
+
+  it('claims Torn\u2019s sortable headers \u2014 Name, Level, Score', () => {
+    expect(S.isTornSortHeader(cell(['member', 'left'], true))).toBe(true)
+    expect(S.isTornSortHeader(cell(['level', 'left'], true))).toBe(true)
+    expect(S.isTornSortHeader(cell(['points', 'left'], true))).toBe(true)
+  })
+
+  it('leaves our own headers alone, or clicking BS would clear the sort it just set', () => {
+    // Our Status header is Torn's cell with our class added, so it keeps the
+    // sortIcon \u2014 the marker class is what has to decide, not the icon.
+    expect(S.isTornSortHeader(cell(['status', 'tnl-sort'], true))).toBe(false)
+    expect(S.isTornSortHeader(cell(['tnl-col-bs', 'tnl-sort'], false))).toBe(false)
+  })
+
+  it('ignores a header cell that sorts nothing, like Attack or our DIBS column', () => {
+    expect(S.isTornSortHeader(cell(['attack', 'left'], false))).toBe(false)
+    expect(S.isTornSortHeader(cell(['tnl-col-dibs'], false))).toBe(false)
+  })
+
+  it('ignores a click that landed outside any header cell', () => {
+    expect(S.isTornSortHeader(null)).toBe(false)
+    expect(S.isTornSortHeader(undefined)).toBe(false)
+  })
+})
+
 describe('rowState', () => {
   it('keeps every field memberState() writes, plus the travel latch', () => {
     // ⚠️ travel_departed_at is a COLUMN, not part of the state jsonb — the
