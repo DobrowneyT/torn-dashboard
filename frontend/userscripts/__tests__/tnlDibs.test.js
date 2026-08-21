@@ -2056,15 +2056,19 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
     expect(css()).toMatch(/tnl-no-bs[\s\S]*?display: none/)
   })
 
-  it('⚠️ a narrow screen drops Score, NEVER the battle-stat column', () => {
-    // The column the script exists for was missing on every phone: the media
-    // query hid BS, inherited from the float layout that had no room for it.
-    // Score is the one that can go — it reads 0.00 for everyone for most of a
-    // war, while BS is what a target gets picked on.
+  it('⚠️ a narrow screen drops NO data column — only the online/idle badge', () => {
+    // Both earlier versions of this rule dropped a column on phones: first BS,
+    // then Score. That was the float layout's reasoning, where a row that did
+    // not fit wrapped. Under flex the name column is flex:1 1 auto with
+    // min-width:0, so the row absorbs the squeeze by ellipsising the name and
+    // every column survives. Only the header badge, which cannot shrink,
+    // stands down.
     const sheet = css()
     const media = sheet.slice(sheet.indexOf('@media screen and (max-width:'))
-    expect(media).toMatch(/points___/)
-    expect(media).not.toMatch(/\.tnl-col-bs \{[^}]*display: none/)
+    expect(media).toMatch(/tnl-member-count/)
+    for (const col of ['tnl-col-bs', 'points___', 'tnl-col-dibs', 'attack___', 'level___']) {
+      expect(media, col).not.toContain(col)
+    }
   })
 
   it('draws the column separators', () => {

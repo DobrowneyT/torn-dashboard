@@ -1204,15 +1204,20 @@ html.${TINTING_CLASS} [class*="factionWrap___"] { display: none !important; }
 
 html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
-/* ⚠️ Narrow screens drop SCORE, never BS.
-   This used to hide the battle-stat column on anything under ${NARROW_PX}px,
-   inherited from the float layout where there was genuinely no room for it —
-   which meant the column the whole script exists for was missing on every
-   phone. Under flex there is room, and if something has to go it should be the
-   column that says nothing: Score reads 0.00 for every member for most of a
-   war, while BS is what the target is picked on. */
+/* ⚠️ Narrow screens drop no DATA column at all — only the online/idle badge.
+   This rule used to hide BS under ${NARROW_PX}px (so the column the script
+   exists for was missing on every phone), and then briefly hid Score instead.
+   Both were the float layout's reasoning carried forward: back then a row that
+   did not fit wrapped, so something had to go. Under flex nothing has to —
+   every data column is fixed-width and the NAME column is flex:1 1 auto with
+   min-width:0, so the row absorbs the squeeze by ellipsising the name.
+
+   The one thing that genuinely cannot shrink is the header's name cell: it is
+   white-space:nowrap and carries "N online / M idle", which is wider than the
+   name column itself on a phone and would push the whole header out. So the
+   badge is what stands down — a nice-to-have, not a column. */
 @media screen and (max-width: ${NARROW_PX}px) {
-  .members-cont [class*="points___"] { display: none !important; }
+  .${MEMBER_COUNT_CLASS} { display: none !important; }
 }
 
 .${MEMBER_COUNT_CLASS} {
