@@ -34,15 +34,78 @@ from `VERSION` at runtime) both surface it automatically.
   Status header sorts by how soon each member is attackable. Rows are permuted
   with flexbox `order` rather than moved, so the sort survives Torn re-rendering
   the list.
+- **Userscript: a Warline-style online/idle count on the "Members" header**, on
+  both factions' tables. Same look as the standalone Warline script (green
+  pill, no offline count), but sourced from War Room's own live state instead
+  of scraping Torn's status dots, since we already poll it for tint and status.
+  Toggleable in Settings, on by default.
 
 ### Changed
+- **Userscript: the panel opens from a "Torn War Room" link in Torn's own page
+  title**, beside Faction Warfare / Forum / Leave Faction, instead of a floating
+  dot in the bottom-left corner. The amber/green connectivity light rides along
+  as the link's icon, so one element is both the way in and the health readout,
+  and the panel opens anchored under it rather than across the page. The link is
+  re-checked each render pass, since Torn re-renders the page title on
+  navigation and would otherwise drop it.
 - **Userscript: the Attack column is renamed "Atk" and narrowed to 30px**, header
   included — the data cells already did this per row; the header now matches.
+- **Userscript: the Level header is renamed "Lv" and Members "Name"**, on both
+  factions' tables. "Level" was the widest label on a column that only ever
+  holds a 2-3 digit number; "Name" says what the column holds in half the
+  width, and the width it gives back is where the online/idle badge sits.
 - **Userscript: the BS header reads centered**, rather than right-aligned like
   the numbers underneath it.
-- **Userscript: the TNL column narrows 92px → 88px.**
+- **Userscript: the battle-stat column moves to sit between Level and Score**,
+  split out from the Dibs badge, which stays where it was — immediately before
+  Attack. BS is a read-first, decision-relevant number; Dibs is a click, and
+  belongs next to the other click. Each is now its own cell (48px / 46px)
+  instead of two halves sharing one 100px box.
+- **Userscript: the battle-stat badge's border sits a little further from the
+  number** (2px/5px padding, up from 1px/3px), so it reads as a box around the
+  text rather than a line hugging it. The cell's own outer padding was trimmed
+  to make room (4px → 2px a side) so the wider badge padding doesn't cost the
+  column any net width.
 
 ### Fixed
+- **Userscript: rows wrapped onto a second line, and the header disagreed with
+  the rows about the column order** — BS sat before Score in the header but
+  after it in every row, from the same markup. One cause for both: Torn lays
+  its cells out with floats (they carry a `left` class), the cells this script
+  injects are not floated, and non-floated content does not sit in DOM order
+  relative to floats — it flows around them. A float row therefore ignored
+  where our BS cell actually was, and overflow wrapped to a new line instead
+  of overflowing. Sorting appeared to fix it only because the sort's `order`
+  permutation forced the row list into flex as a side effect — which is also
+  why the header, which sorting never touches, stayed wrong. The header, the
+  list and each row are now all flex: one layout model, DOM order honoured
+  everywhere, nothing needing a sort click to render.
+- **Userscript: the online/idle badge no longer drops to a second line** in the
+  name header — its cell keeps the label, the sort arrow and the badge on one
+  line rather than stacking them.
+- **Userscript: removed the -46px name-column reclaim.** It existed to close a
+  hole the float layout could not reabsorb when the status dot and faction tag
+  were hidden; under flex the name column is `flex: 1 1 auto` and takes that
+  space by itself, and a negative margin would now drag the next column into
+  an overlap instead.
+- **Userscript: the battle-stat badge didn't wrap its own text, and clipped at
+  the top.** Its green fair-fight border lived on the flex slot, which was
+  stretched to the full row height (`align-self: stretch`) — so the border
+  drew a box the height of the whole row around one line of 11px text, and any
+  mismatch between that forced height and Torn's actual row height clipped it.
+  Moved the border onto the text span itself, sized to its own content with a
+  little padding, so it can't be taller than what it wraps.
+- **Userscript: missing dividers between Level/Score and Score/Status.** Same
+  root cause as the Attack divider below — the box-sizing reset's `border: 0
+  !important` wiped out hairlines Torn's own cells carried. Score and Status
+  now draw their own `border-left` in the same rule as the reset.
+- **Userscript: the Attack column's left divider had gone missing.** The
+  box-sizing fix for resized columns reset `.attack`'s `border` to `0
+  !important` for width-accounting reasons; that shorthand silently wiped out
+  the *separate*, non-`!important` `border-left` rule that drew the divider,
+  regardless of which was declared first — an `!important` shorthand always
+  wins over a plain longhand. Folded the hairline into the same box-sizing
+  rule, after the reset, so it can't be clobbered by it again.
 - **Userscript: a blank gap between Level and Score, only when name tinting is
   on.** Torn's war-list markup confirmed the actual cause: our forced `width`
   on Level/Score/Status/Attack only sets the *content* width, and Torn's own
