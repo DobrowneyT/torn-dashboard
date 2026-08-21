@@ -1786,6 +1786,94 @@ describe('the panel shows which version is running', () => {
   })
 })
 
+describe('the battle-stat total is a real link, not a click handler', () => {
+  // Middle-click, ctrl/cmd-click, "open in new tab" and the status-bar URL
+  // preview are the browser's to give, and it only offers them on an <a href>.
+  // A <span> with a click handler gets middle-click AUTOSCROLL instead.
+  const fakeSlot = () => ({
+    dataset: {}, style: {}, children: [],
+    querySelector() { return this.children[0] ?? null },
+    appendChild(c) { this.children.push(c); return c },
+  })
+
+  describe('attackLinkAttrs', () => {
+    it('is everything the anchor needs, for a real player', () => {
+      expect(S.attackLinkAttrs(2569218)).toEqual({
+        href: 'https://www.torn.com/page.php?sid=attack&user2ID=2569218',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      })
+    })
+
+    it('carries noopener AND noreferrer, since it opens in a new tab', () => {
+      // noopener denies the new tab a window.opener handle back to the war page;
+      // without it that tab can navigate this one. noreferrer keeps Torn from
+      // being told which page the click came from.
+      const rel = S.attackLinkAttrs(1).rel.split(' ')
+      expect(rel).toContain('noopener')
+      expect(rel).toContain('noreferrer')
+    })
+
+    it('is null for an id that is not a player, so no href is written', () => {
+      for (const bad of [0, -5, NaN, null, undefined, 'abc']) {
+        expect(S.attackLinkAttrs(bad)).toBeNull()
+      }
+    })
+  })
+
+  it('builds an <a> carrying the attack URL', () => {
+    const { S: s, created } = loadWithDom()
+    const el = s.statValueOf(fakeSlot(), 2569218)
+    expect(created.at(-1).tagName).toBe('a')
+    expect(el.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=2569218')
+    expect(el.target).toBe('_blank')
+    expect(el.rel).toBe('noopener noreferrer')
+  })
+
+  it('⚠️ never calls preventDefault on the click', () => {
+    // This is the whole bug. The old handler did preventDefault + window.open,
+    // which works for a plain left click and silently breaks every other way of
+    // opening a link. Navigation has to stay the anchor's own default action.
+    const { S: s } = loadWithDom()
+    const el = s.statValueOf(fakeSlot(), 2569218)
+    let prevented = false
+    let propagationStopped = false
+    for (const fn of el.listeners.click) {
+      fn({ preventDefault: () => { prevented = true }, stopPropagation: () => { propagationStopped = true } })
+    }
+    expect(prevented).toBe(false)
+    // Still kept off Torn's own row handler, which is what stopPropagation was for.
+    expect(propagationStopped).toBe(true)
+  })
+
+  it('repoints the href when the row is reused for another member', () => {
+    // Torn recycles rows, so a stale href would send the attack at whoever
+    // happened to occupy that row last.
+    const { S: s } = loadWithDom()
+    const slot = fakeSlot()
+    s.statValueOf(slot, 111)
+    const el = s.statValueOf(slot, 222)
+    expect(el.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=222')
+    expect(el.dataset.tnlTarget).toBe('222')
+  })
+
+  it('drops the href rather than linking nowhere when the id is unusable', () => {
+    const { S: s } = loadWithDom()
+    const slot = fakeSlot()
+    s.statValueOf(slot, 111)
+    const el = s.statValueOf(slot, 0)
+    expect(el.href).toBeUndefined()
+  })
+
+  it('does not restyle itself as one of Torn’s links before the paint lands', () => {
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const sheet = appended[0].textContent
+    const rule = sheet.slice(sheet.indexOf('.tnl-col-bsv {'))
+    expect(rule.slice(0, rule.indexOf('}'))).toMatch(/text-decoration: none/)
+  })
+})
+
 describe('rowState', () => {
   it('keeps every field memberState() writes, plus the travel latch', () => {
     // ⚠️ travel_departed_at is a COLUMN, not part of the state jsonb — the
@@ -1874,7 +1962,14 @@ function loadWithDom() {
     getElementById: () => null,
     querySelectorAll: () => [],
     createElement: (tag) => {
-      const el = { tagName: tag, style: {}, dataset: {}, classList: { add() {}, remove() {} } }
+      const el = {
+        tagName: tag, style: {}, dataset: {}, classList: { add() {}, remove() {} },
+        children: [], listeners: {},
+        addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) },
+        appendChild(child) { this.children.push(child); return child },
+        querySelector: () => null,
+        removeAttribute(name) { delete this[name] },
+      }
       created.push(el)
       return el
     },

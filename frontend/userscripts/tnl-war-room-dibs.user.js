@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.32.0
+// @version      1.33.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -987,8 +987,11 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
 .${COL_HEAD_CLASS} { font-weight: 700; opacity: .85; }
 /* The label centres; the numbers below it stay right-aligned. */
 .${COL_HEAD_CLASS}.${BS_CLASS} { justify-content: center; text-align: center; }
-/* The FF border hugs the number, not the row height, or it clips. */
+/* The FF border hugs the number, not the row height, or it clips.
+   This is an <a>, so it starts from Torn's link colour and underline until
+   paintStats writes the real ones inline — these keep that off the screen. */
 .${STAT_VALUE_CLASS} {
+  color: inherit; text-decoration: none;
   display: inline-block; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   cursor: pointer;
@@ -1177,12 +1180,11 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return Boolean(node?.closest?.(`.${DIBS_CLASS}, .${BS_CLASS}, #${STYLE_ID}, #${LAUNCHER_ID}`))
   }
 
-  function slot(parent, cls, text) {
+  function slot(parent, cls, tag = 'span') {
     let el = parent.querySelector(`.${cls}`)
     if (el) return el
-    el = document.createElement('span')
+    el = document.createElement(tag)
     el.className = cls
-    if (text) el.textContent = text
     parent.appendChild(el)
     return el
   }
@@ -1228,7 +1230,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (!bsCell) {
       bsCell = document.createElement(row.tagName.toLowerCase() === 'li' ? 'span' : 'div')
       bsCell.className = `table-cell ${BS_CLASS}`
-      slot(bsCell, STAT_VALUE_CLASS)
+      slot(bsCell, STAT_VALUE_CLASS, 'a')
       const score = scoreCellOf(row)
       if (score) score.parentNode.insertBefore(bsCell, score)
       else row.insertBefore(bsCell, row.querySelector('.clear'))
@@ -1316,23 +1318,35 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (el) el.style.display = 'none'
   }
 
+  /**
+   * What makes the total a real link rather than a click handler.
+   *
+   * noopener denies the new tab a handle back to this one; noreferrer keeps
+   * Torn from being told which page the click came from.
+   */
+  function attackLinkAttrs(playerId) {
+    const href = attackUrl(playerId)
+    return href ? { href, target: '_blank', rel: 'noopener noreferrer' } : null
+  }
+
   function statValueOf(slotEl, playerId) {
     let v = slotEl.querySelector(`.${STAT_VALUE_CLASS}`)
     if (!v) {
-      v = document.createElement('span')
+      // An <a>, never a <span>. Middle-click, ctrl/cmd-click, "open in new tab"
+      // and the status-bar URL preview are all the browser's to give, and it
+      // only offers them on a real link — a span with a click handler gets
+      // middle-click autoscroll instead, which is the wrong gesture entirely.
+      v = document.createElement('a')
       v.className = STAT_VALUE_CLASS
       slotEl.appendChild(v)
     }
     // Bound once per row, never per poll.
     if (!v.dataset.tnlAtk) {
       v.dataset.tnlAtk = '1'
-      // Clicking the total opens the attack page, as Wall Battlestats does.
-      v.addEventListener('click', (e) => {
-        const url = attackUrl(Number(v.dataset.tnlTarget))
-        if (!url) return
-        e.preventDefault(); e.stopPropagation()
-        window.open(url, '_blank', 'noopener')
-      })
+      // Only to keep the click off Torn's row handler. Opening the page is the
+      // anchor's own default action and is deliberately left alone — calling
+      // preventDefault here is what would take middle-click away again.
+      v.addEventListener('click', (e) => e.stopPropagation())
       const move = (e) => {
         const tip = slotEl.dataset.tnlTip
         if (tip) showTip(tip, e.clientX, e.clientY)
@@ -1341,7 +1355,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       v.addEventListener('mousemove', move)
       v.addEventListener('mouseleave', hideTip)
     }
-    v.dataset.tnlTarget = String(playerId)
+    const id = String(playerId)
+    if (v.dataset.tnlTarget !== id) {
+      v.dataset.tnlTarget = id
+      const attrs = attackLinkAttrs(playerId)
+      if (attrs) Object.assign(v, attrs)
+      else v.removeAttribute('href')
+    }
     return v
   }
 
@@ -2243,7 +2263,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
     tallyActivity, countLabel, countTooltip,
     statusView, statusSortValue, sortEntries, nextSort, rowState, isTornSortHeader,
-    versionLabel, scriptVersion,
+    versionLabel, scriptVersion, attackLinkAttrs, statValueOf,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
     SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT,
     SETTING_MEMBER_COUNT, DEBUG_KEY,
