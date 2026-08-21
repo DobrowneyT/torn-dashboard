@@ -50,6 +50,44 @@ export function remotePruneArgs(remote, retentionDays) {
 }
 
 /**
+ * rclone argv for collecting the hidden versions B2 keeps behind our prune
+ * (#510). Deleting a file on B2 does not free its bytes — a hidden version
+ * remains until a lifecycle rule or an explicit cleanup collects it, and
+ * nothing here ever did: 3 GiB of the 9.34 GiB billed was deleted files.
+ *
+ * ⚠️ `cleanup` is bucket-wide — it takes no --include, so unlike
+ * remotePruneArgs() it cannot be scoped to our own archives. It only ever
+ * removes SUPERSEDED and hidden versions, never a current file, so the blast
+ * radius is old copies of whatever shares the bucket. That is acceptable here
+ * only because this bucket holds database dumps and nothing else, which is
+ * also why the issue says never to put public files in it.
+ */
+export function remoteCleanupArgs(remote) {
+  return ['cleanup', remote]
+}
+
+/**
+ * Does this faction already have an archive inside `withinHours` of `now`?
+ *
+ * The deploy-day volume fix (#510): a deploy dumps every database twice, once
+ * from update.sh (the rollback path — always runs) and again when the restarted
+ * sidecar starts. This is what lets the second one stand down.
+ *
+ * Compares on the NEWEST matching archive and treats a future-dated one as
+ * fresh, so clock skew between the box and a restored volume can only ever
+ * cause one dump too few, never a spurious extra one.
+ */
+export function hasFreshBackup(names, slug, now, withinHours) {
+  const windowMs = withinHours * 60 * 60 * 1000
+  for (const name of names) {
+    const { slug: found, at } = parseBackup(name)
+    if (at === null || found !== slug) continue
+    if (now.getTime() - at.getTime() < windowMs) return true
+  }
+  return false
+}
+
+/**
  * Names to prune: our archives strictly older than `retentionDays` before
  * `now`. Non-archive files are never selected. The boundary day is kept.
  */
@@ -91,8 +129,9 @@ export function rcloneFlags() {
  * is exactly the kind of quiet half-failure that only surfaces when you need
  * the backup.
  */
-export function summarize({ archived, uploadFailures, pruned, retentionDays, remote }) {
+export function summarize({ archived, uploadFailures, pruned, retentionDays, remote, skipped = 0 }) {
   const parts = [`${archived} archived`]
+  if (skipped > 0) parts.push(`${skipped} already fresh`)
   if (remote) {
     parts.push(uploadFailures === 0
       ? `${archived} uploaded`

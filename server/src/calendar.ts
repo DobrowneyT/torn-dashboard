@@ -110,7 +110,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
           `SELECT b.member_id, b.birth_month, b.birth_day, b.birth_year, m.member_name
              FROM member_birthdays b
              LEFT JOIN members m ON m.member_id = b.member_id
-            WHERE m.is_current IS DISTINCT FROM false`
+            WHERE m.is_current IS DISTINCT FROM false AND m.is_fallen = false`
         ),
         // Torn account anniversaries, derived from the profile blob we already
         // snapshot daily — no new scraping, and no new consent surface, because
@@ -121,7 +121,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
              FROM members m
              JOIN member_daily_stats s
                ON s.member_id = m.member_id AND s.profile ? 'signup'
-            WHERE m.is_current = true
+            WHERE m.is_current = true AND m.is_fallen = false
             ORDER BY m.member_id, s.snapshot_date DESC`
         ),
         // Steadfast magnitudes (#395/#458).
@@ -157,7 +157,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
           `SELECT e.member_id, m.member_name, e.start_time, e.fetched_at
              FROM member_event_settings e
              JOIN members m ON m.member_id = e.member_id
-            WHERE m.is_current = true
+            WHERE m.is_current = true AND m.is_fallen = false
             ORDER BY m.member_name`
         ),
       ])

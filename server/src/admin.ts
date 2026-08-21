@@ -242,7 +242,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
        SELECT m.member_id, m.member_name, NULL, NULL, NULL, NULL, false, NULL,
               NULL, NULL, true AS missing
        FROM members m
-       WHERE m.is_current = true
+       WHERE m.is_current = true AND m.is_fallen = false
          AND NOT EXISTS (SELECT 1 FROM member_secrets s WHERE s.member_id = m.member_id)
        ORDER BY member_id`
     )

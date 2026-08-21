@@ -41,7 +41,9 @@ async function fetchLiveCrimes(deps: OcDeps): Promise<
 async function fetchRoster(db: pg.Pool) {
   const res = await db.query(`
     SELECT member_id, member_name, tier, tier_override, is_current
-    FROM members ORDER BY member_id
+    -- Past members are kept (callers read is_current for history); Fallen
+    -- accounts are not — they can never fill an OC slot.
+    FROM members WHERE is_fallen = false ORDER BY member_id
   `)
   return res.rows
 }
@@ -313,7 +315,7 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
                 c.last_seen_at AS updated_at, c.observation_count
            FROM member_cpr_v2 c
            JOIN members m ON m.member_id = c.member_id
-          WHERE c.crime_name = $1 AND m.is_current = true`,
+          WHERE c.crime_name = $1 AND m.is_current = true AND m.is_fallen = false`,
         [scenario]
       )
 
@@ -343,7 +345,7 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       }
 
       const currentMembers = await deps.db.query(
-        'SELECT count(*)::int AS n FROM members WHERE is_current = true'
+        'SELECT count(*)::int AS n FROM members WHERE is_current = true AND is_fallen = false'
       )
 
       return {

@@ -1492,6 +1492,52 @@ describe('activityTone', () => {
   })
 })
 
+// ── The online/idle counter (#531) ─────────────────────────────────────────
+//
+// ⚠️ Counted from the ROSTER, never from the rendered rows. A DOM scrape only
+// ever sees what Torn has painted, so it silently undercounts anything
+// paginated, virtualised or collapsed — which is the whole reason #531 says to
+// take Warline's interface but not its implementation. The first cut of this
+// walked `list.children` and had exactly that bug.
+describe('tallyActivity', () => {
+  const on = { last_action: { status: 'Online' } }
+  const idle = { last_action: { status: 'Idle' } }
+  const off = { last_action: { status: 'Offline' } }
+
+  it('counts all three states across the roster', () => {
+    expect(S.tallyActivity([on, on, idle, off, off, off]))
+      .toEqual({ online: 2, idle: 1, offline: 3 })
+  })
+
+  it('keeps the offline count the badge itself does not show', () => {
+    // The label is "N online / M idle", but the tooltip gives the full
+    // breakdown — so offline has to be tallied even though it is never
+    // the headline.
+    expect(S.tallyActivity([off, off]).offline).toBe(2)
+  })
+
+  it('ignores members Torn told us nothing about', () => {
+    expect(S.tallyActivity([on, { last_action: {} }, null, undefined]))
+      .toEqual({ online: 1, idle: 0, offline: 0 })
+  })
+
+  it('is all zeroes for an empty roster', () => {
+    expect(S.tallyActivity([])).toEqual({ online: 0, idle: 0, offline: 0 })
+  })
+})
+
+describe('countLabel / countTooltip', () => {
+  it('leads with online and mentions idle only when there is some', () => {
+    expect(S.countLabel({ online: 12, idle: 3, offline: 47 })).toBe('12 online / 3 idle')
+    expect(S.countLabel({ online: 12, idle: 0, offline: 47 })).toBe('12 online')
+  })
+
+  it('gives the full breakdown, offline included, in the tooltip', () => {
+    expect(S.countTooltip({ online: 12, idle: 3, offline: 47 }))
+      .toBe('12 online, 3 idle, 47 offline')
+  })
+})
+
 describe('reviveAudience', () => {
   it('separates a revive we can buy from one only their faction can do', () => {
     expect(S.reviveAudience({ is_revivable: true, revive_setting: 'Everyone' })).toBe('anyone')
@@ -1677,6 +1723,69 @@ describe('nextSort', () => {
   })
 })
 
+describe('a click on one of Torn\u2019s own sort headers releases ours', () => {
+  // We permute with flex `order`, which beats DOM order outright, so a list left
+  // under our sort ignores Torn's reordering entirely \u2014 its arrow moves and no
+  // row does. The sort has to be handed back when Torn's own header is clicked.
+  const cell = (classes, hasSortIcon) => ({
+    classList: { contains: (c) => classes.includes(c) },
+    querySelector: (sel) => (hasSortIcon && sel.includes('sortIcon') ? {} : null),
+  })
+
+  it('claims Torn\u2019s sortable headers \u2014 Name, Level, Score', () => {
+    expect(S.isTornSortHeader(cell(['member', 'left'], true))).toBe(true)
+    expect(S.isTornSortHeader(cell(['level', 'left'], true))).toBe(true)
+    expect(S.isTornSortHeader(cell(['points', 'left'], true))).toBe(true)
+  })
+
+  it('leaves our own headers alone, or clicking BS would clear the sort it just set', () => {
+    // Our Status header is Torn's cell with our class added, so it keeps the
+    // sortIcon \u2014 the marker class is what has to decide, not the icon.
+    expect(S.isTornSortHeader(cell(['status', 'tnl-sort'], true))).toBe(false)
+    expect(S.isTornSortHeader(cell(['tnl-col-bs', 'tnl-sort'], false))).toBe(false)
+  })
+
+  it('ignores a header cell that sorts nothing, like Attack or our DIBS column', () => {
+    expect(S.isTornSortHeader(cell(['attack', 'left'], false))).toBe(false)
+    expect(S.isTornSortHeader(cell(['tnl-col-dibs'], false))).toBe(false)
+  })
+
+  it('ignores a click that landed outside any header cell', () => {
+    expect(S.isTornSortHeader(null)).toBe(false)
+    expect(S.isTornSortHeader(undefined)).toBe(false)
+  })
+})
+
+describe('the panel shows which version is running', () => {
+  it('prefixes a v, the way the dashboard footer does', () => {
+    expect(S.versionLabel('1.32.0')).toBe('v1.32.0')
+    expect(S.versionLabel('  1.32.0  ')).toBe('v1.32.0')
+  })
+
+  it('says nothing rather than something wrong when there is no version', () => {
+    // Tampermonkey always supplies one, but the test seam and a hand-pasted
+    // copy of the file do not \u2014 "vundefined" in the panel is worse than a
+    // panel with no version in it at all.
+    expect(S.versionLabel(undefined)).toBeNull()
+    expect(S.versionLabel(null)).toBeNull()
+    expect(S.versionLabel('')).toBeNull()
+    expect(S.versionLabel('   ')).toBeNull()
+    expect(S.versionLabel(1.32)).toBeNull()
+  })
+
+  it('reads GM_info, and survives its absence', () => {
+    expect(S.scriptVersion()).toBeNull()
+  })
+
+  it('is the version the file actually declares', () => {
+    // Bumping @version without the CHANGELOG is the usual slip; this at least
+    // keeps the panel honest about the file it came from.
+    const declared = source.match(/^\/\/ @version\s+(\S+)$/m)?.[1]
+    expect(declared).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(S.versionLabel(declared)).toBe(`v${declared}`)
+  })
+})
+
 describe('rowState', () => {
   it('keeps every field memberState() writes, plus the travel latch', () => {
     // ⚠️ travel_departed_at is a COLUMN, not part of the state jsonb — the
@@ -1825,7 +1934,28 @@ describe('injectStyles', () => {
     const sheet = appended[0].textContent
     expect(sheet).toMatch(/\.white-grad[^{]*\{[^}]*display: flex/)
     expect(sheet).toMatch(/ul\.members-list,[^{]*\{[^}]*display: flex/)
-    expect(sheet).toMatch(/ul\.members-list > li,[^{]*\{[^}]*display: flex/)
+    expect(sheet).toMatch(/ul\.members-list > li[^,{]*,[^{]*\{[^}]*display: flex/)
+  })
+
+  it('⚠️ never un-hides a row TornTools has filtered out', () => {
+    // TornTools is a browser extension a lot of players run; its Ranked War
+    // Filter hides rows with .tt-hidden on the <li>. Our row rule targets the
+    // same element and is MORE specific (ul.members-list > li = 0,1,2 vs their
+    // 0,1,0), so at equal !important an unqualified display:flex wins and
+    // their filter silently does nothing while our script is on. The :not()
+    // is what keeps their rule the only one in play for a filtered row.
+    const { S: s, appended } = loadWithDom()
+    s.injectStyles()
+    const sheet = appended[0].textContent
+    // Anchored to line start: the explanatory comment above the rule names the
+    // same selector, and a bare indexOf finds the prose instead of the CSS.
+    const rowRule = sheet.slice(sheet.indexOf('\nul.members-list > li') + 1)
+    const selector = rowRule.slice(0, rowRule.indexOf('{'))
+    expect(selector).toContain(':not(.tt-hidden)')
+    // Both halves, or the .table-body variant leaks through unqualified.
+    const parts = selector.split(',').filter(p => p.trim())
+    expect(parts).toHaveLength(2)
+    for (const part of parts) expect(part, part).toContain(':not(.tt-hidden)')
   })
 })
 
@@ -2054,6 +2184,42 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
 
   it('hides the whole battle-stat column, header included, when it is off', () => {
     expect(css()).toMatch(/tnl-no-bs[\s\S]*?display: none/)
+  })
+
+  it('⚠️ a narrow screen hides NOTHING — not a column, not the badge', () => {
+    // Three earlier versions of this rule dropped something on phones: BS,
+    // then Score, then the badge. All were the float layout's reasoning, where
+    // a row that did not fit wrapped. Under flex the name column is
+    // flex:1 1 auto with min-width:0, so the row absorbs the squeeze by
+    // ellipsising the name and everything survives.
+    const sheet = css()
+    const media = sheet.slice(sheet.indexOf('@media screen and (max-width:'))
+    // The badge itself is never display:none — only the WORDS inside it are,
+    // which is what turns "3 online / 8 idle" into "3 / 8".
+    expect(media).toMatch(/\.tnl-member-count \.tnl-mc-word \{ display: none/)
+    expect(media).not.toMatch(/\.tnl-member-count \{[^}]*display: none/)
+    // Colour replaces the words it drops.
+    expect(media).toMatch(/tnl-mc-on \{ color:/)
+    expect(media).toMatch(/tnl-mc-idle \{ color:/)
+    // Data columns appear only to be NARROWED, never hidden.
+    for (const col of ['tnl-col-bs', 'points___', 'tnl-col-dibs', 'level___', 'status']) {
+      const rule = new RegExp(`${col}[^{]*\\{[^}]*display: none`)
+      expect(media, `${col} must not be hidden`).not.toMatch(rule)
+    }
+    expect(media).toMatch(/tnl-col-bs \{ width: \d+px/)
+  })
+
+  it('⚠️ declares the badge BEFORE the media query that compacts it', () => {
+    // Same selector, same specificity, no !important — so source order is the
+    // only thing deciding which padding/font-size wins. Emitted the other way
+    // round (as it first was), the base rule silently overrides the compact
+    // one and the badge stays full-size on a phone.
+    const sheet = css()
+    const base = sheet.indexOf('.tnl-member-count {')
+    const query = sheet.indexOf('@media screen and (max-width:')
+    expect(base).toBeGreaterThan(-1)
+    expect(query).toBeGreaterThan(-1)
+    expect(base).toBeLessThan(query)
   })
 
   it('draws the column separators', () => {

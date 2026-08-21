@@ -113,7 +113,10 @@ export async function membersSyncJob(deps: JobDeps): Promise<RunResult> {
   if (!claimed) throw new Error('no pooled key available')
 
   const data = await client.fetch('/v2/faction/members', claimed.key)
-  const roster: Array<{ id: number; name: string; days_in_faction?: number }> = data.members ?? []
+  const roster: Array<{
+    id: number; name: string; days_in_faction?: number
+    status?: { state?: string } | null
+  }> = data.members ?? []
   if (roster.length === 0) throw new Error('Torn returned an empty roster — refusing to mark everyone as left')
 
   const dbc = await db.connect()
@@ -130,14 +133,20 @@ export async function membersSyncJob(deps: JobDeps): Promise<RunResult> {
       `UPDATE members SET is_current = false, last_seen = now() WHERE is_current = true`
     )
     for (const m of roster) {
+      // Torn preserves the account of a player who has died — status "Fallen",
+      // described as "Resting in Peace". They stay on the roster indefinitely
+      // (which is how a faction exceeds 100 members), so is_current stays true
+      // and their stint history is left intact; is_fallen is what every member
+      // listing, stat and scrape filters on instead.
       await dbc.query(
-        `INSERT INTO members (member_id, member_name, total_days_in_faction, is_current, last_seen, updated_at)
-         VALUES ($1, $2, $3, true, now(), now())
+        `INSERT INTO members (member_id, member_name, total_days_in_faction, is_current, is_fallen, last_seen, updated_at)
+         VALUES ($1, $2, $3, true, $4, now(), now())
          ON CONFLICT (member_id) DO UPDATE SET
            member_name = EXCLUDED.member_name,
            total_days_in_faction = EXCLUDED.total_days_in_faction,
-           is_current = true, last_seen = now(), updated_at = now()`,
-        [String(m.id), m.name, m.days_in_faction ?? null]
+           is_current = true, is_fallen = EXCLUDED.is_fallen,
+           last_seen = now(), updated_at = now()`,
+        [String(m.id), m.name, m.days_in_faction ?? null, m.status?.state === 'Fallen']
       )
     }
 
