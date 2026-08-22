@@ -18,6 +18,27 @@ surface it automatically.
 
 ---
 
+## [3.51.0] - 2026-08-22
+
+### Added
+- **Userscript: a name is already a link to the profile — it now opens in a
+  new tab (#547).** Torn wraps the whole honor-bar name (and the plain-text
+  twin our activity tint reveals) in its own `<a href="/profiles.php?...">`
+  already; nothing needed building. The only change is `target="_blank"`, so
+  checking someone's profile mid-war doesn't lose your place in the list.
+  Colour is untouched — this only changes where the click goes.
+- **Userscript: a Feedback button, posting through the same endpoint the
+  dashboard's own Feedback modal uses.** Bug or suggestion, title and
+  description, same 200/5000-character limits and same GitHub-issue pipeline
+  server-side — no new API surface, just a client for what already exists.
+
+### Fixed
+- **Userscript: the two war tables sort independently.** Sorting the enemy
+  table by BS no longer silently reorders our own faction's table too (and
+  vice versa) — each `<ul>` now carries its own `{key, dir}` instead of one
+  shared globally. Releasing one table's sort (by clicking one of Torn's own
+  headers) no longer clears the other table's sort either.
+
 ## [3.50.2] - 2026-08-22
 
 ### Fixed

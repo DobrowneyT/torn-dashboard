@@ -2131,6 +2131,147 @@ describe('checkDibsHospitalAlerts / checkChainAlert do not throw with no DOM', (
   })
 })
 
+describe('each war table sorts independently (#547)', () => {
+  const fakeRow = (id) => ({
+    dataset: {}, style: {},
+    querySelector: (sel) => (sel.includes('profiles.php')
+      ? { getAttribute: () => `/profiles.php?XID=${id}` }
+      : null),
+  })
+  const fakeList = (ids) => ({ children: ids.map(fakeRow), dataset: {} })
+
+  it('sorting one list by BS leaves an unrelated list’s row order untouched', () => {
+    const { S: s } = loadWithDom()
+    const listA = fakeList([1, 2, 3])
+    const listB = fakeList([4, 5, 6])
+    const stats = s.statsIndex()
+    stats.set(1, { total: 10 }); stats.set(2, { total: 30 }); stats.set(3, { total: 20 })
+
+    s.sortStateIndex().set(listA, { key: 'bs', dir: -1 })
+    s.orderList(listA, Date.now())
+    s.orderList(listB, Date.now())
+
+    // listA: descending by total → 2 (30), 3 (20), 1 (10) → slots 1,2,3 in that order.
+    expect(listA.children.map((r) => r.style.order)).toEqual(['3', '1', '2'])
+    // listB was never given a sort state — untouched.
+    expect(listB.children.every((r) => !r.style.order)).toBe(true)
+  })
+
+  it('two lists can each hold a different active sort at the same time', () => {
+    const { S: s } = loadWithDom()
+    const listA = fakeList([1, 2])
+    const listB = fakeList([3, 4])
+    s.sortStateIndex().set(listA, { key: 'bs', dir: -1 })
+    s.sortStateIndex().set(listB, { key: 'status', dir: 1 })
+    expect(s.sortStateIndex().get(listA).key).toBe('bs')
+    expect(s.sortStateIndex().get(listB).key).toBe('status')
+  })
+
+  it('clearing one list’s sort does not touch the other’s', () => {
+    const { S: s } = loadWithDom()
+    const listA = fakeList([1, 2, 3])
+    const listB = fakeList([4, 5, 6])
+    const stats = s.statsIndex()
+    stats.set(1, { total: 10 }); stats.set(2, { total: 30 }); stats.set(3, { total: 20 })
+    stats.set(4, { total: 1 }); stats.set(5, { total: 3 }); stats.set(6, { total: 2 })
+
+    s.sortStateIndex().set(listA, { key: 'bs', dir: -1 })
+    s.sortStateIndex().set(listB, { key: 'bs', dir: -1 })
+    s.orderList(listA, Date.now())
+    s.orderList(listB, Date.now())
+
+    // Release A only.
+    s.sortStateIndex().set(listA, { key: null, dir: 0 })
+    s.orderList(listA, Date.now())
+    s.orderList(listB, Date.now())
+
+    expect(listA.children.every((r) => !r.style.order)).toBe(true)
+    // B keeps its own order — same shape sort as A had, unaffected by A's release.
+    expect(listB.children.map((r) => r.style.order)).toEqual(['3', '1', '2'])
+  })
+})
+
+describe('submitFeedback (#547) — same endpoint the dashboard’s Feedback modal posts to', () => {
+  it('rejects an empty title without making a request', async () => {
+    const { S: s, calls } = loadScript()
+    s.setSession({ userId: '5', host: 'x', token: 't' })
+    const res = await s.submitFeedback('bug', '   ', 'desc')
+    expect(res.ok).toBe(false)
+    expect(res.message).toMatch(/title/i)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('rejects a title over the server’s own 200-char limit, client-side', () => {
+    const { S: s } = loadScript()
+    expect(s.FEEDBACK_TITLE_MAX).toBe(200)
+    expect(s.FEEDBACK_DESC_MAX).toBe(5000)
+  })
+
+  it('rejects an over-length title before sending', async () => {
+    const { S: s, calls } = loadScript()
+    s.setSession({ userId: '5', host: 'x', token: 't' })
+    const res = await s.submitFeedback('bug', 'x'.repeat(201), '')
+    expect(res.ok).toBe(false)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('rejects an over-length description before sending', async () => {
+    const { S: s, calls } = loadScript()
+    s.setSession({ userId: '5', host: 'x', token: 't' })
+    const res = await s.submitFeedback('bug', 'ok', 'x'.repeat(5001))
+    expect(res.ok).toBe(false)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('posts to /api/feedback with the category, title, description and running version', async () => {
+    const { S: s, calls } = loadScript({
+      routes: { '/api/feedback': { status: 200, body: { url: 'https://github.com/x/y/issues/9', number: 9 } } },
+    })
+    s.setSession({ userId: '5', host: 'x', token: 't' })
+    const res = await s.submitFeedback('suggestion', 'Make names clickable', 'Please')
+    expect(res.ok).toBe(true)
+    expect(res.number).toBe(9)
+    const call = calls.find((c) => c.url.includes('/api/feedback'))
+    expect(call.method).toBe('POST')
+    const body = JSON.parse(call.data)
+    expect(body).toMatchObject({ category: 'suggestion', title: 'Make names clickable', description: 'Please' })
+    expect(body.app_version).toBeDefined()
+  })
+
+  it('surfaces the server error on a non-200, e.g. the rate limit', async () => {
+    const { S: s } = loadScript({
+      routes: { '/api/feedback': { status: 429, body: { error: 'Too many feedback submissions — please try again in a bit.' } } },
+    })
+    s.setSession({ userId: '5', host: 'x', token: 't' })
+    const res = await s.submitFeedback('bug', 'ok', '')
+    expect(res.ok).toBe(false)
+    expect(res.message).toContain('Too many')
+  })
+})
+
+describe('openNameInNewTab (#547)', () => {
+  it('sets target=_blank on Torn’s own profile link', () => {
+    const a = { target: '' }
+    S.openNameInNewTab(a)
+    expect(a.target).toBe('_blank')
+  })
+
+  it('never touches anything else on the anchor — no colour, no href, no rel', () => {
+    const a = { target: '', href: '/profiles.php?XID=39773', rel: 'noopener noreferrer', style: { color: 'red' } }
+    S.openNameInNewTab(a)
+    expect(a.href).toBe('/profiles.php?XID=39773')
+    expect(a.rel).toBe('noopener noreferrer')
+    expect(a.style.color).toBe('red')
+  })
+
+  it('is idempotent — a second call does not re-assign', () => {
+    let writes = 0
+    const a = { _target: '_blank', get target() { return this._target }, set target(v) { writes++; this._target = v } }
+    S.openNameInNewTab(a)
+    expect(writes).toBe(0)
+  })
+})
+
 describe('rowState', () => {
   it('keeps every field memberState() writes, plus the travel latch', () => {
     // ⚠️ travel_departed_at is a COLUMN, not part of the state jsonb — the
