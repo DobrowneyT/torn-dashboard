@@ -15,7 +15,29 @@ from `VERSION` at runtime) both surface it automatically.
 
 ---
 
-## [Unreleased]
+## [3.48.0] - 2026-08-21
+
+### Added
+- **Userscript: a persistent chain widget on the faction page (#524).** A badge
+  beside the launcher shows the live hit count and a 1Hz countdown to drop; it
+  turns red and pulses inside the same 60-second warning window the board uses,
+  with one toast fired per timeout window entered (not on every tick). Clicking
+  it opens the bonus-hit ladder and the save-claim button, which posts to the
+  same `chain-save` endpoint the board uses and paints optimistically like dibs.
+  Toggleable in Settings, on by default.
+- **Userscript: a toast when a target you hold dibs on leaves hospital (#526).**
+  Detected as a transition between two consecutive polls — never on the first
+  poll, and never for a target that drops off the roster entirely, since neither
+  case can be positively confirmed as a discharge. Torn's own rendered Status
+  cell is authoritative over the poll on disagreement, since the roster snapshot
+  can be up to 3 seconds stale. Toggleable in Settings, on by default.
+
+### Changed
+- **Userscript: the fair-fight highlight threshold is a setting, not a fixed
+  2.50.** A number input in Settings, alongside the existing on/off toggle.
+- **Userscript: the dominant stat is marked in the battle-stat breakdown tooltip
+  (#541).** A leading marker on that stat's row — the label field still pads to
+  the same width either way, so every other row is byte-identical to before.
 
 ## [3.47.1] - 2026-08-21
 
