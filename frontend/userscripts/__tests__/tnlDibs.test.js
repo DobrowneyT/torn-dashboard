@@ -3076,3 +3076,196 @@ describe('the narrowed columns carry no leftover Torn margin', () => {
     expect(css.match(/margin: 0 !important/g)?.length).toBeGreaterThanOrEqual(3)
   })
 })
+
+// ── Assist requests (#523): two @match surfaces, one script ────────────────
+
+describe('page-surface matching', () => {
+  it('factionPageMatch matches only the faction page path', () => {
+    const { S } = loadScript()
+    expect(S.factionPageMatch('/factions.php')).toBe(true)
+    expect(S.factionPageMatch('/loader.php')).toBe(false)
+    expect(S.factionPageMatch('/')).toBe(false)
+  })
+
+  it('attackPageMatch requires BOTH the loader path and sid=attack', () => {
+    const { S } = loadScript()
+    expect(S.attackPageMatch('/loader.php', '?sid=attack&user2ID=123')).toBe(true)
+    expect(S.attackPageMatch('/loader.php', '?sid=hospital&user2ID=123')).toBe(false)
+    expect(S.attackPageMatch('/factions.php', '?sid=attack')).toBe(false)
+  })
+
+  it('attackTargetId reads user2ID off the query string', () => {
+    const { S } = loadScript()
+    expect(S.attackTargetId('?sid=attack&user2ID=90200')).toBe(90200)
+    expect(S.attackTargetId('?sid=attack')).toBeNull()
+    expect(S.attackTargetId('?sid=attack&user2ID=0')).toBeNull()
+    expect(S.attackTargetId('?sid=attack&user2ID=not-a-number')).toBeNull()
+  })
+
+  it('⚠️ isFactionPage/isAttackPage degrade to false with no `location` (proves the guard, matches every other page-scoped helper in this file)', () => {
+    const { S } = loadScript()
+    expect(S.isFactionPage()).toBe(false)
+    expect(S.isAttackPage()).toBe(false)
+  })
+})
+
+describe('indexAssists', () => {
+  it('indexes a live row, keyed by target', () => {
+    const { S } = loadScript()
+    const idx = S.indexAssists([
+      { target_id: 90200, requester_id: 1300, requester_name: 'Scout', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
+    ], new Map())
+    expect(idx.get(90200)).toEqual({ kind: 'smoke', by: 1300, name: 'Scout', at: '2026-08-21T10:00:00Z' })
+  })
+
+  it('a tombstone for the currently-shown requester clears the target', () => {
+    const { S } = loadScript()
+    const idx = new Map()
+    S.indexAssists([{ target_id: 1, requester_id: 999, requester_name: 'A', kind: 'help', created_at: '2026-08-21T10:00:00Z' }], idx)
+    S.indexAssists([{ target_id: 1, requester_id: 999, deleted_at: '2026-08-21T10:01:00Z' }], idx)
+    expect(idx.has(1)).toBe(false)
+  })
+
+  it('⚠️ a tombstone for a DIFFERENT (losing) requester does not clear a still-live winner', () => {
+    const { S } = loadScript()
+    const idx = new Map()
+    S.indexAssists([
+      { target_id: 1, requester_id: 111, requester_name: 'Old', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
+      { target_id: 1, requester_id: 222, requester_name: 'New', kind: 'help', created_at: '2026-08-21T10:05:00Z' },
+    ], idx)
+    // Newest wins the slot — 222 ("New").
+    expect(idx.get(1)).toMatchObject({ by: 222, name: 'New' })
+    // 111's tombstone (arriving late) must not blank the target: it is not
+    // the row currently shown.
+    S.indexAssists([{ target_id: 1, requester_id: 111, deleted_at: '2026-08-21T10:06:00Z' }], idx)
+    expect(idx.get(1)).toMatchObject({ by: 222, name: 'New' })
+  })
+
+  it('the newest live request wins the slot regardless of arrival order', () => {
+    const { S } = loadScript()
+    const idx = new Map()
+    S.indexAssists([
+      { target_id: 1, requester_id: 222, requester_name: 'New', kind: 'help', created_at: '2026-08-21T10:05:00Z' },
+      { target_id: 1, requester_id: 111, requester_name: 'Old', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
+    ], idx)
+    expect(idx.get(1)).toMatchObject({ by: 222, name: 'New' })
+  })
+
+  it('ignores a row with no usable target id', () => {
+    const { S } = loadScript()
+    const idx = S.indexAssists([{ target_id: 0, requester_id: 1, kind: 'help' }], new Map())
+    expect(idx.size).toBe(0)
+  })
+})
+
+describe('badgeState', () => {
+  const ME = '2250591'
+
+  it('falls through to buttonState with no active assist', () => {
+    const { S } = loadScript()
+    const st = S.badgeState(null, null, 90200, ME)
+    expect(st).toMatchObject({ mode: 'dibs', label: 'Dibs', action: 'claim', href: null })
+  })
+
+  it('⚠️ an active assist morphs the SAME badge — dibs underneath is untouched but hidden', () => {
+    const { S } = loadScript()
+    const dib = { by: 999, name: 'Thug' } // dibbed too — must not show through
+    const assist = { kind: 'smoke', by: 1300, name: 'Scout', at: new Date().toISOString() }
+    const st = S.badgeState(dib, assist, 90200, ME)
+    expect(st.mode).toBe('assist')
+    expect(st.label).toBe('🚬')
+    expect(st.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=90200')
+    expect(st.title).toContain('Smoke')
+    expect(st.title).toContain('Scout')
+  })
+
+  it('reads "you" when the current user is the requester', () => {
+    const { S } = loadScript()
+    const st = S.badgeState(null, { kind: 'help', by: ME, name: 'You', at: new Date().toISOString() }, 5, ME)
+    expect(st.mine).toBe(true)
+    expect(st.title).toContain('you')
+  })
+
+  it('reverts to the normal dibs control once the assist clears', () => {
+    const { S } = loadScript()
+    const dib = { by: ME, name: 'Me' }
+    const st = S.badgeState(dib, null, 1, ME)
+    expect(st).toMatchObject({ mode: 'dibs', action: 'release', mine: true, href: null })
+  })
+
+  it('shows each kind with its own short icon (BADGE_MAX is tight)', () => {
+    const { S } = loadScript()
+    const at = new Date().toISOString()
+    expect(S.badgeState(null, { kind: 'smoke', by: 1, at }, 1, ME).label).toBe('🚬')
+    expect(S.badgeState(null, { kind: 'tear', by: 1, at }, 1, ME).label).toBe('💨')
+    expect(S.badgeState(null, { kind: 'help', by: 1, at }, 1, ME).label).toBe('🆘')
+  })
+})
+
+describe('paintSignature carries the assist mode/title', () => {
+  it('changes when mode flips from dibs to assist even if label/action/mine/taken happen to coincide', () => {
+    const { S } = loadScript()
+    const stats = { total: 5e6, str: 1e6, def: 1e6, spd: 1e6, dex: 2e6, source: 'torn', spiedAt: '2026-08-19' }
+    const dibsState = { mode: 'dibs', label: 'X', action: null, mine: false, taken: true }
+    const assistState = { mode: 'assist', label: 'X', action: null, mine: false, taken: true, title: 'Smoke requested by Scout · just now' }
+    expect(S.paintSignature(dibsState, stats, '11', 4e6)).not.toBe(S.paintSignature(assistState, stats, '11', 4e6))
+  })
+})
+
+describe('requestAssist / clearAssist', () => {
+  const session = { host: 'forge.monchoon.me', token: 'jwt', userId: '2250591', factionId: '10739' }
+
+  it('⚠️ shows the request as active the moment the POST succeeds (same optimistic-paint contract as claim)', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+
+    const res = await S.requestAssist(90200, 'smoke')
+
+    expect(res.ok).toBe(true)
+    const entry = S.assistsIndex().get(90200)
+    expect(entry).toMatchObject({ kind: 'smoke', by: session.userId })
+  })
+
+  it('mirrors the one-live-assist-per-requester rule locally, so a switch does not show two', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+
+    await S.requestAssist(111, 'smoke')
+    await S.requestAssist(222, 'help')
+
+    expect(S.assistsIndex().has(111)).toBe(false)
+    expect(S.assistsIndex().get(222)).toMatchObject({ kind: 'help' })
+  })
+
+  it('paints nothing when the server refuses the request', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 500, body: { error: 'boom' } } } })
+    S.setSession({ ...session })
+
+    const res = await S.requestAssist(90200, 'help')
+
+    expect(res.ok).toBe(false)
+    expect(S.assistsIndex().has(90200)).toBe(false)
+  })
+
+  it('clears the local index the moment a release succeeds', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist/': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+    S.indexAssists([{ target_id: 90200, requester_id: 2250591, requester_name: 'You', kind: 'smoke', created_at: new Date().toISOString() }], S.assistsIndex())
+
+    const res = await S.clearAssist(90200)
+
+    expect(res.ok).toBe(true)
+    expect(S.assistsIndex().has(90200)).toBe(false)
+  })
+
+  it('leaves a failed clear alone rather than dropping the badge', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist/': { status: 500, body: {} } } })
+    S.setSession({ ...session })
+    S.indexAssists([{ target_id: 90200, requester_id: 2250591, requester_name: 'You', kind: 'smoke', created_at: new Date().toISOString() }], S.assistsIndex())
+
+    const res = await S.clearAssist(90200)
+
+    expect(res.ok).toBe(false)
+    expect(S.assistsIndex().has(90200)).toBe(true)
+  })
+})

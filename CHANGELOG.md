@@ -18,6 +18,26 @@ surface it automatically.
 
 ---
 
+## [3.52.0] - 2026-08-22
+
+### Added
+- **Assist requests: raise a hand from the attack page (#523).** A new
+  `war_room_assists_v2` table + `assist` delta/snapshot channel + POST/DELETE
+  `/api/war-room/assist` routes carry live, attacker-set "raise a hand"
+  markers — 🚬 smoke / 💨 tear / 🆘 help — against `(requester, target)`,
+  cleared by the requester, a short timeout, or the target going down
+  (reuses the `warRoomDibsExpiry.ts` sweep pattern, see
+  `warRoomAssistsExpiry.ts`). The userscript gains a second `@match` for
+  `loader.php?sid=attack*` — one script, two gated surfaces — with a small,
+  strictly-additive overlay offering the three one-click requests on the
+  attack page. On the faction page and in the War Room, an active assist
+  request morphs the existing Dibs badge itself (icon + who/how-long-ago in
+  the tooltip, click-through to the fight) rather than adding a second
+  indicator, conserving the row's already-tight width; dibs underneath is
+  unaffected. Held off `dev`'s default auto-merge (`hold-merge`) pending
+  live verification on torn.com's attack page — the first script surface
+  ever placed there.
+
 ## [3.51.0] - 2026-08-22
 
 ### Added

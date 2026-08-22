@@ -12,6 +12,7 @@ import type pg from 'pg'
 import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
 import { rolesFromClaims } from './auth.js'
 import { DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
+import { ASSIST_EXPIRY_SECONDS } from './warRoomAssistsExpiry.js'
 import {
   buildJsonPayload,
   buildNukeFields,
@@ -131,6 +132,80 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
           [targetId, userId]
         )
     if (res.rows.length > 0) hub.broadcast('dibs', res.rows, await serverNow())
+    return { ok: true }
+  })
+
+  // ── Assist requests (#523) ─────────────────────────────────────────────
+  // Attacker-set, live "raise a hand" markers — smoke/tear/help against
+  // (requester, target), from the attack page. Visitors included, same
+  // reasoning as dibs: it's the one mutation the demo role keeps.
+  const ASSIST_KINDS = new Set(['smoke', 'tear', 'help'])
+
+  app.post('/api/war-room/assist', { preHandler: requireAuth() }, async (req, reply) => {
+    const body = req.body as { target_id?: unknown; kind?: unknown; war_id?: unknown } | null
+    const targetId = Number(body?.target_id)
+    const kind = String(body?.kind ?? '')
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return reply.status(400).send({ error: 'target_id required' })
+    }
+    if (!ASSIST_KINDS.has(kind)) {
+      return reply.status(400).send({ error: `kind must be one of ${[...ASSIST_KINDS].join(', ')}` })
+    }
+    const userId = Number(req.session!.torn_user_id)
+    const name = await actorName(req.session!.torn_user_id)
+
+    const dbc = await db.connect()
+    try {
+      await dbc.query('BEGIN')
+      // One live assist per requester (mirrors dibs' single-claim rule): a
+      // fresh click — even against a different target or a different kind —
+      // replaces whatever the requester last asked for. You're one person,
+      // in one fight.
+      const tombstoned = await dbc.query(
+        `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
+         WHERE requester_id = $1 AND deleted_at IS NULL RETURNING *`,
+        [userId]
+      )
+      const inserted = await dbc.query(
+        `INSERT INTO war_room_assists_v2 (target_id, requester_id, requester_name, kind, war_id, auto_expire_at)
+         VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))
+         RETURNING *`,
+        [targetId, userId, name, kind, body?.war_id ?? null, ASSIST_EXPIRY_SECONDS]
+      )
+      await dbc.query('COMMIT')
+      hub.broadcast('assist', [...tombstoned.rows, ...inserted.rows], await serverNow())
+      return { ok: true }
+    } catch (err: any) {
+      await dbc.query('ROLLBACK')
+      // The partial unique index (one live row per requester) is the last
+      // word under a true race — two clicks from the SAME requester landing
+      // concurrently. There is no "owner" to report, unlike dibs' 409: it's
+      // the caller racing themselves, so a plain retry is the whole story.
+      if (err?.code === '23505') {
+        return reply.status(409).send({ error: 'Assist request already in flight — try again' })
+      }
+      throw err
+    } finally {
+      dbc.release()
+    }
+  })
+
+  app.delete('/api/war-room/assist/:targetId', { preHandler: requireAuth() }, async (req) => {
+    const { targetId } = req.params as { targetId: string }
+    const userId = Number(req.session!.torn_user_id)
+    // Non-admins clear only their own request (a filtered no-op otherwise).
+    const res = isAdmin(req)
+      ? await db.query(
+          `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
+           WHERE target_id = $1 AND deleted_at IS NULL RETURNING *`,
+          [targetId]
+        )
+      : await db.query(
+          `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
+           WHERE target_id = $1 AND deleted_at IS NULL AND requester_id = $2 RETURNING *`,
+          [targetId, userId]
+        )
+    if (res.rows.length > 0) hub.broadcast('assist', res.rows, await serverNow())
     return { ok: true }
   })
 

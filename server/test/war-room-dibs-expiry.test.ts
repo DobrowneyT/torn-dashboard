@@ -500,3 +500,39 @@ describe('auto-drop can be turned off entirely', () => {
     await expect(sweepDibsExpiry(exploding, new Map(), -1)).resolves.toEqual([])
   })
 })
+
+// #523: the ticker wiring itself (not just the sweepAssistsExpiry unit,
+// covered in war-room-assists-expiry.test.ts) — same fixture, same TARGET, to
+// confirm the roster-sync tick actually calls the assist sweep and broadcasts
+// on the 'assist' channel, the way it already does for dibs above.
+describe('assist-request sweep rides the same ticker tick as the dibs sweep', () => {
+  it('drops a live assist on the tick that observes the target enter hospital', async () => {
+    await stack.db.query(`DELETE FROM war_room_assists_v2 WHERE target_id = ${TARGET}`)
+    await stack.db.query(
+      `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, level, state)
+       VALUES (${TARGET}, ${ENEMY}, 'Foe', 55, $1)
+       ON CONFLICT (member_id) DO UPDATE SET state = EXCLUDED.state, deleted_at = NULL, updated_at = now()`,
+      [JSON.stringify({ status: { state: 'Okay', until: null } })]
+    )
+    await stack.db.query(
+      `INSERT INTO war_room_assists_v2 (target_id, requester_id, requester_name, kind, auto_expire_at)
+       VALUES (${TARGET}, ${HOLDER}, 'Holder', 'help', now() + interval '2 minutes')`
+    )
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload({ state: 'Hospital', until: 1752209999 }))
+
+    const client = await wsConnect(token)
+    await client.next((m) => m.type === 'snapshot')
+
+    const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+    await createWarRoomTicker(tickerDeps()).tick()
+
+    const row = await stack.db.query(`SELECT deleted_at FROM war_room_assists_v2 WHERE target_id = ${TARGET}`)
+    expect(row.rows[0].deleted_at).toBeTruthy()
+    const frame = await client.next(
+      (m) => m.type === 'delta' && m.channel === 'assist' && m.rows.some((r: any) => Number(r.target_id) === TARGET && r.deleted_at)
+    )
+    expect(frame.rows.some((r: any) => Number(r.target_id) === TARGET)).toBe(true)
+
+    client.ws.close()
+  })
+})

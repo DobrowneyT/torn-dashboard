@@ -98,6 +98,14 @@ export async function releaseDibsV2(targetId) {
   return warRoomApi('DELETE', `/api/war-room/dibs/${targetId}`)
 }
 
+// Assist requests (#523) — live "raise a hand" markers from the attack page.
+// The dashboard reads these (see assistBadgeState); it does not currently
+// offer a way to RAISE one itself, only to see it and follow the link — the
+// requester clears their own from the attack page overlay, or it ages out.
+export async function clearAssistV2(targetId) {
+  return warRoomApi('DELETE', `/api/war-room/assist/${targetId}`)
+}
+
 // Revive request. Transport is chosen by preset, deliberately (#308):
 //
 //   'json' (UHC/WTF) → POST /api/war-room/revive, proxied server-to-server.

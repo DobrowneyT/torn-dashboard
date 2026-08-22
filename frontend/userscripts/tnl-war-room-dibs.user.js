@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.35.3
-// @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
+// @version      1.36.0
+// @description  War Room dibs, battle stats, live status, roster intel and assist requests on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
+// @match        https://www.torn.com/loader.php?sid=attack*
 // @run-at       document-end
 // @grant        GM.xmlHttpRequest
 // @grant        GM_setValue
@@ -79,6 +80,11 @@ const TNLDibs = (function () {
 
   function paintSignature(state, stats, settingsSig, mineTotal) {
     return [
+      // #523: mode/title distinguish an assist badge from a dibs badge that
+      // happens to render the same icon/action shape (label alone is not
+      // enough — two different requesters raising the same kind against the
+      // same target look identical without it).
+      state?.mode ?? '', state?.title ?? '',
       state?.label, state?.action, state?.mine ? 1 : 0, state?.taken ? 1 : 0,
       stats?.total ?? '', stats?.str ?? '', stats?.def ?? '', stats?.spd ?? '', stats?.dex ?? '',
       stats?.source ?? '', stats?.spiedAt ?? '',
@@ -118,6 +124,38 @@ const TNLDibs = (function () {
     return typeof host === 'string' && host.length > 0 ? host : null
   }
 
+  // ── Two @match surfaces, one script (#523) ────────────────────────────────
+  //
+  // The pathname/search parsing is split from the `location` read so it is
+  // testable with no DOM — the same shape as everything else pure in this
+  // file. Everything that assumes faction-page DOM (the MutationObserver
+  // scan, injectStyles' layout overrides, the launcher/panel) MUST gate on
+  // isFactionPage(); the attack-page overlay MUST gate on isAttackPage(). A
+  // page that matches neither (a future @match, or a URL shape that changed
+  // under us) gets NEITHER — degrade to nothing rather than guess.
+  function factionPageMatch(pathname) {
+    return pathname === '/factions.php'
+  }
+
+  function attackPageMatch(pathname, search) {
+    if (pathname !== '/loader.php') return false
+    return new URLSearchParams(search ?? '').get('sid') === 'attack'
+  }
+
+  /** `user2ID` off the attack-page query string — the fight's target. */
+  function attackTargetId(search) {
+    const id = Number(new URLSearchParams(search ?? '').get('user2ID'))
+    return Number.isFinite(id) && id > 0 ? id : null
+  }
+
+  function isFactionPage() {
+    return typeof location !== 'undefined' && factionPageMatch(location.pathname)
+  }
+
+  function isAttackPage() {
+    return typeof location !== 'undefined' && attackPageMatch(location.pathname, location.search)
+  }
+
   function indexDibs(rows, into) {
     const byTarget = into ?? new Map()
     for (const row of rows ?? []) {
@@ -125,6 +163,43 @@ const TNLDibs = (function () {
       if (!Number.isFinite(targetId) || targetId <= 0) continue
       if (row.deleted_at) byTarget.delete(targetId)
       else byTarget.set(targetId, { by: Number(row.claimed_by), name: row.claimed_name })
+    }
+    return byTarget
+  }
+
+  /**
+   * Same shape of index as indexDibs, for war_room_assists_v2 (#523) — with
+   * one wrinkle dibs never has: unlike a claim, MULTIPLE requesters can hold
+   * a live assist on the SAME target at once, but the badge shows only one.
+   * The newest live request wins the slot, mirroring the dashboard's
+   * publishAssist (frontend/src/hooks/useWarRoomSocket.js).
+   *
+   * ⚠️ Known first-cut gap: because this map holds only the WINNING row per
+   * target (not every live row, unlike the dashboard's full versioned map),
+   * a tombstone for the currently-shown requester blanks the target even if
+   * a second requester's assist is still live underneath — it resurfaces on
+   * the next full snapshot/reconnect, not immediately. Rare (two people
+   * raising a hand on the same enemy at once) and not worth a bigger index
+   * for a badge that is already expected to get a visual pass later.
+   */
+  function indexAssists(rows, into) {
+    const byTarget = into ?? new Map()
+    for (const row of rows ?? []) {
+      const targetId = Number(row.target_id)
+      if (!Number.isFinite(targetId) || targetId <= 0) continue
+      if (row.deleted_at) {
+        const cur = byTarget.get(targetId)
+        if (cur && String(cur.by) === String(row.requester_id)) byTarget.delete(targetId)
+        continue
+      }
+      const cur = byTarget.get(targetId)
+      const curAt = cur ? parseDbTime(cur.at) : null
+      const rowAt = parseDbTime(row.created_at)
+      if (!cur || !curAt || (rowAt && rowAt > curAt)) {
+        byTarget.set(targetId, {
+          kind: row.kind, by: Number(row.requester_id), name: row.requester_name, at: row.created_at,
+        })
+      }
     }
     return byTarget
   }
@@ -329,6 +404,47 @@ const TNLDibs = (function () {
       mine: false,
       taken: true,
     }
+  }
+
+  /** Icon + label per assist kind (#523) — kept short, the badge is width-constrained. */
+  const ASSIST_KIND_META = {
+    smoke: { icon: '🚬', label: 'Smoke' },
+    tear: { icon: '💨', label: 'Tear gas' },
+    help: { icon: '🆘', label: 'Help' },
+  }
+
+  /**
+   * Dibs badge view-model, folding in an active assist request (#523).
+   *
+   * MonChoon's call (2026-08-21): don't add a second indicator — conserve the
+   * row's horizontal space and let the SAME badge morph. While `assist` is
+   * live the badge shows the kind (icon only; who/how-long-ago lives in the
+   * title) and becomes a link straight to the target's attack page instead of
+   * the claim/release control. Dibs underneath is untouched — see the
+   * dashboard's assistBadgeState (frontend/src/utils/assistBadge.js), which
+   * this mirrors verbatim for the reason buttonState always has: a userscript
+   * is one file with no build step and cannot import it.
+   *
+   * One seam, deliberately: this is the state→view-model half; paintDibs()
+   * stays the pure paint half. A follow-up visual-only pass on the assist
+   * badge is meant to touch paintDibs() alone.
+   */
+  function badgeState(dib, assist, targetId, currentUserId, isAdmin = false) {
+    if (assist) {
+      const meta = ASSIST_KIND_META[assist.kind] ?? { icon: '🆘', label: assist.kind ?? 'Assist' }
+      const mine = String(assist.by) === String(currentUserId)
+      const who = mine ? 'you' : (assist.name ?? 'someone')
+      return {
+        mode: 'assist',
+        label: meta.icon,
+        href: attackUrl(targetId),
+        action: null,
+        mine,
+        taken: true,
+        title: `${meta.label} requested by ${who} · ${fmtAgo(assist.at)}`,
+      }
+    }
+    return { mode: 'dibs', href: null, ...buttonState(dib, currentUserId, isAdmin) }
   }
 
   function backoffFor(attempt) {
@@ -737,6 +853,7 @@ const TNLDibs = (function () {
   const rt = {
     session: null,
     dibs: new Map(),        // targetId → { by, name }
+    assists: new Map(),     // targetId → { kind, by, name, at } (#523)
     enemies: new Set(),     // member ids not in our faction
     nodes: new Map(),       // playerId → Set<HTMLElement> anchors to badge
     ourFactionId: null,
@@ -843,6 +960,32 @@ const TNLDibs = (function () {
     return { ok: true }
   }
 
+  // ── Assist requests (#523) ─────────────────────────────────────────────
+  // Written from the attack-page overlay; read on both surfaces.
+  async function requestAssist(targetId, kind) {
+    const res = await api('/api/war-room/assist', 'POST', { target_id: targetId, kind })
+    if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
+    // One live assist per requester, same rule the server enforces — mirror it
+    // optimistically so a switch from one kind/target to another does not
+    // flash the old badge before the next poll lands.
+    for (const [target, a] of rt.assists) {
+      if (String(a.by) === String(rt.session?.userId)) rt.assists.delete(target)
+    }
+    rt.assists.set(targetId, { kind, by: rt.session?.userId, name: 'You', at: new Date().toISOString() })
+    pokePoll()
+    return { ok: true }
+  }
+
+  async function clearAssist(targetId) {
+    const res = await api(`/api/war-room/assist/${targetId}`, 'DELETE')
+    if (res.status !== 200) {
+      return { ok: false, message: res.body?.message ?? res.body?.error ?? `HTTP ${res.status}` }
+    }
+    rt.assists.delete(targetId)   // optimistic; covers an admin override too
+    pokePoll()
+    return { ok: true }
+  }
+
   async function claimChainSave() {
     const res = await api('/api/war-room/chain-save', 'POST')
     if (res.status === 409) {
@@ -900,6 +1043,7 @@ const TNLDibs = (function () {
   function applyChannels(body) {
     const stateRows = frameRows(body?.state)
     const dibRows = frameRows(body?.dibs)
+    const assistRows = frameRows(body?.assist)
     const opponent = opponentFrom(frameRows(body?.config))
     // Single-row table; an empty frame means "unchanged", not "gone".
     const chainRows = frameRows(body?.chain)
@@ -910,9 +1054,11 @@ const TNLDibs = (function () {
       rt.opponentId = opponent
       rt.enemies = new Set()
       rt.dibs = new Map()
+      rt.assists = new Map()
     }
 
     indexDibs(dibRows, rt.dibs)
+    indexAssists(assistRows, rt.assists)
     for (const id of enemyIds(stateRows, rt.ourFactionId, rt.opponentId)) rt.enemies.add(id)
 
     for (const row of stateRows) {
@@ -937,12 +1083,16 @@ const TNLDibs = (function () {
       const id = Number(row.member_id)
       if (Number.isFinite(id) && id > 0) rt.mstats.set(id, row)
     }
-    log(`${stateRows.length} roster rows, ${dibRows.length} dib rows →`,
-      `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`,
+    log(`${stateRows.length} roster rows, ${dibRows.length} dib rows, ${assistRows.length} assist rows →`,
+      `${rt.enemies.size} enemies, ${rt.dibs.size} live claims, ${rt.assists.size} live assists`,
       `(opponent ${rt.opponentId ?? 'unknown'})`)
-    checkDibsHospitalAlerts()
-    checkChainAlert()
-    render()   // render() itself repaints the chain UI at the end of its pass
+    // Faction-page-only UI (toasts) — the attack page has neither the dibs
+    // targets nor the chain state these read, and would just be noise mid-fight.
+    if (isFactionPage()) {
+      checkDibsHospitalAlerts()
+      checkChainAlert()
+    }
+    render()   // render() itself repaints the chain UI at the end of its pass (faction page only)
   }
 
   async function pollOnce() {
@@ -1017,6 +1167,8 @@ const TNLDibs = (function () {
   const DIBS_CLASS = 'tnl-col-dibs'
   const MINE_CLASS = 'tnl-mine'
   const TAKEN_CLASS = 'tnl-taken'
+  /** The Dibs badge morphed into a live assist request (#523) — see badgeState(). */
+  const ASSIST_CLASS = 'tnl-assist'
   const BS_CLASS = 'tnl-col-bs'
   const STAT_VALUE_CLASS = 'tnl-col-bsv'
   const STYLE_ID = 'tnl-dibs-style'
@@ -1192,6 +1344,10 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
 .${BADGE_CLASS}.${MINE_CLASS}:hover { background: #2563eb; }
 .${BADGE_CLASS}.${TAKEN_CLASS} { background: #c2410c; cursor: default; }
 .${BADGE_CLASS}.${TAKEN_CLASS}:hover { background: #c2410c; }
+/* #523 first cut — a live assist request morphs this same badge; a visual
+   pass is expected once this has been seen live. */
+.${BADGE_CLASS}.${ASSIST_CLASS} { background: #ea580c; font-weight: 700; cursor: pointer; }
+.${BADGE_CLASS}.${ASSIST_CLASS}:hover { background: #f97316; }
 
 .members-cont [class*="points___"]:not([class*="tab___"]),
 .white-grad > [class*="points___"] {
@@ -1446,7 +1602,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     badge.dataset.tnlTarget = String(playerId)
     badge.addEventListener('click', async (e) => {
       e.preventDefault(); e.stopPropagation()
-      const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
+      const state = badgeState(rt.dibs.get(playerId), rt.assists.get(playerId), playerId, rt.session?.userId, rt.isAdmin)
+      // #523 first cut: a click-through, not a real <a> — see paintDibs()'s
+      // own note on why, and the follow-up this is meant to make small.
+      if (state.mode === 'assist') {
+        if (state.href) window.open(state.href, '_blank', 'noopener,noreferrer')
+        return
+      }
       if (state.action === 'none') return
       badge.disabled = true
       badge.textContent = '…'
@@ -1463,9 +1625,20 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   const STAT_COLORS = { str: '#ef4444', def: '#22c55e', spd: '#60a5fa', dex: '#f59e0b' }
 
+  // #523 first cut, flagged for the visual pass MonChoon expects to want
+  // after testing live: the assist branch is a plain colour/title change on
+  // the SAME <button>, not a real <a> — see the click handler in badgeFor()
+  // for the click-through itself. Isolated to this one branch on purpose, so
+  // swapping it for a real anchor later is a small, contained diff.
   function paintDibs(badge, state) {
     if (!badge) return
     badge.textContent = state.label
+    badge.classList.toggle(ASSIST_CLASS, state.mode === 'assist')
+    if (state.mode === 'assist') {
+      badge.classList.remove(MINE_CLASS, TAKEN_CLASS)
+      badge.title = state.title
+      return
+    }
     badge.classList.toggle(MINE_CLASS, Boolean(state.mine))
     badge.classList.toggle(TAKEN_CLASS, Boolean(state.taken) && !state.mine)
     badge.title = state.mine
@@ -2174,8 +2347,114 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
+  const ASSIST_OVERLAY_ID = 'tnl-assist-overlay'
+  const ASSIST_OVERLAY_STYLE_ID = 'tnl-assist-overlay-style'
+  const ASSIST_BTN_ACTIVE_CLASS = 'tnl-assist-btn-active'
+
+  /**
+   * Attack-page overlay (#523) — small, fixed-position, self-contained.
+   *
+   * ⚠️ Strictly additive, per the issue's own warning: this never queries,
+   * wraps or reparents anything Torn already rendered — it is one <div>
+   * appended once to <body>, positioned with `position: fixed` (out of
+   * document flow, so it cannot push Torn's own layout around) and its own
+   * z-index stacking context. Verify with the script off vs on and diff
+   * what's clickable (the issue's own acceptance check) before relying on
+   * this corner being clear of Torn's own controls on every screen size —
+   * that part cannot be confirmed outside a real torn.com session.
+   */
+  function injectAssistOverlayStyles() {
+    if (typeof document === 'undefined') return
+    if (document.getElementById(ASSIST_OVERLAY_STYLE_ID)) return
+    const el = document.createElement('style')
+    el.id = ASSIST_OVERLAY_STYLE_ID
+    el.textContent = `
+#${ASSIST_OVERLAY_ID} {
+  position: fixed; z-index: 2147483000;
+  top: 70px; right: 10px;
+  display: flex; gap: 6px;
+  background: rgba(17,24,39,.92); border: 1px solid #374151; border-radius: 8px;
+  padding: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.4);
+  pointer-events: auto;
+}
+#${ASSIST_OVERLAY_ID} button {
+  font: 16px/1 system-ui, sans-serif; width: 30px; height: 30px;
+  border-radius: 6px; border: 1px solid #4b5563; background: #1f2937;
+  color: #e5e7eb; cursor: pointer; line-height: 28px; text-align: center; padding: 0;
+}
+#${ASSIST_OVERLAY_ID} button:hover { background: #374151; }
+#${ASSIST_OVERLAY_ID} button.${ASSIST_BTN_ACTIVE_CLASS} { background: #ea580c; border-color: #ea580c; }
+`
+    document.head.appendChild(el)
+  }
+
+  function ensureAssistOverlay() {
+    if (typeof document === 'undefined') return null
+    let box = document.getElementById(ASSIST_OVERLAY_ID)
+    if (box && box.isConnected) return box
+    box = document.createElement('div')
+    box.id = ASSIST_OVERLAY_ID
+    for (const kind of Object.keys(ASSIST_KIND_META)) {
+      const meta = ASSIST_KIND_META[kind]
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.dataset.tnlKind = kind
+      btn.title = meta.label
+      btn.textContent = meta.icon
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault(); e.stopPropagation()
+        const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
+        if (!targetId) return
+        const mine = rt.assists.get(targetId)
+        const isMine = mine && String(mine.by) === String(rt.session?.userId)
+        // Same kind, clicked again: toggle off — the requester clearing
+        // their own marker (#523's own acceptance criterion).
+        btn.disabled = true
+        const res = (isMine && mine.kind === kind) ? await clearAssist(targetId) : await requestAssist(targetId, kind)
+        btn.disabled = false
+        // Not showToast(): that relies on injectStyles()' faction-page-only
+        // stylesheet for its look, which never runs on the attack page — an
+        // unstyled floating div is worse than the same failure surfacing the
+        // way a failed dibs claim already does elsewhere in this file, on
+        // the control itself.
+        if (!res.ok) btn.title = res.message
+        renderAssistOverlay()
+      })
+      box.appendChild(btn)
+    }
+    document.body.appendChild(box)
+    return box
+  }
+
+  function renderAssistOverlay() {
+    if (typeof document === 'undefined') return
+    const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
+    // No target id we can read, or no session (sign-in happens on the
+    // faction page) — nothing to show. Degrades to nothing, per #523's own
+    // acceptance criterion, rather than a dead panel with buttons that 401.
+    if (!targetId || !rt.session) {
+      document.getElementById(ASSIST_OVERLAY_ID)?.remove()
+      return
+    }
+    injectAssistOverlayStyles()
+    const box = ensureAssistOverlay()
+    if (!box) return
+    const mine = rt.assists.get(targetId)
+    const isMine = mine && String(mine.by) === String(rt.session?.userId)
+    for (const btn of box.querySelectorAll('button')) {
+      btn.classList.toggle(ASSIST_BTN_ACTIVE_CLASS, Boolean(isMine && mine.kind === btn.dataset.tnlKind))
+    }
+  }
+
   function render() {
     if (typeof document === 'undefined') return
+    // #523: two @match surfaces, two render paths — never both. The attack
+    // page gets ONLY the assist overlay; injectStyles() below carries layout
+    // overrides (`.white-grad`, `[class*="tableHeader"]`, …) that are Torn
+    // component classes reused across pages, so running the faction-page body
+    // there risks breaking Torn's own attack-page layout, not just no-op.
+    if (isAttackPage()) { renderAssistOverlay(); return }
+    if (!isFactionPage()) return   // unrecognised page: degrade to nothing
     injectStyles()
     // Puts the link back after Torn re-renders the page title out from under it.
     ensureLauncher()
@@ -2201,7 +2480,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       painted++
       let entry = sigs.get(playerId)
       if (!entry) {
-        const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
+        const state = badgeState(rt.dibs.get(playerId), rt.assists.get(playerId), playerId, rt.session?.userId, rt.isAdmin)
         entry = { state, sig: paintSignature(state, rt.stats.get(playerId), settingsSig, rt.mine?.total) }
         sigs.set(playerId, entry)
       }
@@ -2820,7 +3099,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     rt.isAdmin = sessionIsAdmin(rt.session)
     log(`admin: ${rt.isAdmin}`)
     startPolling()
-    observe()
+    // #523: the attack page gets the poll loop (so an assist raised/cleared
+    // elsewhere shows up here, and vice versa) but NEVER observe() — that's
+    // the faction-page DOM scan (MutationObserver over the whole document,
+    // hunting for `profiles.php?XID=` links to badge), and running it here
+    // risks matching something on Torn's own attack-page DOM. The overlay
+    // itself is DOM-independent (built from the URL, not from a scan), so it
+    // paints once immediately rather than waiting on the first poll.
+    if (isFactionPage()) observe()
+    else if (isAttackPage()) renderAssistOverlay()
   }
 
   function main() {
@@ -2828,26 +3115,34 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     const version = scriptVersion() ?? 'unknown'
     const path = typeof location !== 'undefined' ? location.pathname + location.search : 'unknown'
     log(`v${version} starting on ${path}`)
-    panel()
+    // The launcher/settings panel is faction-page furniture (its own anchor,
+    // `#top-page-links-list`, is what the faction pages' title bar exposes).
+    // Skipping it on the attack page keeps that surface to just the overlay.
+    if (isFactionPage()) panel()
     boot()
-      .then(() => panel())   // reflect whatever boot() resolved the session to
+      .then(() => { if (isFactionPage()) panel() })   // reflect whatever boot() resolved the session to
       .catch((err) => {
         setStatus('error')
         // eslint-disable-next-line no-console
         console.error('[TNL Dibs]', err)
-        panel()
+        if (isFactionPage()) panel()
       })
   }
 
   function setSession(session) { rt.session = session }
   function currentSession() { return rt.session }
   function dibsIndex() { return rt.dibs }
+  function assistsIndex() { return rt.assists }
   function statsIndex() { return rt.stats }
   function sortStateIndex() { return rt.sortState }
 
   return {
     setSession, currentSession, api, refreshToken, claim, release, dibsIndex,
     parseXid, resolveTenant, indexDibs, enemyIds, frameRows, buttonState, backoffFor,
+    // #523: two-@match-surface helpers, the assist-request state/paint seam,
+    // and the write functions the attack-page overlay calls.
+    factionPageMatch, attackPageMatch, attackTargetId, isFactionPage, isAttackPage,
+    indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,
