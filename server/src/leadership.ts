@@ -1,12 +1,13 @@
 // Leadership tools: member-overview saved views/thresholds, tier overrides,
 // and inventory management. Purpose-built endpoints replace the old generic
 // arbitrary-table CRUD; visitors read everything, write nothing.
-import { TORN_API_COMMENT } from './tornComment.js'
+import { withTornAuth } from './tornComment.js'
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireNotVisitor, requireRole } from './authz.js'
 import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
 import { projectPersonalstats } from './overviewStatPaths.js'
+import { fetchFactionInventoryV2, aggregateInventoryRows } from './scraper/inventoryMap.js'
 
 // Overview time windows (days). 'all' imposes no lower bound.
 const OVERVIEW_WINDOW_DAYS: Record<string, number> = { '7': 7, '30': 30, '90': 90, '365': 365 }
@@ -20,9 +21,6 @@ export interface LeadershipDeps {
 
 const READ = { preHandler: requireRole('leadership', 'admin', 'visitor') }
 const WRITE = { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }
-
-// The Torn v1 faction-inventory selections the legacy sync pulled.
-const INVENTORY_CATEGORIES = ['temporary', 'medical', 'utilities', 'drugs', 'armor', 'weapons', 'caches', 'cesium']
 
 export function registerLeadershipRoutes(app: FastifyInstance, deps: LeadershipDeps) {
   const db = deps.db
@@ -224,36 +222,23 @@ export function registerLeadershipRoutes(app: FastifyInstance, deps: LeadershipD
   })
 
   // Pull the faction inventory from Torn with a pooled key and replace the
-  // stored quantities (same shape the legacy browser sync wrote).
+  // stored quantities.
   app.post('/api/inventory/sync', WRITE, async (req, reply) => {
     const claimed = await claimPooledKey(db, deps.encryptionKey)
     if (!claimed) return reply.status(503).send({ error: EMPTY_POOL_MESSAGE })
-    const config = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
-    const factionId = config.rows[0].torn_faction_id
-    const url = `${deps.tornBaseUrl}/faction/${factionId}?selections=${INVENTORY_CATEGORIES.join(',')}&key=${claimed.key}&comment=${encodeURIComponent(TORN_API_COMMENT)}`
-    const res = await fetch(url)
-    const data = (await res.json()) as Record<string, any>
-    if (data.error) {
-      return reply.status(502).send({ error: `Torn API: ${data.error.error}` })
-    }
 
-    const rows: Record<string, unknown>[] = []
-    for (const category of INVENTORY_CATEGORIES) {
-      if (!Array.isArray(data[category])) continue
-      for (const item of data[category]) {
-        rows.push({
-          id: String(item.ID),
-          name: item.name || `Item ${item.ID}`,
-          quantity: item.quantity || 0,
-          available: item.available || 0,
-          loaned: item.loaned || 0,
-          loaned_to: item.loaned_to == null ? null
-            : typeof item.loaned_to === 'string' ? item.loaned_to : JSON.stringify(item.loaned_to),
-          api_type: item.type || category,
-          category,
-        })
-      }
+    let raw: Awaited<ReturnType<typeof fetchFactionInventoryV2>>
+    try {
+      raw = await fetchFactionInventoryV2(async (query) => {
+        const res = await fetch(withTornAuth(`${deps.tornBaseUrl}/v2/faction/inventory?${query}`, claimed.key))
+        const data = (await res.json()) as Record<string, any>
+        if (data.error) throw new Error(data.error.error)
+        return data
+      })
+    } catch (err) {
+      return reply.status(502).send({ error: `Torn API: ${(err as Error).message}` })
     }
+    const rows = aggregateInventoryRows(raw)
 
     const by = await attribution(req.session!.torn_user_id)
     const client = await db.connect()

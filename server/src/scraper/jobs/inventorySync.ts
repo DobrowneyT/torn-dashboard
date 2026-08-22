@@ -6,40 +6,16 @@
 // row (data_type='inventory') the manual path does, attributed to 'scraper'.
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
-
-// The Torn v1 faction-inventory selections the manual sync pulls. Kept in
-// lockstep with INVENTORY_CATEGORIES in leadership.ts.
-const INVENTORY_CATEGORIES = ['temporary', 'medical', 'utilities', 'drugs', 'armor', 'weapons', 'caches', 'cesium']
+import { fetchFactionInventoryV2, aggregateInventoryRows } from '../inventoryMap.js'
 
 export async function inventorySyncJob({ db, pool, client }: JobDeps): Promise<RunResult> {
   const claimed = await pool.claim()
   if (!claimed) throw new Error('no pooled key available')
 
-  const config = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
-  const factionId = config.rows[0]?.torn_faction_id
-  if (!factionId) throw new Error('no faction id configured')
-
-  // v1 faction endpoint: the client appends key + comment; one call returns
-  // every requested category.
-  const data = await client.fetch(`/faction/${factionId}?selections=${INVENTORY_CATEGORIES.join(',')}`, claimed.key)
-
-  const rows: Array<Record<string, unknown>> = []
-  for (const category of INVENTORY_CATEGORIES) {
-    if (!Array.isArray(data[category])) continue
-    for (const item of data[category]) {
-      rows.push({
-        id: String(item.ID),
-        name: item.name || `Item ${item.ID}`,
-        quantity: item.quantity || 0,
-        available: item.available || 0,
-        loaned: item.loaned || 0,
-        loaned_to: item.loaned_to == null ? null
-          : typeof item.loaned_to === 'string' ? item.loaned_to : JSON.stringify(item.loaned_to),
-        api_type: item.type || category,
-        category,
-      })
-    }
-  }
+  const raw = await fetchFactionInventoryV2(
+    (query) => client.fetch(`/v2/faction/inventory?${query}`, claimed.key)
+  )
+  const rows = aggregateInventoryRows(raw)
 
   const dbc = await db.connect()
   try {

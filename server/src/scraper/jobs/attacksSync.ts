@@ -54,6 +54,8 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
     if (attacks.length === 0) break
 
     for (const raw of attacks) {
+      // attacker is nullable (a stealthed attack has none) — raw.attacker ?? {}
+      // must stay, or a NOT NULL write would start rejecting those rows.
       const attacker = raw.attacker ?? {}
       const defender = raw.defender ?? {}
       const mods = raw.modifiers ?? {}
@@ -61,26 +63,46 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
       const defenderFactionId = defender.faction?.id ?? null
       noteFaction(attacker.faction)
       noteFaction(defender.faction)
+      // chain is stored as Torn sends it, null included (#544) — see the
+      // migration note; 0 is a real chain position, not "none".
       await db.query(
-        `INSERT INTO faction_attacks (attack_id, started, ended, attacker_id, attacker_name,
-           attacker_faction_id, attacker_faction_name, defender_id, defender_name,
-           defender_faction_id, defender_faction_name, result,
-           respect_gain, chain, is_ranked_war, fair_fight, war_modifier, chain_modifier,
-           warlord_modifier, is_incoming)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        `INSERT INTO faction_attacks (attack_id, code, started, ended,
+           attacker_id, attacker_name, attacker_level, attacker_faction_id, attacker_faction_name,
+           defender_id, defender_name, defender_level, defender_faction_id, defender_faction_name,
+           result, respect_gain, respect_loss, chain,
+           is_ranked_war, is_interrupted, is_stealthed, is_raid, is_territory_war, territory_war_id,
+           finishing_hit_effects,
+           fair_fight, war_modifier, chain_modifier, warlord_modifier,
+           retaliation_modifier, group_modifier, overseas_modifier,
+           is_incoming)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+           $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
          ON CONFLICT (attack_id) DO UPDATE SET
-           ended = EXCLUDED.ended, result = EXCLUDED.result,
+           code = EXCLUDED.code, ended = EXCLUDED.ended, result = EXCLUDED.result,
+           attacker_level = EXCLUDED.attacker_level, defender_level = EXCLUDED.defender_level,
            attacker_faction_name = EXCLUDED.attacker_faction_name,
            defender_faction_name = EXCLUDED.defender_faction_name,
-           respect_gain = EXCLUDED.respect_gain, chain = EXCLUDED.chain,
-           is_ranked_war = EXCLUDED.is_ranked_war, fair_fight = EXCLUDED.fair_fight,
-           war_modifier = EXCLUDED.war_modifier, chain_modifier = EXCLUDED.chain_modifier,
-           warlord_modifier = EXCLUDED.warlord_modifier, is_incoming = EXCLUDED.is_incoming`,
-        [raw.id, raw.started ?? null, raw.ended ?? null, attacker.id ?? null, attacker.name ?? null,
-         attackerFactionId, attacker.faction?.name ?? null, defender.id ?? null, defender.name ?? null,
+           respect_gain = EXCLUDED.respect_gain, respect_loss = EXCLUDED.respect_loss,
+           chain = EXCLUDED.chain,
+           is_ranked_war = EXCLUDED.is_ranked_war, is_interrupted = EXCLUDED.is_interrupted,
+           is_stealthed = EXCLUDED.is_stealthed, is_raid = EXCLUDED.is_raid,
+           is_territory_war = EXCLUDED.is_territory_war, territory_war_id = EXCLUDED.territory_war_id,
+           finishing_hit_effects = EXCLUDED.finishing_hit_effects,
+           fair_fight = EXCLUDED.fair_fight, war_modifier = EXCLUDED.war_modifier,
+           chain_modifier = EXCLUDED.chain_modifier, warlord_modifier = EXCLUDED.warlord_modifier,
+           retaliation_modifier = EXCLUDED.retaliation_modifier, group_modifier = EXCLUDED.group_modifier,
+           overseas_modifier = EXCLUDED.overseas_modifier, is_incoming = EXCLUDED.is_incoming`,
+        [raw.id, raw.code ?? null, raw.started ?? null, raw.ended ?? null,
+         attacker.id ?? null, attacker.name ?? null, attacker.level ?? null,
+         attackerFactionId, attacker.faction?.name ?? null,
+         defender.id ?? null, defender.name ?? null, defender.level ?? null,
          defenderFactionId, defender.faction?.name ?? null,
-         raw.result ?? null, raw.respect_gain ?? 0, raw.chain ?? 0, raw.is_ranked_war ?? false,
+         raw.result ?? null, raw.respect_gain ?? 0, raw.respect_loss ?? 0, raw.chain ?? null,
+         raw.is_ranked_war ?? false, raw.is_interrupted ?? false, raw.is_stealthed ?? false,
+         raw.is_raid ?? false, raw.is_territory_war ?? false, raw.territory_war_id ?? null,
+         raw.finishing_hit_effects ? JSON.stringify(raw.finishing_hit_effects) : null,
          mods.fair_fight ?? 1, mods.war ?? 1, mods.chain ?? 1, mods.warlord ?? 1,
+         mods.retaliation ?? 1, mods.group ?? 1, mods.overseas ?? 1,
          defenderFactionId === us]
       )
       rows += 1

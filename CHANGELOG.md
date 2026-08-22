@@ -6,16 +6,95 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 **How to bump:** The repo-root **`VERSION`** file is the single source of truth for
-the app version. To cut a release: set `VERSION` to the new `X.Y.Z`, sync the root
-`package.json` `version` to match, and add a new `## [X.Y.Z] - YYYY-MM-DD` block at
-the top (below `[Unreleased]`) whose version equals `VERSION`. Level follows the
-change: `feat` → minor, `fix` → patch, breaking → major (a human may override). The
-footer (`VITE_APP_VERSION`, read from `VERSION` at build) and `/api/health` (read
-from `VERSION` at runtime) both surface it automatically.
+the app version. Every PR that changes behaviour bumps it: set `VERSION` to the
+new `X.Y.Z`, sync the root `package.json` `version` to match, and add a new
+`## [X.Y.Z] - YYYY-MM-DD` block at the top whose version equals `VERSION`. Level
+follows the change: `feat` → minor, `fix` → patch, breaking → major (a human may
+override). There is no `[Unreleased]` staging section — every branch merges to
+`dev` before it is ever promoted to `main`, so an entry is only ever added once
+it is genuinely about to ship. The footer (`VITE_APP_VERSION`, read from
+`VERSION` at build) and `/api/health` (read from `VERSION` at runtime) both
+surface it automatically.
 
 ---
 
-## [Unreleased]
+## [3.50.1] - 2026-08-22
+
+### Fixed
+- **The #543 migration no longer truncates `faction_attacks` on every
+  deploy.** As first written, its `TRUNCATE` had no guard — `db/migrate.mjs`
+  keeps no ledger and replays every file in `db/migrations/` on every
+  deploy, and every other migration is safe to replay only because it does
+  `IF NOT EXISTS`/`ON CONFLICT` work. This one would have wiped the table
+  again on the very next deploy, and the one after that, forever. Caught
+  before it ever ran against a real tenant database. The migration now only
+  adds the 13 columns; the one-time backfill is a manual operator action
+  (see the ops runbook / #543's PR for the exact commands).
+
+## [3.50.0] - 2026-08-22
+
+### Added
+- **`faction_attacks` captures every field Torn's v2 endpoint returns
+  (#543).** 13 new columns — `code` (the attack-log hash), both sides'
+  `level`, `respect_loss`, `is_interrupted` / `is_stealthed` / `is_raid` /
+  `is_territory_war`, `territory_war_id`, `finishing_hit_effects` (jsonb —
+  what actually finished the fight, loadout-relevant for #528), and the
+  three modifiers we were dropping (`retaliation`, `group`, `overseas`).
+  None of this costs an extra API call — Torn was already sending all of it
+  on every row this endpoint returns. Existing rows are left as-is, with
+  the 13 new columns null; a one-time backfill (truncate, then let the sync
+  re-walk Torn's full available window) is a manual operator action, run by
+  hand once after this deploys — not baked into the migration, since
+  `db/migrate.mjs` has no ledger and replays every file on every deploy.
+
+## [3.49.0] - 2026-08-21
+
+### Changed
+- **Faction inventory sync moved off API v1 onto v2 `faction/inventory`
+  (#542).** v1 is what's actually deprecated here — Torn disabled the
+  per-category v1 selections on 2026-08-20. v2 needs one call per category
+  (nine now, not eight — `consumables`, `boosters` and `loot` are newly
+  collected) and paginates at 100 rows, and returns one row per
+  stack-and-borrower rather than one row per item type, which the sync now
+  aggregates back into the totals `inventory_items` expects. `loaned_to`
+  comes out richer than before: v1 only ever named one borrower, v2 names
+  every one. The cron job and the manual "Sync" button shared this mapping
+  by a comment, not by code, before now — they call one function.
+
+### Fixed
+- **`faction_attacks.chain` is stored as Torn sends it, null included
+  (#544).** Torn is moving "no chain applies" from `0` to `null` — already
+  live for attacks where the attacker isn't the calling faction, and for
+  every row from 2027-01-01. `0` is also a genuine chain position, so
+  coercing null to `0` would make the two indistinguishable going forward.
+  The one place we read this column for meaning (bonus-hit detection in
+  payout calculations) is already null-safe. Existing rows are untouched —
+  a stored `0` cannot be told apart from a genuine one after the fact, so
+  nothing is backfilled.
+
+## [3.48.0] - 2026-08-21
+
+### Added
+- **Userscript: a persistent chain widget on the faction page (#524).** A badge
+  beside the launcher shows the live hit count and a 1Hz countdown to drop; it
+  turns red and pulses inside the same 60-second warning window the board uses,
+  with one toast fired per timeout window entered (not on every tick). Clicking
+  it opens the bonus-hit ladder and the save-claim button, which posts to the
+  same `chain-save` endpoint the board uses and paints optimistically like dibs.
+  Toggleable in Settings, on by default.
+- **Userscript: a toast when a target you hold dibs on leaves hospital (#526).**
+  Detected as a transition between two consecutive polls — never on the first
+  poll, and never for a target that drops off the roster entirely, since neither
+  case can be positively confirmed as a discharge. Torn's own rendered Status
+  cell is authoritative over the poll on disagreement, since the roster snapshot
+  can be up to 3 seconds stale. Toggleable in Settings, on by default.
+
+### Changed
+- **Userscript: the fair-fight highlight threshold is a setting, not a fixed
+  2.50.** A number input in Settings, alongside the existing on/off toggle.
+- **Userscript: the dominant stat is marked in the battle-stat breakdown tooltip
+  (#541).** A leading marker on that stat's row — the label field still pads to
+  the same width either way, so every other row is byte-identical to before.
 
 ## [3.47.1] - 2026-08-21
 

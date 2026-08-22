@@ -1,0 +1,12 @@
+-- Torn is moving faction_attacks.chain from 0-means-N/A to a real null: 0
+-- already for attacks where the attacker isn't the calling faction (live
+-- since 2026-08-21), and for every row starting 2027-01-01. 0 is also a
+-- genuine chain position, so keeping the coercion would make "no chain
+-- applies" indistinguishable from "chain position zero" going forward.
+--
+-- The column was never NOT NULL, so this only drops the DEFAULT — the
+-- scraper (attacksSync.ts) now writes Torn's null through unchanged instead
+-- of coercing it. Existing rows keep whatever they already have; nothing is
+-- backfilled, since a stored 0 cannot be told apart from a genuine one after
+-- the fact.
+ALTER TABLE public.faction_attacks ALTER COLUMN chain DROP DEFAULT;

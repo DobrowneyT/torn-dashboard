@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.33.0
+// @version      1.34.0
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -22,14 +22,17 @@ const TNLDibs = (function () {
   const STORE_KEY = 'tnl-dibs-session'
   const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000]
   const BADGE_CLASS = 'tnl-dibs-badge'
-  const FF_HIGHLIGHT = 2.5
+  const FF_THRESHOLD_DEFAULT = 2.5
   const DEBUG_KEY = 'tnl-dibs-debug'
   const SETTING_STATS = 'tnl-dibs-show-stats'
   const SETTING_FF_BOX = 'tnl-dibs-ff-box'
+  const SETTING_FF_THRESHOLD = 'tnl-dibs-ff-threshold'
   const SETTING_STATUS = 'tnl-dibs-status'
   const SETTING_TINT = 'tnl-dibs-tint'
   /** Warline-style online/idle count on the Members header. */
   const SETTING_MEMBER_COUNT = 'tnl-dibs-member-count'
+  const SETTING_CHAIN = 'tnl-dibs-chain'
+  const SETTING_DIBS_HOSPITAL_ALERT = 'tnl-dibs-hosp-alert'
 
   const SETTING_DEFAULTS = {
     [SETTING_STATS]: true,
@@ -37,7 +40,13 @@ const TNLDibs = (function () {
     [SETTING_STATUS]: true,
     [SETTING_TINT]: true,
     [SETTING_MEMBER_COUNT]: true,
+    [SETTING_CHAIN]: true,
+    [SETTING_DIBS_HOSPITAL_ALERT]: true,
     [DEBUG_KEY]: false,
+  }
+
+  const SETTING_NUM_DEFAULTS = {
+    [SETTING_FF_THRESHOLD]: FF_THRESHOLD_DEFAULT,
   }
 
   function settingOn(raw, key) {
@@ -46,15 +55,26 @@ const TNLDibs = (function () {
     return SETTING_DEFAULTS[key] ?? false
   }
 
+  function settingNum(raw, key) {
+    const dflt = SETTING_NUM_DEFAULTS[key] ?? 0
+    if (raw === null || raw === undefined || raw === '') return dflt
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : dflt
+  }
+
   const settings = {
     on(key) {
       try { return settingOn(GM_getValue(key, null), key) } catch { return SETTING_DEFAULTS[key] ?? false }
     },
     set(key, value) { GM_setValue(key, value ? 'true' : 'false') },
+    num(key) {
+      try { return settingNum(GM_getValue(key, null), key) } catch { return SETTING_NUM_DEFAULTS[key] ?? 0 }
+    },
+    setNum(key, value) { GM_setValue(key, String(value)) },
   }
 
   function settingsSignature() {
-    return `${settings.on(SETTING_STATS) ? 1 : 0}${settings.on(SETTING_FF_BOX) ? 1 : 0}`
+    return `${settings.on(SETTING_STATS) ? 1 : 0}${settings.on(SETTING_FF_BOX) ? 1 : 0}${settings.num(SETTING_FF_THRESHOLD)}`
   }
 
   function paintSignature(state, stats, settingsSig, mineTotal) {
@@ -221,11 +241,14 @@ const TNLDibs = (function () {
   function statsTip(stats, ff) {
     if (!stats || stats.total === null) return 'No battle stats on record'
     // padEnd/padStart plus `white-space: pre` is what aligns the columns.
+    // padEnd(5) pads to 5 either way, so prefixing the dominant stat's label
+    // marks it without moving the number column.
     const line = (label, value) => `${label.padEnd(5)}${String(value).padStart(9)}`
     const rule = '─'.repeat(14)
     const out = [line('FF', ff === null || ff === undefined ? '—' : ff.toFixed(2)), rule]
-    for (const [label, v] of [['STR', stats.str], ['DEF', stats.def], ['SPD', stats.spd], ['DEX', stats.dex]]) {
-      if (v !== null && v !== undefined) out.push(line(label, formatStat(v)))
+    const dominant = dominantStat(stats)
+    for (const [key, label, v] of [['str', 'STR', stats.str], ['def', 'DEF', stats.def], ['spd', 'SPD', stats.spd], ['dex', 'DEX', stats.dex]]) {
+      if (v !== null && v !== undefined) out.push(line(key === dominant ? `▸${label}` : label, formatStat(v)))
     }
     if (out.length > 2) out.push(rule)
     out.push(line('Total', formatStat(stats.total)))
@@ -579,6 +602,54 @@ const TNLDibs = (function () {
     }
   }
 
+  function isHospital(entry) {
+    return entry?.status?.state === 'Hospital'
+  }
+
+  function hospitalExits(myDibTargetIds, prevHospital, state) {
+    const out = []
+    for (const id of myDibTargetIds) {
+      if (!state.has(id)) continue
+      const was = prevHospital.get(id) === true
+      const isNow = isHospital(state.get(id))
+      if (was && !isNow) out.push(id)
+    }
+    return out
+  }
+
+  /** Torn's chain-bonus milestones. */
+  const BONUS_HITS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000]
+
+  function nextBonusHit(current) {
+    const n = Number(current)
+    if (!Number.isFinite(n) || n < 0) return null
+    for (const h of BONUS_HITS) if (h > n) return h
+    return null
+  }
+
+  // war_room_chain_v2's timeout/cooldown are absolute epoch seconds already
+  // (converted server-side in warRoomChain.ts), not Torn's raw relative ones.
+  function chainSecondsLeft(chain, nowSec) {
+    if (!chain) return null
+    if (chain.cooldown && Number(chain.cooldown) > nowSec) return null
+    const timeout = Number(chain.timeout)
+    if (!Number.isFinite(timeout) || timeout <= nowSec) return null
+    if ((Number(chain.current) || 0) <= 0) return null
+    return timeout - nowSec
+  }
+
+  function chainDropDue(chain, nowSec, thresholdSec) {
+    const left = chainSecondsLeft(chain, nowSec)
+    return left != null && left > 0 && left <= thresholdSec
+  }
+
+  function chainBadgeText(chain, nowSec) {
+    const current = Number(chain?.current) || 0
+    if (current <= 0) return null
+    const left = chainSecondsLeft(chain, nowSec)
+    return `⛓${current}${left != null ? ` · ${fmtCountdown(left)}` : ''}`
+  }
+
   function gmRequest(opts) {
     return new Promise((resolve, reject) => {
       const xhr = (typeof GM !== 'undefined' && GM.xmlHttpRequest)
@@ -683,6 +754,10 @@ const TNLDibs = (function () {
     sorted: false,
     rowH: null,
     tick: null,
+    hospitalSeen: new Map(),  // dibbed targetId → was-in-hospital, previous poll only (#526)
+    chain: null,              // latest war_room_chain_v2 row, or null before the first poll (#524)
+    chainOpen: false,         // the chain popover, independent of the main panel
+    chainWarnedTimeout: null, // the chain.timeout we last toasted for — re-arms on a new timeout
   }
 
   function pageUserId() {
@@ -759,6 +834,32 @@ const TNLDibs = (function () {
     return { ok: true }
   }
 
+  async function claimChainSave() {
+    const res = await api('/api/war-room/chain-save', 'POST')
+    if (res.status === 409) {
+      const owner = res.body?.owner
+      if (owner && rt.chain) rt.chain = { ...rt.chain, save_claimed_by: owner.id, save_claimed_name: owner.name }
+      paintChainUi()
+      return { ok: false, message: res.body?.error || 'Already claimed' }
+    }
+    if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
+    if (rt.chain) rt.chain = { ...rt.chain, save_claimed_by: rt.session?.userId, save_claimed_name: 'You' }
+    pokePoll()
+    paintChainUi()
+    return { ok: true }
+  }
+
+  async function releaseChainSave() {
+    const res = await api('/api/war-room/chain-save', 'DELETE')
+    if (res.status !== 200) {
+      return { ok: false, message: res.body?.message ?? res.body?.error ?? `HTTP ${res.status}` }
+    }
+    if (rt.chain) rt.chain = { ...rt.chain, save_claimed_by: null, save_claimed_name: null }
+    pokePoll()
+    paintChainUi()
+    return { ok: true }
+  }
+
   function pokePoll() {
     if (!rt.polling || !rt.poke) return
     if (rt.timer) { clearTimeout(rt.timer); rt.timer = null }
@@ -769,6 +870,9 @@ const TNLDibs = (function () {
     const stateRows = frameRows(body?.state)
     const dibRows = frameRows(body?.dibs)
     const opponent = opponentFrom(frameRows(body?.config))
+    // Single-row table; an empty frame means "unchanged", not "gone".
+    const chainRows = frameRows(body?.chain)
+    if (chainRows.length > 0) rt.chain = chainRows[chainRows.length - 1]
 
     if (opponent !== null && opponent !== rt.opponentId) {
       log(`opponent is now faction ${opponent} (was ${rt.opponentId ?? 'unknown'}) — resetting`)
@@ -805,7 +909,9 @@ const TNLDibs = (function () {
     log(`${stateRows.length} roster rows, ${dibRows.length} dib rows →`,
       `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`,
       `(opponent ${rt.opponentId ?? 'unknown'})`)
-    render()
+    checkDibsHospitalAlerts()
+    checkChainAlert()
+    render()   // render() itself repaints the chain UI at the end of its pass
   }
 
   async function pollOnce() {
@@ -903,6 +1009,14 @@ const TNLDibs = (function () {
   const TINT_CLASS = 'tnl-tint'
   const STATUS_CLASS = 'tnl-status'
   const SORT_CLASS = 'tnl-sort'
+  const TOAST_HOST_ID = 'tnl-dibs-toast-host'
+  const TOAST_CLASS = 'tnl-toast'
+  const TOAST_MS = 7000
+  const CHAIN_BADGE_ID = 'tnl-chain-badge'
+  const CHAIN_BADGE_LABEL_ID = 'tnl-chain-badge-label'
+  const CHAIN_DANGER_CLASS = 'tnl-chain-danger'
+  // Matches the board's own default (warRoomAlerts.js ALERT_PREF_DEFAULTS.chain).
+  const CHAIN_ALERT_THRESHOLD_SEC = 60
 
   const TINT_GRADIENTS = {
     online: 'linear-gradient(to bottom, #A3DA00, #648600)',
@@ -1141,6 +1255,35 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   .${DIBS_CLASS} { width: 42px; min-width: 42px; max-width: 42px; flex: 0 0 42px; }
 }
 
+#${TOAST_HOST_ID} {
+  position: fixed; right: 12px; bottom: 12px; z-index: 2147483000;
+  display: flex; flex-direction: column-reverse; gap: 6px;
+  pointer-events: none;
+}
+.${TOAST_CLASS} {
+  pointer-events: auto; cursor: pointer;
+  max-width: 320px; padding: 8px 12px; border-radius: 8px;
+  font: 12px/1.4 system-ui, sans-serif; color: #fff;
+  box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  background: #374151; border: 1px solid rgba(255,255,255,.15);
+  animation: tnl-toast-in .15s ease-out;
+}
+.${TOAST_CLASS}-hospital { background: #b45309; border-color: rgba(255,255,255,.25); }
+.${TOAST_CLASS}-chain { background: #b91c1c; border-color: rgba(255,255,255,.25); }
+@keyframes tnl-toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#${CHAIN_BADGE_ID}.${CHAIN_DANGER_CLASS} {
+  color: #ef4444; font-weight: 700;
+  animation: tnl-chain-pulse 1s ease-in-out infinite;
+}
+@keyframes tnl-chain-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+
 `
     ;(document.head || document.documentElement).appendChild(el)
     log('stylesheet injected')
@@ -1177,7 +1320,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   }
 
   function isOurs(node) {
-    return Boolean(node?.closest?.(`.${DIBS_CLASS}, .${BS_CLASS}, #${STYLE_ID}, #${LAUNCHER_ID}`))
+    return Boolean(node?.closest?.(
+      `.${DIBS_CLASS}, .${BS_CLASS}, #${STYLE_ID}, #${LAUNCHER_ID}, #${CHAIN_BADGE_ID}, #${TOAST_HOST_ID}`
+    ))
   }
 
   function slot(parent, cls, tag = 'span') {
@@ -1318,6 +1463,88 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (el) el.style.display = 'none'
   }
 
+  function toastHost() {
+    let el = document.getElementById(TOAST_HOST_ID)
+    if (!el) {
+      el = document.createElement('div')
+      el.id = TOAST_HOST_ID
+      document.body.appendChild(el)
+    }
+    return el
+  }
+
+  function showToast(text, tone = 'info') {
+    if (typeof document === 'undefined') return
+    const host = toastHost()
+    const el = document.createElement('div')
+    el.className = `${TOAST_CLASS} ${TOAST_CLASS}-${tone}`
+    el.textContent = text
+    el.addEventListener('click', () => el.remove())
+    host.appendChild(el)
+    setTimeout(() => el.remove(), TOAST_MS)
+  }
+
+  function anchorNameFor(playerId) {
+    const anchors = rt.nodes.get(playerId)
+    if (!anchors) return null
+    for (const anchor of anchors) {
+      const t = (anchor.textContent || '').trim()
+      if (t) return t
+    }
+    return null
+  }
+
+  // rt.state is up to 3s stale; Torn's own rendered cell is not, so it wins
+  // on disagreement. No row on screen is not a disagreement — trust the poll.
+  function rowConfirmsOutOfHospital(playerId) {
+    const anchors = rt.nodes.get(playerId)
+    if (!anchors) return true
+    for (const anchor of anchors) {
+      const row = rowFor(anchor)
+      if (!row) continue
+      if (tornStatusKind(statusCellOf(row)) === 'hospital') return false
+      return true
+    }
+    return true
+  }
+
+  function checkDibsHospitalAlerts() {
+    const myId = rt.session?.userId
+    if (myId === null || myId === undefined) return
+    const mine = []
+    for (const [targetId, dib] of rt.dibs) {
+      if (String(dib.by) === String(myId)) mine.push(targetId)
+    }
+    const on = settings.on(SETTING_DIBS_HOSPITAL_ALERT)
+    if (on && typeof document !== 'undefined') {
+      for (const id of hospitalExits(mine, rt.hospitalSeen, rt.state)) {
+        if (!rowConfirmsOutOfHospital(id)) continue
+        const name = anchorNameFor(id) ?? `#${id}`
+        showToast(`${name} left the hospital — your dibs target is up`, 'hospital')
+        log(`dibs hospital-exit alert: ${name} (${id})`)
+      }
+    }
+    // Rebuilt regardless of the setting, so re-enabling starts from a clean
+    // baseline instead of replaying what happened while it was off.
+    const next = new Map()
+    for (const id of mine) next.set(id, isHospital(rt.state.get(id)))
+    rt.hospitalSeen = next
+  }
+
+  function checkChainAlert() {
+    if (!settings.on(SETTING_CHAIN)) return
+    const nowSec = Math.floor(Date.now() / 1000)
+    const due = chainDropDue(rt.chain, nowSec, CHAIN_ALERT_THRESHOLD_SEC)
+    const timeout = Number(rt.chain?.timeout)
+    if (due && rt.chainWarnedTimeout !== timeout) {
+      rt.chainWarnedTimeout = timeout
+      if (typeof document !== 'undefined') {
+        showToast(`Chain drops in under a minute — ${Number(rt.chain.current) || 0} hits`, 'chain')
+      }
+    }
+    if (!due) rt.chainWarnedTimeout = null   // re-arm for the next window
+  }
+
   /**
    * What makes the total a real link rather than a click handler.
    *
@@ -1398,7 +1625,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     cell.style.textUnderlineOffset = '2px'
     cell.style.textDecorationColor = exact ? 'rgba(16,185,129,.7)' : 'rgba(148,163,184,.7)'
 
-    cell.style.border = settings.on(SETTING_FF_BOX) && ff !== null && ff >= FF_HIGHLIGHT
+    cell.style.border = settings.on(SETTING_FF_BOX) && ff !== null && ff >= settings.num(SETTING_FF_THRESHOLD)
       ? '1px solid #86efac'
       : '1px solid transparent'
   }
@@ -1881,15 +2108,17 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     paintSortHeaders()
     applySort(nowMs)
     paintMemberCounts()
+    paintChainUi()
   }
 
-  /** Status cells only — a dib cannot change without a poll. */
   function renderTimers() {
     if (typeof document === 'undefined' || document.hidden) return
     const nowMs = Date.now()
     eachRow((playerId, _anchor, row) => {
       if (rt.state.has(playerId)) paintStatus(row, playerId, nowMs)
     })
+    checkChainAlert()
+    paintChainUi()
   }
 
   function startTimers() {
@@ -1977,7 +2206,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       e.preventDefault(); e.stopPropagation()
       rt.expanded = !rt.expanded
       rt.settingsOpen = false
+      rt.chainOpen = false   // one popover at a time
       panel()
+      chainPanel()
     })
 
     list.insertBefore(link, list.firstChild)
@@ -1987,10 +2218,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return link
   }
 
-  function placePanel(box) {
+  function placePanel(box, anchorEl = launcher) {
     box.style.position = 'fixed'
     box.style.zIndex = '2147483000'
-    const anchor = launcher
+    const anchor = anchorEl
     if (!anchor || !anchor.isConnected || typeof anchor.getBoundingClientRect !== 'function') {
       box.style.left = '12px'
       box.style.bottom = '12px'
@@ -2001,6 +2232,132 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     const maxLeft = Math.max(8, (window.innerWidth || width) - width - 8)
     box.style.top = `${Math.round(r.bottom + 6)}px`
     box.style.left = `${Math.round(Math.min(Math.max(8, r.left), maxLeft))}px`
+  }
+
+  let chainBadge = null
+  let chainPanelBox = null
+
+  function ensureChainBadge() {
+    if (typeof document === 'undefined') return null
+    const found = document.getElementById(CHAIN_BADGE_ID)
+    if (found && found.isConnected) { chainBadge = found; return found }
+
+    const list = document.getElementById('top-page-links-list')
+    if (!list) { chainBadge = null; return null }
+
+    const link = document.createElement('a')
+    link.id = CHAIN_BADGE_ID
+    link.href = '#'
+    link.className = 't-clear h c-pointer line-h24 right'
+    link.title = 'Chain — click for the bonus-hit ladder and the save claim'
+
+    const label = document.createElement('span')
+    label.id = CHAIN_BADGE_LABEL_ID
+    link.appendChild(label)
+
+    link.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation()
+      rt.chainOpen = !rt.chainOpen
+      rt.expanded = false
+      rt.settingsOpen = false
+      panel()
+      chainPanel()
+    })
+
+    const before = document.getElementById(LAUNCHER_ID)
+    if (before) list.insertBefore(link, before)
+    else list.insertBefore(link, list.firstChild)
+    chainBadge = link
+    return link
+  }
+
+  function paintChainBadge() {
+    if (typeof document === 'undefined') return
+    if (!settings.on(SETTING_CHAIN)) { document.getElementById(CHAIN_BADGE_ID)?.remove(); chainBadge = null; return }
+    const nowSec = Math.floor(Date.now() / 1000)
+    const text = chainBadgeText(rt.chain, nowSec)
+    if (!text) { document.getElementById(CHAIN_BADGE_ID)?.remove(); chainBadge = null; return }
+    const link = ensureChainBadge()
+    if (!link) return
+    const label = document.getElementById(CHAIN_BADGE_LABEL_ID)
+    if (label && label.textContent !== text) label.textContent = text
+    link.classList.toggle(CHAIN_DANGER_CLASS, chainDropDue(rt.chain, nowSec, CHAIN_ALERT_THRESHOLD_SEC))
+  }
+
+  function chainSaveButtonState(chain, currentUserId, isAdmin) {
+    const holder = chain?.save_claimed_by
+    if (holder === null || holder === undefined) {
+      return { label: 'Claim save', action: 'claim', mine: false, taken: false }
+    }
+    if (String(holder) === String(currentUserId)) {
+      return { label: 'Release save', action: 'release', mine: true, taken: true }
+    }
+    return {
+      label: `Held by ${chain.save_claimed_name ?? 'someone'}`,
+      action: isAdmin ? 'release' : 'none',
+      mine: false,
+      taken: true,
+    }
+  }
+
+  function chainPanel() {
+    if (typeof document === 'undefined') return
+    if (chainPanelBox && chainPanelBox.isConnected) chainPanelBox.remove()
+    chainPanelBox = null
+    if (!rt.chainOpen || !settings.on(SETTING_CHAIN)) return
+
+    const box = document.createElement('div')
+    chainPanelBox = box
+    box.style.cssText = [
+      'background:#111827', 'color:#e5e7eb', 'border:1px solid #374151',
+      'border-radius:10px', 'padding:10px 12px', 'font:12px/1.4 system-ui,sans-serif',
+      'box-shadow:0 6px 24px rgba(0,0,0,.4)', 'max-width:260px',
+    ].join(';')
+
+    const title = document.createElement('div')
+    title.textContent = 'Chain'
+    title.style.cssText = 'font-weight:700;margin-bottom:4px'
+    box.appendChild(title)
+
+    const chain = rt.chain
+    const current = Number(chain?.current) || 0
+    const next = nextBonusHit(current)
+    const info = document.createElement('div')
+    info.textContent = next ? `${current} hits · next bonus at ${next} (${next - current} to go)` : `${current} hits`
+    box.appendChild(info)
+
+    const nowSec = Math.floor(Date.now() / 1000)
+    const left = chainSecondsLeft(chain, nowSec)
+    const timer = document.createElement('div')
+    timer.style.cssText = 'opacity:.8;margin-top:2px'
+    timer.textContent = left != null ? `Drops in ${fmtCountdown(left)}` : (current > 0 ? 'On cooldown' : 'No active chain')
+    box.appendChild(timer)
+
+    const state = chainSaveButtonState(chain, rt.session?.userId, rt.isAdmin)
+    const btn = document.createElement('button')
+    btn.textContent = state.label
+    btn.disabled = state.action === 'none'
+    btn.style.cssText = [
+      'width:100%', 'margin-top:8px', 'padding:5px', 'border-radius:6px',
+      'border:1px solid #4b5563', 'cursor:' + (state.action === 'none' ? 'default' : 'pointer'),
+      state.mine ? 'background:#1d4ed8;color:#fff' : (state.taken ? 'background:#c2410c;color:#fff' : 'background:transparent;color:#e5e7eb'),
+    ].join(';')
+    btn.addEventListener('click', async () => {
+      if (state.action === 'none') return
+      btn.disabled = true
+      const res = state.action === 'claim' ? await claimChainSave() : await releaseChainSave()
+      if (!res.ok) log(`chain save: ${res.message}`)
+      chainPanel()
+    })
+    box.appendChild(btn)
+
+    placePanel(box, chainBadge)
+    document.body.appendChild(box)
+  }
+
+  function paintChainUi() {
+    paintChainBadge()
+    if (rt.chainOpen) chainPanel()
   }
 
   function panelNeedsKey(session) {
@@ -2071,6 +2428,41 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return wrap
   }
 
+  function settingNumber(key, label, hint, { min, max, step } = {}) {
+    const wrap = document.createElement('div')
+    wrap.style.cssText = 'margin-top:8px'
+    const row = document.createElement('label')
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer'
+    const text = document.createElement('span')
+    text.textContent = label
+    const input = document.createElement('input')
+    input.type = 'number'
+    if (min !== undefined) input.min = String(min)
+    if (max !== undefined) input.max = String(max)
+    if (step !== undefined) input.step = String(step)
+    input.value = String(settings.num(key))
+    input.style.cssText = 'width:60px;padding:2px 4px;border-radius:4px;border:1px solid #4b5563;background:#1f2937;color:#e5e7eb'
+    input.addEventListener('change', () => {
+      const n = Number(input.value)
+      if (!Number.isFinite(n)) { input.value = String(settings.num(key)); return }
+      const clamped = Math.min(max ?? n, Math.max(min ?? n, n))
+      settings.setNum(key, clamped)
+      input.value = String(clamped)
+      log(`setting ${key} = ${clamped}`)
+      render()
+    })
+    row.appendChild(text)
+    row.appendChild(input)
+    wrap.appendChild(row)
+    if (hint) {
+      const small = document.createElement('div')
+      small.textContent = hint
+      small.style.cssText = 'opacity:.6;font-size:11px'
+      wrap.appendChild(small)
+    }
+    return wrap
+  }
+
   function settingsView(box) {
     const title = document.createElement('div')
     title.textContent = 'Settings'
@@ -2078,10 +2470,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     box.appendChild(title)
 
     box.appendChild(settingToggle(SETTING_STATS, 'Show battle stats', 'Off leaves the dibs control alone.'))
-    box.appendChild(settingToggle(SETTING_FF_BOX, 'Highlight high fair fight', `A green box at FF ${FF_HIGHLIGHT} and up.`))
+    box.appendChild(settingToggle(SETTING_FF_BOX, 'Highlight high fair fight', 'A green box at or above the threshold below.'))
+    box.appendChild(settingNumber(SETTING_FF_THRESHOLD, 'FF highlight threshold', 'FF saturates around 0.75 defender/attacker \u2014 the useful range is below an even fight.', { min: 1, max: 3, step: 0.1 }))
     box.appendChild(settingToggle(SETTING_STATUS, 'Live status column', 'Hospital countdown, travel ETA and last action, in Torn\u2019s own Status cell.'))
     box.appendChild(settingToggle(SETTING_TINT, 'Tint names by activity', 'Green online, amber idle, grey offline.'))
     box.appendChild(settingToggle(SETTING_MEMBER_COUNT, 'Online/idle count', 'A Warline-style count on each Members header.'))
+    box.appendChild(settingToggle(SETTING_CHAIN, 'Chain timer on the faction page', 'Live countdown, next bonus hit, and the save claim.'))
+    box.appendChild(settingToggle(SETTING_DIBS_HOSPITAL_ALERT, 'Alert when a dibs target leaves hospital', 'A toast when a target you hold dibs on is discharged.'))
     box.appendChild(settingToggle(DEBUG_KEY, 'Debug log (console)', 'Reload to trace startup.'))
 
     const back = document.createElement('button')
@@ -2256,7 +2651,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,
     parseDbTime, fmtAgo, statsSourceLabel, tokenClaims, sessionIsAdmin,
-    settingOn, settings, settingsSignature, paintSignature,
+    settingOn, settingNum, settings, settingsSignature, paintSignature,
+    FF_THRESHOLD_DEFAULT, SETTING_FF_THRESHOLD, SETTING_CHAIN, SETTING_DIBS_HOSPITAL_ALERT,
     attackUrl, statsTip, injectStyles, tipPosition, formatStatShort,
     ensureLauncher, LAUNCHER_ID, LAUNCHER_NAME,
     countryCode, travelDestination, travelPhase, methodsForPlaneType, travelEta,
@@ -2264,6 +2660,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     tallyActivity, countLabel, countTooltip,
     statusView, statusSortValue, sortEntries, nextSort, rowState, isTornSortHeader,
     versionLabel, scriptVersion, attackLinkAttrs, statValueOf,
+    isHospital, hospitalExits, BONUS_HITS, nextBonusHit, chainSecondsLeft, chainDropDue,
+    chainBadgeText, chainSaveButtonState, claimChainSave, releaseChainSave,
+    checkDibsHospitalAlerts, checkChainAlert, showToast,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
     SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT,
     SETTING_MEMBER_COUNT, DEBUG_KEY,
