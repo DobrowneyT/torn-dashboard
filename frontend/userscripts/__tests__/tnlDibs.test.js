@@ -1874,6 +1874,263 @@ describe('the battle-stat total is a real link, not a click handler', () => {
   })
 })
 
+describe('the tooltip marks the dominant stat (#541)', () => {
+  it('prefixes the dominant stat’s label, leaving every other row untouched', () => {
+    const stats = { total: 5_000_000, str: 2_100_000, def: 900_000, spd: 1_200_000, dex: 800_000, source: 'bsp', spiedAt: null }
+    const tip = S.statsTip(stats, null)
+    const lines = tip.split('\n')
+    expect(lines.find((l) => l.startsWith('▸STR'))).toBeTruthy()
+    // Every other row is byte-identical to the un-marked function — no marker,
+    // no shifted numeric column.
+    expect(lines.find((l) => l.startsWith('DEF '))).toBeTruthy()
+    expect(lines.find((l) => l.startsWith('SPD '))).toBeTruthy()
+    expect(lines.find((l) => l.startsWith('DEX '))).toBeTruthy()
+  })
+
+  it('marks nothing on a balanced build', () => {
+    const stats = { total: 4_000_000, str: 1_000_000, def: 1_000_000, spd: 1_000_000, dex: 1_000_000, source: 'bsp', spiedAt: null }
+    const tip = S.statsTip(stats, null)
+    expect(tip).not.toContain('▸')
+  })
+
+  it('never changes where the numeric column starts', () => {
+    // Same fixture as above, but every line's overall length must match —
+    // that is what proves padEnd(5) absorbed the marker rather than growing.
+    const dominant = { total: 5_000_000, str: 2_100_000, def: 900_000, spd: 1_200_000, dex: 800_000, source: 'bsp', spiedAt: null }
+    const balanced = { total: 4_000_000, str: 1_000_000, def: 1_000_000, spd: 1_000_000, dex: 1_000_000, source: 'bsp', spiedAt: null }
+    const a = S.statsTip(dominant, null).split('\n').find((l) => l.startsWith('▸STR'))
+    const b = S.statsTip(balanced, null).split('\n').find((l) => l.startsWith('DEF'))
+    expect(a.length).toBe(b.length)
+  })
+})
+
+describe('numeric settings (settingNum / settings.num)', () => {
+  it('falls back to the setting’s own default when unset', () => {
+    expect(S.settingNum(null, S.SETTING_FF_THRESHOLD)).toBe(S.FF_THRESHOLD_DEFAULT)
+    expect(S.settingNum(undefined, S.SETTING_FF_THRESHOLD)).toBe(S.FF_THRESHOLD_DEFAULT)
+    expect(S.settingNum('', S.SETTING_FF_THRESHOLD)).toBe(S.FF_THRESHOLD_DEFAULT)
+  })
+
+  it('parses a stored numeric string', () => {
+    expect(S.settingNum('2.8', S.SETTING_FF_THRESHOLD)).toBe(2.8)
+    expect(S.settingNum('1', S.SETTING_FF_THRESHOLD)).toBe(1)
+  })
+
+  it('falls back on garbage rather than returning NaN', () => {
+    expect(S.settingNum('not-a-number', S.SETTING_FF_THRESHOLD)).toBe(S.FF_THRESHOLD_DEFAULT)
+    expect(Number.isNaN(S.settingNum('abc', S.SETTING_FF_THRESHOLD))).toBe(false)
+  })
+
+  it('settings.num() reads the same value settings.setNum() wrote', () => {
+    // loadWithDom()'s GM mocks are no-ops; loadScript()'s `values` object is
+    // the harness that actually persists a write, so it is the one that can
+    // prove a round trip.
+    const { S: s } = loadScript()
+    expect(s.settings.num(s.SETTING_FF_THRESHOLD)).toBe(s.FF_THRESHOLD_DEFAULT)
+    s.settings.setNum(s.SETTING_FF_THRESHOLD, 2.0)
+    expect(s.settings.num(s.SETTING_FF_THRESHOLD)).toBe(2.0)
+  })
+
+})
+
+describe('hospitalExits (#526 dibs hospital-exit alert)', () => {
+  const hospital = { status: { state: 'Hospital', until: 999 } }
+  const okay = { status: { state: 'Okay' } }
+
+  it('fires only for a target that was hospital last poll and is not now', () => {
+    const prev = new Map([[1, true]])
+    const state = new Map([[1, okay]])
+    expect(S.hospitalExits([1], prev, state)).toEqual([1])
+  })
+
+  it('never fires on the first poll — a target absent from the previous snapshot is skipped', () => {
+    const prev = new Map()
+    const state = new Map([[1, okay]])
+    expect(S.hospitalExits([1], prev, state)).toEqual([])
+  })
+
+  it('does not fire while still in hospital', () => {
+    const prev = new Map([[1, true]])
+    const state = new Map([[1, hospital]])
+    expect(S.hospitalExits([1], prev, state)).toEqual([])
+  })
+
+  it('does not fire for a target that was never in hospital to begin with', () => {
+    const prev = new Map([[1, false]])
+    const state = new Map([[1, okay]])
+    expect(S.hospitalExits([1], prev, state)).toEqual([])
+  })
+
+  it('does not fire for a target that vanished from the roster entirely', () => {
+    // Cannot positively confirm "out" for a target we no longer have any
+    // state for — that is a disappearance, not a discharge.
+    const prev = new Map([[1, true]])
+    const state = new Map()
+    expect(S.hospitalExits([1], prev, state)).toEqual([])
+  })
+
+  it('only reports the ids asked for, even if prev/state carry others', () => {
+    const prev = new Map([[1, true], [2, true]])
+    const state = new Map([[1, okay], [2, okay]])
+    expect(S.hospitalExits([1], prev, state)).toEqual([1])
+  })
+})
+
+describe('chain math (#524)', () => {
+  describe('chainSecondsLeft', () => {
+    it('is the gap to the timeout when the chain is live', () => {
+      expect(S.chainSecondsLeft({ current: 50, timeout: 1000, cooldown: null }, 940)).toBe(60)
+    })
+
+    it('is null with no chain at all', () => {
+      expect(S.chainSecondsLeft(null, 100)).toBeNull()
+    })
+
+    it('is null while on cooldown, even with a future timeout', () => {
+      expect(S.chainSecondsLeft({ current: 50, timeout: 1000, cooldown: 2000 }, 100)).toBeNull()
+    })
+
+    it('is null once the timeout has already passed', () => {
+      expect(S.chainSecondsLeft({ current: 50, timeout: 100, cooldown: null }, 200)).toBeNull()
+    })
+
+    it('is null with no chain actually built', () => {
+      expect(S.chainSecondsLeft({ current: 0, timeout: 1000, cooldown: null }, 100)).toBeNull()
+    })
+  })
+
+  describe('chainDropDue', () => {
+    it('is true inside the threshold window', () => {
+      expect(S.chainDropDue({ current: 50, timeout: 1000, cooldown: null }, 950, 60)).toBe(true)
+    })
+
+    it('is false outside the threshold window', () => {
+      expect(S.chainDropDue({ current: 50, timeout: 1000, cooldown: null }, 800, 60)).toBe(false)
+    })
+
+    it('is false once the timer has already lapsed (0 seconds left is not "due")', () => {
+      expect(S.chainDropDue({ current: 50, timeout: 1000, cooldown: null }, 1000, 60)).toBe(false)
+    })
+  })
+
+  describe('nextBonusHit', () => {
+    it('is the next milestone above the current count', () => {
+      expect(S.nextBonusHit(0)).toBe(10)
+      expect(S.nextBonusHit(9)).toBe(10)
+      expect(S.nextBonusHit(10)).toBe(25)
+      expect(S.nextBonusHit(24)).toBe(25)
+    })
+
+    it('is null past the last milestone', () => {
+      expect(S.nextBonusHit(100000)).toBeNull()
+      expect(S.nextBonusHit(500000)).toBeNull()
+    })
+
+    it('is null for a negative or unparseable count', () => {
+      expect(S.nextBonusHit(-1)).toBeNull()
+      expect(S.nextBonusHit('abc')).toBeNull()
+      expect(S.nextBonusHit(undefined)).toBeNull()
+    })
+  })
+
+  describe('chainBadgeText', () => {
+    it('is null when there is no active chain — the widget has nothing to show', () => {
+      expect(S.chainBadgeText(null, 100)).toBeNull()
+      expect(S.chainBadgeText({ current: 0 }, 100)).toBeNull()
+    })
+
+    it('is the count alone when there is no live timer', () => {
+      expect(S.chainBadgeText({ current: 42, timeout: null, cooldown: null }, 100)).toBe('⛓42')
+    })
+
+    it('appends the countdown when the timer is live', () => {
+      expect(S.chainBadgeText({ current: 42, timeout: 160, cooldown: null }, 100)).toBe('⛓42 · 1m00s')
+    })
+  })
+
+  describe('chainSaveButtonState', () => {
+    it('offers to claim when nobody holds it', () => {
+      expect(S.chainSaveButtonState({ save_claimed_by: null }, 5, false))
+        .toEqual({ label: 'Claim save', action: 'claim', mine: false, taken: false })
+    })
+
+    it('offers to release when it is mine', () => {
+      expect(S.chainSaveButtonState({ save_claimed_by: 5, save_claimed_name: 'You' }, 5, false))
+        .toEqual({ label: 'Release save', action: 'release', mine: true, taken: true })
+    })
+
+    it('is read-only when held by someone else and I am not admin', () => {
+      const s = S.chainSaveButtonState({ save_claimed_by: 9, save_claimed_name: 'Bob' }, 5, false)
+      expect(s).toEqual({ label: 'Held by Bob', action: 'none', mine: false, taken: true })
+    })
+
+    it('lets an admin release someone else’s claim, mirroring buttonState()', () => {
+      const s = S.chainSaveButtonState({ save_claimed_by: 9, save_claimed_name: 'Bob' }, 5, true)
+      expect(s.action).toBe('release')
+      expect(s.mine).toBe(false)
+    })
+  })
+})
+
+describe('claimChainSave / releaseChainSave', () => {
+  it('claims the save and pokes the poll on success', async () => {
+    const { S: s } = loadScript({
+      routes: { '/api/war-room/chain-save': { status: 200, body: { ok: true } } },
+    })
+    s.setSession({ userId: '5', host: 'x', token: 't' })
+    const res = await s.claimChainSave()
+    expect(res.ok).toBe(true)
+  })
+
+  it('surfaces a 409 with the current holder’s name', async () => {
+    const { S: s } = loadScript({
+      routes: {
+        '/api/war-room/chain-save': { status: 409, body: { error: 'Already claimed by Bob', owner: { id: 9, name: 'Bob' } } },
+      },
+    })
+    s.setSession({ userId: '5', host: 'x', token: 't' })
+    const res = await s.claimChainSave()
+    expect(res.ok).toBe(false)
+    expect(res.message).toContain('Bob')
+  })
+
+  it('releases on success', async () => {
+    const { S: s } = loadScript({
+      routes: { '/api/war-room/chain-save': { status: 200, body: { ok: true } } },
+    })
+    s.setSession({ userId: '5', host: 'x', token: 't' })
+    const res = await s.releaseChainSave()
+    expect(res.ok).toBe(true)
+  })
+
+  it('surfaces a non-200 release failure', async () => {
+    const { S: s } = loadScript({
+      routes: { '/api/war-room/chain-save': { status: 403, body: { error: 'not yours' } } },
+    })
+    s.setSession({ userId: '5', host: 'x', token: 't' })
+    const res = await s.releaseChainSave()
+    expect(res.ok).toBe(false)
+    expect(res.message).toBe('not yours')
+  })
+})
+
+describe('checkDibsHospitalAlerts / checkChainAlert do not throw with no DOM', () => {
+  it('checkDibsHospitalAlerts is a no-op without a session', () => {
+    const { S: s } = loadWithDom()
+    expect(() => s.checkDibsHospitalAlerts()).not.toThrow()
+  })
+
+  it('checkChainAlert is a no-op with the chain setting off', () => {
+    const { S: s, values } = loadScript()
+    values[s.SETTING_CHAIN] = 'false'
+    expect(() => s.checkChainAlert()).not.toThrow()
+  })
+
+  it('showToast is a no-op with no document', () => {
+    expect(() => S.showToast('test')).not.toThrow()
+  })
+})
+
 describe('rowState', () => {
   it('keeps every field memberState() writes, plus the travel latch', () => {
     // ⚠️ travel_departed_at is a COLUMN, not part of the state jsonb — the
@@ -2180,14 +2437,17 @@ describe('statsTip', () => {
   it('stacks one line per stat, then Total, then the source', () => {
     const lines = S.statsTip(stats, 2.4).split('\n').filter((l) => !/^─+$/.test(l))
     expect(lines[0]).toMatch(/^FF/)
-    expect(lines.slice(1, 5).map((l) => l.trim().split(/\s+/)[0])).toEqual(['STR', 'DEF', 'SPD', 'DEX'])
+    // STR is dominant in this fixture (2.1M of 5M), so its line carries the
+    // ▸ marker (#541) — strip it before comparing labels.
+    expect(lines.slice(1, 5).map((l) => l.trim().replace(/^▸/, '').split(/\s+/)[0])).toEqual(['STR', 'DEF', 'SPD', 'DEX'])
     expect(lines[5]).toMatch(/^Total/)
     expect(lines.at(-1)).toContain('(TS)')
   })
 
   it('aligns the two columns, which is what white-space: pre is for', () => {
     const lines = S.statsTip(stats, 2.4).split('\n')
-    const str = lines.find((l) => l.startsWith('STR'))
+    // STR is dominant here and carries the ▸ marker — match either way.
+    const str = lines.find((l) => /^▸?STR/.test(l))
     const dex = lines.find((l) => l.startsWith('DEX'))
     expect(str.length).toBe(dex.length)
   })
