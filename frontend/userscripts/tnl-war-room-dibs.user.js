@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.35.0
+// @version      1.35.1
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1789,12 +1789,32 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
-  // Torn's own profile link already wraps the whole name (honor bar and the
-  // plain text twin alike) — it just opens in the SAME tab, which loses your
-  // place in the war list. This is the only change; nothing about how the
-  // name looks is touched.
+  // The war page is a React app (the honorWrap___xxxxx classes are CSS-module
+  // hashes) and intercepts left-clicks on its own links with client-side
+  // routing — preventDefault() fires before the browser ever gets to the
+  // point of honouring target="_blank", so setting the attribute alone does
+  // nothing. Middle-click already worked because it fires a separate
+  // auxclick event React's onClick never sees. The fix is a capture-phase
+  // listener that gets the click before React's delegated handler does,
+  // takes over navigation ourselves, and steps aside for any modified click
+  // (ctrl/cmd/shift), where the browser's own handling is already correct.
+  let nameNewTabBound = false
+  function ensureNameNewTabInterceptor() {
+    if (nameNewTabBound || typeof document === 'undefined') return
+    nameNewTabBound = true
+    document.addEventListener('click', (e) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      const anchor = e.target?.closest?.('a[data-tnl-new-tab]')
+      if (!anchor) return
+      e.preventDefault()
+      e.stopPropagation()
+      const href = anchor.getAttribute('href')
+      if (href) window.open(new URL(href, location.href).href, '_blank', 'noopener')
+    }, true)
+  }
+
   function openNameInNewTab(anchor) {
-    if (anchor.target !== '_blank') anchor.target = '_blank'
+    if (!anchor.dataset.tnlNewTab) anchor.dataset.tnlNewTab = '1'
   }
 
   function paintName(row, anchor, playerId) {
@@ -2197,6 +2217,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       render()   // once per batch, not once per touched node
     })
     observer.observe(document, { childList: true, subtree: true })
+    ensureNameNewTabInterceptor()
     scan(document)
     render()
     startTimers()
@@ -2789,7 +2810,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     statusView, statusSortValue, sortEntries, nextSort, rowState, isTornSortHeader,
     versionLabel, scriptVersion, attackLinkAttrs, statValueOf,
     isHospital, hospitalExits, BONUS_HITS, nextBonusHit, chainSecondsLeft, chainDropDue,
-    openNameInNewTab, statsIndex, sortStateIndex, orderList,
+    openNameInNewTab, ensureNameNewTabInterceptor, statsIndex, sortStateIndex, orderList,
     submitFeedback, FEEDBACK_TITLE_MAX, FEEDBACK_DESC_MAX,
     chainBadgeText, chainSaveButtonState, claimChainSave, releaseChainSave,
     checkDibsHospitalAlerts, checkChainAlert, showToast,

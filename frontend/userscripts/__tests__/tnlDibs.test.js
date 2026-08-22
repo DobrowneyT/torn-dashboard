@@ -2250,25 +2250,48 @@ describe('submitFeedback (#547) — same endpoint the dashboard’s Feedback mod
 })
 
 describe('openNameInNewTab (#547)', () => {
-  it('sets target=_blank on Torn’s own profile link', () => {
-    const a = { target: '' }
+  // React intercepts left-clicks on Torn's own links with client-side
+  // routing, so target="_blank" alone is inert (preventDefault() fires
+  // before the browser ever gets to it) — the anchor only needs marking;
+  // ensureNameNewTabInterceptor() is what actually does the work.
+  it('marks the anchor for the document-level interceptor to find', () => {
+    const a = { dataset: {} }
     S.openNameInNewTab(a)
-    expect(a.target).toBe('_blank')
+    expect(a.dataset.tnlNewTab).toBe('1')
   })
 
-  it('never touches anything else on the anchor — no colour, no href, no rel', () => {
-    const a = { target: '', href: '/profiles.php?XID=39773', rel: 'noopener noreferrer', style: { color: 'red' } }
+  it('never touches anything else on the anchor — no colour, no href, no rel, no target', () => {
+    const a = { dataset: {}, target: '', href: '/profiles.php?XID=39773', rel: 'noopener noreferrer', style: { color: 'red' } }
     S.openNameInNewTab(a)
+    expect(a.target).toBe('')
     expect(a.href).toBe('/profiles.php?XID=39773')
     expect(a.rel).toBe('noopener noreferrer')
     expect(a.style.color).toBe('red')
   })
 
-  it('is idempotent — a second call does not re-assign', () => {
+  it('is idempotent — a second call does not re-assign the marker', () => {
     let writes = 0
-    const a = { _target: '_blank', get target() { return this._target }, set target(v) { writes++; this._target = v } }
+    const a = { dataset: { get tnlNewTab() { return this._v }, set tnlNewTab(v) { writes++; this._v = v } } }
     S.openNameInNewTab(a)
-    expect(writes).toBe(0)
+    S.openNameInNewTab(a)
+    expect(writes).toBe(1)
+  })
+})
+
+describe('ensureNameNewTabInterceptor (#547)', () => {
+  it('is a no-op with no document', () => {
+    expect(() => S.ensureNameNewTabInterceptor()).not.toThrow()
+  })
+
+  it('binds exactly one document-level capture listener, even called repeatedly', () => {
+    const { S: s, document: doc } = loadWithDom()
+    const added = []
+    doc.addEventListener = (type, fn, opts) => added.push({ type, opts })
+    s.ensureNameNewTabInterceptor()
+    s.ensureNameNewTabInterceptor()
+    s.ensureNameNewTabInterceptor()
+    expect(added).toHaveLength(1)
+    expect(added[0]).toEqual({ type: 'click', opts: true })
   })
 })
 

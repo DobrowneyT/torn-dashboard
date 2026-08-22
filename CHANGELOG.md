@@ -24,9 +24,19 @@ surface it automatically.
 - **Userscript: a name is already a link to the profile — it now opens in a
   new tab (#547).** Torn wraps the whole honor-bar name (and the plain-text
   twin our activity tint reveals) in its own `<a href="/profiles.php?...">`
-  already; nothing needed building. The only change is `target="_blank"`, so
-  checking someone's profile mid-war doesn't lose your place in the list.
-  Colour is untouched — this only changes where the click goes.
+  already; nothing needed building. Colour is untouched — this only changes
+  where the click goes.
+
+  ⚠️ Getting it to actually open a new tab took two attempts. The war page is
+  a React app that intercepts left-clicks on its own links with client-side
+  routing — `preventDefault()` fires before the browser ever gets to the
+  point of honouring `target="_blank"`, so setting the attribute alone (the
+  first attempt) did nothing. Middle-click already worked only because it
+  fires a separate `auxclick` event React's `onClick` never sees. The real
+  fix is a capture-phase `click` listener on `document` that gets the event
+  before React's delegated handler does, and takes over navigation itself —
+  stepping aside for any modified click (ctrl/cmd/shift), where the browser's
+  own handling was already correct.
 - **Userscript: a Feedback button, posting through the same endpoint the
   dashboard's own Feedback modal uses.** Bug or suggestion, title and
   description, same 200/5000-character limits and same GitHub-issue pipeline
