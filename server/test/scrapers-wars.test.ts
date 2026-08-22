@@ -203,6 +203,21 @@ describe('attacks sync job', () => {
     const count = await stack.db.query('SELECT count(*)::int AS n FROM faction_attacks')
     expect(count.rows[0].n).toBe(3)
   })
+
+  it('stores a null chain as null, not 0 (#544)', async () => {
+    stack.torn.setHandler('/v2/faction/attacks', () => ({
+      attacks: [rawAttack(9101, 1748101000, { chain: null })],
+    }))
+    const { attacksSyncJob } = await import('../src/scraper/jobs/attacksSync.js')
+    await attacksSyncJob(deps())
+    const row = await stack.db.query('SELECT chain FROM faction_attacks WHERE attack_id = 9101')
+    expect(row.rows[0].chain).toBeNull()
+    // Later describe blocks in this file trigger real syncs against the same
+    // shared handler and assert an exact row count — leave both the table and
+    // the mock handler as this test found them.
+    await stack.db.query('DELETE FROM faction_attacks WHERE attack_id = 9101')
+    stack.torn.setHandler('/v2/faction/attacks', () => ({ attacks: [] }))
+  })
 })
 
 describe('revives sync job', () => {

@@ -257,14 +257,24 @@ describe('inventory management', () => {
   })
 
   it('POST /api/inventory/sync pulls the faction inventory from Torn with the server key', async () => {
-    stack.torn.setPath(`/faction/${TEST_FACTION.tornFactionId}`, {
-      medical: [
-        { ID: 66, name: 'Morphine', quantity: 60, available: 55, loaned: 5, loaned_to: 700, type: 'Medical' },
-      ],
-      drugs: [
-        { ID: 206, name: 'Xanax', quantity: 180, available: 180, loaned: 0, loaned_to: null, type: 'Drug' },
-        { ID: 197, name: 'Ecstasy', quantity: 12, available: 12, loaned: 0, loaned_to: null, type: 'Drug' },
-      ],
+    stack.torn.setHandler('/v2/faction/inventory', (url) => {
+      const cat = url.searchParams.get('cat')
+      if (cat === 'medical') {
+        return {
+          inventory: [{ id: 66, name: 'Morphine', type: 'Medical', amount: 60, uids: [], loaned: { id: 700, name: 'Bob' } }],
+          _metadata: { total: 1 },
+        }
+      }
+      if (cat === 'drugs') {
+        return {
+          inventory: [
+            { id: 206, name: 'Xanax', type: 'Drug', amount: 180, uids: [], loaned: null },
+            { id: 197, name: 'Ecstasy', type: 'Drug', amount: 12, uids: [], loaned: null },
+          ],
+          _metadata: { total: 2 },
+        }
+      }
+      return { inventory: [], _metadata: { total: 0 } }
     })
     const { status, body } = await call('POST', '/api/inventory/sync', {})
     expect(status).toBe(200)
