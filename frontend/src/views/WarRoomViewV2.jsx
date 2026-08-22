@@ -82,7 +82,7 @@ import {
   fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
 } from '../utils/fairFight'
 import { clampCadence } from '../utils/warRoomCadence.js'
-import { dibsButtonState } from '../utils/dibsButton.js'
+import { assistBadgeState } from '../utils/assistBadge.js'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -1559,6 +1559,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     members: rawMembers,
     ourMembers,
     dibs,
+    assist,
     memberStats,
     config,
     chain,
@@ -3127,6 +3128,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     const dib = effectiveDibs[m.member_id]
                     const isMyDib = dib && String(dib.claimed_by) === String(user?.id)
                     const isPendingRelease = pendingDibsOps[m.member_id] === 'release'
+                    // #523: a live "raise a hand" request against this target,
+                    // if any — folded into the Dibs badge, not a second cell.
+                    const activeAssist = assist[m.member_id]
                     const rowBg = idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-gray-50/50 dark:bg-slate-800/40'
 
                     return (
@@ -3276,10 +3280,31 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                               Releasing…
                             </span>
                           ) : (() => {
-                            // ONE control, three states (#509) — the same shape
-                            // the Torn userscript shows, from the same
-                            // function, so the two cannot drift.
-                            const st = dibsButtonState(dib, user?.id, { isAdmin })
+                            // ONE control, three-plus states (#509, #523) — the
+                            // same shape the Torn userscript shows, from the
+                            // same pure state→view-model function, so the two
+                            // cannot drift. #523 folds an active assist request
+                            // into this SAME badge (mode: 'assist') rather than
+                            // a second indicator — see assistBadgeState's own
+                            // doc comment for why.
+                            const st = assistBadgeState(dib, activeAssist, m.member_id, user?.id, { isAdmin })
+
+                            // The assist mode is a plain link straight to the
+                            // fight, not a claim/release control.
+                            if (st.mode === 'assist') {
+                              return (
+                                <a
+                                  href={st.href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={st.title}
+                                  className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border max-w-[9rem] transition-colors border-orange-400 text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40"
+                                >
+                                  <span className="truncate">{st.label}</span>
+                                </a>
+                              )
+                            }
+
                             const tone = st.tone === 'mine'
                               ? 'border-blue-400 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
                               : st.tone === 'taken'

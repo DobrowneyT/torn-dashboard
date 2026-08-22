@@ -1,0 +1,73 @@
+/**
+ * What the Dibs badge should say and do when an assist request is active
+ * (#523).
+ *
+ * MonChoon's call (2026-08-21): don't add a second indicator next to Dibs —
+ * conserve the row's horizontal space and let the SAME badge morph. While a
+ * target has a live assist request, the badge shows just the kind (the badge
+ * stays icon-short; who asked and how long ago live in the title/tooltip) and
+ * becomes a link straight to that target's attack page — no claim/release
+ * action while it's active. Dibs underneath is untouched: a target can be
+ * both dibbed AND have an active assist; this only decides which one the ONE
+ * badge shows right now (assist wins, because it's the more urgent of the
+ * two).
+ *
+ * One seam, deliberately, mirroring dibsButtonState/paint's own split: this
+ * is the state → view-model half; the caller (WarRoomViewV2's Dibs cell, the
+ * userscript's equivalent) does the pure paint. A follow-up visual-only pass
+ * on the assist badge is meant to touch the paint side alone.
+ */
+import { dibsButtonState } from './dibsButton.js'
+import { fmtAgo } from './time.js'
+
+export const ASSIST_KIND_META = {
+  smoke: { icon: '🚬', label: 'Smoke' },
+  tear: { icon: '💨', label: 'Tear gas' },
+  help: { icon: '🆘', label: 'Help' },
+}
+
+export function attackUrl(targetId) {
+  const id = Number(targetId)
+  return Number.isFinite(id) && id > 0 ? `https://www.torn.com/page.php?sid=attack&user2ID=${id}` : null
+}
+
+/** The two row shapes: `{requester_id, requester_name, kind, created_at}` (REST) and a userscript-style index entry. */
+function assistHolder(assist) {
+  if (!assist) return null
+  const id = assist.requester_id ?? assist.by
+  if (id === null || id === undefined) return null
+  return {
+    id,
+    name: assist.requester_name ?? assist.name ?? null,
+    kind: assist.kind,
+    at: assist.created_at ?? assist.at ?? null,
+  }
+}
+
+/**
+ * @param {object|null} dib - the row `dibsButtonState` already understands.
+ * @param {object|null} assist - a live assist row for this target, or null.
+ * @param {number|string} targetId - needed only to build the attack-page href.
+ * @param {number|string} currentUserId
+ * @param {{isAdmin?: boolean}} [opts]
+ * @returns {{mode: 'dibs'|'assist', label: string, href: string|null, tone: string, title?: string, action: string|null, mine: boolean, taken: boolean}}
+ */
+export function assistBadgeState(dib, assist, targetId, currentUserId, opts = {}) {
+  const held = assistHolder(assist)
+  if (held) {
+    const meta = ASSIST_KIND_META[held.kind] ?? { icon: '🆘', label: held.kind ?? 'Assist' }
+    const mine = String(held.id) === String(currentUserId)
+    const who = mine ? 'you' : (held.name ?? 'someone')
+    return {
+      mode: 'assist',
+      label: meta.icon,
+      href: attackUrl(targetId),
+      tone: 'assist',
+      title: `${meta.label} requested by ${who} · ${fmtAgo(held.at)}`,
+      action: null,
+      mine,
+      taken: true,
+    }
+  }
+  return { mode: 'dibs', href: null, ...dibsButtonState(dib, currentUserId, opts) }
+}

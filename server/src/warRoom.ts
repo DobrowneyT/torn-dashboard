@@ -35,7 +35,7 @@ export interface WarRoomDeps {
  */
 const HEARTBEAT_MS = 30_000
 
-export type WarRoomChannel = 'state' | 'dibs' | 'config' | 'chain' | 'memberstats'
+export type WarRoomChannel = 'state' | 'dibs' | 'config' | 'chain' | 'memberstats' | 'assist'
 
 export interface WarRoomHub {
   /**
@@ -55,6 +55,9 @@ const CHANNELS = {
   config: 'SELECT * FROM war_room_config_v2',
   chain: 'SELECT * FROM war_room_chain_v2',
   memberstats: 'SELECT * FROM war_room_member_stats_v2',
+  // #523: live "raise a hand" assist requests. Rides the delta/snapshot
+  // machinery exactly like dibs — same soft-delete semantics, no lead gate.
+  assist: 'SELECT * FROM war_room_assists_v2',
 } as const
 
 /**
@@ -90,10 +93,10 @@ export function canSeeLeadOnlyChannels(claims: {
 /**
  * Channels whose rows are soft-deleted rather than removed.
  *
- * ⚠️ Only these two carry `deleted_at`; adding the filter to the others would
- * be a SQL error, not a no-op.
+ * ⚠️ Only these three carry `deleted_at`; adding the filter to the others
+ * would be a SQL error, not a no-op.
  */
-const SOFT_DELETED_CHANNELS = new Set<WarRoomChannel>(['state', 'dibs'])
+const SOFT_DELETED_CHANNELS = new Set<WarRoomChannel>(['state', 'dibs', 'assist'])
 
 /**
  * ⚠️ A FULL snapshot omits tombstones; a delta must carry them.
@@ -124,13 +127,14 @@ async function channelRows(
 
 async function fullDelta(db: pg.Pool, since: string | undefined, includeLeadOnly: boolean) {
   const now = await db.query('SELECT now() AS server_now')
-  const [state, dibs, config, chain, memberstats] = await Promise.all([
+  const [state, dibs, config, chain, memberstats, assist] = await Promise.all([
     channelRows(db, CHANNELS.state, since, 'state'),
     channelRows(db, CHANNELS.dibs, since, 'dibs'),
     channelRows(db, CHANNELS.config, since, 'config'),
     channelRows(db, CHANNELS.chain, since, 'chain'),
     // Not merely filtered out of the response — never read for a non-lead.
     includeLeadOnly ? channelRows(db, CHANNELS.memberstats, since, 'memberstats') : Promise.resolve([]),
+    channelRows(db, CHANNELS.assist, since, 'assist'),
   ])
   return {
     state: { rows: state },
@@ -138,6 +142,7 @@ async function fullDelta(db: pg.Pool, since: string | undefined, includeLeadOnly
     config: { rows: config },
     chain: { rows: chain },
     memberstats: { rows: memberstats },
+    assist: { rows: assist },
     server_now: now.rows[0].server_now,
   }
 }

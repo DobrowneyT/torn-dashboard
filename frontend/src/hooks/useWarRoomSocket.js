@@ -9,8 +9,11 @@
  * both transports.
  *
  * Returns:
- *   { members, ourMembers, dibs, memberStats, config, chain,
+ *   { members, ourMembers, dibs, assist, memberStats, config, chain,
  *     isInitialLoading, lastTick, pollError, pollNow }
+ *
+ * `assist` (#523) rides the delta/snapshot machinery exactly like `dibs` —
+ * same soft-delete-tombstone shape, no lead gate, keyed by target_id.
  *
  * `memberStats` (#336) is LEAD-ONLY and arrives empty for everyone else — the
  * server withholds the channel rather than the client filtering it.
@@ -19,6 +22,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { getApiSession, apiGet, apiRefresh } from '../utils/apiClient'
 import { mergeVersionedRows, liveRows } from '../utils/warRoomMerge'
 import { isActiveMember } from '../utils/memberVisibility'
+import { parseDbTime } from '../utils/time'
 
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15_000
@@ -52,6 +56,7 @@ function flattenStateRow(row) {
 export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
   const stateMapRef = useRef(new Map())
   const dibsMapRef = useRef(new Map())
+  const assistMapRef = useRef(new Map())
   const memberStatsMapRef = useRef(new Map())
   const watermarkRef = useRef(null)
   // Keep the alert callback in a ref so it can change without reconnecting.
@@ -61,6 +66,8 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
   const [members, setMembers] = useState([])
   const [ourMembers, setOurMembers] = useState([])
   const [dibs, setDibs] = useState({})
+  /** Live "raise a hand" assist requests, keyed by target_id (#523). */
+  const [assist, setAssist] = useState({})
   /** Our own members' live energy/cooldowns, keyed by member id (#336). */
   const [memberStats, setMemberStats] = useState({})
   const [config, setConfig] = useState(null)
@@ -97,6 +104,21 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
     setDibs(obj)
   }, [])
 
+  const publishAssist = useCallback(() => {
+    const byTarget = {}
+    for (const v of liveRows(assistMapRef.current)) {
+      const prev = byTarget[v.target_id]
+      // Multiple live requesters CAN target the same enemy (unlike dibs, an
+      // assist is per-requester, not per-target) — the badge shows one
+      // thing, so the newest raised hand wins, mirroring the NEWEST-WINS
+      // merge rule above (just applied at publish time instead of write time).
+      const at = parseDbTime(v.created_at)?.getTime() ?? 0
+      const prevAt = parseDbTime(prev?.created_at)?.getTime() ?? 0
+      if (!prev || at > prevAt) byTarget[v.target_id] = v
+    }
+    setAssist(byTarget)
+  }, [])
+
   const publishMemberStats = useCallback(() => {
     const obj = {}
     for (const v of liveRows(memberStatsMapRef.current)) obj[String(v.member_id)] = v
@@ -116,6 +138,13 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
     } else if (channel === 'dibs') {
       mergeVersionedRows(dibsMapRef.current, rows, 'target_id')
       publishDibs()
+    } else if (channel === 'assist') {
+      // Keyed by id, not target_id — target_id is not unique on this table
+      // (see publishAssist), so merging by it would let a newer requester's
+      // row silently discard an older live one instead of letting them
+      // coexist in the map.
+      mergeVersionedRows(assistMapRef.current, rows, 'id')
+      publishAssist()
     } else if (channel === 'config') {
       setConfig(rows[rows.length - 1])
     } else if (channel === 'chain') {
@@ -127,16 +156,18 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
       mergeVersionedRows(memberStatsMapRef.current, rows, 'member_id')
       publishMemberStats()
     }
-  }, [publishState, publishDibs, publishMemberStats])
+  }, [publishState, publishDibs, publishAssist, publishMemberStats])
 
   const applyFullDelta = useCallback((body, isSnapshot) => {
     if (isSnapshot) {
       stateMapRef.current.clear()
       dibsMapRef.current.clear()
+      assistMapRef.current.clear()
       memberStatsMapRef.current.clear()
     }
     applyChannel('state', body.state?.rows)
     applyChannel('dibs', body.dibs?.rows)
+    applyChannel('assist', body.assist?.rows)
     applyChannel('config', body.config?.rows)
     applyChannel('chain', body.chain?.rows)
     applyChannel('memberstats', body.memberstats?.rows)
@@ -144,6 +175,7 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
       // A snapshot replaces everything, so republish even if a channel was empty.
       publishState()
       publishDibs()
+      publishAssist()
       // Republishing matters most here: a viewer who LOST the lead role gets a
       // snapshot with the channel empty, and must end up with an empty map
       // rather than keeping the stats their previous session cached.
@@ -153,7 +185,7 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
     setLastTick(Date.now())
     setIsInitialLoading(false)
     setPollError(null)
-  }, [applyChannel, publishState, publishDibs, publishMemberStats])
+  }, [applyChannel, publishState, publishDibs, publishAssist, publishMemberStats])
 
   // REST fallback tick — full snapshot when we have no watermark, delta after.
   const restTick = useCallback(async () => {
@@ -248,5 +280,5 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
   // Imperative refresh after a write — one REST delta from the watermark.
   const pollNow = useCallback(() => restTick(), [restTick])
 
-  return { members, ourMembers, dibs, memberStats, config, chain, isInitialLoading, lastTick, pollError, pollNow }
+  return { members, ourMembers, dibs, assist, memberStats, config, chain, isInitialLoading, lastTick, pollError, pollNow }
 }
