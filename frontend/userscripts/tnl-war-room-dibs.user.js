@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.34.0
+// @version      1.35.3
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -570,13 +570,21 @@ const TNLDibs = (function () {
   }
 
   function sortEntries(entries, dir) {
-    const missing = (v) => v === null || v === undefined || !Number.isFinite(Number(v))
+    // A string value (name) is missing only when it's empty — Number('') is 0,
+    // not NaN, so the numeric branch below would wrongly treat "" as sortable.
+    const missing = (v) => {
+      if (v === null || v === undefined) return true
+      if (typeof v === 'string') return v.length === 0
+      return !Number.isFinite(Number(v))
+    }
     return [...(entries ?? [])].sort((a, b) => {
       const am = missing(a.value), bm = missing(b.value)
       if (am && bm) return a.pos - b.pos
       if (am) return 1
       if (bm) return -1
-      const diff = (Number(a.value) - Number(b.value)) * (dir < 0 ? -1 : 1)
+      const diff = typeof a.value === 'string' || typeof b.value === 'string'
+        ? String(a.value).localeCompare(String(b.value)) * (dir < 0 ? -1 : 1)
+        : (Number(a.value) - Number(b.value)) * (dir < 0 ? -1 : 1)
       return diff === 0 ? a.pos - b.pos : diff
     })
   }
@@ -750,7 +758,7 @@ const TNLDibs = (function () {
     isAdmin: false,         // UI affordance only; the server decides
     state: new Map(),       // memberId → rowState()
     mstats: new Map(),      // memberId → energy + cooldowns. Lead-only, ours-only.
-    sort: { key: null, dir: 0 },  // null key means Torn's own order
+    sortState: new Map(),  // list element -> { key, dir } — each table sorts independently (#547)
     sorted: false,
     rowH: null,
     tick: null,
@@ -758,6 +766,7 @@ const TNLDibs = (function () {
     chain: null,              // latest war_room_chain_v2 row, or null before the first poll (#524)
     chainOpen: false,         // the chain popover, independent of the main panel
     chainWarnedTimeout: null, // the chain.timeout we last toasted for — re-arms on a new timeout
+    feedbackOpen: false,
   }
 
   function pageUserId() {
@@ -858,6 +867,28 @@ const TNLDibs = (function () {
     pokePoll()
     paintChainUi()
     return { ok: true }
+  }
+
+  const FEEDBACK_TITLE_MAX = 200
+  const FEEDBACK_DESC_MAX = 5000
+
+  /** Same endpoint the dashboard's own Feedback modal posts to (#547). */
+  async function submitFeedback(category, title, description) {
+    const trimmedTitle = String(title ?? '').trim()
+    if (!trimmedTitle) return { ok: false, message: 'A title is required.' }
+    if (trimmedTitle.length > FEEDBACK_TITLE_MAX) {
+      return { ok: false, message: `Title too long (max ${FEEDBACK_TITLE_MAX} chars).` }
+    }
+    if (String(description ?? '').length > FEEDBACK_DESC_MAX) {
+      return { ok: false, message: `Description too long (max ${FEEDBACK_DESC_MAX} chars).` }
+    }
+    const res = await api('/api/feedback', 'POST', {
+      category, title: trimmedTitle, description: description ?? '', app_version: scriptVersion(),
+    })
+    if (res.status !== 200) {
+      return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
+    }
+    return { ok: true, url: res.body?.url, number: res.body?.number }
   }
 
   function pokePoll() {
@@ -1182,8 +1213,23 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
    and a plain .honor-text span. Hide the first two, show the third. */
 .${PLAIN_NAME_CLASS} img { display: none !important; }
 .${PLAIN_NAME_CLASS} .honor-text-svg { display: none !important; }
+/* Torn's plain .honor-text span is position:absolute (it normally sits as an
+   invisible backdrop under the honor-bar image/SVG), and an absolutely
+   positioned element is blockified by the CSS spec regardless of any
+   display:inline we set — so it never contributed to its wrapping <a>'s size.
+   With the <img> hidden, that <a> had nothing left to size itself on and
+   collapsed to 0×0: the text still painted (absolute escapes a 0-size
+   ancestor) but there was no box left to hover or click. position:static
+   pulls it back into normal flow so the link sizes around the visible text. */
+.${PLAIN_NAME_CLASS} .honor-text-wrap,
+.${PLAIN_NAME_CLASS} > a {
+  position: static !important;
+  width: auto !important; height: auto !important;
+  overflow: visible !important;
+}
 .${PLAIN_NAME_CLASS} .honor-text:not(.honor-text-svg) {
   display: inline !important;
+  position: static !important;
   visibility: visible !important; opacity: 1 !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
   font-size: 11px !important; font-weight: 600 !important;
@@ -1359,7 +1405,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const attackHead = attackHeaderCell(header)
       const bsHead = document.createElement(header.tagName.toLowerCase() === 'ul' ? 'li' : 'div')
       bsHead.className = `table-cell ${COL_HEAD_CLASS} ${BS_CLASS}`
-      bindSort(bsHead, 'bs', 'BS')
+      bindSort(bsHead, 'bs', 'BS', row.parentNode)
       const scoreHead = scoreCellOf(header)
       if (scoreHead) scoreHead.parentNode.insertBefore(bsHead, scoreHead)
       else header.appendChild(bsHead)
@@ -1548,12 +1594,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   /**
    * What makes the total a real link rather than a click handler.
    *
-   * noopener denies the new tab a handle back to this one; noreferrer keeps
-   * Torn from being told which page the click came from.
+   * No target — a plain left click opens the attack page in this same tab,
+   * same as any other link on the row. rel stays regardless: middle-click
+   * and ctrl/cmd-click already open a new tab on their own (a real <a> gives
+   * the browser that for free), and noopener/noreferrer are worth having
+   * whenever a new tab is possible, not only when target forces one.
    */
   function attackLinkAttrs(playerId) {
     const href = attackUrl(playerId)
-    return href ? { href, target: '_blank', rel: 'noopener noreferrer' } : null
+    return href ? { href, rel: 'noopener noreferrer' } : null
   }
 
   function statValueOf(slotEl, playerId) {
@@ -1630,16 +1679,33 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       : '1px solid transparent'
   }
 
-  /** "Atk" buys about 30px per row. */
-  function shrinkAttack(row) {
+  /**
+   * "Atk" buys about 30px per row. Torn does not always render this cell as
+   * a real link — outside an active war it ships a plain, unstyled span with
+   * no href at all, script or no script. `playerId` (enemy rows only — never
+   * hand this a teammate) lets us give it the same working attack link the
+   * BS column already has, rather than a relabelled dead end.
+   */
+  function shrinkAttack(row, playerId) {
     if (row._tnlAtk) return
     row._tnlAtk = true
     const attack = attackCellOf(row)
     if (!attack || attack.dataset.tnlAtk) return
     for (const el of [attack, ...attack.querySelectorAll('span, a')]) {
       if ((el.textContent || '').trim() === 'Attack' && el.children.length === 0) {
-        el.textContent = 'Atk'
         attack.dataset.tnlAtk = '1'
+        if (el.tagName === 'A' && el.getAttribute('href')) {
+          el.textContent = 'Atk'
+          return
+        }
+        const href = playerId === null || playerId === undefined ? null : attackUrl(playerId)
+        if (!href) { el.textContent = 'Atk'; return }
+        const link = document.createElement('a')
+        link.className = 't-blue h c-pointer'
+        link.textContent = 'Atk'
+        link.href = href
+        link.rel = 'noopener noreferrer'
+        el.replaceWith(link)
         return
       }
     }
@@ -1794,21 +1860,52 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return a ? parseXid(a.getAttribute('href')) : null
   }
 
-  function sortValueFor(playerId, nowMs) {
-    switch (rt.sort.key) {
+  function sortStateFor(list) {
+    return rt.sortState.get(list) ?? { key: null, dir: 0 }
+  }
+
+  function anySortActive() {
+    for (const state of rt.sortState.values()) if (state.key) return true
+    return false
+  }
+
+  // Torn's own text for these three columns, read straight off the row — we
+  // took the sort over from Torn (see relabelColumnHeaders), so there is no
+  // war-room state to read; the DOM already has the answer.
+  function nameSortValue(row) {
+    const t = row.querySelector('a[href*="profiles.php?XID="]')?.textContent
+    return t ? t.trim() : ''
+  }
+
+  function levelSortValue(row) {
+    const n = Number(row.querySelector('.level, [class*="level___"]')?.textContent)
+    return Number.isFinite(n) ? n : null
+  }
+
+  function scoreSortValue(row) {
+    const n = Number(scoreCellOf(row)?.textContent)
+    return Number.isFinite(n) ? n : null
+  }
+
+  function sortValueFor(sortKey, playerId, row, nowMs) {
+    switch (sortKey) {
       case 'bs': {
         const total = rt.stats.get(playerId)?.total
         return total === null || total === undefined ? null : Number(total)
       }
       case 'status': return statusSortValue(rt.state.get(playerId), nowMs)
+      case 'name': return nameSortValue(row)
+      case 'level': return levelSortValue(row)
+      case 'score': return scoreSortValue(row)
       default: return null
     }
   }
 
   /** Permutes with flex `order`, never by moving nodes — Torn owns the DOM order. */
   function orderList(list, nowMs) {
+    const state = sortStateFor(list)
     const children = Array.from(list.children)
-    if (!rt.sort.key) {
+    if (!state.key) {
       if (!list.dataset.tnlOrderSig) return
       for (const c of children) c.style.order = ''
       delete list.dataset.tnlOrderSig
@@ -1818,12 +1915,12 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     const rows = []
     children.forEach((c, i) => {
       const id = idOfRow(c)
-      if (id !== null) rows.push({ id, row: c, pos: i, slot: i + 1, value: sortValueFor(id, nowMs) })
+      if (id !== null) rows.push({ id, row: c, pos: i, slot: i + 1, value: sortValueFor(state.key, id, c, nowMs) })
     })
     if (rows.length < 2) return
 
-    const ordered = sortEntries(rows, rt.sort.dir)
-    const sig = `${rt.sort.key}:${rt.sort.dir}:${ordered.map((e) => e.id).join(',')}`
+    const ordered = sortEntries(rows, state.dir)
+    const sig = `${state.key}:${state.dir}:${ordered.map((e) => e.id).join(',')}`
     if (list.dataset.tnlOrderSig === sig && rows[0].row.style.order !== '') return
     list.dataset.tnlOrderSig = sig
 
@@ -1834,22 +1931,32 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   function applySort(nowMs = Date.now()) {
     // Nothing to do, and nothing to undo — skip the whole walk.
-    if (!rt.sort.key && !rt.sorted) return
-    rt.sorted = Boolean(rt.sort.key)
+    if (!anySortActive() && !rt.sorted) return
+    rt.sorted = anySortActive()
     const lists = new Set()
     eachRow((_id, _anchor, row) => { if (row.parentNode) lists.add(row.parentNode) })
     for (const list of lists) orderList(list, nowMs)
   }
 
-  function bindSort(el, key, label) {
+  function bindSort(el, key, label, list) {
     if (!el || el.dataset.tnlSortKey) return
     el.dataset.tnlSortKey = key
     el.dataset.tnlSortLabel = label
+    el._tnlSortList = list
     el.classList.add(SORT_CLASS)
+    // A dedicated child for the label text, not the whole cell — the Name
+    // header also hosts the online/idle count badge as a sibling child, and
+    // paintSortHeaders() must never touch it.
+    const labelEl = document.createElement('span')
+    el.textContent = ''
+    el.appendChild(labelEl)
+    el._tnlSortLabelEl = labelEl
     el.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation()
-      rt.sort = nextSort(rt.sort, key)
-      log(`sort ${rt.sort.key ?? 'off'} ${rt.sort.dir === -1 ? 'desc' : rt.sort.dir === 1 ? 'asc' : ''}`)
+      const next = nextSort(sortStateFor(list), key)
+      rt.sortState.set(list, next)
+      rt.sorted = true
+      log(`sort ${next.key ?? 'off'} ${next.dir === -1 ? 'desc' : next.dir === 1 ? 'asc' : ''}`)
       paintSortHeaders()
       applySort()
     })
@@ -1881,14 +1988,14 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
    * header arrow moves and not one row does. Clearing our sort here drops those
    * values before Torn's own handler runs.
    */
-  function releaseSortOnTornHeader(header) {
+  function releaseSortOnTornHeader(header, list) {
     if (header.dataset.tnlReleaseBound) return
     header.dataset.tnlReleaseBound = '1'
     header.addEventListener('click', (e) => {
-      if (!rt.sort.key) return
+      if (!sortStateFor(list).key) return
       if (!isTornSortHeader(headerCellOf(header, e.target))) return
       log('Torn header clicked — releasing our sort')
-      rt.sort = { key: null, dir: 0 }
+      rt.sortState.set(list, { key: null, dir: 0 })
       paintSortHeaders()
       applySort()
     }, true)
@@ -1899,9 +2006,11 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     for (const el of document.querySelectorAll(`.${SORT_CLASS}`)) {
       const key = el.dataset.tnlSortKey
       const label = el.dataset.tnlSortLabel ?? ''
-      const arrow = rt.sort.key !== key ? '' : rt.sort.dir === -1 ? ' ▾' : ' ▴'
+      const state = sortStateFor(el._tnlSortList)
+      const arrow = state.key !== key ? '' : state.dir === -1 ? ' ▾' : ' ▴'
       const text = `${label}${arrow}`
-      if (el.textContent !== text) el.textContent = text
+      const target = el._tnlSortLabelEl ?? el
+      if (target.textContent !== text) target.textContent = text
     }
   }
 
@@ -1913,12 +2022,18 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (!header) return
     const cell = header.querySelector('.status, [class*="status___"], [class*="status__"]')
     if (cell && !cell.dataset.tnlSortKey) {
-      bindSort(cell, 'status', (cell.textContent ?? 'Status').trim() || 'Status')
+      bindSort(cell, 'status', (cell.textContent ?? 'Status').trim() || 'Status', list)
     }
-    releaseSortOnTornHeader(header)
+    releaseSortOnTornHeader(header, list)
   }
 
-  /** Unlike the DIBS/BS columns, both sides get this. */
+  /**
+   * Unlike the DIBS/BS columns, both sides get this. Also takes Name/Lv/Score
+   * sorting over from Torn entirely (bindSort's existing preventDefault +
+   * stopPropagation, proven on the Status header, keeps Torn's own handler
+   * from ever seeing the click) — Torn's own sort is shared across both
+   * tables at once, which a userscript cannot scope; ours is per list.
+   */
   function relabelColumnHeaders(row) {
     const list = row.parentNode
     if (!list || list.dataset.tnlLabelsBound) return
@@ -1929,6 +2044,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     relabelHeaderText(header.querySelector('.level, [class*="level___"]'), 'Level', 'Lv')
     // The width "Name" gives back is what the online/idle badge sits in.
     relabelHeaderText(header.querySelector('.member, [class*="member___"]'), 'Members', 'Name')
+
+    bindSort(header.querySelector('.member, [class*="member___"]'), 'name', 'Name', list)
+    bindSort(header.querySelector('.level, [class*="level___"]'), 'level', 'Lv', list)
+    bindSort(scoreCellOf(header), 'score', 'Score', list)
   }
 
   function memberLists() {
@@ -2076,7 +2195,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       paintStatus(row, playerId, nowMs)
       bindStatusHeader(row)
       relabelColumnHeaders(row)
-      shrinkAttack(row)
+      shrinkAttack(row, isEnemy ? playerId : null)
       if (!isEnemy) return
 
       painted++
@@ -2206,6 +2325,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       e.preventDefault(); e.stopPropagation()
       rt.expanded = !rt.expanded
       rt.settingsOpen = false
+      rt.feedbackOpen = false
       rt.chainOpen = false   // one popover at a time
       panel()
       chainPanel()
@@ -2260,6 +2380,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       rt.chainOpen = !rt.chainOpen
       rt.expanded = false
       rt.settingsOpen = false
+      rt.feedbackOpen = false
       panel()
       chainPanel()
     })
@@ -2463,6 +2584,66 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return wrap
   }
 
+  function feedbackView(box) {
+    const title = document.createElement('div')
+    title.textContent = 'Send feedback'
+    title.style.cssText = 'font-weight:700;margin-bottom:6px'
+    box.appendChild(title)
+
+    const category = document.createElement('select')
+    category.style.cssText = 'width:100%;margin-bottom:6px;padding:4px 6px;border-radius:6px;border:1px solid #4b5563;background:#1f2937;color:#e5e7eb'
+    for (const [value, label] of [['bug', 'Bug'], ['suggestion', 'Suggestion']]) {
+      const opt = document.createElement('option')
+      opt.value = value; opt.textContent = label
+      category.appendChild(opt)
+    }
+    box.appendChild(category)
+
+    const titleInput = document.createElement('input')
+    titleInput.type = 'text'
+    titleInput.placeholder = 'Short summary'
+    titleInput.maxLength = FEEDBACK_TITLE_MAX
+    titleInput.style.cssText = 'width:100%;box-sizing:border-box;margin-bottom:6px;padding:4px 6px;border-radius:6px;border:1px solid #4b5563;background:#1f2937;color:#e5e7eb'
+    box.appendChild(titleInput)
+
+    const descInput = document.createElement('textarea')
+    descInput.placeholder = 'What happened, or what you’d like to see'
+    descInput.rows = 4
+    descInput.maxLength = FEEDBACK_DESC_MAX
+    descInput.style.cssText = 'width:100%;box-sizing:border-box;margin-bottom:6px;padding:4px 6px;border-radius:6px;border:1px solid #4b5563;background:#1f2937;color:#e5e7eb;resize:vertical;font:inherit'
+    box.appendChild(descInput)
+
+    const note = document.createElement('div')
+    note.style.cssText = 'opacity:.7;margin-bottom:6px;min-height:14px'
+    box.appendChild(note)
+
+    const send = document.createElement('button')
+    send.textContent = 'Send'
+    send.style.cssText = 'width:100%;padding:5px;border-radius:6px;border:0;background:#2563eb;color:#fff;font-weight:600;cursor:pointer'
+    send.addEventListener('click', async () => {
+      send.disabled = true
+      note.style.color = ''
+      note.textContent = 'Sending…'
+      const res = await submitFeedback(category.value, titleInput.value, descInput.value)
+      send.disabled = false
+      if (!res.ok) {
+        note.style.color = '#f87171'
+        note.textContent = res.message
+        return
+      }
+      titleInput.value = ''; descInput.value = ''
+      note.style.color = '#4ade80'
+      note.textContent = res.number ? `Filed as #${res.number}` : 'Sent.'
+    })
+    box.appendChild(send)
+
+    const back = document.createElement('button')
+    back.textContent = 'Back'
+    back.style.cssText = 'width:100%;margin-top:6px;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
+    back.addEventListener('click', () => { rt.feedbackOpen = false; panel() })
+    box.appendChild(back)
+  }
+
   function settingsView(box) {
     const title = document.createElement('div')
     title.textContent = 'Settings'
@@ -2510,6 +2691,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
     if (rt.settingsOpen) {
       settingsView(box)
+      placePanel(box)
+      document.body.appendChild(box)
+      return
+    }
+
+    if (rt.feedbackOpen) {
+      feedbackView(box)
       placePanel(box)
       document.body.appendChild(box)
       return
@@ -2571,7 +2759,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const hide = document.createElement('button')
       hide.textContent = 'Hide'
       hide.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
-      hide.addEventListener('click', () => { rt.expanded = false; rt.settingsOpen = false; panel() })
+      hide.addEventListener('click', () => { rt.expanded = false; rt.settingsOpen = false; rt.feedbackOpen = false; panel() })
 
       const out = document.createElement('button')
       out.textContent = 'Sign out'
@@ -2590,11 +2778,22 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       row.appendChild(out)
       box.appendChild(row)
 
+      const secondRow = document.createElement('div')
+      secondRow.style.cssText = 'display:flex;gap:6px;margin-top:6px'
+
       const gear = document.createElement('button')
       gear.textContent = '⚙ Settings'
-      gear.style.cssText = 'width:100%;margin-top:6px;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
+      gear.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
       gear.addEventListener('click', () => { rt.settingsOpen = true; panel() })
-      box.appendChild(gear)
+      secondRow.appendChild(gear)
+
+      const feedback = document.createElement('button')
+      feedback.textContent = '💬 Feedback'
+      feedback.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
+      feedback.addEventListener('click', () => { rt.feedbackOpen = true; panel() })
+      secondRow.appendChild(feedback)
+
+      box.appendChild(secondRow)
     }
 
     placePanel(box)
@@ -2643,6 +2842,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   function setSession(session) { rt.session = session }
   function currentSession() { return rt.session }
   function dibsIndex() { return rt.dibs }
+  function statsIndex() { return rt.stats }
+  function sortStateIndex() { return rt.sortState }
 
   return {
     setSession, currentSession, api, refreshToken, claim, release, dibsIndex,
@@ -2661,6 +2862,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     statusView, statusSortValue, sortEntries, nextSort, rowState, isTornSortHeader,
     versionLabel, scriptVersion, attackLinkAttrs, statValueOf,
     isHospital, hospitalExits, BONUS_HITS, nextBonusHit, chainSecondsLeft, chainDropDue,
+    statsIndex, sortStateIndex, orderList, nameSortValue, levelSortValue, scoreSortValue,
+    relabelColumnHeaders, paintSortHeaders, shrinkAttack, attackCellOf,
+    submitFeedback, FEEDBACK_TITLE_MAX, FEEDBACK_DESC_MAX,
     chainBadgeText, chainSaveButtonState, claimChainSave, releaseChainSave,
     checkDibsHospitalAlerts, checkChainAlert, showToast,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,

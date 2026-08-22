@@ -18,6 +18,61 @@ surface it automatically.
 
 ---
 
+## [3.51.0] - 2026-08-22
+
+### Added
+- **Userscript: a name is already a link to the profile (#547).** Torn wraps
+  the whole honor-bar name — and the plain-text twin our activity tint
+  reveals in its place — in its own `<a href="/profiles.php?...">` already,
+  so no click handling needed writing: a plain click opens the profile in
+  this same window exactly as any other Torn link does, and middle-click
+  already opens a new tab on its own, since that is a real anchor and the
+  browser's own behaviour needs no help. Colour is untouched.
+- **Userscript: the two war tables sort independently, on every sortable
+  column — including Torn's own Name, Level and Score, not only our BS and
+  Status.** With the script off, Torn's Name/Lv/Score headers sort *both*
+  tables from a single click — one shared setting driving two visual lists,
+  which a userscript cannot scope from outside. The only way to make these
+  three columns behave per-table is to take them over entirely: clicking one
+  now reads the value straight off that row (name, level, score are all
+  plain text already on the page) and reorders only that list, the same
+  `bindSort()`/flex-`order` mechanism already proven on Status — which is
+  also what keeps Torn's own handler from ever seeing the click.
+- **Userscript: a Feedback button, posting through the same endpoint the
+  dashboard's own Feedback modal uses.** Bug or suggestion, title and
+  description, same 200/5000-character limits and same GitHub-issue pipeline
+  server-side — no new API surface, just a client for what already exists.
+
+### Changed
+- **Userscript: the battle-stat total is a normal link again.** #539 made it
+  always open in a new tab, on every kind of click; a plain left click now
+  opens the attack page in this same tab instead, matching every other link
+  on the row. Middle-click and ctrl/cmd-click still open a new tab — that is
+  the browser's own behaviour on a real `<a href>` and never depended on
+  `target`.
+
+### Fixed
+- **Userscript: the plain-text name is actually clickable now, not just
+  visible (#547).** Torn's plain `.honor-text` span is `position: absolute`
+  — a normal backdrop layer sitting invisibly under the honor-bar image and
+  its per-character SVG twin — and an absolutely positioned element is
+  blockified by the CSS spec regardless of any `display: inline` we set, so
+  it never counted toward the size of the `<a>` wrapping it. Once the
+  activity tint hid that `<img>`, the anchor had nothing left sizing it and
+  collapsed to zero: the coloured text still painted (absolute positioning
+  escapes a zero-size ancestor) but there was no box left to hover or click.
+  `position: static` on the span and its wrappers pulls it back into normal
+  flow, so the link now actually sizes around the text sitting on it.
+- **Userscript: the Atk column links again outside an active war.** Torn
+  renders that cell as a plain, unstyled span with no `href` at all whenever
+  the row doesn't currently qualify for its own quick-attack link — true
+  with the userscript fully disabled too, so this was never something our
+  script broke. Since the destination is the same URL the BS link already
+  builds, the script now gives Atk a real working link of its own (same-tab
+  click, native middle/ctrl-click for a new tab) whenever Torn didn't
+  provide one, rather than just relabelling dead text. Left untouched on a
+  teammate row, and on any row where Torn's own link already works.
+
 ## [3.50.2] - 2026-08-22
 
 ### Fixed
