@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.36.1
+// @version      1.36.2
 // @description  War Room dibs, battle stats, live status, roster intel and assist requests on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -34,6 +34,16 @@ const TNLDibs = (function () {
   const SETTING_MEMBER_COUNT = 'tnl-dibs-member-count'
   const SETTING_CHAIN = 'tnl-dibs-chain'
   const SETTING_DIBS_HOSPITAL_ALERT = 'tnl-dibs-hosp-alert'
+  /**
+   * Deliberately outside SETTING_DEFAULTS/settings.on() and never surfaced in
+   * the settings panel — tenants.json is production-only by design (staging
+   * is excluded from it, see deploy/update.sh), so there is no ordinary way
+   * to point a login at a `*_dev` host for staging QA of a backend-touching
+   * change (#523 was the first one). A maintainer sets this with
+   * `GM_setValue('tnl-dibs-debug-host', 'dev.monchoon.me')` via Tampermonkey's
+   * own Storage panel, never in code — a real member's key never has it set.
+   */
+  const DEBUG_HOST_KEY = 'tnl-dibs-debug-host'
 
   const SETTING_DEFAULTS = {
     [SETTING_STATS]: true,
@@ -828,8 +838,12 @@ const TNLDibs = (function () {
     const factionId = info.user.faction_id
     if (!factionId) throw new Error('Torn reports no faction for that key.')
 
-    const tenants = await gmRequest({ url: TENANTS_URL })
-    const host = resolveTenant(tenants.body, factionId)
+    let host = null
+    try { host = GM_getValue(DEBUG_HOST_KEY, '') || null } catch { host = null }
+    if (!host) {
+      const tenants = await gmRequest({ url: TENANTS_URL })
+      host = resolveTenant(tenants.body, factionId)
+    }
     if (!host) throw new Error(`Faction ${factionId} has no TNL dashboard.`)
 
     const login = await gmRequest({
