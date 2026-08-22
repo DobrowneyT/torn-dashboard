@@ -18,6 +18,19 @@ surface it automatically.
 
 ---
 
+## [3.50.1] - 2026-08-22
+
+### Fixed
+- **The #543 migration no longer truncates `faction_attacks` on every
+  deploy.** As first written, its `TRUNCATE` had no guard — `db/migrate.mjs`
+  keeps no ledger and replays every file in `db/migrations/` on every
+  deploy, and every other migration is safe to replay only because it does
+  `IF NOT EXISTS`/`ON CONFLICT` work. This one would have wiped the table
+  again on the very next deploy, and the one after that, forever. Caught
+  before it ever ran against a real tenant database. The migration now only
+  adds the 13 columns; the one-time backfill is a manual operator action
+  (see the ops runbook / #543's PR for the exact commands).
+
 ## [3.50.0] - 2026-08-22
 
 ### Added
@@ -28,19 +41,11 @@ surface it automatically.
   what actually finished the fight, loadout-relevant for #528), and the
   three modifiers we were dropping (`retaliation`, `group`, `overseas`).
   None of this costs an extra API call — Torn was already sending all of it
-  on every row this endpoint returns.
-
-  ⚠️ **The table is truncated as part of the migration**, on every tenant
-  database it reaches. Every row already stored predates this change and
-  would otherwise sit forever with 13 real columns and no way to tell "Torn
-  returned nothing" apart from "we weren't collecting it yet." Truncating
-  lets the sync's own `from = max(started)` watermark fall back to `0`, so
-  the very next run re-walks Torn's full available window (confirmed live
-  to reach back about a year) and backfills every row complete from day
-  one. Nothing references `faction_attacks` by foreign key and nothing
-  downstream keeps state derived from it beyond a live query, so this is
-  safe to repeat — but it is real data loss until the next sync completes,
-  and a rate-limited backfill will take more than one run to catch up.
+  on every row this endpoint returns. Existing rows are left as-is, with
+  the 13 new columns null; a one-time backfill (truncate, then let the sync
+  re-walk Torn's full available window) is a manual operator action, run by
+  hand once after this deploys — not baked into the migration, since
+  `db/migrate.mjs` has no ledger and replays every file on every deploy.
 
 ## [3.49.0] - 2026-08-21
 

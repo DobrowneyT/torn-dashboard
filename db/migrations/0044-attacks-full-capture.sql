@@ -2,6 +2,13 @@
 -- Audited against the live OpenAPI spec and a live faction 10739 call:
 -- attacksSync.ts wrote 20 columns and silently discarded 11 fields Torn was
 -- already sending on every row at no extra API cost.
+--
+-- Existing rows are left as-is: the 13 new columns are simply null on
+-- anything scraped before this migration. A one-time backfill (truncate +
+-- re-walk the full available window) is an operator action run by hand
+-- after this deploys, not part of the migration — db/migrate.mjs has no
+-- ledger and replays every file on every deploy, so a TRUNCATE baked in
+-- here would fire again on the next deploy, and the one after that.
 ALTER TABLE public.faction_attacks
   ADD COLUMN IF NOT EXISTS code text,
   ADD COLUMN IF NOT EXISTS attacker_level integer,
@@ -16,16 +23,3 @@ ALTER TABLE public.faction_attacks
   ADD COLUMN IF NOT EXISTS retaliation_modifier numeric(6,4) DEFAULT 1,
   ADD COLUMN IF NOT EXISTS group_modifier numeric(6,4) DEFAULT 1,
   ADD COLUMN IF NOT EXISTS overseas_modifier numeric(6,4) DEFAULT 1;
-
--- Backfill is bounded by Torn's own retention on this endpoint (~1 year,
--- confirmed live via sort=ASC), and every row already stored predates this
--- migration and would otherwise sit forever with 11 real columns and no way
--- to tell "Torn returned nothing" apart from "we weren't collecting it yet".
--- Wiping the table lets attacksSyncJob's own from=max(started) watermark
--- fall back to 0, so the very next run re-walks the full available window
--- and every row that comes back is complete from day one.
---
--- Nothing references faction_attacks by foreign key, and nothing downstream
--- keeps state derived from it beyond what a live query recomputes, so this
--- is safe to repeat on every tenant database this migration reaches.
-TRUNCATE TABLE public.faction_attacks;
