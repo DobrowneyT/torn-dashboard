@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.35.1
+// @version      1.35.2
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -570,13 +570,21 @@ const TNLDibs = (function () {
   }
 
   function sortEntries(entries, dir) {
-    const missing = (v) => v === null || v === undefined || !Number.isFinite(Number(v))
+    // A string value (name) is missing only when it's empty — Number('') is 0,
+    // not NaN, so the numeric branch below would wrongly treat "" as sortable.
+    const missing = (v) => {
+      if (v === null || v === undefined) return true
+      if (typeof v === 'string') return v.length === 0
+      return !Number.isFinite(Number(v))
+    }
     return [...(entries ?? [])].sort((a, b) => {
       const am = missing(a.value), bm = missing(b.value)
       if (am && bm) return a.pos - b.pos
       if (am) return 1
       if (bm) return -1
-      const diff = (Number(a.value) - Number(b.value)) * (dir < 0 ? -1 : 1)
+      const diff = typeof a.value === 'string' || typeof b.value === 'string'
+        ? String(a.value).localeCompare(String(b.value)) * (dir < 0 ? -1 : 1)
+        : (Number(a.value) - Number(b.value)) * (dir < 0 ? -1 : 1)
       return diff === 0 ? a.pos - b.pos : diff
     })
   }
@@ -1571,12 +1579,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   /**
    * What makes the total a real link rather than a click handler.
    *
-   * noopener denies the new tab a handle back to this one; noreferrer keeps
-   * Torn from being told which page the click came from.
+   * No target — a plain left click opens the attack page in this same tab,
+   * same as any other link on the row. rel stays regardless: middle-click
+   * and ctrl/cmd-click already open a new tab on their own (a real <a> gives
+   * the browser that for free), and noopener/noreferrer are worth having
+   * whenever a new tab is possible, not only when target forces one.
    */
   function attackLinkAttrs(playerId) {
     const href = attackUrl(playerId)
-    return href ? { href, target: '_blank', rel: 'noopener noreferrer' } : null
+    return href ? { href, rel: 'noopener noreferrer' } : null
   }
 
   function statValueOf(slotEl, playerId) {
@@ -1789,36 +1800,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
-  // The war page is a React app (the honorWrap___xxxxx classes are CSS-module
-  // hashes) and intercepts left-clicks on its own links with client-side
-  // routing — preventDefault() fires before the browser ever gets to the
-  // point of honouring target="_blank", so setting the attribute alone does
-  // nothing. Middle-click already worked because it fires a separate
-  // auxclick event React's onClick never sees. The fix is a capture-phase
-  // listener that gets the click before React's delegated handler does,
-  // takes over navigation ourselves, and steps aside for any modified click
-  // (ctrl/cmd/shift), where the browser's own handling is already correct.
-  let nameNewTabBound = false
-  function ensureNameNewTabInterceptor() {
-    if (nameNewTabBound || typeof document === 'undefined') return
-    nameNewTabBound = true
-    document.addEventListener('click', (e) => {
-      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-      const anchor = e.target?.closest?.('a[data-tnl-new-tab]')
-      if (!anchor) return
-      e.preventDefault()
-      e.stopPropagation()
-      const href = anchor.getAttribute('href')
-      if (href) window.open(new URL(href, location.href).href, '_blank', 'noopener')
-    }, true)
-  }
-
-  function openNameInNewTab(anchor) {
-    if (!anchor.dataset.tnlNewTab) anchor.dataset.tnlNewTab = '1'
-  }
-
   function paintName(row, anchor, playerId) {
-    openNameInNewTab(anchor)
     const el = nameTargetOf(row, anchor)
     const tone = settings.on(SETTING_TINT) ? activityTone(rt.state.get(playerId)) : null
     if ((el.dataset.tnlTint ?? '') === (tone ?? '')) return
@@ -1855,13 +1837,34 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return false
   }
 
-  function sortValueFor(sortKey, playerId, nowMs) {
+  // Torn's own text for these three columns, read straight off the row — we
+  // took the sort over from Torn (see relabelColumnHeaders), so there is no
+  // war-room state to read; the DOM already has the answer.
+  function nameSortValue(row) {
+    const t = row.querySelector('a[href*="profiles.php?XID="]')?.textContent
+    return t ? t.trim() : ''
+  }
+
+  function levelSortValue(row) {
+    const n = Number(row.querySelector('.level, [class*="level___"]')?.textContent)
+    return Number.isFinite(n) ? n : null
+  }
+
+  function scoreSortValue(row) {
+    const n = Number(scoreCellOf(row)?.textContent)
+    return Number.isFinite(n) ? n : null
+  }
+
+  function sortValueFor(sortKey, playerId, row, nowMs) {
     switch (sortKey) {
       case 'bs': {
         const total = rt.stats.get(playerId)?.total
         return total === null || total === undefined ? null : Number(total)
       }
       case 'status': return statusSortValue(rt.state.get(playerId), nowMs)
+      case 'name': return nameSortValue(row)
+      case 'level': return levelSortValue(row)
+      case 'score': return scoreSortValue(row)
       default: return null
     }
   }
@@ -1880,7 +1883,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     const rows = []
     children.forEach((c, i) => {
       const id = idOfRow(c)
-      if (id !== null) rows.push({ id, row: c, pos: i, slot: i + 1, value: sortValueFor(state.key, id, nowMs) })
+      if (id !== null) rows.push({ id, row: c, pos: i, slot: i + 1, value: sortValueFor(state.key, id, c, nowMs) })
     })
     if (rows.length < 2) return
 
@@ -1909,6 +1912,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     el.dataset.tnlSortLabel = label
     el._tnlSortList = list
     el.classList.add(SORT_CLASS)
+    // A dedicated child for the label text, not the whole cell — the Name
+    // header also hosts the online/idle count badge as a sibling child, and
+    // paintSortHeaders() must never touch it.
+    const labelEl = document.createElement('span')
+    el.textContent = ''
+    el.appendChild(labelEl)
+    el._tnlSortLabelEl = labelEl
     el.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation()
       const next = nextSort(sortStateFor(list), key)
@@ -1967,7 +1977,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const state = sortStateFor(el._tnlSortList)
       const arrow = state.key !== key ? '' : state.dir === -1 ? ' ▾' : ' ▴'
       const text = `${label}${arrow}`
-      if (el.textContent !== text) el.textContent = text
+      const target = el._tnlSortLabelEl ?? el
+      if (target.textContent !== text) target.textContent = text
     }
   }
 
@@ -1984,7 +1995,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     releaseSortOnTornHeader(header, list)
   }
 
-  /** Unlike the DIBS/BS columns, both sides get this. */
+  /**
+   * Unlike the DIBS/BS columns, both sides get this. Also takes Name/Lv/Score
+   * sorting over from Torn entirely (bindSort's existing preventDefault +
+   * stopPropagation, proven on the Status header, keeps Torn's own handler
+   * from ever seeing the click) — Torn's own sort is shared across both
+   * tables at once, which a userscript cannot scope; ours is per list.
+   */
   function relabelColumnHeaders(row) {
     const list = row.parentNode
     if (!list || list.dataset.tnlLabelsBound) return
@@ -1995,6 +2012,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     relabelHeaderText(header.querySelector('.level, [class*="level___"]'), 'Level', 'Lv')
     // The width "Name" gives back is what the online/idle badge sits in.
     relabelHeaderText(header.querySelector('.member, [class*="member___"]'), 'Members', 'Name')
+
+    bindSort(header.querySelector('.member, [class*="member___"]'), 'name', 'Name', list)
+    bindSort(header.querySelector('.level, [class*="level___"]'), 'level', 'Lv', list)
+    bindSort(scoreCellOf(header), 'score', 'Score', list)
   }
 
   function memberLists() {
@@ -2217,7 +2238,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       render()   // once per batch, not once per touched node
     })
     observer.observe(document, { childList: true, subtree: true })
-    ensureNameNewTabInterceptor()
     scan(document)
     render()
     startTimers()
@@ -2810,7 +2830,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     statusView, statusSortValue, sortEntries, nextSort, rowState, isTornSortHeader,
     versionLabel, scriptVersion, attackLinkAttrs, statValueOf,
     isHospital, hospitalExits, BONUS_HITS, nextBonusHit, chainSecondsLeft, chainDropDue,
-    openNameInNewTab, ensureNameNewTabInterceptor, statsIndex, sortStateIndex, orderList,
+    statsIndex, sortStateIndex, orderList, nameSortValue, levelSortValue, scoreSortValue,
+    relabelColumnHeaders, paintSortHeaders,
     submitFeedback, FEEDBACK_TITLE_MAX, FEEDBACK_DESC_MAX,
     chainBadgeText, chainSaveButtonState, claimChainSave, releaseChainSave,
     checkDibsHospitalAlerts, checkChainAlert, showToast,

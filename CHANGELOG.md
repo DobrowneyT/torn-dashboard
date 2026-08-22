@@ -21,33 +21,35 @@ surface it automatically.
 ## [3.51.0] - 2026-08-22
 
 ### Added
-- **Userscript: a name is already a link to the profile — it now opens in a
-  new tab (#547).** Torn wraps the whole honor-bar name (and the plain-text
-  twin our activity tint reveals) in its own `<a href="/profiles.php?...">`
-  already; nothing needed building. Colour is untouched — this only changes
-  where the click goes.
-
-  ⚠️ Getting it to actually open a new tab took two attempts. The war page is
-  a React app that intercepts left-clicks on its own links with client-side
-  routing — `preventDefault()` fires before the browser ever gets to the
-  point of honouring `target="_blank"`, so setting the attribute alone (the
-  first attempt) did nothing. Middle-click already worked only because it
-  fires a separate `auxclick` event React's `onClick` never sees. The real
-  fix is a capture-phase `click` listener on `document` that gets the event
-  before React's delegated handler does, and takes over navigation itself —
-  stepping aside for any modified click (ctrl/cmd/shift), where the browser's
-  own handling was already correct.
+- **Userscript: a name is already a link to the profile (#547).** Torn wraps
+  the whole honor-bar name — and the plain-text twin our activity tint
+  reveals in its place — in its own `<a href="/profiles.php?...">` already.
+  Nothing needed building: a plain click opens the profile in this same
+  window exactly as any other Torn link does, and middle-click already opens
+  a new tab on its own, since that is a real anchor and the browser's own
+  behaviour needs no help. Colour is untouched.
+- **Userscript: the two war tables sort independently, on every sortable
+  column — including Torn's own Name, Level and Score, not only our BS and
+  Status.** With the script off, Torn's Name/Lv/Score headers sort *both*
+  tables from a single click — one shared setting driving two visual lists,
+  which a userscript cannot scope from outside. The only way to make these
+  three columns behave per-table is to take them over entirely: clicking one
+  now reads the value straight off that row (name, level, score are all
+  plain text already on the page) and reorders only that list, the same
+  `bindSort()`/flex-`order` mechanism already proven on Status — which is
+  also what keeps Torn's own handler from ever seeing the click.
 - **Userscript: a Feedback button, posting through the same endpoint the
   dashboard's own Feedback modal uses.** Bug or suggestion, title and
   description, same 200/5000-character limits and same GitHub-issue pipeline
   server-side — no new API surface, just a client for what already exists.
 
-### Fixed
-- **Userscript: the two war tables sort independently.** Sorting the enemy
-  table by BS no longer silently reorders our own faction's table too (and
-  vice versa) — each `<ul>` now carries its own `{key, dir}` instead of one
-  shared globally. Releasing one table's sort (by clicking one of Torn's own
-  headers) no longer clears the other table's sort either.
+### Changed
+- **Userscript: the battle-stat total is a normal link again.** #539 made it
+  always open in a new tab, on every kind of click; a plain left click now
+  opens the attack page in this same tab instead, matching every other link
+  on the row. Middle-click and ctrl/cmd-click still open a new tab — that is
+  the browser's own behaviour on a real `<a href>` and never depended on
+  `target`.
 
 ## [3.50.2] - 2026-08-22
 

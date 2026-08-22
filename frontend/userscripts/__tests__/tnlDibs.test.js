@@ -1797,18 +1797,17 @@ describe('the battle-stat total is a real link, not a click handler', () => {
   })
 
   describe('attackLinkAttrs', () => {
-    it('is everything the anchor needs, for a real player', () => {
+    it('is everything the anchor needs, for a real player — no target, a plain click stays in this tab', () => {
       expect(S.attackLinkAttrs(2569218)).toEqual({
         href: 'https://www.torn.com/page.php?sid=attack&user2ID=2569218',
-        target: '_blank',
         rel: 'noopener noreferrer',
       })
     })
 
-    it('carries noopener AND noreferrer, since it opens in a new tab', () => {
-      // noopener denies the new tab a window.opener handle back to the war page;
+    it('carries noopener AND noreferrer regardless — middle-click and ctrl/cmd-click still open a new tab on a real <a>', () => {
+      // noopener denies that tab a window.opener handle back to the war page;
       // without it that tab can navigate this one. noreferrer keeps Torn from
-      // being told which page the click came from.
+      // being told which page the click came from. Neither depends on target.
       const rel = S.attackLinkAttrs(1).rel.split(' ')
       expect(rel).toContain('noopener')
       expect(rel).toContain('noreferrer')
@@ -1821,12 +1820,12 @@ describe('the battle-stat total is a real link, not a click handler', () => {
     })
   })
 
-  it('builds an <a> carrying the attack URL', () => {
+  it('builds an <a> carrying the attack URL, with no target set', () => {
     const { S: s, created } = loadWithDom()
     const el = s.statValueOf(fakeSlot(), 2569218)
     expect(created.at(-1).tagName).toBe('a')
     expect(el.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=2569218')
-    expect(el.target).toBe('_blank')
+    expect(el.target).toBeUndefined()
     expect(el.rel).toBe('noopener noreferrer')
   })
 
@@ -2131,14 +2130,141 @@ describe('checkDibsHospitalAlerts / checkChainAlert do not throw with no DOM', (
   })
 })
 
-describe('each war table sorts independently (#547)', () => {
-  const fakeRow = (id) => ({
-    dataset: {}, style: {},
-    querySelector: (sel) => (sel.includes('profiles.php')
-      ? { getAttribute: () => `/profiles.php?XID=${id}` }
-      : null),
+describe('relabelColumnHeaders actually claims Name/Lv/Score for our own sort (#547)', () => {
+  // Exercises the real call site — a test that only drives orderList()/
+  // sortValueFor() directly would keep passing even if the three bindSort()
+  // calls that make this feature exist at all were deleted.
+  const fakeCell = (text) => ({
+    dataset: {}, childNodes: [], children: [],
+    classList: { add() {}, contains: () => false },
+    listeners: {},
+    addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) },
+    appendChild(child) { this.children.push(child); return child },
+    // A real element's textContent setter wipes every child node — the
+    // property has to behave that way here too, or the badge-survival test
+    // below cannot actually distinguish the fix from the bug it guards.
+    _text: text,
+    get textContent() {
+      return this.children.length > 0
+        ? this.children.map((c) => c.textContent ?? '').join('')
+        : this._text
+    },
+    set textContent(v) { this._text = v; this.children = [] },
   })
-  const fakeList = (ids) => ({ children: ids.map(fakeRow), dataset: {} })
+
+  function fakeRowWithHeader() {
+    const memberCell = fakeCell('Members')
+    const levelCell = fakeCell('Level')
+    const scoreCell = fakeCell('Score')
+    const attackCell = fakeCell('Attack')
+    const header = {
+      querySelector(sel) {
+        if (sel.includes('member')) return memberCell
+        if (sel.includes('level')) return levelCell
+        if (sel.includes('points')) return scoreCell
+        if (sel.includes('attack')) return attackCell
+        return null
+      },
+    }
+    const list = { dataset: {}, previousElementSibling: null, querySelector: () => header }
+    const row = { parentNode: list, closest: () => list }
+    return { row, list, memberCell, levelCell, scoreCell }
+  }
+
+  it('binds our sort to Name, Lv and Score, each keyed to its own list', () => {
+    const { S: s } = loadWithDom()
+    const { row, list, memberCell, levelCell, scoreCell } = fakeRowWithHeader()
+    s.relabelColumnHeaders(row)
+    expect(memberCell.dataset.tnlSortKey).toBe('name')
+    expect(levelCell.dataset.tnlSortKey).toBe('level')
+    expect(scoreCell.dataset.tnlSortKey).toBe('score')
+    expect(memberCell._tnlSortList).toBe(list)
+    expect(levelCell._tnlSortList).toBe(list)
+    expect(scoreCell._tnlSortList).toBe(list)
+  })
+
+  it('the online/idle count badge survives repeated paintSortHeaders() calls — it is a sibling child, not overwritten text', () => {
+    // This is the exact collision the label-span design exists to avoid:
+    // membersHeaderCellOf() finds this SAME cell and appends the badge as a
+    // child of it. A blind el.textContent = text on that cell would wipe the
+    // badge out on every render pass. loadWithDom()'s querySelectorAll is a
+    // stub that always returns [] — paintSortHeaders() would otherwise
+    // silently touch nothing and the test would pass for the wrong reason —
+    // so it is pointed at the cell this test actually bound.
+    const { S: s, document: doc } = loadWithDom()
+    const { row, memberCell } = fakeRowWithHeader()
+    s.relabelColumnHeaders(row)
+    const badge = { tagName: 'span', marker: 'member-count-badge' }
+    memberCell.appendChild(badge)
+    expect(memberCell.children).toContain(badge)
+
+    doc.querySelectorAll = () => [memberCell]
+    s.paintSortHeaders()
+    s.paintSortHeaders()   // twice: also proves it isn't re-appended by luck
+
+    expect(memberCell.children).toContain(badge)
+  })
+
+  it('a click on the Name header updates only that list’s sort state', () => {
+    const { S: s } = loadWithDom()
+    const { row, list, memberCell } = fakeRowWithHeader()
+    s.relabelColumnHeaders(row)
+    const otherList = {}
+    expect(s.sortStateIndex().get(list)).toBeUndefined()
+    memberCell.listeners.click[0]({ preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} })
+    expect(s.sortStateIndex().get(list).key).toBe('name')
+    expect(s.sortStateIndex().get(otherList)).toBeUndefined()
+  })
+})
+
+describe('nameSortValue / levelSortValue / scoreSortValue (#547) — Torn’s own columns, read off the row', () => {
+  const row = ({ name, level, score } = {}) => ({
+    querySelector: (sel) => {
+      if (sel.includes('profiles.php')) {
+        return name === undefined ? null : { textContent: name, getAttribute: () => '/profiles.php?XID=1' }
+      }
+      if (sel.includes('level')) return level === undefined ? null : { textContent: level }
+      if (sel.includes('points___')) return score === undefined ? null : { textContent: score }
+      return null
+    },
+  })
+
+  it('reads the honor-text name straight off the anchor, trimmed', () => {
+    expect(S.nameSortValue(row({ name: '  Juggernaut  ' }))).toBe('Juggernaut')
+  })
+
+  it('is an empty string, not null, when there is no readable name — locale-compares fine either way', () => {
+    expect(S.nameSortValue(row({}))).toBe('')
+  })
+
+  it('reads level as a number', () => {
+    expect(S.levelSortValue(row({ level: '77' }))).toBe(77)
+  })
+
+  it('is null for an unparseable level, not a stray 0', () => {
+    expect(S.levelSortValue(row({}))).toBeNull()
+  })
+
+  it('reads score as a number, decimals included', () => {
+    expect(S.scoreSortValue(row({ score: '12.50' }))).toBe(12.5)
+  })
+
+  it('is null with no score cell', () => {
+    expect(S.scoreSortValue(row({}))).toBeNull()
+  })
+})
+
+describe('each war table sorts independently (#547)', () => {
+  const fakeRow = (id, extra = {}) => ({
+    dataset: {}, style: {},
+    querySelector: (sel) => {
+      if (sel.includes('profiles.php')) return { getAttribute: () => `/profiles.php?XID=${id}`, textContent: extra.name ?? '' }
+      if (sel.includes('level')) return extra.level === undefined ? null : { textContent: extra.level }
+      if (sel.includes('points___')) return extra.score === undefined ? null : { textContent: extra.score }
+      return null
+    },
+  })
+  const fakeList = (ids) => ({ children: ids.map((id) => fakeRow(id)), dataset: {} })
 
   it('sorting one list by BS leaves an unrelated list’s row order untouched', () => {
     const { S: s } = loadWithDom()
@@ -2188,6 +2314,61 @@ describe('each war table sorts independently (#547)', () => {
     expect(listA.children.every((r) => !r.style.order)).toBe(true)
     // B keeps its own order — same shape sort as A had, unaffected by A's release.
     expect(listB.children.map((r) => r.style.order)).toEqual(['3', '1', '2'])
+  })
+
+  // The exact bug report: with the script disabled, Torn already sorts both
+  // war tables from one click, because "Name"/"Lv"/"Score" are its own
+  // columns and (as far as we can tell) share state across both tables at
+  // the network/data layer, not just in the DOM. We cannot fix Torn's own
+  // sort from outside — the only way to make these three columns behave
+  // per-table is to take them over entirely, the same way BS/Status already
+  // are, so this exercises 'name'/'level'/'score' through the identical path.
+  it('sorting one list by Torn’s own Name column leaves the other list’s order alone', () => {
+    const { S: s } = loadWithDom()
+    const namesA = { 1: 'Zeta', 2: 'Alpha', 3: 'Mike' }
+    const rowsA = [1, 2, 3].map((id) => fakeRow(id, { name: namesA[id] }))
+    const listA = { children: rowsA, dataset: {} }
+    const listB = fakeList([4, 5, 6])
+
+    s.sortStateIndex().set(listA, { key: 'name', dir: 1 })   // ascending
+    s.orderList(listA, Date.now())
+    s.orderList(listB, Date.now())
+
+    // Alpha, Mike, Zeta -> ids 2, 3, 1 -> slots 1,2,3 in that order.
+    expect(rowsA.map((r) => r.style.order)).toEqual(['3', '1', '2'])
+    expect(listB.children.every((r) => !r.style.order)).toBe(true)
+  })
+
+  it('sorting one list by Torn’s own Level column leaves the other list’s order alone', () => {
+    const { S: s } = loadWithDom()
+    const levelsA = { 1: '50', 2: '10', 3: '30' }
+    const rowsA = [1, 2, 3].map((id) => fakeRow(id, { level: levelsA[id] }))
+    const listA = { children: rowsA, dataset: {} }
+    const listB = fakeList([4, 5, 6])
+
+    s.sortStateIndex().set(listA, { key: 'level', dir: -1 })   // descending
+    s.orderList(listA, Date.now())
+    s.orderList(listB, Date.now())
+
+    // 50, 30, 10 -> ids 1, 3, 2.
+    expect(rowsA.map((r) => r.style.order)).toEqual(['1', '3', '2'])
+    expect(listB.children.every((r) => !r.style.order)).toBe(true)
+  })
+
+  it('sorting one list by Torn’s own Score column leaves the other list’s order alone', () => {
+    const { S: s } = loadWithDom()
+    const scoresA = { 1: '5.00', 2: '25.00', 3: '15.00' }
+    const rowsA = [1, 2, 3].map((id) => fakeRow(id, { score: scoresA[id] }))
+    const listA = { children: rowsA, dataset: {} }
+    const listB = fakeList([4, 5, 6])
+
+    s.sortStateIndex().set(listA, { key: 'score', dir: -1 })   // descending
+    s.orderList(listA, Date.now())
+    s.orderList(listB, Date.now())
+
+    // 25, 15, 5 -> ids 2, 3, 1.
+    expect(rowsA.map((r) => r.style.order)).toEqual(['3', '1', '2'])
+    expect(listB.children.every((r) => !r.style.order)).toBe(true)
   })
 })
 
@@ -2246,52 +2427,6 @@ describe('submitFeedback (#547) — same endpoint the dashboard’s Feedback mod
     const res = await s.submitFeedback('bug', 'ok', '')
     expect(res.ok).toBe(false)
     expect(res.message).toContain('Too many')
-  })
-})
-
-describe('openNameInNewTab (#547)', () => {
-  // React intercepts left-clicks on Torn's own links with client-side
-  // routing, so target="_blank" alone is inert (preventDefault() fires
-  // before the browser ever gets to it) — the anchor only needs marking;
-  // ensureNameNewTabInterceptor() is what actually does the work.
-  it('marks the anchor for the document-level interceptor to find', () => {
-    const a = { dataset: {} }
-    S.openNameInNewTab(a)
-    expect(a.dataset.tnlNewTab).toBe('1')
-  })
-
-  it('never touches anything else on the anchor — no colour, no href, no rel, no target', () => {
-    const a = { dataset: {}, target: '', href: '/profiles.php?XID=39773', rel: 'noopener noreferrer', style: { color: 'red' } }
-    S.openNameInNewTab(a)
-    expect(a.target).toBe('')
-    expect(a.href).toBe('/profiles.php?XID=39773')
-    expect(a.rel).toBe('noopener noreferrer')
-    expect(a.style.color).toBe('red')
-  })
-
-  it('is idempotent — a second call does not re-assign the marker', () => {
-    let writes = 0
-    const a = { dataset: { get tnlNewTab() { return this._v }, set tnlNewTab(v) { writes++; this._v = v } } }
-    S.openNameInNewTab(a)
-    S.openNameInNewTab(a)
-    expect(writes).toBe(1)
-  })
-})
-
-describe('ensureNameNewTabInterceptor (#547)', () => {
-  it('is a no-op with no document', () => {
-    expect(() => S.ensureNameNewTabInterceptor()).not.toThrow()
-  })
-
-  it('binds exactly one document-level capture listener, even called repeatedly', () => {
-    const { S: s, document: doc } = loadWithDom()
-    const added = []
-    doc.addEventListener = (type, fn, opts) => added.push({ type, opts })
-    s.ensureNameNewTabInterceptor()
-    s.ensureNameNewTabInterceptor()
-    s.ensureNameNewTabInterceptor()
-    expect(added).toHaveLength(1)
-    expect(added[0]).toEqual({ type: 'click', opts: true })
   })
 })
 
