@@ -18,6 +18,19 @@ surface it automatically.
 
 ---
 
+## [3.50.2] - 2026-08-22
+
+### Fixed
+- **Server test suite no longer intermittently fails on cold Postgres
+  boots.** Every test file under `server/` boots its own embedded Postgres —
+  the same as `db/`, which already carries generous timeouts
+  (`testTimeout: 120s`, `hookTimeout: 180s`) for exactly that reason.
+  `server/` never had its own vitest config and ran on the 10-second stock
+  default instead. Both flakes this surfaced this week — a teardown-race
+  `pool is closed`, and a `bootstrap.test.ts` hook that timed out at exactly
+  10000ms — passed clean on an immediate re-run, confirming cold-boot
+  timing rather than a real failure.
+
 ## [3.50.1] - 2026-08-22
 
 ### Fixed
