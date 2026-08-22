@@ -18,6 +18,18 @@ surface it automatically.
 
 ---
 
+## [3.52.1] - 2026-08-22
+
+### Fixed
+- **Userscript: the #523 assist overlay never rendered on the real attack
+  page.** `attackPageMatch()` checked `pathname === '/loader.php'` — Torn
+  retired that path for attacks (this file's own `attackUrl()` already
+  builds a `page.php` link, and already had a test saying so), but the
+  page-surface matcher was never updated to match. `isAttackPage()` was
+  therefore always false and `boot()` skipped `renderAssistOverlay()`
+  entirely — confirmed live: the `@match` correctly injected the script on
+  `page.php?sid=attack…`, but nothing painted. Now checks `/page.php`.
+
 ## [3.52.0] - 2026-08-22
 
 ### Added
@@ -28,7 +40,7 @@ surface it automatically.
   cleared by the requester, a short timeout, or the target going down
   (reuses the `warRoomDibsExpiry.ts` sweep pattern, see
   `warRoomAssistsExpiry.ts`). The userscript gains a second `@match` for
-  `loader.php?sid=attack*` — one script, two gated surfaces — with a small,
+  `page.php?sid=attack*` — one script, two gated surfaces — with a small,
   strictly-additive overlay offering the three one-click requests on the
   attack page. On the faction page and in the War Room, an active assist
   request morphs the existing Dibs badge itself (icon + who/how-long-ago in

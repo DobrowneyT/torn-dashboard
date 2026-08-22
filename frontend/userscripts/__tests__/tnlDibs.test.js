@@ -3087,11 +3087,16 @@ describe('page-surface matching', () => {
     expect(S.factionPageMatch('/')).toBe(false)
   })
 
-  it('attackPageMatch requires BOTH the loader path and sid=attack', () => {
+  it('attackPageMatch requires BOTH the page.php path and sid=attack', () => {
     const { S } = loadScript()
-    expect(S.attackPageMatch('/loader.php', '?sid=attack&user2ID=123')).toBe(true)
-    expect(S.attackPageMatch('/loader.php', '?sid=hospital&user2ID=123')).toBe(false)
+    expect(S.attackPageMatch('/page.php', '?sid=attack&user2ID=123')).toBe(true)
+    expect(S.attackPageMatch('/page.php', '?sid=hospital&user2ID=123')).toBe(false)
     expect(S.attackPageMatch('/factions.php', '?sid=attack')).toBe(false)
+  })
+
+  it('⚠️ rejects loader.php — Torn retired it for attacks; this exact mismatch once made isAttackPage() always false and the overlay never rendered', () => {
+    const { S } = loadScript()
+    expect(S.attackPageMatch('/loader.php', '?sid=attack&user2ID=123')).toBe(false)
   })
 
   it('attackTargetId reads user2ID off the query string', () => {

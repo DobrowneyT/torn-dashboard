@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.36.0
+// @version      1.36.1
 // @description  War Room dibs, battle stats, live status, roster intel and assist requests on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
-// @match        https://www.torn.com/loader.php?sid=attack*
+// @match        https://www.torn.com/page.php?sid=attack*
 // @run-at       document-end
 // @grant        GM.xmlHttpRequest
 // @grant        GM_setValue
@@ -138,7 +138,10 @@ const TNLDibs = (function () {
   }
 
   function attackPageMatch(pathname, search) {
-    if (pathname !== '/loader.php') return false
+    // Torn retired loader.php for attacks (attackUrl() already builds a
+    // page.php link, below) — this was left checking the dead path, so
+    // isAttackPage() was always false and the overlay never rendered.
+    if (pathname !== '/page.php') return false
     return new URLSearchParams(search ?? '').get('sid') === 'attack'
   }
 
