@@ -18,6 +18,30 @@ surface it automatically.
 
 ---
 
+## [3.50.0] - 2026-08-22
+
+### Added
+- **`faction_attacks` captures every field Torn's v2 endpoint returns
+  (#543).** 13 new columns — `code` (the attack-log hash), both sides'
+  `level`, `respect_loss`, `is_interrupted` / `is_stealthed` / `is_raid` /
+  `is_territory_war`, `territory_war_id`, `finishing_hit_effects` (jsonb —
+  what actually finished the fight, loadout-relevant for #528), and the
+  three modifiers we were dropping (`retaliation`, `group`, `overseas`).
+  None of this costs an extra API call — Torn was already sending all of it
+  on every row this endpoint returns.
+
+  ⚠️ **The table is truncated as part of the migration**, on every tenant
+  database it reaches. Every row already stored predates this change and
+  would otherwise sit forever with 13 real columns and no way to tell "Torn
+  returned nothing" apart from "we weren't collecting it yet." Truncating
+  lets the sync's own `from = max(started)` watermark fall back to `0`, so
+  the very next run re-walks Torn's full available window (confirmed live
+  to reach back about a year) and backfills every row complete from day
+  one. Nothing references `faction_attacks` by foreign key and nothing
+  downstream keeps state derived from it beyond a live query, so this is
+  safe to repeat — but it is real data loss until the next sync completes,
+  and a rate-limited backfill will take more than one run to catch up.
+
 ## [3.49.0] - 2026-08-21
 
 ### Changed
