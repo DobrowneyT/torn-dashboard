@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { farmCompare, isGreenTarget } from '../warRoomFarmSort'
+import { farmCompare, isGreenTarget, isAbroadTarget, splitFarmAbroad } from '../warRoomFarmSort'
 
 // Normalized farm target (each war-room view adapts its own row shape onto
 // this before comparing):
@@ -92,5 +92,97 @@ describe('isGreenTarget (#366)', () => {
     const asTarget = (m) => ({ isGreen: isGreenTarget(m), okay: m.status_state === 'Okay', until: null, bsp: 1, okayAt: -1 })
     const notGreen = { last_action_status: 'Offline', status_state: 'Okay' }
     expect(farmCompare(asTarget(green), asTarget(notGreen))).toBeLessThan(0)
+  })
+})
+
+describe('isAbroadTarget (#561)', () => {
+  it('is true for Traveling and Abroad', () => {
+    expect(isAbroadTarget({ status_state: 'Traveling', status_description: 'Traveling from Torn to Mexico' })).toBe(true)
+    expect(isAbroadTarget({ status_state: 'Abroad', status_description: 'In Mexico' })).toBe(true)
+  })
+
+  it('is true for a hospitalized-abroad target — the case MonChoon flagged explicitly', () => {
+    // "even if they are in the hospital": state is 'Hospital', but the
+    // description says they're hospitalized in a foreign country, not Torn.
+    expect(isAbroadTarget({ status_state: 'Hospital', status_description: 'In a Canadian hospital' })).toBe(true)
+    expect(isAbroadTarget({ status_state: 'Hospital', status_description: 'In an Mexican hospital' })).toBe(true)
+  })
+
+  it('is false for a plain domestic hospital target', () => {
+    expect(isAbroadTarget({ status_state: 'Hospital', status_description: 'Hospitalized' })).toBe(false)
+    expect(isAbroadTarget({ status_state: 'Hospital', status_description: null })).toBe(false)
+  })
+
+  it('is false for Okay, Jail, and Fallen', () => {
+    expect(isAbroadTarget({ status_state: 'Okay', status_description: 'Okay' })).toBe(false)
+    expect(isAbroadTarget({ status_state: 'Jail', status_description: 'In jail' })).toBe(false)
+    expect(isAbroadTarget({ status_state: 'Fallen', status_description: null })).toBe(false)
+  })
+
+  it('tolerates a missing row', () => {
+    expect(isAbroadTarget(null)).toBe(false)
+    expect(isAbroadTarget({})).toBe(false)
+  })
+
+  it('reads the mobile row shape as well as the desktop one', () => {
+    expect(isAbroadTarget({ state: 'Abroad', description: 'In Mexico' })).toBe(true)
+    expect(isAbroadTarget({ state: 'Hospital', description: 'In a Canadian hospital' })).toBe(true)
+    expect(isAbroadTarget({ state: 'Hospital', description: 'Hospitalized' })).toBe(false)
+  })
+})
+
+describe('splitFarmAbroad (#561)', () => {
+  // Minimal farmTarget projection over the same normalized member shape the
+  // rest of this file uses (id, status_state/status_description, bsp).
+  const toFarmTarget = (m) => ({
+    isGreen: isGreenTarget({ last_action_status: m.activity, status_state: m.status_state }),
+    okay: m.status_state === 'Okay',
+    until: m.until ?? null,
+    bsp: m.bsp ?? null,
+    okayAt: -1,
+  })
+
+  it('segregates travelling/abroad/hospitalized-abroad into "abroad", everyone else into "main"', () => {
+    const green   = { id: 'green', activity: 'Online', status_state: 'Okay', bsp: 1 }
+    const domesticHospital = { id: 'dom-hosp', activity: 'Offline', status_state: 'Hospital', status_description: 'Hospitalized', until: 100, bsp: 2 }
+    const fallen   = { id: 'fallen', activity: 'Offline', status_state: 'Fallen', bsp: 3 }
+    const flying   = { id: 'flying', activity: 'Offline', status_state: 'Traveling', status_description: 'Traveling from Torn to Mexico', bsp: 4 }
+    const abroad   = { id: 'abroad', activity: 'Offline', status_state: 'Abroad', status_description: 'In Mexico', bsp: 5 }
+    const hospAbroad = { id: 'hosp-abroad', activity: 'Offline', status_state: 'Hospital', status_description: 'In a Canadian hospital', until: 50, bsp: 6 }
+
+    const { main, abroad: abroadList } = splitFarmAbroad(
+      [green, domesticHospital, fallen, flying, abroad, hospAbroad],
+      toFarmTarget
+    )
+
+    expect(main.map(m => m.id).sort()).toEqual(['dom-hosp', 'fallen', 'green'])
+    expect(abroadList.map(m => m.id).sort()).toEqual(['abroad', 'flying', 'hosp-abroad'])
+  })
+
+  it('keeps farmCompare ordering for the main list — a domestic hospital timer still ranks by soonest-out', () => {
+    const soon  = { id: 'soon', activity: 'Offline', status_state: 'Hospital', status_description: 'Hospitalized', until: 100, bsp: 1 }
+    const later = { id: 'later', activity: 'Offline', status_state: 'Hospital', status_description: 'Hospitalized', until: 900, bsp: 1 }
+    const { main } = splitFarmAbroad([later, soon], toFarmTarget)
+    expect(main.map(m => m.id)).toEqual(['soon', 'later'])
+  })
+
+  it('sorts the abroad section by battle stats descending, nulls last — NOT by timer', () => {
+    // hospAbroadSoon's timer would put it first under the main-list ordering,
+    // but the abroad section deliberately ignores timers (#561): the target
+    // still needs travel time home once released.
+    const hospAbroadSoon = { id: 'hosp-soon', activity: 'Offline', status_state: 'Hospital', status_description: 'In a Canadian hospital', until: 10, bsp: 3_000_000 }
+    const flyingBig      = { id: 'flying-big', activity: 'Offline', status_state: 'Traveling', status_description: 'Traveling from Torn to Mexico', until: 9_000, bsp: 9_000_000 }
+    const abroadUnspied  = { id: 'abroad-unspied', activity: 'Offline', status_state: 'Abroad', status_description: 'In Mexico', bsp: null }
+
+    const { abroad } = splitFarmAbroad([hospAbroadSoon, abroadUnspied, flyingBig], toFarmTarget)
+    expect(abroad.map(m => m.id)).toEqual(['flying-big', 'hosp-soon', 'abroad-unspied'])
+  })
+
+  it('is a no-op for an all-domestic roster — abroad is empty, main preserves farmCompare order', () => {
+    const green = { id: 'green', activity: 'Online', status_state: 'Okay', bsp: 1 }
+    const red   = { id: 'red', activity: 'Offline', status_state: 'Okay', bsp: 2 }
+    const { main, abroad } = splitFarmAbroad([red, green], toFarmTarget)
+    expect(abroad).toEqual([])
+    expect(main.map(m => m.id)).toEqual(['green', 'red'])
   })
 })

@@ -18,6 +18,21 @@ surface it automatically.
 
 ---
 
+## [3.52.4] - 2026-08-22
+
+### Fixed
+- **War Room: Farm mode no longer interleaves abroad targets into the
+  timer-sorted list (#561).** A released hospital timer means "no longer
+  hospitalized," not "attackable soon" — an abroad target still needs real
+  travel time back to Torn, so a soon-to-release hospitalized-abroad member
+  used to sort right next to a domestic target that really was about to be
+  hittable. Farm mode now splits travelling/abroad/hospitalized-abroad
+  targets (the same predicate already used for the Status filter chips and
+  the ✈ row flag) into their own "Abroad" section below the main list, sorted
+  by battle stats instead of timer. Desktop and mobile both share the new
+  `splitFarmAbroad`/`isAbroadTarget` in `warRoomFarmSort.js`. Every other
+  sort column is unchanged.
+
 ## [3.52.3] - 2026-08-22
 
 ### Fixed

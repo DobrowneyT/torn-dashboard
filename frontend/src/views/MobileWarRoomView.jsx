@@ -49,7 +49,7 @@
  *     npm install lucide-react
  */
 
-import { useState, useEffect, useMemo, useReducer, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useReducer, useRef, useCallback, Fragment } from 'react'
 import { useViewState } from '../contexts/ViewStateContext'
 import {
   Check, BriefcaseMedical, Plane, MapPin, Skull, Lock, Clock,
@@ -58,7 +58,7 @@ import {
   Settings, Search, Pause, Play,
   SlidersHorizontal, ShoppingBag, HeartPulse, Loader2,
 } from 'lucide-react'
-import { farmCompare, isGreenTarget } from '../utils/warRoomFarmSort'
+import { isGreenTarget, splitFarmAbroad } from '../utils/warRoomFarmSort'
 import { passesStatsFilter, passesFfFilter } from '../utils/warRoomRosterSide'
 import { parseDbTime } from '../utils/time'
 import SpotlightTour from '../components/warroom/SpotlightTour'
@@ -283,6 +283,18 @@ function FairFightBadge({ mine, m }) {
         {formatFF(ff)}
       </div>
       <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">FF</div>
+    </div>
+  )
+}
+
+// Farm mode's Abroad section divider (#561) — dropped once, between the
+// main card list and the trailing Abroad cards. Named export so it (and the
+// section boundary that decides where it lands) is directly testable rather
+// than only provable by eyeballing the overlay.
+export function AbroadSectionDivider() {
+  return (
+    <div className="mt-1 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs font-semibold text-amber-800 dark:text-amber-300">
+      <span aria-hidden="true">✈</span> Abroad — still needs travel time home, timers below don&apos;t mean &quot;attackable soon&quot;
     </div>
   )
 }
@@ -1182,7 +1194,12 @@ export default function MobileWarRoomView({
   const prevStatesRef = useRef(new Map())  // memberId → last observed state
   const okayAtRef     = useRef(new Map())  // memberId → ms-since-epoch first observed as Okay
 
-  const filtered = useMemo(() => {
+  // Farm mode's Abroad section (#561): `filtered` stays a flat array
+  // (unchanged for every other sort), but in farm mode the Abroad cards are
+  // pushed to the tail and `farmAbroadStart` records where that section
+  // begins so the card list can drop a divider there. Non-farm sorts leave
+  // it null.
+  const [filtered, farmAbroadStart] = useMemo(() => {
     // Update transition tracker as a side effect of recomputing the filtered
     // list. Safe because the only consumer of these refs is the sort below.
     const prev = prevStatesRef.current
@@ -1219,8 +1236,25 @@ export default function MobileWarRoomView({
         min: minVal, max: maxVal, farmMode, isGreen: isGreenTarget(m),
       }))
     }
+    // Farm mode (#561): split off before the generic sort below — see the
+    // matching comment in WarRoomViewV2.jsx for why this can't be one more
+    // `switch` case (it changes the SHAPE of the result, not just its
+    // order). sortDir is intentionally ignored, same as farmCompare's
+    // existing fixed semantics.
+    if (sortBy === 'farm') {
+      const farmTarget = m => ({
+        isGreen: m.activity === 'Online' && m.state === 'Okay',
+        okay: m.state === 'Okay',
+        until: m.until,
+        bsp: m.bsp,
+        okayAt: okayAt.get(m.id) ?? -1,
+      })
+      const { main, abroad } = splitFarmAbroad(list, farmTarget)
+      return [[...main, ...abroad], main.length]
+    }
+
     const dir = sortDir === 'asc' ? 1 : -1
-    return [...list].sort((a, b) => {
+    const sorted = [...list].sort((a, b) => {
       switch (sortBy) {
         case 'name':
           return dir * (a.name || '').localeCompare(b.name || '')
@@ -1243,19 +1277,6 @@ export default function MobileWarRoomView({
           if (bv === null) return -1
           return dir * (av - bv)
         }
-        case 'farm': {
-          // Two-tier farm sort (#108): green attack button (Online+Okay) on
-          // top by battle stats, everyone else below in the prior ordering.
-          // sortDir is intentionally ignored — farm has fixed semantics.
-          const farmTarget = m => ({
-            isGreen: m.activity === 'Online' && m.state === 'Okay',
-            okay: m.state === 'Okay',
-            until: m.until,
-            bsp: m.bsp,
-            okayAt: okayAt.get(m.id) ?? -1,
-          })
-          return farmCompare(farmTarget(a), farmTarget(b))
-        }
         case 'timer':
         default: {
           // Members with an active timer (Hospital/Jail) sort by timer in
@@ -1270,6 +1291,7 @@ export default function MobileWarRoomView({
         }
       }
     })
+    return [sorted, null]
   }, [members, statusFilter, activityFilter, ffMaxOnly, ffUsable, ffFor, statsEnabled, statsMin, statsMax, sortBy, sortDir])
 
   // Phase 7e shape: { Online, Idle, Okay, OkayOnline }. Offline dropped.
@@ -1376,19 +1398,21 @@ export default function MobileWarRoomView({
             No members match the current filters.<br />
             <button onClick={clearFilters} className="mt-3 px-3.5 py-1.5 rounded-full bg-transparent border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 text-xs">Clear filters</button>
           </div>
-        ) : filtered.map(m => (
-          <MemberCard
-            key={m.id}
-            m={m}
-            dib={dibsByEnemyId[m.id]}
-            currentUserId={currentUserId}
-            myBattleStats={myBattleStats}
-            onClaim={onClaim}
-            onRelease={onRelease}
-            note={memberNotes[m.id]}
-            canEditNote={canEditNotes}
-            onSaveNote={onSaveNote}
-          />
+        ) : filtered.map((m, idx) => (
+          <Fragment key={m.id}>
+            {farmAbroadStart != null && idx === farmAbroadStart && <AbroadSectionDivider />}
+            <MemberCard
+              m={m}
+              dib={dibsByEnemyId[m.id]}
+              currentUserId={currentUserId}
+              myBattleStats={myBattleStats}
+              onClaim={onClaim}
+              onRelease={onRelease}
+              note={memberNotes[m.id]}
+              canEditNote={canEditNotes}
+              onSaveNote={onSaveNote}
+            />
+          </Fragment>
         ))}
         <div className="mt-1 text-[11px] text-gray-400 text-center px-3 py-2">
           Showing {filtered.length} of {members.length} · {paused ? 'Static snapshot' : 'Live'}
