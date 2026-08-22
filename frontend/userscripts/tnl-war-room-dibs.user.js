@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.36.2
+// @version      1.36.3
 // @description  War Room dibs, battle stats, live status, roster intel and assist requests on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -2073,7 +2073,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   }
 
   function scoreSortValue(row) {
-    const n = Number(scoreCellOf(row)?.textContent)
+    // Torn comma-formats any score ≥ 1,000 ("1,009.26"), and Number() treats
+    // a comma as invalid rather than a thousands separator — every such row
+    // read as NaN, so a real top score sorted last as "missing" instead of
+    // first (#547). No cell stays no cell: optional-chain past the replace
+    // rather than defaulting to '', or Number('') is 0, not the null a
+    // missing score needs.
+    const n = Number(scoreCellOf(row)?.textContent?.replace(/,/g, ''))
     return Number.isFinite(n) ? n : null
   }
 

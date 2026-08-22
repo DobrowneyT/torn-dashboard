@@ -2269,6 +2269,11 @@ describe('nameSortValue / levelSortValue / scoreSortValue (#547) — Torn’s ow
     expect(S.scoreSortValue(row({ score: '12.50' }))).toBe(12.5)
   })
 
+  it('⚠️ strips Torn\'s thousands comma — a real top score once sorted as "missing" and dropped to the bottom (#547)', () => {
+    expect(S.scoreSortValue(row({ score: '1,009.26' }))).toBe(1009.26)
+    expect(S.scoreSortValue(row({ score: '12,345' }))).toBe(12345)
+  })
+
   it('is null with no score cell', () => {
     expect(S.scoreSortValue(row({}))).toBeNull()
   })
