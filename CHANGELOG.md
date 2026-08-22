@@ -18,6 +18,20 @@ surface it automatically.
 
 ---
 
+## [3.52.2] - 2026-08-22
+
+### Added
+- **Userscript: a debug-only host override for staging QA.** There was no way
+  to point a login at a `*_dev` host — `tenants.json` is production-only by
+  design (deploy/update.sh explicitly excludes staging from it), so testing
+  #523's backend-touching assist requests against `dev.monchoon.me` meant the
+  userscript kept resolving the session to production instead, where the
+  route correctly doesn't exist yet. `GM_setValue('tnl-dibs-debug-host',
+  'dev.monchoon.me')` (Tampermonkey's own Storage panel — never in code, and
+  never surfaced in the settings UI) now wins over `tenants.json` and skips
+  fetching it entirely, so a fresh login lands on the given host instead. A
+  real member's key never has this set.
+
 ## [3.52.1] - 2026-08-22
 
 ### Fixed

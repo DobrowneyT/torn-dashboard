@@ -460,6 +460,26 @@ describe('establishSession — key → faction → tenant → token', () => {
     })
     await expect(S.establishSession(API_KEY)).rejects.toThrow(/enrol your API key/)
   })
+
+  it('⚠️ a debug-host override (staging QA) wins over tenants.json and skips fetching it entirely', async () => {
+    // tenants.json is production-only by design — there is no ordinary way to
+    // point a login at a *_dev host, which is exactly why this exists. It
+    // must never fall back to tenants.json when set, or a maintainer testing
+    // #523-style backend work against staging would silently land on prod.
+    const { S, calls } = loadScript({
+      routes: routes(), values: { 'tnl-dibs-debug-host': 'dev.monchoon.me' },
+    })
+    const session = await S.establishSession(API_KEY)
+    expect(session.host).toBe('dev.monchoon.me')
+    expect(calls.some((c) => c.url.includes('tenants.json'))).toBe(false)
+    expect(calls.find((c) => c.url.includes('/api/auth/login')).url).toContain('dev.monchoon.me')
+  })
+
+  it('resolves via tenants.json as normal when no debug host is set', async () => {
+    const { S } = loadScript({ routes: routes() })
+    const session = await S.establishSession(API_KEY)
+    expect(session.host).toBe('forge.monchoon.me')
+  })
 })
 
 describe('the session survives a reload', () => {
