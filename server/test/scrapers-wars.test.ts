@@ -141,11 +141,13 @@ describe('wars sync job', () => {
 describe('attacks sync job', () => {
   const fromParams: number[] = []
   const rawAttack = (id: number, started: number, extra: Record<string, unknown> = {}) => ({
-    id, started, ended: started + 30,
-    attacker: { id: 1100, name: 'Scout', faction: { id: US, name: 'Us' } },
-    defender: { id: 9999, name: 'EnemyTop', faction: { id: 9100, name: 'Old Foes' } },
-    result: 'Attacked', respect_gain: 7.5, chain: 12, is_ranked_war: true,
-    modifiers: { fair_fight: 1.5, war: 2, chain: 1.1, warlord: 1 },
+    id, code: `code-${id}`, started, ended: started + 30,
+    attacker: { id: 1100, name: 'Scout', level: 42, faction: { id: US, name: 'Us' } },
+    defender: { id: 9999, name: 'EnemyTop', level: 55, faction: { id: 9100, name: 'Old Foes' } },
+    result: 'Attacked', respect_gain: 7.5, respect_loss: 0, chain: 12, is_ranked_war: true,
+    is_interrupted: false, is_stealthed: false, is_raid: false, is_territory_war: false,
+    territory_war_id: null, finishing_hit_effects: [],
+    modifiers: { fair_fight: 1.5, war: 2, chain: 1.1, warlord: 1, retaliation: 1, group: 1, overseas: 1 },
     ...extra,
   })
 
@@ -173,15 +175,22 @@ describe('attacks sync job', () => {
 
     const rows = await stack.db.query('SELECT * FROM faction_attacks ORDER BY attack_id')
     expect(rows.rows[0]).toMatchObject({
-      attack_id: 9001, started: 1748001000, attacker_id: 1100, attacker_name: 'Scout',
-      attacker_faction_id: US, defender_id: 9999, defender_faction_id: 9100,
+      attack_id: 9001, code: 'code-9001', started: 1748001000,
+      attacker_id: 1100, attacker_name: 'Scout', attacker_level: 42,
+      attacker_faction_id: US, defender_id: 9999, defender_level: 55, defender_faction_id: 9100,
       result: 'Attacked', chain: 12, is_ranked_war: true, is_incoming: false,
+      is_interrupted: false, is_stealthed: false, is_raid: false,
+      is_territory_war: false, territory_war_id: null, finishing_hit_effects: [],
       // Faction names stored inline on the row (like faction_revives).
       attacker_faction_name: 'Us', defender_faction_name: 'Old Foes',
     })
     expect(parseFloat(rows.rows[0].respect_gain)).toBe(7.5)
+    expect(parseFloat(rows.rows[0].respect_loss)).toBe(0)
     expect(parseFloat(rows.rows[0].fair_fight)).toBe(1.5)
     expect(parseFloat(rows.rows[0].war_modifier)).toBe(2)
+    expect(parseFloat(rows.rows[0].retaliation_modifier)).toBe(1)
+    expect(parseFloat(rows.rows[0].group_modifier)).toBe(1)
+    expect(parseFloat(rows.rows[0].overseas_modifier)).toBe(1)
     // Defender faction == us → incoming.
     expect(rows.rows[1]).toMatchObject({ attack_id: 9002, is_incoming: true, is_ranked_war: false })
     // Factionless attacker survives normalization.
@@ -216,6 +225,56 @@ describe('attacks sync job', () => {
     // shared handler and assert an exact row count — leave both the table and
     // the mock handler as this test found them.
     await stack.db.query('DELETE FROM faction_attacks WHERE attack_id = 9101')
+    stack.torn.setHandler('/v2/faction/attacks', () => ({ attacks: [] }))
+  })
+
+  it('a stealthed attack (null attacker) still inserts, with attacker fields left null (#543)', async () => {
+    stack.torn.setHandler('/v2/faction/attacks', () => ({
+      attacks: [rawAttack(9102, 1748102000, { attacker: null, is_stealthed: true })],
+    }))
+    const { attacksSyncJob } = await import('../src/scraper/jobs/attacksSync.js')
+    const result = await attacksSyncJob(deps())
+    expect(result.rows).toBe(1)
+    const row = await stack.db.query('SELECT * FROM faction_attacks WHERE attack_id = 9102')
+    expect(row.rows[0]).toMatchObject({
+      attacker_id: null, attacker_name: null, attacker_level: null,
+      attacker_faction_id: null, attacker_faction_name: null, is_stealthed: true,
+    })
+    await stack.db.query('DELETE FROM faction_attacks WHERE attack_id = 9102')
+    stack.torn.setHandler('/v2/faction/attacks', () => ({ attacks: [] }))
+  })
+
+  it('captures territory-war fields and finishing_hit_effects as jsonb (#543)', async () => {
+    stack.torn.setHandler('/v2/faction/attacks', () => ({
+      attacks: [rawAttack(9103, 1748103000, {
+        is_territory_war: true, territory_war_id: 4242,
+        finishing_hit_effects: [{ name: 'plunder', value: 24 }],
+      })],
+    }))
+    const { attacksSyncJob } = await import('../src/scraper/jobs/attacksSync.js')
+    await attacksSyncJob(deps())
+    const row = await stack.db.query('SELECT * FROM faction_attacks WHERE attack_id = 9103')
+    expect(row.rows[0]).toMatchObject({
+      is_territory_war: true, territory_war_id: 4242,
+      finishing_hit_effects: [{ name: 'plunder', value: 24 }],
+    })
+    await stack.db.query('DELETE FROM faction_attacks WHERE attack_id = 9103')
+    stack.torn.setHandler('/v2/faction/attacks', () => ({ attacks: [] }))
+  })
+
+  it('a repeat sync (upsert) refreshes a mutable field like attacker_level', async () => {
+    stack.torn.setHandler('/v2/faction/attacks', () => ({
+      attacks: [rawAttack(9104, 1748104000, { attacker: { id: 1100, name: 'Scout', level: 42, faction: { id: US, name: 'Us' } } })],
+    }))
+    const { attacksSyncJob } = await import('../src/scraper/jobs/attacksSync.js')
+    await attacksSyncJob(deps())
+    stack.torn.setHandler('/v2/faction/attacks', () => ({
+      attacks: [rawAttack(9104, 1748104000, { attacker: { id: 1100, name: 'Scout', level: 50, faction: { id: US, name: 'Us' } } })],
+    }))
+    await attacksSyncJob(deps())
+    const row = await stack.db.query('SELECT attacker_level FROM faction_attacks WHERE attack_id = 9104')
+    expect(row.rows[0].attacker_level).toBe(50)
+    await stack.db.query('DELETE FROM faction_attacks WHERE attack_id = 9104')
     stack.torn.setHandler('/v2/faction/attacks', () => ({ attacks: [] }))
   })
 })
