@@ -2952,6 +2952,12 @@ describe('the stylesheet handles Torn’s honor-bar names', () => {
     expect(sheet).toMatch(/honor-text:not\(\.honor-text-svg\)/)
   })
 
+  it('pulls the plain-text span and its wrappers out of absolute positioning (#548) — an absolutely positioned honor-text is blockified and never sizes the <a> around it, collapsing the link to zero size once the image is hidden', () => {
+    const sheet = css()
+    expect(sheet).toMatch(/tnl-plain-name \.honor-text-wrap,\s*\n\.tnl-plain-name > a \{[\s\S]{0,120}position: static !important/)
+    expect(sheet).toMatch(/honor-text:not\(\.honor-text-svg\) \{[\s\S]{0,80}position: static !important/)
+  })
+
   it('drops Torn’s own online dot only while we are tinting names', () => {
     expect(css()).toMatch(/html\.tnl-tinting \[class\*="userStatusWrap___"\]/)
   })
@@ -2969,6 +2975,66 @@ describe('the tinted name uses a plain, readable font', () => {
     s.injectStyles()
     const css = appended[0].textContent
     expect(css).toMatch(/honor-text:not\(\.honor-text-svg\)[\s\S]*?font-family:\s*-apple-system/)
+  })
+})
+
+describe('shrinkAttack (#548) — Torn does not always give the Attack cell a real link', () => {
+  function attackRow({ hasHref } = {}) {
+    let cell
+    const leaf = {
+      tagName: hasHref ? 'A' : 'SPAN',
+      textContent: 'Attack',
+      children: [],
+      className: hasHref ? 't-blue h c-pointer' : 't-gray-9',
+      getAttribute(name) {
+        return hasHref && name === 'href' ? '/page.php?sid=attack&user2ID=39773' : null
+      },
+      replaceWith(node) {
+        const i = cell._kids.indexOf(leaf)
+        if (i !== -1) cell._kids[i] = node
+      },
+    }
+    cell = { dataset: {}, _kids: [leaf], querySelectorAll: () => cell._kids.slice() }
+    const row = { dataset: {}, querySelector: (sel) => (sel.includes('attack') ? cell : null) }
+    return { row, cell, leaf }
+  }
+
+  it('leaves Torn’s own working link alone, just relabelling the text', () => {
+    const { S: s } = loadWithDom()
+    const { row, cell, leaf } = attackRow({ hasHref: true })
+    s.shrinkAttack(row, 39773)
+    expect(leaf.textContent).toBe('Atk')
+    expect(cell._kids[0]).toBe(leaf)
+    expect(cell.dataset.tnlAtk).toBe('1')
+  })
+
+  it('builds a real, working attack link — same URL the BS column uses — when Torn only gave a disabled span', () => {
+    const { S: s } = loadWithDom()
+    const { row, cell } = attackRow({ hasHref: false })
+    s.shrinkAttack(row, 39773)
+    const link = cell._kids[0]
+    expect(link.textContent).toBe('Atk')
+    expect(link.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=39773')
+    // No target: a plain click stays in this tab; middle/ctrl-click still
+    // opens a new one on its own, same as the BS link (#547 revert).
+    expect(link.target).toBeUndefined()
+  })
+
+  it('falls back to a label-only rename with no player to link to — never link a teammate row', () => {
+    const { S: s } = loadWithDom()
+    const { row, cell, leaf } = attackRow({ hasHref: false })
+    s.shrinkAttack(row, null)
+    expect(leaf.textContent).toBe('Atk')
+    expect(cell._kids[0]).toBe(leaf)
+  })
+
+  it('does nothing on a second call — the per-row guard is idempotent', () => {
+    const { S: s } = loadWithDom()
+    const { row, cell } = attackRow({ hasHref: false })
+    s.shrinkAttack(row, 39773)
+    const first = cell._kids[0]
+    s.shrinkAttack(row, 39773)
+    expect(cell._kids[0]).toBe(first)
   })
 })
 

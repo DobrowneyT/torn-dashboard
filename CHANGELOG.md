@@ -23,11 +23,11 @@ surface it automatically.
 ### Added
 - **Userscript: a name is already a link to the profile (#547).** Torn wraps
   the whole honor-bar name — and the plain-text twin our activity tint
-  reveals in its place — in its own `<a href="/profiles.php?...">` already.
-  Nothing needed building: a plain click opens the profile in this same
-  window exactly as any other Torn link does, and middle-click already opens
-  a new tab on its own, since that is a real anchor and the browser's own
-  behaviour needs no help. Colour is untouched.
+  reveals in its place — in its own `<a href="/profiles.php?...">` already,
+  so no click handling needed writing: a plain click opens the profile in
+  this same window exactly as any other Torn link does, and middle-click
+  already opens a new tab on its own, since that is a real anchor and the
+  browser's own behaviour needs no help. Colour is untouched.
 - **Userscript: the two war tables sort independently, on every sortable
   column — including Torn's own Name, Level and Score, not only our BS and
   Status.** With the script off, Torn's Name/Lv/Score headers sort *both*
@@ -50,6 +50,28 @@ surface it automatically.
   on the row. Middle-click and ctrl/cmd-click still open a new tab — that is
   the browser's own behaviour on a real `<a href>` and never depended on
   `target`.
+
+### Fixed
+- **Userscript: the plain-text name is actually clickable now, not just
+  visible (#547).** Torn's plain `.honor-text` span is `position: absolute`
+  — a normal backdrop layer sitting invisibly under the honor-bar image and
+  its per-character SVG twin — and an absolutely positioned element is
+  blockified by the CSS spec regardless of any `display: inline` we set, so
+  it never counted toward the size of the `<a>` wrapping it. Once the
+  activity tint hid that `<img>`, the anchor had nothing left sizing it and
+  collapsed to zero: the coloured text still painted (absolute positioning
+  escapes a zero-size ancestor) but there was no box left to hover or click.
+  `position: static` on the span and its wrappers pulls it back into normal
+  flow, so the link now actually sizes around the text sitting on it.
+- **Userscript: the Atk column links again outside an active war.** Torn
+  renders that cell as a plain, unstyled span with no `href` at all whenever
+  the row doesn't currently qualify for its own quick-attack link — true
+  with the userscript fully disabled too, so this was never something our
+  script broke. Since the destination is the same URL the BS link already
+  builds, the script now gives Atk a real working link of its own (same-tab
+  click, native middle/ctrl-click for a new tab) whenever Torn didn't
+  provide one, rather than just relabelling dead text. Left untouched on a
+  teammate row, and on any row where Torn's own link already works.
 
 ## [3.50.2] - 2026-08-22
 

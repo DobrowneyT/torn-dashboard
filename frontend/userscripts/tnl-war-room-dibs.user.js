@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.35.2
+// @version      1.35.3
 // @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1213,8 +1213,23 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
    and a plain .honor-text span. Hide the first two, show the third. */
 .${PLAIN_NAME_CLASS} img { display: none !important; }
 .${PLAIN_NAME_CLASS} .honor-text-svg { display: none !important; }
+/* Torn's plain .honor-text span is position:absolute (it normally sits as an
+   invisible backdrop under the honor-bar image/SVG), and an absolutely
+   positioned element is blockified by the CSS spec regardless of any
+   display:inline we set — so it never contributed to its wrapping <a>'s size.
+   With the <img> hidden, that <a> had nothing left to size itself on and
+   collapsed to 0×0: the text still painted (absolute escapes a 0-size
+   ancestor) but there was no box left to hover or click. position:static
+   pulls it back into normal flow so the link sizes around the visible text. */
+.${PLAIN_NAME_CLASS} .honor-text-wrap,
+.${PLAIN_NAME_CLASS} > a {
+  position: static !important;
+  width: auto !important; height: auto !important;
+  overflow: visible !important;
+}
 .${PLAIN_NAME_CLASS} .honor-text:not(.honor-text-svg) {
   display: inline !important;
+  position: static !important;
   visibility: visible !important; opacity: 1 !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
   font-size: 11px !important; font-weight: 600 !important;
@@ -1664,16 +1679,33 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       : '1px solid transparent'
   }
 
-  /** "Atk" buys about 30px per row. */
-  function shrinkAttack(row) {
+  /**
+   * "Atk" buys about 30px per row. Torn does not always render this cell as
+   * a real link — outside an active war it ships a plain, unstyled span with
+   * no href at all, script or no script. `playerId` (enemy rows only — never
+   * hand this a teammate) lets us give it the same working attack link the
+   * BS column already has, rather than a relabelled dead end.
+   */
+  function shrinkAttack(row, playerId) {
     if (row._tnlAtk) return
     row._tnlAtk = true
     const attack = attackCellOf(row)
     if (!attack || attack.dataset.tnlAtk) return
     for (const el of [attack, ...attack.querySelectorAll('span, a')]) {
       if ((el.textContent || '').trim() === 'Attack' && el.children.length === 0) {
-        el.textContent = 'Atk'
         attack.dataset.tnlAtk = '1'
+        if (el.tagName === 'A' && el.getAttribute('href')) {
+          el.textContent = 'Atk'
+          return
+        }
+        const href = playerId === null || playerId === undefined ? null : attackUrl(playerId)
+        if (!href) { el.textContent = 'Atk'; return }
+        const link = document.createElement('a')
+        link.className = 't-blue h c-pointer'
+        link.textContent = 'Atk'
+        link.href = href
+        link.rel = 'noopener noreferrer'
+        el.replaceWith(link)
         return
       }
     }
@@ -2163,7 +2195,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       paintStatus(row, playerId, nowMs)
       bindStatusHeader(row)
       relabelColumnHeaders(row)
-      shrinkAttack(row)
+      shrinkAttack(row, isEnemy ? playerId : null)
       if (!isEnemy) return
 
       painted++
@@ -2831,7 +2863,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     versionLabel, scriptVersion, attackLinkAttrs, statValueOf,
     isHospital, hospitalExits, BONUS_HITS, nextBonusHit, chainSecondsLeft, chainDropDue,
     statsIndex, sortStateIndex, orderList, nameSortValue, levelSortValue, scoreSortValue,
-    relabelColumnHeaders, paintSortHeaders,
+    relabelColumnHeaders, paintSortHeaders, shrinkAttack, attackCellOf,
     submitFeedback, FEEDBACK_TITLE_MAX, FEEDBACK_DESC_MAX,
     chainBadgeText, chainSaveButtonState, claimChainSave, releaseChainSave,
     checkDibsHospitalAlerts, checkChainAlert, showToast,
