@@ -227,6 +227,102 @@ describe('assist requests (#523)', () => {
   })
 })
 
+describe('loadout capture (#528 Part 2)', () => {
+  const validLoadout = {
+    weapons: { primary: { name: 'AK-47', item_id: 1 }, melee: { name: 'Bat' } },
+    armor: { chest: { name: 'Combat Vest' } },
+  }
+
+  it('a valid capture propagates to connected clients on the loadout channel', async () => {
+    const watcher = await wsConnect(tokens.rival)
+    await watcher.next((m) => m.type === 'snapshot')
+
+    const res = await call('POST', '/api/war-room/loadout', { target_id: 90500, war_id: 700, loadout: validLoadout })
+    expect(res.status).toBe(200)
+
+    const frame = await watcher.next((m) => m.type === 'delta' && m.channel === 'loadout')
+    const row = frame.rows.find((r: any) => r.target_id === 90500)
+    expect(row).toBeTruthy()
+    expect(row.observed_by).toBe(1400)
+    expect(row.observed_by_name).toBe('Fighter')
+    expect(row.loadout).toMatchObject(validLoadout)
+    expect(row.updated_at).toBeTruthy() // observed_at aliased for the generic merge
+
+    watcher.ws.close()
+  })
+
+  it('rejects a missing target_id', async () => {
+    const res = await call('POST', '/api/war-room/loadout', { loadout: validLoadout })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a loadout with no captured slots', async () => {
+    const res = await call('POST', '/api/war-room/loadout', { target_id: 90501, loadout: { weapons: {}, armor: {} } })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects an unknown slot name', async () => {
+    const res = await call('POST', '/api/war-room/loadout', {
+      target_id: 90502,
+      loadout: { weapons: { bazooka: { name: 'RPG' } } },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a malformed slot entry (missing name)', async () => {
+    const res = await call('POST', '/api/war-room/loadout', {
+      target_id: 90503,
+      loadout: { weapons: { primary: { item_id: 1 } } },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects an oversized payload', async () => {
+    const res = await call('POST', '/api/war-room/loadout', {
+      target_id: 90504,
+      loadout: { weapons: { primary: { name: 'A'.repeat(5000) } } },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a bogus item_id (non-integer / out of range)', async () => {
+    const res = await call('POST', '/api/war-room/loadout', {
+      target_id: 90505,
+      loadout: { weapons: { primary: { name: 'AK-47', item_id: -3 } } },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rate-limits per member — the Nth+1 valid capture in the window is refused', async () => {
+    let last: { status: number; body: any } | null = null
+    for (let i = 0; i < 31; i++) {
+      last = await call('POST', '/api/war-room/loadout', {
+        target_id: 90600 + i,
+        loadout: { weapons: { primary: { name: 'AK-47' } } },
+      }, 'warlead')
+    }
+    expect(last?.status).toBe(429)
+  })
+
+  it('every observation is kept — a second capture against the same target does not replace the first', async () => {
+    await call('POST', '/api/war-room/loadout', { target_id: 90506, loadout: { weapons: { primary: { name: 'AK-47' } } } }, 'admin')
+    await call('POST', '/api/war-room/loadout', { target_id: 90506, loadout: { weapons: { primary: { name: 'Glock' } } } }, 'admin')
+    const rows = await stack.db.query(
+      `SELECT loadout FROM war_room_loadout_observations_v2 WHERE target_id = 90506 ORDER BY observed_at ASC`
+    )
+    expect(rows.rows).toHaveLength(2)
+  })
+
+  it('the delta/snapshot endpoint carries a loadout channel, collapsed to latest per target', async () => {
+    await call('POST', '/api/war-room/loadout', { target_id: 90507, loadout: { weapons: { primary: { name: 'AK-47' } } } }, 'admin')
+    await call('POST', '/api/war-room/loadout', { target_id: 90507, loadout: { weapons: { primary: { name: 'Glock' } } } }, 'admin')
+    const delta = await call('GET', '/api/war-room/delta')
+    const rows = delta.body.loadout.rows.filter((r: any) => r.target_id === 90507)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].loadout.weapons.primary.name).toBe('Glock')
+  })
+})
+
 describe('chain save', () => {
   it('one member holds the save at a time; visitors rejected; broadcasts ride the chain channel', async () => {
     const watcher = await wsConnect(tokens.member)

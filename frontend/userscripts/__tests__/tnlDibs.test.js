@@ -3183,6 +3183,84 @@ describe('indexAssists', () => {
   })
 })
 
+describe('enemy loadout capture (#528 Part 2)', () => {
+  describe('parseWeaponAriaLabel', () => {
+    it('extracts the weapon name from "Attack with <name>"', () => {
+      const { S } = loadScript()
+      expect(S.parseWeaponAriaLabel('Attack with AK-47')).toBe('AK-47')
+      expect(S.parseWeaponAriaLabel('Attack with  Baseball Bat  ')).toBe('Baseball Bat')
+    })
+
+    it('⚠️ returns null for an unrevealed slot ("This weapon is not available") — never guesses a name', () => {
+      const { S } = loadScript()
+      expect(S.parseWeaponAriaLabel('This weapon is not available')).toBeNull()
+      expect(S.parseWeaponAriaLabel('')).toBeNull()
+      expect(S.parseWeaponAriaLabel(null)).toBeNull()
+      expect(S.parseWeaponAriaLabel(undefined)).toBeNull()
+    })
+  })
+
+  describe('weaponItemIdFromSrc', () => {
+    it('is a bonus-only signal parsed off Torn\'s own image path', () => {
+      const { S } = loadScript()
+      expect(S.weaponItemIdFromSrc('/images/items/206/large.png')).toBe(206)
+      expect(S.weaponItemIdFromSrc('https://www.torn.com/images/items/206/large.png')).toBe(206)
+    })
+
+    it('⚠️ is null, never required, when a gear-hiding script strips the src', () => {
+      const { S } = loadScript()
+      expect(S.weaponItemIdFromSrc('')).toBeNull()
+      expect(S.weaponItemIdFromSrc(null)).toBeNull()
+      expect(S.weaponItemIdFromSrc(undefined)).toBeNull()
+      expect(S.weaponItemIdFromSrc('/images/items/silhouettes/primary.svg')).toBeNull()
+    })
+  })
+
+  describe('mapArmorAltToSlot', () => {
+    it('maps Torn\'s <area alt> body-part labels to our slot keys', () => {
+      const { S } = loadScript()
+      expect(S.mapArmorAltToSlot('Chest')).toBe('chest')
+      expect(S.mapArmorAltToSlot('Helmet')).toBe('helmet')
+      expect(S.mapArmorAltToSlot('Pants')).toBe('pants')
+      expect(S.mapArmorAltToSlot('Boots')).toBe('boots')
+      expect(S.mapArmorAltToSlot('Gloves')).toBe('gloves')
+    })
+
+    it('is null for a body part we do not track', () => {
+      const { S } = loadScript()
+      expect(S.mapArmorAltToSlot('Face')).toBeNull()
+      expect(S.mapArmorAltToSlot('')).toBeNull()
+      expect(S.mapArmorAltToSlot(null)).toBeNull()
+    })
+  })
+
+  describe('loadoutIsEmpty', () => {
+    it('is true when neither group captured anything', () => {
+      const { S } = loadScript()
+      expect(S.loadoutIsEmpty({ weapons: {}, armor: {} })).toBe(true)
+      expect(S.loadoutIsEmpty({})).toBe(true)
+      expect(S.loadoutIsEmpty(null)).toBe(true)
+    })
+
+    it('is false with at least one captured slot', () => {
+      const { S } = loadScript()
+      expect(S.loadoutIsEmpty({ weapons: { primary: { name: 'AK-47' } }, armor: {} })).toBe(false)
+      expect(S.loadoutIsEmpty({ weapons: {}, armor: { chest: { name: 'Combat Vest' } } })).toBe(false)
+    })
+  })
+
+  describe('loadoutSignature', () => {
+    it('is stable for the same content and different across a real change', () => {
+      const { S } = loadScript()
+      const a = { weapons: { primary: { name: 'AK-47' } }, armor: {} }
+      const b = { weapons: { primary: { name: 'AK-47' } }, armor: {} }
+      const c = { weapons: { primary: { name: 'Glock' } }, armor: {} }
+      expect(S.loadoutSignature(a)).toBe(S.loadoutSignature(b))
+      expect(S.loadoutSignature(a)).not.toBe(S.loadoutSignature(c))
+    })
+  })
+})
+
 describe('badgeState', () => {
   const ME = '2250591'
 
