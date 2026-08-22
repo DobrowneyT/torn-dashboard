@@ -6,14 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 **How to bump:** The repo-root **`VERSION`** file is the single source of truth for
-the app version. To cut a release: set `VERSION` to the new `X.Y.Z`, sync the root
-`package.json` `version` to match, and add a new `## [X.Y.Z] - YYYY-MM-DD` block at
-the top (below `[Unreleased]`) whose version equals `VERSION`. Level follows the
-change: `feat` → minor, `fix` → patch, breaking → major (a human may override). The
-footer (`VITE_APP_VERSION`, read from `VERSION` at build) and `/api/health` (read
-from `VERSION` at runtime) both surface it automatically.
+the app version. Every PR that changes behaviour bumps it: set `VERSION` to the
+new `X.Y.Z`, sync the root `package.json` `version` to match, and add a new
+`## [X.Y.Z] - YYYY-MM-DD` block at the top whose version equals `VERSION`. Level
+follows the change: `feat` → minor, `fix` → patch, breaking → major (a human may
+override). There is no `[Unreleased]` staging section — every branch merges to
+`dev` before it is ever promoted to `main`, so an entry is only ever added once
+it is genuinely about to ship. The footer (`VITE_APP_VERSION`, read from
+`VERSION` at build) and `/api/health` (read from `VERSION` at runtime) both
+surface it automatically.
 
 ---
+
+## [3.49.0] - 2026-08-21
+
+### Changed
+- **Faction inventory sync moved off API v1 onto v2 `faction/inventory`
+  (#542).** v1 is what's actually deprecated here — Torn disabled the
+  per-category v1 selections on 2026-08-20. v2 needs one call per category
+  (nine now, not eight — `consumables`, `boosters` and `loot` are newly
+  collected) and paginates at 100 rows, and returns one row per
+  stack-and-borrower rather than one row per item type, which the sync now
+  aggregates back into the totals `inventory_items` expects. `loaned_to`
+  comes out richer than before: v1 only ever named one borrower, v2 names
+  every one. The cron job and the manual "Sync" button shared this mapping
+  by a comment, not by code, before now — they call one function.
+
+### Fixed
+- **`faction_attacks.chain` is stored as Torn sends it, null included
+  (#544).** Torn is moving "no chain applies" from `0` to `null` — already
+  live for attacks where the attacker isn't the calling faction, and for
+  every row from 2027-01-01. `0` is also a genuine chain position, so
+  coercing null to `0` would make the two indistinguishable going forward.
+  The one place we read this column for meaning (bonus-hit detection in
+  payout calculations) is already null-safe. Existing rows are untouched —
+  a stored `0` cannot be told apart from a genuine one after the fact, so
+  nothing is backfilled.
 
 ## [3.48.0] - 2026-08-21
 

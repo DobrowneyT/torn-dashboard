@@ -339,39 +339,73 @@ describe('CPR scan job', () => {
 })
 
 describe('inventory sync job', () => {
-  it('fetches the faction inventory with a pooled key and upserts inventory_items + sync_metadata', async () => {
-    // v1 faction endpoint keyed by the seeded faction id, one category per key.
-    stack.torn.setHandler(`/faction/${TEST_FACTION.tornFactionId}`, () => ({
-      drugs: [
-        { ID: 206, name: 'Xanax', quantity: 40, available: 38, loaned: 2, loaned_to: '801', type: 'Drug' },
-        // Missing name/quantity → defaults ("Item {ID}", 0).
-        { ID: 197 },
-      ],
-      armor: [
-        { ID: 640, name: 'Riot Helmet', quantity: 5, available: 5, loaned: 0, loaned_to: null, type: 'Defensive' },
-      ],
-    }))
+  it('fetches every v2 armory category, paginates, and aggregates per-unit rows into per-item totals', async () => {
+    stack.torn.setHandler('/v2/faction/inventory', (url) => {
+      const cat = url.searchParams.get('cat')
+      const offset = Number(url.searchParams.get('offset') ?? 0)
+      if (cat === 'drugs') {
+        // Xanax: three units, two of them out on loan to different members —
+        // this is the shape v2 actually returns (one row per stack, not per
+        // item type) and what aggregateInventoryRows() has to fold back up.
+        if (offset > 0) return { inventory: [], _metadata: { total: 3 } }
+        return {
+          inventory: [
+            { id: 206, name: 'Xanax', type: 'Drug', amount: 1, uids: [1], loaned: { id: 801, name: 'Bob' } },
+            { id: 206, name: 'Xanax', type: 'Drug', amount: 1, uids: [2], loaned: { id: 802, name: 'Sue' } },
+            { id: 206, name: 'Xanax', type: 'Drug', amount: 1, uids: [3], loaned: null },
+            // Missing name → defaults ("Item {id}").
+            { id: 197, type: 'Drug', amount: 0, uids: [], loaned: null },
+          ],
+          _metadata: { total: 3 },
+        }
+      }
+      if (cat === 'armor') {
+        return {
+          inventory: [{ id: 640, name: 'Riot Helmet', type: 'Defensive', amount: 5, uids: [10, 11, 12, 13, 14], loaned: null }],
+          _metadata: { total: 1 },
+        }
+      }
+      return { inventory: [], _metadata: { total: 0 } }
+    })
 
     const { inventorySyncJob } = await import('../src/scraper/jobs/inventorySync.js')
     const result = await inventorySyncJob(deps())
+    // Three distinct item ids across the two categories: 206, 197, 640.
     expect(result.rows).toBe(3)
 
     const rows = await stack.db.query(`SELECT * FROM inventory_items ORDER BY id`)
     expect(rows.rows).toHaveLength(3)
     expect(rows.rows.find((r) => r.id === '206')).toMatchObject({
-      name: 'Xanax', quantity: 40, available: 38, loaned: 2, loaned_to: '801',
+      name: 'Xanax', quantity: 3, available: 1, loaned: 2, loaned_to: 'Bob, Sue',
       api_type: 'Drug', category: 'drugs',
     })
-    // Missing fields default the Python/manual-sync way.
     expect(rows.rows.find((r) => r.id === '197')).toMatchObject({
       name: 'Item 197', quantity: 0, available: 0, loaned: 0, category: 'drugs',
     })
+    expect(rows.rows.find((r) => r.id === '640')).toMatchObject({
+      name: 'Riot Helmet', quantity: 5, available: 5, loaned: 0, loaned_to: null,
+      api_type: 'Defensive', category: 'armor',
+    })
 
-    // sync_metadata records the inventory sync so the Leadership page's
-    // "last synced" reads the same whether cron or a manual sync wrote it.
     const meta = await stack.db.query(`SELECT synced_by FROM sync_metadata WHERE data_type = 'inventory'`)
     expect(meta.rows).toHaveLength(1)
     expect(meta.rows[0].synced_by).toBe('scraper')
+  })
+
+  it('follows pagination past the first 100-row page', async () => {
+    stack.torn.setHandler('/v2/faction/inventory', (url) => {
+      if (url.searchParams.get('cat') !== 'weapons') return { inventory: [], _metadata: { total: 0 } }
+      const offset = Number(url.searchParams.get('offset') ?? 0)
+      const page = offset === 0
+        ? Array.from({ length: 100 }, (_, i) => ({ id: 900, name: 'AK-47', type: 'Primary', amount: 1, uids: [i], loaned: null }))
+        : Array.from({ length: 5 }, (_, i) => ({ id: 900, name: 'AK-47', type: 'Primary', amount: 1, uids: [100 + i], loaned: null }))
+      return { inventory: page, _metadata: { total: 105 } }
+    })
+
+    const { inventorySyncJob } = await import('../src/scraper/jobs/inventorySync.js')
+    await inventorySyncJob(deps())
+    const row = await stack.db.query(`SELECT quantity FROM inventory_items WHERE id = '900'`)
+    expect(row.rows[0].quantity).toBe(105)
   })
 })
 

@@ -61,6 +61,12 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
       const defenderFactionId = defender.faction?.id ?? null
       noteFaction(attacker.faction)
       noteFaction(defender.faction)
+      // chain is stored as Torn sends it, null included (#544). Torn is moving
+      // 'no chain applies' from 0 to null across 2026/2027, and 0 is a real
+      // chain position — coercing null to 0 would make the two indistinguishable
+      // in the one place we actually read this column for meaning (bonus-hit
+      // detection in warPayoutCalculations.js, which is already null-safe via
+      // Number(x) || 0).
       await db.query(
         `INSERT INTO faction_attacks (attack_id, started, ended, attacker_id, attacker_name,
            attacker_faction_id, attacker_faction_name, defender_id, defender_name,
@@ -79,7 +85,7 @@ export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<Run
         [raw.id, raw.started ?? null, raw.ended ?? null, attacker.id ?? null, attacker.name ?? null,
          attackerFactionId, attacker.faction?.name ?? null, defender.id ?? null, defender.name ?? null,
          defenderFactionId, defender.faction?.name ?? null,
-         raw.result ?? null, raw.respect_gain ?? 0, raw.chain ?? 0, raw.is_ranked_war ?? false,
+         raw.result ?? null, raw.respect_gain ?? 0, raw.chain ?? null, raw.is_ranked_war ?? false,
          mods.fair_fight ?? 1, mods.war ?? 1, mods.chain ?? 1, mods.warlord ?? 1,
          defenderFactionId === us]
       )

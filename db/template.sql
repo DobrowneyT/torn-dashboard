@@ -261,7 +261,7 @@ CREATE TABLE public.faction_attacks (
   defender_faction_name text,
   result text,
   respect_gain numeric(10,4) DEFAULT 0,
-  chain integer DEFAULT 0,
+  chain integer,
   is_ranked_war boolean DEFAULT false,
   fair_fight numeric(6,4) DEFAULT 1,
   war_modifier numeric(6,4) DEFAULT 1,
