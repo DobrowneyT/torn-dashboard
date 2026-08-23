@@ -9,7 +9,7 @@ on:
 jobs:
   node-tests:
     name: Node Tests (Vitest — frontend, server, db)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
 
     steps:
@@ -31,8 +31,19 @@ jobs:
 
   compose-check:
     name: Compose build + boot check
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 20
+    # ⚠️ This runner is the same box as production (self-hosted on the
+    # deploy VPS) — unlike a GitHub-hosted runner's disposable VM, every
+    # docker command here shares the SAME Docker daemon production runs on.
+    # deploy/docker-compose.yml pins `name: tnl-dashboard`, which is
+    # production's own compose project (update.sh uses the identical file,
+    # unmodified) — without this override, this job's `down -v` at the end
+    # would tear down and DELETE THE VOLUMES of the live production stack,
+    # not a CI sandbox. tnl-dashboard-dev (staging) already reserves its own
+    # name the same way; this job gets a third, disposable one.
+    env:
+      COMPOSE_PROJECT_NAME: tnl-dashboard-ci
 
     steps:
     - name: Checkout repository
@@ -41,9 +52,12 @@ jobs:
     - name: Configure compose environment
       run: |
         cp deploy/.env.example deploy/.env
-        # Avoid colliding with anything on the runner's default ports.
+        # Isolated from BOTH the runner's own defaults AND production's real
+        # ports (production listens on 5432/8088 on this same host) — a
+        # plain "avoid the runner's defaults" comment stopped being enough
+        # the moment this started running on the production box itself.
         echo "POSTGRES_HOST_PORT=55432" >> deploy/.env
-        echo "HTTP_PORT=8088" >> deploy/.env
+        echo "HTTP_PORT=18088" >> deploy/.env
 
     - name: Build images
       run: docker compose -f deploy/docker-compose.yml --project-directory deploy build
@@ -65,15 +79,15 @@ jobs:
 
     - name: Probe API health through nginx
       run: |
-        curl -fsS --retry 10 --retry-delay 2 --retry-all-errors http://localhost:8088/api/health | tee /tmp/health.json
+        curl -fsS --retry 10 --retry-delay 2 --retry-all-errors http://localhost:18088/api/health | tee /tmp/health.json
         grep -q '"status":"ok"' /tmp/health.json
         grep -q '"faction":"forge"' /tmp/health.json
         # Host-header routing answers for the faction's own hostname too.
-        curl -fsS -H 'Host: forge.localhost' http://localhost:8088/api/health | grep -q '"faction":"forge"'
+        curl -fsS -H 'Host: forge.localhost' http://localhost:18088/api/health | grep -q '"faction":"forge"'
 
     - name: Probe SPA through nginx
       run: |
-        curl -fsS http://localhost:8088/ | grep -qi '<div id="root"'
+        curl -fsS http://localhost:18088/ | grep -qi '<div id="root"'
 
     # Cache policy (#382). Silent to a human — a wrong header here just means
     # users quietly run an old bundle for hours after a deploy and report bugs
@@ -84,22 +98,22 @@ jobs:
         # The entry document must never be stored, on the bare path AND on a
         # client-side route (which reaches index.html by internal redirect).
         for path in / /index.html /war-room; do
-          curl -fsSI "http://localhost:8088$path" | grep -qi 'cache-control: no-store' \
+          curl -fsSI "http://localhost:18088$path" | grep -qi 'cache-control: no-store' \
             || { echo "::error::$path is missing no-store"; exit 1; }
         done
         # The service worker outlives even a hard refresh if it goes stale.
-        curl -fsSI http://localhost:8088/sw.js | grep -qi 'cache-control: no-store' \
+        curl -fsSI http://localhost:18088/sw.js | grep -qi 'cache-control: no-store' \
           || { echo "::error::/sw.js is missing no-store"; exit 1; }
         # Content-hashed assets are safe to cache forever, and should be.
-        asset=$(curl -fsS http://localhost:8088/ | grep -o '/assets/[^"]*\.js' | head -1)
+        asset=$(curl -fsS http://localhost:18088/ | grep -o '/assets/[^"]*\.js' | head -1)
         test -n "$asset" || { echo "::error::no hashed asset found in index.html"; exit 1; }
-        curl -fsSI "http://localhost:8088$asset" | grep -qi 'cache-control: public, max-age=31536000, immutable' \
+        curl -fsSI "http://localhost:18088$asset" | grep -qi 'cache-control: public, max-age=31536000, immutable' \
           || { echo "::error::$asset is not immutably cached"; exit 1; }
 
     # Readiness reports live DB connectivity per faction (slice #76).
     - name: Probe readiness through nginx
       run: |
-        curl -fsS -H 'Host: forge.localhost' http://localhost:8088/api/health/ready | tee /tmp/ready.json
+        curl -fsS -H 'Host: forge.localhost' http://localhost:18088/api/health/ready | tee /tmp/ready.json
         grep -q '"status":"ok"' /tmp/ready.json
         grep -q '"db":"up"' /tmp/ready.json
 
