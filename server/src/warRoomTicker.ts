@@ -12,6 +12,7 @@ import type { WarRoomHub } from './warRoom.js'
 import type { PushService } from './push.js'
 import { createSurgeDetector, type SurgeConfig, type SurgeEvent } from './warRoomSurge.js'
 import { snapshotDibbedStatus, sweepDibsExpiry, DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
+import { snapshotAssistedStatus, sweepAssistsExpiry } from './warRoomAssistsExpiry.js'
 import { storeOurChain, storeEnemyChain, chainPollDue, chainNearExpiry, CHAIN_FORCE_POLL_SEC } from './warRoomChain.js'
 import { memberStatsPollDue, sweepMemberStats, pruneMemberStats } from './warRoomMemberStats.js'
 import {
@@ -307,9 +308,11 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       if (rosterDue) {
         lastRosterSyncMs = Date.now()
 
-        // Snapshot dibbed targets' hospital status BEFORE the sync overwrites it —
-        // the auto-expiry sweep diffs old vs new (see warRoomDibsExpiry).
+        // Snapshot dibbed/assisted targets' hospital status BEFORE the sync
+        // overwrites it — both auto-expiry sweeps diff old vs new (see
+        // warRoomDibsExpiry / warRoomAssistsExpiry).
         const prevDibStatus = await snapshotDibbedStatus(db)
+        const prevAssistStatus = await snapshotAssistedStatus(db)
         const changed = await syncWarRoomMemberStates(db, client, claimed.key, enemyId, ourId)
         const expiredDibs = await sweepDibsExpiry(
           db, prevDibStatus,
@@ -317,11 +320,15 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
           // test/override fallback.
           Number(cfg.dibs_expiry_seconds ?? deps.dibsExpirySeconds ?? DIBS_EXPIRY_SECONDS)
         )
+        // #523: assist requests have no config knob (short and fixed by
+        // design) — nothing to thread through from cfg here.
+        const expiredAssists = await sweepAssistsExpiry(db, prevAssistStatus)
 
-        if (changed.length > 0 || expiredDibs.length > 0) {
+        if (changed.length > 0 || expiredDibs.length > 0 || expiredAssists.length > 0) {
           const now = await db.query('SELECT now() AS server_now')
           if (changed.length > 0) hub.broadcast('state', changed, now.rows[0].server_now)
           if (expiredDibs.length > 0) hub.broadcast('dibs', expiredDibs, now.rows[0].server_now)
+          if (expiredAssists.length > 0) hub.broadcast('assist', expiredAssists, now.rows[0].server_now)
         }
 
         // PUSH-surge detection + fan-out (#208). observe() is a no-op when the

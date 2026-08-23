@@ -75,6 +75,10 @@ const NEW_TABLES = [
   'faction_upgrade_snapshots',
   // Per-member Torn event start windows, behind their own consent scope (#459)
   'member_event_settings',
+  // Live "raise a hand" assist requests from the attack page (#523)
+  'war_room_assists_v2',
+  // Enemy loadout observations captured from the attack page (#528 Part 2)
+  'war_room_loadout_observations_v2',
 ]
 
 let server

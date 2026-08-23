@@ -460,6 +460,26 @@ describe('establishSession — key → faction → tenant → token', () => {
     })
     await expect(S.establishSession(API_KEY)).rejects.toThrow(/enrol your API key/)
   })
+
+  it('⚠️ a debug-host override (staging QA) wins over tenants.json and skips fetching it entirely', async () => {
+    // tenants.json is production-only by design — there is no ordinary way to
+    // point a login at a *_dev host, which is exactly why this exists. It
+    // must never fall back to tenants.json when set, or a maintainer testing
+    // #523-style backend work against staging would silently land on prod.
+    const { S, calls } = loadScript({
+      routes: routes(), values: { 'tnl-dibs-debug-host': 'dev.monchoon.me' },
+    })
+    const session = await S.establishSession(API_KEY)
+    expect(session.host).toBe('dev.monchoon.me')
+    expect(calls.some((c) => c.url.includes('tenants.json'))).toBe(false)
+    expect(calls.find((c) => c.url.includes('/api/auth/login')).url).toContain('dev.monchoon.me')
+  })
+
+  it('resolves via tenants.json as normal when no debug host is set', async () => {
+    const { S } = loadScript({ routes: routes() })
+    const session = await S.establishSession(API_KEY)
+    expect(session.host).toBe('forge.monchoon.me')
+  })
 })
 
 describe('the session survives a reload', () => {
@@ -2249,6 +2269,11 @@ describe('nameSortValue / levelSortValue / scoreSortValue (#547) — Torn’s ow
     expect(S.scoreSortValue(row({ score: '12.50' }))).toBe(12.5)
   })
 
+  it('⚠️ strips Torn\'s thousands comma — a real top score once sorted as "missing" and dropped to the bottom (#547)', () => {
+    expect(S.scoreSortValue(row({ score: '1,009.26' }))).toBe(1009.26)
+    expect(S.scoreSortValue(row({ score: '12,345' }))).toBe(12345)
+  })
+
   it('is null with no score cell', () => {
     expect(S.scoreSortValue(row({}))).toBeNull()
   })
@@ -3074,5 +3099,344 @@ describe('the narrowed columns carry no leftover Torn margin', () => {
     // Three separate rule blocks; each narrows a column AND strips its margin,
     // so nothing Torn's own class carried can reopen a gap once the box shrinks.
     expect(css.match(/margin: 0 !important/g)?.length).toBeGreaterThanOrEqual(3)
+  })
+})
+
+// ── Assist requests (#523): two @match surfaces, one script ────────────────
+
+describe('page-surface matching', () => {
+  it('factionPageMatch matches only the faction page path', () => {
+    const { S } = loadScript()
+    expect(S.factionPageMatch('/factions.php')).toBe(true)
+    expect(S.factionPageMatch('/loader.php')).toBe(false)
+    expect(S.factionPageMatch('/')).toBe(false)
+  })
+
+  it('attackPageMatch requires BOTH the page.php path and sid=attack', () => {
+    const { S } = loadScript()
+    expect(S.attackPageMatch('/page.php', '?sid=attack&user2ID=123')).toBe(true)
+    expect(S.attackPageMatch('/page.php', '?sid=hospital&user2ID=123')).toBe(false)
+    expect(S.attackPageMatch('/factions.php', '?sid=attack')).toBe(false)
+  })
+
+  it('⚠️ rejects loader.php — Torn retired it for attacks; this exact mismatch once made isAttackPage() always false and the overlay never rendered', () => {
+    const { S } = loadScript()
+    expect(S.attackPageMatch('/loader.php', '?sid=attack&user2ID=123')).toBe(false)
+  })
+
+  it('attackTargetId reads user2ID off the query string', () => {
+    const { S } = loadScript()
+    expect(S.attackTargetId('?sid=attack&user2ID=90200')).toBe(90200)
+    expect(S.attackTargetId('?sid=attack')).toBeNull()
+    expect(S.attackTargetId('?sid=attack&user2ID=0')).toBeNull()
+    expect(S.attackTargetId('?sid=attack&user2ID=not-a-number')).toBeNull()
+  })
+
+  it('⚠️ isFactionPage/isAttackPage degrade to false with no `location` (proves the guard, matches every other page-scoped helper in this file)', () => {
+    const { S } = loadScript()
+    expect(S.isFactionPage()).toBe(false)
+    expect(S.isAttackPage()).toBe(false)
+  })
+})
+
+describe('indexAssists', () => {
+  it('indexes a live row, keyed by target', () => {
+    const { S } = loadScript()
+    const idx = S.indexAssists([
+      { target_id: 90200, requester_id: 1300, requester_name: 'Scout', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
+    ], new Map())
+    expect(idx.get(90200)).toEqual({ kind: 'smoke', by: 1300, name: 'Scout', at: '2026-08-21T10:00:00Z' })
+  })
+
+  it('a tombstone for the currently-shown requester clears the target', () => {
+    const { S } = loadScript()
+    const idx = new Map()
+    S.indexAssists([{ target_id: 1, requester_id: 999, requester_name: 'A', kind: 'help', created_at: '2026-08-21T10:00:00Z' }], idx)
+    S.indexAssists([{ target_id: 1, requester_id: 999, deleted_at: '2026-08-21T10:01:00Z' }], idx)
+    expect(idx.has(1)).toBe(false)
+  })
+
+  it('⚠️ a tombstone for a DIFFERENT (losing) requester does not clear a still-live winner', () => {
+    const { S } = loadScript()
+    const idx = new Map()
+    S.indexAssists([
+      { target_id: 1, requester_id: 111, requester_name: 'Old', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
+      { target_id: 1, requester_id: 222, requester_name: 'New', kind: 'help', created_at: '2026-08-21T10:05:00Z' },
+    ], idx)
+    // Newest wins the slot — 222 ("New").
+    expect(idx.get(1)).toMatchObject({ by: 222, name: 'New' })
+    // 111's tombstone (arriving late) must not blank the target: it is not
+    // the row currently shown.
+    S.indexAssists([{ target_id: 1, requester_id: 111, deleted_at: '2026-08-21T10:06:00Z' }], idx)
+    expect(idx.get(1)).toMatchObject({ by: 222, name: 'New' })
+  })
+
+  it('the newest live request wins the slot regardless of arrival order', () => {
+    const { S } = loadScript()
+    const idx = new Map()
+    S.indexAssists([
+      { target_id: 1, requester_id: 222, requester_name: 'New', kind: 'help', created_at: '2026-08-21T10:05:00Z' },
+      { target_id: 1, requester_id: 111, requester_name: 'Old', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
+    ], idx)
+    expect(idx.get(1)).toMatchObject({ by: 222, name: 'New' })
+  })
+
+  it('ignores a row with no usable target id', () => {
+    const { S } = loadScript()
+    const idx = S.indexAssists([{ target_id: 0, requester_id: 1, kind: 'help' }], new Map())
+    expect(idx.size).toBe(0)
+  })
+})
+
+describe('enemy loadout capture (#528 Part 2)', () => {
+  describe('parseWeaponAriaLabel', () => {
+    it('extracts the weapon name from "Attack with <name>"', () => {
+      const { S } = loadScript()
+      expect(S.parseWeaponAriaLabel('Attack with AK-47')).toBe('AK-47')
+      expect(S.parseWeaponAriaLabel('Attack with  Baseball Bat  ')).toBe('Baseball Bat')
+    })
+
+    it('⚠️ returns null for an unrevealed slot ("This weapon is not available") — never guesses a name', () => {
+      const { S } = loadScript()
+      expect(S.parseWeaponAriaLabel('This weapon is not available')).toBeNull()
+      expect(S.parseWeaponAriaLabel('')).toBeNull()
+      expect(S.parseWeaponAriaLabel(null)).toBeNull()
+      expect(S.parseWeaponAriaLabel(undefined)).toBeNull()
+    })
+  })
+
+  describe('weaponItemIdFromSrc', () => {
+    it('is a bonus-only signal parsed off Torn\'s own image path', () => {
+      const { S } = loadScript()
+      expect(S.weaponItemIdFromSrc('/images/items/206/large.png')).toBe(206)
+      expect(S.weaponItemIdFromSrc('https://www.torn.com/images/items/206/large.png')).toBe(206)
+    })
+
+    it('⚠️ is null, never required, when a gear-hiding script strips the src', () => {
+      const { S } = loadScript()
+      expect(S.weaponItemIdFromSrc('')).toBeNull()
+      expect(S.weaponItemIdFromSrc(null)).toBeNull()
+      expect(S.weaponItemIdFromSrc(undefined)).toBeNull()
+      expect(S.weaponItemIdFromSrc('/images/items/silhouettes/primary.svg')).toBeNull()
+    })
+  })
+
+  describe('mapArmorAltToSlot', () => {
+    it('maps Torn\'s <area alt> body-part labels to our slot keys', () => {
+      const { S } = loadScript()
+      expect(S.mapArmorAltToSlot('Chest')).toBe('chest')
+      expect(S.mapArmorAltToSlot('Helmet')).toBe('helmet')
+      expect(S.mapArmorAltToSlot('Pants')).toBe('pants')
+      expect(S.mapArmorAltToSlot('Boots')).toBe('boots')
+      expect(S.mapArmorAltToSlot('Gloves')).toBe('gloves')
+    })
+
+    it('is null for a body part we do not track', () => {
+      const { S } = loadScript()
+      expect(S.mapArmorAltToSlot('Face')).toBeNull()
+      expect(S.mapArmorAltToSlot('')).toBeNull()
+      expect(S.mapArmorAltToSlot(null)).toBeNull()
+    })
+  })
+
+  describe('loadoutIsEmpty', () => {
+    it('is true when neither group captured anything', () => {
+      const { S } = loadScript()
+      expect(S.loadoutIsEmpty({ weapons: {}, armor: {} })).toBe(true)
+      expect(S.loadoutIsEmpty({})).toBe(true)
+      expect(S.loadoutIsEmpty(null)).toBe(true)
+    })
+
+    it('is false with at least one captured slot', () => {
+      const { S } = loadScript()
+      expect(S.loadoutIsEmpty({ weapons: { primary: { name: 'AK-47' } }, armor: {} })).toBe(false)
+      expect(S.loadoutIsEmpty({ weapons: {}, armor: { chest: { name: 'Combat Vest' } } })).toBe(false)
+    })
+  })
+
+  describe('loadoutSignature', () => {
+    it('is stable for the same content and different across a real change', () => {
+      const { S } = loadScript()
+      const a = { weapons: { primary: { name: 'AK-47' } }, armor: {} }
+      const b = { weapons: { primary: { name: 'AK-47' } }, armor: {} }
+      const c = { weapons: { primary: { name: 'Glock' } }, armor: {} }
+      expect(S.loadoutSignature(a)).toBe(S.loadoutSignature(b))
+      expect(S.loadoutSignature(a)).not.toBe(S.loadoutSignature(c))
+    })
+  })
+})
+
+describe('badgeState', () => {
+  const ME = '2250591'
+
+  it('falls through to buttonState with no active assist', () => {
+    const { S } = loadScript()
+    const st = S.badgeState(null, null, 90200, ME)
+    expect(st).toMatchObject({ mode: 'dibs', label: 'Dibs', action: 'claim', href: null })
+  })
+
+  it('⚠️ an active assist morphs the SAME badge — dibs underneath is untouched but hidden', () => {
+    const { S } = loadScript()
+    const dib = { by: 999, name: 'Thug' } // dibbed too — must not show through
+    const assist = { kind: 'smoke', by: 1300, name: 'Scout', at: new Date().toISOString() }
+    const st = S.badgeState(dib, assist, 90200, ME)
+    expect(st.mode).toBe('assist')
+    expect(st.label).toBe('Smoke')
+    expect(st.icon).toBe('cloud-fog')
+    expect(st.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=90200')
+    expect(st.title).toContain('Smoke')
+    expect(st.title).toContain('Scout')
+  })
+
+  it('reads "you" when the current user is the requester', () => {
+    const { S } = loadScript()
+    const st = S.badgeState(null, { kind: 'help', by: ME, name: 'You', at: new Date().toISOString() }, 5, ME)
+    expect(st.mine).toBe(true)
+    expect(st.title).toContain('you')
+  })
+
+  it('reverts to the normal dibs control once the assist clears', () => {
+    const { S } = loadScript()
+    const dib = { by: ME, name: 'Me' }
+    const st = S.badgeState(dib, null, 1, ME)
+    expect(st).toMatchObject({ mode: 'dibs', action: 'release', mine: true, href: null })
+  })
+
+  it('shows each kind with its own Lucide icon name — matching the dashboard, not an emoji', () => {
+    const { S } = loadScript()
+    const at = new Date().toISOString()
+    expect(S.badgeState(null, { kind: 'smoke', by: 1, at }, 1, ME).icon).toBe('cloud-fog')
+    expect(S.badgeState(null, { kind: 'tear', by: 1, at }, 1, ME).icon).toBe('droplet')
+    expect(S.badgeState(null, { kind: 'help', by: 1, at }, 1, ME).icon).toBe('life-buoy')
+  })
+})
+
+describe('assistIconSvg (#523 icon pass) — inlines the same Lucide paths the dashboard renders as components', () => {
+  it('returns a real <svg> for each known assist icon', () => {
+    const { S } = loadScript()
+    for (const key of ['cloud-fog', 'droplet', 'life-buoy']) {
+      const svg = S.assistIconSvg(key)
+      expect(svg).toContain('<svg')
+      expect(svg).toContain('viewBox="0 0 24 24"')
+      expect(svg).toContain('stroke="currentColor"')
+    }
+  })
+
+  it('⚠️ is empty for an unknown key, never a raw [object Object] or a thrown error', () => {
+    const { S } = loadScript()
+    expect(S.assistIconSvg('not-a-real-icon')).toBe('')
+  })
+
+  it('draws a different path per icon — they must not silently collapse to the same glyph', () => {
+    const { S } = loadScript()
+    const svgs = ['cloud-fog', 'droplet', 'life-buoy'].map((k) => S.assistIconSvg(k))
+    expect(new Set(svgs).size).toBe(3)
+  })
+})
+
+describe('paintDibs renders a real icon for an active assist, not the old emoji text', () => {
+  const fakeBadge = () => {
+    const toggled = []
+    return {
+      textContent: '', innerHTML: '', title: '',
+      classList: {
+        toggle: (cls, on) => toggled.push([cls, on]),
+        remove: () => {},
+      },
+      _toggled: toggled,
+    }
+  }
+
+  it('sets innerHTML to a real <svg>, leaving textContent untouched, for a known icon', () => {
+    const { S } = loadScript()
+    const badge = fakeBadge()
+    S.paintDibs(badge, { mode: 'assist', icon: 'cloud-fog', label: 'Smoke', title: 'Smoke requested by you · just now' })
+    expect(badge.innerHTML).toContain('<svg')
+    expect(badge.textContent).toBe('')
+    expect(badge.title).toBe('Smoke requested by you · just now')
+  })
+
+  it('⚠️ falls back to the label text for an unrecognised icon key rather than leaving the badge blank', () => {
+    const { S } = loadScript()
+    const badge = fakeBadge()
+    S.paintDibs(badge, { mode: 'assist', icon: 'not-a-real-icon', label: 'Assist', title: 't' })
+    expect(badge.innerHTML).toBe('')
+    expect(badge.textContent).toBe('Assist')
+  })
+
+  it('dibs mode is untouched — plain text, no innerHTML written', () => {
+    const { S } = loadScript()
+    const badge = fakeBadge()
+    S.paintDibs(badge, { mode: 'dibs', label: 'Dibs', action: 'claim', mine: false, taken: false })
+    expect(badge.textContent).toBe('Dibs')
+    expect(badge.innerHTML).toBe('')
+  })
+})
+
+describe('paintSignature carries the assist mode/title', () => {
+  it('changes when mode flips from dibs to assist even if label/action/mine/taken happen to coincide', () => {
+    const { S } = loadScript()
+    const stats = { total: 5e6, str: 1e6, def: 1e6, spd: 1e6, dex: 2e6, source: 'torn', spiedAt: '2026-08-19' }
+    const dibsState = { mode: 'dibs', label: 'X', action: null, mine: false, taken: true }
+    const assistState = { mode: 'assist', label: 'X', action: null, mine: false, taken: true, title: 'Smoke requested by Scout · just now' }
+    expect(S.paintSignature(dibsState, stats, '11', 4e6)).not.toBe(S.paintSignature(assistState, stats, '11', 4e6))
+  })
+})
+
+describe('requestAssist / clearAssist', () => {
+  const session = { host: 'forge.monchoon.me', token: 'jwt', userId: '2250591', factionId: '10739' }
+
+  it('⚠️ shows the request as active the moment the POST succeeds (same optimistic-paint contract as claim)', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+
+    const res = await S.requestAssist(90200, 'smoke')
+
+    expect(res.ok).toBe(true)
+    const entry = S.assistsIndex().get(90200)
+    expect(entry).toMatchObject({ kind: 'smoke', by: session.userId })
+  })
+
+  it('mirrors the one-live-assist-per-requester rule locally, so a switch does not show two', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+
+    await S.requestAssist(111, 'smoke')
+    await S.requestAssist(222, 'help')
+
+    expect(S.assistsIndex().has(111)).toBe(false)
+    expect(S.assistsIndex().get(222)).toMatchObject({ kind: 'help' })
+  })
+
+  it('paints nothing when the server refuses the request', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 500, body: { error: 'boom' } } } })
+    S.setSession({ ...session })
+
+    const res = await S.requestAssist(90200, 'help')
+
+    expect(res.ok).toBe(false)
+    expect(S.assistsIndex().has(90200)).toBe(false)
+  })
+
+  it('clears the local index the moment a release succeeds', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist/': { status: 200, body: {} } } })
+    S.setSession({ ...session })
+    S.indexAssists([{ target_id: 90200, requester_id: 2250591, requester_name: 'You', kind: 'smoke', created_at: new Date().toISOString() }], S.assistsIndex())
+
+    const res = await S.clearAssist(90200)
+
+    expect(res.ok).toBe(true)
+    expect(S.assistsIndex().has(90200)).toBe(false)
+  })
+
+  it('leaves a failed clear alone rather than dropping the badge', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist/': { status: 500, body: {} } } })
+    S.setSession({ ...session })
+    S.indexAssists([{ target_id: 90200, requester_id: 2250591, requester_name: 'You', kind: 'smoke', created_at: new Date().toISOString() }], S.assistsIndex())
+
+    const res = await S.clearAssist(90200)
+
+    expect(res.ok).toBe(false)
+    expect(S.assistsIndex().has(90200)).toBe(true)
   })
 })

@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.35.3
-// @description  War Room dibs, battle stats, live status and roster intel on the Torn faction pages.
+// @version      1.37.1
+// @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
+// @match        https://www.torn.com/page.php?sid=attack*
 // @run-at       document-end
 // @grant        GM.xmlHttpRequest
 // @grant        GM_setValue
@@ -33,6 +34,16 @@ const TNLDibs = (function () {
   const SETTING_MEMBER_COUNT = 'tnl-dibs-member-count'
   const SETTING_CHAIN = 'tnl-dibs-chain'
   const SETTING_DIBS_HOSPITAL_ALERT = 'tnl-dibs-hosp-alert'
+  /**
+   * Deliberately outside SETTING_DEFAULTS/settings.on() and never surfaced in
+   * the settings panel — tenants.json is production-only by design (staging
+   * is excluded from it, see deploy/update.sh), so there is no ordinary way
+   * to point a login at a `*_dev` host for staging QA of a backend-touching
+   * change (#523 was the first one). A maintainer sets this with
+   * `GM_setValue('tnl-dibs-debug-host', 'dev.monchoon.me')` via Tampermonkey's
+   * own Storage panel, never in code — a real member's key never has it set.
+   */
+  const DEBUG_HOST_KEY = 'tnl-dibs-debug-host'
 
   const SETTING_DEFAULTS = {
     [SETTING_STATS]: true,
@@ -79,6 +90,11 @@ const TNLDibs = (function () {
 
   function paintSignature(state, stats, settingsSig, mineTotal) {
     return [
+      // #523: mode/title distinguish an assist badge from a dibs badge that
+      // happens to render the same icon/action shape (label alone is not
+      // enough — two different requesters raising the same kind against the
+      // same target look identical without it).
+      state?.mode ?? '', state?.title ?? '',
       state?.label, state?.action, state?.mine ? 1 : 0, state?.taken ? 1 : 0,
       stats?.total ?? '', stats?.str ?? '', stats?.def ?? '', stats?.spd ?? '', stats?.dex ?? '',
       stats?.source ?? '', stats?.spiedAt ?? '',
@@ -118,6 +134,41 @@ const TNLDibs = (function () {
     return typeof host === 'string' && host.length > 0 ? host : null
   }
 
+  // ── Two @match surfaces, one script (#523) ────────────────────────────────
+  //
+  // The pathname/search parsing is split from the `location` read so it is
+  // testable with no DOM — the same shape as everything else pure in this
+  // file. Everything that assumes faction-page DOM (the MutationObserver
+  // scan, injectStyles' layout overrides, the launcher/panel) MUST gate on
+  // isFactionPage(); the attack-page overlay MUST gate on isAttackPage(). A
+  // page that matches neither (a future @match, or a URL shape that changed
+  // under us) gets NEITHER — degrade to nothing rather than guess.
+  function factionPageMatch(pathname) {
+    return pathname === '/factions.php'
+  }
+
+  function attackPageMatch(pathname, search) {
+    // Torn retired loader.php for attacks (attackUrl() already builds a
+    // page.php link, below) — this was left checking the dead path, so
+    // isAttackPage() was always false and the overlay never rendered.
+    if (pathname !== '/page.php') return false
+    return new URLSearchParams(search ?? '').get('sid') === 'attack'
+  }
+
+  /** `user2ID` off the attack-page query string — the fight's target. */
+  function attackTargetId(search) {
+    const id = Number(new URLSearchParams(search ?? '').get('user2ID'))
+    return Number.isFinite(id) && id > 0 ? id : null
+  }
+
+  function isFactionPage() {
+    return typeof location !== 'undefined' && factionPageMatch(location.pathname)
+  }
+
+  function isAttackPage() {
+    return typeof location !== 'undefined' && attackPageMatch(location.pathname, location.search)
+  }
+
   function indexDibs(rows, into) {
     const byTarget = into ?? new Map()
     for (const row of rows ?? []) {
@@ -129,9 +180,107 @@ const TNLDibs = (function () {
     return byTarget
   }
 
+  /**
+   * Same shape of index as indexDibs, for war_room_assists_v2 (#523) — with
+   * one wrinkle dibs never has: unlike a claim, MULTIPLE requesters can hold
+   * a live assist on the SAME target at once, but the badge shows only one.
+   * The newest live request wins the slot, mirroring the dashboard's
+   * publishAssist (frontend/src/hooks/useWarRoomSocket.js).
+   *
+   * ⚠️ Known first-cut gap: because this map holds only the WINNING row per
+   * target (not every live row, unlike the dashboard's full versioned map),
+   * a tombstone for the currently-shown requester blanks the target even if
+   * a second requester's assist is still live underneath — it resurfaces on
+   * the next full snapshot/reconnect, not immediately. Rare (two people
+   * raising a hand on the same enemy at once) and not worth a bigger index
+   * for a badge that is already expected to get a visual pass later.
+   */
+  function indexAssists(rows, into) {
+    const byTarget = into ?? new Map()
+    for (const row of rows ?? []) {
+      const targetId = Number(row.target_id)
+      if (!Number.isFinite(targetId) || targetId <= 0) continue
+      if (row.deleted_at) {
+        const cur = byTarget.get(targetId)
+        if (cur && String(cur.by) === String(row.requester_id)) byTarget.delete(targetId)
+        continue
+      }
+      const cur = byTarget.get(targetId)
+      const curAt = cur ? parseDbTime(cur.at) : null
+      const rowAt = parseDbTime(row.created_at)
+      if (!cur || !curAt || (rowAt && rowAt > curAt)) {
+        byTarget.set(targetId, {
+          kind: row.kind, by: Number(row.requester_id), name: row.requester_name, at: row.created_at,
+        })
+      }
+    }
+    return byTarget
+  }
+
   function frameRows(channel) {
     if (Array.isArray(channel)) return channel
     return Array.isArray(channel?.rows) ? channel.rows : []
+  }
+
+  // ── Enemy loadout capture (#528 Part 2) ───────────────────────────────────
+  //
+  // Torn does NOT reveal a defender's loadout on page load — the weapon slots
+  // read `emptySlot` / aria-label "This weapon is not available" and the
+  // armour wrap is empty until the fight actually starts (Start fight
+  // clicked). Once it starts, both sides' weapon wrappers get
+  // `aria-label="Attack with <Weapon Name>"`, and the armour becomes readable
+  // independent of any image at all: `#modelLayersContainer map area[title]
+  // [alt]` names one BODY SLOT (`alt`) and one ITEM (`title`) per element.
+  //
+  // Capture is by NAME, never by image `src` id, on purpose: a third-party
+  // "hide gear, show text" script can strip `<img src>` at document-start,
+  // but it has no reason to touch `aria-label` or `<area title>` — neither is
+  // an image. A numeric item id parsed off an intact `<img src>` is stored as
+  // a bonus, nullable field; it is never required and never blocks a capture.
+  const WEAPON_WRAPPER_SLOTS = {
+    weapon_main: 'primary', weapon_second: 'secondary', weapon_melee: 'melee', weapon_temp: 'temporary',
+  }
+  const ARMOR_ALT_TO_SLOT = {
+    Helmet: 'helmet', Chest: 'chest', Pants: 'pants', Boots: 'boots', Gloves: 'gloves',
+  }
+
+  /** "Attack with AK-47" → "AK-47". Pre-fight empty slots read "This weapon
+   *  is not available" and fall through to null, same as any label this
+   *  doesn't recognise — never guess. */
+  function parseWeaponAriaLabel(label) {
+    const m = /^Attack with (.+)$/.exec(String(label ?? '').trim())
+    const name = m?.[1]?.trim()
+    return name ? name : null
+  }
+
+  /** Bonus-only signal (#528, point 3) — Torn's own weapon image path is
+   *  `/images/items/<id>/large.png`. Never required; null on anything else,
+   *  including a gear-hiding script's stripped `src`. */
+  function weaponItemIdFromSrc(src) {
+    const m = /\/images\/items\/(\d+)\//.exec(String(src ?? ''))
+    const id = m ? Number(m[1]) : NaN
+    return Number.isFinite(id) && id > 0 ? id : null
+  }
+
+  /** Torn's armour `<area alt="Chest">` → our slot key, or null for a body
+   *  part we don't track (or a future one Torn adds). */
+  function mapArmorAltToSlot(alt) {
+    return ARMOR_ALT_TO_SLOT[String(alt ?? '').trim()] ?? null
+  }
+
+  /** True when neither group captured anything — nothing worth sending. */
+  function loadoutIsEmpty(loadout) {
+    const weapons = loadout?.weapons ?? {}
+    const armor = loadout?.armor ?? {}
+    return Object.keys(weapons).length === 0 && Object.keys(armor).length === 0
+  }
+
+  /** Content signature for the capture-once-per-change dedupe (#528: "do not
+   *  re-POST on every render tick for the same fight"). Slot iteration order
+   *  is always WEAPON_WRAPPER_SLOTS/ARMOR_ALT_TO_SLOT's own order (see the
+   *  DOM-walking capture functions below), so this is stable without sorting. */
+  function loadoutSignature(loadout) {
+    return JSON.stringify(loadout ?? {})
   }
 
   /** Kept byte-identical to the dashboard's formatStats() so the two never disagree. */
@@ -329,6 +478,72 @@ const TNLDibs = (function () {
       mine: false,
       taken: true,
     }
+  }
+
+  /** Icon key + label per assist kind (#523) — kept short, the badge is width-constrained. */
+  const ASSIST_KIND_META = {
+    smoke: { icon: 'cloud-fog', label: 'Smoke' },
+    tear: { icon: 'droplet', label: 'Tear gas' },
+    help: { icon: 'life-buoy', label: 'Help' },
+  }
+
+  /**
+   * Lucide's own paths (matching the dashboard's installed lucide-react
+   * version, so the two never visually drift), inlined byte-for-byte — this
+   * file has no build step and cannot `import` the npm package the dashboard
+   * uses (frontend/src/utils/assistBadge.js), so this is the userscript's
+   * side of the same icon-name → glyph mapping.
+   */
+  const ASSIST_ICON_PATHS = {
+    'cloud-fog': '<path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />'
+      + '<path d="M16 17H7" /><path d="M17 21H9" />',
+    droplet: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" />',
+    'life-buoy': '<circle cx="12" cy="12" r="10" /><path d="m4.93 4.93 4.24 4.24" />'
+      + '<path d="m14.83 9.17 4.24-4.24" /><path d="m14.83 14.83 4.24 4.24" />'
+      + '<path d="m9.17 14.83-4.24 4.24" /><circle cx="12" cy="12" r="4" />',
+  }
+
+  function assistIconSvg(iconKey, size = 14) {
+    const body = ASSIST_ICON_PATHS[iconKey]
+    if (!body) return ''
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" `
+      + `fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" `
+      + `style="display:block">${body}</svg>`
+  }
+
+  /**
+   * Dibs badge view-model, folding in an active assist request (#523).
+   *
+   * MonChoon's call (2026-08-21): don't add a second indicator — conserve the
+   * row's horizontal space and let the SAME badge morph. While `assist` is
+   * live the badge shows the kind (icon only; who/how-long-ago lives in the
+   * title) and becomes a link straight to the target's attack page instead of
+   * the claim/release control. Dibs underneath is untouched — see the
+   * dashboard's assistBadgeState (frontend/src/utils/assistBadge.js), which
+   * this mirrors verbatim for the reason buttonState always has: a userscript
+   * is one file with no build step and cannot import it.
+   *
+   * One seam, deliberately: this is the state→view-model half; paintDibs()
+   * stays the pure paint half. A follow-up visual-only pass on the assist
+   * badge is meant to touch paintDibs() alone.
+   */
+  function badgeState(dib, assist, targetId, currentUserId, isAdmin = false) {
+    if (assist) {
+      const meta = ASSIST_KIND_META[assist.kind] ?? { icon: 'life-buoy', label: assist.kind ?? 'Assist' }
+      const mine = String(assist.by) === String(currentUserId)
+      const who = mine ? 'you' : (assist.name ?? 'someone')
+      return {
+        mode: 'assist',
+        label: meta.label,
+        icon: meta.icon,
+        href: attackUrl(targetId),
+        action: null,
+        mine,
+        taken: true,
+        title: `${meta.label} requested by ${who} · ${fmtAgo(assist.at)}`,
+      }
+    }
+    return { mode: 'dibs', href: null, ...buttonState(dib, currentUserId, isAdmin) }
   }
 
   function backoffFor(attempt) {
@@ -709,8 +924,12 @@ const TNLDibs = (function () {
     const factionId = info.user.faction_id
     if (!factionId) throw new Error('Torn reports no faction for that key.')
 
-    const tenants = await gmRequest({ url: TENANTS_URL })
-    const host = resolveTenant(tenants.body, factionId)
+    let host = null
+    try { host = GM_getValue(DEBUG_HOST_KEY, '') || null } catch { host = null }
+    if (!host) {
+      const tenants = await gmRequest({ url: TENANTS_URL })
+      host = resolveTenant(tenants.body, factionId)
+    }
     if (!host) throw new Error(`Faction ${factionId} has no TNL dashboard.`)
 
     const login = await gmRequest({
@@ -737,6 +956,7 @@ const TNLDibs = (function () {
   const rt = {
     session: null,
     dibs: new Map(),        // targetId → { by, name }
+    assists: new Map(),     // targetId → { kind, by, name, at } (#523)
     enemies: new Set(),     // member ids not in our faction
     nodes: new Map(),       // playerId → Set<HTMLElement> anchors to badge
     ourFactionId: null,
@@ -767,6 +987,8 @@ const TNLDibs = (function () {
     chainOpen: false,         // the chain popover, independent of the main panel
     chainWarnedTimeout: null, // the chain.timeout we last toasted for — re-arms on a new timeout
     feedbackOpen: false,
+    loadoutTarget: null,     // user2ID the last capture ran against (#528 Part 2)
+    loadoutSig: null,        // content signature of the last SENT capture — reset when the target changes
   }
 
   function pageUserId() {
@@ -843,6 +1065,32 @@ const TNLDibs = (function () {
     return { ok: true }
   }
 
+  // ── Assist requests (#523) ─────────────────────────────────────────────
+  // Written from the attack-page overlay; read on both surfaces.
+  async function requestAssist(targetId, kind) {
+    const res = await api('/api/war-room/assist', 'POST', { target_id: targetId, kind })
+    if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
+    // One live assist per requester, same rule the server enforces — mirror it
+    // optimistically so a switch from one kind/target to another does not
+    // flash the old badge before the next poll lands.
+    for (const [target, a] of rt.assists) {
+      if (String(a.by) === String(rt.session?.userId)) rt.assists.delete(target)
+    }
+    rt.assists.set(targetId, { kind, by: rt.session?.userId, name: 'You', at: new Date().toISOString() })
+    pokePoll()
+    return { ok: true }
+  }
+
+  async function clearAssist(targetId) {
+    const res = await api(`/api/war-room/assist/${targetId}`, 'DELETE')
+    if (res.status !== 200) {
+      return { ok: false, message: res.body?.message ?? res.body?.error ?? `HTTP ${res.status}` }
+    }
+    rt.assists.delete(targetId)   // optimistic; covers an admin override too
+    pokePoll()
+    return { ok: true }
+  }
+
   async function claimChainSave() {
     const res = await api('/api/war-room/chain-save', 'POST')
     if (res.status === 409) {
@@ -900,6 +1148,7 @@ const TNLDibs = (function () {
   function applyChannels(body) {
     const stateRows = frameRows(body?.state)
     const dibRows = frameRows(body?.dibs)
+    const assistRows = frameRows(body?.assist)
     const opponent = opponentFrom(frameRows(body?.config))
     // Single-row table; an empty frame means "unchanged", not "gone".
     const chainRows = frameRows(body?.chain)
@@ -910,9 +1159,11 @@ const TNLDibs = (function () {
       rt.opponentId = opponent
       rt.enemies = new Set()
       rt.dibs = new Map()
+      rt.assists = new Map()
     }
 
     indexDibs(dibRows, rt.dibs)
+    indexAssists(assistRows, rt.assists)
     for (const id of enemyIds(stateRows, rt.ourFactionId, rt.opponentId)) rt.enemies.add(id)
 
     for (const row of stateRows) {
@@ -937,12 +1188,21 @@ const TNLDibs = (function () {
       const id = Number(row.member_id)
       if (Number.isFinite(id) && id > 0) rt.mstats.set(id, row)
     }
-    log(`${stateRows.length} roster rows, ${dibRows.length} dib rows →`,
-      `${rt.enemies.size} enemies, ${rt.dibs.size} live claims`,
+    log(`${stateRows.length} roster rows, ${dibRows.length} dib rows, ${assistRows.length} assist rows →`,
+      `${rt.enemies.size} enemies, ${rt.dibs.size} live claims, ${rt.assists.size} live assists`,
       `(opponent ${rt.opponentId ?? 'unknown'})`)
-    checkDibsHospitalAlerts()
-    checkChainAlert()
-    render()   // render() itself repaints the chain UI at the end of its pass
+    // Faction-page-only UI (toasts) — the attack page has neither the dibs
+    // targets nor the chain state these read, and would just be noise mid-fight.
+    if (isFactionPage()) {
+      checkDibsHospitalAlerts()
+      checkChainAlert()
+    }
+    // #528 Part 2: passive, silent capture check — attack page only (the
+    // function itself gates on isAttackPage()). Fire-and-forget: a slow or
+    // failed capture must never hold up the poll loop's own render, and the
+    // function's own try/catch means there is nothing here to await or catch.
+    checkLoadoutCapture()
+    render()   // render() itself repaints the chain UI at the end of its pass (faction page only)
   }
 
   async function pollOnce() {
@@ -1017,6 +1277,8 @@ const TNLDibs = (function () {
   const DIBS_CLASS = 'tnl-col-dibs'
   const MINE_CLASS = 'tnl-mine'
   const TAKEN_CLASS = 'tnl-taken'
+  /** The Dibs badge morphed into a live assist request (#523) — see badgeState(). */
+  const ASSIST_CLASS = 'tnl-assist'
   const BS_CLASS = 'tnl-col-bs'
   const STAT_VALUE_CLASS = 'tnl-col-bsv'
   const STYLE_ID = 'tnl-dibs-style'
@@ -1192,6 +1454,14 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
 .${BADGE_CLASS}.${MINE_CLASS}:hover { background: #2563eb; }
 .${BADGE_CLASS}.${TAKEN_CLASS} { background: #c2410c; cursor: default; }
 .${BADGE_CLASS}.${TAKEN_CLASS}:hover { background: #c2410c; }
+/* A live assist request morphs this same badge into a small icon-only link
+   (#523) — display:flex centres the inlined SVG the way text-align never
+   quite does for a block-level icon. */
+.${BADGE_CLASS}.${ASSIST_CLASS} {
+  background: #ea580c; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.${BADGE_CLASS}.${ASSIST_CLASS}:hover { background: #f97316; }
 
 .members-cont [class*="points___"]:not([class*="tab___"]),
 .white-grad > [class*="points___"] {
@@ -1446,7 +1716,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     badge.dataset.tnlTarget = String(playerId)
     badge.addEventListener('click', async (e) => {
       e.preventDefault(); e.stopPropagation()
-      const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
+      const state = badgeState(rt.dibs.get(playerId), rt.assists.get(playerId), playerId, rt.session?.userId, rt.isAdmin)
+      // #523 first cut: a click-through, not a real <a> — see paintDibs()'s
+      // own note on why, and the follow-up this is meant to make small.
+      if (state.mode === 'assist') {
+        if (state.href) window.open(state.href, '_blank', 'noopener,noreferrer')
+        return
+      }
       if (state.action === 'none') return
       badge.disabled = true
       badge.textContent = '…'
@@ -1463,8 +1739,25 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   const STAT_COLORS = { str: '#ef4444', def: '#22c55e', spd: '#60a5fa', dex: '#f59e0b' }
 
+  // #523 first cut, flagged for the visual pass MonChoon expects to want
+  // after testing live: the assist branch is a plain colour/title change on
+  // the SAME <button>, not a real <a> — see the click handler in badgeFor()
+  // for the click-through itself. Isolated to this one branch on purpose, so
+  // swapping it for a real anchor later is a small, contained diff.
   function paintDibs(badge, state) {
     if (!badge) return
+    badge.classList.toggle(ASSIST_CLASS, state.mode === 'assist')
+    if (state.mode === 'assist') {
+      // A real Lucide-matching icon, not the label text — see
+      // assistIconSvg()'s own note on why this file inlines the paths
+      // rather than importing the component the dashboard uses.
+      const svg = assistIconSvg(state.icon)
+      if (svg) badge.innerHTML = svg
+      else badge.textContent = state.label
+      badge.classList.remove(MINE_CLASS, TAKEN_CLASS)
+      badge.title = state.title
+      return
+    }
     badge.textContent = state.label
     badge.classList.toggle(MINE_CLASS, Boolean(state.mine))
     badge.classList.toggle(TAKEN_CLASS, Boolean(state.taken) && !state.mine)
@@ -1883,7 +2176,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   }
 
   function scoreSortValue(row) {
-    const n = Number(scoreCellOf(row)?.textContent)
+    // Torn comma-formats any score ≥ 1,000 ("1,009.26"), and Number() treats
+    // a comma as invalid rather than a thousands separator — every such row
+    // read as NaN, so a real top score sorted last as "missing" instead of
+    // first (#547). No cell stays no cell: optional-chain past the replace
+    // rather than defaulting to '', or Number('') is 0, not the null a
+    // missing score needs.
+    const n = Number(scoreCellOf(row)?.textContent?.replace(/,/g, ''))
     return Number.isFinite(n) ? n : null
   }
 
@@ -2174,8 +2473,213 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
+  const ASSIST_OVERLAY_ID = 'tnl-assist-overlay'
+  const ASSIST_OVERLAY_STYLE_ID = 'tnl-assist-overlay-style'
+  const ASSIST_BTN_ACTIVE_CLASS = 'tnl-assist-btn-active'
+
+  /**
+   * Attack-page overlay (#523) — small, fixed-position, self-contained.
+   *
+   * ⚠️ Strictly additive, per the issue's own warning: this never queries,
+   * wraps or reparents anything Torn already rendered — it is one <div>
+   * appended once to <body>, positioned with `position: fixed` (out of
+   * document flow, so it cannot push Torn's own layout around) and its own
+   * z-index stacking context. Verify with the script off vs on and diff
+   * what's clickable (the issue's own acceptance check) before relying on
+   * this corner being clear of Torn's own controls on every screen size —
+   * that part cannot be confirmed outside a real torn.com session.
+   */
+  function injectAssistOverlayStyles() {
+    if (typeof document === 'undefined') return
+    if (document.getElementById(ASSIST_OVERLAY_STYLE_ID)) return
+    const el = document.createElement('style')
+    el.id = ASSIST_OVERLAY_STYLE_ID
+    el.textContent = `
+#${ASSIST_OVERLAY_ID} {
+  position: fixed; z-index: 2147483000;
+  top: 70px; right: 10px;
+  display: flex; gap: 6px;
+  background: rgba(17,24,39,.92); border: 1px solid #374151; border-radius: 8px;
+  padding: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.4);
+  pointer-events: auto;
+}
+#${ASSIST_OVERLAY_ID} button {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border-radius: 6px; border: 1px solid #4b5563; background: #1f2937;
+  color: #e5e7eb; cursor: pointer; padding: 0;
+}
+#${ASSIST_OVERLAY_ID} button:hover { background: #374151; }
+#${ASSIST_OVERLAY_ID} button.${ASSIST_BTN_ACTIVE_CLASS} { background: #ea580c; border-color: #ea580c; }
+`
+    document.head.appendChild(el)
+  }
+
+  function ensureAssistOverlay() {
+    if (typeof document === 'undefined') return null
+    let box = document.getElementById(ASSIST_OVERLAY_ID)
+    if (box && box.isConnected) return box
+    box = document.createElement('div')
+    box.id = ASSIST_OVERLAY_ID
+    for (const kind of Object.keys(ASSIST_KIND_META)) {
+      const meta = ASSIST_KIND_META[kind]
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.dataset.tnlKind = kind
+      btn.title = meta.label
+      const svg = assistIconSvg(meta.icon, 16)
+      if (svg) btn.innerHTML = svg
+      else btn.textContent = meta.label
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault(); e.stopPropagation()
+        const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
+        if (!targetId) return
+        const mine = rt.assists.get(targetId)
+        const isMine = mine && String(mine.by) === String(rt.session?.userId)
+        // Same kind, clicked again: toggle off — the requester clearing
+        // their own marker (#523's own acceptance criterion).
+        btn.disabled = true
+        const res = (isMine && mine.kind === kind) ? await clearAssist(targetId) : await requestAssist(targetId, kind)
+        btn.disabled = false
+        // Not showToast(): that relies on injectStyles()' faction-page-only
+        // stylesheet for its look, which never runs on the attack page — an
+        // unstyled floating div is worse than the same failure surfacing the
+        // way a failed dibs claim already does elsewhere in this file, on
+        // the control itself.
+        if (!res.ok) btn.title = res.message
+        renderAssistOverlay()
+      })
+      box.appendChild(btn)
+    }
+    document.body.appendChild(box)
+    return box
+  }
+
+  function renderAssistOverlay() {
+    if (typeof document === 'undefined') return
+    const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
+    // No target id we can read, or no session (sign-in happens on the
+    // faction page) — nothing to show. Degrades to nothing, per #523's own
+    // acceptance criterion, rather than a dead panel with buttons that 401.
+    if (!targetId || !rt.session) {
+      document.getElementById(ASSIST_OVERLAY_ID)?.remove()
+      return
+    }
+    injectAssistOverlayStyles()
+    const box = ensureAssistOverlay()
+    if (!box) return
+    const mine = rt.assists.get(targetId)
+    const isMine = mine && String(mine.by) === String(rt.session?.userId)
+    for (const btn of box.querySelectorAll('button')) {
+      btn.classList.toggle(ASSIST_BTN_ACTIVE_CLASS, Boolean(isMine && mine.kind === btn.dataset.tnlKind))
+    }
+  }
+
+  /**
+   * Read-only DOM glue for loadout capture (#528 Part 2) — passive, silent,
+   * appends and reparents nothing. `#modelLayersContainer` is the defender's
+   * rendered character model (the one thing the attack page shows about the
+   * PERSON you're fighting, not your own loadout), so it is the unambiguous
+   * defender signal the armour read is scoped to.
+   *
+   * The weapon wrapper ids (`#weapon_main` etc.) are NOT similarly scoped by
+   * Torn — #528's own DOM research found the same ids used for both sides —
+   * so this walks up from the model container to the nearest ancestor that
+   * ALSO contains a weapon wrapper, and reads only from inside that ancestor.
+   * That ancestor is "whatever panel renders the defender", whatever Torn
+   * happens to call it, without hard-coding a hashed class name that will
+   * rot the next time Torn ships a CSS-module rebuild.
+   */
+  function defenderScopeElement() {
+    if (typeof document === 'undefined') return null
+    const model = document.querySelector('#modelLayersContainer')
+    if (!model) return null
+    let el = model.parentElement
+    let hops = 0
+    while (el && hops < 12) {
+      if (el.querySelector('#weapon_main, #weapon_second, #weapon_melee, #weapon_temp')) return el
+      el = el.parentElement
+      hops++
+    }
+    return null
+  }
+
+  function captureWeapons(scope) {
+    const out = {}
+    if (!scope) return out
+    for (const [id, slot] of Object.entries(WEAPON_WRAPPER_SLOTS)) {
+      const el = scope.querySelector(`#${id}`)
+      if (!el) continue
+      const name = parseWeaponAriaLabel(el.getAttribute('aria-label'))
+      if (!name) continue // empty slot ("This weapon is not available") or unrevealed
+      const entry = { name }
+      const itemId = weaponItemIdFromSrc(el.querySelector('img')?.getAttribute('src'))
+      if (itemId) entry.item_id = itemId
+      out[slot] = entry
+    }
+    return out
+  }
+
+  function captureArmor() {
+    const out = {}
+    if (typeof document === 'undefined') return out
+    const areas = document.querySelectorAll('#modelLayersContainer map area[title][alt]')
+    for (const area of areas) {
+      const slot = mapArmorAltToSlot(area.getAttribute('alt'))
+      const name = (area.getAttribute('title') || '').trim()
+      if (!slot || !name) continue
+      out[slot] = { name }
+    }
+    return out
+  }
+
+  /** Assembles one capture, or null when the defender's model isn't rendered
+   *  yet (pre-fight) or nothing readable was found on it. */
+  function captureLoadout() {
+    if (typeof document === 'undefined' || !document.querySelector('#modelLayersContainer')) return null
+    const loadout = { weapons: captureWeapons(defenderScopeElement()), armor: captureArmor() }
+    return loadoutIsEmpty(loadout) ? null : loadout
+  }
+
+  /**
+   * Runs every poll tick on the attack page (#528: "passive and silent... do
+   * not re-POST on every render tick for the same fight"). Dedupes by content
+   * signature, reset whenever the URL's target id changes, so a steady-state
+   * fight (nothing revealed yet, or nothing changed since our last send)
+   * costs nothing beyond one DOM read per tick.
+   */
+  async function checkLoadoutCapture() {
+    if (!isAttackPage() || !rt.session) return
+    const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
+    if (!targetId) return
+    if (rt.loadoutTarget !== targetId) { rt.loadoutTarget = targetId; rt.loadoutSig = null }
+
+    const loadout = captureLoadout()
+    if (!loadout) return
+    const sig = loadoutSignature(loadout)
+    if (sig === rt.loadoutSig) return
+
+    try {
+      const res = await api('/api/war-room/loadout', 'POST', { target_id: targetId, loadout })
+      if (res.status === 200) {
+        rt.loadoutSig = sig
+      } else {
+        log(`loadout capture rejected (${res.status}): ${res.body?.error ?? 'unknown error'}`)
+      }
+    } catch (err) {
+      log('loadout capture failed:', err.message)
+    }
+  }
+
   function render() {
     if (typeof document === 'undefined') return
+    // #523: two @match surfaces, two render paths — never both. The attack
+    // page gets ONLY the assist overlay; injectStyles() below carries layout
+    // overrides (`.white-grad`, `[class*="tableHeader"]`, …) that are Torn
+    // component classes reused across pages, so running the faction-page body
+    // there risks breaking Torn's own attack-page layout, not just no-op.
+    if (isAttackPage()) { renderAssistOverlay(); return }
+    if (!isFactionPage()) return   // unrecognised page: degrade to nothing
     injectStyles()
     // Puts the link back after Torn re-renders the page title out from under it.
     ensureLauncher()
@@ -2201,7 +2705,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       painted++
       let entry = sigs.get(playerId)
       if (!entry) {
-        const state = buttonState(rt.dibs.get(playerId), rt.session?.userId, rt.isAdmin)
+        const state = badgeState(rt.dibs.get(playerId), rt.assists.get(playerId), playerId, rt.session?.userId, rt.isAdmin)
         entry = { state, sig: paintSignature(state, rt.stats.get(playerId), settingsSig, rt.mine?.total) }
         sigs.set(playerId, entry)
       }
@@ -2820,7 +3324,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     rt.isAdmin = sessionIsAdmin(rt.session)
     log(`admin: ${rt.isAdmin}`)
     startPolling()
-    observe()
+    // #523: the attack page gets the poll loop (so an assist raised/cleared
+    // elsewhere shows up here, and vice versa) but NEVER observe() — that's
+    // the faction-page DOM scan (MutationObserver over the whole document,
+    // hunting for `profiles.php?XID=` links to badge), and running it here
+    // risks matching something on Torn's own attack-page DOM. The overlay
+    // itself is DOM-independent (built from the URL, not from a scan), so it
+    // paints once immediately rather than waiting on the first poll.
+    if (isFactionPage()) observe()
+    else if (isAttackPage()) renderAssistOverlay()
   }
 
   function main() {
@@ -2828,26 +3340,35 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     const version = scriptVersion() ?? 'unknown'
     const path = typeof location !== 'undefined' ? location.pathname + location.search : 'unknown'
     log(`v${version} starting on ${path}`)
-    panel()
+    // The launcher/settings panel is faction-page furniture (its own anchor,
+    // `#top-page-links-list`, is what the faction pages' title bar exposes).
+    // Skipping it on the attack page keeps that surface to just the overlay.
+    if (isFactionPage()) panel()
     boot()
-      .then(() => panel())   // reflect whatever boot() resolved the session to
+      .then(() => { if (isFactionPage()) panel() })   // reflect whatever boot() resolved the session to
       .catch((err) => {
         setStatus('error')
         // eslint-disable-next-line no-console
         console.error('[TNL Dibs]', err)
-        panel()
+        if (isFactionPage()) panel()
       })
   }
 
   function setSession(session) { rt.session = session }
   function currentSession() { return rt.session }
   function dibsIndex() { return rt.dibs }
+  function assistsIndex() { return rt.assists }
   function statsIndex() { return rt.stats }
   function sortStateIndex() { return rt.sortState }
 
   return {
     setSession, currentSession, api, refreshToken, claim, release, dibsIndex,
     parseXid, resolveTenant, indexDibs, enemyIds, frameRows, buttonState, backoffFor,
+    // #523: two-@match-surface helpers, the assist-request state/paint seam,
+    // and the write functions the attack-page overlay calls.
+    factionPageMatch, attackPageMatch, attackTargetId, isFactionPage, isAttackPage,
+    indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
+    assistIconSvg, paintDibs,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,
@@ -2871,6 +3392,14 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT,
     SETTING_MEMBER_COUNT, DEBUG_KEY,
     FLIGHT_SECONDS, PLANE_TYPE_METHOD,
+    // #528 Part 2: enemy loadout capture — the pure parse/dedupe seam. The
+    // DOM-walking glue (defenderScopeElement, captureWeapons, captureArmor,
+    // captureLoadout, checkLoadoutCapture) is deliberately NOT exported here,
+    // same reasoning as every other DOM-touching helper in this file: there
+    // is no `document` in the test harness to exercise it against (see
+    // __tests__/tnlDibs.test.js's own header comment).
+    parseWeaponAriaLabel, weaponItemIdFromSrc, mapArmorAltToSlot,
+    loadoutIsEmpty, loadoutSignature,
   }
 })()
 

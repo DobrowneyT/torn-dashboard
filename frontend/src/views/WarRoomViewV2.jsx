@@ -2,7 +2,7 @@
 // At Phase 5 cutover this is the canonical War Room implementation. The
 // "V2" suffix in filenames + exports is a vestige of side-by-side
 // validation; renaming is deferred to a quiet follow-up commit.
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, Fragment } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useViewState } from '../contexts/ViewStateContext'
 import {
@@ -70,8 +70,8 @@ import { setWarHeadline } from '../utils/warRoomApiV2'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs, fireAlert, surgeAlertKind } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
-import { farmCompare, isGreenTarget } from '../utils/warRoomFarmSort'
-import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon } from 'lucide-react'
+import { isGreenTarget, splitFarmAbroad } from '../utils/warRoomFarmSort'
+import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon, CloudFog, Droplet, LifeBuoy } from 'lucide-react'
 import HelpPanel from '../components/warroom/HelpPanel'
 import SpotlightTour from '../components/warroom/SpotlightTour'
 import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
@@ -82,7 +82,7 @@ import {
   fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
 } from '../utils/fairFight'
 import { clampCadence } from '../utils/warRoomCadence.js'
-import { dibsButtonState } from '../utils/dibsButton.js'
+import { assistBadgeState } from '../utils/assistBadge.js'
 
 // OUR_FACTION_ID and flattenMemberRow are owned by useWarRoomPoll in v2 —
 // the hook flattens rows before exposing them. The view receives the flat
@@ -91,6 +91,9 @@ import { dibsButtonState } from '../utils/dibsButton.js'
 
 const STATUS_FILTERS   = ['Okay', 'Hospital', 'Flying', 'Jail']
 const ACTIVITY_FILTERS = ['Online', 'Idle', 'Offline']
+
+/** assistBadgeState() hands back a Lucide icon NAME (it has no JSX of its own to render one). */
+const ASSIST_ICONS = { 'cloud-fog': CloudFog, droplet: Droplet, 'life-buoy': LifeBuoy }
 
 function formatCountdown(secondsRemaining) {
   if (secondsRemaining <= 0) return '—'
@@ -208,6 +211,20 @@ function StatusCell({ state, description }) {
         </span>
       )}
     </div>
+  )
+}
+
+// Farm mode's Abroad section divider (#561) — dropped once, between the main
+// table body and the trailing Abroad rows. Named export so it (and the
+// section boundary that decides where it lands) is directly testable rather
+// than only provable by eyeballing the roster.
+export function AbroadSectionDivider({ colSpan }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="py-2 px-3 bg-amber-50 dark:bg-amber-900/20 border-y border-amber-200 dark:border-amber-800 text-xs font-semibold text-amber-800 dark:text-amber-300">
+        <span aria-hidden="true">✈</span> Abroad — still needs travel time home, timers below don't mean "attackable soon"
+      </td>
+    </tr>
   )
 }
 
@@ -1559,7 +1576,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     members: rawMembers,
     ourMembers,
     dibs,
+    assist,
     memberStats,
+    loadout,
     config,
     chain,
     isInitialLoading: configLoading,
@@ -2260,7 +2279,12 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // and reloads must not land on a sort over a column that isn't there (#351).
   const activeSortCol = effectiveSortCol(sortCol, effectiveSide)
 
-  const filtered = useMemo(() => {
+  // Farm mode's Abroad section (#561): `filtered` stays a single flat array
+  // (unchanged by every other sort column and every other consumer of
+  // `filtered`), but in farm mode the Abroad rows are pushed to the tail and
+  // `farmAbroadStart` records where that section begins so the table body
+  // can drop a divider row there. Non-farm columns leave it null.
+  const [filtered, farmAbroadStart] = useMemo(() => {
     // Update farm-mode transition tracker as a side effect of recomputing.
     // Cheap and safe — the refs are only read by the sort below.
     //
@@ -2319,11 +2343,30 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       }))
     }
 
+    // Farm mode (#561): split off before the generic sort below, rather than
+    // as one more `switch` case, because it changes `filtered`'s SHAPE (main
+    // section + trailing Abroad section) rather than just its order. Two
+    // sections can't be expressed as a single comparator — see
+    // `splitFarmAbroad`'s own doc comment for why the Abroad section sorts
+    // by stats instead of timer. sortDir is intentionally ignored, same as
+    // farmCompare's existing fixed semantics.
+    if (activeSortCol === 'farm') {
+      const farmTarget = m => ({
+        isGreen: isGreenTarget(m),
+        okay: m.status_state === 'Okay',
+        until: m.status_until,
+        bsp: m.bsp_total,
+        okayAt: okayAt.get(m.member_id) ?? -1,
+      })
+      const { main, abroad } = splitFarmAbroad(list, farmTarget)
+      return [[...main, ...abroad], main.length]
+    }
+
     const d = sortDir === 'asc' ? 1 : -1
     // `now` from the farm tracker above is reused deliberately (#351):
     // cooldowns are aged against it, and letting each comparison read its own
     // Date.now() would make the comparator non-transitive mid-sort.
-    return list.slice().sort((a, b) => {
+    const sorted = list.slice().sort((a, b) => {
       switch (activeSortCol) {
         case 'name':
           return d * a.member_name.localeCompare(b.member_name)
@@ -2333,19 +2376,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         }
         case 'status':
           return d * (a.status_state ?? '').localeCompare(b.status_state ?? '')
-        case 'farm': {
-          // Two-tier farm sort (#108): green attack button (Online+Okay) on
-          // top by battle stats, everyone else below in the prior ordering.
-          // sortDir is intentionally ignored — farm has fixed semantics.
-          const farmTarget = m => ({
-            isGreen: isGreenTarget(m),
-            okay: m.status_state === 'Okay',
-            until: m.status_until,
-            bsp: m.bsp_total,
-            okayAt: okayAt.get(m.member_id) ?? -1,
-          })
-          return farmCompare(farmTarget(a), farmTarget(b))
-        }
         case 'timer': {
           // Members with an active timer (Hospital/Jail with status_until) sort by
           // timer in the chosen direction. Everyone else (Okay / Flying / Fallen
@@ -2400,6 +2430,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         default: return 0
       }
     })
+    return [sorted, null]
   }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, ffMaxOnly, ffFilterUsable, ffFor, activeSortCol, sortDir, memberStats, reviveHistory, revivesByTarget])
 
   // ── Mobile War Room adapters ──────────────────────────────────────────────
@@ -3127,9 +3158,20 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     const dib = effectiveDibs[m.member_id]
                     const isMyDib = dib && String(dib.claimed_by) === String(user?.id)
                     const isPendingRelease = pendingDibsOps[m.member_id] === 'release'
+                    // #523: a live "raise a hand" request against this target,
+                    // if any — folded into the Dibs badge, not a second cell.
+                    const activeAssist = assist[m.member_id]
                     const rowBg = idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-gray-50/50 dark:bg-slate-800/40'
 
-                    return (
+                    // Abroad section divider (#561): only inserted once, right
+                    // before the first row of the trailing Abroad group that
+                    // farm mode splits off (see `farmAbroadStart` above / the
+                    // `filtered` memo). Everyone else — every other sort
+                    // column, and farm mode with no abroad targets — never
+                    // sees it.
+                    const showAbroadDivider = farmAbroadStart != null && idx === farmAbroadStart
+
+                    const row = (
                       <tr key={m.member_id} className={`${rowBg} hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors`}>
                         {/* Name — narrower than the rest (#422): it was the
                             widest column by a distance and the FF column has to
@@ -3186,6 +3228,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             const flags = memberFlags(m, {
                               isFlying,
                               stats: memberStats[String(m.member_id)],
+                              loadout: loadout[m.member_id],
                             })
                             return (
                               <div className="flex items-center gap-1.5">
@@ -3276,10 +3319,33 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                               Releasing…
                             </span>
                           ) : (() => {
-                            // ONE control, three states (#509) — the same shape
-                            // the Torn userscript shows, from the same
-                            // function, so the two cannot drift.
-                            const st = dibsButtonState(dib, user?.id, { isAdmin })
+                            // ONE control, three-plus states (#509, #523) — the
+                            // same shape the Torn userscript shows, from the
+                            // same pure state→view-model function, so the two
+                            // cannot drift. #523 folds an active assist request
+                            // into this SAME badge (mode: 'assist') rather than
+                            // a second indicator — see assistBadgeState's own
+                            // doc comment for why.
+                            const st = assistBadgeState(dib, activeAssist, m.member_id, user?.id, { isAdmin })
+
+                            // The assist mode is a plain link straight to the
+                            // fight, not a claim/release control.
+                            if (st.mode === 'assist') {
+                              const AssistIcon = ASSIST_ICONS[st.icon]
+                              return (
+                                <a
+                                  href={st.href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={st.title}
+                                  aria-label={st.title}
+                                  className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border max-w-[9rem] transition-colors border-orange-400 text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40"
+                                >
+                                  {AssistIcon ? <AssistIcon size={12} className="shrink-0" /> : <span className="truncate">{st.label}</span>}
+                                </a>
+                              )
+                            }
+
                             const tone = st.tone === 'mine'
                               ? 'border-blue-400 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
                               : st.tone === 'taken'
@@ -3344,6 +3410,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                         </td>
                         )}
                       </tr>
+                    )
+
+                    if (!showAbroadDivider) return row
+                    return (
+                      <Fragment key={`abroad-divider-${m.member_id}`}>
+                        <AbroadSectionDivider colSpan={rosterColumnCount(effectiveSide)} />
+                        {row}
+                      </Fragment>
                     )
                   })}
                 </tbody>

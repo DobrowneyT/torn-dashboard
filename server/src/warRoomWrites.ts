@@ -12,6 +12,12 @@ import type pg from 'pg'
 import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
 import { rolesFromClaims } from './auth.js'
 import { DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
+import { ASSIST_EXPIRY_SECONDS } from './warRoomAssistsExpiry.js'
+import {
+  validateLoadoutPayload,
+  LOADOUT_RATE_LIMIT,
+  LOADOUT_RATE_WINDOW_MS,
+} from './warRoomLoadout.js'
 import {
   buildJsonPayload,
   buildNukeFields,
@@ -131,6 +137,124 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
           [targetId, userId]
         )
     if (res.rows.length > 0) hub.broadcast('dibs', res.rows, await serverNow())
+    return { ok: true }
+  })
+
+  // ── Assist requests (#523) ─────────────────────────────────────────────
+  // Attacker-set, live "raise a hand" markers — smoke/tear/help against
+  // (requester, target), from the attack page. Visitors included, same
+  // reasoning as dibs: it's the one mutation the demo role keeps.
+  const ASSIST_KINDS = new Set(['smoke', 'tear', 'help'])
+
+  app.post('/api/war-room/assist', { preHandler: requireAuth() }, async (req, reply) => {
+    const body = req.body as { target_id?: unknown; kind?: unknown; war_id?: unknown } | null
+    const targetId = Number(body?.target_id)
+    const kind = String(body?.kind ?? '')
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return reply.status(400).send({ error: 'target_id required' })
+    }
+    if (!ASSIST_KINDS.has(kind)) {
+      return reply.status(400).send({ error: `kind must be one of ${[...ASSIST_KINDS].join(', ')}` })
+    }
+    const userId = Number(req.session!.torn_user_id)
+    const name = await actorName(req.session!.torn_user_id)
+
+    const dbc = await db.connect()
+    try {
+      await dbc.query('BEGIN')
+      // One live assist per requester (mirrors dibs' single-claim rule): a
+      // fresh click — even against a different target or a different kind —
+      // replaces whatever the requester last asked for. You're one person,
+      // in one fight.
+      const tombstoned = await dbc.query(
+        `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
+         WHERE requester_id = $1 AND deleted_at IS NULL RETURNING *`,
+        [userId]
+      )
+      const inserted = await dbc.query(
+        `INSERT INTO war_room_assists_v2 (target_id, requester_id, requester_name, kind, war_id, auto_expire_at)
+         VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))
+         RETURNING *`,
+        [targetId, userId, name, kind, body?.war_id ?? null, ASSIST_EXPIRY_SECONDS]
+      )
+      await dbc.query('COMMIT')
+      hub.broadcast('assist', [...tombstoned.rows, ...inserted.rows], await serverNow())
+      return { ok: true }
+    } catch (err: any) {
+      await dbc.query('ROLLBACK')
+      // The partial unique index (one live row per requester) is the last
+      // word under a true race — two clicks from the SAME requester landing
+      // concurrently. There is no "owner" to report, unlike dibs' 409: it's
+      // the caller racing themselves, so a plain retry is the whole story.
+      if (err?.code === '23505') {
+        return reply.status(409).send({ error: 'Assist request already in flight — try again' })
+      }
+      throw err
+    } finally {
+      dbc.release()
+    }
+  })
+
+  app.delete('/api/war-room/assist/:targetId', { preHandler: requireAuth() }, async (req) => {
+    const { targetId } = req.params as { targetId: string }
+    const userId = Number(req.session!.torn_user_id)
+    // Non-admins clear only their own request (a filtered no-op otherwise).
+    const res = isAdmin(req)
+      ? await db.query(
+          `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
+           WHERE target_id = $1 AND deleted_at IS NULL RETURNING *`,
+          [targetId]
+        )
+      : await db.query(
+          `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
+           WHERE target_id = $1 AND deleted_at IS NULL AND requester_id = $2 RETURNING *`,
+          [targetId, userId]
+        )
+    if (res.rows.length > 0) hub.broadcast('assist', res.rows, await serverNow())
+    return { ok: true }
+  })
+
+  // ── Enemy loadout capture (#528 Part 2) ─────────────────────────────────
+  // Written passively by the attack-page userscript once Torn reveals a
+  // target's gear (mid-fight — see tnl-war-room-dibs.user.js). Append-only:
+  // no dibs-style single-live-row rule here, every observation is kept and
+  // the War Room reads only the latest per target (the 'loadout' channel).
+  //
+  // Untrusted input (#528's own warning): this is written by a client we do
+  // not control, running on someone's browser against a page we do not
+  // control either. validateLoadoutPayload bounds shape and size; this Map
+  // bounds request RATE per member, in-process — matches feedback.ts's
+  // submission-rate guard (one process per tenant, so this is enough).
+  const loadoutRequests = new Map<string, number[]>()
+
+  app.post('/api/war-room/loadout', { preHandler: requireAuth() }, async (req, reply) => {
+    const userId = String(req.session!.torn_user_id)
+    const now = Date.now()
+    const recent = (loadoutRequests.get(userId) ?? []).filter((t) => now - t < LOADOUT_RATE_WINDOW_MS)
+    if (recent.length >= LOADOUT_RATE_LIMIT) {
+      return reply.status(429).send({ error: 'Too many loadout captures — please slow down.' })
+    }
+
+    const result = validateLoadoutPayload(req.body)
+    if (!result.ok || !result.value) {
+      return reply.status(400).send({ error: result.error ?? 'invalid loadout payload' })
+    }
+
+    const { targetId, warId, loadout } = result.value
+    const name = await actorName(req.session!.torn_user_id)
+    const inserted = await db.query(
+      `INSERT INTO war_room_loadout_observations_v2
+         (target_id, observed_by, observed_by_name, war_id, loadout)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *, observed_at AS updated_at`,
+      [targetId, Number(req.session!.torn_user_id), name, warId, JSON.stringify(loadout)]
+    )
+    // Budget consumed only on a real write — matches feedback.ts's guard: a
+    // request that fails validation (and never inserts) does not cost the
+    // member anything toward their rate limit.
+    recent.push(now)
+    loadoutRequests.set(userId, recent)
+    hub.broadcast('loadout', inserted.rows, await serverNow())
     return { ok: true }
   })
 

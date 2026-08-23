@@ -134,6 +134,195 @@ describe('dibs', () => {
   })
 })
 
+describe('assist requests (#523)', () => {
+  it('rejects an unknown kind and a missing target', async () => {
+    const badKind = await call('POST', '/api/war-room/assist', { target_id: 90300, kind: 'nuke' })
+    expect(badKind.status).toBe(400)
+    const badTarget = await call('POST', '/api/war-room/assist', { kind: 'smoke' })
+    expect(badTarget.status).toBe(400)
+  })
+
+  it('a request propagates to connected clients on the assist channel', async () => {
+    const watcher = await wsConnect(tokens.rival)
+    await watcher.next((m) => m.type === 'snapshot')
+
+    const req = await call('POST', '/api/war-room/assist', { target_id: 90300, kind: 'smoke', war_id: 700 })
+    expect(req.status).toBe(200)
+
+    const frame = await watcher.next((m) => m.type === 'delta' && m.channel === 'assist')
+    const live = frame.rows.find((r: any) => !r.deleted_at)
+    expect(live).toMatchObject({ target_id: 90300, requester_id: 1400, requester_name: 'Fighter', kind: 'smoke' })
+    // Armed at creation, always — unlike dibs there is no "still in hospital,
+    // no deadline yet" state.
+    expect(live.auto_expire_at).toBeTruthy()
+
+    watcher.ws.close()
+  })
+
+  it('one live assist per requester: a second request (any target, any kind) tombstones the first', async () => {
+    await call('POST', '/api/war-room/assist', { target_id: 90301, kind: 'smoke' })
+    const second = await call('POST', '/api/war-room/assist', { target_id: 90302, kind: 'help' })
+    expect(second.status).toBe(200)
+
+    const first = await stack.db.query(
+      `SELECT deleted_at FROM war_room_assists_v2 WHERE target_id = 90301 AND requester_id = 1400`
+    )
+    expect(first.rows[0].deleted_at).toBeTruthy()
+    const live = await stack.db.query(
+      `SELECT kind FROM war_room_assists_v2 WHERE target_id = 90302 AND requester_id = 1400 AND deleted_at IS NULL`
+    )
+    expect(live.rows[0].kind).toBe('help')
+  })
+
+  it('two different requesters can raise a hand on the SAME target at once', async () => {
+    await call('POST', '/api/war-room/assist', { target_id: 90303, kind: 'tear' })
+    const rival = await call('POST', '/api/war-room/assist', { target_id: 90303, kind: 'help' }, 'rival')
+    expect(rival.status).toBe(200)
+
+    const live = await stack.db.query(
+      `SELECT requester_id, kind FROM war_room_assists_v2 WHERE target_id = 90303 AND deleted_at IS NULL ORDER BY requester_id`
+    )
+    expect(live.rows).toHaveLength(2)
+  })
+
+  it('the requester can clear their own request; a non-requester cannot; an admin can', async () => {
+    await call('POST', '/api/war-room/assist', { target_id: 90304, kind: 'help' })
+
+    const denied = await call('DELETE', '/api/war-room/assist/90304', undefined, 'rival')
+    expect(denied.status).toBe(200) // filtered no-op, matches the dibs release shape
+    const stillLive = await stack.db.query(
+      `SELECT count(*)::int AS n FROM war_room_assists_v2 WHERE target_id = 90304 AND deleted_at IS NULL`
+    )
+    expect(stillLive.rows[0].n).toBe(1)
+
+    const cleared = await call('DELETE', '/api/war-room/assist/90304')
+    expect(cleared.status).toBe(200)
+    const gone = await stack.db.query(
+      `SELECT count(*)::int AS n FROM war_room_assists_v2 WHERE target_id = 90304 AND deleted_at IS NULL`
+    )
+    expect(gone.rows[0].n).toBe(0)
+
+    await call('POST', '/api/war-room/assist', { target_id: 90305, kind: 'smoke' })
+    const adminCleared = await call('DELETE', '/api/war-room/assist/90305', undefined, 'admin')
+    expect(adminCleared.status).toBe(200)
+    const goneToo = await stack.db.query(
+      `SELECT count(*)::int AS n FROM war_room_assists_v2 WHERE target_id = 90305 AND deleted_at IS NULL`
+    )
+    expect(goneToo.rows[0].n).toBe(0)
+  })
+
+  it('visitors CAN raise their hand (the one visitor-permitted mutation, same as dibs)', async () => {
+    const req = await call('POST', '/api/war-room/assist', { target_id: 90306, kind: 'smoke' }, 'visitor')
+    expect(req.status).toBe(200)
+    const row = await stack.db.query(
+      `SELECT requester_id FROM war_room_assists_v2 WHERE target_id = 90306 AND deleted_at IS NULL`
+    )
+    expect(row.rows[0].requester_id).toBe(1402)
+  })
+
+  it('the delta/snapshot endpoint carries an assist channel', async () => {
+    await call('POST', '/api/war-room/assist', { target_id: 90307, kind: 'help' })
+    const delta = await call('GET', '/api/war-room/delta')
+    expect(delta.body.assist.rows.some((r: any) => r.target_id === 90307 && !r.deleted_at)).toBe(true)
+  })
+})
+
+describe('loadout capture (#528 Part 2)', () => {
+  const validLoadout = {
+    weapons: { primary: { name: 'AK-47', item_id: 1 }, melee: { name: 'Bat' } },
+    armor: { chest: { name: 'Combat Vest' } },
+  }
+
+  it('a valid capture propagates to connected clients on the loadout channel', async () => {
+    const watcher = await wsConnect(tokens.rival)
+    await watcher.next((m) => m.type === 'snapshot')
+
+    const res = await call('POST', '/api/war-room/loadout', { target_id: 90500, war_id: 700, loadout: validLoadout })
+    expect(res.status).toBe(200)
+
+    const frame = await watcher.next((m) => m.type === 'delta' && m.channel === 'loadout')
+    const row = frame.rows.find((r: any) => r.target_id === 90500)
+    expect(row).toBeTruthy()
+    expect(row.observed_by).toBe(1400)
+    expect(row.observed_by_name).toBe('Fighter')
+    expect(row.loadout).toMatchObject(validLoadout)
+    expect(row.updated_at).toBeTruthy() // observed_at aliased for the generic merge
+
+    watcher.ws.close()
+  })
+
+  it('rejects a missing target_id', async () => {
+    const res = await call('POST', '/api/war-room/loadout', { loadout: validLoadout })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a loadout with no captured slots', async () => {
+    const res = await call('POST', '/api/war-room/loadout', { target_id: 90501, loadout: { weapons: {}, armor: {} } })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects an unknown slot name', async () => {
+    const res = await call('POST', '/api/war-room/loadout', {
+      target_id: 90502,
+      loadout: { weapons: { bazooka: { name: 'RPG' } } },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a malformed slot entry (missing name)', async () => {
+    const res = await call('POST', '/api/war-room/loadout', {
+      target_id: 90503,
+      loadout: { weapons: { primary: { item_id: 1 } } },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects an oversized payload', async () => {
+    const res = await call('POST', '/api/war-room/loadout', {
+      target_id: 90504,
+      loadout: { weapons: { primary: { name: 'A'.repeat(5000) } } },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a bogus item_id (non-integer / out of range)', async () => {
+    const res = await call('POST', '/api/war-room/loadout', {
+      target_id: 90505,
+      loadout: { weapons: { primary: { name: 'AK-47', item_id: -3 } } },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rate-limits per member — the Nth+1 valid capture in the window is refused', async () => {
+    let last: { status: number; body: any } | null = null
+    for (let i = 0; i < 31; i++) {
+      last = await call('POST', '/api/war-room/loadout', {
+        target_id: 90600 + i,
+        loadout: { weapons: { primary: { name: 'AK-47' } } },
+      }, 'warlead')
+    }
+    expect(last?.status).toBe(429)
+  })
+
+  it('every observation is kept — a second capture against the same target does not replace the first', async () => {
+    await call('POST', '/api/war-room/loadout', { target_id: 90506, loadout: { weapons: { primary: { name: 'AK-47' } } } }, 'admin')
+    await call('POST', '/api/war-room/loadout', { target_id: 90506, loadout: { weapons: { primary: { name: 'Glock' } } } }, 'admin')
+    const rows = await stack.db.query(
+      `SELECT loadout FROM war_room_loadout_observations_v2 WHERE target_id = 90506 ORDER BY observed_at ASC`
+    )
+    expect(rows.rows).toHaveLength(2)
+  })
+
+  it('the delta/snapshot endpoint carries a loadout channel, collapsed to latest per target', async () => {
+    await call('POST', '/api/war-room/loadout', { target_id: 90507, loadout: { weapons: { primary: { name: 'AK-47' } } } }, 'admin')
+    await call('POST', '/api/war-room/loadout', { target_id: 90507, loadout: { weapons: { primary: { name: 'Glock' } } } }, 'admin')
+    const delta = await call('GET', '/api/war-room/delta')
+    const rows = delta.body.loadout.rows.filter((r: any) => r.target_id === 90507)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].loadout.weapons.primary.name).toBe('Glock')
+  })
+})
+
 describe('chain save', () => {
   it('one member holds the save at a time; visitors rejected; broadcasts ride the chain channel', async () => {
     const watcher = await wsConnect(tokens.member)

@@ -18,6 +18,122 @@ surface it automatically.
 
 ---
 
+## [3.53.2] - 2026-08-22
+
+### Changed
+- **Assist requests use real icons now, not emoji (#523).** Smoke, tear gas
+  and help were 🚬/💨/🆘 — replaced with Lucide's `CloudFog`, `Droplet` and
+  `LifeBuoy`, matching the icon set the rest of the dashboard already uses.
+  `assistBadgeState()`/`badgeState()` now hand back a `label` (readable text)
+  and an `icon` (a Lucide name), rather than an emoji doing double duty as
+  both — the dashboard renders the real `lucide-react` component; the
+  userscript, which has no build step and cannot import one, inlines the
+  exact same Lucide paths as raw SVG instead. Same three surfaces as before:
+  the attack-page overlay buttons and the Dibs-badge morph on both the
+  faction page and the War Room.
+
+## [3.53.1] - 2026-08-22
+
+### Fixed
+- **War Room: Farm mode no longer interleaves abroad targets into the
+  timer-sorted list (#561).** A released hospital timer means "no longer
+  hospitalized," not "attackable soon" — an abroad target still needs real
+  travel time back to Torn, so a soon-to-release hospitalized-abroad member
+  used to sort right next to a domestic target that really was about to be
+  hittable. Farm mode now splits travelling/abroad/hospitalized-abroad
+  targets (the same predicate already used for the Status filter chips and
+  the ✈ row flag) into their own "Abroad" section below the main list, sorted
+  by battle stats instead of timer. Desktop and mobile both share the new
+  `splitFarmAbroad`/`isAbroadTarget` in `warRoomFarmSort.js`. Every other
+  sort column is unchanged.
+
+## [3.53.0] - 2026-08-22
+
+### Added
+- **Passive enemy loadout capture from the attack page (#528 Part 2).** Once
+  Torn reveals a defender's gear (weapons/armor stay hidden until the fight
+  actually starts — Torn does NOT expose them pre-fight), the userscript
+  captures it by NAME (`aria-label`/`<area title>`, never image `src` — a
+  gear-hiding third-party script can strip `<img src>` but has no reason to
+  touch either of those) and posts it silently in the background, deduped by
+  content signature per fight so it never re-sends on every poll tick. Adds
+  no visible control to the attack page — read-only, nothing wrapped, moved,
+  covered or intercepted.
+  - New append-only table `war_room_loadout_observations_v2` — deliberately
+    NOT `war_room_state_v2`, which is the live per-member delta overwritten
+    every tick; a loadout observation is a provenanced, point-in-time fact
+    about one player and every one of them is kept.
+  - `POST /api/war-room/loadout` validates shape and bounds size (schema-
+    checked slot names, ≤100-char item names, ≤4KB payload) and rate-limits
+    30 captures/5min per member — a legitimate capture happens once per
+    fight, so this only ever catches a modified client trying to fill the
+    table.
+  - The War Room's Flags column shows a 🎯 flag with the latest observation
+    per target on hover (per-slot names, who saw it, and its age), dimmed
+    once past 1h since a stale loadout shown confidently is worse than none.
+  - Retention: a daily hard-prune deletes observations past 30 days,
+    unconditional (not behind the scraper job table's admin opt-in) — this is
+    intel about individual players gathered by us, not data Torn hands out,
+    so the retention promise holds from the moment the feature is live.
+
+## [3.52.3] - 2026-08-22
+
+### Fixed
+- **Userscript: sorting by Score buried the actual top score at the bottom
+  of the list (#547).** Torn comma-formats any score of 1,000 or more
+  (`"1,009.26"`), and `Number()` treats a comma as invalid input rather than
+  a thousands separator, so `scoreSortValue()` read every four-digit-plus
+  score as `NaN` — indistinguishable from a genuinely missing score, which
+  always sorts last regardless of direction. Caught live on staging: a
+  member with the highest score in the faction (1,009.26) sorted dead last
+  instead of first. Now strips the comma before parsing.
+
+## [3.52.2] - 2026-08-22
+
+### Added
+- **Userscript: a debug-only host override for staging QA.** There was no way
+  to point a login at a `*_dev` host — `tenants.json` is production-only by
+  design (deploy/update.sh explicitly excludes staging from it), so testing
+  #523's backend-touching assist requests against `dev.monchoon.me` meant the
+  userscript kept resolving the session to production instead, where the
+  route correctly doesn't exist yet. `GM_setValue('tnl-dibs-debug-host',
+  'dev.monchoon.me')` (Tampermonkey's own Storage panel — never in code, and
+  never surfaced in the settings UI) now wins over `tenants.json` and skips
+  fetching it entirely, so a fresh login lands on the given host instead. A
+  real member's key never has this set.
+
+## [3.52.1] - 2026-08-22
+
+### Fixed
+- **Userscript: the #523 assist overlay never rendered on the real attack
+  page.** `attackPageMatch()` checked `pathname === '/loader.php'` — Torn
+  retired that path for attacks (this file's own `attackUrl()` already
+  builds a `page.php` link, and already had a test saying so), but the
+  page-surface matcher was never updated to match. `isAttackPage()` was
+  therefore always false and `boot()` skipped `renderAssistOverlay()`
+  entirely — confirmed live: the `@match` correctly injected the script on
+  `page.php?sid=attack…`, but nothing painted. Now checks `/page.php`.
+
+## [3.52.0] - 2026-08-22
+
+### Added
+- **Assist requests: raise a hand from the attack page (#523).** A new
+  `war_room_assists_v2` table + `assist` delta/snapshot channel + POST/DELETE
+  `/api/war-room/assist` routes carry live, attacker-set "raise a hand"
+  markers — 🚬 smoke / 💨 tear / 🆘 help — against `(requester, target)`,
+  cleared by the requester, a short timeout, or the target going down
+  (reuses the `warRoomDibsExpiry.ts` sweep pattern, see
+  `warRoomAssistsExpiry.ts`). The userscript gains a second `@match` for
+  `page.php?sid=attack*` — one script, two gated surfaces — with a small,
+  strictly-additive overlay offering the three one-click requests on the
+  attack page. On the faction page and in the War Room, an active assist
+  request morphs the existing Dibs badge itself (icon + who/how-long-ago in
+  the tooltip, click-through to the fight) rather than adding a second
+  indicator, conserving the row's already-tight width; dibs underneath is
+  unaffected. Held off `dev`'s default auto-merge (`hold-merge`) pending
+  live verification on torn.com's attack page — the first script surface
+  ever placed there.
+
 ## [3.51.0] - 2026-08-22
 
 ### Added

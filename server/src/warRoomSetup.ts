@@ -64,6 +64,10 @@ export async function clearWarRoomState(db: pg.Pool) {
   const dibs = await db.query(
     'UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now() WHERE deleted_at IS NULL RETURNING *'
   )
+  // #523: a new matchup must not inherit the prior war's raised hands either.
+  const assist = await db.query(
+    'UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now() WHERE deleted_at IS NULL RETURNING *'
+  )
   const chain = await db.query(
     `UPDATE war_room_chain_v2 SET current = NULL, max = NULL, modifier = NULL,
        timeout = NULL, start_ts = NULL, cooldown = NULL, end_ts = NULL,
@@ -78,7 +82,7 @@ export async function clearWarRoomState(db: pg.Pool) {
        headline_set_by = NULL, headline_set_at = NULL, updated_at = now()
      WHERE id = 1 RETURNING *`
   )
-  return { state: state.rows, dibs: dibs.rows, chain: chain.rows, config: config.rows }
+  return { state: state.rows, dibs: dibs.rows, assist: assist.rows, chain: chain.rows, config: config.rows }
 }
 
 const GUARD = { preHandler: [requireNotVisitor(), requireRole('warlead', 'leadership', 'admin')] }
@@ -139,6 +143,7 @@ export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSe
     const ts = await now()
     hub.broadcast('state', cleared.state, ts)
     hub.broadcast('dibs', cleared.dibs, ts)
+    hub.broadcast('assist', cleared.assist, ts)
     hub.broadcast('chain', cleared.chain, ts)
     hub.broadcast('config', cleared.config, ts)  // headline reset (#158)
     return { ok: true }
