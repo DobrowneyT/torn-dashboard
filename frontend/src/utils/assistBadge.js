@@ -20,10 +20,19 @@
 import { dibsButtonState } from './dibsButton.js'
 import { fmtAgo } from './time.js'
 
+/**
+ * `icon` is a Lucide icon name, not a rendered glyph — this file has no JSX
+ * and cannot import a component, so it hands back a name the caller (a real
+ * <CloudFog/> etc. here, an inlined matching SVG in the userscript, which has
+ * no npm imports at all) resolves on its own side. Picked to match Lucide's
+ * shipped shapes exactly (verified against the installed lucide-react
+ * version): a literal smoke cloud, a literal water drop, and the standard
+ * life-preserver "get help" glyph — not decorative substitutes.
+ */
 export const ASSIST_KIND_META = {
-  smoke: { icon: '🚬', label: 'Smoke' },
-  tear: { icon: '💨', label: 'Tear gas' },
-  help: { icon: '🆘', label: 'Help' },
+  smoke: { icon: 'cloud-fog', label: 'Smoke' },
+  tear: { icon: 'droplet', label: 'Tear gas' },
+  help: { icon: 'life-buoy', label: 'Help' },
 }
 
 export function attackUrl(targetId) {
@@ -50,17 +59,22 @@ function assistHolder(assist) {
  * @param {number|string} targetId - needed only to build the attack-page href.
  * @param {number|string} currentUserId
  * @param {{isAdmin?: boolean}} [opts]
- * @returns {{mode: 'dibs'|'assist', label: string, href: string|null, tone: string, title?: string, action: string|null, mine: boolean, taken: boolean}}
+ * @returns {{mode: 'dibs'|'assist', label: string, icon?: string, href: string|null, tone: string, title?: string, action: string|null, mine: boolean, taken: boolean}}
  */
 export function assistBadgeState(dib, assist, targetId, currentUserId, opts = {}) {
   const held = assistHolder(assist)
   if (held) {
-    const meta = ASSIST_KIND_META[held.kind] ?? { icon: '🆘', label: held.kind ?? 'Assist' }
+    const meta = ASSIST_KIND_META[held.kind] ?? { icon: 'life-buoy', label: held.kind ?? 'Assist' }
     const mine = String(held.id) === String(currentUserId)
     const who = mine ? 'you' : (held.name ?? 'someone')
     return {
       mode: 'assist',
-      label: meta.icon,
+      // `label` stays readable text (fallback for any caller that just prints
+      // it); `icon` is the Lucide name a caller with real icons renders
+      // instead — see ASSIST_KIND_META's own note on why this can't just be
+      // a component reference.
+      label: meta.label,
+      icon: meta.icon,
       href: attackUrl(targetId),
       tone: 'assist',
       title: `${meta.label} requested by ${who} · ${fmtAgo(held.at)}`,

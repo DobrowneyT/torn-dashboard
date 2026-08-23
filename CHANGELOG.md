@@ -18,6 +18,20 @@ surface it automatically.
 
 ---
 
+## [3.52.4] - 2026-08-22
+
+### Changed
+- **Assist requests use real icons now, not emoji (#523).** Smoke, tear gas
+  and help were 🚬/💨/🆘 — replaced with Lucide's `CloudFog`, `Droplet` and
+  `LifeBuoy`, matching the icon set the rest of the dashboard already uses.
+  `assistBadgeState()`/`badgeState()` now hand back a `label` (readable text)
+  and an `icon` (a Lucide name), rather than an emoji doing double duty as
+  both — the dashboard renders the real `lucide-react` component; the
+  userscript, which has no build step and cannot import one, inlines the
+  exact same Lucide paths as raw SVG instead. Same three surfaces as before:
+  the attack-page overlay buttons and the Dibs-badge morph on both the
+  faction page and the War Room.
+
 ## [3.52.3] - 2026-08-22
 
 ### Fixed
