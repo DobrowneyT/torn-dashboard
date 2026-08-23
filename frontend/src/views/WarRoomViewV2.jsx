@@ -1575,6 +1575,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     dibs,
     assist,
     memberStats,
+    loadout,
     config,
     chain,
     isInitialLoading: configLoading,
@@ -3224,6 +3225,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             const flags = memberFlags(m, {
                               isFlying,
                               stats: memberStats[String(m.member_id)],
+                              loadout: loadout[m.member_id],
                             })
                             return (
                               <div className="flex items-center gap-1.5">

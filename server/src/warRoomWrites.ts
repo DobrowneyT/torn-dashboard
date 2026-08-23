@@ -14,6 +14,11 @@ import { rolesFromClaims } from './auth.js'
 import { DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
 import { ASSIST_EXPIRY_SECONDS } from './warRoomAssistsExpiry.js'
 import {
+  validateLoadoutPayload,
+  LOADOUT_RATE_LIMIT,
+  LOADOUT_RATE_WINDOW_MS,
+} from './warRoomLoadout.js'
+import {
   buildJsonPayload,
   buildNukeFields,
   checkReviveTarget,
@@ -206,6 +211,50 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
           [targetId, userId]
         )
     if (res.rows.length > 0) hub.broadcast('assist', res.rows, await serverNow())
+    return { ok: true }
+  })
+
+  // ── Enemy loadout capture (#528 Part 2) ─────────────────────────────────
+  // Written passively by the attack-page userscript once Torn reveals a
+  // target's gear (mid-fight — see tnl-war-room-dibs.user.js). Append-only:
+  // no dibs-style single-live-row rule here, every observation is kept and
+  // the War Room reads only the latest per target (the 'loadout' channel).
+  //
+  // Untrusted input (#528's own warning): this is written by a client we do
+  // not control, running on someone's browser against a page we do not
+  // control either. validateLoadoutPayload bounds shape and size; this Map
+  // bounds request RATE per member, in-process — matches feedback.ts's
+  // submission-rate guard (one process per tenant, so this is enough).
+  const loadoutRequests = new Map<string, number[]>()
+
+  app.post('/api/war-room/loadout', { preHandler: requireAuth() }, async (req, reply) => {
+    const userId = String(req.session!.torn_user_id)
+    const now = Date.now()
+    const recent = (loadoutRequests.get(userId) ?? []).filter((t) => now - t < LOADOUT_RATE_WINDOW_MS)
+    if (recent.length >= LOADOUT_RATE_LIMIT) {
+      return reply.status(429).send({ error: 'Too many loadout captures — please slow down.' })
+    }
+
+    const result = validateLoadoutPayload(req.body)
+    if (!result.ok || !result.value) {
+      return reply.status(400).send({ error: result.error ?? 'invalid loadout payload' })
+    }
+
+    const { targetId, warId, loadout } = result.value
+    const name = await actorName(req.session!.torn_user_id)
+    const inserted = await db.query(
+      `INSERT INTO war_room_loadout_observations_v2
+         (target_id, observed_by, observed_by_name, war_id, loadout)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *, observed_at AS updated_at`,
+      [targetId, Number(req.session!.torn_user_id), name, warId, JSON.stringify(loadout)]
+    )
+    // Budget consumed only on a real write — matches feedback.ts's guard: a
+    // request that fails validation (and never inserts) does not cost the
+    // member anything toward their rate limit.
+    recent.push(now)
+    loadoutRequests.set(userId, recent)
+    hub.broadcast('loadout', inserted.rows, await serverNow())
     return { ok: true }
   })
 

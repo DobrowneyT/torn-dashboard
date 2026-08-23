@@ -8,6 +8,7 @@
 
 import { isOverdosed as statusOverdosed } from './memberNotes'
 import { overdosedByDrugCooldown } from './warRoomMemberStats'
+import { formatLoadoutTooltip, isLoadoutStale } from './warRoomLoadout'
 
 /**
  * Torn's three revive privacy settings, verbatim from the API enum
@@ -72,7 +73,7 @@ export function isOverdosedAnySource(member, stats) {
  * has no bearing on whether they can be hit or revived, and it was crowding
  * the column (#339).
  */
-export function memberFlags(member, { isFlying = false, stats = null } = {}) {
+export function memberFlags(member, { isFlying = false, stats = null, loadout = null } = {}) {
   const flags = []
 
   if (isFlying) {
@@ -113,6 +114,23 @@ export function memberFlags(member, { isFlying = false, stats = null } = {}) {
 
   if (member?.is_on_wall) {
     flags.push({ key: 'wall', glyph: '🛡', title: 'Defending a territory wall', tone: 'info' })
+  }
+
+  // #528 Part 2: the latest observed loadout, if anyone has fought them since
+  // the capture went live — sparse by nature (only targets someone has
+  // actually attacked), so it earns its own flag rather than a column that
+  // would sit empty for most of the roster. The tooltip carries the detail
+  // (per-slot names + who + age); the glyph alone just says "we know this".
+  const tooltip = formatLoadoutTooltip(loadout)
+  if (tooltip) {
+    flags.push({
+      key: 'loadout',
+      glyph: '🎯',
+      title: tooltip,
+      // Stale intel still shows, but dimmed — confidently wrong is worse
+      // than none (#528's own warning).
+      tone: isLoadoutStale(loadout) ? 'muted' : 'info',
+    })
   }
 
   return flags
