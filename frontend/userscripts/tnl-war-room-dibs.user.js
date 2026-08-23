@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.37.1
+// @version      1.37.2
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -273,14 +273,6 @@ const TNLDibs = (function () {
     const weapons = loadout?.weapons ?? {}
     const armor = loadout?.armor ?? {}
     return Object.keys(weapons).length === 0 && Object.keys(armor).length === 0
-  }
-
-  /** Content signature for the capture-once-per-change dedupe (#528: "do not
-   *  re-POST on every render tick for the same fight"). Slot iteration order
-   *  is always WEAPON_WRAPPER_SLOTS/ARMOR_ALT_TO_SLOT's own order (see the
-   *  DOM-walking capture functions below), so this is stable without sorting. */
-  function loadoutSignature(loadout) {
-    return JSON.stringify(loadout ?? {})
   }
 
   /** Kept byte-identical to the dashboard's formatStats() so the two never disagree. */
@@ -987,8 +979,10 @@ const TNLDibs = (function () {
     chainOpen: false,         // the chain popover, independent of the main panel
     chainWarnedTimeout: null, // the chain.timeout we last toasted for — re-arms on a new timeout
     feedbackOpen: false,
-    loadoutTarget: null,     // user2ID the last capture ran against (#528 Part 2)
-    loadoutSig: null,        // content signature of the last SENT capture — reset when the target changes
+    loadoutTarget: null,     // user2ID of the current attack (#528 Part 2)
+    loadoutSent: false,      // already POSTed for this target — a loadout can't change mid-fight,
+                             // so send at most once per attack, not once per content change; reset
+                             // only when loadoutTarget changes (a genuinely new fight)
   }
 
   function pageUserId() {
@@ -2577,27 +2571,29 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   /**
    * Read-only DOM glue for loadout capture (#528 Part 2) — passive, silent,
-   * appends and reparents nothing. `#modelLayersContainer` is the defender's
-   * rendered character model (the one thing the attack page shows about the
-   * PERSON you're fighting, not your own loadout), so it is the unambiguous
-   * defender signal the armour read is scoped to.
+   * appends and reparents nothing.
    *
-   * The weapon wrapper ids (`#weapon_main` etc.) are NOT similarly scoped by
-   * Torn — #528's own DOM research found the same ids used for both sides —
-   * so this walks up from the model container to the nearest ancestor that
-   * ALSO contains a weapon wrapper, and reads only from inside that ancestor.
-   * That ancestor is "whatever panel renders the defender", whatever Torn
-   * happens to call it, without hard-coding a hashed class name that will
-   * rot the next time Torn ships a CSS-module rebuild.
+   * ⚠️ `#modelLayersContainer` and the weapon wrapper ids (`#weapon_main`
+   * etc.) are BOTH duplicated by Torn, once per side — the attacker's own
+   * panel carries the identical ids. A bare `document.querySelector('#…')`
+   * always resolves to the FIRST match, and the attacker's panel is always
+   * first in document order, so every capture was silently reading the
+   * attacker's OWN gear as if it were the target's (caught live in
+   * production — three real captures, every one just MonChoon's own
+   * loadout). `defender___<hash>` is the one class fragment Torn puts only
+   * on the opponent's weapon wrappers — present pre-fight (on the empty
+   * "not available" slots) and mid-fight alike — so anchor there instead and
+   * walk up to the shared ancestor panel, then scope every subsequent read
+   * inside it.
    */
   function defenderScopeElement() {
     if (typeof document === 'undefined') return null
-    const model = document.querySelector('#modelLayersContainer')
-    if (!model) return null
-    let el = model.parentElement
+    const defenderWeapon = document.querySelector('[class*="defender___"]')
+    if (!defenderWeapon) return null
+    let el = defenderWeapon.parentElement
     let hops = 0
     while (el && hops < 12) {
-      if (el.querySelector('#weapon_main, #weapon_second, #weapon_melee, #weapon_temp')) return el
+      if (el.querySelector('#modelLayersContainer')) return el
       el = el.parentElement
       hops++
     }
@@ -2620,10 +2616,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return out
   }
 
-  function captureArmor() {
+  /** Scoped to the same defender ancestor captureWeapons() reads — see
+   *  defenderScopeElement()'s own note on why an unscoped, document-wide
+   *  read silently pulled in the attacker's own armour too. */
+  function captureArmor(scope) {
     const out = {}
-    if (typeof document === 'undefined') return out
-    const areas = document.querySelectorAll('#modelLayersContainer map area[title][alt]')
+    if (!scope) return out
+    const areas = scope.querySelectorAll('#modelLayersContainer map area[title][alt]')
     for (const area of areas) {
       const slot = mapArmorAltToSlot(area.getAttribute('alt'))
       const name = (area.getAttribute('title') || '').trim()
@@ -2633,36 +2632,41 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return out
   }
 
-  /** Assembles one capture, or null when the defender's model isn't rendered
-   *  yet (pre-fight) or nothing readable was found on it. */
+  /** Assembles one capture, or null when the defender's panel isn't
+   *  identifiable yet (pre-fight) or nothing readable was found on it. */
   function captureLoadout() {
-    if (typeof document === 'undefined' || !document.querySelector('#modelLayersContainer')) return null
-    const loadout = { weapons: captureWeapons(defenderScopeElement()), armor: captureArmor() }
+    const scope = defenderScopeElement()
+    if (!scope) return null
+    const loadout = { weapons: captureWeapons(scope), armor: captureArmor(scope) }
     return loadoutIsEmpty(loadout) ? null : loadout
   }
 
   /**
    * Runs every poll tick on the attack page (#528: "passive and silent... do
-   * not re-POST on every render tick for the same fight"). Dedupes by content
-   * signature, reset whenever the URL's target id changes, so a steady-state
-   * fight (nothing revealed yet, or nothing changed since our last send)
-   * costs nothing beyond one DOM read per tick.
+   * not re-POST on every render tick for the same fight"). Sends AT MOST ONCE
+   * per attack, not once per content change — a loadout cannot change once a
+   * fight is under way, so there is nothing to gain from re-sending a fuller
+   * read as Torn progressively reveals more of it, and doing so was flooding
+   * the endpoint with near-duplicate rows for a single fight (MonChoon,
+   * 2026-08-23). `rt.loadoutSent` latches true on the first successful POST
+   * and only resets when the URL's target id changes to a genuinely new
+   * fight — a failed POST does NOT latch, so a transient error gets retried
+   * on the next tick rather than silently giving up for the rest of the fight.
    */
   async function checkLoadoutCapture() {
     if (!isAttackPage() || !rt.session) return
     const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
     if (!targetId) return
-    if (rt.loadoutTarget !== targetId) { rt.loadoutTarget = targetId; rt.loadoutSig = null }
+    if (rt.loadoutTarget !== targetId) { rt.loadoutTarget = targetId; rt.loadoutSent = false }
+    if (rt.loadoutSent) return
 
     const loadout = captureLoadout()
     if (!loadout) return
-    const sig = loadoutSignature(loadout)
-    if (sig === rt.loadoutSig) return
 
     try {
       const res = await api('/api/war-room/loadout', 'POST', { target_id: targetId, loadout })
       if (res.status === 200) {
-        rt.loadoutSig = sig
+        rt.loadoutSent = true
       } else {
         log(`loadout capture rejected (${res.status}): ${res.body?.error ?? 'unknown error'}`)
       }
@@ -3392,14 +3396,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT,
     SETTING_MEMBER_COUNT, DEBUG_KEY,
     FLIGHT_SECONDS, PLANE_TYPE_METHOD,
-    // #528 Part 2: enemy loadout capture — the pure parse/dedupe seam. The
-    // DOM-walking glue (defenderScopeElement, captureWeapons, captureArmor,
-    // captureLoadout, checkLoadoutCapture) is deliberately NOT exported here,
-    // same reasoning as every other DOM-touching helper in this file: there
-    // is no `document` in the test harness to exercise it against (see
-    // __tests__/tnlDibs.test.js's own header comment).
+    // #528 Part 2: enemy loadout capture — the pure parse/dedupe seam, plus
+    // the DOM-scoping functions (exported despite reading `document`, via
+    // loadWithDom()'s fake DOM — the attacker-vs-defender scoping bug this
+    // session shipped to production lived exactly here and nowhere else,
+    // which is the whole argument for testing it directly rather than
+    // trusting the pure helpers alone to catch it).
     parseWeaponAriaLabel, weaponItemIdFromSrc, mapArmorAltToSlot,
-    loadoutIsEmpty, loadoutSignature,
+    loadoutIsEmpty,
+    defenderScopeElement, captureWeapons, captureArmor, captureLoadout,
   }
 })()
 

@@ -26,6 +26,7 @@ import {
 } from '../utils/warRoomApiV2'
 import { apiGet, apiPut } from '../utils/apiClient'
 import MemberNoteButton from '../components/warroom/MemberNoteButton'
+import LoadoutShieldIcon from '../components/warroom/LoadoutShieldIcon'
 import { isOverdosed, canEditMemberNotes, notesByMember } from '../utils/memberNotes'
 import {
   THEM, US, DEFAULT_ROSTER_SIDE,
@@ -3189,6 +3190,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             {isOverdosed(m) && (
                               <span title="Overdosed" className="px-1 py-0.5 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold">OD</span>
                             )}
+                            <LoadoutShieldIcon loadoutRow={loadout[m.member_id]} />
                             <MemberNoteButton
                               memberId={m.member_id}
                               memberName={m.member_name}

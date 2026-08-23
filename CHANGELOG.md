@@ -18,7 +18,39 @@ surface it automatically.
 
 ---
 
-## [3.53.2] - 2026-08-22
+## [3.54.0] - 2026-08-23
+
+### Added
+- **A loadout shield icon next to each member's name in the War Room
+  (#528 Part 2 follow-up).** Hovering shows the latest observed loadout —
+  weapons and armour, who saw it, and its age — in the same CSS-only
+  group-hover tooltip style `BattleStatsCell` already uses, so it reads as
+  the same visual language as the Stats column rather than a new one.
+  Placed before the notes pencil. Renders nothing for the (usual) case of a
+  member nobody has fought yet; dims once the observation passes the
+  existing 1h staleness threshold. The Flags column's own 🎯 loadout flag is
+  unchanged — this is the same fact placed where a lead is already looking
+  when reading names, not a replacement for the scan-the-flags view.
+
+## [3.53.3] - 2026-08-23
+
+### Fixed
+- **Loadout capture (#528 Part 2) was reading the attacker's own gear, not
+  the target's.** Torn ships the SAME ids — `#modelLayersContainer` and
+  every `#weapon_*` — on both the attacker's and the defender's panel, and
+  the attacker's panel is always first in document order, so an unscoped
+  `document.querySelector('#modelLayersContainer')` silently grabbed the
+  wrong side every time. Caught live in production: three real captures,
+  every one MonChoon's own weapons and armour. Now anchors on
+  `defender___<hash>`, the one class fragment Torn puts only on the
+  opponent's weapon wrappers (confirmed present pre-fight and mid-fight),
+  and scopes every subsequent DOM read inside that ancestor instead of the
+  whole document.
+- **The userscript now sends a loadout capture at most once per attack**,
+  not once per content change. A loadout cannot change once a fight is under
+  way, so re-sending as Torn progressively revealed more of the DOM was
+  producing multiple near-duplicate rows for a single fight. A failed POST
+  does not latch, so a transient error still retries on the next tick.
 
 ### Changed
 - **Assist requests use real icons now, not emoji (#523).** Smoke, tear gas
