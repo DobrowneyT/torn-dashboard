@@ -1,6 +1,6 @@
 {
   "name": "torn-dashboard",
-  "version": "3.52.4",
+  "version": "3.53.2",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -17,5 +17,8 @@
   },
   "dependencies": {
     "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
   }
 }

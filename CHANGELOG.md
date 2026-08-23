@@ -18,7 +18,7 @@ surface it automatically.
 
 ---
 
-## [3.52.4] - 2026-08-22
+## [3.53.2] - 2026-08-22
 
 ### Changed
 - **Assist requests use real icons now, not emoji (#523).** Smoke, tear gas
@@ -31,6 +31,50 @@ surface it automatically.
   exact same Lucide paths as raw SVG instead. Same three surfaces as before:
   the attack-page overlay buttons and the Dibs-badge morph on both the
   faction page and the War Room.
+
+## [3.53.1] - 2026-08-22
+
+### Fixed
+- **War Room: Farm mode no longer interleaves abroad targets into the
+  timer-sorted list (#561).** A released hospital timer means "no longer
+  hospitalized," not "attackable soon" — an abroad target still needs real
+  travel time back to Torn, so a soon-to-release hospitalized-abroad member
+  used to sort right next to a domestic target that really was about to be
+  hittable. Farm mode now splits travelling/abroad/hospitalized-abroad
+  targets (the same predicate already used for the Status filter chips and
+  the ✈ row flag) into their own "Abroad" section below the main list, sorted
+  by battle stats instead of timer. Desktop and mobile both share the new
+  `splitFarmAbroad`/`isAbroadTarget` in `warRoomFarmSort.js`. Every other
+  sort column is unchanged.
+
+## [3.53.0] - 2026-08-22
+
+### Added
+- **Passive enemy loadout capture from the attack page (#528 Part 2).** Once
+  Torn reveals a defender's gear (weapons/armor stay hidden until the fight
+  actually starts — Torn does NOT expose them pre-fight), the userscript
+  captures it by NAME (`aria-label`/`<area title>`, never image `src` — a
+  gear-hiding third-party script can strip `<img src>` but has no reason to
+  touch either of those) and posts it silently in the background, deduped by
+  content signature per fight so it never re-sends on every poll tick. Adds
+  no visible control to the attack page — read-only, nothing wrapped, moved,
+  covered or intercepted.
+  - New append-only table `war_room_loadout_observations_v2` — deliberately
+    NOT `war_room_state_v2`, which is the live per-member delta overwritten
+    every tick; a loadout observation is a provenanced, point-in-time fact
+    about one player and every one of them is kept.
+  - `POST /api/war-room/loadout` validates shape and bounds size (schema-
+    checked slot names, ≤100-char item names, ≤4KB payload) and rate-limits
+    30 captures/5min per member — a legitimate capture happens once per
+    fight, so this only ever catches a modified client trying to fill the
+    table.
+  - The War Room's Flags column shows a 🎯 flag with the latest observation
+    per target on hover (per-slot names, who saw it, and its age), dimmed
+    once past 1h since a stale loadout shown confidently is worse than none.
+  - Retention: a daily hard-prune deletes observations past 30 days,
+    unconditional (not behind the scraper job table's admin opt-in) — this is
+    intel about individual players gathered by us, not data Torn hands out,
+    so the retention promise holds from the moment the feature is live.
 
 ## [3.52.3] - 2026-08-22
 
