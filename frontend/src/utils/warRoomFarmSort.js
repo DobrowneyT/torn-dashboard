@@ -43,6 +43,63 @@ function bspDescNullsLast(a, b) {
   return b.bsp - a.bsp
 }
 
+/**
+ * Abroad predicate for the farm-mode Abroad section (#561): true for
+ * travelling, abroad, and hospitalized-abroad targets. Deliberately the same
+ * concept as `stateToFilterKey(...) === 'Flying'` (duplicated in both war
+ * rooms for the Status filter chips and the ✈ row flag in warRoomFlags.js) —
+ * centralized here, once, for the same reason `isGreenTarget` is: two
+ * separately-maintained copies of "is this target abroad" would eventually
+ * disagree, and the failure mode is a target sorted into the wrong section.
+ *
+ * Why this matters for farm mode specifically: a released hospital timer
+ * means "no longer hospitalized", not "attackable soon" — an abroad target
+ * still needs real travel time back to Torn. Interleaving them into the
+ * timer-driven main ordering (by release time) reads as "back soon" when it
+ * is not, so farm mode segregates them into their own trailing section
+ * instead (`splitFarmAbroad` below).
+ *
+ * Reads both row shapes (#479): the desktop table's flat DB rows
+ * (`status_state`/`status_description`) and the mobile overlay's camelCase
+ * projection (`state`/`description`).
+ */
+export function isAbroadTarget(member) {
+  const state = member?.status_state ?? member?.state
+  const description = member?.status_description ?? member?.description
+  if (state === 'Traveling' || state === 'Abroad') return true
+  if (state === 'Hospital') {
+    return /^(In (?:a|an) .*? hospital)\b/i.test(description ?? '')
+  }
+  return false
+}
+
+/**
+ * Splits an already-filtered roster into farm mode's two sections (#561):
+ * the main list (unchanged two-tier ordering, via `farmCompare`) and a
+ * trailing Abroad section for anyone `isAbroadTarget` flags.
+ *
+ * The Abroad section sorts by battle stats descending, nulls last — the same
+ * tone `farmCompare`'s own tiers already use — rather than by timer, because
+ * an abroad target's timer does not mean "attackable soon" the way a
+ * domestic hospital target's does (see `isAbroadTarget`). Absent a stronger
+ * signal (e.g. modelled flight time home), stats-desc is the safe default:
+ * it still surfaces the most dangerous abroad targets first.
+ *
+ * `toFarmTarget` is the caller's own `{ isGreen, okay, until, bsp, okayAt }`
+ * projection (both war rooms already build one of these for `farmCompare`;
+ * row shapes differ between the two, so the projection stays caller-owned).
+ */
+export function splitFarmAbroad(members, toFarmTarget) {
+  const main = []
+  const abroad = []
+  for (const m of members) {
+    (isAbroadTarget(m) ? abroad : main).push(m)
+  }
+  main.sort((a, b) => farmCompare(toFarmTarget(a), toFarmTarget(b)))
+  abroad.sort((a, b) => bspDescNullsLast(toFarmTarget(a), toFarmTarget(b)))
+  return { main, abroad }
+}
+
 export function farmCompare(a, b) {
   // Tier 0 vs 1: the green attack button always wins the top of the list.
   if (a.isGreen !== b.isGreen) return a.isGreen ? -1 : 1
