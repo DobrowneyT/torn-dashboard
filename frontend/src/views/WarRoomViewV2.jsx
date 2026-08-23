@@ -71,7 +71,7 @@ import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs, fireAlert, surgeAlertKind } from '../utils/warRoomAlerts'
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
 import { isGreenTarget, splitFarmAbroad } from '../utils/warRoomFarmSort'
-import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon } from 'lucide-react'
+import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon, CloudFog, Droplet, LifeBuoy } from 'lucide-react'
 import HelpPanel from '../components/warroom/HelpPanel'
 import SpotlightTour from '../components/warroom/SpotlightTour'
 import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
@@ -91,6 +91,9 @@ import { assistBadgeState } from '../utils/assistBadge.js'
 
 const STATUS_FILTERS   = ['Okay', 'Hospital', 'Flying', 'Jail']
 const ACTIVITY_FILTERS = ['Online', 'Idle', 'Offline']
+
+/** assistBadgeState() hands back a Lucide icon NAME (it has no JSX of its own to render one). */
+const ASSIST_ICONS = { 'cloud-fog': CloudFog, droplet: Droplet, 'life-buoy': LifeBuoy }
 
 function formatCountdown(secondsRemaining) {
   if (secondsRemaining <= 0) return '—'
@@ -3328,15 +3331,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             // The assist mode is a plain link straight to the
                             // fight, not a claim/release control.
                             if (st.mode === 'assist') {
+                              const AssistIcon = ASSIST_ICONS[st.icon]
                               return (
                                 <a
                                   href={st.href}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   title={st.title}
+                                  aria-label={st.title}
                                   className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border max-w-[9rem] transition-colors border-orange-400 text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40"
                                 >
-                                  <span className="truncate">{st.label}</span>
+                                  {AssistIcon ? <AssistIcon size={12} className="shrink-0" /> : <span className="truncate">{st.label}</span>}
                                 </a>
                               )
                             }

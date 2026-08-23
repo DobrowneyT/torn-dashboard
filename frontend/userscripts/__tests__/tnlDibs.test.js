@@ -3281,7 +3281,8 @@ describe('badgeState', () => {
     const assist = { kind: 'smoke', by: 1300, name: 'Scout', at: new Date().toISOString() }
     const st = S.badgeState(dib, assist, 90200, ME)
     expect(st.mode).toBe('assist')
-    expect(st.label).toBe('🚬')
+    expect(st.label).toBe('Smoke')
+    expect(st.icon).toBe('cloud-fog')
     expect(st.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=90200')
     expect(st.title).toContain('Smoke')
     expect(st.title).toContain('Scout')
@@ -3301,12 +3302,74 @@ describe('badgeState', () => {
     expect(st).toMatchObject({ mode: 'dibs', action: 'release', mine: true, href: null })
   })
 
-  it('shows each kind with its own short icon (BADGE_MAX is tight)', () => {
+  it('shows each kind with its own Lucide icon name — matching the dashboard, not an emoji', () => {
     const { S } = loadScript()
     const at = new Date().toISOString()
-    expect(S.badgeState(null, { kind: 'smoke', by: 1, at }, 1, ME).label).toBe('🚬')
-    expect(S.badgeState(null, { kind: 'tear', by: 1, at }, 1, ME).label).toBe('💨')
-    expect(S.badgeState(null, { kind: 'help', by: 1, at }, 1, ME).label).toBe('🆘')
+    expect(S.badgeState(null, { kind: 'smoke', by: 1, at }, 1, ME).icon).toBe('cloud-fog')
+    expect(S.badgeState(null, { kind: 'tear', by: 1, at }, 1, ME).icon).toBe('droplet')
+    expect(S.badgeState(null, { kind: 'help', by: 1, at }, 1, ME).icon).toBe('life-buoy')
+  })
+})
+
+describe('assistIconSvg (#523 icon pass) — inlines the same Lucide paths the dashboard renders as components', () => {
+  it('returns a real <svg> for each known assist icon', () => {
+    const { S } = loadScript()
+    for (const key of ['cloud-fog', 'droplet', 'life-buoy']) {
+      const svg = S.assistIconSvg(key)
+      expect(svg).toContain('<svg')
+      expect(svg).toContain('viewBox="0 0 24 24"')
+      expect(svg).toContain('stroke="currentColor"')
+    }
+  })
+
+  it('⚠️ is empty for an unknown key, never a raw [object Object] or a thrown error', () => {
+    const { S } = loadScript()
+    expect(S.assistIconSvg('not-a-real-icon')).toBe('')
+  })
+
+  it('draws a different path per icon — they must not silently collapse to the same glyph', () => {
+    const { S } = loadScript()
+    const svgs = ['cloud-fog', 'droplet', 'life-buoy'].map((k) => S.assistIconSvg(k))
+    expect(new Set(svgs).size).toBe(3)
+  })
+})
+
+describe('paintDibs renders a real icon for an active assist, not the old emoji text', () => {
+  const fakeBadge = () => {
+    const toggled = []
+    return {
+      textContent: '', innerHTML: '', title: '',
+      classList: {
+        toggle: (cls, on) => toggled.push([cls, on]),
+        remove: () => {},
+      },
+      _toggled: toggled,
+    }
+  }
+
+  it('sets innerHTML to a real <svg>, leaving textContent untouched, for a known icon', () => {
+    const { S } = loadScript()
+    const badge = fakeBadge()
+    S.paintDibs(badge, { mode: 'assist', icon: 'cloud-fog', label: 'Smoke', title: 'Smoke requested by you · just now' })
+    expect(badge.innerHTML).toContain('<svg')
+    expect(badge.textContent).toBe('')
+    expect(badge.title).toBe('Smoke requested by you · just now')
+  })
+
+  it('⚠️ falls back to the label text for an unrecognised icon key rather than leaving the badge blank', () => {
+    const { S } = loadScript()
+    const badge = fakeBadge()
+    S.paintDibs(badge, { mode: 'assist', icon: 'not-a-real-icon', label: 'Assist', title: 't' })
+    expect(badge.innerHTML).toBe('')
+    expect(badge.textContent).toBe('Assist')
+  })
+
+  it('dibs mode is untouched — plain text, no innerHTML written', () => {
+    const { S } = loadScript()
+    const badge = fakeBadge()
+    S.paintDibs(badge, { mode: 'dibs', label: 'Dibs', action: 'claim', mine: false, taken: false })
+    expect(badge.textContent).toBe('Dibs')
+    expect(badge.innerHTML).toBe('')
   })
 })
 

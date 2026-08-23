@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.37.0
+// @version      1.37.1
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -480,11 +480,35 @@ const TNLDibs = (function () {
     }
   }
 
-  /** Icon + label per assist kind (#523) — kept short, the badge is width-constrained. */
+  /** Icon key + label per assist kind (#523) — kept short, the badge is width-constrained. */
   const ASSIST_KIND_META = {
-    smoke: { icon: '🚬', label: 'Smoke' },
-    tear: { icon: '💨', label: 'Tear gas' },
-    help: { icon: '🆘', label: 'Help' },
+    smoke: { icon: 'cloud-fog', label: 'Smoke' },
+    tear: { icon: 'droplet', label: 'Tear gas' },
+    help: { icon: 'life-buoy', label: 'Help' },
+  }
+
+  /**
+   * Lucide's own paths (matching the dashboard's installed lucide-react
+   * version, so the two never visually drift), inlined byte-for-byte — this
+   * file has no build step and cannot `import` the npm package the dashboard
+   * uses (frontend/src/utils/assistBadge.js), so this is the userscript's
+   * side of the same icon-name → glyph mapping.
+   */
+  const ASSIST_ICON_PATHS = {
+    'cloud-fog': '<path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />'
+      + '<path d="M16 17H7" /><path d="M17 21H9" />',
+    droplet: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" />',
+    'life-buoy': '<circle cx="12" cy="12" r="10" /><path d="m4.93 4.93 4.24 4.24" />'
+      + '<path d="m14.83 9.17 4.24-4.24" /><path d="m14.83 14.83 4.24 4.24" />'
+      + '<path d="m9.17 14.83-4.24 4.24" /><circle cx="12" cy="12" r="4" />',
+  }
+
+  function assistIconSvg(iconKey, size = 14) {
+    const body = ASSIST_ICON_PATHS[iconKey]
+    if (!body) return ''
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" `
+      + `fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" `
+      + `style="display:block">${body}</svg>`
   }
 
   /**
@@ -505,12 +529,13 @@ const TNLDibs = (function () {
    */
   function badgeState(dib, assist, targetId, currentUserId, isAdmin = false) {
     if (assist) {
-      const meta = ASSIST_KIND_META[assist.kind] ?? { icon: '🆘', label: assist.kind ?? 'Assist' }
+      const meta = ASSIST_KIND_META[assist.kind] ?? { icon: 'life-buoy', label: assist.kind ?? 'Assist' }
       const mine = String(assist.by) === String(currentUserId)
       const who = mine ? 'you' : (assist.name ?? 'someone')
       return {
         mode: 'assist',
-        label: meta.icon,
+        label: meta.label,
+        icon: meta.icon,
         href: attackUrl(targetId),
         action: null,
         mine,
@@ -1429,9 +1454,13 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
 .${BADGE_CLASS}.${MINE_CLASS}:hover { background: #2563eb; }
 .${BADGE_CLASS}.${TAKEN_CLASS} { background: #c2410c; cursor: default; }
 .${BADGE_CLASS}.${TAKEN_CLASS}:hover { background: #c2410c; }
-/* #523 first cut — a live assist request morphs this same badge; a visual
-   pass is expected once this has been seen live. */
-.${BADGE_CLASS}.${ASSIST_CLASS} { background: #ea580c; font-weight: 700; cursor: pointer; }
+/* A live assist request morphs this same badge into a small icon-only link
+   (#523) — display:flex centres the inlined SVG the way text-align never
+   quite does for a block-level icon. */
+.${BADGE_CLASS}.${ASSIST_CLASS} {
+  background: #ea580c; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
 .${BADGE_CLASS}.${ASSIST_CLASS}:hover { background: #f97316; }
 
 .members-cont [class*="points___"]:not([class*="tab___"]),
@@ -1717,13 +1746,19 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   // swapping it for a real anchor later is a small, contained diff.
   function paintDibs(badge, state) {
     if (!badge) return
-    badge.textContent = state.label
     badge.classList.toggle(ASSIST_CLASS, state.mode === 'assist')
     if (state.mode === 'assist') {
+      // A real Lucide-matching icon, not the label text — see
+      // assistIconSvg()'s own note on why this file inlines the paths
+      // rather than importing the component the dashboard uses.
+      const svg = assistIconSvg(state.icon)
+      if (svg) badge.innerHTML = svg
+      else badge.textContent = state.label
       badge.classList.remove(MINE_CLASS, TAKEN_CLASS)
       badge.title = state.title
       return
     }
+    badge.textContent = state.label
     badge.classList.toggle(MINE_CLASS, Boolean(state.mine))
     badge.classList.toggle(TAKEN_CLASS, Boolean(state.taken) && !state.mine)
     badge.title = state.mine
@@ -2469,9 +2504,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   pointer-events: auto;
 }
 #${ASSIST_OVERLAY_ID} button {
-  font: 16px/1 system-ui, sans-serif; width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
   border-radius: 6px; border: 1px solid #4b5563; background: #1f2937;
-  color: #e5e7eb; cursor: pointer; line-height: 28px; text-align: center; padding: 0;
+  color: #e5e7eb; cursor: pointer; padding: 0;
 }
 #${ASSIST_OVERLAY_ID} button:hover { background: #374151; }
 #${ASSIST_OVERLAY_ID} button.${ASSIST_BTN_ACTIVE_CLASS} { background: #ea580c; border-color: #ea580c; }
@@ -2491,7 +2527,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       btn.type = 'button'
       btn.dataset.tnlKind = kind
       btn.title = meta.label
-      btn.textContent = meta.icon
+      const svg = assistIconSvg(meta.icon, 16)
+      if (svg) btn.innerHTML = svg
+      else btn.textContent = meta.label
       btn.addEventListener('click', async (e) => {
         e.preventDefault(); e.stopPropagation()
         const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
@@ -3330,6 +3368,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // and the write functions the attack-page overlay calls.
     factionPageMatch, attackPageMatch, attackTargetId, isFactionPage, isAttackPage,
     indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
+    assistIconSvg, paintDibs,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,

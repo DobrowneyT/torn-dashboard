@@ -14,18 +14,19 @@ describe('assistBadgeState', () => {
     const assist = { requester_id: 1300, requester_name: 'Scout', kind: 'smoke', created_at: new Date().toISOString() }
     const st = assistBadgeState(dib, assist, 90200, ME)
     expect(st.mode).toBe('assist')
-    expect(st.label).toBe('🚬')
+    expect(st.label).toBe('Smoke')
+    expect(st.icon).toBe('cloud-fog')
     expect(st.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=90200')
     expect(st.title).toContain('Smoke')
     expect(st.title).toContain('Scout')
     expect(st.action).toBeNull()
   })
 
-  it('shows each kind with its own icon', () => {
+  it('shows each kind with its own Lucide icon name — a real component reference, not an emoji, cannot survive this pure module', () => {
     const at = new Date().toISOString()
-    expect(assistBadgeState(null, { requester_id: 1, kind: 'smoke', created_at: at }, 1, ME).label).toBe('🚬')
-    expect(assistBadgeState(null, { requester_id: 1, kind: 'tear', created_at: at }, 1, ME).label).toBe('💨')
-    expect(assistBadgeState(null, { requester_id: 1, kind: 'help', created_at: at }, 1, ME).label).toBe('🆘')
+    expect(assistBadgeState(null, { requester_id: 1, kind: 'smoke', created_at: at }, 1, ME).icon).toBe('cloud-fog')
+    expect(assistBadgeState(null, { requester_id: 1, kind: 'tear', created_at: at }, 1, ME).icon).toBe('droplet')
+    expect(assistBadgeState(null, { requester_id: 1, kind: 'help', created_at: at }, 1, ME).icon).toBe('life-buoy')
   })
 
   it('reads "you" in the title when the current user is the requester', () => {
