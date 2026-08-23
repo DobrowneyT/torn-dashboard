@@ -817,6 +817,28 @@ CREATE UNIQUE INDEX war_room_assists_v2_active_requester_idx
 CREATE INDEX war_room_assists_v2_active_target_idx
   ON public.war_room_assists_v2 (target_id) WHERE (deleted_at IS NULL);
 
+-- #528 Part 2: enemy loadout observations captured from the attack page once
+-- Torn reveals them. Deliberately its OWN table, not war_room_state_v2 — see
+-- db/migrations/0046-war-room-loadout-observations.sql for the full reasoning
+-- (append-only provenance, hard-pruned rather than tombstoned).
+CREATE TABLE public.war_room_loadout_observations_v2 (
+  id bigserial PRIMARY KEY,
+  target_id bigint NOT NULL,
+  observed_by bigint NOT NULL,
+  observed_by_name text NOT NULL,
+  war_id bigint,
+  loadout jsonb NOT NULL,
+  observed_at timestamp with time zone DEFAULT now() NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE INDEX war_room_loadout_observations_v2_target_idx
+  ON public.war_room_loadout_observations_v2 (target_id, observed_at DESC);
+CREATE INDEX war_room_loadout_observations_v2_observed_by_idx
+  ON public.war_room_loadout_observations_v2 (observed_by, created_at);
+CREATE INDEX war_room_loadout_observations_v2_observed_at_idx
+  ON public.war_room_loadout_observations_v2 (observed_at);
+
 CREATE TABLE public.war_room_notes_private_v2 (
   war_id bigint NOT NULL,
   notes text,

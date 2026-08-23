@@ -150,4 +150,26 @@ if (db) {
     pruneTimer.unref?.()
     void runPrune() // once at startup
   }
+
+  // #528 Part 2: daily hard-prune of enemy loadout observations past their
+  // retention window. Unconditional (no operator opt-in), unlike the
+  // scraper-job table's registered-DISABLED default (scraper/scheduler.ts) —
+  // this is real intel about individual players, so the retention promise
+  // in warRoomLoadout.ts must hold from the moment the feature is live, not
+  // from whenever someone remembers to flip a switch in Global Admin.
+  if (db) {
+    const pruneDb = db
+    const runLoadoutPrune = () =>
+      import('./warRoomLoadout.js')
+        .then(({ pruneLoadoutObservations }) => pruneLoadoutObservations(pruneDb))
+        .then((r) => {
+          if (r.pruned) {
+            console.log(`[${factionSlug}] loadout prune: removed ${r.pruned} observation(s) past ${r.retentionDays}d`)
+          }
+        })
+        .catch((err) => console.error(`[${factionSlug}] loadout prune failed:`, err))
+    const loadoutPruneTimer = setInterval(runLoadoutPrune, 24 * 60 * 60 * 1000)
+    loadoutPruneTimer.unref?.()
+    void runLoadoutPrune() // once at startup
+  }
 }
