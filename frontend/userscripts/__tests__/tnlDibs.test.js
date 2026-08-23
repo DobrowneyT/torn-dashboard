@@ -3254,14 +3254,114 @@ describe('enemy loadout capture (#528 Part 2)', () => {
     })
   })
 
-  describe('loadoutSignature', () => {
-    it('is stable for the same content and different across a real change', () => {
-      const { S } = loadScript()
-      const a = { weapons: { primary: { name: 'AK-47' } }, armor: {} }
-      const b = { weapons: { primary: { name: 'AK-47' } }, armor: {} }
-      const c = { weapons: { primary: { name: 'Glock' } }, armor: {} }
-      expect(S.loadoutSignature(a)).toBe(S.loadoutSignature(b))
-      expect(S.loadoutSignature(a)).not.toBe(S.loadoutSignature(c))
+  // ⚠️ Shipped to production once already: Torn duplicates BOTH
+  // #modelLayersContainer and every #weapon_* id across the attacker's own
+  // panel and the defender's, and the attacker's panel is always first in
+  // document order. Three real captures on live production were every one
+  // MonChoon's OWN gear, because the old code read
+  // document.querySelector('#modelLayersContainer') unscoped — the first
+  // match, always the attacker. The fix anchors on `defender___<hash>`, the
+  // one class fragment Torn puts only on the opponent's weapon wrappers, and
+  // scopes every subsequent read inside that ancestor. This harness models
+  // that exact duplicate-id shape so a regression to the unscoped read fails
+  // here, not in a live faction's data.
+  describe('defenderScopeElement / captureWeapons / captureArmor / captureLoadout — attacker vs defender scoping', () => {
+    function fakeElement(props = {}) {
+      return {
+        getAttribute: (name) => props[name] ?? null,
+        querySelector: () => null,
+        ...props,
+      }
+    }
+
+    /** One player panel, with Torn's real duplicate ids: #modelLayersContainer
+     *  and #weapon_main/#weapon_second/#weapon_melee/#weapon_temp — only a
+     *  defender's weapon wrappers additionally carry a `defender___` class. */
+    function fakePanel({ isDefender, weapons, armorAreas }) {
+      const weaponEls = {}
+      for (const [id, ariaLabel] of Object.entries(weapons)) {
+        weaponEls[id] = fakeElement({
+          'aria-label': ariaLabel,
+          className: isDefender ? 'weaponWrapper___x defender___y7z' : 'weaponWrapper___x',
+        })
+      }
+      const areaEls = armorAreas.map(([alt, title]) => fakeElement({ alt, title }))
+      const panel = {
+        querySelector(sel) {
+          if (sel === '#modelLayersContainer') return fakeElement({ id: 'modelLayersContainer' })
+          const id = sel.startsWith('#') ? sel.slice(1) : null
+          return (id && weaponEls[id]) || null
+        },
+        querySelectorAll(sel) {
+          return sel === '#modelLayersContainer map area[title][alt]' ? areaEls : []
+        },
+      }
+      // The specific weapon node document.querySelector('[class*="defender___"]')
+      // would find live — its parentElement is this panel, exactly like Torn's
+      // real markup (weapon wrapper -> playerArea -> ... -> player panel).
+      return { panel, defenderWeaponMain: weaponEls.weapon_main }
+    }
+
+    function loadDomWithFight() {
+      const { S, document: doc } = loadWithDom()
+      const attacker = fakePanel({
+        isDefender: false,
+        weapons: { weapon_main: 'Attack with Steyr AUG', weapon_second: 'Attack with China Lake' },
+        armorAreas: [['Chest', 'Vanguard Body'], ['Helmet', 'Vanguard Respirator']],
+      })
+      const defender = fakePanel({
+        isDefender: true,
+        weapons: { weapon_main: 'Attack with Jackhammer', weapon_second: 'Attack with Dual 92G Berettas' },
+        armorAreas: [['Chest', 'Combat Vest'], ['Helmet', 'Combat Helmet']],
+      })
+      defender.defenderWeaponMain.parentElement = defender.panel
+      // Matches real behaviour: an unscoped '#modelLayersContainer' lookup
+      // finds the ATTACKER's copy first — this is what the old, buggy code
+      // asked for, and is exactly why it read the wrong side.
+      doc.querySelector = (sel) => {
+        if (sel === '[class*="defender___"]') return defender.defenderWeaponMain
+        if (sel === '#modelLayersContainer') return fakeElement({ id: 'modelLayersContainer' })
+        return null
+      }
+      return { S, attacker, defender }
+    }
+
+    it('defenderScopeElement() resolves to the DEFENDER panel, not the attacker\'s (which is first in document order)', () => {
+      const { S, defender } = loadDomWithFight()
+      expect(S.defenderScopeElement()).toBe(defender.panel)
+    })
+
+    it('captureWeapons() scoped to the defender panel reads the DEFENDER\'s weapons, never the attacker\'s', () => {
+      const { S, defender } = loadDomWithFight()
+      const weapons = S.captureWeapons(defender.panel)
+      expect(weapons.primary?.name).toBe('Jackhammer')
+      expect(weapons.secondary?.name).toBe('Dual 92G Berettas')
+      expect(Object.values(weapons).map((w) => w.name)).not.toContain('Steyr AUG')
+    })
+
+    it('captureArmor() scoped to the defender panel reads the DEFENDER\'s armour, never the attacker\'s', () => {
+      const { S, defender } = loadDomWithFight()
+      const armor = S.captureArmor(defender.panel)
+      expect(armor.chest?.name).toBe('Combat Vest')
+      expect(armor.helmet?.name).toBe('Combat Helmet')
+      expect(Object.values(armor).map((a) => a.name)).not.toContain('Vanguard Body')
+    })
+
+    it('⚠️ captureLoadout() end-to-end never returns the attacker\'s own gear — the exact bug three real production captures shipped', () => {
+      const { S } = loadDomWithFight()
+      const loadout = S.captureLoadout()
+      expect(loadout.weapons.primary?.name).toBe('Jackhammer')
+      expect(loadout.armor.chest?.name).toBe('Combat Vest')
+      const allNames = [...Object.values(loadout.weapons), ...Object.values(loadout.armor)].map((e) => e.name)
+      expect(allNames).not.toContain('Steyr AUG')
+      expect(allNames).not.toContain('Vanguard Body')
+    })
+
+    it('is null when no defender weapon wrapper is found at all (e.g. the faction page, or a torn.com layout change)', () => {
+      const { S, document: doc } = loadWithDom()
+      doc.querySelector = () => null
+      expect(S.defenderScopeElement()).toBeNull()
+      expect(S.captureLoadout()).toBeNull()
     })
   })
 })
