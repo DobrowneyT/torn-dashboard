@@ -18,7 +18,25 @@ surface it automatically.
 
 ---
 
-## [3.53.2] - 2026-08-22
+## [3.53.3] - 2026-08-23
+
+### Fixed
+- **Loadout capture (#528 Part 2) was reading the attacker's own gear, not
+  the target's.** Torn ships the SAME ids — `#modelLayersContainer` and
+  every `#weapon_*` — on both the attacker's and the defender's panel, and
+  the attacker's panel is always first in document order, so an unscoped
+  `document.querySelector('#modelLayersContainer')` silently grabbed the
+  wrong side every time. Caught live in production: three real captures,
+  every one MonChoon's own weapons and armour. Now anchors on
+  `defender___<hash>`, the one class fragment Torn puts only on the
+  opponent's weapon wrappers (confirmed present pre-fight and mid-fight),
+  and scopes every subsequent DOM read inside that ancestor instead of the
+  whole document.
+- **The userscript now sends a loadout capture at most once per attack**,
+  not once per content change. A loadout cannot change once a fight is under
+  way, so re-sending as Torn progressively revealed more of the DOM was
+  producing multiple near-duplicate rows for a single fight. A failed POST
+  does not latch, so a transient error still retries on the next tick.
 
 ### Changed
 - **Assist requests use real icons now, not emoji (#523).** Smoke, tear gas
