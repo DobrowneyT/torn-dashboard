@@ -18,6 +18,20 @@ surface it automatically.
 
 ---
 
+## [3.54.0] - 2026-08-23
+
+### Added
+- **A loadout shield icon next to each member's name in the War Room
+  (#528 Part 2 follow-up).** Hovering shows the latest observed loadout —
+  weapons and armour, who saw it, and its age — in the same CSS-only
+  group-hover tooltip style `BattleStatsCell` already uses, so it reads as
+  the same visual language as the Stats column rather than a new one.
+  Placed before the notes pencil. Renders nothing for the (usual) case of a
+  member nobody has fought yet; dims once the observation passes the
+  existing 1h staleness threshold. The Flags column's own 🎯 loadout flag is
+  unchanged — this is the same fact placed where a lead is already looking
+  when reading names, not a replacement for the scan-the-flags view.
+
 ## [3.53.3] - 2026-08-23
 
 ### Fixed
