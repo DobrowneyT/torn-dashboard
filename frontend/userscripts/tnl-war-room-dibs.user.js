@@ -2141,7 +2141,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   }
 
   function scoreSortValue(row) {
-    const n = Number(scoreCellOf(row)?.textContent)
+    // Torn comma-formats any score ≥ 1,000 ("1,009.26"), and Number() treats
+    // a comma as invalid rather than a thousands separator — every such row
+    // read as NaN, so a real top score sorted last as "missing" instead of
+    // first (#547). No cell stays no cell: optional-chain past the replace
+    // rather than defaulting to '', or Number('') is 0, not the null a
+    // missing score needs.
+    const n = Number(scoreCellOf(row)?.textContent?.replace(/,/g, ''))
     return Number.isFinite(n) ? n : null
   }
 

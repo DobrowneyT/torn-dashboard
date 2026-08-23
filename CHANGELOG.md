@@ -47,6 +47,18 @@ surface it automatically.
     intel about individual players gathered by us, not data Torn hands out,
     so the retention promise holds from the moment the feature is live.
 
+## [3.52.3] - 2026-08-22
+
+### Fixed
+- **Userscript: sorting by Score buried the actual top score at the bottom
+  of the list (#547).** Torn comma-formats any score of 1,000 or more
+  (`"1,009.26"`), and `Number()` treats a comma as invalid input rather than
+  a thousands separator, so `scoreSortValue()` read every four-digit-plus
+  score as `NaN` — indistinguishable from a genuinely missing score, which
+  always sorts last regardless of direction. Caught live on staging: a
+  member with the highest score in the faction (1,009.26) sorted dead last
+  instead of first. Now strips the comma before parsing.
+
 ## [3.52.2] - 2026-08-22
 
 ### Added
