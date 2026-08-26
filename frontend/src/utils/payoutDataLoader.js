@@ -316,40 +316,9 @@ export function filterItemsForMember(items, memberId) {
   for (const item of (items || [])) {
     if (!item.loaned_to) continue
 
-    let loanedTo = item.loaned_to
-
-    // Parse loaned_to into an array of user ID strings
-    if (typeof loanedTo === 'string') {
-      // Comma-separated is the most common format from Torn API
-      // e.g. "2250591" or "2250591,2749598,3228747"
-      if (loanedTo.includes(',')) {
-        loanedTo = loanedTo.split(',').map(id => id.trim())
-      } else if (loanedTo.startsWith('{') || loanedTo.startsWith('[')) {
-        // JSON object or array
-        try {
-          loanedTo = JSON.parse(loanedTo)
-        } catch (e) {
-          loanedTo = [loanedTo]
-        }
-      } else {
-        // Single ID as string, e.g. "2250591"
-        loanedTo = [loanedTo]
-      }
-    }
-
-    // Normalize to number → single-element array
-    if (typeof loanedTo === 'number') {
-      loanedTo = [loanedTo.toString()]
-    }
-
-    // Check if member has any of these items
-    let memberLoanCount = 0
-
-    if (Array.isArray(loanedTo)) {
-      memberLoanCount = loanedTo.filter(id => id.toString() === memberId.toString()).length
-    } else if (typeof loanedTo === 'object' && loanedTo !== null) {
-      memberLoanCount = loanedTo[memberId] || 0
-    }
+    // loaned_to is {member_id, member_name, amount}[] (server/src/scraper/inventoryMap.ts).
+    const loan = (item.loaned_to || []).find(l => String(l.member_id) === String(memberId))
+    const memberLoanCount = loan ? Number(loan.amount) || 0 : 0
 
     if (memberLoanCount > 0) {
       // Normalize field names across table/view differences

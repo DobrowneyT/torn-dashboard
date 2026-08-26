@@ -10,7 +10,6 @@ UNION ALL SELECT 'member_daily_stats',      count(*) FROM member_daily_stats    
 UNION ALL SELECT 'member_battle_stats',     count(*) FROM member_battle_stats       WHERE member_id = :'mid'
 UNION ALL SELECT 'member_stat_samples',     count(*) FROM member_stat_samples       WHERE member_id = :'mid'
 UNION ALL SELECT 'member_cpr_v2',           count(*) FROM member_cpr_v2             WHERE member_id = :'mid'
-UNION ALL SELECT 'member_cpr_data',         count(*) FROM member_cpr_data           WHERE member_id = :'mid'
 UNION ALL SELECT 'member_notes',            count(*) FROM member_notes              WHERE member_id = :'mid'
 UNION ALL SELECT 'member_birthdays',        count(*) FROM member_birthdays          WHERE member_id = :'mid'
 UNION ALL SELECT 'member_event_settings',   count(*) FROM member_event_settings     WHERE member_id = :'mid'

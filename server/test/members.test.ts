@@ -246,7 +246,7 @@ describe('GET /api/inventory/loaned', () => {
   it('returns loaned inventory with weighted prices from the pricing view', async () => {
     await stack.db.query(`
       INSERT INTO inventory_items (id, name, quantity, available, loaned, loaned_to, category) VALUES
-        ('66', 'Morphine', 50, 40, 10, 'Trout [300]', 'medical'),
+        ('66', 'Morphine', 50, 40, 10, '[{"member_id":"300","member_name":"Trout","amount":10}]'::jsonb, 'medical'),
         ('67', 'Xanax', 100, 100, 0, NULL, 'drugs')
     `)
     await stack.db.query(`
@@ -258,7 +258,7 @@ describe('GET /api/inventory/loaned', () => {
     expect(body.items).toHaveLength(1)
     expect(body.items[0].item_id).toBe('66')
     expect(body.items[0].loaned).toBe(10)
-    expect(body.items[0].loaned_to).toBe('Trout [300]')
+    expect(body.items[0].loaned_to).toEqual([{ member_id: '300', member_name: 'Trout', amount: 10 }])
     expect(body.items[0].weighted_avg_price).toBe(20000)
   })
 })

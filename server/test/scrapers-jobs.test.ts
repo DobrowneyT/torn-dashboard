@@ -375,10 +375,17 @@ describe('inventory sync job', () => {
 
     const rows = await stack.db.query(`SELECT * FROM inventory_items ORDER BY id`)
     expect(rows.rows).toHaveLength(3)
-    expect(rows.rows.find((r) => r.id === '206')).toMatchObject({
-      name: 'Xanax', quantity: 3, available: 1, loaned: 2, loaned_to: 'Bob, Sue',
+    const xanax = rows.rows.find((r) => r.id === '206')
+    expect(xanax).toMatchObject({
+      name: 'Xanax', quantity: 3, available: 1, loaned: 2,
       api_type: 'Drug', category: 'drugs',
     })
+    // loaned_to is structured — each borrower's own amount and name, not a
+    // flattened string (a comma-join loses per-borrower amounts entirely).
+    expect(xanax.loaned_to).toEqual([
+      { member_id: '801', member_name: 'Bob', amount: 1 },
+      { member_id: '802', member_name: 'Sue', amount: 1 },
+    ])
     expect(rows.rows.find((r) => r.id === '197')).toMatchObject({
       name: 'Item 197', quantity: 0, available: 0, loaned: 0, category: 'drugs',
     })
@@ -390,6 +397,21 @@ describe('inventory sync job', () => {
     const meta = await stack.db.query(`SELECT synced_by FROM sync_metadata WHERE data_type = 'inventory'`)
     expect(meta.rows).toHaveLength(1)
     expect(meta.rows[0].synced_by).toBe('scraper')
+  })
+
+  it('sums amounts across multiple stacks loaned to the same member', async () => {
+    const { aggregateInventoryRows } = await import('../src/scraper/inventoryMap.js')
+    const rows = aggregateInventoryRows([
+      { id: 226, name: 'Smoke Grenade', type: 'Temporary', amount: 5, loaned: { id: 801, name: 'Bob' }, category: 'temporary' },
+      { id: 226, name: 'Smoke Grenade', type: 'Temporary', amount: 3, loaned: { id: 801, name: 'Bob' }, category: 'temporary' },
+    ])
+    expect(rows).toEqual([
+      {
+        id: '226', name: 'Smoke Grenade', quantity: 8, available: 0, loaned: 8,
+        loaned_to: [{ member_id: '801', member_name: 'Bob', amount: 8 }],
+        api_type: 'Temporary', category: 'temporary',
+      },
+    ])
   })
 
   it('follows pagination past the first 100-row page', async () => {

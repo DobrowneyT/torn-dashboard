@@ -29,7 +29,6 @@ CREATE SEQUENCE public.api_key_rotation_seq;
 CREATE SEQUENCE public.crime_required_items_id_seq AS integer;
 CREATE SEQUENCE public.crime_reward_items_id_seq AS integer;
 CREATE SEQUENCE public.crime_slots_id_seq AS integer;
-CREATE SEQUENCE public.member_cpr_data_id_seq AS integer;
 CREATE SEQUENCE public.oc_crime_positions_id_seq AS integer;
 CREATE SEQUENCE public.oc_crime_types_id_seq AS integer;
 CREATE SEQUENCE public.oc_payout_members_id_seq AS integer;
@@ -319,7 +318,10 @@ CREATE TABLE public.inventory_items (
   quantity integer DEFAULT 0,
   available integer DEFAULT 0,
   loaned integer DEFAULT 0,
-  loaned_to text,
+  -- {member_id, member_name, amount}[] — see inventoryMap.ts. Structured so a
+  -- borrower's loaned amount and display name survive aggregation instead of
+  -- collapsing into a lossy comma-joined string (follow-on fix to #542).
+  loaned_to jsonb,
   api_type text,
   category text,
   last_synced timestamp without time zone DEFAULT now()
@@ -341,19 +343,6 @@ CREATE TABLE public.items (
   last_updated timestamp without time zone DEFAULT now()
 );
 
-CREATE TABLE public.member_cpr_data (
-  id integer DEFAULT nextval('member_cpr_data_id_seq'::regclass) NOT NULL,
-  member_id text NOT NULL,
-  member_name text NOT NULL,
-  tier integer NOT NULL,
-  difficulty_level integer NOT NULL,
-  role_name text NOT NULL,
-  cpr_value numeric NOT NULL,
-  last_scraped timestamp without time zone,
-  tier_last_updated timestamp without time zone,
-  created_at timestamp without time zone DEFAULT now(),
-  updated_at timestamp without time zone DEFAULT now()
-);
 
 CREATE TABLE public.member_cpr_v2 (
   member_id text NOT NULL,
@@ -610,7 +599,13 @@ CREATE TABLE public.war_payout_members (
   regular_hits integer DEFAULT 0,
   mugs integer DEFAULT 0,
   losses integer DEFAULT 0,
-  race_breakdown jsonb
+  race_breakdown jsonb,
+  -- This member's final share of the payout pool (payout_amount / the
+  -- war_payouts row's total_payout), server-computed at save time — not
+  -- trusted from the client, and not the same number as participationShare
+  -- or contributionShare (race_breakdown carries those per pre/post window).
+  -- Backfilled for pre-existing rows by 0049-war-payout-effort-share.sql.
+  effort_share numeric
 );
 
 CREATE TABLE public.war_payouts (
@@ -1152,7 +1147,6 @@ CREATE INDEX IF NOT EXISTS idx_faction_revives_ts ON public.faction_revives USIN
 ALTER TABLE factions ADD CONSTRAINT factions_pkey PRIMARY KEY (id);
 ALTER TABLE inventory_items ADD CONSTRAINT inventory_items_pkey PRIMARY KEY (id);
 ALTER TABLE items ADD CONSTRAINT items_pkey PRIMARY KEY (id);
-ALTER TABLE member_cpr_data ADD CONSTRAINT member_cpr_data_pkey PRIMARY KEY (id);
 ALTER TABLE member_cpr_v2 ADD CONSTRAINT member_cpr_v2_pkey PRIMARY KEY (member_id, crime_name, position_label);
 ALTER TABLE member_daily_stats ADD CONSTRAINT member_daily_stats_pkey PRIMARY KEY (member_id, snapshot_date);
 ALTER TABLE member_overview_thresholds ADD CONSTRAINT member_overview_thresholds_pkey PRIMARY KEY (id);
@@ -1189,7 +1183,6 @@ ALTER TABLE crime_required_items ADD CONSTRAINT crime_required_items_crime_id_po
 ALTER TABLE crime_reward_items ADD CONSTRAINT crime_reward_items_crime_id_item_id_key UNIQUE (crime_id, item_id);
 ALTER TABLE crime_slots ADD CONSTRAINT crime_slots_crime_id_position_id_key UNIQUE (crime_id, position_id);
 ALTER TABLE faction_config ADD CONSTRAINT faction_config_slug_key UNIQUE (slug);
-ALTER TABLE member_cpr_data ADD CONSTRAINT member_cpr_data_member_id_difficulty_level_role_name_key UNIQUE (member_id, difficulty_level, role_name);
 ALTER TABLE oc_crime_positions ADD CONSTRAINT oc_crime_positions_crime_name_position_label_key UNIQUE (crime_name, position_label);
 ALTER TABLE oc_crime_types ADD CONSTRAINT oc_crime_types_name_key UNIQUE (name);
 ALTER TABLE oc_payout_members ADD CONSTRAINT oc_payout_members_week_id_member_id_key UNIQUE (week_id, member_id);
@@ -1228,7 +1221,6 @@ ALTER TABLE war_payouts ADD CONSTRAINT war_payouts_war_id_fkey FOREIGN KEY (war_
 ALTER SEQUENCE public.crime_required_items_id_seq OWNED BY public.crime_required_items.id;
 ALTER SEQUENCE public.crime_reward_items_id_seq OWNED BY public.crime_reward_items.id;
 ALTER SEQUENCE public.crime_slots_id_seq OWNED BY public.crime_slots.id;
-ALTER SEQUENCE public.member_cpr_data_id_seq OWNED BY public.member_cpr_data.id;
 ALTER SEQUENCE public.oc_crime_positions_id_seq OWNED BY public.oc_crime_positions.id;
 ALTER SEQUENCE public.oc_crime_types_id_seq OWNED BY public.oc_crime_types.id;
 ALTER SEQUENCE public.oc_payout_members_id_seq OWNED BY public.oc_payout_members.id;
@@ -1263,8 +1255,6 @@ CREATE INDEX faction_revives_target_id_timestamp_idx ON public.faction_revives U
 CREATE INDEX idx_factions_name ON public.factions USING btree (name);
 CREATE INDEX idx_items_name ON public.items USING btree (name);
 CREATE INDEX idx_items_type ON public.items USING btree (type);
-CREATE INDEX idx_member_cpr_data_difficulty ON public.member_cpr_data USING btree (difficulty_level);
-CREATE INDEX idx_member_cpr_data_member_id ON public.member_cpr_data USING btree (member_id);
 CREATE INDEX idx_member_cpr_v2_crime ON public.member_cpr_v2 USING btree (crime_name);
 CREATE INDEX idx_member_cpr_v2_member ON public.member_cpr_v2 USING btree (member_id);
 CREATE INDEX idx_member_daily_stats_date ON public.member_daily_stats USING btree (snapshot_date);

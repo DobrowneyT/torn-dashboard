@@ -202,7 +202,7 @@ describe('inventory management', () => {
   it('GET /api/inventory returns priced items and the last sync marker', async () => {
     await stack.db.query(`
       INSERT INTO inventory_items (id, name, quantity, available, loaned, loaned_to, category) VALUES
-        ('66', 'Morphine', 50, 40, 10, 'Boss [700]', 'medical'),
+        ('66', 'Morphine', 50, 40, 10, '[{"member_id":"700","member_name":"Boss","amount":10}]'::jsonb, 'medical'),
         ('206', 'Xanax', 200, 200, 0, NULL, 'drugs')
     `)
     await stack.db.query(`

@@ -394,6 +394,11 @@ function RWSummaryCard({ wars, payouts }) {
                     <span className="text-gray-500 dark:text-gray-400 truncate">{label}</span>
                     <span className="font-medium text-gray-900 dark:text-white flex-shrink-0 ml-2">
                       {formatCurrency(wp.payout_amount || 0)}
+                      {wp.effort_share != null && (
+                        <span className="font-normal text-gray-400 dark:text-gray-500 ml-1">
+                          ({(Number(wp.effort_share) * 100).toFixed(1)}%)
+                        </span>
+                      )}
                     </span>
                   </div>
                 )

@@ -102,6 +102,49 @@ export const EXPORT_TABLES: Record<string, ExportTable> = {
     role: 'leadership',
     resolveNames: ['member_id'],
   },
+  crime_participation_v2: {
+    label: 'Crime Participation',
+    note: 'Observed join/leave times per member per crime, filtered on last observation.',
+    timeCol: 'updated_at',
+    timeType: 'timestamptz',
+    role: 'leadership',
+    epochCols: ['joined_at', 'left_at'],
+    resolveNames: ['member_id'],
+  },
+  ranked_wars: {
+    label: 'Ranked Wars',
+    note: 'War metadata: opponent, scores, and rewards, filtered on war start.',
+    timeCol: 'start_at',
+    timeType: 'epoch',
+    role: 'leadership',
+    epochCols: ['start_at', 'end_at'],
+  },
+  war_member_contributions: {
+    label: 'War Contributions',
+    note: "Torn's official per-member war-report score, filtered on last write.",
+    timeCol: 'updated_at',
+    timeType: 'timestamptz',
+    role: 'leadership',
+  },
+
+  // ---- RW payouts ---------------------------------------------------------
+  war_payouts: {
+    label: 'War Payout Runs',
+    note: 'One row per saved RW payout: formula settings, costs, and totals.',
+    timeCol: 'updated_at',
+    timeType: 'timestamptz',
+    role: 'leadership',
+    epochCols: ['race_cutoff_timestamp'],
+  },
+  war_payout_members: {
+    label: 'War Payout Members',
+    // No event time on this table either — see oc_payout_members above for
+    // the same reasoning. `created_at` is when the payout row was written.
+    note: 'Per-member RW payout lines, including the saved effort %. Filtered on when saved.',
+    timeCol: 'created_at',
+    timeType: 'timestamptz',
+    role: 'leadership',
+  },
 
   // ---- OC payouts -------------------------------------------------------
   oc_payout_weeks: {
@@ -143,6 +186,17 @@ export const EXPORT_TABLES: Record<string, ExportTable> = {
     label: 'Faction Stints',
     note: 'Join/leave history behind days-in-faction, filtered on the join date.',
     timeCol: 'joined_at',
+    timeType: 'timestamptz',
+    role: 'admin',
+    resolveNames: ['member_id'],
+  },
+  member_battle_stats: {
+    label: 'Member Battle Stats',
+    // Admin, not leadership — same floor as `members`/`member_cpr_v2` above:
+    // battle stats are the single most sensitive number in Torn (see
+    // db/migrations/0028-member-battle-stats.sql).
+    note: 'Current str/def/spd/dex per member, filtered on last update.',
+    timeCol: 'updated_at',
     timeType: 'timestamptz',
     role: 'admin',
     resolveNames: ['member_id'],

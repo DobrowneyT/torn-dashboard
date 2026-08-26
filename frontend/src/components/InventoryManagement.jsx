@@ -163,56 +163,25 @@ export default function InventoryManagement() {
   
   function handleShowLoanedItems(item) {
     if (!item.loaned_to || item.loaned === 0) return
-    
-    let loanedTo = item.loaned_to
-    
-    if (typeof loanedTo === 'string' && loanedTo.startsWith('{')) {
-      try {
-        loanedTo = JSON.parse(loanedTo)
-      } catch (e) {
-        // Keep as string if parsing fails
-      }
-    }
-    
-    let userIds = []
-    
-    if (Array.isArray(loanedTo)) {
-      userIds = loanedTo.map(id => id.toString())
-    } else if (typeof loanedTo === 'number') {
-      userIds = [loanedTo.toString()]
-    } else if (typeof loanedTo === 'string') {
-      userIds = loanedTo.split(',').filter(id => id.trim())
-    } else if (typeof loanedTo === 'object' && loanedTo !== null) {
-      Object.entries(loanedTo).forEach(([userId, count]) => {
-        for (let i = 0; i < count; i++) {
-          userIds.push(userId)
-        }
-      })
-    }
-    
-    const loanCounts = {}
-    userIds.forEach(id => {
-      const userId = id.toString().trim()
-      if (userId) {
-        loanCounts[userId] = (loanCounts[userId] || 0) + 1
-      }
-    })
-    
-    const loanData = Object.entries(loanCounts)
-      .map(([userId, count]) => ({
-        userId,
-        name: factionMembers[userId] || 'Unknown',
-        count
+
+    // loaned_to is {member_id, member_name, amount}[] straight from Torn
+    // (server/src/scraper/inventoryMap.ts) — the name and amount are already
+    // correct per borrower, no id lookup or string parsing needed.
+    const loans = [...item.loaned_to]
+      .map(l => ({
+        userId: String(l.member_id),
+        name: l.member_name || factionMembers[l.member_id] || `#${l.member_id}`,
+        count: Number(l.amount) || 0,
       }))
       .sort((a, b) => b.count - a.count)
-    
-    const totalCounted = loanData.reduce((sum, loan) => sum + loan.count, 0)
-    
+
+    const totalCounted = loans.reduce((sum, loan) => sum + loan.count, 0)
+
     setLoanedDialog({
       itemName: item.item_name,
       totalLoaned: item.loaned,
       totalCounted: totalCounted,
-      loans: loanData,
+      loans,
       hasMismatch: totalCounted !== item.loaned
     })
   }
