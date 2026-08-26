@@ -18,6 +18,15 @@ surface it automatically.
 
 ---
 
+## [3.54.1] - 2026-08-23
+
+### Changed
+- **Removed the War Room Flags column's 🎯 loadout flag.** The shield icon
+  next to the member's name (added in 3.54.0) showed the same observation
+  in the same place a lead is already looking — the two were redundant
+  rather than complementary. The shield stays; `memberFlags()` no longer
+  takes a `loadout` argument.
+
 ## [3.54.0] - 2026-08-23
 
 ### Added
