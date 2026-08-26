@@ -133,42 +133,7 @@ describe('memberFlags', () => {
     expect(keys({ status_state: 'Okay' }, { stats: { cooldown_drug: 40_000 } })).toEqual(['od'])
   })
 
-  it('#528: emits a loadout flag when an observation exists, and none when it does not', () => {
-    const row = {
-      loadout: { weapons: { primary: { name: 'AK-47' } }, armor: {} },
-      observed_at: new Date().toISOString(),
-      observed_by_name: 'Scout',
-    }
-    const flag = memberFlags({}, { loadout: row })[0]
-    expect(flag.key).toBe('loadout')
-    expect(flag.title).toMatch(/Primary: AK-47/)
-    expect(flag.title).toMatch(/Scout/)
-    expect(flag.tone).toBe('info')
-
-    expect(keys({}, { loadout: null })).toEqual([])
-    expect(keys({}, {})).toEqual([])
-  })
-
-  it('#528: a stale observation still shows, dimmed rather than hidden', () => {
-    const row = {
-      loadout: { weapons: { primary: { name: 'AK-47' } }, armor: {} },
-      observed_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
-    }
-    const flag = memberFlags({}, { loadout: row })[0]
-    expect(flag.key).toBe('loadout')
-    expect(flag.tone).toBe('muted')
-  })
-
-  it('#528: the loadout flag comes last — it colours the picture, it does not change what to do next', () => {
-    const member = {
-      is_on_wall: true,
-      is_revivable: true, revive_setting: REVIVE_EVERYONE,
-    }
-    const loadout = {
-      loadout: { weapons: { primary: { name: 'AK-47' } }, armor: {} },
-      observed_at: new Date().toISOString(),
-    }
-    const k = keys(member, { isFlying: true, loadout })
-    expect(k[k.length - 1]).toBe('loadout')
-  })
+  // #528 Part 2's loadout flag was removed from here (2026-08-23) — the
+  // shield icon next to the member's name (LoadoutShieldIcon.test.jsx) is
+  // the only place that observation renders now.
 })
