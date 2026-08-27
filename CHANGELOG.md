@@ -18,6 +18,27 @@ surface it automatically.
 
 ---
 
+## [3.56.1] - 2026-08-27
+
+### Fixed
+- **Migration 0047 crashed on every production deploy attempt, leaving the
+  server stuck on 3.54.0 for a day.** `inventory_items_with_prices` (and the
+  9 per-category views built on it) all `SELECT loaned_to`, so Postgres
+  refused the type-change outright — "cannot alter type of a column used by
+  a view or rule" — and `set -euo pipefail` correctly aborted the whole
+  deploy script before it could write `deploy/.last-deployed`, so cron kept
+  retrying every 5 minutes, each time re-running the pre-deploy backup step
+  and dying before ever reaching the build-cache prune at the bottom of the
+  script. Two knock-on costs from the same crash loop: the backups volume
+  grew to 17.6GB (a fresh, never-pruned archive set per faction on every
+  retry) and Docker's build cache grew to 13.67GB, un-reclaimed. Fixed by
+  CASCADE-dropping the view chain around the `ALTER`, then recreating it
+  verbatim from `db/template.sql`. Covered by a new regression test that
+  reconstructs the pre-migration schema by hand and applies 0047 against it
+  — `db/test/template.test.mjs` alone couldn't have caught this, since it
+  applies the current template (already `jsonb`), never migrates an
+  existing one.
+
 ## [3.56.0] - 2026-08-26
 
 ### Added
