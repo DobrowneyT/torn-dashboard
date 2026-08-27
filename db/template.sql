@@ -722,7 +722,17 @@ CREATE TABLE public.war_room_config_v2 (
   roster_poll_interval_ms integer DEFAULT 1000 NOT NULL,
   -- When the roster sync last ran (#330 fix). Board liveness is a property of
   -- the board, not of any one member's row — see db/migrations/0033.
-  last_roster_sync_at timestamp with time zone
+  last_roster_sync_at timestamp with time zone,
+  -- #480: when the lifecycle job first saw the currently-managed war matched
+  -- (stamped once, at auto-setup). The reference point for both the
+  -- matched+30min auto-enable below and for scoping "OD'd before this war"
+  -- against the permanent, cross-war overdose_until latch.
+  matched_detected_at timestamp with time zone,
+  -- #480: when the lifecycle job auto-enabled this war (stamped once). NULL
+  -- means "not yet auto-enabled for the currently-managed war" — the signal
+  -- that lets the job attempt auto-enable at most once per war, so a leader
+  -- who manually stops it afterwards is never fought on the next tick.
+  auto_enabled_at timestamp with time zone
 );
 
 -- #336: live energy + cooldowns for our own members. Separate from
@@ -867,6 +877,30 @@ CREATE TABLE public.war_room_roll_call_v2 (
   revised boolean DEFAULT false NOT NULL,
   submitted_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+-- #480: one immutable row per member per war, captured within the minute
+-- before war start. war_room_member_stats_v2 has no history (overwritten in
+-- place every sweep) — this is the only place "what was their energy right
+-- before the war" survives past the next tick.
+CREATE TABLE public.war_stacks_snapshot (
+  war_id bigint NOT NULL,
+  member_id bigint NOT NULL,
+  member_name text,
+  energy_current integer,
+  energy_maximum integer,
+  -- False when the member had no readable pooled key at capture time — an
+  -- explicit "unknown", not a zero and not a missing row (a blank energy cell
+  -- reads as zero in a spreadsheet, which is a different, wrong claim).
+  has_reading boolean NOT NULL,
+  -- overdose_until (war_room_member_stats_v2) is a PERMANENT, cross-war latch
+  -- — a member who OD'd three weeks ago and never since would still show one.
+  -- This is scoped to THIS war by comparing it against
+  -- war_room_config_v2.matched_detected_at at capture time, so it answers
+  -- "OD'd since this war was matched", not "OD'd ever".
+  od_flagged_prewar boolean NOT NULL,
+  captured_at timestamp with time zone NOT NULL,
+  PRIMARY KEY (war_id, member_id)
 );
 
 CREATE TABLE public.war_room_state_v2 (

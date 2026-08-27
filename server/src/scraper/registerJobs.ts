@@ -47,7 +47,8 @@ export interface ScraperWiringOptions {
 // 01:05 UTC, just after the 01:00 snapshot offset the backfill targets;
 // wars every 3 hours; attacks every 30 minutes (both also triggerable on
 // demand from the war pages); war lifecycle every 3 minutes (the old
-// pg_cron cadence): auto-setup, T-1h enable, war-end disable.
+// pg_cron cadence): auto-setup, matched+30min auto-enable (#480), war-end
+// disable.
 const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => Promise<{ rows: number; details?: Record<string, unknown> }>]> = [
   // Every 6 hours (#448). Was once daily at 04:15 — bumped because the OC
   // Simulator now values item rewards at CURRENT prices, and MonChoon wants
