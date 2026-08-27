@@ -22,16 +22,23 @@ surface it automatically.
 
 ### Fixed
 - **OC Payout Management's occupancy panel showed "Not watched" for weeks the
-  poller genuinely covered (#389).** Reopening a saved week rebuilt
-  `crimesData` from `/api/payouts/weeks/:id/crimes`, which returns
-  `{ crimes, slots }` only — no `occupancy_polls` — silently overwriting the
-  occupancy data an earlier fetch in the same flow had already loaded.
-  `OccupancyPanel` read the missing field as `pollCount: 0`, which reads
-  identically to a genuinely-unwatched window. Only the saved-week reopen
-  path was affected; calculating a fresh week was never broken. Fixed by
-  carrying the occupancy data through into the merged `crimesData`, now via
-  a small pure `buildHistoricalWeekCrimesData` helper so the wiring is
-  covered by a unit test instead of only being checkable by hand.
+  poller genuinely covered (#389) — in every path, not just one.**
+  `OccupancyPanel` reads `crimesData.occupancy_polls`, and two independent
+  bugs dropped it before it got there:
+  - Reopening a **saved** week rebuilt `crimesData` from
+    `/api/payouts/weeks/:id/crimes`, which returns `{ crimes, slots }` only,
+    silently overwriting the occupancy data an earlier fetch in the same flow
+    had already loaded. Fixed by carrying it through, now via a small pure
+    `buildHistoricalWeekCrimesData` helper so the wiring is unit-tested
+    instead of only checkable by hand.
+  - **Calculating a fresh week** — the actual "Run Payout" flow — went
+    through `loadCrimesForPayout`, which reshapes the server's response into
+    its own return shape and never extracted `occupancy`/`occupancy_polls`
+    at all, in either of its two return branches. This is the more
+    fundamental of the two: it means the panel had never worked for a live
+    calculation, only ever for a reopened week — and that path was *also*
+    broken by the bug above. Fixed by carrying both fields through in both
+    branches, covered by new unit tests.
 
 ## [3.56.1] - 2026-08-27
 

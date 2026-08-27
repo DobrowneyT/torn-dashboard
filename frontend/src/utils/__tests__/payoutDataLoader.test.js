@@ -7,7 +7,51 @@ vi.mock('../apiClient', () => ({
 }))
 
 import { apiGet } from '../apiClient'
-import { checkExistingWeek, filterItemsForMember } from '../payoutDataLoader'
+import { checkExistingWeek, filterItemsForMember, loadCrimesForPayout } from '../payoutDataLoader'
+
+describe('loadCrimesForPayout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // #389: this function used to drop occupancy/occupancy_polls entirely —
+  // OccupancyPanel reads those off the return value, so every live payout
+  // calculation reported "Not watched" no matter what the poller actually
+  // saw. Covers both branches: crimes present and the empty-crimes early
+  // return, since the bug was in both.
+  it('carries occupancy and occupancy_polls through when crimes are present', async () => {
+    apiGet.mockImplementation((path) => {
+      if (path.startsWith('/api/payouts/crime-data')) {
+        return Promise.resolve({
+          crimes: [{ crime_id: 1, name: 'Cash Me If You Can', difficulty: 5, rewards_money: 1000 }],
+          slots: [], reward_items: [], required_items: [], participation: [],
+          occupancy: [{ crime_id: 1, member_id: '500' }],
+          occupancy_polls: [{ polled_at: 1700 }, { polled_at: 1760 }],
+        })
+      }
+      return Promise.resolve({ roster: [] })
+    })
+    const result = await loadCrimesForPayout(1700, 1800)
+    expect(result.occupancy).toEqual([{ crime_id: 1, member_id: '500' }])
+    expect(result.occupancy_polls).toEqual([{ polled_at: 1700 }, { polled_at: 1760 }])
+  })
+
+  it('carries occupancy and occupancy_polls through the empty-crimes early return', async () => {
+    apiGet.mockImplementation((path) => {
+      if (path.startsWith('/api/payouts/crime-data')) {
+        return Promise.resolve({
+          crimes: [], slots: [], reward_items: [], required_items: [], participation: [],
+          occupancy: [],
+          occupancy_polls: [{ polled_at: 1700 }],
+        })
+      }
+      return Promise.resolve({ roster: [] })
+    })
+    const result = await loadCrimesForPayout(1700, 1800)
+    expect(result.crimes).toEqual({})
+    expect(result.occupancy_polls).toEqual([{ polled_at: 1700 }])
+  })
+})
 
 describe('filterItemsForMember', () => {
   it('matches on structured loaned_to entries by member id, not by name', () => {
