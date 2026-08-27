@@ -18,6 +18,46 @@ surface it automatically.
 
 ---
 
+## [3.56.0] - 2026-08-26
+
+### Added
+- **Pre-war stacks snapshot, cross-referenced against roll call (#480).** A
+  new immutable `war_stacks_snapshot` row per member per war, captured
+  automatically within the minute before war start (`war_room_member_stats_v2`
+  is overwritten in place every sweep — this is the only place a member's
+  energy right before the war survives past the next tick). Records energy,
+  whether the member OD'd at any point since the war was matched, and no
+  reading at all as an explicit "unknown" — never a silent zero. Shown in a
+  collapsible section of the RW History war detail (energy, OD flag, and
+  their roll-call response side by side), with a CSV export. Lead-only,
+  matching the memberstats data it comes from.
+- **War Room now auto-enables at matched+30min, not never (#480).** #345
+  removed T-1h auto-enable because the OLD ticker had a second gate that made
+  "enabled" lie about whether the board was actually polling — that problem
+  no longer exists (`enabled` has been the sole gate since #345), so
+  reintroducing auto-enable is on clean footing. The 30-minute buffer gives
+  Torn's API room to settle on a fresh matchup before the room starts polling
+  continuously; per-war, fires at most once, so a leader who manually stops
+  the room afterward is never fought on a later tick. Running the room from
+  matchup to war start is also what makes the OD flag above possible —
+  `overdose_until` only accumulates while it's on. `member_stats_poll_interval_sec`
+  (off, 0, by default) is filled in to 300s at the same moment if a leader
+  hasn't already configured it, since auto-enabling the room alone doesn't
+  capture anything without the sweep also running.
+
+### Fixed
+- **A silent, repo-wide landmine: `new Date()` on a timestamptz value read
+  through the app's own DB pool returns `Invalid Date`/`NaN`, in every server
+  timezone.** `server/src/db.ts` deliberately returns timestamptz as a raw
+  string (`2026-08-26T20:26:47.768038-05`) rather than a parsed JS `Date`, to
+  match legacy PostgREST payload shapes — and Postgres's default text offset
+  has no colon (`-05`, `+00`), which fails strict ISO-8601 parsing outright.
+  Building #480's auto-enable timer hit this directly: a JS-side "has 30
+  minutes passed" comparison silently always evaluated false. Fixed by moving
+  the comparison into the query itself rather than parsing the string in JS.
+  Nothing else is audited yet — flagging the pattern for anyone doing
+  timestamp arithmetic elsewhere in server/.
+
 ## [3.55.0] - 2026-08-26
 
 ### Added

@@ -1,15 +1,33 @@
 // War lifecycle automation — port of war-room-fetch's handleCronWarLifecycle
 // (formerly a 3-minute pg_cron edge call). Detects the matched ranked war,
 // auto-sets-up an automation-owned session (wipe prior week → point config
-// at the new opponent, disabled → baseline both factions' members), enables
-// at T-1h, and disables when the managed war ends. Only automation-owned
-// sessions (auto_managed) are ever touched — a manually-configured session
-// makes automation stand down entirely.
+// at the new opponent, disabled → baseline both factions' members), auto-
+// enables at matched+30min (#480), and disables when the managed war ends.
+// Only automation-owned sessions (auto_managed) are ever touched — a
+// manually-configured session makes automation stand down entirely.
+//
+// #480 reintroduces auto-enable, which #345 deliberately removed — but on
+// different footing: #345's problem was the OLD ticker's second gate (an
+// auto-managed session refused to poll outside its war's start/end window,
+// so "enabled" could be true while the board sat frozen for days, looking
+// live while doing nothing). `enabled` is now the ONLY gate (#345), so
+// turning it on early means the board really is live early, not lying about
+// it. Reasons to run from matched+30min rather than close to start:
+// war_room_member_stats_v2's overdose_until latch (#357) is the only signal
+// that can answer "did anyone OD in the run-up to this war", and it only
+// accumulates while the room is enabled.
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
 import { syncWarRoomMemberStates } from '../../warRoomTicker.js'
 import { clearWarRoomState } from '../../warRoomSetup.js'
 import { resolveSpyProviders, fetchSpiesForMembers } from '../../spyFetch.js'
+
+// #480: how long after a war is first detected as matched before the room
+// auto-enables. 30 minutes gives Torn's own API a buffer to settle (fresh
+// matchups have shown stale/partial data immediately after being posted) and
+// gives the spy fetch that already runs at auto-setup a head start before
+// the room starts polling continuously.
+export const AUTO_ENABLE_DELAY_SEC = 30 * 60
 
 export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
   const { db, pool, client } = deps
@@ -24,7 +42,6 @@ export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
 
   const data = await client.fetch(`/v2/faction/${us}/rankedwars?limit=100`, claimed.key)
   const wars: any[] = data.rankedwars ?? []
-  const now = Math.floor(Date.now() / 1000)
   const actions: string[] = []
   let rows = 0
 
@@ -61,15 +78,20 @@ export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
         // state + dibs, reset the chain singleton).
         await clearWarRoomState(db)
         await dbc.query('BEGIN')
-        // Point config at the new opponent — automation-owned, disabled
-        // until T-1h.
+        // Point config at the new opponent — automation-owned, disabled until
+        // auto-enable fires (below). matched_detected_at/auto_enabled_at are
+        // reset for the new war: a fresh matchup starts its own 30-minute
+        // clock and its own one-shot auto-enable attempt.
         await dbc.query(
-          `INSERT INTO war_room_config_v2 (id, faction_id, faction_name, auto_managed, managed_war_id, enabled, updated_at)
-           VALUES (1, $1, $2, true, $3, false, now())
+          `INSERT INTO war_room_config_v2
+             (id, faction_id, faction_name, auto_managed, managed_war_id, enabled,
+              matched_detected_at, auto_enabled_at, updated_at)
+           VALUES (1, $1, $2, true, $3, false, now(), NULL, now())
            ON CONFLICT (id) DO UPDATE SET
              faction_id = EXCLUDED.faction_id, faction_name = EXCLUDED.faction_name,
              auto_managed = true, managed_war_id = EXCLUDED.managed_war_id,
-             enabled = false, updated_at = now()`,
+             enabled = false, matched_detected_at = now(), auto_enabled_at = NULL,
+             updated_at = now()`,
           [oppId, opp?.name ?? null, upcoming.id]
         )
         await dbc.query('COMMIT')
@@ -107,10 +129,36 @@ export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
       return { rows, details: { actions, war_id: upcoming.id, opponent: oppId, spies } }
     }
 
-    // No AUTO-ENABLE (#345). Auto-setup points the board at the new war and
-    // baselines both rosters, but ENABLING is a leadership decision: the room
-    // polls Torn continuously once on, so it should not switch itself on an
-    // hour before a war because the calendar said so. Leaders press Start.
+    // AUTO-ENABLE (#480): the war we already own, still off, never yet
+    // auto-enabled, and past its 30-minute buffer. The whole gate lives in
+    // SQL — comparing matched_detected_at against now() in JS meant parsing
+    // Postgres's timestamptz text back into a Date, and its default text
+    // format (`...-05`, no minutes on the offset) is not valid ISO-8601:
+    // `new Date(...)` silently returns Invalid Date/NaN for it, which made
+    // every comparison false. auto_enabled_at is the one-shot guard, checked
+    // in the same WHERE — set the moment this fires, so a leader who
+    // manually stops the room afterwards is never fought on a later tick.
+    if (alreadyOwn) {
+      const enabled = await db.query(
+        `UPDATE war_room_config_v2
+           SET enabled = true, auto_enabled_at = now(), started_at = now(), updated_at = now(),
+               -- member_stats_poll_interval_sec defaults to 0 (off) — the
+               -- whole point of auto-enabling early is to accumulate the
+               -- overdose_until latch (#357) for #480, which needs this sweep
+               -- actually running. Only fill it in when it's off; a leader's
+               -- own configured cadence is never overridden. 300s (5 min) is
+               -- far tighter than needed for a cooldown lasting 10h+, kept
+               -- cheap on purpose.
+               member_stats_poll_interval_sec =
+                 CASE WHEN member_stats_poll_interval_sec = 0 THEN 300 ELSE member_stats_poll_interval_sec END
+         WHERE id = 1 AND auto_managed = true AND enabled = false AND auto_enabled_at IS NULL
+           AND matched_detected_at IS NOT NULL
+           AND matched_detected_at <= now() - ($1 || ' seconds')::interval
+         RETURNING id`,
+        [AUTO_ENABLE_DELAY_SEC]
+      )
+      if ((enabled.rowCount ?? 0) > 0) actions.push('auto_enable')
+    }
   }
 
   // AUTO-DISABLE when the war we own has ended. Never touches manual sessions.

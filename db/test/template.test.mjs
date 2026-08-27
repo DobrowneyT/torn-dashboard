@@ -79,6 +79,8 @@ const NEW_TABLES = [
   'war_room_assists_v2',
   // Enemy loadout observations captured from the attack page (#528 Part 2)
   'war_room_loadout_observations_v2',
+  // Pre-war stacks snapshot (#480)
+  'war_stacks_snapshot',
 ]
 
 let server
