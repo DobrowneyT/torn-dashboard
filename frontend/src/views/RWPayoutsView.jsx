@@ -420,6 +420,7 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
                       <SortTh col="score" label="Score" className="text-right" />
                     )}
                     <SortTh col="payout_amount" label="Payout" className="text-right" />
+                    <SortTh col="effort_share" label="Effort %" className="text-right" />
                   </tr>
                 </thead>
                 <tbody>
@@ -460,6 +461,9 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
                       )}
                       <td className="px-2 py-1.5 text-right font-semibold font-mono text-gray-900 dark:text-white whitespace-nowrap">
                         {m.is_eligible ? formatCurrency(m.payout_amount || 0) : '—'}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        {m.effort_share != null ? `${(Number(m.effort_share) * 100).toFixed(2)}%` : '—'}
                       </td>
                     </tr>
                   ))}

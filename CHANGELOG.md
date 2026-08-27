@@ -18,6 +18,45 @@ surface it automatically.
 
 ---
 
+## [3.55.0] - 2026-08-26
+
+### Added
+- **Data Export: RW payouts, war contributions, ranked wars, crime
+  participation, and member battle stats.** `war_payouts`,
+  `war_payout_members`, `war_member_contributions`, `ranked_wars`, and
+  `crime_participation_v2` join the leadership export list; `member_battle_stats`
+  is admin-only, matching the sensitivity of the roster/CPR exports already
+  there.
+- **A saved RW payout now carries its members' final effort % as its own
+  column** (`war_payout_members.effort_share`), computed server-side as
+  `payout_amount / total_payout` — well-defined across every payout mode,
+  unlike the participation/contribution shares that only exist for the
+  formula modes. Backfilled for existing saved payouts. Shown in the RW
+  Payouts history sheet and on a member's own Dashboard payout list.
+
+### Fixed
+- **Faction armory loaned-item tracking.** The #542 move to API v2 fixed the
+  scraper's category pagination, but `inventory_items.loaned_to` was still
+  stored as a comma-joined string of borrower names — which discarded each
+  borrower's own loaned amount and couldn't be matched back against a member
+  id. The Leadership "Loaned Items" popup showed "Unknown" for everyone with
+  a 1-item count, and a member's own "items on loan" panel matched nobody at
+  all. `loaned_to` is now structured JSON (`{member_id, member_name,
+  amount}[]`) end to end.
+
+### Removed
+- **`member_cpr_data`**, the legacy pre-CPR-rewrite scrape table, superseded
+  by `member_cpr_v2` for some time and unreferenced anywhere in the app.
+
+## [3.54.1] - 2026-08-23
+
+### Changed
+- **Removed the War Room Flags column's 🎯 loadout flag.** The shield icon
+  next to the member's name (added in 3.54.0) showed the same observation
+  in the same place a lead is already looking — the two were redundant
+  rather than complementary. The shield stays; `memberFlags()` no longer
+  takes a `loadout` argument.
+
 ## [3.54.0] - 2026-08-23
 
 ### Added

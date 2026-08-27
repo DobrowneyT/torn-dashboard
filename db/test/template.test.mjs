@@ -29,7 +29,7 @@ const TEMPLATE = readFileSync(join(here, '..', 'template.sql'), 'utf8')
 const LIVE_TABLES = [
   'crime_required_items', 'crime_reward_items', 'crime_slots', 'crimes',
   'faction_attacks', 'faction_revives', 'factions', 'inventory_items', 'items',
-  'member_cpr_data', 'member_cpr_v2', 'member_daily_stats',
+  'member_cpr_v2', 'member_daily_stats',
   'member_overview_thresholds', 'member_overview_views', 'member_secrets',
   'members', 'oc_crime_positions', 'oc_crime_types', 'oc_payout_members',
   'oc_payout_weeks', 'pricing_batches', 'ranked_wars', 'sync_metadata',

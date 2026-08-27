@@ -122,7 +122,7 @@ export function registerMemberRoutes(app: FastifyInstance, db: pg.Pool) {
     // Max covers a member's full war history (the RW payouts page sums it).
     const limit = clampLimit((req.query as { limit?: string }).limit, 5, 500)
     const res = await db.query(
-      `SELECT wpm.payout_id, wpm.payout_amount,
+      `SELECT wpm.payout_id, wpm.payout_amount, wpm.effort_share,
               to_jsonb(wp) || jsonb_build_object(
                 'ranked_wars', CASE WHEN rw.id IS NULL THEN NULL ELSE jsonb_build_object(
                   'start_at', rw.start_at,

@@ -9,6 +9,12 @@
 // rather than one row per item type — the same item id can appear many
 // times with different `uids`/`loaned` — so the totals `inventory_items`
 // expects (quantity, loaned, available) have to be aggregated back up.
+//
+// `loaned_to` is stored as structured JSON ({member_id, member_name, amount}[]),
+// not a flattened string — v1's per-borrower amount doesn't survive a
+// comma-join, and the UI needs the amount to show "who has how many", not
+// just who. member_name comes straight from Torn, so display never depends
+// on a client-side id->name lookup succeeding.
 export const INVENTORY_CATEGORIES = [
   'weapons', 'armor', 'temporary', 'medical', 'consumables', 'drugs', 'boosters', 'utilities', 'loot',
 ]
@@ -22,13 +28,19 @@ interface RawInventoryItem {
   category: string
 }
 
+export interface LoanedTo {
+  member_id: string
+  member_name: string
+  amount: number
+}
+
 export interface InventoryRow {
   id: string
   name: string
   quantity: number
   available: number
   loaned: number
-  loaned_to: string | null
+  loaned_to: LoanedTo[] | null
   api_type: string | null
   category: string
 }
@@ -64,7 +76,11 @@ export async function fetchFactionInventoryV2(
 export function aggregateInventoryRows(rawItems: RawInventoryItem[]): InventoryRow[] {
   const byId = new Map<string, {
     name: string; quantity: number; loaned: number
-    borrowers: Map<string, string>; api_type: string | null; category: string
+    // member_id -> { name, amount } — a member can appear in more than one
+    // stack of the same item (multiple loan events), so amounts accumulate
+    // rather than the last write winning.
+    borrowers: Map<string, { name: string; amount: number }>
+    api_type: string | null; category: string
   }>()
   for (const item of rawItems) {
     const id = String(item.id)
@@ -77,12 +93,18 @@ export function aggregateInventoryRows(rawItems: RawInventoryItem[]): InventoryR
     row.quantity += amount
     if (item.loaned) {
       row.loaned += amount
-      row.borrowers.set(String(item.loaned.id), item.loaned.name || String(item.loaned.id))
+      const memberId = String(item.loaned.id)
+      const existing = row.borrowers.get(memberId)
+      const name = item.loaned.name || memberId
+      row.borrowers.set(memberId, { name, amount: (existing?.amount || 0) + amount })
     }
   }
   return [...byId.entries()].map(([id, row]) => ({
     id, name: row.name, quantity: row.quantity, available: row.quantity - row.loaned,
-    loaned: row.loaned, loaned_to: row.borrowers.size > 0 ? [...row.borrowers.values()].join(', ') : null,
+    loaned: row.loaned,
+    loaned_to: row.borrowers.size > 0
+      ? [...row.borrowers.entries()].map(([member_id, b]) => ({ member_id, member_name: b.name, amount: b.amount }))
+      : null,
     api_type: row.api_type, category: row.category,
   }))
 }

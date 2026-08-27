@@ -28,7 +28,7 @@ export async function inventorySyncJob({ db, pool, client }: JobDeps): Promise<R
            name = EXCLUDED.name, quantity = EXCLUDED.quantity, available = EXCLUDED.available,
            loaned = EXCLUDED.loaned, loaned_to = EXCLUDED.loaned_to, api_type = EXCLUDED.api_type,
            category = EXCLUDED.category, last_synced = now()`,
-        [r.id, r.name, r.quantity, r.available, r.loaned, r.loaned_to, r.api_type, r.category]
+        [r.id, r.name, r.quantity, r.available, r.loaned, r.loaned_to ? JSON.stringify(r.loaned_to) : null, r.api_type, r.category]
       )
     }
     await dbc.query(

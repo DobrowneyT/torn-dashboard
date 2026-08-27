@@ -103,6 +103,20 @@ describe('exportableFor', () => {
     expect(names).not.toContain('member_cpr_v2')
   })
 
+  it('gives leadership the RW payout and war tables alongside the OC ones', () => {
+    const names = exportableFor(['leadership']).map((t) => t.table)
+    expect(names).toContain('war_payouts')
+    expect(names).toContain('war_payout_members')
+    expect(names).toContain('war_member_contributions')
+    expect(names).toContain('ranked_wars')
+    expect(names).toContain('crime_participation_v2')
+  })
+
+  it('keeps member_battle_stats at admin, not leadership', () => {
+    expect(canExport(EXPORT_TABLES.member_battle_stats.role, ['leadership'])).toBe(false)
+    expect(canExport(EXPORT_TABLES.member_battle_stats.role, ['admin'])).toBe(true)
+  })
+
   it('describes each table well enough to pick the right one', () => {
     for (const entry of exportableFor(['admin'])) {
       expect(entry.label, entry.table).toBeTruthy()

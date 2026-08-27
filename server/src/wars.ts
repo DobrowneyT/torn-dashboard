@@ -186,6 +186,13 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
     if (memberRows.some((m) => m.member_id == null)) {
       return reply.status(400).send({ error: 'each member requires member_id' })
     }
+    // effort_share (a member's final share of the pool) is computed here, not
+    // trusted from the client — it's just payout_amount / total_payout, and
+    // total_payout is already part of this same save.
+    const totalPayout = Number(payout.total_payout) || 0
+    for (const m of memberRows) {
+      m.effort_share = totalPayout > 0 ? (Number(m.payout_amount) || 0) / totalPayout : 0
+    }
     const createdBy = req.session!.torn_user_id
 
     const client = await db.connect()
