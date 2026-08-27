@@ -1201,6 +1201,27 @@ export function weekCrimeRowsToMap(rows, slots = [], memberNames = {}) {
 }
 
 /**
+ * The crimesData shape for a reopened saved week (#389 fix).
+ *
+ * The endpoint that fetches a saved week's linked crimes returns
+ * `{ crimes, slots }` only — no occupancy data — because that is a separate
+ * endpoint (`/api/payouts/crime-data`, keyed by the week's date window, not
+ * by crime id). Building crimesData from the crimes response alone silently
+ * wiped occupancy/occupancy_polls every time a saved week was reopened:
+ * OccupancyPanel read `crimesData.occupancy_polls === undefined`, which
+ * reads exactly like a genuinely unwatched window (pollCount 0) rather than
+ * a missing field. `occupancyForWeek` is the earlier crime-data fetch's
+ * result, carried in by the caller.
+ */
+export function buildHistoricalWeekCrimesData(rows, slots, occupancyForWeek = {}) {
+  return {
+    crimes: weekCrimeRowsToMap(rows, slots),
+    occupancy: occupancyForWeek.occupancy || [],
+    occupancy_polls: occupancyForWeek.occupancy_polls || [],
+  }
+}
+
+/**
  * Parse a single CSV line respecting quoted fields.
  * Handles values like "$15,170,274" where commas appear inside quotes.
  */

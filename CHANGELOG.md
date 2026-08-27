@@ -18,6 +18,57 @@ surface it automatically.
 
 ---
 
+## [3.56.2] - 2026-08-27
+
+### Fixed
+- **OC Payout Management's occupancy panel showed "Not watched" for weeks the
+  poller genuinely covered (#389) — in every path, not just one.**
+  `OccupancyPanel` reads `crimesData.occupancy_polls`, and two independent
+  bugs dropped it before it got there:
+  - Reopening a **saved** week rebuilt `crimesData` from
+    `/api/payouts/weeks/:id/crimes`, which returns `{ crimes, slots }` only,
+    silently overwriting the occupancy data an earlier fetch in the same flow
+    had already loaded. Fixed by carrying it through, now via a small pure
+    `buildHistoricalWeekCrimesData` helper so the wiring is unit-tested
+    instead of only checkable by hand.
+  - **Calculating a fresh week** — the actual "Run Payout" flow — went
+    through `loadCrimesForPayout`, which reshapes the server's response into
+    its own return shape and never extracted `occupancy`/`occupancy_polls`
+    at all, in either of its two return branches. This is the more
+    fundamental of the two: it means the panel had never worked for a live
+    calculation, only ever for a reopened week — and that path was *also*
+    broken by the bug above. Fixed by carrying both fields through in both
+    branches, covered by new unit tests.
+
+## [3.56.1] - 2026-08-27
+
+### Fixed
+- **Migration 0047 crashed on every production deploy attempt, leaving the
+  server stuck on 3.54.0 for a day.** `inventory_items_with_prices` (and the
+  9 per-category views built on it) all `SELECT loaned_to`, so Postgres
+  refused the type-change outright — "cannot alter type of a column used by
+  a view or rule" — and `set -euo pipefail` correctly aborted the whole
+  deploy script before it could write `deploy/.last-deployed`, so cron kept
+  retrying every 5 minutes, each time re-running the pre-deploy backup step
+  and dying before ever reaching the build-cache prune at the bottom of the
+  script. Two knock-on costs from the same crash loop: the backups volume
+  grew to 17.6GB (a fresh, never-pruned archive set per faction on every
+  retry) and Docker's build cache grew to 13.67GB, un-reclaimed. Fixed by
+  CASCADE-dropping the view chain around the `ALTER`, then recreating it
+  verbatim from `db/template.sql`. Covered by a new regression test that
+  reconstructs the pre-migration schema by hand and applies 0047 against it
+  — `db/test/template.test.mjs` alone couldn't have caught this, since it
+  applies the current template (already `jsonb`), never migrates an existing
+  one.
+- **`deploy/update.sh` now prunes Docker images/build cache on every exit,
+  not just a clean run.** The prune used to be two plain steps near the
+  bottom of the script, reached only on the happy path — which is exactly
+  what let this same incident's crash loop run unpruned for a full day.
+  Moved into a `cleanup()` function installed via `trap cleanup EXIT` right
+  after the early `--if-changed` exit, so a crash anywhere later in the
+  script — a failed migration, a failed build, a failed readiness check —
+  still reclaims build cache on its way out.
+
 ## [3.56.0] - 2026-08-26
 
 ### Added
