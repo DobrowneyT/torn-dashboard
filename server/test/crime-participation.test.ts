@@ -45,6 +45,26 @@ describe('crime participation log (#168)', () => {
     expect(Number(s.left_at)).toBeGreaterThan(0) // stamped ~now
   })
 
+  it('closes at ~now, not at the crime\'s future expired_at, when a still-open crime loses a member', async () => {
+    // Every real crime carries expired_at from creation — a future deadline,
+    // not evidence anything has happened. A member leaving a crime that is
+    // still Recruiting/Planning must close at "now", never at that deadline:
+    // this is exactly what over-credited banked time by days in production
+    // (#389 investigation), crediting members out to a date that hadn't
+    // occurred yet — sometimes past the end of the payout window itself.
+    const nowSec = Math.floor(Date.now() / 1000)
+    const farFutureExpiry = nowSec + 30 * 24 * 3600 // 30 days out
+    await run({ id: 5004, status: 'Recruiting', expired_at: farFutureExpiry, slots: [slot(950, 4000)] })
+    // 950 is gone; the crime is still Recruiting (unresolved) — same expired_at.
+    await run({ id: 5004, status: 'Recruiting', expired_at: farFutureExpiry, slots: [] })
+    const s = await seg('5004', '950')
+    expect(s.completed).toBe(false)
+    expect(Number(s.left_at)).toBeGreaterThan(0)
+    expect(Number(s.left_at)).toBeLessThan(farFutureExpiry)
+    // Stamped within a generous tolerance of "now" — not the 30-day-out expiry.
+    expect(Number(s.left_at)).toBeLessThan(nowSec + 60)
+  })
+
   it('marks a segment completed when the crime executes with the member present', async () => {
     await run({ id: 5002, status: 'Recruiting', slots: [slot(901, 2000)] })
     await run({ id: 5002, status: 'Executed', executed_at: 2500, slots: [slot(901, 2000)] })

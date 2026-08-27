@@ -18,6 +18,28 @@ surface it automatically.
 
 ---
 
+## [3.56.3] - 2026-08-27
+
+### Fixed
+- **OC payout "counted" time spent was inflated for members who left a
+  still-open crime — sometimes by days, found via the #389 investigation
+  MonChoon requested.** Cross-referencing counted vs. observed time for the
+  whole roster (not just a handful of flagged names) showed most members
+  matching to the hour once compared correctly — but a small cluster shared
+  suspiciously identical, large gaps. `crimeParticipation.ts` closed a
+  departed member's segment using `crime.executed_at ?? crime.expired_at`
+  unconditionally, even when the crime was still Recruiting/Planning.
+  `expired_at` is every crime's *future* deadline, stamped from creation —
+  not evidence anything had happened — so a member who left an unresolved
+  crime got `left_at` set to a date that hadn't occurred yet. Payout math
+  clips `[joined_at, left_at]` to the window, so this credited banked time
+  running past the window's own end. Fixed: an unresolved crime now closes
+  at "now" like the code's own comment always said it should. Backfilled
+  143 already-corrupted rows across 4 of 5 tenants (`updated_at` already
+  held the correct timestamp — only `left_at` had the wrong value).
+  New regression test: the existing coverage never caught this because its
+  fixture crime had no `expired_at` at all, unlike every real crime.
+
 ## [3.56.2] - 2026-08-27
 
 ### Fixed
