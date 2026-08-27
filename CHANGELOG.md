@@ -36,8 +36,16 @@ surface it automatically.
   verbatim from `db/template.sql`. Covered by a new regression test that
   reconstructs the pre-migration schema by hand and applies 0047 against it
   — `db/test/template.test.mjs` alone couldn't have caught this, since it
-  applies the current template (already `jsonb`), never migrates an
-  existing one.
+  applies the current template (already `jsonb`), never migrates an existing
+  one.
+- **`deploy/update.sh` now prunes Docker images/build cache on every exit,
+  not just a clean run.** The prune used to be two plain steps near the
+  bottom of the script, reached only on the happy path — which is exactly
+  what let this same incident's crash loop run unpruned for a full day.
+  Moved into a `cleanup()` function installed via `trap cleanup EXIT` right
+  after the early `--if-changed` exit, so a crash anywhere later in the
+  script — a failed migration, a failed build, a failed readiness check —
+  still reclaims build cache on its way out.
 
 ## [3.56.0] - 2026-08-26
 

@@ -86,6 +86,38 @@ if [ "${1:-}" = "--if-changed" ] && [ "$DEPLOYED" = "$REMOTE" ]; then
   exit 0
 fi
 
+# Reclaim build cache / dangling images on EVERY exit from here on — success,
+# a failed readiness check, or `set -e` aborting mid-script on a crash — not
+# just a clean run reaching the bottom. This used to be two plain steps near
+# the end, reached only on the happy path: a migration that crashes every
+# single retry (as 0047 did for a full day, see CHANGELOG 3.56.1) meant the
+# prune never ran at all, for as long as the crash kept recurring — 13.67GB of
+# build cache, 11.63GB of it reclaimable, sitting untouched the whole time.
+# `|| true` on each: a failed prune must never mask the actual deploy result
+# or turn a successful deploy into a failed one.
+#
+# ⚠️ Dangling IMAGES are not what fills this disk — the BUILD CACHE is, and
+# `image prune` does not touch it. BuildKit keeps its cache in a separate
+# store (under /var/lib/containerd, not /var/lib/docker/volumes), and nothing
+# evicts it. Every run above builds five tenant APIs, nginx and the backup
+# sidecar, so each deploy adds layers and none ever leave on their own.
+#
+# Measured on 2026-08-16: 35GB of build cache — 61% of a 72GB disk, against
+# 1.3GB for every faction database put together. The box was at 80% full and
+# the obvious suspects (backups, DB growth) were both innocent. Pruning it
+# back reclaimed 33GB in one command.
+#
+# 4GB rather than zero: `--keep-storage 0` would make the next deploy
+# recompile the world. This keeps the most recently used layers, which are
+# the ones the next build wants. The budget is shared daemon-wide with the
+# staging stack, which prunes to the same figure — two different numbers
+# would have each script evicting the other's layers on every tick.
+cleanup() {
+  docker image prune -f >/dev/null 2>&1 || true
+  docker builder prune -f --keep-storage 4GB >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
 echo "==> deploying $BRANCH: $(git rev-parse --short HEAD) → $(git rev-parse --short "origin/$BRANCH")"
 # --ff-only: a server checkout must never invent merge commits; if this fails
 # someone committed on the server — resolve by hand, don't force.
@@ -164,27 +196,9 @@ echo "==> rebuild + restart"
 echo "==> rebuild + restart (backup sidecar)"
 "${COMPOSE[@]}" --profile backup up -d --build backup
 
-docker image prune -f >/dev/null
-
-# ⚠️ Dangling IMAGES are not what fills this disk — the BUILD CACHE is, and
-# `image prune` does not touch it. BuildKit keeps its cache in a separate store
-# (under /var/lib/containerd, not /var/lib/docker/volumes), and nothing evicts
-# it. Every run above builds five tenant APIs, nginx and the backup sidecar, so
-# each deploy adds layers and none ever leave.
-#
-# Measured on 2026-08-16: 35GB of build cache — 61% of a 72GB disk, against
-# 1.3GB for every faction database put together. The box was at 80% full and
-# the obvious suspects (backups, DB growth) were both innocent. Pruning it back
-# reclaimed 33GB in one command.
-#
-# 4GB rather than zero: `--keep-storage 0` would make the next deploy recompile
-# the world. This keeps the most recently used layers, which are the ones the
-# next build wants. The budget is shared daemon-wide with the staging stack,
-# which prunes to the same figure — two different numbers would have each
-# script evicting the other's layers on every tick.
-echo "==> prune build cache"
-docker builder prune -f --keep-storage 4GB >/dev/null 2>&1 \
-  || echo "[warn] build-cache prune failed — check 'docker system df' for growth"
+# Image/build-cache pruning now happens unconditionally via the cleanup()
+# trap set near the top of this script, not here — so it still runs even
+# when the script dies before reaching this line.
 
 # Verify every tenant through our nginx. server_name is <slug>.*, so
 # <slug>.localhost matches regardless of the real domain.
