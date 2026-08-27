@@ -11,6 +11,7 @@ import {
   formatCurrencyShort,
   exportPayoutFilename,
   weekCrimeRowsToMap,
+  buildHistoricalWeekCrimesData,
   getCrimeStats,
   PAYOUT_MODES,
   DEFAULT_PAYOUT_MODE,
@@ -834,6 +835,38 @@ describe('weekCrimeRowsToMap', () => {
     const slots = [{ crime_id: 101, position: 'Muscle', user_id: '500', user_name: 'OldName' }]
     const map = weekCrimeRowsToMap(rows, slots, { 500: 'NewName' })
     expect(map[101].slots[0].user.name).toBe('NewName')
+  })
+})
+
+describe('buildHistoricalWeekCrimesData', () => {
+  const rows = [
+    { crime_id: 101, name: 'Break the Bank', difficulty: 8, status: 'Successful', executed_at: 1700, rewards_money: 5000 },
+  ]
+
+  // #389: reopening a saved week used to build crimesData from just
+  // {crimes, slots} — silently dropping occupancy_polls, which OccupancyPanel
+  // then read as an undefined-so-empty array and reported as "Not watched"
+  // even for a week the poller genuinely covered.
+  it('carries occupancy and occupancy_polls through alongside the crimes map', () => {
+    const occupancyForWeek = {
+      occupancy: [{ crime_id: 101, member_id: '500' }],
+      occupancy_polls: [{ polled_at: 1700 }, { polled_at: 1760 }],
+    }
+    const result = buildHistoricalWeekCrimesData(rows, [], occupancyForWeek)
+    expect(result.occupancy).toEqual(occupancyForWeek.occupancy)
+    expect(result.occupancy_polls).toEqual(occupancyForWeek.occupancy_polls)
+    expect(result.crimes).toEqual(weekCrimeRowsToMap(rows, []))
+  })
+
+  it('defaults to empty arrays rather than undefined when occupancyForWeek is missing fields', () => {
+    const result = buildHistoricalWeekCrimesData(rows, [], {})
+    expect(result.occupancy).toEqual([])
+    expect(result.occupancy_polls).toEqual([])
+  })
+
+  it('defaults occupancyForWeek itself when the caller passes nothing', () => {
+    const result = buildHistoricalWeekCrimesData(rows, [])
+    expect(result.occupancy_polls).toEqual([])
   })
 })
 
