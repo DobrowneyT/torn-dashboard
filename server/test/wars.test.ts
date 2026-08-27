@@ -206,6 +206,34 @@ describe('GET /api/wars/:id/revives', () => {
   })
 })
 
+describe('GET /api/wars/:id/stacks-snapshot (#480)', () => {
+  it('joins the stacks snapshot against roll call, lead-only', async () => {
+    await stack.db.query(`
+      INSERT INTO war_stacks_snapshot (war_id, member_id, member_name, energy_current, energy_maximum, has_reading, od_flagged_prewar, captured_at) VALUES
+        (200, 500, 'Member', 140, 150, true, false, now()),
+        (200, 501, 'Slacker', NULL, NULL, false, false, now())
+    `)
+    await stack.db.query(`
+      INSERT INTO war_room_roll_call_v2 (war_id, member_id, member_name, on_at_start, availability) VALUES
+        (200, 500, 'Member', true, 'Home all day')
+    `)
+
+    const { status, body } = await get('/api/wars/200/stacks-snapshot', 'leader')
+    expect(status).toBe(200)
+    expect(body.snapshot).toHaveLength(2)
+    const byId = Object.fromEntries(body.snapshot.map((r: any) => [r.member_id, r]))
+    expect(byId[500]).toMatchObject({
+      energy_current: 140, has_reading: true, on_at_start: true, availability: 'Home all day',
+    })
+    // No roll call response at all — the join leaves those columns null
+    // rather than dropping the member from the sheet.
+    expect(byId[501]).toMatchObject({ has_reading: false, on_at_start: null })
+
+    expect((await get('/api/wars/200/stacks-snapshot', 'member')).status).toBe(403)
+    expect((await get('/api/wars/200/stacks-snapshot', 'visitor')).status).toBe(403)
+  })
+})
+
 describe('war payout history', () => {
   beforeAll(async () => {
     // Two saved payouts for war 200 (a re-run supersedes the first) and one

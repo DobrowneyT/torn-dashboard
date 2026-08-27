@@ -15,6 +15,7 @@ import { snapshotDibbedStatus, sweepDibsExpiry, DIBS_EXPIRY_SECONDS } from './wa
 import { snapshotAssistedStatus, sweepAssistsExpiry } from './warRoomAssistsExpiry.js'
 import { storeOurChain, storeEnemyChain, chainPollDue, chainNearExpiry, CHAIN_FORCE_POLL_SEC } from './warRoomChain.js'
 import { memberStatsPollDue, sweepMemberStats, pruneMemberStats } from './warRoomMemberStats.js'
+import { captureStacksSnapshotIfDue } from './warRoomStacksSnapshot.js'
 import {
   rosterPollDue, safeRosterIntervalMs, TICKER_HEARTBEAT_MS,
 } from './warRoomRosterPoll.js'
@@ -356,6 +357,10 @@ export function createWarRoomTicker(deps: WarRoomTickerDeps) {
       // Live energy + cooldowns for our own members (#336). Fire-and-forget:
       // see sweepingMemberStats. Off by default (cadence 0).
       void sweepMemberStatsIfDue(cfg).catch(() => {})
+
+      // Pre-war stacks snapshot (#480). Own gate, own query — a no-op cheap
+      // SELECT on every tick until the war's final minute, then fires once.
+      void captureStacksSnapshotIfDue(db).catch(() => {})
     } finally {
       ticking = false
     }

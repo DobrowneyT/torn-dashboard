@@ -1,7 +1,8 @@
 // War lifecycle automation (slice #73) — port of the 3-minute pg_cron edge
 // call. Seam: the job's public API against the fixture + embedded Postgres.
 // Detect the matched war → auto-setup an automation-owned session → enable
-// at T-1h → disable at war end; manual sessions are never touched.
+// at matched+30min (#480) → disable at war end; manual sessions are never
+// touched.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, TEST_KEY_ENCRYPTION_KEY, type TestStack } from './harness.js'
 import { createKeyPool } from '../src/scraper/keyPool.js'
@@ -122,16 +123,39 @@ describe('war lifecycle job', () => {
     expect(again.details!.actions).toEqual([])
   })
 
-  it('never enables the room by itself, even an hour before the war (#345)', async () => {
-    // Auto-enable at T-1h is gone. The room polls Torn continuously once on,
-    // so switching it on is a leadership decision, not a calendar one. The
-    // board is already baselined and waiting; leaders press Start.
-    warStart = Math.floor(Date.now() / 1000) + 1800 // 30 min out
+  it('does not auto-enable within the 30-minute buffer after being matched (#480)', async () => {
+    // matched_detected_at was just stamped by the auto-setup test above.
+    // War 800's own start time (2h out) is irrelevant to auto-enable now —
+    // only time-since-matched counts.
     const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
     const result = await warLifecycleJob(deps())
     expect(result.details!.actions).toEqual([])
-    const cfg = await stack.db.query('SELECT enabled FROM war_room_config_v2 WHERE id = 1')
-    expect(cfg.rows[0].enabled).toBe(false)
+    const cfg = await stack.db.query('SELECT enabled, auto_enabled_at FROM war_room_config_v2 WHERE id = 1')
+    expect(cfg.rows[0]).toMatchObject({ enabled: false, auto_enabled_at: null })
+  })
+
+  it('auto-enables once the 30-minute buffer has passed, and never re-fires for the same war (#480)', async () => {
+    // Simulate the clock: this war was "matched" 31 minutes ago.
+    await stack.db.query(
+      `UPDATE war_room_config_v2 SET matched_detected_at = now() - interval '31 minutes' WHERE id = 1`
+    )
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    const result = await warLifecycleJob(deps())
+    expect(result.details!.actions).toEqual(['auto_enable'])
+    const cfg = await stack.db.query('SELECT enabled, auto_enabled_at, member_stats_poll_interval_sec FROM war_room_config_v2 WHERE id = 1')
+    expect(cfg.rows[0].enabled).toBe(true)
+    expect(cfg.rows[0].auto_enabled_at).toBeTruthy()
+    // member_stats_poll_interval_sec defaults to 0 (off) — auto-enable fills
+    // it in, since the whole point is accumulating overdose_until for #480.
+    expect(cfg.rows[0].member_stats_poll_interval_sec).toBe(300)
+
+    // A leader stops it by hand. auto_enabled_at (the one-shot guard) is
+    // untouched by a manual stop, so the lifecycle job must not fight them.
+    await stack.db.query(`UPDATE war_room_config_v2 SET enabled = false WHERE id = 1`)
+    const again = await warLifecycleJob(deps())
+    expect(again.details!.actions).toEqual([])
+    const cfgAfter = await stack.db.query('SELECT enabled FROM war_room_config_v2 WHERE id = 1')
+    expect(cfgAfter.rows[0].enabled).toBe(false)
   })
 
   it('disables when the managed war ends and releases automation ownership', async () => {

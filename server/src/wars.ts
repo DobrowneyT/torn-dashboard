@@ -97,6 +97,32 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
     return { revives: res.rows }
   })
 
+  // #480: pre-war stacks snapshot, joined against roll call so leadership can
+  // cross-reference "who said they'd be online" against "who was actually
+  // stacked and OD-free right before the war". Lead-only, matching the
+  // memberstats channel this data ultimately comes from (energy/cooldowns are
+  // the same lead-only signal, and #480 says to gate it identically).
+  //
+  // The roll-call join is LIVE, not baked into the snapshot at capture time:
+  // a response can be revised right up to war start, and the snapshot's job
+  // is to freeze the stacks reading, not to also freeze what leadership sees
+  // of a still-open roll call.
+  app.get('/api/wars/:id/stacks-snapshot', { preHandler: [requireNotVisitor(), requireRole('warlead', 'leadership', 'admin')] }, async (req) => {
+    const { id } = req.params as { id: string }
+    const res = await db.query(
+      `SELECT s.member_id, s.member_name, s.energy_current, s.energy_maximum,
+              s.has_reading, s.od_flagged_prewar, s.captured_at,
+              rc.on_at_start, rc.can_self_hospital, rc.needs_merc, rc.availability,
+              rc.revised, rc.submitted_at AS roll_call_submitted_at
+         FROM war_stacks_snapshot s
+         LEFT JOIN war_room_roll_call_v2 rc ON rc.war_id = s.war_id AND rc.member_id = s.member_id
+        WHERE s.war_id = $1
+        ORDER BY s.member_name`,
+      [id]
+    )
+    return { snapshot: res.rows }
+  })
+
   // Saved payout history. Nested member rows use the same key the PostgREST
   // embed produced (war_payout_members) so view code is unchanged.
   //
