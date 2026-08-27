@@ -7,7 +7,33 @@ vi.mock('../apiClient', () => ({
 }))
 
 import { apiGet } from '../apiClient'
-import { checkExistingWeek } from '../payoutDataLoader'
+import { checkExistingWeek, filterItemsForMember } from '../payoutDataLoader'
+
+describe('filterItemsForMember', () => {
+  it('matches on structured loaned_to entries by member id, not by name', () => {
+    const items = [
+      {
+        item_id: 226, item_name: 'Smoke Grenade',
+        loaned_to: [
+          { member_id: '801', member_name: 'Bob', amount: 5 },
+          { member_id: '802', member_name: 'Sue', amount: 3 },
+        ],
+      },
+      { item_id: 640, item_name: 'Riot Helmet', loaned_to: null },
+    ]
+
+    const bob = filterItemsForMember(items, '801')
+    expect(bob).toHaveLength(1)
+    expect(bob[0]).toMatchObject({ item_name: 'Smoke Grenade', loaned_to_member: 5 })
+
+    expect(filterItemsForMember(items, '999')).toHaveLength(0)
+  })
+
+  it('returns an empty array when items or loaned_to is absent', () => {
+    expect(filterItemsForMember(null, '801')).toEqual([])
+    expect(filterItemsForMember([{ item_id: 1, loaned_to: null }], '801')).toEqual([])
+  })
+})
 
 describe('checkExistingWeek', () => {
   beforeEach(() => {

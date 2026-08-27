@@ -358,6 +358,18 @@ describe('POST /api/war-payouts (save)', () => {
     expect(saved.created_by).toBe('600')
     expect(saved.war_payout_members.map((m: any) => m.member_name)).toEqual(['Member', 'Slacker'])
     expect(saved.war_payout_members[0].race_breakdown).toEqual({ pre: null, post: null })
+
+    // effort_share is computed server-side from payout_amount / total_payout
+    // (800000000) — never trusted from the client, since the client never
+    // sent it here at all.
+    const byName = Object.fromEntries(saved.war_payout_members.map((m: any) => [m.member_name, m]))
+    expect(Number(byName.Member.effort_share)).toBeCloseTo(500000000 / 800000000, 6)
+    expect(Number(byName.Slacker.effort_share)).toBeCloseTo(300000000 / 800000000, 6)
+
+    // The member-facing endpoint (their own dashboard) sees it too.
+    const own = await get('/api/members/500/war-payouts')
+    const forThisPayout = own.body.war_payouts.find((w: any) => w.payout_id === body.payout_id)
+    expect(Number(forThisPayout.effort_share)).toBeCloseTo(500000000 / 800000000, 6)
   })
 
   it('re-saving the same war overwrites the latest payout and replaces its members', async () => {
