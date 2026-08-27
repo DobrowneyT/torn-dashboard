@@ -39,8 +39,20 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
 
     const crimes = windowData.crimes || []
 
+    // #389: occupancy/occupancy_polls, straight from the server response —
+    // OccupancyPanel reads these off crimesData, and this function used to
+    // drop them entirely in both branches below, so the panel always read
+    // pollCount as 0 (undefined array) and reported "Not watched" regardless
+    // of real poller coverage, live payout or saved week alike.
+    const occupancy = windowData.occupancy || []
+    const occupancyPolls = windowData.occupancy_polls || []
+
     if (crimes.length === 0) {
-      return { crimes: {}, slots: [], rewardItems: [], requiredItems: [], participation: windowData.participation || [] }
+      return {
+        crimes: {}, slots: [], rewardItems: [], requiredItems: [],
+        participation: windowData.participation || [],
+        occupancy, occupancy_polls: occupancyPolls,
+      }
     }
 
     const slots = windowData.slots || []
@@ -146,7 +158,10 @@ export async function loadCrimesForPayout(fromTimestamp, toTimestamp) {
       rewardItems: rewardItems,
       requiredItems: requiredItems,
       // #168: left-early participation stints, for banked-time augmentation.
-      participation: windowData.participation || []
+      participation: windowData.participation || [],
+      // #389: see the comment above the empty-crimes early return.
+      occupancy,
+      occupancy_polls: occupancyPolls,
     }
 
   } catch (error) {

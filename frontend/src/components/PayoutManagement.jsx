@@ -23,7 +23,7 @@ import {
   exportPayoutFilename,
   generateBatchPayoutURL,
   getCrimeStats,
-  weekCrimeRowsToMap,
+  buildHistoricalWeekCrimesData,
   PAYOUT_MODES,
   DEFAULT_PAYOUT_MODE
 } from '../utils/payoutCalculations'
@@ -684,6 +684,11 @@ export default function PayoutManagement() {
       // Build item breakdown from linked crimes
       let itemBreakdown = { rewards: {}, costs: {} }
       const crimeIds = weekData.crime_ids || []
+      // #389: occupancy + occupancy_polls for this week's window, carried
+      // from the crime-data fetch below into the final setCrimesData call
+      // further down — see the comment there for why this can't just be
+      // read off windowData directly.
+      let occupancyForWeek = { occupancy: [], occupancy_polls: [] }
 
       if (crimeIds.length > 0) {
         // The window endpoint returns item rows for a superset of the linked
@@ -694,6 +699,10 @@ export default function PayoutManagement() {
         // db-time-safe: DATE column, as above.
         const toTs = weekData.week_end_timestamp ?? (Math.floor(new Date(weekData.week_end).getTime() / 1000) + 86400)
         const windowData = await apiGet(`/api/payouts/crime-data?from=${fromTs}&to=${toTs}`)
+        occupancyForWeek = {
+          occupancy: windowData.occupancy || [],
+          occupancy_polls: windowData.occupancy_polls || [],
+        }
         const idSet = new Set(crimeIds)
 
         // Aggregate reward items by item_id
@@ -780,12 +789,14 @@ export default function PayoutManagement() {
 
       // Fetch the linked crimes so Crime Statistics can render. Slots are part
       // of that (#391) — the participant list IS the thing people reopen a
-      // saved week to look at.
+      // saved week to look at. occupancyForWeek carries the earlier crime-data
+      // fetch's occupancy into the mix — see buildHistoricalWeekCrimesData
+      // for why that can't just be left off (#389).
       setMembersData(null)
       if (crimeIds.length > 0) {
         apiGet(`/api/payouts/weeks/${weekId}/crimes`)
           .then(({ crimes: crimesRows, slots: slotRows }) => {
-            setCrimesData({ crimes: weekCrimeRowsToMap(crimesRows, slotRows) })
+            setCrimesData(buildHistoricalWeekCrimesData(crimesRows, slotRows, occupancyForWeek))
           })
           .catch((crimesErr) => {
             console.error('Error loading crimes for stats:', crimesErr)
