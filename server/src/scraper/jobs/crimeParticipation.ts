@@ -51,6 +51,15 @@ export async function updateCrimeParticipation(
   const completedFlag = EXECUTED.has(crime.status ?? '')
   const resolved = completedFlag || crime.status === 'Expired'
   const resolveTime = crime.executed_at ?? crime.expired_at ?? null
+  // A member who left a crime that is STILL Recruiting/Planning did not leave
+  // "at" the crime's expired_at — that field is the crime's future deadline,
+  // stamped on every crime from creation, not evidence anything has actually
+  // happened yet. Falling back to it unconditionally credited a departed
+  // member with banked time running out to a date that hadn't occurred,
+  // sometimes days past the payout window's own end. Only a genuinely
+  // RESOLVED crime's resolveTime is a real "when this stint ended"; an
+  // unresolved one closes at COALESCE(null, now()) below, i.e. "just now".
+  const closeTime = resolved ? resolveTime : null
 
   for (const o of occupants) {
     if (resolved) {
@@ -79,6 +88,6 @@ export async function updateCrimeParticipation(
     `UPDATE crime_participation_v2
         SET left_at = COALESCE($2, extract(epoch FROM now())::bigint), updated_at = now()
       WHERE crime_id = $1 AND left_at IS NULL AND NOT (member_id = ANY($3))`,
-    [crimeId, resolveTime, occupantIds]
+    [crimeId, closeTime, occupantIds]
   )
 }
