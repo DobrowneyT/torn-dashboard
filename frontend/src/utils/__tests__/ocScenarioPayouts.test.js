@@ -11,6 +11,7 @@ import {
   pricingQuality,
   payoutSpread,
   paysInItems,
+  endingValue,
   THIN_SAMPLE_THRESHOLD,
 } from '../ocScenarioPayouts'
 import { expectedValue } from '../ocExpectedValue'
@@ -23,6 +24,34 @@ const BTB = [
   { ending_key: 'goodEnding5', node_id: '_B3S_',  kind: 'good', resolved: true, money_avg: 216827645, respect_avg: 270, observations: 2289 },
   { ending_key: 'badEnding1',  node_id: '_A4F_',  kind: 'bad',  resolved: true, money_avg: 0, respect_avg: 0, observations: 1 },
 ]
+
+// #441 follow-up — money plus the item value the server derived from the
+// mirror's per-node item drops (oc.ts, priced against the items catalogue).
+describe('endingValue', () => {
+  it('adds item value on top of money', () => {
+    expect(endingValue({ money_avg: 100, item_value_avg: 50 })).toBe(150)
+  })
+
+  it('is real even when money is legitimately zero — Window of Opportunity', () => {
+    // The whole point: an ending that pays $0 cash and real antiquities must
+    // not read as unpriced just because the money half is zero.
+    expect(endingValue({ money_avg: 0, item_value_avg: 70_000_000 })).toBe(70_000_000)
+  })
+
+  it('falls back to money alone when there is no item data', () => {
+    expect(endingValue({ money_avg: 100 })).toBe(100)
+    expect(endingValue({ money_avg: 100, item_value_avg: null })).toBe(100)
+  })
+
+  it('is null only when BOTH money and items are absent', () => {
+    expect(endingValue({ money_avg: null, item_value_avg: null })).toBeNull()
+    expect(endingValue({})).toBeNull()
+  })
+
+  it('is real from items alone when money is null (not merely zero)', () => {
+    expect(endingValue({ money_avg: null, item_value_avg: 5000 })).toBe(5000)
+  })
+})
 
 describe('payoutsFromEndings', () => {
   it('prices every mapped good ending from the feed', () => {
@@ -72,6 +101,22 @@ describe('payoutsFromEndings', () => {
     // bitten by that enough times to test it directly.
     const nulled = [{ ending_key: 'goodEnding1', node_id: '_A8S_', kind: 'good', resolved: true, money_avg: null }]
     expect(payoutsFromEndings(nulled).goodEnding1).toBeUndefined()
+  })
+
+  it('prices a $0-money ending from its item value — Window of Opportunity', () => {
+    const wop = [{
+      ending_key: 'goodEnding1', node_id: '_A8S_', kind: 'good', resolved: true,
+      money_avg: 0, item_value_avg: 70_416_072, observations: 3718,
+    }]
+    expect(payoutsFromEndings(wop).goodEnding1).toBe(70_416_072)
+  })
+
+  it('still omits an ending with neither money nor priceable items', () => {
+    const bothMissing = [{
+      ending_key: 'goodEnding1', node_id: '_C6S_', kind: 'good', resolved: true,
+      money_avg: null, item_value_avg: null, observations: 100,
+    }]
+    expect(payoutsFromEndings(bothMissing)).toEqual({})
   })
 })
 
@@ -144,6 +189,15 @@ describe('pricingQuality', () => {
     expect(pricingQuality([])).toBeNull()
     expect(pricingQuality(undefined)).toBeNull()
   })
+
+  it('counts an item-only ending as priced, not unpriced (#441 follow-up)', () => {
+    const itemOnly = [
+      { ending_key: 'goodEnding1', node_id: '_A8S_', kind: 'good', resolved: true, money_avg: 0, item_value_avg: 70_000_000, observations: 3718 },
+    ]
+    const q = pricingQuality(itemOnly)
+    expect(q.priced).toBe(1)
+    expect(q.unpriced).toEqual([])
+  })
 })
 
 describe('payoutSpread', () => {
@@ -191,5 +245,25 @@ describe('paysInItems', () => {
     // Zero money AND zero respect is not "pays in items", it is a dead end.
     const nothing = [{ ending_key: 'g1', kind: 'good', resolved: true, money_avg: 0, respect_avg: 0 }]
     expect(paysInItems(nothing)).toBe(false)
+  })
+
+  it('stops firing once the item value is priced (#441 follow-up)', () => {
+    // The crime this whole addition exists for: Window of Opportunity's
+    // endings pay $0 cash and real antiquities. Once item_value_avg carries
+    // that, the crime is priced and this must no longer flag it.
+    const nowPriced = [
+      { ending_key: 'goodEnding1', kind: 'good', resolved: true, money_avg: 0, item_value_avg: 70_000_000, respect_avg: 290 },
+    ]
+    expect(paysInItems(nowPriced)).toBe(false)
+  })
+
+  it('keeps firing when the items are observed but still unmatched to our catalogue', () => {
+    // priceNodeItems() returns 0 (not null) for a node whose drops it saw but
+    // could not price — real gap, still worth flagging, distinct from a crime
+    // with no item data at all.
+    const unmatched = [
+      { ending_key: 'goodEnding1', kind: 'good', resolved: true, money_avg: 0, item_value_avg: 0, respect_avg: 290 },
+    ]
+    expect(paysInItems(unmatched)).toBe(true)
   })
 })

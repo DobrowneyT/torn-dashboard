@@ -18,6 +18,32 @@ surface it automatically.
 
 ---
 
+## [3.58.0] - 2026-08-28
+
+### Added
+- **OC Simulator endings now price their observed item drops, not just
+  money (#441 follow-up, part of #473).** tornprobability's mirror feed
+  carries a per-node `items` array (name, occurrence rate, average
+  quantity) that `probabilityClient.ts` was silently discarding — only
+  `money`/`respect` were read. Crimes that pay in items instead of cash
+  (Window of Opportunity's antiquities, and everything `paysInItems()`
+  already flagged: Best of the Lot, Crane Reaction, Gaslight the Way,
+  Stage Fright) showed as unpriced/"$0" despite the source data existing
+  all along. Item drops are now captured (`oc_scenario_node_stats.items`,
+  migration 0052) and priced at CURRENT market rates when the scenarios
+  endpoint is read (`server/src/oc/itemPricing.ts`), using the same
+  `GREATEST(market_price, sell_price)` convention #448 already established
+  for the crime-level item average — an illiquid item's `market_price` is
+  often 0 because it rarely trades, and pricing on market alone would value
+  exactly the rare, expensive drops at nothing. An item observed dropping
+  but absent from our catalogue is reported as unmatched and priced at 0
+  rather than silently guessed. The frontend's `endingValue()` now sums
+  money + item value per ending, so `payoutsFromEndings()`,
+  `pricingQuality()`, `payoutSpread()` and `paysInItems()` all read the
+  combined figure — an ending with real items and $0 cash is priced, not
+  unpriced, and a crime whose items are now priced stops being flagged by
+  `paysInItems()`.
+
 ## [3.57.0] - 2026-08-28
 
 ### Changed

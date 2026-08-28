@@ -494,6 +494,95 @@ describe('item reward value on the scenarios payload', () => {
   })
 })
 
+// #441 follow-up — item drops the MIRROR observed for a specific ending
+// (unlike #448's item_reward above, which averages OUR OWN completed runs
+// with no ending attribution). This is what turns Window of Opportunity's
+// $0-money good endings into a real E(x).
+describe('ending item value on the scenarios payload (#441 follow-up)', () => {
+  let itemSimToken: string
+
+  beforeAll(async () => {
+    const login = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'SIMMANAGERKEY123' }),
+    })
+    itemSimToken = ((await login.json()) as any).token
+
+    await stack.db.query(`
+      INSERT INTO items (id, name, market_price, sell_price) VALUES
+        (600, 'Priceless Painting II', 0, 70000000),
+        (601, 'Shabti Sculpture II', 500000, 400000),
+        (602, 'Unrecorded Relic', 0, 0)
+      ON CONFLICT (id) DO UPDATE SET
+        market_price = EXCLUDED.market_price, sell_price = EXCLUDED.sell_price
+    `)
+    await stack.db.query(`
+      INSERT INTO oc_scenarios (name, parameter_count, diagram_valid)
+      VALUES ('Window Job', 4, true) ON CONFLICT DO NOTHING
+    `)
+    await stack.db.query(`
+      INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved) VALUES
+        ('Window Job', 'goodEnding1', '_A8S_', 'good', true),
+        ('Window Job', 'goodEnding2', '_C6S_', 'good', true)
+    `)
+    // _A8S_ pays $0 money and real items — the Window of Opportunity shape.
+    // _C6S_ pays $0 money and one item this catalogue cannot price.
+    await stack.db.query(`
+      INSERT INTO oc_scenario_node_stats
+        (scenario_name, node_id, n, money_avg, respect_avg, items) VALUES
+        ('Window Job', '_A8S_', 3718, 0, 290, $1::jsonb),
+        ('Window Job', '_C6S_', 100, 0, 200, $2::jsonb)
+    `, [
+      JSON.stringify([
+        { name: 'Priceless Painting II', occurrences: 3718, qty: { min: 1, max: 1, avg: 1 } },
+        { name: 'Shabti Sculpture II', occurrences: 1547, qty: { min: 2, max: 2, avg: 2 } },
+      ]),
+      JSON.stringify([
+        { name: 'Unrecorded Relic', occurrences: 100, qty: { min: 1, max: 1, avg: 1 } },
+      ]),
+    ])
+  })
+
+  const getItems = async (path: string) => {
+    const res = await fetch(`${stack.baseUrl}${path}`, { headers: { authorization: `Bearer ${itemSimToken}` } })
+    return { status: res.status, body: (await res.json()) as any }
+  }
+
+  it("prices an ending's observed item drops instead of leaving it at $0", async () => {
+    const { body } = await getItems('/api/oc-simulator/scenarios')
+    const scenario = body.scenarios.find((s: any) => s.name === 'Window Job')
+    const ending = scenario.endings.find((e: any) => e.ending_key === 'goodEnding1')
+    // Painting: 3718/3718 * 1 * 70,000,000 = 70,000,000
+    // Shabti:   1547/3718 * 2 * 500,000 (market beats sell here)
+    expect(Number(ending.item_value_avg)).toBeCloseTo(70_000_000 + (1547 / 3718) * 2 * 500_000, 0)
+    expect(Number(ending.money_avg)).toBe(0)
+  })
+
+  it('reports an item it could not price as unmatched, contributing 0', async () => {
+    const { body } = await getItems('/api/oc-simulator/scenarios')
+    const scenario = body.scenarios.find((s: any) => s.name === 'Window Job')
+    const ending = scenario.endings.find((e: any) => e.ending_key === 'goodEnding2')
+    expect(Number(ending.item_value_avg)).toBe(0)
+    expect(ending.item_value_unmatched).toEqual(['Unrecorded Relic'])
+  })
+
+  it('does not leak the raw items array onto the response', async () => {
+    // Internal plumbing only — the client works off item_value_avg.
+    const { body } = await getItems('/api/oc-simulator/scenarios')
+    const scenario = body.scenarios.find((s: any) => s.name === 'Window Job')
+    const ending = scenario.endings.find((e: any) => e.ending_key === 'goodEnding1')
+    expect(ending.items).toBeUndefined()
+  })
+
+  it('is null, not 0, for an ending with no node stats at all', async () => {
+    const { body } = await getItems('/api/oc-simulator/scenarios')
+    const btb = body.scenarios.find((s: any) => s.name === 'Break the Bank')
+    const unpriced = btb.endings.find((e: any) => e.ending_key === 'goodEnding1')
+    expect(unpriced.item_value_avg).toBeNull()
+  })
+})
+
 // #444 — success chance for every crime at one CPR.
 describe('GET /api/oc-simulator/ranking', () => {
   let rankToken: string

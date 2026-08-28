@@ -214,6 +214,10 @@ CREATE TABLE public.oc_scenario_node_stats (
   respect_min   numeric,
   respect_max   numeric,
   respect_avg   numeric,
+  -- Item drops observed at this node (#441 follow-up): [{name, occurrences,
+  -- qty:{min,max,avg}}]. Priced against the items table at read time, same as
+  -- #448's crime-level average, so it always reflects current market prices.
+  items         jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (scenario_name, node_id)
 );

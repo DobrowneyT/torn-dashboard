@@ -25,6 +25,25 @@ const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinit
 export const THIN_SAMPLE_THRESHOLD = 30
 
 /**
+ * The value of one ending: observed money plus the item drops the mirror
+ * reported for its node, priced at current market rates by the server
+ * (#441 follow-up — `item_value_avg`, computed in `oc.ts` from the same
+ * `GREATEST(market_price, sell_price)` rule #448 uses for the crime-level
+ * average).
+ *
+ * `null` only when BOTH are absent — an ending with real money but no
+ * priceable items still has a value, and one with items but no money
+ * (Window of Opportunity's good endings) must not read as unpriced just
+ * because the money half is legitimately zero.
+ */
+export function endingValue(e) {
+  const money = num(e?.money_avg)
+  const items = num(e?.item_value_avg)
+  if (money === null && items === null) return null
+  return (money ?? 0) + (items ?? 0)
+}
+
+/**
  * Ending key → payout, in the shape `expectedValue()` already expects.
  *
  * Bad endings are forced to 0 rather than read from the feed. They pay nothing
@@ -39,9 +58,9 @@ export function payoutsFromEndings(endings) {
     // An unresolved ending has no node, so it can have no payout — and must
     // stay absent rather than becoming 0, so E(x) reports it as missing.
     if (!e?.resolved) continue
-    const avg = num(e.money_avg)
-    if (avg === null) continue
-    out[e.ending_key] = avg
+    const value = endingValue(e)
+    if (value === null) continue
+    out[e.ending_key] = value
   }
   return out
 }
@@ -67,7 +86,8 @@ export function respectFromEndings(endings) {
  *
  *   unmapped   — #390 could not resolve the ending to a node. Needs a better
  *                probe, not more observations.
- *   unpriced   — mapped, but the feed has no money for that node.
+ *   unpriced   — mapped, but the feed has neither money nor priceable items
+ *                for that node.
  *   thin       — priced from very few observations.
  */
 export function pricingQuality(endings) {
@@ -75,8 +95,8 @@ export function pricingQuality(endings) {
   if (good.length === 0) return null
 
   const unmapped = good.filter((e) => !e.resolved)
-  const priced = good.filter((e) => e.resolved && num(e.money_avg) !== null)
-  const unpriced = good.filter((e) => e.resolved && num(e.money_avg) === null)
+  const priced = good.filter((e) => e.resolved && endingValue(e) !== null)
+  const unpriced = good.filter((e) => e.resolved && endingValue(e) === null)
   const thin = priced.filter((e) => (num(e.observations) ?? 0) < THIN_SAMPLE_THRESHOLD)
 
   const observations = priced.reduce((s, e) => s + (num(e.observations) ?? 0), 0)
@@ -102,7 +122,7 @@ export function pricingQuality(endings) {
 export function payoutSpread(endings) {
   const values = (endings ?? [])
     .filter((e) => e?.kind === 'good' && e.resolved)
-    .map((e) => num(e.money_avg))
+    .map((e) => endingValue(e))
     .filter((v) => v !== null)
   if (values.length === 0) return null
   const best = Math.max(...values)
@@ -111,12 +131,16 @@ export function payoutSpread(endings) {
 }
 
 /**
- * Whether a crime's endings are priced at zero money across the board.
+ * Whether a crime's endings are priced at zero across the board despite
+ * plainly rewarding something.
  *
  * ⚠️ Found in the live mirror: several crimes — Best of the Lot, Crane
  * Reaction, Gaslight the Way, Stage Fright among them — report money 0 for
- * EVERY good ending while still carrying respect. Those crimes reward items,
- * which the feed does not price.
+ * EVERY good ending while still carrying respect. Most such crimes turned out
+ * to reward items instead (#441 follow-up folded the mirror's item drops into
+ * `endingValue()`, so those are priced now) — this flags what's LEFT: a crime
+ * that still has no priceable value at all despite non-zero respect, either
+ * because its items aren't in our catalogue or the feed never reported them.
  *
  * This matters because "$0" and "pays nothing" are not the same statement, and
  * a ranking by income (#444) would put these last on a number that is only
@@ -126,10 +150,10 @@ export function payoutSpread(endings) {
 export function paysInItems(endings) {
   const good = (endings ?? []).filter((e) => e?.kind === 'good' && e.resolved)
   if (good.length === 0) return false
-  const money = good.map((e) => num(e.money_avg)).filter((v) => v !== null)
+  const values = good.map((e) => endingValue(e)).filter((v) => v !== null)
   const respect = good.map((e) => num(e.respect_avg)).filter((v) => v !== null)
-  if (money.length === 0) return false
-  // Every observed ending pays no cash, yet the crime plainly rewards
+  if (values.length === 0) return false
+  // Every priced ending is worth nothing, yet the crime plainly rewards
   // something — respect is non-zero somewhere.
-  return money.every((v) => v === 0) && respect.some((v) => v > 0)
+  return values.every((v) => v === 0) && respect.some((v) => v > 0)
 }

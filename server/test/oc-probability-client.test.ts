@@ -13,6 +13,7 @@ import {
   positionIndex,
   parseDiagramFrame,
   parseScenariosPage,
+  parseStatsFrame,
   PROBABILITY_BASE_URL,
 } from '../src/oc/probabilityClient.js'
 
@@ -152,6 +153,64 @@ describe('parseDiagramFrame', () => {
   it('returns null for a stream with no diagram at all', () => {
     expect(parseDiagramFrame('event: stats\ndata: e30=\n\n')).toBeNull()
     expect(parseDiagramFrame('')).toBeNull()
+  })
+})
+
+describe('parseStatsFrame (#441 follow-up: item drops)', () => {
+  const encode = (s: string) => Buffer.from(s, 'utf8').toString('base64')
+
+  it('captures item drops alongside money and respect', () => {
+    // Real fragment, captured live from Window of Opportunity's _A8S_ node on
+    // 2026-08-28 — the crime this whole addition exists for. It pays $0
+    // money and real Egyptian antiquities.
+    const payload = JSON.stringify({
+      _A8S_: {
+        n: 3718,
+        money: { min: 0, max: 0, avg: 0 },
+        respect: { min: 261, max: 319, avg: 290 },
+        items: [
+          { name: 'Priceless Painting', occurrences: 3718, qty: { min: 1, max: 1, avg: 1 } },
+          { name: 'Shabti Sculpture', occurrences: 1547, qty: { min: 2, max: 2, avg: 2 } },
+        ],
+      },
+    })
+    const sse = `event: stats\ndata: ${encode(payload)}\n\n`
+    const stats = parseStatsFrame(sse)
+    expect(stats?._A8S_.items).toEqual([
+      { name: 'Priceless Painting', occurrences: 3718, qty: { min: 1, max: 1, avg: 1 } },
+      { name: 'Shabti Sculpture', occurrences: 1547, qty: { min: 2, max: 2, avg: 2 } },
+    ])
+  })
+
+  it('defaults to an empty item list rather than omitting the field', () => {
+    // Most nodes pay no items. [] lets a caller tell "no items" from "we
+    // didn't parse the field" without an extra null check everywhere.
+    const payload = JSON.stringify({
+      _A9S_: { n: 100, money: { min: 1, max: 2, avg: 1.5 }, respect: { min: 1, max: 2, avg: 1.5 } },
+    })
+    const sse = `event: stats\ndata: ${encode(payload)}\n\n`
+    expect(parseStatsFrame(sse)?._A9S_.items).toEqual([])
+  })
+
+  it("drops one malformed item entry without losing the node's money/respect", () => {
+    const payload = JSON.stringify({
+      _A9S_: {
+        n: 100,
+        money: { min: 1, max: 2, avg: 1.5 },
+        respect: { min: 1, max: 2, avg: 1.5 },
+        items: [
+          { name: 'Fine Item', occurrences: 10, qty: { min: 1, max: 1, avg: 1 } },
+          { name: '', occurrences: 5, qty: { min: 1, max: 1, avg: 1 } }, // no name
+          { name: 'No Quantity', occurrences: 5 }, // missing qty
+        ],
+      },
+    })
+    const sse = `event: stats\ndata: ${encode(payload)}\n\n`
+    const stats = parseStatsFrame(sse)
+    expect(stats?._A9S_.items).toEqual([
+      { name: 'Fine Item', occurrences: 10, qty: { min: 1, max: 1, avg: 1 } },
+    ])
+    expect(stats?._A9S_.money.avg).toBe(1.5)
   })
 })
 
