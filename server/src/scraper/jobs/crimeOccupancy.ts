@@ -42,6 +42,7 @@ const CRIMES_PATH = '/v2/faction/crimes?cat=available'
 
 interface Slot {
   position_id?: number | string | null
+  position_info?: { id?: number | string | null } | null
   position?: string | null
   user?: { id?: number | string | null; joined_at?: number | null } | null
 }
@@ -65,12 +66,19 @@ export function observationsFrom(crimes: Crime[]): Observation[] {
     for (const slot of crime.slots ?? []) {
       const user = slot.user
       if (!user || user.id == null) continue
+      // Torn nests the seat identifier under position_info.id — the top-level
+      // slot.position_id crimesSync.ts also falls back to is legacy/absent in
+      // the v2 payload. Reading only the top-level field left positionId null
+      // on every observation, which collapsed a genuine mid-crime seat change
+      // into one continuous stint instead of splitting it (#389 follow-up:
+      // Rokiyam/GoobersKitten both showed observed > counted because of it).
+      const positionId = slot.position_info?.id ?? slot.position_id
       out.push({
         crimeId: String(crime.id),
         memberId: String(user.id),
         // position_id identifies the seat; a member moved between seats in one
         // crime genuinely left the seat they held, so it ends that stint.
-        positionId: slot.position_id != null ? String(slot.position_id) : null,
+        positionId: positionId != null ? String(positionId) : null,
         tornJoinedAt: user.joined_at != null ? Number(user.joined_at) : null,
       })
     }

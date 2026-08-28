@@ -18,6 +18,56 @@ surface it automatically.
 
 ---
 
+## [3.57.0] - 2026-08-28
+
+### Changed
+- **OC payout tickets/money now come from the occupancy poller (#389) instead
+  of the legacy crime_slots calculation, for any window it fully watched.**
+  MonChoon, after the position_id fix above resolved the last two
+  discrepancies found while manually verifying #389 against the whole
+  roster: "I think it makes sense to just switch over completely." Reasoning:
+  `crime_slots` and `crime_participation_v2` are both snapshot-keyed — a seat
+  change or a leave-and-rejoin overwrites `joined_at` and the earlier time is
+  gone, which is structural, not a bug to patch. The occupancy poller was
+  purpose-built to survive exactly that. `calculatePayouts` now checks
+  `occupancyCoverage.covered` (true only when there is no gap anywhere in the
+  window, including at its edges) and, when true, sets `ticketTimeSpent` and
+  the displayed `timeSpent` from `observedSeconds` rather than the
+  completed/banked interval union; it also folds in any member the poller saw
+  that the half-hourly `crimes-sync` snapshot missed entirely. Any coverage
+  gap — including a faction whose scraper container wasn't running, per
+  MonChoon's stated concern — falls all the way back to the legacy
+  calculation, unchanged. The old figures stay available as `legacyTimeSpent`
+  / `legacyTicketTimeSpent` for comparison, and the result carries a
+  `timeSource: 'occupancy' | 'legacy'` flag; `OccupancyPanel` and the payout
+  table (`PayoutManagement.jsx`) both now say which one drove a given
+  payout instead of always reading as diagnostic-only. Five new
+  `payoutCalculations.test.js` cases cover the coverage gate, the
+  occupancy-only-member case, and the legacy fallback.
+
+## [3.56.4] - 2026-08-28
+
+### Fixed
+- **Occupancy poller (#389) was reading the wrong field for a crime slot's
+  seat id, silently defeating its own position-swap detection.** Chasing
+  down two remaining "observed time exceeds counted time" outliers
+  (Rokiyam, GoobersKitten) after the #389/3.56.3 fix landed traced back to
+  `crimeOccupancy.ts`'s `observationsFrom` reading only the top-level
+  `slot.position_id`, which Torn's v2 payload doesn't populate — the real
+  seat id is nested at `slot.position_info.id` (`crimesSync.ts` has always
+  read it correctly via `pi.id ?? slot.position_id`). With `position_id`
+  coming back null on every poll, a member who changed seats mid-crime
+  (without leaving) got merged into one continuous `crime_occupancy` stint
+  instead of two, which is what made "observed" read as *more* accurate
+  than "counted" for exactly the members who happened to swap seats.
+  `crime_slots` and `crime_participation_v2` are both snapshot-keyed and
+  structurally can't retain the earlier seat's time through a swap; the
+  occupancy poller was already designed to survive that (it keys stints by
+  `(crime_id, member_id, position_id)` specifically so a seat change opens
+  a new stint) — it just wasn't seeing real seat ids to key on. Fixed the
+  field read to match `crimesSync.ts`'s extraction; two new regression
+  tests cover the real Torn payload shape and the resulting stint split.
+
 ## [3.56.3] - 2026-08-27
 
 ### Fixed

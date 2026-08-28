@@ -864,6 +864,12 @@ export default function PayoutManagement() {
     return state === 'watched' || state === 'degraded'
   }, [payoutResults])
 
+  // #389 part 3: once a window is fully watched, tickets/payout come from the
+  // occupancy poller instead of the legacy crime_slots calculation — see
+  // payoutCalculations.js's `usingOccupancy`. `timeSource` says which happened
+  // for this specific payout.
+  const usingOccupancy = payoutResults?.timeSource === 'occupancy'
+
   // Crime statistics
   const crimeStats = useMemo(() => {
     if (!crimesData?.crimes) return null
@@ -1275,13 +1281,19 @@ export default function PayoutManagement() {
                     <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('userId')}>
                       ID <SortIcon columnKey="userId" />
                     </th>
-                    <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('timeSpent')}>
+                    <th
+                      className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600"
+                      title={usingOccupancy ? 'Sourced from the occupancy poller (#389) — this window was fully watched.' : undefined}
+                      onClick={() => handleSort('timeSpent')}
+                    >
                       Time <SortIcon columnKey="timeSpent" />
                     </th>
                     {showObserved && (
                     <th
                       className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600 whitespace-nowrap"
-                      title="What the occupancy poller actually watched (#389). Diagnostic — not used for payouts."
+                      title={usingOccupancy
+                        ? 'What the occupancy poller watched (#389) — same as the Time column, this window was fully watched.'
+                        : 'What the occupancy poller actually watched (#389). This window had a coverage gap, so payouts still use the legacy calculation.'}
                       onClick={() => handleSort('observedSeconds')}
                     >
                       Observed <SortIcon columnKey="observedSeconds" />
@@ -1324,8 +1336,8 @@ export default function PayoutManagement() {
                       <tr key={member.userId} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50">
                         <td className="py-2 px-2 font-medium text-xs whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800">{member.name}</td>
                         <td className="py-2 px-2 text-xs text-gray-600 dark:text-gray-400">{member.userId}</td>
-                        <TimeCell member={member} />
-                        {showObserved && <ObservedCell member={member} />}
+                        <TimeCell member={member} usingOccupancy={usingOccupancy} />
+                        {showObserved && <ObservedCell member={member} usingOccupancy={usingOccupancy} />}
                         <td className="py-2 px-2 text-xs">{member.timePercent.toFixed(2)}%</td>
                         {usesTiers && <td className="py-2 px-2"><TierBadge tier={member.tier} /></td>}
                         <td className="py-2 px-2 text-xs">{member.baseTickets}</td>
@@ -1485,10 +1497,14 @@ function TierBadge({ tier }) {
 // Time-spent cell with a hover breakdown (#168). When a member banked time in
 // crimes they left before execution, flag it red and list those stints on hover
 // so leadership can see a legitimate reassignment vs join-and-bail farming.
-function TimeCell({ member }) {
+//
+// #389 part 3: once occupancy drives the payout, `bankedSeconds` is a stale
+// legacy figure — occupancy already reflects true continuous presence through
+// an early leave or a seat change, so there is nothing left to flag.
+function TimeCell({ member, usingOccupancy }) {
   const bankedCrimes = member.bankedCrimes || []
   const bankedSeconds = member.bankedSeconds || 0
-  const hasBanked = bankedSeconds > 0
+  const hasBanked = !usingOccupancy && bankedSeconds > 0
   return (
     <td className="py-2 px-2 text-xs relative group">
       <span className={hasBanked ? 'cursor-help border-b border-dashed border-red-400' : ''}>
@@ -1516,18 +1532,22 @@ function TimeCell({ member }) {
   )
 }
 
-// What the poller watched for this member (#389), next to what the existing
-// calculation counted. Diagnostic: nothing in the payout reads this column.
+// What the poller watched for this member (#389), next to what the legacy
+// crime_slots calculation counted. Once a window is fully watched (#389 part
+// 3), this IS the figure driving the payout — member.timeSpent already equals
+// observedSeconds, so the delta compares against legacyTimeSpent instead, to
+// keep showing how far the old method would have landed.
 //
 // A member with no observation at all renders as an em dash, never 0h — the
 // difference between "we watched and saw none" and "we have no record" is the
-// entire point of the observation period this column serves.
-function ObservedCell({ member }) {
+// entire point of the coverage tracking this column relies on.
+function ObservedCell({ member, usingOccupancy }) {
   const observed = member.observedSeconds
   if (observed === undefined || observed === null) {
     return <td className="py-2 px-2 text-xs text-gray-400" title="No occupancy record for this member">—</td>
   }
-  const delta = observed - (member.timeSpent ?? 0)
+  const compareAgainst = usingOccupancy ? (member.legacyTimeSpent ?? 0) : (member.timeSpent ?? 0)
+  const delta = observed - compareAgainst
   // Only the direction that indicates the bug gets colour. The poller seeing
   // LESS is expected while its history is short and does not need flagging.
   const overInferred = delta < -30 * 60
@@ -1538,7 +1558,7 @@ function ObservedCell({ member }) {
         <span
           className={`ml-1 tabular-nums ${overInferred ? 'text-red-500' : 'text-gray-400'}`}
           title={overInferred
-            ? 'The existing calculation credits more time than the poller ever saw'
+            ? 'The legacy crime_slots calculation credits more time than the poller ever saw'
             : 'The poller saw less — likely it was not running for part of this stint'}
         >
           {formatDelta(delta)}
