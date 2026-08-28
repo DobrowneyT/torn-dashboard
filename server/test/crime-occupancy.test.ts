@@ -212,4 +212,35 @@ describe('observationsFrom', () => {
   it('tolerates a crime with no slots array', () => {
     expect(observationsFrom([{ id: 1 }] as any)).toEqual([])
   })
+
+  it("reads the seat id from position_info.id — Torn's real v2 shape, not the legacy top-level field", () => {
+    // crimesSync.ts has always read `slot.position_info?.id ?? slot.position_id`
+    // (server/src/scraper/jobs/crimesSync.ts:90-92). This job read only the
+    // top-level field, which the real payload doesn't populate — every stored
+    // crime_occupancy row came back with position_id null, collapsing genuine
+    // mid-crime seat changes into one continuous stint (Rokiyam/GoobersKitten,
+    // #389 follow-up).
+    const crimeWithPositionInfo = (id: number, user: number, positionId: number, joinedAt: number) => ({
+      id,
+      slots: [{ position_info: { id: positionId }, user: { id: user, joined_at: joinedAt } }],
+    })
+    expect(observationsFrom([crimeWithPositionInfo(1, 900, 11, 100)] as any)).toEqual([
+      { crimeId: '1', memberId: '900', positionId: '11', tornJoinedAt: 100 },
+    ])
+  })
+
+  it('splits a stint on a real seat change reported via position_info.id', async () => {
+    const seat = (positionId: number, user: number, joinedAt: number) => ({
+      position_info: { id: positionId },
+      user: { id: user, joined_at: joinedAt },
+    })
+    await poll([{ id: 1, slots: [seat(11, 900, 100)] }], 100)
+    await poll([{ id: 1, slots: [seat(22, 900, 200)] }], 200)
+
+    const rows = await stints('900')
+    expect(rows).toHaveLength(2)
+    expect(rows.map(r => r.position_id)).toEqual(['11', '22'])
+    expect(rows[0].closed).toBe(true)
+    expect(rows[1].closed).toBe(false)
+  })
 })

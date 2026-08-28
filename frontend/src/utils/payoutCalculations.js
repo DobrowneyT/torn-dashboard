@@ -602,20 +602,62 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   }
 
   // #389 part 2: what the occupancy poller OBSERVED for the same window.
-  //
-  // Reported alongside the inferred figures, never instead of them. MonChoon is
-  // watching these for a few weeks before they are allowed to move money, and
-  // switching automatically the moment coverage looked complete would take that
-  // decision away — after four passes where this calculation was confidently
-  // wrong, "the numbers changed and nobody chose that" is the outcome most
-  // worth designing against.
-  //
-  // Everything needed to make the call ships with it: per-member observed
-  // seconds to compare against, whether the poller actually watched the
-  // window, and how far our first sighting sits from Torn's own joined_at.
   const observed = occupancySecondsByMember(crimesData?.occupancy, fromTimestamp, toTimestamp)
   for (const member of Object.values(participatingMembers)) {
     member.observedSeconds = observed[String(member.userId)]?.seconds ?? 0
+  }
+
+  // #389 part 3, MonChoon 2026-08-28: "I think it makes sense to just switch
+  // over completely." crime_slots and crime_participation_v2 are both
+  // snapshot-keyed (by position, and by (crime_id, member_id) respectively) —
+  // neither has anywhere to put a second interval for the same member in the
+  // same crime, so a seat change or a leave-and-rejoin both silently overwrite
+  // joined_at and the earlier time is gone. That is not a bug to patch, it is
+  // the shape of the table. The occupancy poller was built to survive exactly
+  // that (crimeOccupancy.ts keys stints by crime+member+position), and its own
+  // position_id-reading bug — the thing that made a real seat change collapse
+  // into one continuous stint — is now fixed.
+  //
+  // But occupancy only helps if it was actually running. MonChoon's stated
+  // concern: "the only issue would be if some faction did not have the
+  // container running constantly." occupancyCoverage.covered is false the
+  // moment there is ANY gap in the window (including at its edges), so the
+  // switch is gated on it — a window with any gap falls all the way back to
+  // the legacy crime_slots-derived calculation above, unchanged, rather than
+  // silently under-crediting whoever left during the gap.
+  const occupancyCoverage = pollCoverage(crimesData?.occupancy_polls, fromTimestamp, toTimestamp)
+  const usingOccupancy = occupancyCoverage.covered
+
+  if (usingOccupancy) {
+    // crimes-sync runs every 30 minutes; the occupancy poller runs every
+    // minute. A member who joined and left a crime entirely between two
+    // crimes-sync runs can be seen by occupancy while never appearing in
+    // crime_slots at all — add them rather than silently dropping their time.
+    for (const [userId, info] of Object.entries(observed)) {
+      if (info.seconds <= 0 || participatingMembers[userId]) continue
+      const memberData = members[userId] || {}
+      const memberName = memberData.name || 'Unknown'
+      participatingMembers[userId] = {
+        userId,
+        name: memberName !== 'Unknown' ? `${memberName} [${userId}]` : `User ${userId}`,
+        tier: memberData.tier ?? 6,
+        crimesCount: 0,
+        timeSpent: 0,
+        ticketTimeSpent: 0,
+        bankedSeconds: 0,
+        crimeIds: [],
+        positions: [],
+        observedSeconds: info.seconds,
+      }
+    }
+    for (const member of Object.values(participatingMembers)) {
+      // Legacy figures stay available for comparison, they just stop driving
+      // tickets/money.
+      member.legacyTimeSpent = member.timeSpent
+      member.legacyTicketTimeSpent = member.ticketTimeSpent
+      member.timeSpent = member.observedSeconds
+      member.ticketTimeSpent = member.observedSeconds
+    }
   }
 
   console.log('Crimes processed (successful in window):', crimesProcessed)
@@ -761,8 +803,11 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   return {
     members: memberArray,
     payoutMode: mode,
-    // #389 part 2 diagnostics. Present on every payout, load-bearing on none.
-    occupancyCoverage: pollCoverage(crimesData?.occupancy_polls, fromTimestamp, toTimestamp),
+    // #389 part 3: whether this payout's tickets/money were driven by the
+    // occupancy poller (fully-watched window) or the legacy crime_slots calc
+    // (any coverage gap, or a window predating the poller).
+    timeSource: usingOccupancy ? 'occupancy' : 'legacy',
+    occupancyCoverage,
     occupancyDrift: joinedAtDrift(crimesData?.occupancy),
     totalMoneyReward,
     totalItemReward,
