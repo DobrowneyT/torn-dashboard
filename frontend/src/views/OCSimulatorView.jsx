@@ -682,6 +682,16 @@ function ResultPanel({ scenario, result, calculating, error }) {
                           n={obs}
                         </span>
                       )}
+                      {isGood && Number(meta?.item_value_avg) > 0 && (
+                        <span className="text-gray-400 dark:text-gray-500" title={
+                          `Includes ${formatCurrency(meta.item_value_avg)} of item value at current market prices` +
+                          (meta.item_value_unmatched?.length
+                            ? ` — could not price: ${meta.item_value_unmatched.join(', ')}`
+                            : '')
+                        }>
+                          +items
+                        </span>
+                      )}
                       <span className="w-16 text-right">{(p * 100).toFixed(3)}%</span>
                     </span>
                   </div>

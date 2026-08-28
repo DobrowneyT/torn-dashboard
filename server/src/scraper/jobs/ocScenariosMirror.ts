@@ -255,7 +255,7 @@ async function replaceRoles(db: JobDeps['db'], scenario: string, roles: Scenario
 async function replaceNodeStats(
   db: JobDeps['db'],
   scenario: string,
-  stats: Record<string, { n: number; money: any; respect: any }> | null
+  stats: Record<string, { n: number; money: any; respect: any; items?: any[] }> | null
 ) {
   if (!stats || Object.keys(stats).length === 0) return
   await db.query('DELETE FROM oc_scenario_node_stats WHERE scenario_name = $1', [scenario])
@@ -263,11 +263,12 @@ async function replaceNodeStats(
     await db.query(
       `INSERT INTO oc_scenario_node_stats
          (scenario_name, node_id, n, money_min, money_max, money_avg,
-          respect_min, respect_max, respect_avg, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())`,
+          respect_min, respect_max, respect_avg, items, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb, now())`,
       [scenario, nodeId, s.n,
        Math.round(s.money.min), Math.round(s.money.max), Math.round(s.money.avg),
-       s.respect.min, s.respect.max, s.respect.avg]
+       s.respect.min, s.respect.max, s.respect.avg,
+       JSON.stringify(s.items ?? [])]
     )
   }
 }
