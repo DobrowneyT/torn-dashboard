@@ -18,6 +18,29 @@ surface it automatically.
 
 ---
 
+## [3.56.4] - 2026-08-28
+
+### Fixed
+- **Occupancy poller (#389) was reading the wrong field for a crime slot's
+  seat id, silently defeating its own position-swap detection.** Chasing
+  down two remaining "observed time exceeds counted time" outliers
+  (Rokiyam, GoobersKitten) after the #389/3.56.3 fix landed traced back to
+  `crimeOccupancy.ts`'s `observationsFrom` reading only the top-level
+  `slot.position_id`, which Torn's v2 payload doesn't populate — the real
+  seat id is nested at `slot.position_info.id` (`crimesSync.ts` has always
+  read it correctly via `pi.id ?? slot.position_id`). With `position_id`
+  coming back null on every poll, a member who changed seats mid-crime
+  (without leaving) got merged into one continuous `crime_occupancy` stint
+  instead of two, which is what made "observed" read as *more* accurate
+  than "counted" for exactly the members who happened to swap seats.
+  `crime_slots` and `crime_participation_v2` are both snapshot-keyed and
+  structurally can't retain the earlier seat's time through a swap; the
+  occupancy poller was already designed to survive that (it keys stints by
+  `(crime_id, member_id, position_id)` specifically so a seat change opens
+  a new stint) — it just wasn't seeing real seat ids to key on. Fixed the
+  field read to match `crimesSync.ts`'s extraction; two new regression
+  tests cover the real Torn payload shape and the resulting stint split.
+
 ## [3.56.3] - 2026-08-27
 
 ### Fixed
