@@ -2,12 +2,15 @@
  * The #389 observation panel: what the poller actually watched, versus what the
  * legacy calculation inferred.
  *
- * This exists to be READ, not acted on. MonChoon, 2026-08-12: "I will observe
- * the data for a few weeks until I can verify its working and then we can push
- * it." Nothing here moves money — `ticketTimeSpent` is still the legacy figure
- * and stays that way until that call is made deliberately.
+ * MonChoon, 2026-08-12: "I will observe the data for a few weeks until I can
+ * verify its working and then we can push it." That call was made 2026-08-28,
+ * once crimeOccupancy.ts's position_id bug was fixed: a fully-watched window
+ * (`occupancyCoverage.covered`) now drives tickets/money from the poller's
+ * figures (`payoutCalculations.js`'s `usingOccupancy`); any coverage gap falls
+ * back to the legacy crime_slots calculation, unchanged. `results.timeSource`
+ * says which one actually happened for this payout.
  *
- * So the panel's job is to make the comparison honest enough to decide on, and
+ * So the panel's job is to make the comparison honest enough to check, and
  * its most important behaviour is staying quiet when it has nothing to say:
  * a window the poller never covered renders as "not watched", never as zeroes.
  */
@@ -84,11 +87,17 @@ export default function OccupancyPanel({ results }) {
 
       {open && (
         <div className="mt-4 space-y-4 text-sm">
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Diagnostic only — payouts on this page are still calculated from the existing time
-            figures. These numbers are here to be checked against them over a few weeks before
-            observation is trusted with money.
-          </p>
+          {results?.timeSource === 'occupancy' ? (
+            <p className="text-xs text-green-700 dark:text-green-400">
+              This window was fully watched — tickets and payout share on this page are computed
+              from these observed figures, not the legacy crime_slots calculation below.
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              This window has a coverage gap (or predates the poller), so payouts on this page fell
+              back to the legacy crime_slots calculation. These numbers are shown for comparison only.
+            </p>
+          )}
 
           {/* Coverage */}
           <div>

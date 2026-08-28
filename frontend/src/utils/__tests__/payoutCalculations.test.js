@@ -1107,3 +1107,105 @@ describe('occupancy diagnostics ride along without changing the payout (#389)', 
     expect(result.members[0].payout).toBe(800_000)
   })
 })
+
+// ─── Occupancy drives the payout once fully watched (#389 part 3) ──
+//
+// MonChoon, 2026-08-28, once crimeOccupancy.ts's position_id bug was fixed:
+// "I think it makes sense to just switch over completely. The only issue
+// would be if some faction did not have the container running constantly."
+// So the switch is gated on occupancyCoverage.covered — any gap (including a
+// window that predates the poller entirely) keeps the legacy calculation.
+describe('occupancy drives tickets/payout for a fully-watched window (#389 part 3)', () => {
+  const FROM = 1_000_000
+  const TO = FROM + HOUR
+
+  // Dense polls, well within the gap tolerance, spanning the whole window.
+  const densePolls = () => {
+    const polls = []
+    for (let t = FROM; t <= TO; t += 150) polls.push({ polled_at: t })
+    return polls
+  }
+
+  const base = () => makeCrimeFixture({
+    executedAt: TO - 10, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM)],
+  })
+
+  it('reports timeSource "legacy" when there is any coverage gap', () => {
+    const result = calculatePayouts(base(), makeMembers([1]), FROM, TO, 0.20)
+    expect(result.occupancyCoverage.covered).toBe(false)
+    expect(result.timeSource).toBe('legacy')
+  })
+
+  it('reports timeSource "occupancy" and drives ticketTimeSpent from it once fully watched', () => {
+    const data = {
+      ...base(),
+      occupancy: [
+        { member_id: '1', torn_joined_at: FROM, first_seen_at: FROM, last_seen_at: FROM + 2 * 60 },
+      ],
+      occupancy_polls: densePolls(),
+    }
+    const result = calculatePayouts(data, makeMembers([1]), FROM, TO, 0.20)
+    expect(result.occupancyCoverage.covered).toBe(true)
+    expect(result.timeSource).toBe('occupancy')
+    const m1 = result.members.find(m => m.userId === 1 || m.userId === '1')
+    expect(m1.observedSeconds).toBe(2 * 60)
+    expect(m1.ticketTimeSpent).toBe(2 * 60)
+    expect(m1.timeSpent).toBe(2 * 60)
+  })
+
+  it('keeps the legacy figures available for comparison once switched', () => {
+    const data = {
+      ...base(),
+      occupancy: [
+        { member_id: '1', torn_joined_at: FROM, first_seen_at: FROM, last_seen_at: FROM + 2 * 60 },
+      ],
+      occupancy_polls: densePolls(),
+    }
+    const result = calculatePayouts(data, makeMembers([1]), FROM, TO, 0.20)
+    const m1 = result.members.find(m => m.userId === 1 || m.userId === '1')
+    expect(m1.legacyTimeSpent).toBe(TO - 10 - FROM)
+    expect(m1.legacyTicketTimeSpent).toBe(TO - 10 - FROM)
+  })
+
+  it('includes a member occupancy saw but crime_slots never captured', () => {
+    // crimes-sync polls every 30 minutes; occupancy polls every minute. A
+    // member who joined and left entirely between two crimes-sync runs can be
+    // occupancy-only.
+    const data = {
+      ...base(),
+      occupancy: [
+        { member_id: '1', torn_joined_at: FROM, first_seen_at: FROM, last_seen_at: FROM + 2 * 60 },
+        { member_id: '2', torn_joined_at: FROM + 10 * 60, first_seen_at: FROM + 10 * 60, last_seen_at: FROM + 15 * 60 },
+      ],
+      occupancy_polls: densePolls(),
+    }
+    const result = calculatePayouts(data, makeMembers([1, 2]), FROM, TO, 0.20)
+    const m2 = result.members.find(m => m.userId === 2 || m.userId === '2')
+    // Both members' observed time is well under the 48h sit-out floor for
+    // this deliberately short test window, so payout share isn't the thing
+    // being checked here — just that the occupancy-only member is present
+    // at all, rather than silently dropped for having no crime_slots row.
+    expect(m2).toBeDefined()
+    expect(m2.observedSeconds).toBe(5 * 60)
+    expect(m2.ticketTimeSpent).toBe(5 * 60)
+    expect(m2.crimesCount).toBe(0)
+  })
+
+  it('does not switch when the window has even one gap beyond tolerance', () => {
+    const polls = densePolls()
+    // Drop a chunk from the middle to create a real gap.
+    const gapped = polls.filter(p => p.polled_at < FROM + 20 * 60 || p.polled_at > FROM + 30 * 60)
+    const data = {
+      ...base(),
+      occupancy: [
+        { member_id: '1', torn_joined_at: FROM, first_seen_at: FROM, last_seen_at: FROM + 2 * 60 },
+      ],
+      occupancy_polls: gapped,
+    }
+    const result = calculatePayouts(data, makeMembers([1]), FROM, TO, 0.20)
+    expect(result.occupancyCoverage.covered).toBe(false)
+    expect(result.timeSource).toBe('legacy')
+    const m1 = result.members.find(m => m.userId === 1 || m.userId === '1')
+    expect(m1.ticketTimeSpent).toBe(TO - 10 - FROM)
+  })
+})
