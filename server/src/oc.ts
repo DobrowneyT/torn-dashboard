@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from './authz.js'
 import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
 import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js'
 import { matchRolesToPositions } from './oc/roleMatch.js'
+import { buildItemCatalog, priceNodeItems } from './oc/itemPricing.js'
 
 export interface OcDeps {
   db: pg.Pool
@@ -170,7 +171,7 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
                            'kind', e.kind, 'resolved', e.resolved, 'problem', e.problem,
                            'money_avg', st.money_avg, 'money_min', st.money_min,
                            'money_max', st.money_max, 'respect_avg', st.respect_avg,
-                           'observations', st.n)
+                           'observations', st.n, 'items', st.items)
                          ORDER BY e.kind, e.ending_key)
                   FROM oc_scenario_endings e
                   LEFT JOIN oc_scenario_node_stats st
@@ -180,6 +181,22 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
            FROM oc_scenarios s
           ORDER BY s.name`
       )
+
+      // #441 follow-up: price each ending's observed item drops at CURRENT
+      // market prices, same convention as #448's crime-level average
+      // (GREATEST(market_price, sell_price) below in itemPricing.ts). This is
+      // what turns an ending that pays in items (Window of Opportunity, and
+      // everything paysInItems() flags) from "unpriced" into a real E(x).
+      const itemCatalogRows = await deps.db.query('SELECT name, market_price, sell_price FROM items')
+      const itemCatalog = buildItemCatalog(itemCatalogRows.rows)
+      for (const s of rows.rows) {
+        for (const e of s.endings ?? []) {
+          const priced = priceNodeItems(e.items, e.observations, itemCatalog)
+          e.item_value_avg = priced ? priced.value : null
+          e.item_value_unmatched = priced ? priced.unmatched : []
+          delete e.items
+        }
+      }
 
       // #448: what this crime's ITEM rewards have been worth, from our own
       // completed runs, at today's market prices.

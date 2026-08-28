@@ -31,12 +31,34 @@ export interface CalculateSuccessResponse {
   [endingKey: string]: number
 }
 
-/** Observed money/respect for one diagram node, from the feed's stats frame. */
+/**
+ * One item observed dropping at a node, from the feed's stats frame (#441
+ * follow-up).
+ *
+ * `occurrences` is how many of the node's `n` observations included this
+ * item — NOT a guarantee every run drops it. A crime like Window of
+ * Opportunity reports several items per ending at different occurrence
+ * rates, so pricing has to be expected-value over the rate, not the
+ * quantity alone.
+ */
+export interface ItemDrop {
+  name: string
+  occurrences: number
+  qty: { min: number; max: number; avg: number }
+}
+
+/** Observed money/respect/items for one diagram node, from the feed's stats frame. */
 export interface NodeStats {
   /** How many observed runs this node's figures come from. */
   n: number
   money: { min: number; max: number; avg: number }
   respect: { min: number; max: number; avg: number }
+  /**
+   * Item drops observed at this node. Always an array — [] when the node
+   * pays no items, never omitted — so a caller can tell "no items" from
+   * "we didn't parse the field".
+   */
+  items: ItemDrop[]
 }
 
 export interface ScenarioFeed {
@@ -350,7 +372,7 @@ export function parseStatsFrame(sse: string): Record<string, NodeStats> | null {
       const money = band(raw?.money)
       const respect = band(raw?.respect)
       if (!Number.isFinite(n) || !money || !respect) continue
-      out[nodeId] = { n, money, respect }
+      out[nodeId] = { n, money, respect, items: parseItemDrops(raw?.items) }
     }
     return Object.keys(out).length > 0 ? out : null
   }
@@ -368,6 +390,26 @@ function band(raw: unknown): { min: number; max: number; avg: number } | null {
   // getting bitten by.
   if (![min, max, avg].every(Number.isFinite)) return null
   return { min, max, avg }
+}
+
+/**
+ * The node's `items` array, or [] for anything unusable.
+ *
+ * ⚠️ A malformed ENTRY is skipped, not the whole node. Money and respect fail
+ * the node closed because a bad reading there is unrecoverable; one bad item
+ * in a list of four should not cost the other three their pricing.
+ */
+function parseItemDrops(raw: unknown): ItemDrop[] {
+  if (!Array.isArray(raw)) return []
+  const out: ItemDrop[] = []
+  for (const entry of raw) {
+    const name = typeof entry?.name === 'string' ? entry.name.trim() : ''
+    const occurrences = Number(entry?.occurrences)
+    const qty = band(entry?.qty)
+    if (!name || !Number.isFinite(occurrences) || !qty) continue
+    out.push({ name, occurrences, qty })
+  }
+  return out
 }
 
 /**
