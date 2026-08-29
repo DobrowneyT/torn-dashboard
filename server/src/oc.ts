@@ -168,7 +168,7 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
                 COALESCE((
                   SELECT jsonb_agg(jsonb_build_object(
                            'ending_key', e.ending_key, 'node_id', e.node_id,
-                           'kind', e.kind, 'resolved', e.resolved, 'problem', e.problem,
+                           'kind', e.kind, 'resolved', e.resolved, 'starved', e.starved, 'problem', e.problem,
                            'money_avg', st.money_avg, 'money_min', st.money_min,
                            'money_max', st.money_max, 'respect_avg', st.respect_avg,
                            'observations', st.n, 'items', st.items)

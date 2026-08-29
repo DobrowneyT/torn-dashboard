@@ -18,6 +18,34 @@ surface it automatically.
 
 ---
 
+## [3.58.1] - 2026-08-28
+
+### Fixed
+- **Blast from the Past and Counter Offer's endings that have no diagram
+  terminal are now confirmed and priced at $0, instead of permanently
+  reading as an incomplete lower bound (#473).** Both crimes' probability
+  engine reports more good endings than their diagrams draw terminals for
+  (`goodEnding35/45/310/410` on Blast from the Past; `goodEnding5/6` plus a
+  stray `unknown` field on Counter Offer) — confirmed live against
+  tornprobability directly, and now raised with their maintainer. The
+  mirror's reward tracking is keyed strictly by diagram node id, so no
+  amount of better mapping will ever price these from that source. What
+  the investigation also found: the crimes' 4 REAL diagram terminals were
+  already mapped and priced correctly the whole time (`assignEndings`'s
+  Hungarian assignment handles a ragged API-vs-diagram count fine on its
+  own) — the "unpriced" experience was specifically these starved extras
+  dragging `expectedValue()`'s completeness flag down. `oc_scenario_endings`
+  gains a `starved` column (migration 0053) — distinct from `resolved`,
+  which stays accurate ("no node was found") — set from
+  `assignEndings`'s `unmatched.endings` (no more fragile regex-parsing of
+  combined problem strings for the good-ending path). `endingValue()`
+  (frontend) treats a starved ending as a confirmed $0 rather than missing;
+  `pricingQuality()` stops counting it as "unmapped" (which would ask for a
+  better probe that can never arrive); `payoutSpread()` excludes it
+  (it's not a designed outcome a router role decides between). MonChoon:
+  "let's softly mark those endings as 0s for the moment" — reversible the
+  moment an upstream diagram fix gives either extra a real terminal.
+
 ## [3.58.0] - 2026-08-28
 
 ### Added

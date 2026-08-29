@@ -277,6 +277,11 @@ async function clearEndings(db: JobDeps['db'], scenario: string) {
   await db.query('DELETE FROM oc_scenario_endings WHERE scenario_name = $1', [scenario])
 }
 
+/** Explains a starved ending wherever one is written — kept in one place. */
+const STARVED_PROBLEM =
+  'no diagram counterpart — the API reports more good endings than the ' +
+  'flowchart draws terminals for; priced at $0 pending an upstream diagram fix'
+
 /**
  * Store the mapping, including the endings it could NOT resolve.
  *
@@ -288,17 +293,31 @@ async function clearEndings(db: JobDeps['db'], scenario: string) {
 async function writeEndings(
   db: JobDeps['db'],
   scenario: string,
-  // Structurally typed: the simulation-based assignment (#471) and the
-  // heuristic derivation both produce a map plus problems, and this only needs
-  // those two fields.
-  good: { map: Record<string, string>; problems: string[] },
+  // The simulation-based assignment (#471) additionally carries `unmatched`
+  // — the heuristic derivation (bad endings only) does not, and its
+  // unresolved keys are still recovered from `problems` below.
+  good: { map: Record<string, string>; problems: string[]; unmatched?: { endings: string[] } },
   bad: { map: Record<string, string>; problems: string[] }
 ) {
   await clearEndings(db, scenario)
+
+  const upsert = (key: string, nodeId: string | null, kind: 'good' | 'bad', resolved: boolean, starved: boolean, problem: string | null) =>
+    db.query(
+      `INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved, starved, problem)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (scenario_name, ending_key) DO UPDATE SET
+         node_id = EXCLUDED.node_id, kind = EXCLUDED.kind, resolved = EXCLUDED.resolved,
+         starved = EXCLUDED.starved, problem = EXCLUDED.problem`,
+      [scenario, key, nodeId, kind, resolved, starved, problem]
+    )
+
   for (const [kind, result] of [['good', good], ['bad', bad]] as const) {
     const keys = new Set([...Object.keys(result.map)])
     // Problems name their ending key first ("goodEnding3: ties between ..."),
-    // so unresolved endings are recoverable from them.
+    // so unresolved endings are recoverable from them. Still needed for the
+    // bad-ending path (the legacy heuristic derivation); good endings report
+    // their unresolved keys directly via `unmatched.endings` instead — see
+    // below — so this only ever adds keys for `bad`.
     for (const problem of result.problems) {
       const key = /^(\w+Ending\d+):/.exec(problem)?.[1]
       if (key) keys.add(key)
@@ -306,14 +325,19 @@ async function writeEndings(
     for (const key of keys) {
       const nodeId = result.map[key] ?? null
       const problem = result.problems.find((p) => p.startsWith(`${key}:`)) ?? null
-      await db.query(
-        `INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved, problem)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (scenario_name, ending_key) DO UPDATE SET
-           node_id = EXCLUDED.node_id, kind = EXCLUDED.kind,
-           resolved = EXCLUDED.resolved, problem = EXCLUDED.problem`,
-        [scenario, key, nodeId, kind, nodeId !== null, problem]
-      )
+      await upsert(key, nodeId, kind, nodeId !== null, false, problem)
     }
+  }
+
+  // #473, MonChoon 2026-08-28: "let's softly mark those endings as 0s for
+  // the moment" — a starved good ending (the API reports it, the diagram has
+  // no terminal for it) is a CONFIRMED state, not an open question. The
+  // mirror's reward tracking is keyed strictly by diagram node id, so no
+  // amount of better mapping ever prices one from this source. Marked
+  // `starved` (not `resolved`, which stays accurate: no node was found) so
+  // pricing can treat it as $0 instead of a permanent lower bound, and
+  // reversible the moment an upstream fix gives it a real terminal.
+  for (const key of good.unmatched?.endings ?? []) {
+    await upsert(key, null, 'good', false, true, STARVED_PROBLEM)
   }
 }
