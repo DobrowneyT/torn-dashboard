@@ -195,9 +195,10 @@ describe('OC Simulator endpoints', () => {
         ('Break the Bank', 'P2', 'Muscle 1', 20)
     `)
     await stack.db.query(`
-      INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved, problem) VALUES
-        ('Break the Bank', 'goodEnding1', '_A8S_', 'good', true, NULL),
-        ('Break the Bank', 'goodEnding3', NULL, 'good', false, 'goodEnding3: ties between _A9S_ and _A10S_')
+      INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved, starved, problem) VALUES
+        ('Break the Bank', 'goodEnding1', '_A8S_', 'good', true, false, NULL),
+        ('Break the Bank', 'goodEnding3', NULL, 'good', false, false, 'goodEnding3: ties between _A9S_ and _A10S_'),
+        ('Break the Bank', 'goodEnding35', NULL, 'good', false, true, 'no diagram counterpart — priced at $0 pending an upstream diagram fix')
     `)
   })
 
@@ -251,6 +252,16 @@ describe('OC Simulator endpoints', () => {
     expect(unresolved.resolved).toBe(false)
     expect(unresolved.node_id).toBeNull()
     expect(unresolved.problem).toMatch(/ties between/)
+  })
+
+  it('carries starved endings distinctly from merely unresolved ones (#473)', async () => {
+    const { body } = await simGet('/api/oc-simulator/scenarios')
+    const btb = body.scenarios.find((s: any) => s.name === 'Break the Bank')
+    const starved = btb.endings.find((e: any) => e.ending_key === 'goodEnding35')
+    expect(starved.starved).toBe(true)
+    expect(starved.resolved).toBe(false)
+    expect(starved.node_id).toBeNull()
+    expect(starved.problem).toMatch(/no diagram counterpart/)
   })
 
   it('rejects a CPR vector of the wrong length for that crime', async () => {

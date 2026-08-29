@@ -25,18 +25,33 @@ const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinit
 export const THIN_SAMPLE_THRESHOLD = 30
 
 /**
+ * Whether an ending has anything to price at all — resolved to a real
+ * diagram node, OR confirmed starved (#473: the API reports it, the diagram
+ * draws no terminal for it, so it can never get real stats — soft-priced at
+ * $0 rather than left an open question forever).
+ */
+export function isPriceable(e) {
+  return !!(e?.resolved || e?.starved)
+}
+
+/**
  * The value of one ending: observed money plus the item drops the mirror
  * reported for its node, priced at current market rates by the server
  * (#441 follow-up — `item_value_avg`, computed in `oc.ts` from the same
  * `GREATEST(market_price, sell_price)` rule #448 uses for the crime-level
  * average).
  *
- * `null` only when BOTH are absent — an ending with real money but no
- * priceable items still has a value, and one with items but no money
- * (Window of Opportunity's good endings) must not read as unpriced just
- * because the money half is legitimately zero.
+ * A starved ending (#473) is 0 by definition — there is no node for it to
+ * ever carry money or items — not merely "no data yet" like a genuinely
+ * unresolved ending.
+ *
+ * Otherwise `null` only when BOTH money and items are absent — an ending
+ * with real money but no priceable items still has a value, and one with
+ * items but no money (Window of Opportunity's good endings) must not read
+ * as unpriced just because the money half is legitimately zero.
  */
 export function endingValue(e) {
+  if (e?.starved) return 0
   const money = num(e?.money_avg)
   const items = num(e?.item_value_avg)
   if (money === null && items === null) return null
@@ -55,9 +70,11 @@ export function payoutsFromEndings(endings) {
   const out = {}
   for (const e of endings ?? []) {
     if (e?.kind === 'bad') { out[e.ending_key] = 0; continue }
-    // An unresolved ending has no node, so it can have no payout — and must
-    // stay absent rather than becoming 0, so E(x) reports it as missing.
-    if (!e?.resolved) continue
+    // An unresolved, non-starved ending has no node, so it can have no
+    // payout — and must stay absent rather than becoming 0, so E(x) reports
+    // it as missing. A starved ending (#473) is priceable by definition —
+    // isPriceable() lets it through, endingValue() prices it at 0.
+    if (!isPriceable(e)) continue
     const value = endingValue(e)
     if (value === null) continue
     out[e.ending_key] = value
@@ -94,10 +111,16 @@ export function pricingQuality(endings) {
   const good = (endings ?? []).filter((e) => e?.kind === 'good')
   if (good.length === 0) return null
 
-  const unmapped = good.filter((e) => !e.resolved)
-  const priced = good.filter((e) => e.resolved && endingValue(e) !== null)
-  const unpriced = good.filter((e) => e.resolved && endingValue(e) === null)
-  const thin = priced.filter((e) => (num(e.observations) ?? 0) < THIN_SAMPLE_THRESHOLD)
+  // A starved ending (#473) is neither "unmapped" (that means it needs a
+  // better probe, and this one never will resolve — there is no node) nor
+  // "unpriced" (its $0 is confirmed, not missing) — it's priced.
+  const unmapped = good.filter((e) => !e.resolved && !e.starved)
+  const priced = good.filter((e) => isPriceable(e) && endingValue(e) !== null)
+  const unpriced = good.filter((e) => isPriceable(e) && endingValue(e) === null)
+  // A starved ending (#473) isn't "priced from few observations" — it has no
+  // observation concept at all, its $0 is priced by definition. Excluded here
+  // so it doesn't pick up a redundant thin-sample flag alongside its own tag.
+  const thin = priced.filter((e) => !e.starved && (num(e.observations) ?? 0) < THIN_SAMPLE_THRESHOLD)
 
   const observations = priced.reduce((s, e) => s + (num(e.observations) ?? 0), 0)
   return {
@@ -120,6 +143,11 @@ export function pricingQuality(endings) {
  * argument for #441.
  */
 export function payoutSpread(endings) {
+  // Starved endings (#473) are excluded here specifically: this is the gap
+  // a ROUTER ROLE decides between, i.e. real diagram terminals — a starved
+  // ending is a data-completeness placeholder, not a designed outcome, and
+  // including its synthetic $0 would inflate the spread on a crime that
+  // simply happens to have one.
   const values = (endings ?? [])
     .filter((e) => e?.kind === 'good' && e.resolved)
     .map((e) => endingValue(e))
@@ -148,7 +176,7 @@ export function payoutSpread(endings) {
  * difference between an honest gap in the data and a wrong answer.
  */
 export function paysInItems(endings) {
-  const good = (endings ?? []).filter((e) => e?.kind === 'good' && e.resolved)
+  const good = (endings ?? []).filter((e) => e?.kind === 'good' && isPriceable(e))
   if (good.length === 0) return false
   const values = good.map((e) => endingValue(e)).filter((v) => v !== null)
   const respect = good.map((e) => num(e.respect_avg)).filter((v) => v !== null)

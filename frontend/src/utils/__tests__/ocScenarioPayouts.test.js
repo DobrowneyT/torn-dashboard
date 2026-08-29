@@ -12,6 +12,7 @@ import {
   payoutSpread,
   paysInItems,
   endingValue,
+  isPriceable,
   THIN_SAMPLE_THRESHOLD,
 } from '../ocScenarioPayouts'
 import { expectedValue } from '../ocExpectedValue'
@@ -50,6 +51,25 @@ describe('endingValue', () => {
 
   it('is real from items alone when money is null (not merely zero)', () => {
     expect(endingValue({ money_avg: null, item_value_avg: 5000 })).toBe(5000)
+  })
+
+  it('is 0 for a starved ending regardless of anything else on the row (#473)', () => {
+    // Blast from the Past / Counter Offer: the API reports the ending, the
+    // diagram draws no terminal for it — confirmed, not merely unknown.
+    expect(endingValue({ starved: true, resolved: false, money_avg: null, item_value_avg: null })).toBe(0)
+  })
+})
+
+describe('isPriceable (#473)', () => {
+  it('is true for a resolved ending, a starved one, or both', () => {
+    expect(isPriceable({ resolved: true, starved: false })).toBe(true)
+    expect(isPriceable({ resolved: false, starved: true })).toBe(true)
+  })
+
+  it('is false when neither resolved nor starved', () => {
+    expect(isPriceable({ resolved: false, starved: false })).toBe(false)
+    expect(isPriceable({})).toBe(false)
+    expect(isPriceable(undefined)).toBe(false)
   })
 })
 
@@ -117,6 +137,16 @@ describe('payoutsFromEndings', () => {
       money_avg: null, item_value_avg: null, observations: 100,
     }]
     expect(payoutsFromEndings(bothMissing)).toEqual({})
+  })
+
+  it('prices a starved ending at $0 rather than treating it as missing (#473)', () => {
+    const withStarved = [
+      ...BTB,
+      { ending_key: 'goodEnding35', node_id: null, kind: 'good', resolved: false, starved: true, money_avg: null, observations: null },
+    ]
+    const payouts = payoutsFromEndings(withStarved)
+    expect(payouts.goodEnding35).toBe(0)
+    expect('goodEnding35' in payouts).toBe(true)
   })
 })
 
@@ -198,6 +228,23 @@ describe('pricingQuality', () => {
     expect(q.priced).toBe(1)
     expect(q.unpriced).toEqual([])
   })
+
+  it('counts a starved ending as priced, not unmapped (#473)', () => {
+    // Distinct from unmapped: unmapped needs a better probe and this one
+    // never will resolve — there's no node. It's a confirmed $0, not an
+    // open question, so it belongs in `priced`.
+    const withStarved = [
+      BTB[0],
+      { ending_key: 'goodEnding35', node_id: null, kind: 'good', resolved: false, starved: true, money_avg: null, observations: null },
+    ]
+    const q = pricingQuality(withStarved)
+    expect(q.unmapped).toEqual([])
+    expect(q.unpriced).toEqual([])
+    expect(q.priced).toBe(2)
+    expect(q.complete).toBe(true)
+    // Not "thin" either — it has no observation count to be thin about.
+    expect(q.thin).toEqual([])
+  })
 })
 
 describe('payoutSpread', () => {
@@ -213,6 +260,18 @@ describe('payoutSpread', () => {
 
   it('returns null rather than a zero spread when nothing is priced', () => {
     expect(payoutSpread([{ ending_key: 'g1', kind: 'good', resolved: false }])).toBeNull()
+  })
+
+  it('excludes a starved ending from the spread (#473)', () => {
+    // The spread is the gap a ROUTER ROLE decides between — real diagram
+    // terminals. A starved ending is a data-completeness placeholder, not a
+    // designed outcome; including its synthetic $0 would inflate the gap.
+    const withStarved = [
+      ...BTB,
+      { ending_key: 'goodEnding35', node_id: null, kind: 'good', resolved: false, starved: true, money_avg: null },
+    ]
+    const spread = payoutSpread(withStarved)
+    expect(spread.worst).toBe(216827645) // unchanged — not the starved $0
   })
 })
 
