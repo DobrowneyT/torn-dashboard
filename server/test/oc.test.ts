@@ -123,6 +123,21 @@ describe('GET /api/oc-config', () => {
     const { status, body } = await get('/api/oc-config')
     expect(status).toBe(200)
     expect(body.payout_mode).toBe('tiered')
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
+  })
+
+  // Reading policy has never been role-gated (requireAuth only) — pinned here
+  // because #587 was first reported as "maybe only admins can read it".
+  it('serves the mode to any authenticated member, not just admins (#587)', async () => {
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('payout_mode', '"equal"')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    )
+    const { status, body } = await get('/api/oc-config')
+    expect(status).toBe(200)
+    expect(typeof body.payout_mode).toBe('string')
+    // Leave the shared harness DB as this describe found it.
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
   })
 
   // Reading policy has never been role-gated (requireAuth only) — pinned here
