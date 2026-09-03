@@ -22,14 +22,19 @@ const TIER_TICKETS = {
 //                   time-spent / sit-out weighting still applies.
 //   equal         — even split among members who did >=1 OC; no weighting,
 //                   no sit-out floor.
-// Absent faction setting defaults to flat-weighted — tiered is Forge-specific,
-// so the multi-faction default must not assume tiers.
+// Absent faction setting defaults to equal (#587). It must not assume tiers —
+// those are Forge-specific — and it must not assume flat-weighted either, which
+// is what it used to do: flat-weighted needs a ticket policy to mean anything,
+// so an unconfigured faction was being paid by rules it had never set. Equal is
+// the only mode that is correct with nothing configured. The server resolves
+// the absent case in `GET /api/oc-config` (`server/src/payoutModes.ts`); this
+// constant is the pre-fetch seed and must agree with it.
 export const PAYOUT_MODES = ['tiered', 'flat-weighted', 'equal']
-export const DEFAULT_PAYOUT_MODE = 'flat-weighted'
+export const DEFAULT_PAYOUT_MODE = 'equal'
 
 // Whether a faction's payout mode makes the tier machinery meaningful (#136).
 // Only `tiered` uses tiers; every other mode (and an absent/unknown setting,
-// which defaults to flat-weighted) hides the tier UI entirely.
+// which defaults to equal) hides the tier UI entirely.
 export function factionUsesTiers(mode) {
   return (mode ?? DEFAULT_PAYOUT_MODE) === 'tiered'
 }

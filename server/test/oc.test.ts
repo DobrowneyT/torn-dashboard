@@ -103,6 +103,37 @@ describe('GET /api/oc-config', () => {
     expect(body.cpr_requirements['Break the Bank'].positions.Robber).toBe(60)
     expect(body.payout_tickets).toEqual({ '1': 40, '2': 30 })
   })
+
+  // #587: `null` is not a payout mode, and three consumers each guessed a
+  // different meaning for it — the Payout Management page fell back to
+  // flat-weighted while the tier UI stayed optimistically tiered. The server
+  // now resolves the absent case once, so every consumer agrees.
+  it('resolves an unset payout_mode to the equal default (#587)', async () => {
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
+    const { status, body } = await get('/api/oc-config')
+    expect(status).toBe(200)
+    expect(body.payout_mode).toBe('equal')
+  })
+
+  it('prefers a saved payout_mode over the default (#587)', async () => {
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('payout_mode', '"tiered"')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    )
+    const { status, body } = await get('/api/oc-config')
+    expect(status).toBe(200)
+    expect(body.payout_mode).toBe('tiered')
+  })
+
+  // Reading policy has never been role-gated (requireAuth only) — pinned here
+  // because #587 was first reported as "maybe only admins can read it".
+  it('serves the mode to any authenticated member, not just admins (#587)', async () => {
+    const { status, body } = await get('/api/oc-config')
+    expect(status).toBe(200)
+    expect(typeof body.payout_mode).toBe('string')
+    // Leave the shared harness DB as this describe found it.
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
+  })
 })
 
 describe('GET /api/crimes/current', () => {

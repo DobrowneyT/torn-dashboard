@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useFactionConfig } from '../contexts/FactionConfigContext'
 import { apiGet, apiDelete } from '../utils/apiClient'
@@ -114,7 +114,7 @@ function recalculateWithItemPrices(results, factionCutPercent) {
 export default function PayoutManagement() {
   const { user, isVisitor } = useAuth()
   // Non-tiered factions hide the Tier column in the results table (#136).
-  const { usesTiers } = useFactionConfig()
+  const { usesTiers, payoutMode: factionPayoutMode } = useFactionConfig()
   const faction = useFactionIdentity()
 
   // Date range state
@@ -124,9 +124,14 @@ export default function PayoutManagement() {
   const [toTimestamp, setToTimestamp] = useState(null)
   const [factionCutPercent, setFactionCutPercent] = useState(20)
   // Payout mode (#134). Pre-filled from the faction default; a leader can pick
-  // a different mode for any individual week. Absent faction setting → the
-  // multi-faction default (flat-weighted).
+  // a different mode for any individual week, and that choice wins from the
+  // moment they make it (#587). Absent faction setting → the multi-faction
+  // default (equal), resolved server-side so every consumer agrees.
   const [payoutMode, setPayoutMode] = useState(DEFAULT_PAYOUT_MODE)
+  // Set once the user picks a mode by hand. The faction default arrives
+  // asynchronously and a saved week carries its own mode; neither may
+  // overwrite a deliberate choice that is already on screen.
+  const modeChosenByUser = useRef(false)
 
   // Data loading state
   const [crimesData, setCrimesData] = useState(null)
@@ -172,17 +177,25 @@ export default function PayoutManagement() {
     setToTimestamp(currentWeek.sundayTimestamp)
   }, [])
 
-  // Pre-fill the mode from the faction default (absent → flat-weighted).
+  // Pre-fill the mode from the faction default (absent → equal, decided by the
+  // server). This resolves after first paint, so it must not land on top of a
+  // mode the user has already clicked in the meantime (#587).
   useEffect(() => {
     let on = true
     apiGet('/api/oc-config')
       .then(cfg => {
         const m = cfg?.payout_mode
-        if (on && PAYOUT_MODES.includes(m)) setPayoutMode(m)
+        if (on && !modeChosenByUser.current && PAYOUT_MODES.includes(m)) setPayoutMode(m)
       })
       .catch(() => { /* keep the default */ })
     return () => { on = false }
   }, [])
+
+  /** A deliberate pick: it holds against the faction default and week history. */
+  function choosePayoutMode(mode) {
+    modeChosenByUser.current = true
+    setPayoutMode(mode)
+  }
 
   // Load historical payouts when tab is shown
   useEffect(() => {
@@ -730,8 +743,15 @@ export default function PayoutManagement() {
       setFromTimestamp(weekData.week_start_timestamp)
       setToTimestamp(weekData.week_end_timestamp)
       setFactionCutPercent(weekData.faction_cut_percent || 20)
-      // Show the mode this week was computed with; legacy weeks (null) are tiered.
-      setPayoutMode(weekData.payout_mode || 'tiered')
+      // Show the mode this week was computed with. Weeks saved before #587 have
+      // no stored mode (savePayoutWeek dropped the field), so fall back to what
+      // the faction is set to rather than assuming tiered — that assumption
+      // silently retagged every equal/flat-weighted faction's history.
+      if (PAYOUT_MODES.includes(weekData.payout_mode)) {
+        setPayoutMode(weekData.payout_mode)
+      } else if (!modeChosenByUser.current) {
+        setPayoutMode(factionPayoutMode ?? DEFAULT_PAYOUT_MODE)
+      }
 
       // Transform member data to match expected format
       const transformedMembers = members.map(m => ({
@@ -941,7 +961,7 @@ export default function PayoutManagement() {
                 <button
                   key={m}
                   type="button"
-                  onClick={() => setPayoutMode(m)}
+                  onClick={() => choosePayoutMode(m)}
                   className={`px-3 py-2 text-sm capitalize transition-colors ${
                     payoutMode === m
                       ? 'bg-blue-600 text-white'

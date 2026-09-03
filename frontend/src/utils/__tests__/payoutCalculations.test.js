@@ -156,11 +156,26 @@ describe('factionUsesTiers', () => {
     expect(factionUsesTiers('equal')).toBe(false)
   })
 
-  it('treats an absent/unknown mode as the flat-weighted default (no tiers)', () => {
+  it('treats an absent/unknown mode as the default (no tiers)', () => {
     expect(factionUsesTiers(null)).toBe(false)
     expect(factionUsesTiers(undefined)).toBe(false)
     expect(factionUsesTiers('')).toBe(false)
     expect(factionUsesTiers('nonsense')).toBe(false)
+  })
+})
+
+// #587: a faction that never saved a mode was silently paid flat-weighted,
+// which is the one mode nobody had chosen — tiered is Forge-specific and
+// flat-weighted was an arbitrary middle. Equal is the honest default: it
+// needs no tier table and no ticket policy to be correct.
+describe('DEFAULT_PAYOUT_MODE', () => {
+  it('is equal, and is a real mode', () => {
+    expect(DEFAULT_PAYOUT_MODE).toBe('equal')
+    expect(PAYOUT_MODES).toContain(DEFAULT_PAYOUT_MODE)
+  })
+
+  it('does not turn on the tier machinery', () => {
+    expect(factionUsesTiers(DEFAULT_PAYOUT_MODE)).toBe(false)
   })
 })
 

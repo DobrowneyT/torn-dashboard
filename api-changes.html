@@ -1,0 +1,1251 @@
+<div id="patchResponseBuilder">
+    <p><strong>Important!&nbsp;</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> <code>'user' -&gt; 'attacks'</code> &amp; <code>'faction' -&gt; 'attacks'</code>
+            will&nbsp;be returning&nbsp;<code>null</code> instead of <code>0</code> value
+            for&nbsp;<code>chain</code>&nbsp;field, starting<strong>&nbsp;January 1st, 2027.</strong> The Swagger schema
+            was updated to allow for&nbsp;<code>null</code>&nbsp;values already.</li>
+        <li><code>[API-v2]</code> <code>'torn' -&gt; 'itemdetails'</code> will only return&nbsp;an array of
+            <code>TornItemDetails</code> schemas&nbsp;starting <strong>1st of January 2027&nbsp;</strong><a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27775585">[Source]</a>
+        </li>
+        <li><code>[API-v2]</code> <code>'faction' -&gt; 'warfare'</code> is now deprecated. It is replaced by&nbsp;other
+            warfare selections and will be removed on <strong>1st of January 2027&nbsp;</strong><a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27747275">[Source]</a>
+        </li>
+    </ul>
+    <p>&nbsp;</p>
+    <p><strong>21.08.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'rockpaperscissors'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'itemstats'</code> (now accepts multiple item UIDs)</li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'stats'</code></li>
+        <li><code>[API-v2]</code> Disabled <code>'user' -&gt; 'publicStatus'</code></li>
+        <li><code>[API]</code> Removed&nbsp;"<code>First (Faction) Owner</code>"&nbsp;information from
+            <code>'item' -&gt; 'stats' </code></li>
+        <li><code>[API]</code> set <code>chain</code> value to <code>0</code> in <code>'user' -&gt; 'attacks'</code>
+            &amp; <code>'faction' -&gt; 'attacks'</code>&nbsp;if the attacker is not the user or from the faction <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=380&amp;to=27778532">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>20.08.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'inventory'</code></li>
+        <li><code>[API-v2]</code> Improved <code>'torn' -&gt; 'itemdetails'</code> to accept <strong>multiple</strong>
+            item UIDs</li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'crimeexp'</code></li>
+        <li><code>[API-v2]</code> Disabled
+            <code>'faction' -&gt; 'weapons', 'armor', 'boosters', 'cesium', 'drugs', 'medical', 'consumables', 'utilities', 'temporary' &amp; 'caches'</code>
+            <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27775585">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>18.08.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'pokertables'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'cards'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'bank'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'cityshops'</code></li>
+        <li><code>[API-v2]</code> Added&nbsp;<code>shops</code>&nbsp;array to <code>value</code>
+            in&nbsp;<code>'torn' -&gt; 'items'</code></li>
+        <li><code>[API-v2]</code> Disabled <code>'torn' -&gt; "pawnshop'</code> <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27765543">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>17.08.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'gym' </code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'gyms'</code></li>
+        <li><code>[API-v2]</code> Added&nbsp;<code>nanostamp</code>&nbsp;query parameter and response field to
+            <code>'user' -&gt; 'log'</code> for when more than 100 logs were inserted in the same second <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27759809">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>14.08.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'searchforcash'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'shoplifting'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'warfareranked'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'warfareraids'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'warfareterritory'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'warfarechains'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'dirtybombs'</code></li>
+        <li><code>[API-v2]</code> Deprecated <code>'faction' -&gt; 'warfare'</code>. This selection is replaced by the
+            five selections above and will be <strong>removed</strong> <strong>on 1st of January 2027</strong></li>
+        <li><code>[Playground]</code> Added refresh button, added types support for multiple programming languages&nbsp;
+        </li>
+        <li><code>[API]</code> Increased <code>comment</code> query parameter length to 15 characters (previously
+            10)&nbsp;<a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27747275">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>12.08.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'search'</code> <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27739068">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>11.08.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'companies'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;to=27734509">[Source]</a></li>
+    </ul>
+    <p><strong>06.08.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'perks'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'market' -&gt; 'pointsmarket'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;to=27712129">[Source]</a></li>
+    </ul>
+    <p><strong>05.08.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'networth'</code></li>
+        <li><code>[API-v2]</code> Added <code>territory_war_id</code> to <code>'user' -&gt; 'attacks'</code> &amp;
+            <code>'faction' -&gt; 'attacks'</code> where applicable <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27708491">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>27.07.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'snapshot'</code></li>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'museum'</code></li>
+        <li><code>[API-v2]</code> Added <code>unused</code>&nbsp;outcome to <code>item_outcome</code> in OCs related
+            selections <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27671427">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>16.07.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'snapshot'</code> <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27627498">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>14.07.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Released <a href="https://api-playground.torn.com/">new API-v2 playground</a></li>
+        <li><code>[API-v2]</code> Various bug fixes and swagger schema improvements <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27618056">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>01.06.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>'company' -&gt; 'snapshot'</code></li>
+        <li><code>[API-v2]</code> Added <code>'company' -&gt; 'search'</code></li>
+        <li><code>[API-v2]</code> Improve&nbsp;filters in <code>'search'</code> selections</li>
+        <li><code>[API-v2]</code> Added <code>members_max</code> field and filter option to
+            <code>'faction' -&gt; 'search'</code></li>
+        <li><code>[API-v1]</code> The <code>'company' -&gt; 'companies'</code> selection now returns only 100 companies
+            per request. Possible to use <code>limit</code> &amp; <code>offset</code> query parameters</li>
+        <li><code>[API-v2]</code> The CPR for empty slots is now set to <code>zero</code> in
+            <code>'faction' -&gt; 'crimes'</code> &amp; <code>'faction' -&gt; 'crime'</code> selections</li>
+        <li><code>[API-v2]</code> Removed <code>deprecated</code> <code>position_id</code> &amp;
+            <code>position_number</code> from <code>FactionCrimeSlot</code></li>
+        <li><code>[API-v2]</code> Removed <code>deprecated</code> <code>id</code> from
+            <code>TornOrganizedCrimeSlot</code> <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27427661">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>21.05.2026</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'company' -&gt; 'news'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'company' -&gt; 'companies'</code></li>
+        <li><code>[API-v2]</code> Added <code>irradiated</code>&nbsp;boolean flag to
+            <code>'faction' -&gt; 'territoryownership'</code></li>
+        <li><code>[API-v2]</code> Added <code>in_progress</code> races to <code>'user' -&gt; 'races'</code>&nbsp;<a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27380013">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>08.05.2026</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added ability to see <code>stats</code> &amp; <code>effectiveness</code> in
+            <code>'company' -&gt; 'employees'</code> to employees as well (previously visible only to the director)</li>
+        <li><code>[API-v2]</code> Added image to '<code>torn' -&gt; 'itemmods'</code></li>
+        <li><code>[API-v2]</code> Added equipped mods &amp; current ammo to <code>'user' -&gt; 'equipment'</code></li>
+        <li><code>[API-v2]</code> Changed default sorting in <code>'market' -&gt; 'rentals'</code> to match the site
+            (previously used 'Happy DESC, rent cost ASC', now using ' Happy DESC, rent per day ASC')</li>
+        <li><code>[API-v2]</code> Added 'total' amount of rows to globally cached selections
+            (<code>'market' -&gt; 'itemmarket'</code>, <code>'market' -&gt; 'properties'</code>,
+            <code>'market' -&gt; 'rentals'</code>)</li>
+        <li><code>[API-v2]</code> Fixed a strange bug with uppercase &amp; lowercase letters on 'cat' query parameter in
+            <code>'user' -&gt; 'inventory'</code></li>
+        <li><code>[API-v2]</code> Added&nbsp;<code>'user' -&gt; 'itemmods'</code> (will become available likely on
+            Monday, May 11th 2026)&nbsp;<a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27326297">[Source]</a>&nbsp;
+        </li>
+    </ul>
+    <p><strong>30.04.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'company' -&gt; 'profile'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'company' -&gt; 'employees'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'company' -&gt; 'stock'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'company' -&gt; 'applications'</code> <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27292649">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>20.04.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'casino'</code></li>
+        <li><code>[API-v2]</code> Added <code>total</code> to <code>_metadata.links</code> in
+            <code>'torn' -&gt; 'bounties'</code> <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27254414">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>15.04.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code>&nbsp;Refactored <code>'user' -&gt; 'inventory'</code> <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=360&amp;to=27233249">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>03.04.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API]</code> Changed global cache to incur an enforced delay to reduce the advantage of mug bots <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=340">[Source]</a>
+        </li>
+        <li><code>[DOCS]</code> Added section describing caching</li>
+    </ul>
+    <p><strong>12.03.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added live trades to <code>'user' -&gt; 'trades'</code> <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=340&amp;to=27096240">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>10.03.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'trades'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'trade'</code></li>
+        <li><code>[API-v2]</code> Fixed <code>description</code> being the same as <code>title</code> in
+            <code>'torn' -&gt; 'itemmods'</code></li>
+    </ul>
+    <p><strong>23.02.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'stocks'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'stocks'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'stocks'</code> (for specific stock)</li>
+        <li><code>[Swagger]</code> Removed accidental values <code>membersamount</code>, <code>factionage</code> &amp;
+            <code>upgradesamount</code> from <code>FactionStatEnum</code> schema</li>
+    </ul>
+    <p><strong>19.02.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code><strong>label</strong></code> and
+            <code><strong>number</strong></code>&nbsp;to
+            <code>'<strong>torn</strong>' -&gt; '<strong>organizedcrimes</strong>'</code> &amp;
+            <code>'<strong>faction</strong>' -&gt; '<strong>crimes</strong>'</code>&nbsp;which match the UI position
+            (e.g. 'Muscle #1')</li>
+        <li><code>[API-v2]</code> Added new selection
+            <code>'<strong>user</strong>' -&gt; '<strong>organizedcrimes</strong>'</code> (<code>Minimal</code> access
+            key). This selection only shows organized crimes with&nbsp;<code>Recruiting</code>&nbsp;status, and only
+            contains empty slots.</li>
+        <li><code>[API-v2]</code> Fixed occasional internal server error on
+            <code>'<strong>faction</strong>' -&gt; '<strong>territorywars</strong>'</code> &amp;
+            <code>'<strong>faction</strong>' -&gt; '<strong>wars</strong>'</code></li>
+        <li><code>[API-v2]</code> <strong>Removed</strong>
+            the&nbsp;<code><strong>Brain Surgeon</strong></code>&nbsp;requirement to see the revive status of players in
+            <code>'<strong>user</strong>' -&gt; '<strong>profile</strong>'</code> &amp;
+            <code>'<strong>faction</strong>' -&gt; '<strong>members</strong>'</code></li>
+        <li><code>[API-v2]</code> Added <strong>global 30s</strong> cache to
+            <code>'<strong>market</strong>' -&gt; '<strong>properties</strong>'</code></li>
+        <li><code>[API-v2]</code> Added <strong>global 30s</strong> cache to
+            <code>'<strong>market</strong>' -&gt; '<strong>rentals</strong>'</code></li>
+        <li><code>[Swagger]</code> Added missing&nbsp;<code>bounties_timestamp</code>&nbsp;to
+            <code>'user' -&gt; 'bounties'</code> &amp; <code>'torn' -&gt; 'bounties'</code></li>
+    </ul>
+    <p><strong>27.01.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>sort</code> query parameter to <code>'user' -&gt; 'reports'</code> &amp;
+            <code>'faction' -&gt; 'reports'</code>&nbsp;</li>
+        <li><code>[API-v2]</code> Added <code>note</code> to <code>'faction' -&gt; 'basic'</code> for really old
+            factions with incorrect <code>days_old</code> values</li>
+        <li><code>[API-v2]</code> Fixed <code>market_price</code> being incorrect
+            in&nbsp;<code>'user' -&gt; 'properties'</code></li>
+    </ul>
+    <p><strong>09.01.2026</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>'market' -&gt; 'auctionhouse'</code></li>
+        <li><code>[API-v2]</code> Added <code>'market' -&gt; 'auctionhouselisting'</code></li>
+        <li><code>[INTERNAL]</code> Cached item details to improve performance on
+            <code>'market' -&gt; 'auctionhouse'</code>, <code>'auctionhouselisting'</code>, <code>'itemmarket'</code>,
+            <code>'user' -&gt; 'equipment'</code> &amp; <code>'torn' -&gt; 'itemdetails'</code> selections</li>
+        <li><code>[API-v2]</code> Fixed <code>rarity</code> being <code>null</code> in
+            <code>'torn' -&gt; 'itemdetails'</code> &amp; <code>'user' -&gt; 'equipment'</code></li>
+        <li><code>[API-v2]</code> Fixed <code>modifier</code> being <code>float</code> in
+            <code>'user' -&gt; 'battlestats'</code></li>
+        <li><code>[API-v2]</code> Fixed <code>vault</code> being <code>null</code> for players without a&nbsp;vault in
+            <code>'user' -&gt; 'money'</code></li>
+        <li><code>[Swagger]</code> Updated <code>city_bank</code> &amp; <code>faction</code> fields to be
+            <code>nullable</code> in <code>'user' -&gt; 'money'</code></li>
+    </ul>
+    <p><strong>30.12.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>skill_gain</code> to <code>'user' -&gt; 'races'</code></li>
+        <li><code>[Swagger]</code> Renamed <code>FactionAttacksResponse</code> to <code>AttacksResponse</code></li>
+        <li><code>[Swagger]</code> Renamed <code>FactionAttacksFullResponse</code> to <code>AttacksFullResponse</code>
+        </li>
+    </ul>
+    <p><strong>09.12.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li>[API-v2] Added <code>'torn' -&gt; 'elimination'</code></li>
+        <li>[API-v2] Added <code>'torn' -&gt; 'eliminationteam'</code></li>
+    </ul>
+    <p><strong>01.12.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'equipment'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'itemdetails'</code></li>
+        <li><code>[API-v2]</code> Improved performance of <code>'market' -&gt; 'itemmarket'</code> by applying caching
+            to item details logic</li>
+        <li><code>[API-v2]</code> Removed <code>travel_type</code>&nbsp;in <code>UserStatus</code> schema</li>
+        <li><code>[API-v2]</code> Removed <code>'user' -&gt; 'factionbalance'</code>&nbsp;selection</li>
+        <li><code>[API-v1]</code> Removed <code>increment</code>, <code>interval</code>, <code>ticktime</code> &amp;
+            <code>fulltime</code>&nbsp;from the life object in <code>'user' -&gt; 'profile'</code> selection</li>
+        <li><code>[API-v2]</code> Added missing <code>car_name</code> (car nick) to
+            <code>'user' -&gt; 'enlistedcars'</code></li>
+    </ul>
+    <p><strong>25.11.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'discord'</code></li>
+        <li><code>[API-v2]</code>&nbsp;Changed <code>user</code> selection path&nbsp;parameters to accept both
+            <code>DiscordId</code> and <code>UserId</code></li>
+    </ul>
+    <p><strong>24.11.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'weaponexp'</code></li>
+    </ul>
+    <p><strong>21.11.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'ammo'</code></li>
+    </ul>
+    <p><strong>20.11.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added a new <code>idFilter</code> filter to attacks and revives related
+            selections&nbsp;</li>
+        <li><code>[API]</code> Added <code>parsed_trade_id</code> to trade logs which contain <code>trade_id</code> in
+            <code>'user' -&gt; 'log'</code> selection</li>
+        <li><code>[API-v2]</code> Added <code>crimes_version</code> to <code>'torn' -&gt; 'honors'</code> and
+            <code>'torn' -&gt; 'medals'</code>&nbsp;</li>
+        <li><code>[API-v2]</code> Fixed <code>karma</code> being float instead of integer for some profiles in
+            <code>'user' -&gt; 'profile'</code></li>
+        <li><code>[API-v2]</code> Fixed a small error on <code>'user' -&gt; 'job'</code> which rarely happens</li>
+    </ul>
+    <p><strong>18.11.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>target</code> query paramater to <code>'user' -&gt; 'log'</code> to only
+            get&nbsp;logs in which you interacted with another player</li>
+        <li><code>[API-v2]</code> Added detailed bank investment information to <code>'user' -&gt; 'money'</code></li>
+        <li><code>[API-v2]</code> Added <code>fixed_start_time</code> boolean flag to
+            <code>'torn' -&gt; 'calendar'</code> which denotes whether an event has fixed start time or uses player's
+            personal calendar time</li>
+    </ul>
+    <p><strong>17.11.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API]</code> Added <code>first_item</code> &amp; <code>second_item</code> to logs <code>9302</code>
+            &amp; <code>9303</code> in <code>'user' -&gt; 'log'</code></li>
+        <li><code>[API-v2]</code> Added new category <code>chainOngoing</code> to <code>'faction' -&gt; 'warfare'</code>
+            (for ongoing chains and chains on cooldown) and left completed chains as part of <code>chain</code>
+            category.</li>
+        <li><code>[API-v2]</code> Added categories <code>all</code> and <code>current</code> (default:
+            <code>current</code>) to <code>'faction' -&gt; 'balance'</code> to make it possible to get balances of
+            ex-members</li>
+    </ul>
+    <p><strong>14.11.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v1]</code> Added <strong>60s</strong> global cache to <code>'company' -&gt; 'companies'</code>
+        </li>
+    </ul>
+    <p><strong>05.11.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v1]</code> Added <code>'faction' -&gt; 'utilities'</code></li>
+    </ul>
+    <p><strong>29.10.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Fixed error for <code>territory</code> category
+            in&nbsp;<code>'faction' -&gt; 'warfare'</code></li>
+        <li><code>[API-v2]</code> Fixed empty responses for <code>raid</code> &amp; <code>chain</code> categories
+            in&nbsp;<code>'faction' -&gt; 'warfare'</code></li>
+        <li><code>[Swagger]</code> Fixed incorrect <code>rewards</code> type in&nbsp;<code>UserMissionsResponse</code>
+        </li>
+    </ul>
+    <p><strong>28.10.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'missions'</code></li>
+    </ul>
+    <p><strong>27.10.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[Swagger]</code> Changed <code>status</code> in&nbsp;<code>UserLastAction</code> schema to be of enum
+            type <code>UserLastActionStatusEnum</code> (previously <code>string</code>)</li>
+    </ul>
+    <p><strong>16.10.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[Swagger]</code>&nbsp;Added missing values to <code>FactionPositionAbilityEnum</code> schema</li>
+    </ul>
+    <p><strong>13.10.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> The <code>is_available</code> field in organized crimes related selections will now be
+            <code>true</code> if the faction loaned item to the user (previously <code>false</code>)</li>
+        <li><code>[API-v2]</code> Added arson skill to <code>'user' -&gt; 'personalstats'</code> both for current and
+            historical stats</li>
+        <li><code>[API-v2]</code> Fixed <code>tag_image</code> being incorrect in
+            <code>'user' -&gt; 'faction'&nbsp;</code></li>
+        <li><code>[API-v2]</code> Changed <code>Enquire</code> into <code>Inquire</code> in
+            <code>'torn' -&gt; 'subcrimes'</code></li>
+        <li><code>[Swagger]</code> Fixed response for <code>'market' -&gt; 'rentals'</code> from <code>properties</code>
+            into <code>rentals</code></li>
+        <li><code>[Swagger]</code> Marked all <code>'user'</code> selection endpoints as <code>Stable</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;to=26533484">[Source]</a></li>
+    </ul>
+    <p><strong>16.09.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'events'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'newevents'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'messages'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt;&nbsp;'newmessages'</code></li>
+        <li><code>[API-v2]</code> Added <code>legacy</code> query parameter to <code>user</code>, <code>faction</code>,
+            <code>market</code>, <code>torn</code> &amp; <code>company</code> sections <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26437501">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>15.09.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[Swagger]</code> Added missing values to <code>UserTitleEnum</code></li>
+        <li><code>[Swagger]</code> Create&nbsp;new enum <code>UserStatusStateEnum</code> for <code>state</code> field in
+            the <code>UserStatus</code> schema <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26435593">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>12.09.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> <code>User.stats</code> in <code>FactionApplication</code> schema changed to
+            <code>null</code> instead of <code>[]</code> if the applicant didn't include their battle stats in the
+            application</li>
+        <li><code>[API-v2]</code> <code>Message</code> in <code>FactionApplication</code> schema changed to
+            <code>null</code> instead of <code>""</code> if the applicant didn't add a message in the application</li>
+        <li><code>[API-v2]</code> Specific live stats no longer available when
+            requesting&nbsp;<code>'user' -&gt; 'personalstats'</code>. Only historical stats are returned if you use
+            <code>stat</code> query parameter</li>
+        <li><code>[API-v2]</code> Removed cat query parameter in <code>'faction' -&gt; 'territorywars'</code>. Other
+            territory wars can be fetched via <code>'faction' -&gt; 'warfare'</code> selection</li>
+        <li><code>[API-v2]</code> Removed cat query parameter in <code>'faction' -&gt; 'rankedwars'</code>. Other ranked
+            wars can be fetched via <code>'faction' -&gt; 'warfare'</code> selection</li>
+        <li><code>[API-v2]</code> Removed <code>access.faction_id</code> &amp; <code>access.company_id</code> from
+            <code>KeyInfoResponse</code> (<code>'key' -&gt; 'info'</code>). These fields are replaced
+            with&nbsp;<code>user.faction_id</code> &amp; <code>user.company_id </code><a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26423821">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>11.09.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>plane_image_type</code>&nbsp;to <code>UserStatus</code> schema <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26421213">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>09.09.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'profile'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'icons'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'competition'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'faction'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'job' </code><a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26411654">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>26.08.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'honors'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'medals'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'merits'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'honors'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'medals'</code></li>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'merits' </code><a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26359721">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>22.08.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Fixed <code>'user' -&gt; 'properties'</code> offset issue</li>
+        <li><code>[API-v2]</code> Added <code>lease_extension</code> object to<code> 'user' -&gt; 'properties'</code>
+            when the <code>status</code> is <code>rented</code></li>
+        <li><code>[API-v2]</code> Added <code>ownedByUser</code> and <code>ownedBySpouse</code> filters to
+            <code>'user' -&gt; 'properties'</code></li>
+        <li><code>[API-v2]</code> Added <code>from</code> &amp; <code>to</code> query parameters to
+            <code>'forum' -&gt; 'posts'</code></li>
+        <li><code>[API-v2]</code> Fixed various links with <code>offset</code> not passing <code>limit</code> to the
+            next request <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26346649">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>19.08.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'basic'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'battlestats'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'workstats'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'skills'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'money'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'jobpoints' </code><a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26334784">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>08.08.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>outcome_duration</code> to <code>slots</code>.<code>user</code> object in
+            all organized crimes related selections when the <code>outcome</code> is <code>Jailed</code> or
+            <code>Hospitalized</code>&nbsp;(only crimes <strong>executed</strong> <strong>after 25th July 2025</strong>
+            will have this field populated)</li>
+        <li><code>[API-v2]</code> Added <code>item_outcome</code> to <code>slots</code>.<code>user</code> object in all
+            organized crimes related selections if the item was lost or used during execution (only crimes
+            <strong>executed after 25th July 2025</strong> will have this field populated) <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26295642">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>07.08.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>incoming</code> &amp; <code>outgoing</code>&nbsp;filters to
+            all&nbsp;<code>attacks</code>/<code>attacksfull</code> and <code>revives</code>/<code>revivesfull</code>
+            selections <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26292430">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>06.08.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API]</code> Added functionality to create custom keys with access to only specific log categories
+            (available in the Custom Key Builder) <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=320&amp;to=26287655">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>15.07.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added <code>position_id</code> (<code>P1</code>, <code>P2</code>...) and
+            <code>position_number</code> (<code>#1</code>, <code>#2</code>...) to <code>slots</code> in
+            <code>FactionCrimeSlot</code>&nbsp;</li>
+        <li><code>[API-v2]</code> Added <code>user</code> object to <code>'key' -&gt; 'info'</code>. This&nbsp;object
+            contains user id, faction id &amp; company id. The <code>user.faction_id</code> &amp;
+            <code>user.company_id</code> fields are replacing the <code>access.faction_id</code> &amp;
+            <code>access.company_id</code> which are now deprecated. They'll now also always be shown, as long as player
+            is in a faction / company, regardless if they do or do not have adequate permissions</li>
+        <li><code>[Swagger]</code> Marked <code>access.faction_id</code> &amp; <code>access.company_id</code> as <span
+                style="color:var(--te-text-color-red);"><strong>deprecated</strong></span> in
+            <code>KeyInfoResponse</code> (<code>'key' -&gt; 'info'</code>). These fields will be <span
+                style="color:var(--te-text-color-red);"><strong>removed on September 1st 2025</strong></span>.</li>
+        <li><code>[API-v2]</code> Added <code>criminal_offenses</code> to <code>'torn' -&gt; 'hof'</code> response if
+            the chosen category is <code>'level'</code></li>
+        <li><code>[API-v2]</code> Fixed backend error in <code>'faction' -&gt; 'territorywars'</code> if a faction never
+            had territory wars</li>
+        <li><code>[API-v2]</code> Fixed backend error in <code>'user' -&gt; 'racingrecords'</code> if a user never raced
+        </li>
+        <li><code>[API-v2]</code> Added missing permissions for <code>'faction' -&gt; 'raidreport'</code></li>
+        <li><code>[API-v2]</code> Fixed until field being null in <code>'user' -&gt; 'education'</code> since the
+            performance patch <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=26208071">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>08.07.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[Swagger]</code> Renamed <code>FactionTerritoriesReponse</code> into
+            <code>FactionTerritoriesResponse</code></li>
+        <li><code>[Swagger]</code> Renamed <code>FactionRacketsReponse</code> into <code>FactionRacketsResponse</code>
+        </li>
+        <li><code>[Swagger]</code> Renamed <code>TornTerritoriesNoLinksReponse</code> into
+            <code>TornTerritoriesNoLinksResponse</code></li>
+        <li><code>[API-v2]</code> Added <code>notes</code> to all crimes in <code>'torn' -&gt; 'crimes'</code>&nbsp;and
+            marked the field as required</li>
+    </ul>
+    <p><strong>07.07.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[Swagger]</code> Changed <code>territoryownership</code> into <code>territoryOwnership</code> property
+            in <code>FactionTerritoriesOwnershipResponse</code> to match the API response</li>
+        <li><code>[Swagger]</code> Changed <code>properties</code> from object into array in
+            <code>UserPropertiesResponse</code> to match the API response</li>
+        <li><code>[Swagger]</code> Changed the response of <code>UserRacesResponse</code> to
+            <code>RacingRaceDetails</code> instead of <code>RacingRaceDetailsResponse</code> to match the API response
+        </li>
+    </ul>
+    <p><strong>04.07.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li>Updated API Terms of Service Guidelines</li>
+        <li><code>[API-v2]</code> Fixed <code>_metadata.links</code> in <code>'user' -&gt; 'revives'</code> &amp;
+            <code>'user' -&gt; 'revivesfull'</code> &nbsp;from using faction selection instead of user selection <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=26167459">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>03.07.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Created a new selection <code>'torn'-&gt;'organizedcrimes'</code> which returns
+            information about organized crimes</li>
+        <li><code>[API-v1]</code> Added missing selections to <code>'faction' -&gt; 'lookup'</code> &amp;
+            <code>'user' -&gt; 'lookup'</code></li>
+        <li><code>[API-v2]</code> Fixed <code>'faction' -&gt; 'raids'</code> being set
+            as&nbsp;<code>warfare</code>&nbsp;object instead of <code>raids </code><a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=26163142">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>01.07.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Fixed&nbsp;incorrect racing positions in races where somebody crashed
+            (<code>'racing' -&gt; 'race'</code>)</li>
+        <li><code>[Swagger]</code> Fixed&nbsp;<code>players_on_wall</code><strong>&nbsp;</strong>in
+            <code>FactionTerritoryWarFaction</code> schema</li>
+        <li><code>[Swagger]</code> Removed duplicate <code>MarketItemMarketResponse</code> response from the generic
+            <code>market</code> selection</li>
+        <li><code>[Swagger]</code> Fixed incorrect parameter type in the generic <code>property</code> selection</li>
+        <li><code>[Swagger]</code> Fixed <code>value</code> field in <code>TornHof</code> schema</li>
+        <li><code>[API-v2]</code> Fixed faction names across all faction selections to not break on special characters
+            (e.g. <code>'</code>)</li>
+        <li><code>[API-v2]</code>&nbsp;Improved <code>is_ranked_war</code> in <code>'faction' -&gt; 'attacks'</code> to
+            always be true if the attack was made against a RW target <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=26154799">[Source]</a>
+        </li>
+    </ul>
+    <p>&nbsp;</p>
+    <p><strong>20.06.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code><a href="/swagger.php#/User/0452cb8fd031b80d3b7e9fcb7b0bdf09"> </a>Added <a
+                href="/swagger.php#/User/e1b2c1039ea41f7607b9c94660fc72cb">'user' -&gt; 'racingrecords'</a> which
+            returns all user's personal racing records (requires Minimal Access Key)</li>
+        <li><code>[API-v2]</code><a href="/swagger.php#/User/0452cb8fd031b80d3b7e9fcb7b0bdf09"> </a>Added
+            <code>is_official</code> flag to&nbsp;<code>'user' -&gt; 'races'</code> &amp;
+            <code>'racing' -&gt; 'races'</code></li>
+        <li><code>[API-v2]</code><a href="/swagger.php#/User/0452cb8fd031b80d3b7e9fcb7b0bdf09"> </a>Changed the default
+            behaviour on <code>'user' -&gt; 'races'</code> &amp; <code>'racing' -&gt; 'races'</code> to return both
+            official &amp; custom races if no category is specified (previously only custom races were returned by
+            default)</li>
+        <li><code>[Swagger]</code><a href="/swagger.php#/User/0452cb8fd031b80d3b7e9fcb7b0bdf09"> </a>Added missing
+            <code>'property' -&gt; 'lookup'</code>, <code>'property' -&gt; 'timestamp'</code> &amp; generic
+            <code>'property'</code> selection to <code>'property'</code> section <a
+                href="https://www.torn.com/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=26114232">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>17.06.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code><a href="/swagger.php#/User/0452cb8fd031b80d3b7e9fcb7b0bdf09"> 'user' -&gt;
+                'property'</a> returns information about a user's current property</li>
+        <li><code>[API-v2]</code><a href="/swagger.php#/User/601f7b38ac25e1ac47b33fb64120198b"> 'user' -&gt;
+                'properties'</a> returns a list of users properties (100 per page).&nbsp;Detailed information about
+            property usage are available to key owners &amp; their spouses with Limited or higher API keys (e.g. market
+            or rental information)</li>
+        <li><code>[API-v2]</code><a href="/swagger.php#/Property/87bd73ddaf3749bce7cbf5aa28e921e2"> 'property' -&gt;
+                'property'</a> shows information about a specific property (detailed information is omitted). Does show
+            users living&nbsp;on the property</li>
+        <li><code>[API-v2]</code><a href="/swagger.php#/Torn/c44f572f4672071280a28e6f8217c3b6"> 'torn' -&gt;
+                'properties'</a> shows a list of available properties, their staff &amp; modifications and other details
+        </li>
+        <li><code>[API-v2]</code><a href="/swagger.php#/Market/17e406574ff1eb686891c0fb0e15343a"> 'market' -&gt;
+                'properties'</a> shows a list of market listings for a specific property</li>
+        <li><code>[API-v2]</code><a href="/swagger.php#/Market/38cd1a2c47e266a703a13e0dd401f4a9"> 'market' -&gt;
+                'rentals'</a> shows a list of available rental listings for a specific property</li>
+        <li><code>[API-v2]</code> Changed default order of the <code>'faction' -&gt; 'crimes'</code> response depending
+            on the chosen category</li>
+        <li><code>[API-v2]</code> Added new query parameter <code>gymenergy</code> to
+            <code>'faction' -&gt; 'contributors'</code> which returns&nbsp;a total energy spent training while in a
+            faction&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=26102141">[Source]&nbsp;</a>
+        </li>
+    </ul>
+    <p><strong>16.06.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code>Added&nbsp;<a href="/swagger.php#/Racing/76925256951bb63fd28534c8c479b27b">is_official
+                flag to 'racing' -&gt; 'race'</a> to more easily distinguish official from unofficial races</li>
+        <li><code>[API-v2]</code>Added&nbsp;<a href="/swagger.php#/Faction/486fcda26ed1aa6aba8ec7091080723b">skill to
+                <code>reviver</code> object</a> in <code>'faction' -&gt; 'revives'</code> &amp;
+            <code>'user' -&gt; 'revives'</code>. Revives done prior 16.06.2025 will have this value set to null <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=26098533">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>05.06.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Refactored&nbsp;<code>'market' -&gt; 'bazaar'</code> to&nbsp;reflect the new bazaar
+            directory page</li>
+        <li><code>[API-v1]</code> Added&nbsp;<code>bazaar_is_open</code> field
+            to&nbsp;<code>'user' -&gt; 'bazaar'</code> to indicate if the bazaar is currently open or closed</li>
+    </ul>
+    <p>&nbsp;</p>
+    <p><strong>03.06.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code>&nbsp;Removed deprecated&nbsp;<code>sci-fi</code>&nbsp;in
+            <code>UserCrimeDetailsBootlegging</code> (now replaced with <code>sci_fi</code>)</li>
+        <li><code>[API-v2]</code>&nbsp;Removed deprecated&nbsp;<code>co-leader_id</code> in <code>FactionBasic</code>
+            (now replaced with&nbsp;<code>co_leader_id</code>)</li>
+        <li><code>[API-v2]</code> Removed deprecated&nbsp;<code>non-attackers</code> in <code>FactionChainReport</code>
+            (now replaced with <code>non_attackers</code>)</li>
+        <li><code>[API]</code> Updated&nbsp;<code>'user' -&gt; 'log'</code> selection to only work when requested
+            separately</li>
+        <li><code>[API-v2]</code>&nbsp;Created a new selection <code>'faction' -&gt; 'raids'</code>&nbsp;to get raids
+            history for a faction</li>
+        <li><code>[API-v2]</code>&nbsp;Created a new selection <code>'faction' -&gt; 'raidreport'</code>&nbsp;to get
+            details for a completed raid</li>
+        <li><code>[API-v2]</code>&nbsp;Created a new selection <code>'faction' -&gt; 'warfare'</code>.&nbsp;This
+            selection reflects faction warfare page, and returns a list of records depending on the chosen category :
+            <code>ranked</code>, <code>territory</code>, <code>raid</code>, <code>chain</code>, <code>db</code>. This
+            also deprecates cat query parameter in both <code>'faction' -&gt; 'rankedwars'</code> &amp;
+            <code>'faction' -&gt; 'territorywars'</code> selections</li>
+        <li><code>[Swagger]</code> Added missing <code>active</code> value to <code>FactionApplicationStatusEnum</code>
+            <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=26045346">[Source]</a>
+        </li>
+    </ul>
+    <p>&nbsp;</p>
+    <p><strong>28.05.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[Swagger]</code> Removed <code>/torn/{territoryIds}/territory</code> endpoint, instead, territory ids
+            can be passed as <code>ids</code> query parameter in <code>/torn/territory</code></li>
+        <li><code>[API-v2]</code> Added a new field <code>attacker_item</code> to <code>'torn' -&gt; 'attacklog'</code>
+            if the attacker is stealthed, but has used a temporary weapon or a booster</li>
+        <li><code>[API-v2]</code> Added missing field <code>ranked_war_wins</code> to
+            <code>UserPersonalStatsPopular</code> in <code>'user' -&gt; 'personalstats'</code></li>
+        <li><code>[API-v2]</code> Added missing field <code>total</code> to <code>UserPersonalStatsPopular</code> in
+            <code>'user' -&gt; 'personalstats'</code></li>
+        <li><code>[API-v1]</code> Fixed <code>target_factionname</code> &amp; <code>reviver_factionname</code> in
+            revives related selections sometimes being integers instead of strings <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=26020080">[Source]</a>
+        </li>
+    </ul>
+    <p>&nbsp;</p>
+    <p><strong>27.05.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Added a new selection <code> 'faction' -&gt; 'search'</code></li>
+        <li><code>[API-v2]</code> Added missing <code>description</code> &amp; <code>value</code> to
+            <code>bonuses</code> array in <code>'user' -&gt; 'itemmarket'</code></li>
+        <li><code>[API-v2]</code> Added a new field <code>cache_timestamp</code> to
+            <code>'market' -&gt; 'itemmarket'</code> which shows when was the item globally cached at</li>
+        <li><code>[API-v2]</code> Removed <code>faction_id</code> from being populated in
+            <code>‘key’ -&gt; ‘info’</code> if the user doesn't have faction AA permissions</li>
+        <li><code>[API-v2]</code> Fixed <code>id</code> sometimes being an empty string in
+            <code>'key' -&gt; 'log'</code>&nbsp;</li>
+        <li><code>[Swagger]</code> Changed <code>FactionSelectionName</code>, <code>ForumSelectionName</code>,
+            <code>KeySelectionName</code>, <code>MarketSelectionName</code>, <code>RacingSelectionName</code>,
+            <code>TornSelectionName</code>, <code>UserSelectionName</code> from being just enums into enum + string, so
+            the code-gen tools don't break constantly on unexpected new selections</li>
+        <li><code>[Swagger]</code> Removed unused <code>cat</code> query parameter from the generic
+            <code>itemmarket</code> endpoint</li>
+        <li><code>[Swagger]</code> Updated <code>cat</code>, <code>stat</code> &amp; <code>id</code> query parameters
+            across all generic selections to accept specific types instead of generic string or integer values <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300">[Source]</a></li>
+    </ul>
+    <p>&nbsp;</p>
+    <p><strong>23.05.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added missing <code>war_id</code> in territory wars related selections</li>
+        <li><code>[Swagger]</code> Removed unused <code>cat</code> query parameter from generic
+            <code>forum selection</code></li>
+        <li><code>[Swagger]</code> Fixed <code>HofValueFloat</code>, <code>HofValueString</code> schemas</li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'reports'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'reports'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=25998242">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>19.05.2025</strong></p>
+    <ul style="list-style-type:disc;">
+        <li><code>[API-v2]</code> Removed deprecated <code>user_id</code>, <code>success_chance</code>,
+            <code>crime_pass_rate</code> fields from OC's related selections</li>
+        <li><code>[API-v2]</code> Removed deprecated <code>life</code> object from
+            <code>'faction' -&gt; 'members'</code></li>
+        <li><code>[API-v2]</code> Removed deprecated <code>itemDetails</code> object from
+            <code>'market' -&gt; 'itemmarket'</code></li>
+        <li><code>[API-v2]</code> Added missing introduction education courses from other course's prerequisites</li>
+        <li><code>[API-v1]</code> Added <code>bazaar_timestamp</code> to <code>'user' -&gt; 'bazaar'</code></li>
+        <li><code>[API-v1]</code> Fixed <code>last_action</code>&nbsp;sometimes being null in
+            <code>'user' -&gt; 'profile'</code></li>
+        <li><code>[API-v2]</code> Fixed <code>links</code> using incorrect values to calculate <code>prev</code> &amp;
+            <code>next</code> values in <code>'forum' -&gt; 'threads'</code></li>
+        <li><code>[API-v2]</code> Added <code>comment</code> to <code>'key' -&gt; 'log'</code></li>
+        <li><code>[API-v2]</code> Added <code>total</code> to <code>_metadata</code> to
+            <code>'user' -&gt; 'list' </code><a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=25978959">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>15.05.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added item market related stats to <code>'user' -&gt; 'personalstats'</code></li>
+        <li><code>[API-v2]</code> Added new fields to <code>'key' -&gt; 'info'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=25964799">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>13.05.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'key' -&gt; 'info'</code></li>
+        <li><code>[API-v2]</code> Added <code>'key' -&gt; 'log'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=25956089">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>12.05.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>previous_crime_id</code> to organized crimes related selections <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=25952602">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>25.04.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Various Swagger improvements <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=25888026">[Source]</a>
+        </li>
+        <li><code>[API-v2]</code> Various Swagger improvements <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=25888781">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>24.04.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Various Swagger improvements <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=25884915">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>23.04.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'education'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'education'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=300&amp;to=25881742">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>17.04.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'territorywarreport'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'territorywars'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'rackets'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'territoryownership'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'territory'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'territory'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25754737">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>15.04.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'positions'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25851073">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>11.04.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'stats'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'contributors'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'upgrades'&nbsp;</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'factiontree'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25838321">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>07.04.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'balance'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25824404">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>25.03.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>int32</code> and <code>int64</code> format to all integers
+            in&nbsp;<code>Swagger</code></li>
+        <li><code>[API-v2]</code> Marked majority of fields as required in&nbsp;<code>Swagger</code></li>
+        <li><code>[API-v2]</code> Replaced Stable &amp; Unstable tags with vendor extension <code>x-stability</code> in
+            <code>Swagger</code></li>
+        <li><code>[API-v2]</code> Fixed nullable objects in <code>Swagger</code></li>
+        <li><code>[API-v2]</code> Upgraded&nbsp;<code>OpenAPI</code> to 3.1.x <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25783241">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>19.03.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>scope</code>, <code>outcome</code> &amp; <code>checkpoint_pass_rate</code>
+            to organized crimes related selections</li>
+        <li><code>[API-v2]</code> Added current user's CPR for empty slots in organized crimes related selections <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25646928">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>17.03.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'list'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25754737">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>07.03.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'crime'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25719894">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>26.02.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added global 30 second cache to <code>'market' -&gt; 'itemmarket'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25690793">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>20.02.2025</strong></p>
+    <ul>
+        <li><code>[API-v1]</code> Remove armor stats from weapons &amp; weapons stats from armor in
+            <code>'torn' -&gt; 'itemstats'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25670789">[Source]</a>
+        </li>
+        <li><code>[API-v1]</code> Improved time format in <code>'user' -&gt; 'icons'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25670789">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>13.02.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'revives'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'revivesfull'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'revives'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'revivesfull'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25646928">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>10.02.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'torn' -&gt; 'items'</code></li>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'itemmods'</code></li>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'itemammo'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25635968">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>04.02.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'attacklog'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25618717">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>27.01.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Improved <code>'faction' -&gt; 'crimes'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'rankedwars'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'rankedwarreport'</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25592611">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>21.01.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added finishing hit effects to <code>'user' -&gt; 'attacks'</code> &amp;
+            <code>'faction' -&gt; 'attacks'</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25574496">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>17.01.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'attacksfull'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'attacks'</code></li>
+        <li><code>[API-v2]</code> Reordered Swagger endpoints alphabetically&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25562398">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>15.01.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'factionbalance'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'organizedcrime'</code></li>
+        <li><code>[API-v2]</code> Added <code>executed_at</code> field to <code>'faction' -&gt; 'crimes'</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=280&amp;to=25556625">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>14.01.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added ability to pass API keys as Authorization headers</li>
+        <li><code>[API-v2]</code> Fixed Swagger code-gen errors</li>
+        <li><code>[API-v2]</code> Set default category in <code>'faction' -&gt; 'crimes'</code> to <code>all</code>
+            &amp; fixed <code>sort</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25553637">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>10.01.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>is_on_wall</code>, <code>is_in_oc</code>, <code>has_early_discharge</code>
+            in <code>'faction' -&gt; 'members'</code></li>
+        <li><code>[API-v2]</code> Fixed attacks missing between auto-generated links in
+            <code>'faction' -&gt; 'attacks'</code> &amp; <code>'faction' -&gt; 'attacksfull'</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25542212">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>08.01.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added individual's progress in <code>'faction' -&gt; 'crimes'</code></li>
+        <li><code>[API-v2]</code> Added <code>from</code>, <code>to</code>, <code>sort</code> query parameters to
+            <code>'faction' -&gt; 'crimes'</code></li>
+        <li><code>[API-v2]</code> Added new category <code>all</code> to <code>'faction' -&gt; 'crimes'</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25536674">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>06.01.2025</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Improved Swagger schema types</li>
+        <li><code>[API-v2]</code> Improved <code>'faction' -&gt; 'crimes'</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25530374">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>22.12.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added rewards to <code>'faction' -&gt; 'crimes'</code></li>
+        <li><code>[API-v2]</code> Added detailed information about the user on the slot they joined in organized crimes
+            related selections&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25486674">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>20.12.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'crimes'</code> (returns information about OC's
+            2.0)&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25480381">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>10.12.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Improved formatting of&nbsp;<code>'user' -&gt; 'personalstats'</code> response&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25442402">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>06.12.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Replaced British English with American English
+            in&nbsp;<code>'user' -&gt; 'personalstats'</code></li>
+        <li><code>[API-v2]</code> Re-mapped unclear values when requesting specific stats
+            in&nbsp;<code>'user' -&gt; 'personalstats'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25429692">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>05.12.2024</strong></p>
+    <ul>
+        <li><code>[API]</code> Updated&nbsp;<code>'user' -&gt; 'personalstats'</code> in both APIs to allow any amount
+            of <code>stat</code> (historical stats still limited to 10)&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25426278">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>04.12.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'user' -&gt; 'personalstats'</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25423238">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>24.11.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Removed keys from auto-generated links&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25389819">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>20.11.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'chain'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'chains'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'chainreport'</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25375271">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>14.11.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'timestamp'</code> endpoint to every section in <code>Swagger</code></li>
+        <li><code>[API-v2]</code> Updated generic endpoints to have proper response instead of <code>any</code> in
+            <code>Swagger</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=260&amp;to=25352775">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>11.11.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>lookup</code> endpoint to every section in <code>Swagger</code></li>
+        <li><code>[API-v2]</code> Fixed <code>Swagger</code> path parameter <code>categoryIds</code> in
+            <code>'forum' -&gt; 'threads'</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=240&amp;to=25342180">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>08.11.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored all <code>Swagger</code> endpoints and removed query parameters from path
+        </li>
+        <li><code>[API-v2]</code> Updated all auto-generated links to use the new service format</li>
+        <li><code>[API-v2]</code> Added <code>_metadata</code> field to various selections</li>
+        <li><code>[API-v2]</code> Improved <code>'user' -&gt; 'races'</code> to look into log tables as well</li>
+        <li><code>[API-v2]</code> Fixed incorrect <code>Swagger</code> schema for <code>'user' -&gt; 'races'</code>
+            &amp; <code>'user' -&gt; 'enlistedcars'</code></li>
+        <li><code>[API-v2]</code> Added <code>Stable</code> and <code>Unstable</code> <code>Swagger</code> tags</li>
+        <li><code>[API-v2]</code> Added generic endpoints for every section in <code>Swagger</code>&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=240&amp;to=25332757">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>04.11.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>rarity</code> field to <code>'user' -&gt; 'itemmarket'</code> &amp;
+            <code>'market' -&gt; 'itemmarket'</code></li>
+        <li><code>[API-v2]</code> Added additional bonus filters to <code>'market' -&gt; 'itemmarket'</code></li>
+        <li><code>[API-v2]</code> Fixed missing item information for some items in
+            <code>'market' -&gt; 'itemmarket'</code></li>
+        <li><code>[API-v2]</code> Changed <code>'torn' -&gt; 'itemstats'</code> to return <code>0</code> for
+            <code>owner_id</code> if item was never used or is being sold anonymously on item market</li>
+        <li><code>[API-v2]</code> Fixed <code>'user' -&gt; 'hof'</code> returning incorrect rank values for some
+            players&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=220&amp;to=25317757">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>29.10.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Updated service to allow selections be requested as path variables&nbsp;<a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=220&amp;to=25294173">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>25.10.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'itemmarket'</code></li>
+        <li><code>[API-v2]</code> Added <code>'market' -&gt; 'itemmarket'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=200&amp;to=25281813">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>14.10.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'attacks'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'attacksfull'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=180&amp;to=25240415">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>08.10.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'news'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=180&amp;to=25222718">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>01.10.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'wars'</code></li>
+        <li><code>[API-v2]</code> Refactored <code>'faction' -&gt; 'basic'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=180&amp;to=25199517">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>25.09.2024</strong></p>
+    <ul>
+        <li><code>[API-v1]</code> Added 1 hour global cache to <code>'user' -&gt; 'networth'</code></li>
+        <li><code>[API-v1]</code> Added cache timestamp to <code>'user' -&gt; 'networth'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=180&amp;to=25178152">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>24.09.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'bounties'</code></li>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'bounties'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'jobranks'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=160&amp;to=25177024">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>16.09.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Updated <code>'torn' -&gt; 'logcategories'</code></li>
+        <li><code>[API-v2]</code> Updated <code>'torn' -&gt; 'logtypes'</code> (now accepts category id as input
+            parameter) <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=160&amp;to=25151384">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>09.09.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added Scamming data to <code>'miscellaneous'</code> field to
+            <code>'user' -&gt; 'crimes'</code></li>
+        <li><code>[API-v2]</code> Added <code>'uniques'</code> field to <code>'user' -&gt; 'crimes'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=160&amp;to=25129151">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>04.09.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'is_revivable'</code> field to <code>'faction' -&gt; 'members'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=160&amp;to=25113615">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>03.09.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'members'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=160&amp;to=25110548">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>29.08.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'calendar'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=140&amp;to=25090624">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>27.08.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'hof'</code></li>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'factionhof'</code></li>
+        <li><code>[API-v2]</code> Added <code>'faction' -&gt; 'hof'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'hof'</code></li>
+        <li><code>[API-v1]</code> Added racing hof ranking to <code>'user' -&gt; 'hof'</code> <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=140&amp;to=25086165">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>20.08.2024</strong></p>
+    <ul>
+        <li>Added custom key builder to the API docs page <a
+                href="/forums.php#/p=threads&amp;f=19&amp;t=16378480&amp;b=0&amp;a=0&amp;start=0&amp;to=25064250">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>15.08.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'forumposts'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'forumthreads'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'forumsubscribedthreads'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'forumfeed'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'forumfriends'</code> <a
+                href="/forums.php?p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=140&amp;to=25047922">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>08.08.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'forum' -&gt; 'categories'</code></li>
+        <li><code>[API-v2]</code> Added <code>'forum' -&gt; 'threads'</code></li>
+        <li><code>[API-v2]</code> Added <code>'forum' -&gt; 'thread'</code></li>
+        <li><code>[API-v2]</code> Added <code>'forum' -&gt; 'posts'</code> <a
+                href="/forums.php?p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=120&amp;to=25018188">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>30.07.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'racing' -&gt; 'records'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'races'</code></li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'enlistedcars'</code> <a
+                href="/forums.php?p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=120&amp;to=24995236">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>24.07.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'racing' -&gt; 'cars'</code></li>
+        <li><code>[API-v2]</code> Added <code>'racing' -&gt; 'carupgrades'</code></li>
+        <li><code>[API-v2]</code> Added <code>'racing' -&gt; 'tracks'</code></li>
+        <li><code>[API-v2]</code> Added <code>'racing' -&gt; 'races'</code></li>
+        <li><code>[API-v2]</code> Added <code>'racing' -&gt; 'race'</code></li>
+        <li><code>[API-v1]</code> Removed the global cache on <code>'user' -&gt; 'bazaar'</code> selection when
+            requesting data for your own bazaar with <code>Custom</code>, <code>Limited</code>, <code>Full</code> access
+            keys <a
+                href="/forums.php?p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=120&amp;to=24974174">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>23.07.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'calendar'</code> <a
+                href="/forums.php?p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=120&amp;to=24971847">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>18.07.2024</strong></p>
+    <ul>
+        <li><code>[API-v1]</code> Added global cache (30 seconds) to <code>'user' -&gt; 'bazaar'</code> selection <a
+                href="/forums.php?p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=60&amp;to=24954692">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>17.07.2024</strong></p>
+    <ul>
+        <li><code>[API-v1]</code> Added <code>'user' -&gt; 'criminalrecord'</code> returning the content of API v1
+            <code>'user' -&gt; 'crimes'</code> selection with a public key <a
+                href="/forums.php?p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=40&amp;to=24948515">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>16.07.2024</strong></p>
+    <ul>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'crimes'</code> returning information about crimes 2.0</li>
+        <li><code>[API-v2]</code> Added <code>'torn' -&gt; 'subcrimes'</code> returning information about available
+            actions for a specific crime</li>
+        <li><code>[API-v2]</code> Added <code>'user' -&gt; 'crimes'</code> returning user statistics for a specific
+            crime</li>
+        <li><code>[API-v1]</code> Changed <code>'user' -&gt; 'crimes'</code> selection to require a <code>Minimal</code>
+            access key access (previously <code>Public</code>) <a
+                href="/forums.php?p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=40&amp;to=24948515">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>28.06.2024</strong></p>
+    <ul>
+        <li><code>[API-v1]</code> Changed <code>'tokenrefills'</code> in the <code>'user' -&gt; 'personalstats'</code>
+            selection to be a private statistic</li>
+        <li><code>[API-v1]</code> Changed <code>'traveltime'</code> in the <code>'user' -&gt; 'personalstats'</code>
+            selection to show rounded time increments <a
+                href="/forums.php#/p=threads&amp;f=63&amp;t=16401584&amp;b=0&amp;a=0&amp;start=40&amp;to=24891488">[Source]</a>
+        </li>
+    </ul>
+    <p><strong>12.06.2024</strong></p>
+    <ul>
+        <li><code>[API-v1]</code> Fixed incorrect defender faction name appearing on raid reports on
+            <code>'torn' -&gt; 'raidreport'</code> <a
+                href="/forums.php#/p=threads&amp;f=19&amp;t=16404269&amp;b=0&amp;a=0&amp;start=0&amp;to=24841095">[Source]</a>
+        </li>
+        <li><code>[API-v1]</code> Changed the pawn shop points value to 0 to reflect its removal on
+            <code>'torn' -&gt; 'pawnshop'</code> <a
+                href="/forums.php#/p=threads&amp;f=19&amp;t=16403631&amp;b=0&amp;a=0&amp;start=0&amp;to=24840641">[Source]</a>
+        </li>
+    </ul>
+</div>
