@@ -6,8 +6,9 @@ vi.mock('../apiClient', () => ({
   apiPost: vi.fn(),
 }))
 
-import { apiGet } from '../apiClient'
-import { checkExistingWeek, filterItemsForMember, loadCrimesForPayout } from '../payoutDataLoader'
+import { apiGet, apiPost } from '../apiClient'
+import { checkExistingWeek, filterItemsForMember, loadCrimesForPayout, savePayoutWeek } from '../payoutDataLoader'
+import { DEFAULT_PAYOUT_MODE } from '../payoutCalculations'
 
 describe('loadCrimesForPayout', () => {
   beforeEach(() => {
@@ -117,6 +118,48 @@ describe('checkExistingWeek', () => {
     // Should not throw, just return null
     const result = await checkExistingWeek('2026-03-16', '2026-03-22')
     expect(result).toBeNull()
+  })
+})
+
+// #587: savePayoutWeek rebuilds the week record field-by-field, and it used to
+// omit payout_mode — so oc_payout_weeks.payout_mode was NULL in every tenant
+// even though PayoutManagement sent it and the server accepted it. That in turn
+// made reloading a saved week reset the selector, because there was never a
+// stored mode to restore.
+describe('savePayoutWeek payout_mode persistence (#587)', () => {
+  const week = {
+    week_start: '2026-03-16',
+    week_end: '2026-03-22',
+    week_start_timestamp: 1742169600,
+    week_end_timestamp: 1742774400,
+    total_money_reward: 5000000,
+    faction_cut_percent: 20,
+    payout_mode: 'equal',
+  }
+  const members = [{ member_id: '1', member_name: 'A', tier: 3, payout: 10 }]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiPost.mockResolvedValue({ week_id: 7 })
+  })
+
+  it('sends the mode that produced the week', async () => {
+    await savePayoutWeek(week, members, ['9001'], 'MonChoon', 'key')
+    expect(apiPost).toHaveBeenCalledTimes(1)
+    const [path, body] = apiPost.mock.calls[0]
+    expect(path).toBe('/api/payouts/weeks')
+    expect(body.week.payout_mode).toBe('equal')
+  })
+
+  it('falls back to the faction default rather than sending undefined', async () => {
+    const { payout_mode: _omitted, ...noMode } = week
+    await savePayoutWeek(noMode, members, [], 'MonChoon', 'key')
+    expect(apiPost.mock.calls[0][1].week.payout_mode).toBe(DEFAULT_PAYOUT_MODE)
+  })
+
+  it('returns the saved record carrying the mode', async () => {
+    const saved = await savePayoutWeek(week, members, [], 'MonChoon', 'key')
+    expect(saved).toMatchObject({ id: 7, payout_mode: 'equal' })
   })
 })
 

@@ -8,6 +8,7 @@ import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
 import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js'
 import { matchRolesToPositions } from './oc/roleMatch.js'
 import { buildItemCatalog, priceNodeItems } from './oc/itemPricing.js'
+import { DEFAULT_PAYOUT_MODE, isPayoutMode } from './payoutModes.js'
 
 export interface OcDeps {
   db: pg.Pool
@@ -96,9 +97,18 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       tier_requirements: settings.tier_requirements ?? {},
       cpr_requirements: settings.cpr_requirements ?? {},
       payout_tickets: settings.payout_tickets ?? {},
-      // Faction default payout mode (#134); absent → flat-weighted (the Settings
-      // editor to write this lands in #136). Stored as a plain jsonb string.
-      payout_mode: settings.payout_mode ?? null,
+      // Faction default payout mode (#134), written by the Settings editor
+      // (#136) as a plain jsonb string.
+      //
+      // #587: this used to return null when unset, and each consumer guessed a
+      // different meaning for it — Payout Management fell through to
+      // flat-weighted (a mode nobody had chosen) while the tier UI stayed
+      // optimistically tiered, so a faction could see tier machinery and be
+      // paid flat-weighted. The absent case is resolved here, once, so every
+      // consumer reads the same answer. Equal is the honest default: it is the
+      // only mode that needs neither a tier table nor a ticket policy to be
+      // correct for a faction that has configured nothing.
+      payout_mode: isPayoutMode(settings.payout_mode) ? settings.payout_mode : DEFAULT_PAYOUT_MODE,
     }
   })
 
@@ -168,7 +178,7 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
                 COALESCE((
                   SELECT jsonb_agg(jsonb_build_object(
                            'ending_key', e.ending_key, 'node_id', e.node_id,
-                           'kind', e.kind, 'resolved', e.resolved, 'problem', e.problem,
+                           'kind', e.kind, 'resolved', e.resolved, 'starved', e.starved, 'problem', e.problem,
                            'money_avg', st.money_avg, 'money_min', st.money_min,
                            'money_max', st.money_max, 'respect_avg', st.respect_avg,
                            'observations', st.n, 'items', st.items)

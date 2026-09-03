@@ -103,6 +103,52 @@ describe('GET /api/oc-config', () => {
     expect(body.cpr_requirements['Break the Bank'].positions.Robber).toBe(60)
     expect(body.payout_tickets).toEqual({ '1': 40, '2': 30 })
   })
+
+  // #587: `null` is not a payout mode, and three consumers each guessed a
+  // different meaning for it — the Payout Management page fell back to
+  // flat-weighted while the tier UI stayed optimistically tiered. The server
+  // now resolves the absent case once, so every consumer agrees.
+  it('resolves an unset payout_mode to the equal default (#587)', async () => {
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
+    const { status, body } = await get('/api/oc-config')
+    expect(status).toBe(200)
+    expect(body.payout_mode).toBe('equal')
+  })
+
+  it('prefers a saved payout_mode over the default (#587)', async () => {
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('payout_mode', '"tiered"')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    )
+    const { status, body } = await get('/api/oc-config')
+    expect(status).toBe(200)
+    expect(body.payout_mode).toBe('tiered')
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
+  })
+
+  // Reading policy has never been role-gated (requireAuth only) — pinned here
+  // because #587 was first reported as "maybe only admins can read it".
+  it('serves the mode to any authenticated member, not just admins (#587)', async () => {
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('payout_mode', '"equal"')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    )
+    const { status, body } = await get('/api/oc-config')
+    expect(status).toBe(200)
+    expect(typeof body.payout_mode).toBe('string')
+    // Leave the shared harness DB as this describe found it.
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
+  })
+
+  // Reading policy has never been role-gated (requireAuth only) — pinned here
+  // because #587 was first reported as "maybe only admins can read it".
+  it('serves the mode to any authenticated member, not just admins (#587)', async () => {
+    const { status, body } = await get('/api/oc-config')
+    expect(status).toBe(200)
+    expect(typeof body.payout_mode).toBe('string')
+    // Leave the shared harness DB as this describe found it.
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
+  })
 })
 
 describe('GET /api/crimes/current', () => {
@@ -195,9 +241,10 @@ describe('OC Simulator endpoints', () => {
         ('Break the Bank', 'P2', 'Muscle 1', 20)
     `)
     await stack.db.query(`
-      INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved, problem) VALUES
-        ('Break the Bank', 'goodEnding1', '_A8S_', 'good', true, NULL),
-        ('Break the Bank', 'goodEnding3', NULL, 'good', false, 'goodEnding3: ties between _A9S_ and _A10S_')
+      INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved, starved, problem) VALUES
+        ('Break the Bank', 'goodEnding1', '_A8S_', 'good', true, false, NULL),
+        ('Break the Bank', 'goodEnding3', NULL, 'good', false, false, 'goodEnding3: ties between _A9S_ and _A10S_'),
+        ('Break the Bank', 'goodEnding35', NULL, 'good', false, true, 'no diagram counterpart — priced at $0 pending an upstream diagram fix')
     `)
   })
 
@@ -251,6 +298,16 @@ describe('OC Simulator endpoints', () => {
     expect(unresolved.resolved).toBe(false)
     expect(unresolved.node_id).toBeNull()
     expect(unresolved.problem).toMatch(/ties between/)
+  })
+
+  it('carries starved endings distinctly from merely unresolved ones (#473)', async () => {
+    const { body } = await simGet('/api/oc-simulator/scenarios')
+    const btb = body.scenarios.find((s: any) => s.name === 'Break the Bank')
+    const starved = btb.endings.find((e: any) => e.ending_key === 'goodEnding35')
+    expect(starved.starved).toBe(true)
+    expect(starved.resolved).toBe(false)
+    expect(starved.node_id).toBeNull()
+    expect(starved.problem).toMatch(/no diagram counterpart/)
   })
 
   it('rejects a CPR vector of the wrong length for that crime', async () => {

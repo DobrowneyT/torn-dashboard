@@ -11,7 +11,7 @@
  */
 
 import { apiGet, apiPost } from './apiClient'
-import { toSlotShape } from './payoutCalculations'
+import { toSlotShape, DEFAULT_PAYOUT_MODE } from './payoutCalculations'
 
 /**
  * Load all crimes and related data for a given time range
@@ -407,7 +407,13 @@ export async function savePayoutWeek(weekData, memberData, crimeIds, savedBy, ap
       total_adjusted_tickets: Math.floor(weekData.total_adjusted_tickets || 0),
       crime_ids: crimeIds || [],
       min_time_for_full_tickets: 432000,
-      min_time_for_any_payout: 172800
+      min_time_for_any_payout: 172800,
+      // #587: this record is rebuilt field-by-field rather than spread, and
+      // payout_mode was simply missing from the list — so every saved week in
+      // every tenant stored NULL even though the caller passed a mode and the
+      // server accepted the column. Reopening a week then had nothing to
+      // restore and fell back to a hardcoded guess.
+      payout_mode: weekData.payout_mode || DEFAULT_PAYOUT_MODE
     }
 
     // Prepare member records

@@ -8,6 +8,7 @@ import { ROLES, type Role } from './auth.js'
 import { requireNotVisitor, requireRole } from './authz.js'
 import type { createJobRunner } from './scraper/registerJobs.js'
 import { SECRET_NAMES, type SecretName, type createSecretStore } from './secrets.js'
+import { PAYOUT_MODES, isPayoutMode } from './payoutModes.js'
 
 export interface AdminDeps {
   db: pg.Pool
@@ -31,8 +32,6 @@ const ADMIN_GUARD = { preHandler: [requireNotVisitor(), requireRole('admin')] }
 // is TNL's own policy, and this stack serves several factions — showing them
 // all a schedule that is not theirs would be worse than showing none.
 const SETTINGS_KEYS = ['tier_requirements', 'cpr_requirements', 'payout_tickets', 'war_room_defaults', 'payout_mode', 'steadfast_rotation']
-// The three OC payout modes (#134). Absent → flat-weighted (see /api/oc-config).
-const PAYOUT_MODES = ['tiered', 'flat-weighted', 'equal']
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
   const { db, scrapers, secrets } = deps
@@ -118,7 +117,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
     const value = (req.body as { value?: unknown } | null)?.value
     // payout_mode is a scalar enum; every other key is a whole JSON document.
     if (key === 'payout_mode') {
-      if (typeof value !== 'string' || !PAYOUT_MODES.includes(value)) {
+      if (!isPayoutMode(value)) {
         return reply.status(400).send({ error: `payout_mode must be one of: ${PAYOUT_MODES.join(', ')}` })
       }
     } else if (value === undefined || value === null || typeof value !== 'object') {

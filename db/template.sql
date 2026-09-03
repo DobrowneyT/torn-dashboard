@@ -193,6 +193,10 @@ CREATE TABLE public.oc_scenario_endings (
   node_id       text,
   kind          text NOT NULL,
   resolved      boolean NOT NULL DEFAULT false,
+  -- #473: the API reports this ending but the diagram draws no matching
+  -- terminal — a CONFIRMED gap (not merely unresolved), priced at $0 rather
+  -- than left as a permanent lower bound. See migration 0053.
+  starved       boolean NOT NULL DEFAULT false,
   problem       text,
   PRIMARY KEY (scenario_name, ending_key)
 );

@@ -48,6 +48,8 @@ interface StubOptions {
   diagrams?: Record<string, string>
   /** null = send no stats frame at all. */
   stats?: Record<string, Record<string, unknown>> | null
+  /** Per-scenario CalculateSuccess override, checked before the defaults below. */
+  calculateOverride?: (scenario: string, parameters: number[]) => Record<string, number> | null
 }
 
 // Real money/respect captured live 2026-08-13 for Break the Bank's five good
@@ -113,6 +115,8 @@ function stubFetch(opts: StubOptions = {}) {
     if (url.includes('CalculateSuccess')) {
       const body = JSON.parse(String(init?.body ?? '{}'))
       const key = (body.parameters ?? []).join(',')
+      const overridden = opts.calculateOverride?.(body.scenario, body.parameters ?? [])
+      if (overridden) return json(overridden)
       if (body.scenario === 'Break the Bank' && BTB_PROBES[key]) return json(BTB_PROBES[key])
       // Any other scenario gets a flat, uninformative sweep — no role evidence.
       return json(good(0.97, 0.0098, 0.0098, 0.0002, 0.0002))
@@ -347,5 +351,60 @@ describe('node stats from the feed (#440)', () => {
       `SELECT count(*)::int AS n FROM oc_scenario_node_stats WHERE scenario_name = 'Mob Mentality'`
     )
     expect(mob.rows[0].n).toBe(0)
+  })
+})
+
+// #473, MonChoon 2026-08-28: "let's softly mark those endings as 0s for the
+// moment" — Blast from the Past and Counter Offer report more good endings
+// than their diagrams draw terminals for. The mirror's stats frame is keyed
+// strictly by diagram node id, so a starved ending can never be priced from
+// this source no matter how the mapping improves — confirmed live and raised
+// with tornprobability's maintainer. Rather than leave it a permanent lower
+// bound, it's written as a confirmed $0 rather than an open question.
+describe('starved good endings (#473)', () => {
+  it('marks an ending the diagram has no terminal for as starved, not merely unresolved', async () => {
+    // Mob Mentality's diagram draws 5 good terminals; the flat-sweep fallback
+    // normally reports exactly 5 (a clean match — see the #471 test above).
+    // Overridden here to report a 6th, so exactly one is guaranteed starved.
+    const { res } = await run({
+      calculateOverride: (scenario) =>
+        scenario === 'Mob Mentality'
+          ? { successChance: 0.97, failureChance: 0.03, goodEnding1: 0.5, goodEnding2: 0.1,
+              goodEnding3: 0.1, goodEnding4: 0.1, goodEnding5: 0.1, goodEnding6: 0.0004,
+              badEnding1: 0.03 }
+          : null,
+    })
+    expect(res.details!.mirrored).toBe(2)
+
+    const r = await stack.db.query(
+      `SELECT ending_key, node_id, resolved, starved, problem FROM oc_scenario_endings
+        WHERE scenario_name = 'Mob Mentality' AND kind = 'good' ORDER BY ending_key`
+    )
+    expect(r.rows).toHaveLength(6)
+
+    const starved = r.rows.filter((x) => x.starved)
+    const resolved = r.rows.filter((x) => x.resolved)
+    expect(starved).toHaveLength(1)
+    expect(resolved).toHaveLength(5)
+
+    // Starved and resolved are mutually exclusive, and a starved row has no
+    // node — there is nothing for it to ever be priced against.
+    expect(starved[0].resolved).toBe(false)
+    expect(starved[0].node_id).toBeNull()
+    expect(starved[0].problem).toMatch(/no diagram counterpart/)
+    expect(resolved.every((x) => x.starved === false && x.node_id !== null)).toBe(true)
+  })
+
+  it('still writes normal bad-ending problems via the legacy path, unaffected', async () => {
+    // Regression guard: the bad-ending path still uses deriveEndingMap's
+    // per-key "key: reason" problem strings, parsed via regex — untouched by
+    // the new unmatched.endings path added for good endings.
+    await run()
+    const r = await stack.db.query(
+      `SELECT ending_key, starved FROM oc_scenario_endings
+        WHERE scenario_name = 'Break the Bank' AND kind = 'bad'`
+    )
+    expect(r.rows.length).toBeGreaterThan(0)
+    expect(r.rows.every((x) => x.starved === false)).toBe(true)
   })
 })

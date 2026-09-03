@@ -661,7 +661,15 @@ function ResultPanel({ scenario, result, calculating, error }) {
                     <span className="flex items-center gap-1.5 min-w-0">
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isGood ? 'bg-green-500' : 'bg-red-500'}`} />
                       <span className="truncate">{key}</span>
-                      {meta && !meta.resolved && (
+                      {meta?.starved && (
+                        <span
+                          className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"
+                          title={meta.problem || 'No diagram terminal for this ending — confirmed, treated as $0 (#473)'}
+                        >
+                          no diagram match
+                        </span>
+                      )}
+                      {meta && !meta.resolved && !meta.starved && (
                         <span
                           className="text-amber-600 dark:text-amber-400 cursor-help shrink-0"
                           title={meta.problem || 'This ending could not be matched to the diagram'}
