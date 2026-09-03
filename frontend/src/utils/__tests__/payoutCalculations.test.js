@@ -704,8 +704,8 @@ describe('calculatePayouts modes (#134)', () => {
     },
   }
 
-  it('defaults to flat-weighted at the faction level, tiered is opt-in', () => {
-    expect(DEFAULT_PAYOUT_MODE).toBe('flat-weighted')
+  it('defaults to equal at the faction level, tiered is opt-in', () => {
+    expect(DEFAULT_PAYOUT_MODE).toBe('equal')
     expect(PAYOUT_MODES).toEqual(['tiered', 'flat-weighted', 'equal'])
   })
 
