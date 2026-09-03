@@ -126,27 +126,34 @@ describe('GET /api/oc-config', () => {
     await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
   })
 
-  // Reading policy has never been role-gated (requireAuth only) — pinned here
-  // because #587 was first reported as "maybe only admins can read it".
-  it('serves the mode to any authenticated member, not just admins (#587)', async () => {
+  // Reading policy has never been role-gated (`requireAuth` only) — pinned here
+  // because #587 was first reported as "maybe only admins can read the
+  // setting, and that's why it comes back empty". The harness token belongs to
+  // member 300, who holds no role assignment at all, so a pass here is proof
+  // the plain-member read sees the same value a leader does.
+  it('serves the saved mode to a member with no roles, not just admins (#587)', async () => {
     await stack.db.query(
-      `INSERT INTO faction_settings (key, value) VALUES ('payout_mode', '"equal"')
+      `INSERT INTO faction_settings (key, value) VALUES ('payout_mode', '"flat-weighted"')
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
     )
     const { status, body } = await get('/api/oc-config')
     expect(status).toBe(200)
-    expect(typeof body.payout_mode).toBe('string')
+    expect(body.payout_mode).toBe('flat-weighted')
     // Leave the shared harness DB as this describe found it.
     await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
   })
 
-  // Reading policy has never been role-gated (requireAuth only) — pinned here
-  // because #587 was first reported as "maybe only admins can read it".
-  it('serves the mode to any authenticated member, not just admins (#587)', async () => {
+  // A value that is not one of the three modes must not reach the client: the
+  // frontend rejects anything outside PAYOUT_MODES and falls back silently,
+  // which is the exact failure #587 was about.
+  it('falls back to the default when the stored value is not a mode (#587)', async () => {
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('payout_mode', '"nonsense"')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    )
     const { status, body } = await get('/api/oc-config')
     expect(status).toBe(200)
-    expect(typeof body.payout_mode).toBe('string')
-    // Leave the shared harness DB as this describe found it.
+    expect(body.payout_mode).toBe('equal')
     await stack.db.query(`DELETE FROM faction_settings WHERE key = 'payout_mode'`)
   })
 })

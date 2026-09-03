@@ -18,6 +18,47 @@ surface it automatically.
 
 ---
 
+## [3.59.0] - 2026-09-03
+
+### Fixed
+- **An unconfigured faction is no longer silently paid flat-weighted, and a
+  payout mode picked on the Payout Management page now holds (#587).**
+  Reported by a Leadership/OC-Manager/Warlead member who saw **Flat Weighted**
+  lit whatever the faction setting said. `GET /api/oc-config` returned
+  `payout_mode: null` for a faction that had never saved one, and each reader
+  invented its own meaning for `null`: Payout Management failed the
+  `PAYOUT_MODES.includes(null)` test and fell through to its `flat-weighted`
+  seed, while `FactionConfigContext` read the same `null` as optimistically
+  tiered. A faction could therefore see the tier machinery on screen and be
+  paid by ticket weighting it had never configured. The absent case is now
+  resolved once, server-side, and the default is **equal** — the only mode
+  that is correct with nothing configured, where tiered needs a tier table and
+  flat-weighted needs a ticket policy. A stored value that is not one of the
+  three modes falls back the same way instead of reaching the client as
+  something every consumer rejects. Reading the setting was never role-gated
+  (`requireAuth` only); that is now pinned by a test using a token with no
+  role assignments at all, since the report was first read as an admin-only
+  permissions problem.
+- **Saved payout weeks record the mode that produced them (#587).**
+  `savePayoutWeek()` rebuilds the week record field by field and had simply
+  omitted `payout_mode`, so the column added in
+  `db/migrations/0005-payout-mode.sql` was NULL in every tenant even though
+  the caller passed a mode and the server accepted the column. Reopening a
+  saved week then had nothing to restore and fell back to a hardcoded
+  `'tiered'`, which silently retagged every equal and flat-weighted faction's
+  history; it now falls back to the faction's actual setting.
+- **The faction default no longer lands on top of a mode the user just picked
+  (#587).** `/api/oc-config` resolves after first paint, and opening a
+  historical week also writes the selector, so either could overwrite a
+  deliberate choice. A hand-picked mode is now sticky for the rest of the
+  session.
+
+### Changed
+- `PAYOUT_MODES` and the default now live in one module per side —
+  `server/src/payoutModes.ts` and `frontend/src/utils/payoutCalculations.js` —
+  rather than being duplicated between `admin.ts`'s write validation and each
+  reader's fallback.
+
 ## [3.58.1] - 2026-08-28
 
 ### Fixed
