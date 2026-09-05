@@ -18,7 +18,7 @@ surface it automatically.
 
 ---
 
-## [3.66.0] - 2026-09-05
+## [3.66.1] - 2026-09-05
 
 ### Fixed
 - **⚠️ The userscript no longer destroys DOM nodes React owns, which is what
@@ -42,7 +42,10 @@ surface it automatically.
 - Torn's own text is read live rather than from a copy squirrelled away before
   we overwrote it. That copy went stale the moment Torn updated a cell we had
   taken, which is why `tornStatusKind` could disagree with what was on screen.
-- The roster badge's count is centred by **line-height** rather than by flex.
+- The assist count is centred by **line-height** rather than by flex, on the
+  dashboard's War Room badge as well as the userscript's roster badge — the
+  same miss, twice, because both put small digits beside a slightly taller icon
+  in a centred flex row.
   Boxing 9px text in a 14px flex item centres the line box, but a glyph does
   not sit centred within its own line box — the font's ascent and descent are
   asymmetric, so the digits still read high.
