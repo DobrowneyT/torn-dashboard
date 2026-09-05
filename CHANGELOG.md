@@ -18,6 +18,47 @@ surface it automatically.
 
 ---
 
+## [3.65.1] - 2026-09-05
+
+### Fixed
+- **⚠️ The userscript no longer blanks Torn's faction page (#610).** The
+  stylesheet was armed off the URL alone, and the URL lies: Torn routes faction
+  tabs client-side and can re-render the content area into another tab while
+  `#/war/rank` is still in the address bar — firing neither `hashchange` nor
+  `popstate`. `isWarRankPage()` then answered "yes" about a page showing
+  Armory, so the sheet stayed live and its deliberately broad rules
+  (`.white-grad`, `.table-header`, `ul.members-list`, `.table-body` — all Torn
+  component classes reused across every tab) forced Torn's own furniture to
+  `display:flex; width:100%` and collapsed the content region. Arming now also
+  requires the roster to actually be **in the DOM**: if there is nothing to lay
+  out, there is nothing our layout rules should be touching, whatever the URL
+  claims.
+- **The mystery "FACTION" bar was Torn's own section title.** `.white-grad` is
+  on two completely different things — the war roster's column header, which
+  the rule was written for, and the page's section title above the tab strip.
+  Given `display:flex; width:100%` the title inflated into an empty full-width
+  bar. It was never an element the script created; it is Torn's, restyled by a
+  selector too broad to tell the two apart. Now excluded by name.
+- **The assist count is visible on the roster and the board, not just the
+  attack overlay.** Both surfaces rendered the icon *instead of* the label —
+  and `label` is where "Smoke ×3" lived, so the number survived only in a
+  tooltip, on exactly the two surfaces someone scans to see who still needs
+  help. The icon says WHICH, the count says HOW MANY, and both now render.
+  Still nothing at one, where "×1" is noise.
+
+### Changed
+- The War Room's **Flags** column uses `InfoTooltip` instead of a native
+  `title`, which mobile browsers show on neither tap nor long press — a flag's
+  meaning was unreachable on a phone, which is where the board is most often
+  read mid-war.
+
+- The roster badge's count is given the icon's own height and centred inside
+  it, rather than left to flex alignment alone: a digit's visual centre sits
+  above its box centre, so 9px text beside a 14px glyph reads as sitting low
+  even when the two boxes are correctly aligned.
+
+Userscript **v1.45.1**.
+
 ## [3.64.0] - 2026-09-05
 
 ### Fixed

@@ -665,6 +665,55 @@ describe('panelPos — the popover follows its launcher (#590)', () => {
   })
 })
 
+describe('the roster badge shows the count, not just the icon (#610)', () => {
+  function fakeBadge() {
+    return {
+      innerHTML: '', textContent: '', title: '',
+      classList: { toggle() {}, remove() {}, add() {} },
+    }
+  }
+
+  it('⚠ renders the count beside the glyph when more than one is wanted', () => {
+    // The icon replaced the LABEL, and the count went with it: `state.label` is
+    // "Smoke ×3", so swapping in the glyph left the number readable only in a
+    // tooltip — on the roster, the one surface somebody scanning for who still
+    // needs help would look at.
+    const badge = fakeBadge()
+    S.paintDibs(badge, { mode: 'assist', icon: 'cloud-fog', label: 'Smoke \u00D73', wanted: 3, title: 't' })
+    expect(badge.innerHTML).toContain('<svg')
+    expect(badge.innerHTML).toContain('\u00D73')
+  })
+
+  it('says nothing at one, where the multiple would be noise', () => {
+    const badge = fakeBadge()
+    S.paintDibs(badge, { mode: 'assist', icon: 'cloud-fog', label: 'Smoke', wanted: 1, title: 't' })
+    expect(badge.innerHTML).toContain('<svg')
+    expect(badge.innerHTML).not.toContain('\u00D7')
+  })
+
+  it('falls back to the text label when there is no glyph for the kind', () => {
+    const badge = fakeBadge()
+    S.paintDibs(badge, { mode: 'assist', icon: 'no-such-icon', label: 'Mystery \u00D72', wanted: 2, title: 't' })
+    expect(badge.textContent).toBe('Mystery \u00D72')
+  })
+})
+
+describe('warRosterPresent — the DOM decides, not the URL (#610)', () => {
+  it('is false with no roster on the page, whatever the hash says', () => {
+    // ⚠️ The bug. Torn re-renders the content area into another tab while
+    // `#/war/rank` is still in the address bar — no hashchange, no popstate.
+    // isWarRankPage() then answers "yes" about a page showing Armory, the sheet
+    // stayed armed, and its deliberately broad rules collapsed Torn's own
+    // layout. That is the page going blank seconds after it loaded.
+    const { S: s } = loadWithDom()
+    expect(s.warRosterPresent()).toBe(false)
+  })
+
+  it('has no DOM to ask outside a browser, and says so rather than guessing', () => {
+    expect(S.memberLists()).toEqual([])
+  })
+})
+
 describe('indexAssists sees an UPDATE, not just a create (#603)', () => {
   const base = {
     id: 7, target_id: 500, requester_id: 9001, requester_name: 'Me',

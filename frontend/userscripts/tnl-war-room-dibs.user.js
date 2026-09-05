@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.44.0
+// @version      1.45.1
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1640,6 +1640,8 @@ const TNLDibs = (function () {
   const TAKEN_CLASS = 'tnl-taken'
   /** The Dibs badge morphed into a live assist request (#523) — see badgeState(). */
   const ASSIST_CLASS = 'tnl-assist'
+  /** The count beside the icon on a roster assist badge (#610). */
+  const ASSIST_N_CLASS = 'tnl-assist-n'
   const BS_CLASS = 'tnl-col-bs'
   const STAT_VALUE_CLASS = 'tnl-col-bsv'
   const STYLE_ID = 'tnl-dibs-style'
@@ -1819,7 +1821,18 @@ const TNLDibs = (function () {
    rows out with floats, but the cells we inject are not floated, and non-floated
    content does not sit in DOM order relative to floats. Mixing the two models
    gives the header and the rows two different column orders. */
-.white-grad, .table-header, [class*="tableHeader"] {
+/* NO BACKTICKS ANYWHERE IN THIS SHEET -- it is a template literal and one ends
+   it. (This has broken the stylesheet twice.)
+
+   The .faction-tabs-title exclusion below is the whole of a reported bug
+   (#610). Torn puts .white-grad on two completely different things: the war
+   roster's column header, which this rule is written for, and the page's own
+   section title -- the bar reading "FACTION" above the tab strip. Given
+   display:flex and width:100% that title inflates into an empty full-width
+   bar, which is the mystery bar that kept appearing. It was never an element
+   we created; it is Torn's, restyled by a selector too broad to tell the two
+   apart. */
+.white-grad:not(.faction-tabs-title), .table-header, [class*="tableHeader"] {
   display: flex !important;
   flex-wrap: nowrap !important;
   align-items: center !important;
@@ -1948,6 +1961,23 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
   display: flex; align-items: center; justify-content: center;
 }
 .${BADGE_CLASS}.${ASSIST_CLASS}:hover { background: #f97316; }
+/* Sits BESIDE the icon, not over it: on the roster the badge is only ~44px
+   wide, so a corner pip like the attack overlay's would overlap the glyph it
+   is meant to annotate. The gap is what keeps both readable at 10px. */
+.${BADGE_CLASS}.${ASSIST_CLASS} { gap: 3px; }
+.${ASSIST_N_CLASS} {
+  /* Given the SAME height as the icon and centred inside it, rather than left
+     to flex alignment alone. Two boxes of different heights centre on their
+     box centres, and a digit's visual centre sits above its box centre
+     (ascender/descender leave uneven space), so 9px text beside a 14px glyph
+     reads as sitting low even when the boxes are correctly aligned. Matching
+     the heights makes it optical rather than arithmetic. */
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 14px;
+  font: 700 9px/1 system-ui, sans-serif;
+  color: #fff; opacity: .95;
+  font-variant-numeric: tabular-nums;
+}
 
 .members-cont [class*="points___"]:not([class*="tab___"]),
 .white-grad > [class*="points___"] {
@@ -2237,9 +2267,23 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       // A real Lucide-matching icon, not the label text — see
       // assistIconSvg()'s own note on why this file inlines the paths
       // rather than importing the component the dashboard uses.
+      //
+      // ⚠️ The icon replaced the LABEL, and the count went with it (#610).
+      // `state.label` is "Smoke ×3" when three are wanted, so swapping in the
+      // glyph left the number readable only in a tooltip — on the roster, the
+      // one surface where somebody scanning for who still needs help would
+      // look. The icon says WHICH, the count says HOW MANY, and the row needs
+      // both; they are rendered side by side rather than one instead of the
+      // other. Still nothing at one, where "×1" is noise.
       const svg = assistIconSvg(state.icon)
-      if (svg) badge.innerHTML = svg
-      else badge.textContent = state.label
+      const wanted = assistCount(state.wanted)
+      if (svg) {
+        badge.innerHTML = wanted > 1
+          ? `${svg}<span class="${ASSIST_N_CLASS}">\u00D7${wanted}</span>`
+          : svg
+      } else {
+        badge.textContent = state.label
+      }
       badge.classList.remove(MINE_CLASS, TAKEN_CLASS)
       badge.title = state.title
       return
@@ -2848,6 +2892,31 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return typeof document === 'undefined'
       ? []
       : Array.from(document.querySelectorAll('ul.members-list, ul[class*="membersCont"]'))
+  }
+
+  /**
+   * Is the war roster actually ON SCREEN right now?
+   *
+   * ⚠️ The hash is not enough, and believing it was is what let the stylesheet
+   * wreck Torn's own page (#610). Torn routes faction tabs client-side and can
+   * re-render the content area into a different tab while `#/war/rank` is still
+   * in the address bar — no `hashchange`, no `popstate`, nothing we listen for.
+   * `isWarRankPage()` then answers "yes" about a page that is showing Armory,
+   * so the sheet stayed armed and its deliberately broad rules — `.white-grad`,
+   * `.table-header`, `ul.members-list`, `.table-body`, all Torn component
+   * classes reused across every tab — forced Torn's own furniture to
+   * `display:flex; width:100%` and collapsed the content region. That is the
+   * page going blank after anywhere from two to thirty seconds.
+   *
+   * Asking the DOM instead cannot be wrong in that direction: if there is no
+   * roster to lay out, there is nothing our layout rules should be touching,
+   * whatever the URL claims. The cost is a possible extra teardown/re-arm cycle
+   * before Torn paints the roster, which the MutationObserver resolves on the
+   * next batch and which teardownWarUi() makes nearly free with its own
+   * bail-out.
+   */
+  function warRosterPresent() {
+    return memberLists().length > 0
   }
 
   function tallyActivity(states) {
@@ -3713,7 +3782,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // …): actively undo the ROSTER furniture rather than merely skipping the
     // paint. The hash moves without a page load, so "skip" would leave the
     // stylesheet applied to a tab it was never written for.
-    if (!isWarRankPage()) { teardownWarUi(); return }
+    //
+    // BOTH conditions, not just the route (#610). The hash can still read
+    // `#/war/rank` while Torn has re-rendered the content area into another
+    // tab — see warRosterPresent() for why that is the case that broke the
+    // page. The DOM is the authority on what is being shown; the URL is only a
+    // hint about what was asked for.
+    if (!isWarRankPage() || !warRosterPresent()) { teardownWarUi(); return }
     injectStyles()
     // Arms the scoped stylesheet. Every rule in it is prefixed with this class,
     // so this line — not the presence of the <style> element — is what makes
@@ -4544,7 +4619,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // halves, so the URL shapes and the off-screen clamp are testable with
     // no DOM (the clamp is what stops a remembered position stranding the
     // panel outside a smaller window, where it could never be dragged back).
-    warRankRouteMatch, isWarRankPage, clampAssistPos, parseAssistPos, panelPos,
+    warRankRouteMatch, isWarRankPage, warRosterPresent, memberLists, clampAssistPos, parseAssistPos, panelPos,
     parseFightLogAge, parseFightLogRow, assistCandidates, readFightLogRows, attackTargetName,
     scopeCss, scopeSelector, WAR_ACTIVE_CLASS,
     indexAssists, sameAssistRequest, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,

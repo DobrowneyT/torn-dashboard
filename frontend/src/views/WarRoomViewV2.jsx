@@ -39,6 +39,7 @@ import {
   overdosedByDrugCooldown, statsAgeSeconds, hasStatsError, compareMemberStat, cooldownHue,
 } from '../utils/warRoomMemberStats'
 import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
+import InfoTooltip from '../components/InfoTooltip'
 import { travelEta, formatTravelEta } from '../utils/warRoomTravel'
 import {
   SCORE_DECAY_SEC, countsTowardScore, reviveScore, bestCaseChance,
@@ -3267,14 +3268,19 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             })
                             return (
                               <div className="flex items-center gap-1.5">
+                                {/* Was a native `title`, which mobile browsers
+                                    show on neither tap nor long press — so a
+                                    flag's meaning was unreachable on a phone,
+                                    which is where the War Room is most often
+                                    read mid-war (#610). */}
                                 {flags.map(f => (
-                                  <span
+                                  <InfoTooltip
                                     key={f.key}
-                                    title={f.title}
-                                    className={`text-base leading-none cursor-default ${FLAG_TONE_CLASS[f.tone] ?? ''}`}
+                                    label={f.glyph}
+                                    className={`text-base leading-none no-underline ${FLAG_TONE_CLASS[f.tone] ?? ''}`}
                                   >
-                                    {f.glyph}
-                                  </span>
+                                    {f.title}
+                                  </InfoTooltip>
                                 ))}
                                 {flags.length === 0 && (
                                   <span className="text-gray-300 dark:text-gray-700 text-xs">—</span>
@@ -3376,7 +3382,18 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                   aria-label={st.title}
                                   className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border max-w-[9rem] transition-colors border-orange-400 text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40"
                                 >
+                                  {/* ⚠️ The icon replaced the LABEL, and the
+                                      count went with it (#610). st.label is
+                                      "Smoke ×3" when three are wanted, so
+                                      swapping in the glyph left the number
+                                      readable only on hover — on the board,
+                                      the surface a lead scans to see who still
+                                      needs help. The icon says WHICH, the count
+                                      says HOW MANY; the row needs both. */}
                                   {AssistIcon ? <AssistIcon size={12} className="shrink-0" /> : <span className="truncate">{st.label}</span>}
+                                  {st.wanted > 1 && (
+                                    <span className="text-[10px] font-bold leading-none tabular-nums">×{st.wanted}</span>
+                                  )}
                                 </a>
                               )
                             }
