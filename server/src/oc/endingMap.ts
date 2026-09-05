@@ -78,10 +78,145 @@ export interface EndingMapping {
 /** "Muscle #2" in prose vs "Muscle 2" in the role list. */
 const normalise = (s: string) => s.replace(/#/g, '').replace(/\s+/g, ' ').toLowerCase()
 
-/** Which of `roleNames` a checkpoint's prose mentions. */
+/**
+ * Collective nouns that name a numbered role family (#473).
+ *
+ * ⚠️ Every entry has to be a plain reading of the sentence, not a mapping that
+ * earns its place by lowering a residual. 31 scenarios is a small sample and a
+ * free search over mappings will always find *something* — so the rule is that
+ * a reader who has never seen the numbers must agree with the mapping on sight.
+ *
+ * Two entries qualify, found by dumping every checkpoint whose prose named no
+ * role at all and simply reading them:
+ *
+ *   Lock Stock   `_A1_C2_`  "The bruisers feign defeat in an attempt to draw
+ *                            the caterers in."            → Muscle 1 + Muscle 2
+ *   Bidding War  `_A2_C1_`  "The Humvee crashes into the wall but gets stuck
+ *                            halfway through."            → Driver
+ *
+ * ⚠️ The other four no-role checkpoints are genuinely the whole crew — "The
+ * crew finds the side entrance locked", "The whole team assaults the guards" —
+ * and the existing average-over-everyone rule is already right for them. They
+ * are deliberately NOT in this table.
+ */
+const ROLE_NICKNAMES: Record<string, string> = {
+  // A bruiser is an enforcer; Muscle is the enforcer role. Lock Stock's only
+  // candidates are Muscle 1 and Muscle 2.
+  bruisers: 'Muscle',
+  bruiser: 'Muscle',
+  // The vehicle stands in for whoever is driving it. Bidding War's Humvee
+  // crashing is the Driver's checkpoint and there is exactly one Driver.
+  humvee: 'Driver',
+}
+
+/** Plurals English does not form with a bare "s". */
+const IRREGULAR_PLURALS: Record<string, string> = {
+  thieves: 'thief',
+  bosses: 'boss',
+}
+
+/**
+ * Roles that appear ONLY in the possessive, and so are referents rather than
+ * participants (#473 experiment).
+ *
+ * "Reviver curses Interrogator's overexuberance and tries to revive the
+ * manager" is Reviver's checkpoint; Interrogator is why the manager needs
+ * reviving, not someone being tested. Averaging them together is what makes a
+ * fatal failure look survivable.
+ *
+ * ⚠️ Two guards, both from reading all 13 possessive checkpoints in the 31
+ * diagrams rather than from the numbers:
+ *
+ *   - **A conjoined possessive is joint action.** "to aid Hacker and Cat
+ *     Burglar's search" has both of them searching, so "and" before the
+ *     possessive keeps everyone.
+ *   - **Never strip the only mention.** "The guard notices Assassin's
+ *     nervousness" IS the Assassin's checkpoint; removing them would leave no
+ *     role and silently fall through to averaging the whole crew.
+ *   - **What is possessed decides it.** An OBJECT or an ATTRIBUTE is something
+ *     a role merely has — a weapon, a drill, a leg, ineptitude. An ACTIVITY is
+ *     something they are doing, and doing it is the test: "following Picklock
+ *     #2's precise instructions", "into Muscle #2's ambush", "Kidnapper's
+ *     negotiating position". See ACTIVITY_POSSESSIONS.
+ */
+const ACTIVITY_POSSESSIONS = [
+  'instruction', 'instructions', 'ambush', 'negotiating', 'negotiation',
+  'search', 'plan', 'plans', 'signal', 'signals', 'distraction', 'lead',
+]
+
+function dropPossessiveReferents(text: string, roles: string[]): string[] {
+  const kept = roles.filter((r) => {
+    const pattern = r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*#?\\s*')
+    const possessive = new RegExp(`${pattern}\\s*['\u2019]s`, 'i')
+    const m = new RegExp(`${pattern}\\s*['\u2019]s\\s+([\\w'\u2019-]+(?:\\s+[\\w'\u2019-]+)?)`, 'i').exec(text)
+    if (!m) return true
+    // Conjoined: "A and B's ..." — both act.
+    if (new RegExp(`\\band\\s+${pattern}\\s*['\u2019]s`, 'i').test(text)) return true
+    // What is possessed: an activity means they are doing it, so they are tested.
+    const possessed = m[1].toLowerCase().split(/\s+/)
+    if (possessed.some((w) => ACTIVITY_POSSESSIONS.includes(w))) return true
+    return false
+  })
+  return kept.length > 0 ? kept : roles
+}
+
+/**
+ * The base name of a numbered role — "Looter 3" → "Looter", "Hacker" → null.
+ *
+ * A family is what a collective noun can refer to. A role with no number is
+ * already singular and has no family to stand in for.
+ */
+function familyBase(roleName: string): string | null {
+  const m = /^(.*?)\s*\d+$/.exec(roleName.trim())
+  return m && m[1] ? m[1] : null
+}
+
+/**
+ * Which of `roleNames` a checkpoint's prose mentions.
+ *
+ * A direct mention always wins. Only when the prose names NOBODY do the
+ * collective forms apply:
+ *
+ *   1. **The plural of a numbered role family.** "the looters" in a crime whose
+ *      roster is Looter 1..Looter 4 means all four. Derived from the role list
+ *      rather than tabulated, so it needs no entry per crime and cannot be
+ *      tuned — which is what keeps it from overfitting.
+ *
+ *   2. **A nickname or metonym for a role**, from the short table above, where
+ *      the prose uses a word that is not the role's own name.
+ *
+ * ⚠️ **Collective forms are a FALLBACK, not an addition, and the data is what
+ * settled that.** The first cut let them add to a direct mention, on the
+ * reasoning that "Muscle #1 covers while the bruisers advance" involves both.
+ * No such sentence exists in the 31 diagrams. What does exist is Bidding War's
+ *
+ *     `_A4_C2_`  "Bomber #2 sneaks around the Humvee to surprise the guard."
+ *
+ * where the Humvee is scenery — a parked vehicle to sneak around, not the
+ * Driver doing anything — and adding Driver there is a plain mis-attribution.
+ * It improved the residual anyway, which is exactly why the rule cannot be
+ * chosen on the residual: a metonym is how prose names actors it has not
+ * named, so once actors ARE named the vehicle is a prop.
+ */
 export function rolesInText(text: string, roleNames: string[]): string[] {
   const hay = normalise(text)
-  return roleNames.filter((r) => hay.includes(normalise(r)))
+  const named = roleNames.filter((r) => hay.includes(normalise(r)))
+  if (named.length > 0) return dropPossessiveReferents(text, named)
+
+  const words = new Set(hay.split(/[^a-z0-9\u00c0-\u024f]+/).filter(Boolean))
+  const nicknamed = new Set(
+    [...words].map((w) => ROLE_NICKNAMES[w]?.toLowerCase()).filter(Boolean) as string[]
+  )
+
+  return roleNames.filter((role) => {
+    const base = familyBase(role)
+    const target = (base ?? role).toLowerCase()
+    // A numbered family answers to its own plural — "looters" for Looter 1..N.
+    // An unnumbered role has no plural form to answer to, only a nickname.
+    const plural = base !== null
+      && (words.has(`${target}s`) || [...words].some((w) => IRREGULAR_PLURALS[w] === target))
+    return plural || nicknamed.has(target)
+  })
 }
 
 /**

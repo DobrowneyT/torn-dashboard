@@ -18,6 +18,72 @@ surface it automatically.
 
 ---
 
+## [3.70.0] - 2026-09-05
+
+### Fixed
+- **⚠️ Roles named only in the possessive are no longer treated as taking part
+  in a checkpoint (#473).** Manifest Cruelty's *"Reviver curses Interrogator's
+  overexuberance and tries to revive the manager"* is Reviver's checkpoint;
+  Interrogator is why the manager needs reviving. Averaging the two together
+  made a fatal Reviver failure look survivable — at Reviver CPR 1 the simulator
+  predicted a 0.4888 chance of the good ending against the service's 0.0193.
+  Measured across all 31 scenarios: **8 improved, 0 worsened**, with Manifest
+  Cruelty falling 0.113 → 0.041 (out of the loose-fit group entirely) and
+  Plucking the Lotus Petal 0.061 → 0.005.
+- **Two collective references now resolve to the roles they name.** Lock Stock's
+  *"The bruisers feign defeat"* means Muscle #1 and Muscle #2; Bidding War's
+  *"The Humvee crashes into the wall"* means the Driver. Bidding War's residual
+  fell 0.076 → 0.001.
+
+### Added
+- **A mass-weighted ending-map residual, which is what the per-ending money can
+  actually be trusted on.** The existing residual is scale-free by design —
+  right for choosing an assignment, misleading for judging E(x), because an
+  ending at 1e-4 simulated at 3e-4 moves it as much as the dominant ending being
+  wrong by half. The two disagree in **both** directions: Mob Mentality reads
+  0.145 plain (flagged a loose fit) and 0.003 weighted, while before this
+  change Plucking the Lotus Petal read 0.061 plain (comfortably "confident")
+  and 0.108 weighted, with the error in the ending carrying 98% of the mass.
+  Stored as `ending_map_money_residual` / `ending_map_money_confident` and
+  reported separately by the mirror job.
+- **A measurement harness** (`npm run oc:measure`) that caches the whole probe
+  sweep once and re-measures all 31 scenarios locally, so testing a hypothesis
+  costs no calls to tornprobability. Reports movement **per scenario**, never
+  only the mean, so a change that fixes eight crimes and breaks two is visible
+  as exactly that.
+- **⚠️ A role-level fidelity check — the oracle we had been asking at only one
+  point (#473).** `successChance` at all-high is exact for **all 31** scenarios,
+  which is why this went unnoticed for so long. Asked at a *dropped* CPR,
+  **twelve of the thirty-one** disagree with their own flowchart, several
+  badly: Window of Opportunity's Looter 1 at CPR 1 reads **0.9804** from the
+  service and **0.3897** from the diagram. Stored per scenario as
+  `role_fidelity_error` / `role_fidelity_roles` and reported by name, because
+  "this crime is wrong" is unactionable and "Looter 1 and Looter 2 are wrong"
+  tells you which sliders to distrust.
+
+  ⚠️ This is an **upstream disagreement between the two things we mirror, not a
+  bug in this code**, and the ruled-out list is part of the finding: not role
+  attribution (the checkpoints name the Looters explicitly), not parameter
+  ordering (verified P1..P5 against `GetRoleNames`), not terminal
+  classification (`_B5F_` really is a failure — confirmed against the diagram's
+  own `fill:#C62828`), and not an incomplete diagram (768 observed paths and
+  `is_complete`, the best-observed scenario in the set). Engineer and Muscle 2
+  in that same crime match the service to **four decimals** across the whole
+  curve, so the walk, the CPR/100 rule and the multi-role average are sound.
+
+  It also catches what neither residual does: **Snow Blind** (fidelity 0.699)
+  and **Ace in the Hole** (0.480) are both marked "confident" today.
+
+### Changed
+- The simulator's documented "nickname" hypothesis is retired as **falsified**.
+  Eight of the ten loose fits contain no checkpoint that names no role, and four
+  of the six that exist genuinely mean the whole crew. Both mis-attributed ones
+  sat in scenarios that already fit tightly, so resolving them improved nothing
+  that was loose. The fault in the loose group is the opposite one —
+  over-attribution, not under-attribution.
+
+---
+
 ## [3.69.0] - 2026-09-05
 
 ### Added

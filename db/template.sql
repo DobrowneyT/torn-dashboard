@@ -170,7 +170,19 @@ CREATE TABLE public.oc_scenarios (
   -- assignment line up — a map can be complete and still be wrong about which
   -- ending is which.
   ending_map_residual numeric,
-  ending_map_confident boolean
+  ending_map_confident boolean,
+  -- #473: the same disagreement weighted by how much probability each ending
+  -- carries. The plain residual is scale-free (right for choosing an
+  -- assignment, misleading for judging money); this one is what E(x) can be
+  -- trusted on. They disagree in both directions, so both are kept.
+  ending_map_money_residual numeric,
+  ending_map_money_confident boolean,
+  -- #473: largest disagreement between the flowchart and the service's own
+  -- successChance across the probe sweep, and the roles responsible. Exact at
+  -- the all-high baseline for every scenario, which is why this needed asking
+  -- at a dropped CPR to find.
+  role_fidelity_error numeric,
+  role_fidelity_roles jsonb
 );
 
 -- GetRoleNames spells a scenario "Mob Mentality" and its role "Looter 1";
