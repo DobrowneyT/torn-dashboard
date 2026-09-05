@@ -18,6 +18,64 @@ surface it automatically.
 
 ---
 
+## [3.60.0] - 2026-09-05
+
+### Fixed
+- **The War Room userscript no longer bleeds its roster styling onto every
+  other faction tab (#523 follow-up).** Its page gate was
+  `pathname === '/factions.php'`, which is every tab on a hash-routed SPA, so
+  `injectStyles()`' overrides applied on Armory, Crimes and Upgrades too —
+  where `.white-grad { display:flex; width:100% }` inflates Torn's own section
+  header into an empty full-width bar carrying the tab name. The gate now
+  reads the hash route (`#/war/rank`, sub-routes allowed) and never the
+  `type=N` query, which is a per-faction layout id that would work for one
+  faction and silently fail for the next. Two halves make it real: a teardown
+  when the SPA routes away, and `scopeCss()` prefixing every rule with
+  `html.tnl-war-active` — the prefix being the load-bearing part, since a
+  `pushState` that changes no hash fires neither `hashchange` nor `popstate`
+  and the teardown would simply never run. The launcher and its status light
+  deliberately stay on every faction tab; only the roster work is gated.
+- **The userscript works on Torn PDA.** The dashboard API is cross-origin from
+  torn.com and serves no CORS headers, so a privileged transport is the only
+  way the script can reach its own backend — and PDA ships
+  `PDA_httpGet`/`PDA_httpPost`, not the GM API. `gmRequest()` now falls back to
+  those. `GM_setValue` was also called unguarded in four places and threw
+  `ReferenceError` there, so all storage goes through `gmGet`/`gmSet` with a
+  `localStorage` fallback. The launcher gained a fallback anchor: it required
+  `#top-page-links-list`, a desktop-layout element, and returned null without
+  it — making "no anchor" indistinguishable from "the script never ran", on the
+  platform hardest to debug.
+- **Every glyph in the userscript survives a non-UTF-8 client.**
+  `files.monchoon.me` sends a bare `Content-Type: application/javascript`, and
+  PDA's webview decodes that as Latin-1 — U+283F arrived as `â ¿` and every
+  other symbol was mangled with it. All non-ASCII inside string literals is now
+  `\uXXXX` escapes, which decode identically under any charset. Comments keep
+  their real characters; they never render.
+- **The attack-page assist panel can be moved.** It was pinned top-right over
+  Torn's own attack controls with no way to shift it. Now draggable by a
+  handle (pointer events, so touch works), position remembered and clamped to
+  the *visual* viewport — not `innerHeight`, which on mobile parks it behind
+  the keyboard. Click the handle to collapse; coarse-pointer sizing gives
+  thumb-sized targets.
+
+### Changed
+- **The loadout shield is graded by age rather than a stale/fresh flag.** One
+  boolean made a 61-minute-old observation and a week-old one look identical,
+  which is the wrong shape for gear: within a war, what someone wore two hours
+  ago is almost certainly still true, while yesterday's is a hint. Three bands
+  now — green under 2h, amber 2–24h, grey beyond — with `isLoadoutStale()` kept
+  as the third band of `loadoutFreshness()` rather than a second threshold, so
+  the two can never disagree. An observation with no readable timestamp reads
+  stale, and the tooltip names the band so colour is never the only signal.
+
+### Added
+- A fight-log parser in the userscript, groundwork for the assist counters
+  (#591). Torn's attack page log shows other players' actions, which is what
+  makes an assist request verifiable by observation rather than by someone
+  remembering to press "I'm coming". The `attacking-events-*` classes are the
+  only stable hooks on those rows; everything around them is a CSS-module hash
+  Torn rotates each deploy.
+
 ## [3.58.1] - 2026-08-28
 
 ### Fixed
