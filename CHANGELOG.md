@@ -18,6 +18,90 @@ surface it automatically.
 
 ---
 
+## [3.64.0] - 2026-09-05
+
+### Fixed
+- **The assist count updates live again instead of only on a page reload
+  (#603).** The userscript's assist index is keyed by target and judged recency
+  on `created_at` — which does not change when #591 raises the count with
+  `SET wanted = wanted + 1`. The row came back down the delta carrying the new
+  number, compared equal, and was discarded, so **every increment and every
+  decrement was dropped by the very client that asked for it**. Rows now win
+  the badge slot when they are an update to the request already on screen,
+  matched on row id, with recency still deciding between different requesters.
+- The optimistic entry made that permanent rather than transient: it stamped a
+  client clock reading, strictly later than the server's `created_at`, so every
+  later server row for our own request lost the comparison for the life of the
+  page. That is why a refresh was the only thing that ever showed the truth.
+- `requestAssist` and `decrementAssist` now paint the count the **server**
+  returned rather than ignoring it, so the pip moves on the press instead of on
+  the next poll. `POST /api/war-room/assist` returns `wanted` on both branches
+  now, not just on the increment.
+
+The dashboard was never affected — `useWarRoomSocket` merges by row id — so the
+faction-page badge, the attack overlay and the board now agree by construction.
+
+### Added
+- **Right-click an assist button to take one off**, the desktop shortcut for
+  the hold. ⚠️ A long press on a touchscreen also synthesises `contextmenu`, so
+  both routes share one guard: two decrements for one press would be worse than
+  none.
+- **`InfoTooltip`** — a tooltip that works on a touchscreen (#604). Global
+  Admin's scraper-job descriptions were behind a native `title`, which mobile
+  browsers show on neither tap nor long press, so the text was unreachable on a
+  phone while the dotted underline advertised that it was there. It matches the
+  War Room's stat-breakdown panel, but opens on tap as well as hover and is
+  positioned in fixed viewport coordinates — the jobs table lives inside an
+  `overflow-x-auto` wrapper that clips an absolutely-positioned child.
+
+Userscript **v1.44.0**.
+
+## [3.63.0] - 2026-09-05
+
+### Fixed
+- **A second press on an assist button now raises the count instead of
+  cancelling the request (#600).** The server has incremented on a repeat of
+  the same target and kind since #591, but the overlay never reached it: a
+  press on your own active kind routed to the #523 toggle-off, written before
+  counting existed and never revisited when counting was added. So the one
+  gesture that should raise the count was the one that destroyed the request,
+  and the counter was unreachable from the surface built for it.
+
+### Added
+- **Hold an assist button to take one back.** Half a second, and the last one
+  clears the request — "decrement to zero" and "cancel" are the same act, so
+  there is no separate rule for cancelling. Holding a kind you have not
+  requested does nothing. The hold fires while the button is still held rather
+  than on release, because half a second with no sign of registering is exactly
+  what you cannot afford to guess at mid-fight; the button shrinks under the
+  finger to show it landed.
+- **`POST /api/war-room/assist/decrement`.** A POST rather than a DELETE
+  variant on purpose — Torn PDA's HTTP bridge exposes only `PDA_httpGet` and
+  `PDA_httpPost`, so a DELETE cannot be issued from a phone at all, and this
+  gesture's home is the attack page. Scoped to the caller's own request with no
+  admin branch: a hold is fat-fingerable, and quietly shaving a count off
+  someone else's request is a bad thing to be able to do by accident.
+
+Userscript **v1.43.0**.
+
+## [3.62.0] - 2026-09-05
+
+### Changed
+- **A new matchup resets push-surge alerting to off (#598).** `surge_alerts_enabled`
+  (#208) and `surge_revive_alerts_enabled` (#359) were set once by a leader and
+  carried forward across every subsequent war, indefinitely — the one part of
+  the room that was not already a clean slate at auto-setup, where state and
+  dibs are tombstoned, the chain is reset and notes are reseeded. Alerting tuned
+  for one war is wrong for the next, and a termed war is the clear case: surge
+  alerts push to **every** subscriber on hospital and revive churn that is
+  entirely expected, so the room cries wolf all week and people mute it — which
+  then costs them the alert in the war where it mattered. Off is the safe
+  default because the failure is asymmetric.
+- The thresholds, windows and cooldowns behind those switches are deliberately
+  **not** reset. They are tuning a leader worked out for their own faction and
+  stay true across matchups; wiping them would mean re-deriving the numbers
+  every week just to turn alerting back on.
+
 ## [3.61.1] - 2026-09-05
 
 ### Fixed

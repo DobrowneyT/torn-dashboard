@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.42.1
+// @version      1.44.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -272,25 +272,87 @@ const TNLDibs = (function () {
     return Number.isFinite(n) && n > 0 ? n : 1
   }
 
+  /** How long a press has to be held before it counts as a hold (#600). */
+  const LONG_PRESS_MS = 500
+
+  /**
+   * What a press on an assist button means.
+   *
+   * ⚠️ The short-press row is the whole bug this replaced (#600). A press on
+   * your own active kind used to route to `clearAssist` — the #523 toggle-off,
+   * written before counting existed and never revisited when #591 added it. So
+   * the one gesture that should raise the count was the one that destroyed the
+   * request, and the counter was unreachable from the surface built for it.
+   *
+   * 'request' covers all three short-press cases on purpose, because the server
+   * already distinguishes them: same target and kind increments, anything else
+   * replaces. Splitting them here would be a second copy of a rule that only
+   * one side can enforce.
+   *
+   * A hold is only ever about YOUR OWN request of THIS kind. Holding a button
+   * you have not pressed does nothing — "if it's already at 0 it does nothing"
+   * — rather than raising an error the overlay would have to render mid-fight.
+   */
+  function assistPressAction(mine, kind, userId, gesture) {
+    const isMine = !!mine && String(mine.by) === String(userId)
+    if (gesture === 'long') {
+      return isMine && mine.kind === kind ? 'decrement' : 'noop'
+    }
+    return 'request'
+  }
+
+  /**
+   * Is this delta row the SAME request the badge is already showing?
+   *
+   * ⚠️ This is the question the index used to have no way of asking, and not
+   * asking it is what made every count freeze until a page reload (#603).
+   *
+   * Row `id` answers it outright when both sides have one. The requester
+   * fallback exists for the optimistic entry requestAssist() writes, which has
+   * no id yet — without it, the server's own row for the request we just made
+   * would look like a stranger's and lose the recency test below.
+   */
+  function sameAssistRequest(cur, row) {
+    if (cur?.id != null && row?.id != null) return String(cur.id) === String(row.id)
+    return String(cur?.by) === String(row?.requester_id)
+  }
+
   function indexAssists(rows, into) {
     const byTarget = into ?? new Map()
     for (const row of rows ?? []) {
       const targetId = Number(row.target_id)
       if (!Number.isFinite(targetId) || targetId <= 0) continue
+      const cur = byTarget.get(targetId)
       if (row.deleted_at) {
-        const cur = byTarget.get(targetId)
-        if (cur && String(cur.by) === String(row.requester_id)) byTarget.delete(targetId)
+        if (cur && sameAssistRequest(cur, row)) byTarget.delete(targetId)
         continue
       }
-      const cur = byTarget.get(targetId)
+      // Three ways a row wins the badge slot, and the FIRST TWO are the fix.
+      //
+      // ⚠️ An UPDATE to the request already on screen must always land. The
+      // old rule was recency alone, judged on `created_at` — which does not
+      // change when #591 raises the count with `SET wanted = wanted + 1`. So
+      // the row came back carrying the new number, compared equal, and was
+      // thrown away. Every increment and every decrement was dropped by the
+      // very client that asked for it, and a reload was the only way to see
+      // the truth.
+      //
+      // Worse than transient: requestAssist()'s optimistic entry stamps a
+      // CLIENT clock reading, which is strictly later than the server's
+      // created_at, so afterwards every server row for our own request lost
+      // the comparison for the life of the page.
+      //
+      // Recency still decides between DIFFERENT requesters — several people
+      // can raise a hand on one target and the badge shows one of them.
       const curAt = cur ? parseDbTime(cur.at) : null
       const rowAt = parseDbTime(row.created_at)
-      if (!cur || !curAt || (rowAt && rowAt > curAt)) {
-        byTarget.set(targetId, {
-          kind: row.kind, by: Number(row.requester_id), name: row.requester_name, at: row.created_at,
-          wanted: assistCount(row.wanted),
-        })
-      }
+      const wins = !cur || sameAssistRequest(cur, row) || !curAt || (rowAt && rowAt > curAt)
+      if (!wins) continue
+      byTarget.set(targetId, {
+        id: row.id ?? null,
+        kind: row.kind, by: Number(row.requester_id), name: row.requester_name, at: row.created_at,
+        wanted: assistCount(row.wanted),
+      })
     }
     return byTarget
   }
@@ -1325,9 +1387,54 @@ const TNLDibs = (function () {
     for (const [target, a] of rt.assists) {
       if (String(a.by) === String(rt.session?.userId)) rt.assists.delete(target)
     }
-    rt.assists.set(targetId, { kind, by: rt.session?.userId, name: 'You', at: new Date().toISOString() })
+    // The server's own count, not a guess. It returns `wanted` on both
+    // branches (fresh insert and increment), and painting it here is what makes
+    // the pip move on the press rather than on the next poll — the attack page
+    // is where the decision to ask for one more is taken, so it cannot be the
+    // last surface to know (#603).
+    //
+    // `at` stays a client clock reading, which is fine now that indexAssists
+    // recognises the server's row for this request by requester rather than by
+    // being strictly newer.
+    const wanted = Number(res.body?.wanted)
+    const cur = rt.assists.get(targetId)
+    rt.assists.set(targetId, {
+      id: cur && cur.kind === kind ? cur.id ?? null : null,
+      kind, by: rt.session?.userId, name: 'You', at: new Date().toISOString(),
+      wanted: Number.isFinite(wanted) && wanted > 0 ? wanted : 1,
+    })
     pokePoll()
-    return { ok: true }
+    return { ok: true, wanted }
+  }
+
+  /**
+   * Take one off your own request (#600) — the overlay's long press.
+   *
+   * ⚠️ A POST, not a DELETE: Torn PDA's bridge has no DELETE at all (see
+   * pdaTransport()), and this gesture's home is the attack page, which is a
+   * phone surface as much as a desktop one. Routing it through DELETE would
+   * have made the whole gesture dead on PDA and working everywhere else, which
+   * is the hardest kind of bug to have reported.
+   *
+   * No optimistic local edit. The server owns `wanted` — the fight log
+   * decrements it too (#591), so this browser's copy is not the only writer and
+   * guessing the new value here would make the pip flicker between our guess
+   * and the truth on the next poll.
+   */
+  async function decrementAssist(targetId) {
+    const res = await api('/api/war-room/assist/decrement', 'POST', { target_id: targetId })
+    if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
+    const wanted = Number(res.body?.wanted)
+    const cur = rt.assists.get(targetId)
+    if (res.body?.cleared) rt.assists.delete(targetId)
+    else if (cur && Number.isFinite(wanted) && wanted > 0) {
+      // Same reason as requestAssist(): the press has to move the number now.
+      // Only ever lowers OUR OWN request — the server refuses to touch anyone
+      // else's, so painting a drop on a stranger's badge would be a lie.
+      rt.assists.set(targetId, { ...cur, wanted })
+    }
+    pokePoll()
+    return { ok: true, wanted: Number.isFinite(wanted) ? wanted : 0, cleared: !!res.body?.cleared }
   }
 
   async function clearAssist(targetId) {
@@ -2864,6 +2971,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   const ASSIST_OVERLAY_ID = 'tnl-assist-overlay'
   const ASSIST_OVERLAY_STYLE_ID = 'tnl-assist-overlay-style'
   const ASSIST_BTN_ACTIVE_CLASS = 'tnl-assist-btn-active'
+  /** On a button while it is being held, so the hold is visibly registering. */
+  const ASSIST_BTN_HELD_CLASS = 'tnl-assist-btn-held'
   /** The \u00D7N pip on a button whose request is for more than one. */
   const ASSIST_COUNT_CLASS = 'tnl-assist-count'
   const ASSIST_HANDLE_CLASS = 'tnl-assist-handle'
@@ -2971,6 +3080,24 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 }
 #${ASSIST_OVERLAY_ID} button:hover { background: #374151; }
 #${ASSIST_OVERLAY_ID} button.${ASSIST_BTN_ACTIVE_CLASS} { background: #ea580c; border-color: #ea580c; }
+/* Held past the point of being a tap (#600). Half a second is a long time to
+   hold something that gives no sign of noticing, so the button shrinks under
+   the finger the moment the hold starts and springs back if you let go early —
+   which also teaches the gesture without a word of instruction. */
+#${ASSIST_OVERLAY_ID} button.${ASSIST_BTN_HELD_CLASS} {
+  transform: scale(.88);
+  transition: transform ${LONG_PRESS_MS}ms ease-out;
+}
+/* A hold on a touchscreen otherwise selects the icon and pops the callout,
+   both of which land on top of the gesture. The contextmenu half of this is
+   handled in JS -- it is an event, not a style, and no backtick may appear
+   anywhere in this sheet: it is a template literal, and one ends it. */
+#${ASSIST_OVERLAY_ID} button {
+  touch-action: manipulation;
+  user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
 /* The count rides in the button's own corner rather than replacing the icon:
    which KIND you asked for still has to be readable at a glance. */
 #${ASSIST_OVERLAY_ID} button { position: relative; }
@@ -3150,16 +3277,29 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const svg = assistIconSvg(meta.icon, 16)
       if (svg) btn.innerHTML = svg
       else btn.textContent = meta.label
-      btn.addEventListener('click', async (e) => {
-        e.preventDefault(); e.stopPropagation()
+      // Press gesture (#600): a tap asks for one more, a hold gives one back.
+      //
+      // The hold fires at the threshold while the button is STILL HELD rather
+      // than on release. Waiting for release would mean holding for half a
+      // second with no way to tell whether it had registered until you let go,
+      // which mid-fight is exactly when you cannot afford to guess.
+      //
+      // Pointer events rather than mouse events so a thumb and a mouse take the
+      // same path, and `pointercancel` matters more than it looks: a touch that
+      // turns into a page scroll fires cancel, never up, and without it the
+      // timer would survive and fire a decrement the user never asked for.
+      let holdTimer = null
+      let handled = false   // a hold already acted — swallow the click it becomes
+
+      const act = async (gesture) => {
         const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
         if (!targetId) return
-        const mine = rt.assists.get(targetId)
-        const isMine = mine && String(mine.by) === String(rt.session?.userId)
-        // Same kind, clicked again: toggle off — the requester clearing
-        // their own marker (#523's own acceptance criterion).
+        const what = assistPressAction(rt.assists.get(targetId), kind, rt.session?.userId, gesture)
+        if (what === 'noop') return
         btn.disabled = true
-        const res = (isMine && mine.kind === kind) ? await clearAssist(targetId) : await requestAssist(targetId, kind)
+        const res = what === 'decrement'
+          ? await decrementAssist(targetId)
+          : await requestAssist(targetId, kind)
         btn.disabled = false
         // Not showToast(): that relies on injectStyles()' faction-page-only
         // stylesheet for its look, which never runs on the attack page — an
@@ -3168,6 +3308,58 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
         // the control itself.
         if (!res.ok) btn.title = res.message
         renderAssistOverlay()
+      }
+
+      const cancelHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null } }
+
+      // ⚠️ One decrement per gesture, whichever route it arrives by.
+      //
+      // A long press on a touchscreen fires the hold timer AND synthesises a
+      // `contextmenu` — the same physical press reaching us twice. Both routes
+      // go through here, and the time window swallows the second: they are one
+      // gesture, and taking two off a count for one press would be worse than
+      // taking none. The window is generous because the synthesised event can
+      // trail the timer by a good fraction of a second on a slow phone.
+      let lastLongAt = 0
+      const fireLong = () => {
+        const now = Date.now()
+        if (now - lastLongAt < LONG_PRESS_MS) return
+        lastLongAt = now
+        handled = true          // swallow the click a touch press turns into
+        cancelHold()
+        btn.classList.remove(ASSIST_BTN_HELD_CLASS)
+        act('long')
+      }
+
+      btn.addEventListener('pointerdown', (e) => {
+        // A right-click's own pointerdown is left alone deliberately: it starts
+        // no hold and clears no latch, so the contextmenu below is the only
+        // thing that acts on it.
+        if (e.button != null && e.button !== 0) return
+        handled = false
+        cancelHold()
+        holdTimer = setTimeout(() => { holdTimer = null; fireLong() }, LONG_PRESS_MS)
+        btn.classList.add(ASSIST_BTN_HELD_CLASS)
+      })
+      for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+        btn.addEventListener(type, () => { cancelHold(); btn.classList.remove(ASSIST_BTN_HELD_CLASS) })
+      }
+      // Right-click is the desktop shortcut for the hold — same act, reachable
+      // without waiting half a second at a mouse. preventDefault is not
+      // optional either way: on a touchscreen this event IS the long press,
+      // and letting it through pops the context menu and the selection callout
+      // on top of the gesture.
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault(); e.stopPropagation()
+        fireLong()
+      })
+      btn.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation()
+        // The hold already acted; the browser still delivers the click that the
+        // press turned into, and letting it through would immediately undo the
+        // decrement by asking for one more.
+        if (handled) { handled = false; return }
+        act('short')
       })
       box.appendChild(btn)
     }
@@ -3232,10 +3424,11 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       }
       const meta = ASSIST_KIND_META[btn.dataset.tnlKind]
       if (meta) {
-        btn.title = wanted > 1
-          ? `${meta.label} \u00B7 ${wanted} still needed \u00B7 click for one more`
-          : active ? `${meta.label} requested \u00B7 click again to ask for another`
-            : meta.label
+        // The hold is the only gesture here with nothing on screen to
+        // advertise it, so the tooltip is where it gets taught.
+        btn.title = active
+          ? `${meta.label} \u00B7 ${wanted} still needed \u00B7 tap for one more, hold to take one back`
+          : `${meta.label} \u00B7 tap to request`
       }
     }
   }
@@ -4354,8 +4547,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     warRankRouteMatch, isWarRankPage, clampAssistPos, parseAssistPos, panelPos,
     parseFightLogAge, parseFightLogRow, assistCandidates, readFightLogRows, attackTargetName,
     scopeCss, scopeSelector, WAR_ACTIVE_CLASS,
-    indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
-    assistIconSvg, paintDibs, assistCount,
+    indexAssists, sameAssistRequest, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
+    assistIconSvg, paintDibs, assistCount, assistPressAction, decrementAssist, LONG_PRESS_MS,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,

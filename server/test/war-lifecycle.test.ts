@@ -44,8 +44,15 @@ beforeAll(async () => {
 
   // Leftovers from the previous war. Live state/dibs/chain are reset by
   // auto-setup; roll call and notes are ARCHIVED per war (#345) and kept.
-  await stack.db.query(`INSERT INTO war_room_config_v2 (id, enabled, faction_id, faction_name, auto_managed, managed_war_id)
-                        VALUES (1, false, 88888, 'Last Week Foes', false, NULL)`)
+  // Surge alerting left switched ON by last week's leader, with tuning to
+  // match — #598's whole subject. The flags must not survive auto-setup; the
+  // tuning behind them must.
+  await stack.db.query(`INSERT INTO war_room_config_v2
+                          (id, enabled, faction_id, faction_name, auto_managed, managed_war_id,
+                           surge_alerts_enabled, surge_revive_alerts_enabled,
+                           surge_enemy_threshold, surge_revive_our_window_sec)
+                        VALUES (1, false, 88888, 'Last Week Foes', false, NULL,
+                                true, true, 7, 900)`)
   await stack.db.query(`INSERT INTO war_room_chain_v2 (id, current, max, save_claimed_by, save_claimed_name) VALUES (1, 20, 25, 1500, 'Scout')`)
   await stack.db.query(`INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, state)
                         VALUES (88801, 88888, 'OldEnemy', '{}')`)
@@ -89,6 +96,15 @@ describe('war lifecycle job', () => {
     expect(cfg.rows[0]).toMatchObject({
       faction_id: ENEMY, faction_name: 'New Foes',
       auto_managed: true, managed_war_id: 800, enabled: false,
+      // #598: alerting from the last war does not carry into this one. Off is
+      // the safe default because the failure is asymmetric — a leader who
+      // wanted alerts re-arms them in seconds, where a termed war pushing to
+      // every subscriber on expected hospital churn costs the channel for the
+      // week, and then for the war where it mattered.
+      surge_alerts_enabled: false, surge_revive_alerts_enabled: false,
+      // ...but the TUNING behind the switches survives. Wiping it would mean
+      // re-deriving these numbers every week just to turn alerting back on.
+      surge_enemy_threshold: 7, surge_revive_our_window_sec: 900,
     })
 
     // Roll call is ARCHIVED per war, exactly like notes (#345). War 600's
