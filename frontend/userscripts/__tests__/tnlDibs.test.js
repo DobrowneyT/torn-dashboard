@@ -665,6 +665,85 @@ describe('panelPos — the popover follows its launcher (#590)', () => {
   })
 })
 
+describe('indexAssists sees an UPDATE, not just a create (#603)', () => {
+  const base = {
+    id: 7, target_id: 500, requester_id: 9001, requester_name: 'Me',
+    kind: 'smoke', wanted: 1, created_at: '2026-09-05T10:00:00Z',
+  }
+
+  it('⚠ raises the count when the same row comes back with a bigger wanted', () => {
+    // The whole bug. The map is keyed by TARGET and recency was judged on
+    // `created_at`, which does not change when #591 does
+    // `SET wanted = wanted + 1`. The row came back carrying the new number,
+    // compared equal, and was thrown away — so every increment was dropped by
+    // the very client that asked for it, and a reload was the only way to see
+    // the truth.
+    const map = S.indexAssists([base])
+    expect(map.get(500).wanted).toBe(1)
+    S.indexAssists([{ ...base, wanted: 3 }], map)
+    expect(map.get(500).wanted).toBe(3)
+  })
+
+  it('lowers it again on the way back down', () => {
+    const map = S.indexAssists([{ ...base, wanted: 3 }])
+    S.indexAssists([{ ...base, wanted: 1 }], map)
+    expect(map.get(500).wanted).toBe(1)
+  })
+
+  it('⚠ lets the server correct an optimistic entry stamped with a client clock', () => {
+    // requestAssist() writes `at: new Date().toISOString()` — strictly LATER
+    // than the server's created_at. Under the old recency-only rule that entry
+    // beat every subsequent server row for the life of the page, which is why
+    // a refresh was the only thing that ever showed the real count.
+    const map = new Map([[500, {
+      kind: 'smoke', by: 9001, name: 'You', wanted: 1,
+      at: '2030-01-01T00:00:00Z',   // a clock way ahead of the server's
+    }]])
+    S.indexAssists([{ ...base, wanted: 4 }], map)
+    expect(map.get(500).wanted).toBe(4)
+    expect(map.get(500).id).toBe(7)
+  })
+
+  it('still lets a NEWER requester take the badge slot from an older one', () => {
+    // Several people can raise a hand on one target and the badge shows one.
+    // That rule is what the fix had to preserve while making updates land.
+    const map = S.indexAssists([base])
+    S.indexAssists([{
+      ...base, id: 8, requester_id: 4242, requester_name: 'Ally',
+      kind: 'tear', created_at: '2026-09-05T10:05:00Z',
+    }], map)
+    expect(map.get(500)).toMatchObject({ id: 8, by: 4242, kind: 'tear' })
+  })
+
+  it('⚠ does not let an OLDER stranger displace the request on screen', () => {
+    const map = S.indexAssists([{ ...base, id: 8, created_at: '2026-09-05T10:05:00Z' }])
+    S.indexAssists([{
+      ...base, id: 9, requester_id: 4242, created_at: '2026-09-05T09:00:00Z',
+    }], map)
+    expect(map.get(500).id).toBe(8)
+  })
+
+  it('a tombstone for the shown request clears the slot; a stranger\u2019s does not', () => {
+    const map = S.indexAssists([base])
+    S.indexAssists([{ ...base, id: 99, requester_id: 4242, deleted_at: '2026-09-05T10:01:00Z' }], map)
+    expect(map.get(500)).toBeTruthy()
+    S.indexAssists([{ ...base, deleted_at: '2026-09-05T10:02:00Z' }], map)
+    expect(map.get(500)).toBeUndefined()
+  })
+})
+
+describe('sameAssistRequest', () => {
+  it('matches on row id when both carry one', () => {
+    expect(S.sameAssistRequest({ id: 7, by: 1 }, { id: 7, requester_id: 2 })).toBe(true)
+    expect(S.sameAssistRequest({ id: 7, by: 1 }, { id: 8, requester_id: 1 })).toBe(false)
+  })
+
+  it('falls back to the requester for an optimistic entry that has no id yet', () => {
+    expect(S.sameAssistRequest({ by: 9001 }, { id: 7, requester_id: 9001 })).toBe(true)
+    expect(S.sameAssistRequest({ by: 9001 }, { id: 7, requester_id: 4242 })).toBe(false)
+  })
+})
+
 describe('assistPressAction — tap asks for one more, hold gives one back (#600)', () => {
   const me = '9001'
   const mineSmoke = { kind: 'smoke', by: 9001, wanted: 3 }
@@ -3580,7 +3659,11 @@ describe('indexAssists', () => {
     const idx = S.indexAssists([
       { target_id: 90200, requester_id: 1300, requester_name: 'Scout', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
     ], new Map())
-    expect(idx.get(90200)).toEqual({ kind: 'smoke', by: 1300, name: 'Scout', at: '2026-08-21T10:00:00Z', wanted: 1 })
+    // `id` joined the entry in #603 — it is how an UPDATE to this same request
+    // is recognised on the next delta instead of being discarded as stale.
+    expect(idx.get(90200)).toEqual({
+      id: null, kind: 'smoke', by: 1300, name: 'Scout', at: '2026-08-21T10:00:00Z', wanted: 1,
+    })
   })
 
   // #591: a request is a count. The index has to carry it or the badge and the
