@@ -22,6 +22,20 @@ const SESSION_KEY = 'tnl-dibs-session'
  * ANY key, so a test that set the debug flag was really setting the session too
  * — and passing for a reason that had nothing to do with what it claimed.
  */
+/**
+ * Strip the `html.tnl-war-active` gate from a scoped stylesheet.
+ *
+ * injectStyles() runs the sheet through scopeCss() so no rule can match off the
+ * war page. These assertions are about what the rules SAY, which the gate does
+ * not change - the gate has its own describe block. Without this their line
+ * anchors stop matching and the failure reads like a stylesheet bug.
+ */
+function unscope(css) {
+  return String(css)
+    .replace(/html\.tnl-war-active\./g, 'html.')
+    .replace(/html\.tnl-war-active /g, '')
+}
+
 function loadScript({ routes = {}, stored = {}, values = {} } = {}) {
   const mod = { exports: {} }
   const calls = []
@@ -2622,7 +2636,7 @@ describe('injectStyles', () => {
     // is what keeps their rule the only one in play for a filtered row.
     const { S: s, appended } = loadWithDom()
     s.injectStyles()
-    const sheet = appended[0].textContent
+    const sheet = unscope(appended[0].textContent)
     // Anchored to line start: the explanatory comment above the rule names the
     // same selector, and a bare indexOf finds the prose instead of the CSS.
     const rowRule = sheet.slice(sheet.indexOf('\nul.members-list > li') + 1)
@@ -2821,7 +2835,7 @@ describe('the stylesheet carries the fixes from v1.15.0', () => {
   const css = () => {
     const { S: s, appended } = loadWithDom()
     s.injectStyles()
-    return appended[0].textContent
+    return unscope(appended[0].textContent)
   }
 
   it('⚠️ sets -webkit-text-fill-color, not just color', () => {
@@ -2967,7 +2981,7 @@ describe('the stylesheet handles Torn’s honor-bar names', () => {
   const css = () => {
     const { S: s, appended } = loadWithDom()
     s.injectStyles()
-    return appended[0].textContent
+    return unscope(appended[0].textContent)
   }
 
   it('hides the honor image and the SVG twin, showing the plain text', () => {
@@ -3136,6 +3150,331 @@ describe('page-surface matching', () => {
     const { S } = loadScript()
     expect(S.isFactionPage()).toBe(false)
     expect(S.isAttackPage()).toBe(false)
+  })
+
+  // The faction page is a hash-routed SPA and the path alone matches every tab
+  // on it, which is how injectStyles' roster overrides ended up on Armory and
+  // Crimes - visibly, as an empty full-width bar carrying the tab name.
+  it('warRankRouteMatch gates on the hash route, not the tab query', () => {
+    const { S } = loadScript()
+    expect(S.warRankRouteMatch('#/war/rank')).toBe(true)
+    expect(S.warRankRouteMatch('/war/rank')).toBe(true)
+  })
+
+  it('⚠️ ignores the type=N tab id entirely - it differs per faction, so gating on it would work for one faction and silently fail for the next', () => {
+    const { S } = loadScript()
+    for (const type of ['1', '2', '7', '13']) {
+      expect(S.warRankRouteMatch('#/war/rank')).toBe(true)
+      expect(`?step=your&type=${type}#/war/rank`.includes('#/war/rank')).toBe(true)
+    }
+  })
+
+  it('lets deeper war sub-routes through, but nothing else', () => {
+    const { S } = loadScript()
+    expect(S.warRankRouteMatch('#/war/rank/12345')).toBe(true)
+    expect(S.warRankRouteMatch('#/war/rank?tab=x')).toBe(true)
+    expect(S.warRankRouteMatch('#/armory')).toBe(false)
+    expect(S.warRankRouteMatch('#/crimes')).toBe(false)
+    expect(S.warRankRouteMatch('#/war/ranked')).toBe(false)
+    expect(S.warRankRouteMatch('#/war')).toBe(false)
+    expect(S.warRankRouteMatch('')).toBe(false)
+    expect(S.warRankRouteMatch(null)).toBe(false)
+  })
+
+  it('isWarRankPage degrades to false with no `location`', () => {
+    const { S } = loadScript()
+    expect(S.isWarRankPage()).toBe(false)
+  })
+})
+
+// The assist panel is position:fixed on a page whose own controls it used to
+// cover, so it is draggable - and a remembered position must never strand it
+// outside a window it can no longer be dragged back into.
+describe('clampAssistPos', () => {
+  const size = { w: 200, h: 40 }
+  const viewport = { vw: 1000, vh: 800 }
+
+  it('leaves a position that already fits alone', () => {
+    const { S } = loadScript()
+    expect(S.clampAssistPos({ left: 300, top: 400 }, size, viewport)).toEqual({ left: 300, top: 400 })
+  })
+
+  it('⚠️ pulls a position saved on a wider window back inside a smaller one - an off-screen panel has no handle left to drag it back by', () => {
+    const { S } = loadScript()
+    expect(S.clampAssistPos({ left: 1800, top: 1400 }, size, viewport))
+      .toEqual({ left: 1000 - 200 - 12, top: 800 - 40 - 12 })
+  })
+
+  it('keeps a negative position on-screen', () => {
+    const { S } = loadScript()
+    expect(S.clampAssistPos({ left: -500, top: -20 }, size, viewport)).toEqual({ left: 12, top: 12 })
+  })
+
+  it('⚠️ a null coordinate means "that edge" - Number(null) is 0, which is finite, so a null top must not silently mean the TOP edge', () => {
+    const { S } = loadScript()
+    expect(S.clampAssistPos({ left: 12, top: null }, size, viewport)).toEqual({ left: 12, top: 800 - 40 - 12 })
+  })
+
+  it('survives a viewport smaller than the panel without going negative', () => {
+    const { S } = loadScript()
+    const pos = S.clampAssistPos({ left: 50, top: 50 }, { w: 400, h: 400 }, { vw: 200, vh: 200 })
+    expect(pos.left).toBeGreaterThanOrEqual(0)
+    expect(pos.top).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('parseAssistPos', () => {
+  it('reads a stored JSON position', () => {
+    const { S } = loadScript()
+    expect(S.parseAssistPos('{"left":10,"top":20}')).toEqual({ left: 10, top: 20 })
+    expect(S.parseAssistPos({ left: 10, top: 20 })).toEqual({ left: 10, top: 20 })
+  })
+
+  it('returns null for anything unusable, so the caller falls back to a corner', () => {
+    const { S } = loadScript()
+    for (const bad of [null, '', 'not json', '{"left":"x","top":2}', '{}']) {
+      expect(S.parseAssistPos(bad)).toBeNull()
+    }
+  })
+})
+
+// ── Fight-log observation ─────────────────────────────────────────────────
+//
+// Rows transcribed from a real captured fight (MonChoon vs 4444444, with
+// ziuta_616 and Onyx joining). The `attacking-events-*` classes are the stable
+// hooks; everything else on the row is a rotating CSS-module hash.
+
+const LOG = {
+  monchoonFired: { eventClass: 'attacking-events-attack-win', text: 'MonChoon_616 fired 3 rounds of his SIG 552 hitting 4444444 in the Stomach for 6296', age: '26s' },
+  targetMissed:  { eventClass: 'attacking-events-miss', text: '4444444 missed ziuta_616 with his Fists', age: '51s' },
+  ziutaTear:     { eventClass: 'attacking-events-grenade-use', text: 'ziuta_616 threw a Tear Gas Grenade near 4444444', age: '51s' },
+  ziutaJoin:     { eventClass: 'attacking-events-attack-join', text: 'ziuta_616 joined the fight against 4444444', age: '53s' },
+  onyxSmoke:     { eventClass: 'attacking-events-grenade-use', text: 'Onyx threw a Smoke Grenade, smoke clouds around 4444444', age: '67s' },
+  onyxJoin:      { eventClass: 'attacking-events-attack-join', text: 'Onyx joined the fight against 4444444', age: '69s' },
+  monchoonInit:  { eventClass: 'attacking-events-attack-join', text: 'MonChoon_616 initiated an attack against 4444444', age: '132s' },
+}
+const ALL_ROWS = Object.values(LOG)
+
+describe('parseFightLogAge', () => {
+  it('reads the plain-seconds form Torn writes today', () => {
+    const { S } = loadScript()
+    expect(S.parseFightLogAge('26s')).toBe(26)
+    expect(S.parseFightLogAge('132s')).toBe(132)
+  })
+
+  it('⚠️ reads minutes and hours too - a unit Torn might start using must not parse as a much smaller number, since an event mis-dated as recent wrongly answers a request', () => {
+    const { S } = loadScript()
+    expect(S.parseFightLogAge('2m 12s')).toBe(132)
+    expect(S.parseFightLogAge('2m')).toBe(120)
+    expect(S.parseFightLogAge('1h 1m 1s')).toBe(3661)
+  })
+
+  it('returns null for anything it cannot read, rather than a wrong number', () => {
+    const { S } = loadScript()
+    for (const bad of ['', null, undefined, 'just now', 'abc', '12x']) {
+      expect(S.parseFightLogAge(bad)).toBeNull()
+    }
+  })
+})
+
+describe('parseFightLogRow', () => {
+  it('reads a join', () => {
+    const { S } = loadScript()
+    expect(S.parseFightLogRow(LOG.onyxJoin)).toEqual({ kind: 'join', actor: 'Onyx', subject: '4444444' })
+  })
+
+  it('reads both grenades, despite Torn wording them differently', () => {
+    const { S } = loadScript()
+    expect(S.parseFightLogRow(LOG.onyxSmoke)).toEqual({ kind: 'smoke', actor: 'Onyx', subject: '4444444' })
+    expect(S.parseFightLogRow(LOG.ziutaTear)).toEqual({ kind: 'tear', actor: 'ziuta_616', subject: '4444444' })
+  })
+
+  it('⚠️ ignores "initiated an attack" - it carries the SAME attacking-events-attack-join class as a real join, and counting it would make every requester their own first answer', () => {
+    const { S } = loadScript()
+    expect(S.parseFightLogRow(LOG.monchoonInit)).toBeNull()
+  })
+
+  it('ignores hits and misses', () => {
+    const { S } = loadScript()
+    expect(S.parseFightLogRow(LOG.monchoonFired)).toBeNull()
+    expect(S.parseFightLogRow(LOG.targetMissed)).toBeNull()
+  })
+
+  it('ignores an unknown event class outright, whatever the text says', () => {
+    const { S } = loadScript()
+    expect(S.parseFightLogRow({ eventClass: 'attacking-events-something-new', text: 'Onyx joined the fight against 4444444', age: '1s' })).toBeNull()
+  })
+})
+
+describe('assistCandidates', () => {
+  const opts = { targetName: '4444444', requesterName: 'MonChoon_616', nowMs: 1000000 }
+
+  it('picks the joins and grenades aimed at our target', () => {
+    const { S } = loadScript()
+    expect(S.assistCandidates(ALL_ROWS, opts).map((e) => `${e.kind}:${e.actor}`).sort())
+      .toEqual(['join:Onyx', 'join:ziuta_616', 'smoke:Onyx', 'tear:ziuta_616'])
+  })
+
+  it('⚠️ drops a join against SOMEONE ELSE - once several people are in, one log carries joins aimed at several different people, including at us', () => {
+    const { S } = loadScript()
+    expect(S.assistCandidates([{ eventClass: 'attacking-events-attack-join', text: 'SomeEnemy joined the fight against MonChoon_616', age: '5s' }], opts)).toEqual([])
+  })
+
+  it('⚠️ drops a grenade thrown AT one of ours - that is an enemy attacking us, and it has the identical event class to a member helping', () => {
+    const { S } = loadScript()
+    expect(S.assistCandidates([{ eventClass: 'attacking-events-grenade-use', text: 'SomeEnemy threw a Tear Gas Grenade near ziuta_616', age: '5s' }], opts)).toEqual([])
+  })
+
+  it('drops the target own actions - they fight back, in the same log', () => {
+    const { S } = loadScript()
+    expect(S.assistCandidates([{ eventClass: 'attacking-events-grenade-use', text: '4444444 threw a Smoke Grenade, smoke clouds around 4444444', age: '5s' }], opts)).toEqual([])
+  })
+
+  it('⚠️ counts only what happened AFTER the hand went up - this is what makes "smoke first, then ask" behave, since your own earlier smoke cannot answer the later request', () => {
+    const { S } = loadScript()
+    const got = S.assistCandidates(ALL_ROWS, { ...opts, requestedAtMs: 1000000 - 60000 })
+    expect(got.map((e) => e.kind).sort()).toEqual(['join', 'tear'])
+  })
+
+  it('a join is never the requester - they are already in the fight', () => {
+    const { S } = loadScript()
+    expect(S.assistCandidates([{ eventClass: 'attacking-events-attack-join', text: 'MonChoon_616 joined the fight against 4444444', age: '5s' }], opts)).toEqual([])
+  })
+
+  it('but a grenade the requester throws themselves DOES count - asking for three smokes and throwing one is one of the three', () => {
+    const { S } = loadScript()
+    expect(S.assistCandidates([{ eventClass: 'attacking-events-grenade-use', text: 'MonChoon_616 threw a Smoke Grenade, smoke clouds around 4444444', age: '5s' }], opts).map((e) => e.kind)).toEqual(['smoke'])
+  })
+
+  it('stamps an absolute time, so the server is not left to trust a relative one', () => {
+    const { S } = loadScript()
+    expect(S.assistCandidates([LOG.onyxJoin], opts)[0].at_ms).toBe(1000000 - 69000)
+  })
+
+  it('returns nothing when the target is unknown, rather than guessing', () => {
+    const { S } = loadScript()
+    expect(S.assistCandidates(ALL_ROWS, { ...opts, targetName: null })).toEqual([])
+    expect(S.assistCandidates(null, opts)).toEqual([])
+  })
+})
+
+// ── Stylesheet scoping ────────────────────────────────────────────────────
+//
+// The roster stylesheet targets Torn's OWN component classes (.white-grad,
+// .table-header, ul.members-list) because on the war roster those ARE the
+// roster. They are reused on every other faction tab, so a sheet that outlives
+// the war page inflates Torn's section header into an empty full-width bar
+// carrying the tab name. Removing the <style> on route change is the intended
+// path, but it can miss: a pushState that changes no hash fires neither
+// hashchange nor popstate. Scoping makes the leak impossible instead.
+
+describe('scopeCss', () => {
+  it('prefixes an ordinary selector with the gate class', () => {
+    const { S } = loadScript()
+    expect(S.scopeCss('.white-grad { display: flex; }', 'g'))
+      .toBe('html.g .white-grad { display: flex; }')
+  })
+
+  it('prefixes every selector in a comma-separated list, not just the first', () => {
+    const { S } = loadScript()
+    const out = S.scopeCss('.a, .b, .c { color: red; }', 'g')
+    expect(out).toContain('html.g .a')
+    expect(out).toContain('html.g .b')
+    expect(out).toContain('html.g .c')
+  })
+
+  it('⚠️ adds the class TO an html-leading selector rather than in front of it - `html.g html.x` can never match, since html is nobody\'s descendant', () => {
+    const { S } = loadScript()
+    expect(S.scopeCss('html.tnl-tinting .x { display: none; }', 'g'))
+      .toBe('html.g.tnl-tinting .x { display: none; }')
+  })
+
+  it('scopes rules INSIDE an at-rule block, and leaves the preamble alone', () => {
+    const { S } = loadScript()
+    const out = S.scopeCss('@media (max-width: 600px) { .a { color: red; } }', 'g')
+    expect(out).toContain('@media (max-width: 600px) {')
+    expect(out).toContain('html.g .a')
+    expect(out).not.toContain('html.g @media')
+  })
+
+  it('⚠️ leaves keyframe steps alone - `from`, `to` and `0%` are not selectors, and scoping them silently kills the animation', () => {
+    const { S } = loadScript()
+    const out = S.scopeCss('@keyframes spin { from { opacity: 0; } to { opacity: 1; } }', 'g')
+    expect(out).not.toContain('html.g from')
+    expect(out).not.toContain('html.g to')
+  })
+
+  it('does not trip over braces inside comments', () => {
+    const { S } = loadScript()
+    const out = S.scopeCss('/* a } brace { in a comment */ .a { color: red; }', 'g')
+    expect(out).toContain('html.g .a { color: red; }')
+    expect(out).toContain('/* a } brace { in a comment */')
+  })
+
+  it('leaves declaration bodies untouched', () => {
+    const { S } = loadScript()
+    expect(S.scopeCss('.a { background: url("x{y}"); }', 'g')).toContain('background: url("x{y}")')
+  })
+
+  it('keeps a :not() list whole - a top-level comma split would break it', () => {
+    const { S } = loadScript()
+    const out = S.scopeCss('li:not(.a, .b) { color: red; }', 'g')
+    expect(out).toBe('html.g li:not(.a, .b) { color: red; }')
+  })
+})
+
+describe('the shipped stylesheet, once scoped', () => {
+  it('⚠️ leaves NO rule able to match while the gate class is off - that is the whole point, and one unscoped rule is the bug returning', () => {
+    const { S, appended } = loadWithDom()
+    S.injectStyles()
+    const sheet = appended[0].textContent
+    // Round-trip: strip the gate, put it back, and the sheet must be identical.
+    // A rule that escaped scoping would come back with a gate it did not have
+    // before, so the two strings would differ. This checks the real shipped
+    // sheet without re-implementing a CSS parser in the test to do it.
+    expect(S.scopeCss(unscope(sheet), S.WAR_ACTIVE_CLASS)).toBe(sheet)
+  })
+
+  it('actually carries the gate - the round-trip above would also pass on an unscoped sheet', () => {
+    const { S, appended } = loadWithDom()
+    S.injectStyles()
+    const sheet = appended[0].textContent
+    expect(sheet).toContain(`html.${S.WAR_ACTIVE_CLASS} .white-grad`)
+    expect(sheet).toContain(`html.${S.WAR_ACTIVE_CLASS} ul.members-list`)
+    // And the html-leading rules got the class merged in, not prefixed.
+    expect(sheet).toContain(`html.${S.WAR_ACTIVE_CLASS}.tnl-tinting`)
+  })
+})
+
+// ── Torn PDA compatibility ────────────────────────────────────────────────
+//
+// The dashboard API is on a different origin from torn.com and serves NO CORS
+// headers, so a privileged transport is the ONLY way this script reaches its
+// own backend. Torn PDA ships PDA_httpGet/PDA_httpPost rather than the GM API,
+// and the GM one only if the user separately installs GMforPDA.user.js - so
+// "no GM" has to mean "try PDA", not "give up".
+describe('transportName', () => {
+  it('reports GM when a userscript manager provides one', () => {
+    const { S } = loadScript()
+    expect(S.transportName()).toBe('GM')
+  })
+})
+
+describe('gmGet/gmSet', () => {
+  it('reads through the GM API when it exists', () => {
+    const { S } = loadScript({ values: { 'some-key': 'some-value' } })
+    expect(S.gmGet('some-key', null)).toBe('some-value')
+  })
+
+  it('returns the fallback for a key that was never set', () => {
+    const { S } = loadScript()
+    expect(S.gmGet('missing-key', 'dflt')).toBe('dflt')
+  })
+
+  it('⚠️ never throws when neither GM storage nor localStorage exists - this ran as a bare ReferenceError on Torn PDA, where GM_setValue is simply not defined', () => {
+    const { S } = loadScript()
+    expect(() => S.gmSet('k', 'v')).not.toThrow()
+    expect(() => S.gmGet('k', null)).not.toThrow()
   })
 })
 
