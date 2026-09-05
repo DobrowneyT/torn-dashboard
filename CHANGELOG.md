@@ -36,6 +36,13 @@ surface it automatically.
   error. Absolute coordinates resolve against the nearest positioned ancestor,
   and Torn is free to make `<body>` positioned on any deploy — doing the
   arithmetic blind would silently offset the panel the day they do.
+- **Warleads can see the pre-war stacks snapshot on RW History (#595).** The
+  section was behind a leadership-only check in the war detail modal, while
+  `GET /api/wars/:id/stacks-snapshot` had allowed warleads since #480 — so the
+  people who run the roll call were the ones who could not read it back. The UI
+  gate now mirrors the route. Visitors are still out; the route is read-only to
+  them by way of `requireNotVisitor()`, and showing them the section would only
+  buy them a 403.
 
 Userscript **v1.42.1**.
 
