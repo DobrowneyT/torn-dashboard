@@ -18,7 +18,7 @@ surface it automatically.
 
 ---
 
-## [3.67.0] - 2026-09-05
+## [3.68.0] - 2026-09-05
 
 ### Fixed
 - **⚠️ The userscript no longer destroys DOM nodes React owns, which is what
@@ -68,7 +68,16 @@ surface it automatically.
   unread, the parse failed, or the server declined everything — and narrowing
   it down last time took a live war and a screenshot.
 
-Userscript **v1.47.0**.
+- **The userscript runs on OUR faction's war page only (#619).** `factions.php`
+  serves every faction on Torn and the war route is not ours alone —
+  `?step=profile&ID=9357#/war/rank` is somebody else's war, with the same hash
+  and the same roster markup. Matching on the path alone lit the whole script
+  up there, badging enemies of a war nobody in our faction is in. `step=your`
+  is what separates the faction you belong to from one you are merely looking
+  at. `type=N` is deliberately not used: it is a per-faction layout id that
+  moves when a faction reorders its own tabs.
+
+Userscript **v1.48.0**.
 
 ## [3.65.1] - 2026-09-05
 

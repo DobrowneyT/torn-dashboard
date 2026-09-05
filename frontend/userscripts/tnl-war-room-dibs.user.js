@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.47.0
+// @version      1.48.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -170,8 +170,27 @@ const TNLDibs = (function () {
   // isFactionPage(); the attack-page overlay MUST gate on isAttackPage(). A
   // page that matches neither (a future @match, or a URL shape that changed
   // under us) gets NEITHER — degrade to nothing rather than guess.
-  function factionPageMatch(pathname) {
-    return pathname === '/factions.php'
+  /**
+   * OUR faction page — not just any faction page (#619).
+   *
+   * ⚠️ `factions.php` serves every faction on Torn, and the war route is not
+   * ours alone: `factions.php?step=profile&ID=9357#/war/rank` is somebody
+   * else's war, with the same hash and the same roster markup. Matching on the
+   * path alone lit the whole script up there — badging enemies of a faction we
+   * are not fighting, and offering Dibs on a war nobody in our faction is in.
+   *
+   * `step` is what separates them: `your` is the faction you are a member of,
+   * anything else (`profile`, and whatever Torn adds next) is someone
+   * observed. Torn redirects a bare `factions.php` to `?step=your&type=1`, so
+   * requiring it costs nothing on the page we do want.
+   *
+   * Deliberately NOT `type=N`: that is a per-faction layout id which differs
+   * between factions and moves when a faction reorders its own tabs — the same
+   * reason warRankRouteMatch() reads the hash instead.
+   */
+  function factionPageMatch(pathname, search) {
+    if (pathname !== '/factions.php') return false
+    return new URLSearchParams(search ?? '').get('step') === 'your'
   }
 
   function attackPageMatch(pathname, search) {
@@ -210,7 +229,7 @@ const TNLDibs = (function () {
   }
 
   function isFactionPage() {
-    return typeof location !== 'undefined' && factionPageMatch(location.pathname)
+    return typeof location !== 'undefined' && factionPageMatch(location.pathname, location.search)
   }
 
   /**

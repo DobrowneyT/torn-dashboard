@@ -3494,11 +3494,31 @@ describe('the narrowed columns carry no leftover Torn margin', () => {
 // ── Assist requests (#523): two @match surfaces, one script ────────────────
 
 describe('page-surface matching', () => {
+  it('⚠️ factionPageMatch requires OUR faction, not just any faction page (#619)', () => {
+    const { S } = loadScript()
+    // factions.php serves every faction on Torn, and the war route is not ours
+    // alone — another faction's war page carries the same hash and the same
+    // roster markup, so the path alone lit the whole script up there: badging
+    // enemies of a war nobody in our faction is in.
+    expect(S.factionPageMatch('/factions.php', '?step=your&type=1')).toBe(true)
+    expect(S.factionPageMatch('/factions.php', '?step=profile&ID=9357&referredFrom=1644686')).toBe(false)
+    expect(S.factionPageMatch('/factions.php', '?step=profile&ID=9357')).toBe(false)
+  })
+
+  it('refuses a faction page with no step at all rather than assuming ours', () => {
+    // Torn redirects a bare factions.php to ?step=your&type=1, so requiring it
+    // costs nothing on the page we DO want — and guessing would put us back on
+    // somebody else's war.
+    const { S } = loadScript()
+    expect(S.factionPageMatch('/factions.php', '')).toBe(false)
+    expect(S.factionPageMatch('/factions.php', undefined)).toBe(false)
+  })
+
   it('factionPageMatch matches only the faction page path', () => {
     const { S } = loadScript()
-    expect(S.factionPageMatch('/factions.php')).toBe(true)
-    expect(S.factionPageMatch('/loader.php')).toBe(false)
-    expect(S.factionPageMatch('/')).toBe(false)
+    expect(S.factionPageMatch('/factions.php', '?step=your')).toBe(true)
+    expect(S.factionPageMatch('/loader.php', '?step=your')).toBe(false)
+    expect(S.factionPageMatch('/', '?step=your')).toBe(false)
   })
 
   it('attackPageMatch requires BOTH the page.php path and sid=attack', () => {
