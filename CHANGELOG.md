@@ -18,6 +18,54 @@ surface it automatically.
 
 ---
 
+## [3.69.0] - 2026-09-05
+
+### Added
+- **⚠️ Crime chains are priced as chains, so the crimes that pay $1–1.7B a run
+  stop ranking as worthless (#585).** Torn's own API has carried
+  `previous_crime_id` since the first scraper run and nothing downstream ever
+  read it. Five edges now derive from our own spawn history — No Reserve →
+  Bidding War, Lock Stock → Hostile Takeover, Stacking the Deck → Ace in the
+  Hole, and the two-hop Manifest Cruelty → Gone Fission → Crane Reaction. A
+  chain parent's value becomes the whole chain's expected value instead of the
+  $0 it genuinely pays by itself.
+- **A known-chains table as a floor under the observed data.** Chain history is
+  per-tenant and no tenant sees all of it: at the time of writing ascension had
+  observed no chains at all, Forge and Mayhem only No Reserve, and capacityx
+  alone had all five edges. Without the fallback a faction prices Manifest
+  Cruelty at $0 purely for never having run it. Observation still wins over the
+  table, so our own data is what notices if Torn rewires a chain.
+- **The chained scope economics, which are the real finding.** MonChoon
+  confirmed the rule: scope is spent once at the root and repaid only at the
+  final link, only if every link succeeded. The reward stays flat while the
+  chance of collecting it compounds, so the break-even climbs from 83.3% for a
+  standalone Elaborate to **91.3% per link over two links and 94.1% over
+  three**. Measured against TNL's own rates every Elaborate chain is
+  scope-negative — Manifest Cruelty → Gone Fission → Crane Reaction completes
+  30.0% of the time and runs at −3.20 scope a spawn — while remaining excellent
+  money. Value and scope point opposite ways for these crimes and the table now
+  shows both rather than implying either is the answer.
+
+### Changed
+- **Chain children are dropped from the ranking.** Ace in the Hole has 0
+  standalone runs against 124 spawned and Crane Reaction 0 against 7 — they
+  cannot be spawned, so listing them offers a decision nobody can make and
+  double-counts the pipeline beside their own parent. They keep their cards in
+  the Simulator, where their crew and success chance are still real and still
+  worth optimising separately from the parent's.
+- The ranking compares a chain's **per-link geometric mean** against the
+  per-link break-even. Comparing the end-to-end probability against a per-link
+  bar is the natural mistake and makes every chain look far worse than it is.
+
+### Fixed
+- `chainedValue` distinguishes a crime that pays **nothing** from one we have
+  not **priced**. `Number(null)` is `0` and `Number.isFinite(0)` is true, so the
+  obvious coercion reports "no prices for this crime" as "this crime pays
+  nothing" — the same trap `expectedValue()` guards against with `== null`. An
+  unpriced link now makes the chain a lower bound and says so.
+
+---
+
 ## [3.68.0] - 2026-09-05
 
 ### Fixed

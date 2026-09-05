@@ -276,7 +276,33 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       )
       const spawnsByName = new Map(spawns.rows.map((r) => [r.name, r]))
 
+      // #585: which crimes spawn which, from our own `previous_crime_id`
+      // history. Torn has been telling us this since the first scraper run and
+      // nothing downstream has ever read it.
+      //
+      // ⚠️ The join is on the CHILD's previous_crime_id, so this counts real
+      // observed spawns, not inferences. Verified across the fleet: every
+      // successful parent spawned exactly one child (124/124 Stacking the Deck,
+      // 34/34 Lock Stock, 8/8 Manifest Cruelty, 7/7 Gone Fission) and no failed,
+      // expired or planning parent ever did. The relationship is deterministic
+      // on success, which is why the client can treat an edge as fact rather
+      // than as a probability to model.
+      //
+      // ⚠️ Per-tenant, and no tenant sees the whole picture — at the time of
+      // writing ascension had observed no chains at all, Forge and Mayhem only
+      // No Reserve, and capacityx alone had all five edges. The client folds
+      // these together with a known-chains table for exactly that reason; this
+      // query is the half that can notice Torn changing the game.
+      const chains = await deps.db.query(
+        `SELECT p.name AS parent, c.name AS child, COUNT(*)::int AS observations
+           FROM crimes p
+           JOIN crimes c ON c.previous_crime_id = p.crime_id::text
+          GROUP BY p.name, c.name
+          ORDER BY observations DESC`
+      )
+
       return {
+        chains: chains.rows,
         scenarios: rows.rows.map((s) => {
           const item = itemsByName.get(s.name)
           const spawn = spawnsByName.get(s.name)

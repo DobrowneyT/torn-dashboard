@@ -203,3 +203,108 @@ describe('unpriced item drops', () => {
     expect(row.unpricedItemRows).toBe(0)
   })
 })
+
+// #585 — crimes whose real payout is one or two crimes downstream.
+describe('rankCrimes with chains', () => {
+  const CHAINS = [
+    { parent: 'Manifest Cruelty', child: 'Gone Fission', observations: 8 },
+    { parent: 'Gone Fission', child: 'Crane Reaction', observations: 7 },
+  ]
+
+  // Difficulty 8/9/10 all resolve to elaborate (cost 5, reward 6).
+  const SCENARIOS = [
+    { name: 'Manifest Cruelty', difficulty: 8, endings: [], spawn_history: { runs: 10, first_at: 0 } },
+    { name: 'Gone Fission', difficulty: 9, endings: [], spawn_history: { runs: 8, first_at: 0 } },
+    {
+      name: 'Crane Reaction', difficulty: 10, endings: [],
+      spawn_history: { runs: 7, first_at: 0 },
+      item_reward: { avg_value: 1_350_000_000, runs: 7, unpriced_rows: 0 },
+    },
+  ]
+
+  // TNL's own observed rates.
+  const SUCCESS = { 'Manifest Cruelty': 0.8, 'Gone Fission': 0.875, 'Crane Reaction': 0.429 }
+
+  const byName = (rows) => Object.fromEntries(rows.map((r) => [r.name, r]))
+
+  it('⚠️ a chain parent stops reporting $0', () => {
+    // The whole issue. Manifest Cruelty and Gone Fission pay nothing of their
+    // own; the money is all at Crane Reaction, two crimes downstream. Today the
+    // parent carries no value at all — null rather than 0, since the #351 rule
+    // correctly refuses to call an unpriced crime worthless — and either way it
+    // never ranks on the $1.35B sitting at the end of its own chain.
+    const before = byName(rankCrimes(SCENARIOS, SUCCESS))
+    expect(before['Manifest Cruelty'].totalPerRun).toBeNull()
+
+    const after = byName(rankCrimes(SCENARIOS, SUCCESS, { chains: CHAINS }))
+    expect(after['Manifest Cruelty'].totalPerRun).toBeCloseTo(
+      0.8 * 0.875 * 0.429 * 1_350_000_000, -3,
+    )
+  })
+
+  it('⚠️ a chain child is marked unspawnable so the ranking can drop it', () => {
+    // Crane Reaction has 0 standalone runs against 7 spawned. Ranking it as a
+    // choice offers a decision nobody can make, and counting it separately
+    // double-counts the pipeline.
+    const rows = byName(rankCrimes(SCENARIOS, SUCCESS, { chains: CHAINS }))
+    expect(rows['Crane Reaction'].spawnable).toBe(false)
+    expect(rows['Gone Fission'].spawnable).toBe(false)
+    expect(rows['Manifest Cruelty'].spawnable).toBe(true)
+  })
+
+  it('⚠️ re-derives scope over the whole chain, which is where it turns negative', () => {
+    // 80.0% x 87.5% x 42.9% = 30.0%, against a 94.1%/link break-even. The chain
+    // is excellent money and a scope drain at the same time — the two figures
+    // genuinely point opposite ways and neither one alone is the answer.
+    const row = byName(rankCrimes(SCENARIOS, SUCCESS, { chains: CHAINS }))['Manifest Cruelty']
+    expect(row.chainedSuccess).toBeCloseTo(0.30, 2)
+    expect(row.breakEven).toBeCloseTo(0.9410, 4)
+    expect(row.netScope).toBeCloseTo(-3.2, 1)
+    expect(row.sustainable).toBe(false)
+    expect(row.moneyPerScope).toBeGreaterThan(80_000_000)
+  })
+
+  it('compares the per-link geometric mean, not the raw chained probability', () => {
+    // Comparing 30% against a 94.1% per-link bar is the natural mistake and it
+    // makes every chain look far worse than it is.
+    const row = byName(rankCrimes(SCENARIOS, SUCCESS, { chains: CHAINS }))['Manifest Cruelty']
+    expect(row.equivalentSuccess).toBeCloseTo(Math.cbrt(0.8 * 0.875 * 0.429), 6)
+    expect(row.equivalentSuccess).toBeGreaterThan(row.chainedSuccess)
+  })
+
+  it('names the links and reports how well evidenced the chain is', () => {
+    const row = byName(rankCrimes(SCENARIOS, SUCCESS, { chains: CHAINS }))['Manifest Cruelty']
+    expect(row.chainLinks).toEqual(['Manifest Cruelty', 'Gone Fission', 'Crane Reaction'])
+    expect(row.chainConfident).toBe(true)
+    expect(row.chainSource).toBe('observed')
+  })
+
+  it('⚠️ prices a chain for a faction that has never run one', () => {
+    // Ascension had observed no chains at all. Without the known-chains
+    // fallback it would price Manifest Cruelty at $0 purely for never having
+    // run it — the bug, reproduced by inexperience rather than by data.
+    const rows = byName(rankCrimes(SCENARIOS, SUCCESS, { chains: [] }))
+    expect(rows['Manifest Cruelty'].totalPerRun).toBeGreaterThan(400_000_000)
+    expect(rows['Manifest Cruelty'].chainConfident).toBe(false)
+    expect(rows['Manifest Cruelty'].chainSource).toBe('known')
+  })
+
+  it('leaves a standalone crime exactly as it was', () => {
+    // A one-link chain IS the standalone case; the arithmetic must reduce to it
+    // rather than shifting every unchained crime by a rounding error.
+    const solo = [{ name: 'Pet Project', difficulty: 7, endings: [], spawn_history: { runs: 9, first_at: 0 } }]
+    const success = { 'Pet Project': 0.9 }
+    const before = rankCrimes(solo, success)[0]
+    const after = rankCrimes(solo, success, { chains: CHAINS })[0]
+    expect(after.totalPerRun).toBe(before.totalPerRun)
+    expect(after.netScope).toBe(before.netScope)
+    expect(after.breakEven).toBe(before.breakEven)
+    expect(after.spawnable).toBe(true)
+    expect(after.chainLinks).toBeNull()
+  })
+
+  it('behaves exactly as before when no chains are supplied', () => {
+    const withOpt = rankCrimes(SCENARIOS, SUCCESS)
+    expect(withOpt.every((r) => r.spawnable === undefined)).toBe(true)
+  })
+})
