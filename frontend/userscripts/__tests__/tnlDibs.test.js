@@ -616,6 +616,55 @@ describe('the panel keeps out of the way', () => {
   })
 })
 
+describe('panelPos — the popover follows its launcher (#590)', () => {
+  // A launcher sitting 120px down the page, 40px from the left.
+  const rect = { left: 40, bottom: 120 }
+
+  it('sits just under the anchor', () => {
+    expect(S.panelPos(rect, 1200)).toEqual({ left: 40, top: 126 })
+  })
+
+  it('⚠️ adds the scroll offset, which is what stops it hanging in mid-air', () => {
+    // #590: the panel was `position: fixed` at the anchor's VIEWPORT
+    // coordinates, so it opened under the launcher and then stayed welded to
+    // the screen while the page scrolled out from under it. On mobile, where
+    // the settings panel is most of the script's UI, that meant it covered the
+    // roster you were scrolling to read. Page coordinates + `absolute` make it
+    // scroll with the button that opened it.
+    expect(S.panelPos(rect, 1200, { x: 0, y: 900 })).toEqual({ left: 40, top: 1026 })
+  })
+
+  it('keeps a right-edge launcher from pushing the panel off-screen', () => {
+    // The launcher lives in the page-title links, which sit hard right.
+    expect(S.panelPos({ left: 700, bottom: 50 }, 800).left).toBe(800 - 260 - 8)
+  })
+
+  it('never goes off the left edge either', () => {
+    expect(S.panelPos({ left: -30, bottom: 50 }, 1200).left).toBe(8)
+  })
+
+  it('tucks the panel in on a phone-width viewport', () => {
+    // 320px: 260 of panel plus an 8px margin leaves exactly 52px of slack, so
+    // a right-hand launcher pulls the panel back to there rather than past it.
+    expect(S.panelPos({ left: 200, bottom: 50 }, 320).left).toBe(52)
+  })
+
+  it('⚠️ never inverts on a viewport too narrow to hold the panel', () => {
+    // Below ~276px the clamp's own upper bound goes negative. Math.max pins it
+    // to the left margin instead — off the right edge is recoverable by
+    // scrolling, off the left edge is not.
+    expect(S.panelPos({ left: 200, bottom: 50 }, 200).left).toBe(8)
+  })
+
+  it('parks at the left margin when the viewport width is unknown', () => {
+    expect(S.panelPos({ left: 40, bottom: 120 }, 0)).toEqual({ left: 8, top: 126 })
+  })
+
+  it('defaults to no scroll, so a pinned anchor gets viewport coordinates', () => {
+    expect(S.panelPos(rect, 1200)).toEqual(S.panelPos(rect, 1200, { x: 0, y: 0 }))
+  })
+})
+
 describe('debug logging', () => {
   it('is off unless it has been switched on', () => {
     expect(loadScript().S.debugOn()).toBe(false)

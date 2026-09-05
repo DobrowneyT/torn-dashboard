@@ -18,6 +18,27 @@ surface it automatically.
 
 ---
 
+## [3.61.1] - 2026-09-05
+
+### Fixed
+- **The userscript's Settings panel now scrolls with the button that opened
+  it (#590).** It was positioned `fixed` at the launcher's viewport
+  coordinates, so it opened in the right place and then stayed welded to the
+  screen as the page scrolled out from under it. On mobile, where that panel is
+  most of the script's UI, it ended up hovering over the roster you were
+  scrolling to read. It is now positioned in **page** coordinates, anchored to
+  the launcher, and the same fix covers the chain popover.
+- The panel copies its anchor's positioning rather than assuming: the fallback
+  launcher strip we inject when Torn's own `#top-page-links-list` is missing
+  *is* pinned to the viewport, and a popover that scrolled away from a button
+  that does not move would be the same bug in reverse.
+- Placement now measures where the box actually landed and corrects by the
+  error. Absolute coordinates resolve against the nearest positioned ancestor,
+  and Torn is free to make `<body>` positioned on any deploy — doing the
+  arithmetic blind would silently offset the panel the day they do.
+
+Userscript **v1.42.1**.
+
 ## [3.61.0] - 2026-09-05
 
 ### Added
