@@ -55,6 +55,7 @@ beforeAll(async () => {
   await loginAs('member', '500', [])
   await loginAs('leader', '600', ['leadership'])
   await loginAs('visitor', '601', ['visitor'])
+  await loginAs('warlead', '602', ['warlead'])
 
   // Three wars, newest first by start_at: 300 (ongoing), 200 (war under
   // test), 100 (oldest).
@@ -231,6 +232,16 @@ describe('GET /api/wars/:id/stacks-snapshot (#480)', () => {
 
     expect((await get('/api/wars/200/stacks-snapshot', 'member')).status).toBe(403)
     expect((await get('/api/wars/200/stacks-snapshot', 'visitor')).status).toBe(403)
+  })
+
+  it('is open to warleads, who own the roll call it cross-references', async () => {
+    // Pinned because the UI gate had drifted off this one (#595): RW History
+    // showed the section behind a leadership-only check while the route had
+    // always allowed warleads, so the people who run the roll call were the
+    // ones who could not see it read back.
+    const { status, body } = await get('/api/wars/200/stacks-snapshot', 'warlead')
+    expect(status).toBe(200)
+    expect(body.snapshot).toHaveLength(2)
   })
 })
 

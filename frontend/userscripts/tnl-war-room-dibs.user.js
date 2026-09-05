@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.42.0
+// @version      1.42.1
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1524,6 +1524,8 @@ const TNLDibs = (function () {
   const DIBS_WIDTH = 46
   /** Fits "Yours"; longer holder names ellipsis, and the tooltip has the rest. */
   const BADGE_MAX = 44
+  /** Matches the `max-width:260px` the panel boxes are built with. */
+  const PANEL_WIDTH = 260
   const NARROW_PX = 1000
   const COL_HEAD_CLASS = 'tnl-col-head'
   const DIBS_CLASS = 'tnl-col-dibs'
@@ -3735,20 +3737,89 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return link
   }
 
+  /**
+   * Where a popover goes so that it sits just under its launcher.
+   *
+   * Pure: takes the anchor's viewport rect and gives back viewport
+   * coordinates, clamped so a launcher near the right edge cannot push a
+   * 260px-wide panel off the screen. `scroll` is what turns those viewport
+   * coordinates into PAGE coordinates for an absolutely-positioned box —
+   * pass {x: 0, y: 0} for a box that stays `position: fixed`.
+   */
+  function panelPos(rect, viewportWidth, scroll = { x: 0, y: 0 }) {
+    const width = PANEL_WIDTH
+    const maxLeft = Math.max(8, (viewportWidth || width) - width - 8)
+    const left = Math.round(Math.min(Math.max(8, rect.left), maxLeft))
+    const top = Math.round(rect.bottom + 6)
+    return { left: left + (scroll?.x ?? 0), top: top + (scroll?.y ?? 0) }
+  }
+
+  /**
+   * Is this anchor pinned to the viewport rather than sitting in page flow?
+   *
+   * Decides which positioning the popover has to copy. Get it wrong in either
+   * direction and the panel drifts away from the button that opened it the
+   * moment the page scrolls: `fixed` under a flowing anchor leaves the panel
+   * hanging in mid-air (#590), and `absolute` under a pinned anchor scrolls
+   * the panel off while the button stays put.
+   *
+   * Only `fixed` counts. `sticky` is deliberately excluded — a sticky element
+   * scrolls normally until it reaches its threshold, so treating it as pinned
+   * would be wrong for most of the page.
+   */
+  function anchorIsPinned(anchor) {
+    if (typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') return false
+    for (let node = anchor; node && node.nodeType === 1; node = node.parentElement) {
+      if (window.getComputedStyle(node).position === 'fixed') return true
+    }
+    return false
+  }
+
+  function pageScroll() {
+    if (typeof window === 'undefined') return { x: 0, y: 0 }
+    return {
+      x: Math.round(window.scrollX ?? window.pageXOffset ?? 0),
+      y: Math.round(window.scrollY ?? window.pageYOffset ?? 0),
+    }
+  }
+
+  /**
+   * Put `box` under `anchorEl` and keep it there.
+   *
+   * ⚠️ The box MUST already be in the document when this is called: the
+   * correction pass at the end measures where it actually landed. Absolute
+   * coordinates are resolved against the nearest positioned ancestor, and we
+   * cannot know from here whether Torn has made <body> positioned or given it
+   * a transform — measuring the error and shifting by it is exact whatever the
+   * containing block turns out to be, where doing the arithmetic blind is a
+   * guess that silently offsets the panel.
+   */
   function placePanel(box, anchorEl = launcher) {
-    box.style.position = 'fixed'
     box.style.zIndex = '2147483000'
     const anchor = anchorEl
     if (!anchor || !anchor.isConnected || typeof anchor.getBoundingClientRect !== 'function') {
+      box.style.position = 'fixed'
+      box.style.top = ''
       box.style.left = '12px'
       box.style.bottom = '12px'
       return
     }
-    const r = anchor.getBoundingClientRect()
-    const width = 260
-    const maxLeft = Math.max(8, (window.innerWidth || width) - width - 8)
-    box.style.top = `${Math.round(r.bottom + 6)}px`
-    box.style.left = `${Math.round(Math.min(Math.max(8, r.left), maxLeft))}px`
+    const pinned = anchorIsPinned(anchor)
+    box.style.position = pinned ? 'fixed' : 'absolute'
+    box.style.bottom = ''
+    const rect = anchor.getBoundingClientRect()
+    const want = panelPos(rect, window.innerWidth, { x: 0, y: 0 })
+    const pos = pinned ? want : panelPos(rect, window.innerWidth, pageScroll())
+    box.style.left = `${pos.left}px`
+    box.style.top = `${pos.top}px`
+    if (pinned || typeof box.getBoundingClientRect !== 'function' || !box.isConnected) return
+    const got = box.getBoundingClientRect()
+    const dx = Math.round(want.left - got.left)
+    const dy = Math.round(want.top - got.top)
+    if (dx || dy) {
+      box.style.left = `${pos.left + dx}px`
+      box.style.top = `${pos.top + dy}px`
+    }
   }
 
   let chainBadge = null
@@ -3869,8 +3940,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     })
     box.appendChild(btn)
 
-    placePanel(box, chainBadge)
+    // Appended first: placePanel() measures where the box actually landed.
     document.body.appendChild(box)
+    placePanel(box, chainBadge)
   }
 
   function paintChainUi() {
@@ -4088,15 +4160,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
     if (rt.settingsOpen) {
       settingsView(box)
-      placePanel(box)
       document.body.appendChild(box)
+      placePanel(box)
       return
     }
 
     if (rt.feedbackOpen) {
       feedbackView(box)
-      placePanel(box)
       document.body.appendChild(box)
+      placePanel(box)
       return
     }
 
@@ -4204,8 +4276,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       box.appendChild(secondRow)
     }
 
-    placePanel(box)
     document.body.appendChild(box)
+    placePanel(box)
   }
 
   async function boot() {
@@ -4279,7 +4351,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // halves, so the URL shapes and the off-screen clamp are testable with
     // no DOM (the clamp is what stops a remembered position stranding the
     // panel outside a smaller window, where it could never be dragged back).
-    warRankRouteMatch, isWarRankPage, clampAssistPos, parseAssistPos,
+    warRankRouteMatch, isWarRankPage, clampAssistPos, parseAssistPos, panelPos,
     parseFightLogAge, parseFightLogRow, assistCandidates, readFightLogRows, attackTargetName,
     scopeCss, scopeSelector, WAR_ACTIVE_CLASS,
     indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,

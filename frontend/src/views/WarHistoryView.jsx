@@ -24,7 +24,7 @@ import StacksSnapshotSection from '../components/warroom/StacksSnapshotSection'
 const PAGE_SIZE = 50
 
 export default function WarHistoryView({ isLeadership, isAdmin }) {
-  const { user } = useAuth()
+  const { user, isWarLead } = useAuth()
   // Our faction id, resolved per tenant at runtime (#249) — not a hard-coded id.
   const OUR_FACTION_ID = getFactionId()
 
@@ -505,14 +505,20 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
             dir: prev.col === col ? (prev.dir === 'asc' ? 'desc' : 'asc') : 'desc',
           }))}
           onClose={() => setModalWarId(null)}
-          isLeadership={isLeadership || isAdmin}
+          // Mirrors the route's own gate (requireRole('warlead','leadership',
+          // 'admin') on /api/wars/:id/stacks-snapshot) rather than reusing the
+          // page's leadership flag — warleads own the pre-war roll call, and
+          // the UI gate had quietly drifted from the API gate it copies.
+          // Visitors stay out: the route also carries requireNotVisitor(), so
+          // showing them the section would only buy them a 403.
+          canSeeStacks={isLeadership || isAdmin || isWarLead}
         />
       )}
     </div>
   )
 }
 
-function ContributionsModal({ war, result, contributions, loading, isLive, sort, onSort, onClose, isLeadership }) {
+function ContributionsModal({ war, result, contributions, loading, isLive, sort, onSort, onClose, canSeeStacks }) {
   const resultLabel = result === 'win' ? 'Win' : result === 'loss' ? 'Loss' : 'Ongoing'
   const resultColor = result === 'win' ? 'text-green-600' : result === 'loss' ? 'text-red-500' : 'text-yellow-600'
 
@@ -618,7 +624,7 @@ function ContributionsModal({ war, result, contributions, loading, isLive, sort,
             </table>
           )}
 
-          {isLeadership && (
+          {canSeeStacks && (
             <StacksSnapshotSection warId={war.id} warLabel={war.opponent_name || war.id} />
           )}
         </div>
