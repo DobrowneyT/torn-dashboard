@@ -821,6 +821,10 @@ CREATE TABLE public.war_room_assists_v2 (
   -- pattern, see warRoomAssistsExpiry.ts): armed at creation, always — an
   -- assist request means "I am in this fight right now", not "eventually".
   auto_expire_at timestamp with time zone,
+  -- #591: how many of this thing the requester is still asking for.
+  -- Raised by pressing again, lowered by a verified in-faction action,
+  -- tombstoned at zero.
+  wanted integer NOT NULL DEFAULT 1,
   deleted_at timestamp with time zone,
   updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -832,6 +836,30 @@ CREATE UNIQUE INDEX war_room_assists_v2_active_requester_idx
   ON public.war_room_assists_v2 (requester_id) WHERE (deleted_at IS NULL);
 CREATE INDEX war_room_assists_v2_active_target_idx
   ON public.war_room_assists_v2 (target_id) WHERE (deleted_at IS NULL);
+
+-- #591: observations already counted against a request.
+--
+-- ⚠️ Exists ONLY to deduplicate. Every member running the userscript sees the
+-- SAME fight log, so one join is reported once per observer; without a natural
+-- key the counter would drain as fast as people are watching. Torn gives no
+-- stable fight id, so the key is the event itself — who did what, to whom, in
+-- which second. Second resolution on purpose: two observers' clocks will not
+-- agree to the millisecond, and rounding is what makes their reports collide.
+CREATE TABLE public.war_room_assist_observations_v2 (
+  id bigserial PRIMARY KEY,
+  target_id bigint NOT NULL,
+  actor_id bigint NOT NULL,
+  actor_name text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('smoke', 'tear', 'join')),
+  event_second bigint NOT NULL,
+  reported_by bigint NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE UNIQUE INDEX war_room_assist_observations_v2_event_idx
+  ON public.war_room_assist_observations_v2 (target_id, actor_id, kind, event_second);
+CREATE INDEX war_room_assist_observations_v2_created_idx
+  ON public.war_room_assist_observations_v2 (created_at);
 
 -- #528 Part 2: enemy loadout observations captured from the attack page once
 -- Torn reveals them. Deliberately its OWN table, not war_room_state_v2 — see

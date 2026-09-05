@@ -145,6 +145,9 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
   // (requester, target), from the attack page. Visitors included, same
   // reasoning as dibs: it's the one mutation the demo role keeps.
   const ASSIST_KINDS = new Set(['smoke', 'tear', 'help'])
+  // What the fight log can report. `join` is the log's word for what a request
+  // calls `help`; smoke and tear share their names with the request kinds.
+  const OBSERVED_KINDS = new Set(['smoke', 'tear', 'join'])
 
   app.post('/api/war-room/assist', { preHandler: requireAuth() }, async (req, reply) => {
     const body = req.body as { target_id?: unknown; kind?: unknown; war_id?: unknown } | null
@@ -162,10 +165,26 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     const dbc = await db.connect()
     try {
       await dbc.query('BEGIN')
+      // #591: pressing the SAME button on the SAME target again raises the
+      // count rather than replacing the request — "I need three smokes" is a
+      // real thing to say, and stacked smoke grenades are a real use case.
+      const same = await dbc.query(
+        `UPDATE war_room_assists_v2
+         SET wanted = wanted + 1, updated_at = now()
+         WHERE requester_id = $1 AND target_id = $2 AND kind = $3 AND deleted_at IS NULL
+         RETURNING *`,
+        [userId, targetId, kind]
+      )
+      if (same.rows.length > 0) {
+        await dbc.query('COMMIT')
+        hub.broadcast('assist', same.rows, await serverNow())
+        return { ok: true, wanted: Number(same.rows[0].wanted) }
+      }
+
       // One live assist per requester (mirrors dibs' single-claim rule): a
-      // fresh click — even against a different target or a different kind —
-      // replaces whatever the requester last asked for. You're one person,
-      // in one fight.
+      // fresh click against a different target or a different kind replaces
+      // whatever the requester last asked for, and the count restarts. You're
+      // one person, in one fight, asking for one thing.
       const tombstoned = await dbc.query(
         `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
          WHERE requester_id = $1 AND deleted_at IS NULL RETURNING *`,
@@ -203,6 +222,97 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     } finally {
       dbc.release()
     }
+  })
+
+  /**
+   * Observed fight-log actions, which decrement the matching requests (#591).
+   *
+   * The userscript parses Torn's attack-page log and posts what it saw. This is
+   * the honest signal an assist counter needs: a button press means "I intend
+   * to", which is not the same as going.
+   *
+   * ⚠️ Everything that decides whether an event COUNTS lives here, not in the
+   * script, for two reasons. The attack page has no roster, so the script
+   * cannot tell one of ours from an enemy — and the names it sends are text
+   * scraped from a page other players can influence, so the faction check has
+   * to happen somewhere the caller cannot reach.
+   *
+   * Three gates, in order:
+   *   1. the actor NAME must resolve to a member on the war roster
+   *   2. that member must be in OUR faction — anyone can join a Torn fight, and
+   *      an enemy join carries the identical event class to a member helping
+   *   3. the event must not already have been counted (see the dedupe ledger)
+   */
+  app.post('/api/war-room/assist/observed', { preHandler: requireAuth() }, async (req, reply) => {
+    const body = req.body as { target_id?: unknown; events?: unknown } | null
+    const targetId = Number(body?.target_id)
+    const events = Array.isArray(body?.events) ? body!.events as any[] : null
+    if (!Number.isFinite(targetId) || targetId <= 0 || !events) {
+      return reply.status(400).send({ error: 'target_id and events[] required' })
+    }
+    const reportedBy = Number(req.session!.torn_user_id)
+
+    const cfg = await db.query('SELECT torn_faction_id::text AS id FROM faction_config LIMIT 1')
+    const ourFaction = String(cfg.rows[0]?.id ?? '')
+
+    let counted = 0
+    for (const raw of events.slice(0, 50)) {
+      const kind = String(raw?.kind ?? '')
+      const actorName = String(raw?.actor_name ?? '').trim()
+      const atMs = Number(raw?.at_ms)
+      if (!OBSERVED_KINDS.has(kind) || !actorName || !Number.isFinite(atMs)) continue
+      // Second resolution on purpose: two observers' clocks will not agree to
+      // the millisecond, and rounding is what makes their reports collide on
+      // the unique index instead of both counting.
+      const eventSecond = Math.floor(atMs / 1000)
+
+      // Gates 1 and 2. war_room_state_v2 carries BOTH sides of the war, so the
+      // faction comparison is the only thing separating a member from a foe.
+      const actor = await db.query(
+        `SELECT member_id, faction_id::text AS faction_id FROM war_room_state_v2
+         WHERE member_name = $1 AND deleted_at IS NULL LIMIT 1`,
+        [actorName]
+      )
+      const actorId = Number(actor.rows[0]?.member_id)
+      if (!Number.isFinite(actorId)) continue
+      if (String(actor.rows[0]?.faction_id) !== ourFaction) continue
+
+      // Gate 3. The insert IS the dedupe: a conflict means someone already
+      // reported this exact event, and no request should move.
+      const claimed = await db.query(
+        `INSERT INTO war_room_assist_observations_v2
+           (target_id, actor_id, actor_name, kind, event_second, reported_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (target_id, actor_id, kind, event_second) DO NOTHING
+         RETURNING id`,
+        [targetId, actorId, actorName, kind, eventSecond, reportedBy]
+      )
+      if (claimed.rowCount === 0) continue
+
+      // A `join` answers a `help` request: the log says "joined the fight",
+      // the request says "help", and they are the same thing named twice.
+      const wants = kind === 'join' ? 'help' : kind
+      const dropped = await db.query(
+        `UPDATE war_room_assists_v2
+         SET wanted = wanted - 1, updated_at = now()
+         WHERE target_id = $1 AND kind = $2 AND deleted_at IS NULL
+         RETURNING *`,
+        [targetId, wants]
+      )
+      if (dropped.rows.length === 0) continue
+      counted++
+
+      // At zero the request has been answered in full and goes away.
+      const finished = await db.query(
+        `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
+         WHERE target_id = $1 AND kind = $2 AND deleted_at IS NULL AND wanted <= 0
+         RETURNING *`,
+        [targetId, wants]
+      )
+      hub.broadcast('assist', [...dropped.rows, ...finished.rows], await serverNow())
+    }
+
+    return { ok: true, counted }
   })
 
   app.delete('/api/war-room/assist/:targetId', { preHandler: requireAuth() }, async (req) => {

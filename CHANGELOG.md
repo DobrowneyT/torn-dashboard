@@ -20,6 +20,29 @@ surface it automatically.
 
 ## [3.61.0] - 2026-09-05
 
+### Added
+- **Assist requests carry a count, decremented by what actually happens in the
+  fight (#591).** Pressing smoke / tear / help again on the same target raises
+  it — "I need three smokes" is a real thing to say, and stacked grenades are a
+  real use case. A different kind or a different target still replaces, since
+  one person is in one fight asking for one thing.
+- **`POST /api/war-room/assist/observed`**, which the userscript feeds from
+  Torn's attack-page fight log. A button press means "I intend to", which is
+  not the same as going — an observed action is the only signal that cannot
+  lie. Three gates decide whether an event counts, and all three live on the
+  server: the actor name must resolve to someone on the war roster; that member
+  must be in **our** faction (anyone can join a Torn fight, and an enemy join
+  carries the identical event class to a member helping); and the event must
+  not already have been counted. A `join` answers a `help` request — the log
+  and the request are naming the same thing twice.
+- Deduplication is a ledger keyed on `(target_id, actor_id, kind,
+  event_second)`. Every member with the userscript open sees the **same** log,
+  so one join is reported once per observer; without this the counter would
+  drain as fast as people were watching. Torn gives no stable fight id, so the
+  key is the event itself, rounded to the second — two observers' clocks will
+  not agree to the millisecond, and rounding is what makes their reports
+  collide instead of both counting.
+
 ### Fixed
 - **Assist requests no longer expire mid-fight (#591).** The window was a
   hardcoded 120 seconds, chosen on the reasoning recorded in
