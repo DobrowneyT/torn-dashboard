@@ -39,31 +39,44 @@ describe('LoadoutShieldIcon', () => {
     expect(screen.getByText(/Observed .* by Scout/)).toBeTruthy()
   })
 
-  it('⚠️ dims the icon and marks the tooltip stale once past the 1h threshold — a stale loadout shown confidently is worse than none', () => {
-    const hourAndHalfAgo = new Date(Date.now() - 90 * 60 * 1000).toISOString()
+  // Three bands, not two. A single stale/fresh flag made a 61-minute-old
+  // observation and a week-old one look identical, which is the wrong shape for
+  // gear: within a war, what someone wore two hours ago is almost certainly
+  // still true, while yesterday's is a hint at best.
+  const shieldFor = (minutesAgo) => {
     const { container } = render(
       <LoadoutShieldIcon
         loadoutRow={{
           loadout: { weapons: { primary: { name: 'AK-47' } }, armor: {} },
-          observed_at: hourAndHalfAgo,
+          observed_at: new Date(Date.now() - minutesAgo * 60 * 1000).toISOString(),
         }}
       />
     )
-    expect(screen.getByText(/— stale/)).toBeTruthy()
-    expect(container.querySelector('svg').getAttribute('class')).toContain('text-gray-400')
+    return container.querySelector('svg').getAttribute('class')
+  }
+
+  it('is green under 2h — act on it', () => {
+    expect(shieldFor(5)).toContain('text-emerald-600')
+    expect(shieldFor(119)).toContain('text-emerald-600')
+    expect(screen.queryByText(/over 2h old/)).toBeNull()
   })
 
-  it('is not marked stale just under the threshold', () => {
-    const fiftyMinAgo = new Date(Date.now() - 50 * 60 * 1000).toISOString()
+  it('is amber between 2h and 24h — probably still right', () => {
+    expect(shieldFor(121)).toContain('text-amber-600')
+    expect(screen.getByText(/over 2h old/)).toBeTruthy()
+  })
+
+  it('is grey past 24h — a hint, not a fact', () => {
+    expect(shieldFor(25 * 60)).toContain('text-gray-400')
+    expect(screen.getByText(/over a day old/)).toBeTruthy()
+  })
+
+  it('⚠️ treats an undateable observation as the LEAST confident band — the honest answer when we cannot date it, not the most flattering one', () => {
     const { container } = render(
       <LoadoutShieldIcon
-        loadoutRow={{
-          loadout: { weapons: { primary: { name: 'AK-47' } }, armor: {} },
-          observed_at: fiftyMinAgo,
-        }}
+        loadoutRow={{ loadout: { weapons: { primary: { name: 'AK-47' } }, armor: {} } }}
       />
     )
-    expect(screen.queryByText(/— stale/)).toBeNull()
-    expect(container.querySelector('svg').getAttribute('class')).toContain('text-emerald-600')
+    expect(container.querySelector('svg').getAttribute('class')).toContain('text-gray-400')
   })
 })
