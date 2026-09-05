@@ -18,6 +18,75 @@ surface it automatically.
 
 ---
 
+## [3.61.0] - 2026-09-05
+
+### Added
+- **Assist requests carry a count, decremented by what actually happens in the
+  fight (#591).** Pressing smoke / tear / help again on the same target raises
+  it — "I need three smokes" is a real thing to say, and stacked grenades are a
+  real use case. A different kind or a different target still replaces, since
+  one person is in one fight asking for one thing.
+- **`POST /api/war-room/assist/observed`**, which the userscript feeds from
+  Torn's attack-page fight log. A button press means "I intend to", which is
+  not the same as going — an observed action is the only signal that cannot
+  lie. Three gates decide whether an event counts, and all three live on the
+  server: the actor name must resolve to someone on the war roster; that member
+  must be in **our** faction (anyone can join a Torn fight, and an enemy join
+  carries the identical event class to a member helping); and the event must
+  not already have been counted. A `join` answers a `help` request — the log
+  and the request are naming the same thing twice.
+- Deduplication is a ledger keyed on `(target_id, actor_id, kind,
+  event_second)`. Every member with the userscript open sees the **same** log,
+  so one join is reported once per observer; without this the counter would
+  drain as fast as people were watching. Torn gives no stable fight id, so the
+  key is the event itself, rounded to the second — two observers' clocks will
+  not agree to the millisecond, and rounding is what makes their reports
+  collide instead of both counting.
+- **The count is visible where it is decided.** The war-roster badge reads
+  `Smoke ×3`, and the attack-page overlay carries a pip on the button you press
+  to raise it — that is the surface where you decide whether to ask for one
+  more, so it has to say how many you have already asked for. A count of one
+  shows nothing: `×1` is noise on the overwhelming majority of requests. An
+  absent or unusable count floors at **one, never zero** — a row from before
+  the column existed would otherwise render `×0`, which reads as "nobody is
+  asking", the opposite of what a live row means.
+- The userscript reports qualifying fight-log events every poll, with no local
+  record of what it has already sent. The server's ledger is the only thing
+  that can answer "has this been counted" correctly, because several members
+  watch the same fight — re-sending is free, missing one is not.
+- A requester cannot answer their own call for **help**: they are already in
+  the fight, and their own join would cancel the request the moment they made
+  it. Enforced server-side on member ids rather than in the script on scraped
+  names. Grenades are deliberately not excluded this way — a smoke you throw
+  yourself after asking for three is genuinely one of the three.
+
+### Fixed
+- **Assist requests no longer expire mid-fight (#591).** The window was a
+  hardcoded 120 seconds, chosen on the reasoning recorded in
+  `warRoomAssistsExpiry.ts` that "Torn fights are seconds, not minutes". A Torn
+  fight runs to **five minutes** — and a fight log captured while investigating
+  this shows a real one already 132 seconds old, twelve seconds past the point
+  where the request had silently vanished. The hand went down while the fight
+  was still going, which is the one moment it must not. The default is now
+  300s.
+- **A target who jails, travels or flies out ends the fight too.** Only
+  `Hospital` counted as a fight ending, so an assist against a target who
+  became unattackable any other way sat out the full window. The test is now
+  "stopped being attackable", which covers `Jail`, `Traveling`, `Abroad` and
+  anything else Torn adds. An unknown state is still treated as attackable on
+  purpose: dropping live requests whenever the roster momentarily lacks a
+  status would cost more than a stale marker does.
+
+### Added
+- **`assist_expiry_seconds`**, a per-faction setting alongside the dibs
+  auto-drop window, editable in War Room settings and clamped to 0–600s (0
+  disables auto-expiry). Deliberately a **separate** knob from
+  `dibs_expiry_seconds`: that one measures how long a claim survives after a
+  target surfaces, so pushing it to 300 to cover a fight would keep claims
+  blocking other claimers for five minutes. The window is read inside the
+  insert transaction, so a settings change mid-flight cannot arm a deadline
+  from one value and sweep it against another.
+
 ## [3.60.0] - 2026-09-05
 
 ### Fixed

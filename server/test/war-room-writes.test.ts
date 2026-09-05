@@ -134,6 +134,195 @@ describe('dibs', () => {
   })
 })
 
+// MonChoon's spec, verbatim in effect: "I press the help button once and it
+// shows x1. If I press the button again before someone joins it now shows x2.
+// If its showing x2 and one of our members joins then it decrements itself to
+// x1, another player joins and the request disappears entirely."
+//
+// The decrement is driven by OBSERVATION, not acknowledgement — a button press
+// means "I intend to", which is not the same as going. Torn's attack-page fight
+// log shows other players' actions, so the honest signal is available.
+describe('assist counters (#591)', () => {
+  const T = 90400
+
+  async function liveAssist(targetId: number, requesterId = 1400) {
+    const r = await stack.db.query(
+      `SELECT wanted, deleted_at FROM war_room_assists_v2
+       WHERE target_id = $1 AND requester_id = $2 AND deleted_at IS NULL`,
+      [targetId, requesterId]
+    )
+    return r.rows[0] ?? null
+  }
+
+  /** Put a member on the war roster so the server can resolve their name. */
+  async function seedRosterMember(id: number, name: string, factionId: string) {
+    await stack.db.query(
+      `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, level, state)
+       VALUES ($1, $2, $3, 50, '{}'::jsonb)
+       ON CONFLICT (member_id) DO UPDATE
+         SET member_name = EXCLUDED.member_name, faction_id = EXCLUDED.faction_id,
+             deleted_at = NULL, updated_at = now()`,
+      [id, factionId, name]
+    )
+  }
+
+  it('a fresh request starts at one', async () => {
+    const res = await call('POST', '/api/war-room/assist', { target_id: T, kind: 'smoke' })
+    expect(res.status).toBe(200)
+    expect((await liveAssist(T)).wanted).toBe(1)
+  })
+
+  it('pressing the SAME kind on the SAME target again raises the count', async () => {
+    await call('POST', '/api/war-room/assist', { target_id: T + 1, kind: 'smoke' })
+    await call('POST', '/api/war-room/assist', { target_id: T + 1, kind: 'smoke' })
+    await call('POST', '/api/war-room/assist', { target_id: T + 1, kind: 'smoke' })
+    expect((await liveAssist(T + 1)).wanted).toBe(3)
+  })
+
+  it('⚠️ a DIFFERENT kind still replaces rather than stacking — one person is in one fight asking for one thing, which is the rule the unique index enforces', async () => {
+    await call('POST', '/api/war-room/assist', { target_id: T + 2, kind: 'smoke' })
+    await call('POST', '/api/war-room/assist', { target_id: T + 2, kind: 'smoke' })
+    await call('POST', '/api/war-room/assist', { target_id: T + 2, kind: 'tear' })
+    const live = await stack.db.query(
+      `SELECT kind, wanted FROM war_room_assists_v2
+       WHERE requester_id = 1400 AND deleted_at IS NULL`
+    )
+    expect(live.rows).toHaveLength(1)
+    expect(live.rows[0]).toMatchObject({ kind: 'tear', wanted: 1 })
+  })
+
+  it('a different TARGET replaces too, and restarts the count', async () => {
+    await call('POST', '/api/war-room/assist', { target_id: T + 3, kind: 'help' })
+    await call('POST', '/api/war-room/assist', { target_id: T + 3, kind: 'help' })
+    await call('POST', '/api/war-room/assist', { target_id: T + 4, kind: 'help' })
+    expect(await liveAssist(T + 3)).toBeNull()
+    expect((await liveAssist(T + 4)).wanted).toBe(1)
+  })
+
+  describe('observed actions decrement it', () => {
+    const OURS = 60001
+    const THEIRS = 60002
+
+    it('counts down and disappears at zero — the whole spec, end to end', async () => {
+      await seedRosterMember(OURS, 'Ally', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 5, kind: 'help' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 5, kind: 'help' })
+      expect((await liveAssist(T + 5)).wanted).toBe(2)
+
+      const first = await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 5,
+        events: [{ kind: 'join', actor_name: 'Ally', at_ms: 1_700_000_000_000 }],
+      })
+      expect(first.status).toBe(200)
+      expect((await liveAssist(T + 5)).wanted).toBe(1)
+
+      // A SECOND, distinct event (different second) takes it to zero.
+      await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 5,
+        events: [{ kind: 'join', actor_name: 'Ally', at_ms: 1_700_000_050_000 }],
+      })
+      expect(await liveAssist(T + 5)).toBeNull()
+    })
+
+    it('⚠️ ignores an actor who is not in OUR faction — anyone can join a Torn fight, and an enemy join has the identical event class to a member helping', async () => {
+      await seedRosterMember(THEIRS, 'Foe', '99999')
+      await call('POST', '/api/war-room/assist', { target_id: T + 6, kind: 'help' })
+      const res = await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 6,
+        events: [{ kind: 'join', actor_name: 'Foe', at_ms: 1_700_000_000_000 }],
+      })
+      expect(res.status).toBe(200)
+      expect(res.body.counted).toBe(0)
+      expect((await liveAssist(T + 6)).wanted).toBe(1)
+    })
+
+    it('ignores a name it cannot resolve at all', async () => {
+      await call('POST', '/api/war-room/assist', { target_id: T + 7, kind: 'smoke' })
+      const res = await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 7,
+        events: [{ kind: 'smoke', actor_name: 'NobodyWeKnow', at_ms: 1_700_000_000_000 }],
+      })
+      expect(res.body.counted).toBe(0)
+      expect((await liveAssist(T + 7)).wanted).toBe(1)
+    })
+
+    it('⚠️ counts one event ONCE however many observers report it — every member with the script open sees the same log, so without this the counter drains as fast as people are watching', async () => {
+      await seedRosterMember(OURS, 'Ally', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 8, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 8, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 8, kind: 'smoke' })
+
+      const event = { kind: 'smoke', actor_name: 'Ally', at_ms: 1_700_000_123_000 }
+      const a = await call('POST', '/api/war-room/assist/observed', { target_id: T + 8, events: [event] })
+      const b = await call('POST', '/api/war-room/assist/observed', { target_id: T + 8, events: [event] }, 'rival')
+      expect(a.body.counted).toBe(1)
+      expect(b.body.counted).toBe(0)
+      expect((await liveAssist(T + 8)).wanted).toBe(2)
+    })
+
+    it('⚠️ rounds to the second, so two observers whose clocks differ by milliseconds still collide rather than both counting', async () => {
+      await seedRosterMember(OURS, 'Ally', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 9, kind: 'tear' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 9, kind: 'tear' })
+      await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 9, events: [{ kind: 'tear', actor_name: 'Ally', at_ms: 1_700_000_200_120 }],
+      })
+      const second = await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 9, events: [{ kind: 'tear', actor_name: 'Ally', at_ms: 1_700_000_200_880 }],
+      })
+      expect(second.body.counted).toBe(0)
+      expect((await liveAssist(T + 9)).wanted).toBe(1)
+    })
+
+    it('only decrements requests of the MATCHING kind', async () => {
+      await seedRosterMember(OURS, 'Ally', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 10, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 10, events: [{ kind: 'tear', actor_name: 'Ally', at_ms: 1_700_000_300_000 }],
+      })
+      expect((await liveAssist(T + 10)).wanted).toBe(1)
+    })
+
+    it('⚠️ a join answers a `help` request — the log says "joined the fight", the request says "help", and they are the same thing under different names', async () => {
+      await seedRosterMember(OURS, 'Ally', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 11, kind: 'help' })
+      await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 11, events: [{ kind: 'join', actor_name: 'Ally', at_ms: 1_700_000_400_000 }],
+      })
+      expect(await liveAssist(T + 11)).toBeNull()
+    })
+
+    it('⚠️ a requester cannot answer their OWN call for help — they are already in the fight, and their own join would cancel the request the moment they made it', async () => {
+      // The harness user 1400 is the requester; put them on the roster so the
+      // observation resolves to a real in-faction member.
+      await seedRosterMember(1400, 'Fighter', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 12, kind: 'help' })
+      const res = await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 12,
+        events: [{ kind: 'join', actor_name: 'Fighter', at_ms: 1_700_000_500_000 }],
+      })
+      expect(res.body.counted).toBe(0)
+      expect((await liveAssist(T + 12)).wanted).toBe(1)
+    })
+
+    it('but a GRENADE the requester throws themselves does count — asking for three smokes and throwing one is one of the three', async () => {
+      await seedRosterMember(1400, 'Fighter', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 13, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 13, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 13,
+        events: [{ kind: 'smoke', actor_name: 'Fighter', at_ms: 1_700_000_600_000 }],
+      })
+      expect((await liveAssist(T + 13)).wanted).toBe(1)
+    })
+
+    it('rejects a malformed body rather than guessing', async () => {
+      expect((await call('POST', '/api/war-room/assist/observed', { events: [] })).status).toBe(400)
+      expect((await call('POST', '/api/war-room/assist/observed', { target_id: T })).status).toBe(400)
+    })
+  })
+})
+
 describe('assist requests (#523)', () => {
   it('rejects an unknown kind and a missing target', async () => {
     const badKind = await call('POST', '/api/war-room/assist', { target_id: 90300, kind: 'nuke' })

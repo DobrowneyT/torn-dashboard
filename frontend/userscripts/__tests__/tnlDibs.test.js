@@ -3484,7 +3484,34 @@ describe('indexAssists', () => {
     const idx = S.indexAssists([
       { target_id: 90200, requester_id: 1300, requester_name: 'Scout', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
     ], new Map())
-    expect(idx.get(90200)).toEqual({ kind: 'smoke', by: 1300, name: 'Scout', at: '2026-08-21T10:00:00Z' })
+    expect(idx.get(90200)).toEqual({ kind: 'smoke', by: 1300, name: 'Scout', at: '2026-08-21T10:00:00Z', wanted: 1 })
+  })
+
+  // #591: a request is a count. The index has to carry it or the badge and the
+  // overlay pip have nothing to render from.
+  it('carries the count through', () => {
+    const { S } = loadScript()
+    const idx = S.indexAssists([
+      { target_id: 90201, requester_id: 1300, requester_name: 'Scout', kind: 'smoke', created_at: '2026-08-21T10:00:00Z', wanted: 4 },
+    ], new Map())
+    expect(idx.get(90201).wanted).toBe(4)
+  })
+
+  it('⚠️ floors an absent or unusable count at ONE, never zero — a row from before the column existed would otherwise render "×0", which reads as "nobody is asking", the opposite of what a live row means', () => {
+    const { S } = loadScript()
+    for (const bad of [undefined, null, 0, -3, 'x']) {
+      expect(S.assistCount(bad), String(bad)).toBe(1)
+    }
+    expect(S.assistCount(4)).toBe(4)
+  })
+
+  it('the badge only shows a multiple when there is one', () => {
+    const { S } = loadScript()
+    const one = S.badgeState(null, { by: 7, name: 'A', kind: 'smoke', wanted: 1 }, 1, 9)
+    expect(one.label).toBe('Smoke')
+    const three = S.badgeState(null, { by: 7, name: 'A', kind: 'smoke', wanted: 3 }, 1, 9)
+    expect(three.label).toBe('Smoke \u00D73')
+    expect(three.title).toMatch(/3 still needed/)
   })
 
   it('a tombstone for the currently-shown requester clears the target', () => {

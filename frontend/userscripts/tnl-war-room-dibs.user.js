@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.41.0
+// @version      1.42.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -255,6 +255,23 @@ const TNLDibs = (function () {
    * raising a hand on the same enemy at once) and not worth a bigger index
    * for a badge that is already expected to get a visual pass later.
    */
+  /**
+   * How many of a thing are still being asked for (#591).
+   *
+   * ⚠️ Anything unusable becomes 1, never 0. A row from before the column
+   * existed carries no `wanted`, and a "×0" badge would read as "nobody is
+   * asking" — the opposite of what a live row means. One is the honest floor:
+   * the row exists, so at least one is outstanding.
+   *
+   * Mirrors assistCount() in frontend/src/utils/assistBadge.js. The two cannot
+   * import from each other (this file has no npm imports at all), so they are
+   * kept deliberately identical instead.
+   */
+  function assistCount(raw) {
+    const n = Math.floor(Number(raw))
+    return Number.isFinite(n) && n > 0 ? n : 1
+  }
+
   function indexAssists(rows, into) {
     const byTarget = into ?? new Map()
     for (const row of rows ?? []) {
@@ -271,6 +288,7 @@ const TNLDibs = (function () {
       if (!cur || !curAt || (rowAt && rowAt > curAt)) {
         byTarget.set(targetId, {
           kind: row.kind, by: Number(row.requester_id), name: row.requester_name, at: row.created_at,
+          wanted: assistCount(row.wanted),
         })
       }
     }
@@ -584,15 +602,22 @@ const TNLDibs = (function () {
       const meta = ASSIST_KIND_META[assist.kind] ?? { icon: 'life-buoy', label: assist.kind ?? 'Assist' }
       const mine = String(assist.by) === String(currentUserId)
       const who = mine ? 'you' : (assist.name ?? 'someone')
+      // A count of one says nothing worth saying — "Smoke ×1" is noise on the
+      // overwhelming majority of requests, so the multiple appears only when
+      // there is one.
+      const wanted = assistCount(assist.wanted)
       return {
         mode: 'assist',
-        label: meta.label,
+        label: wanted > 1 ? `${meta.label} \u00D7${wanted}` : meta.label,
         icon: meta.icon,
+        wanted,
         href: attackUrl(targetId),
         action: null,
         mine,
         taken: true,
-        title: `${meta.label} requested by ${who} \u00B7 ${fmtAgo(assist.at)}`,
+        title: wanted > 1
+          ? `${meta.label} requested by ${who} \u00B7 ${wanted} still needed \u00B7 ${fmtAgo(assist.at)}`
+          : `${meta.label} requested by ${who} \u00B7 ${fmtAgo(assist.at)}`,
       }
     }
     return { mode: 'dibs', href: null, ...buttonState(dib, currentUserId, isAdmin) }
@@ -1426,6 +1451,9 @@ const TNLDibs = (function () {
     // failed capture must never hold up the poll loop's own render, and the
     // function's own try/catch means there is nothing here to await or catch.
     checkLoadoutCapture()
+    // #591: same fire-and-forget shape — a slow or failed report must never
+    // hold up the poll loop's own render.
+    reportFightLog()
     render()   // render() itself repaints the chain UI at the end of its pass (faction page only)
   }
 
@@ -2834,6 +2862,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   const ASSIST_OVERLAY_ID = 'tnl-assist-overlay'
   const ASSIST_OVERLAY_STYLE_ID = 'tnl-assist-overlay-style'
   const ASSIST_BTN_ACTIVE_CLASS = 'tnl-assist-btn-active'
+  /** The \u00D7N pip on a button whose request is for more than one. */
+  const ASSIST_COUNT_CLASS = 'tnl-assist-count'
   const ASSIST_HANDLE_CLASS = 'tnl-assist-handle'
   const ASSIST_COLLAPSED_CLASS = 'tnl-assist-collapsed'
   /** `{left, top}` in viewport px, and the collapsed flag — both per-browser. */
@@ -2939,6 +2969,17 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 }
 #${ASSIST_OVERLAY_ID} button:hover { background: #374151; }
 #${ASSIST_OVERLAY_ID} button.${ASSIST_BTN_ACTIVE_CLASS} { background: #ea580c; border-color: #ea580c; }
+/* The count rides in the button's own corner rather than replacing the icon:
+   which KIND you asked for still has to be readable at a glance. */
+#${ASSIST_OVERLAY_ID} button { position: relative; }
+#${ASSIST_OVERLAY_ID} .${ASSIST_COUNT_CLASS} {
+  position: absolute; right: -3px; bottom: -3px;
+  min-width: 15px; height: 15px; padding: 0 3px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; background: #111827; border: 1px solid #f97316;
+  color: #fdba74; font: 700 9px/1 system-ui, sans-serif;
+  pointer-events: none;
+}
 /* The grab handle. Dragging is bound to this alone, never to the box, so a
    mis-aimed drag can never swallow a click meant for an assist button. */
 #${ASSIST_OVERLAY_ID} .${ASSIST_HANDLE_CLASS} {
@@ -2972,6 +3013,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     width: 26px; flex: 0 0 26px; height: 44px; font-size: 18px;
   }
   #${ASSIST_OVERLAY_ID}.${ASSIST_COLLAPSED_CLASS} { padding: 6px; opacity: .85; }
+  #${ASSIST_OVERLAY_ID} .${ASSIST_COUNT_CLASS} {
+    min-width: 18px; height: 18px; font-size: 11px;
+  }
 }
 `
     document.head.appendChild(el)
@@ -3165,7 +3209,32 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     const mine = rt.assists.get(targetId)
     const isMine = mine && String(mine.by) === String(rt.session?.userId)
     for (const btn of box.querySelectorAll('button')) {
-      btn.classList.toggle(ASSIST_BTN_ACTIVE_CLASS, Boolean(isMine && mine.kind === btn.dataset.tnlKind))
+      const active = Boolean(isMine && mine.kind === btn.dataset.tnlKind)
+      btn.classList.toggle(ASSIST_BTN_ACTIVE_CLASS, active)
+      // #591: the count belongs ON the button you press to raise it — this is
+      // the surface where you decide whether to ask for one more, so it has to
+      // say how many you have already asked for without a round trip to the
+      // roster. Only shown past one: "×1" is noise.
+      const wanted = active ? assistCount(mine.wanted) : 0
+      let pip = btn.querySelector(`.${ASSIST_COUNT_CLASS}`)
+      if (wanted > 1) {
+        if (!pip) {
+          pip = document.createElement('span')
+          pip.className = ASSIST_COUNT_CLASS
+          btn.appendChild(pip)
+        }
+        const text = `\u00D7${wanted}`
+        if (pip.textContent !== text) pip.textContent = text
+      } else if (pip) {
+        pip.remove()
+      }
+      const meta = ASSIST_KIND_META[btn.dataset.tnlKind]
+      if (meta) {
+        btn.title = wanted > 1
+          ? `${meta.label} \u00B7 ${wanted} still needed \u00B7 click for one more`
+          : active ? `${meta.label} requested \u00B7 click again to ask for another`
+            : meta.label
+      }
     }
   }
 
@@ -3253,6 +3322,94 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
    * fight — a failed POST does NOT latch, so a transient error gets retried
    * on the next tick rather than silently giving up for the rest of the fight.
    */
+  /**
+   * Read the attack page's fight log into the plain rows assistCandidates()
+   * wants.
+   *
+   * ⚠️ The `attacking-events-*` class is the only stable hook on a row.
+   * Everything around it (`row___`, `message___`, `col2___`) is a CSS-module
+   * hash Torn rotates every deploy, so those are matched by PREFIX and the
+   * event type comes from the class alone.
+   */
+  function readFightLogRows() {
+    if (typeof document === 'undefined') return []
+    const rows = []
+    for (const li of document.querySelectorAll('[class*="listWrap___"] li, [class*="row___"]')) {
+      const icon = li.querySelector('[class^="attacking-events-"]')
+      if (!icon) continue
+      const message = li.querySelector('[class*="message___"]')
+      const age = li.querySelector('[class*="col2___"]')
+      if (!message || !age) continue
+      rows.push({
+        eventClass: icon.className,
+        text: message.textContent || '',
+        age: age.textContent || '',
+      })
+    }
+    return rows
+  }
+
+  /**
+   * The defender's NAME, which the log names actions against.
+   *
+   * The URL gives us `user2ID` but every log line refers to the target by name,
+   * so the two have to be bridged before anything can be filtered. Read off the
+   * page rather than the roster: the attack page has no roster, which is the
+   * same reason the faction check has to happen server-side.
+   */
+  function attackTargetName() {
+    if (typeof document === 'undefined') return null
+    const id = attackTargetId(typeof location !== 'undefined' ? location.search : '')
+    if (!id) return null
+    const link = document.querySelector(`a[href*="profiles.php?XID=${id}"]`)
+    const text = link && link.textContent ? link.textContent.trim() : ''
+    return text || null
+  }
+
+  /**
+   * Report what the log shows, so the server can decrement the matching
+   * requests (#591).
+   *
+   * Reports EVERY qualifying event every pass, deliberately — no local
+   * bookkeeping of what has already been sent. The server's dedupe ledger is
+   * the only thing that can be right about this: several members watch the same
+   * fight, so "have I sent this" has to be answered across all of them, not per
+   * browser. Re-sending is free (a conflict, counted zero); missing one is not.
+   *
+   * Only fires when there IS a live request against this target — otherwise
+   * every fight would post a stream of events with nothing to answer.
+   */
+  async function reportFightLog() {
+    if (!isAttackPage() || !rt.session) return
+    const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
+    if (!targetId) return
+    const open = rt.assists.get(targetId)
+    if (!open) return
+
+    const targetName = attackTargetName()
+    if (!targetName) return
+
+    const events = assistCandidates(readFightLogRows(), {
+      targetName,
+      // The session carries an id, not a name, and the log names actors — so
+      // "is this the requester" cannot be answered here. It is answered on the
+      // server instead, on ids, where a scraped name is never trusted anyway.
+      requesterName: null,
+      requestedAtMs: parseDbTime(open.at)?.getTime() ?? null,
+    })
+    if (events.length === 0) return
+
+    try {
+      const res = await api('/api/war-room/assist/observed', 'POST', { target_id: targetId, events })
+      if (res.status === 200 && Number(res.body?.counted) > 0) {
+        log(`fight log: ${res.body.counted} observed action(s) counted against the request`)
+        pokePoll()
+      }
+    } catch (err) {
+      log('fight-log report failed:', err.message)
+    }
+  }
+
   async function checkLoadoutCapture() {
     if (!isAttackPage() || !rt.session) return
     const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
@@ -4123,10 +4280,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // no DOM (the clamp is what stops a remembered position stranding the
     // panel outside a smaller window, where it could never be dragged back).
     warRankRouteMatch, isWarRankPage, clampAssistPos, parseAssistPos,
-    parseFightLogAge, parseFightLogRow, assistCandidates,
+    parseFightLogAge, parseFightLogRow, assistCandidates, readFightLogRows, attackTargetName,
     scopeCss, scopeSelector, WAR_ACTIVE_CLASS,
     indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
-    assistIconSvg, paintDibs,
+    assistIconSvg, paintDibs, assistCount,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,

@@ -1098,6 +1098,21 @@ function ConfigPanel({
     catch (e) { setMsg({ ok: false, text: e.message }) }
   }
 
+  // Assist request window (#591): how long a raised hand for smoke/tear/help
+  // stays up. Default 300s — a Torn fight runs to five minutes, and the old
+  // hardcoded 120s meant a max-length fight outlived its own request. Kept
+  // separate from the dibs window above on purpose: that one measures how long
+  // a CLAIM survives after a target surfaces, and sharing a value would keep
+  // claims blocking other claimers for five minutes.
+  const [assistExpirySec, setAssistExpirySec] = useState(String(config?.assist_expiry_seconds ?? 300))
+  useEffect(() => { setAssistExpirySec(String(config?.assist_expiry_seconds ?? 300)) }, [config?.assist_expiry_seconds])
+  async function commitAssistExpiry() {
+    const next = clampCadence(assistExpirySec, 300, 5)
+    if (next === (config?.assist_expiry_seconds ?? 300)) return
+    try { await onSaveReviveService({ assist_expiry_seconds: next }); setMsg({ ok: true, text: `Assist requests expire after ${next}s.` }) }
+    catch (e) { setMsg({ ok: false, text: e.message }) }
+  }
+
   // Roster refresh cadence (#339). Stored in MILLISECONDS but edited in
   // seconds, because sub-second is the whole point: leads push this to 0.5s
   // (2 Hz) during a live chain and pull it back to several seconds for a
@@ -1419,6 +1434,25 @@ function ConfigPanel({
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="30"
             title="If you dib an already-alive target and haven't killed them within this many seconds, your claim is released so someone else can take them. Only applies to alive targets — a hospital claim waits for them to come out. Clamped to 5–600s."
+            className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        {/* Assist request window (#591): a raised hand must outlive the fight. */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Assist window <span className="text-gray-400 dark:text-gray-600">(s)</span>
+          </label>
+          <input
+            type="number"
+            min={5}
+            max={600}
+            step={1}
+            value={assistExpirySec}
+            onChange={e => setAssistExpirySec(e.target.value)}
+            onBlur={commitAssistExpiry}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="300"
+            title="How long a smoke / tear / help request stays up before it expires on its own. A Torn fight runs to five minutes, so anything shorter can drop the request while the fight it is about is still going. Also cleared the moment the target stops being attackable. Clamped to 5–600s."
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>

@@ -50,7 +50,21 @@ function assistHolder(assist) {
     name: assist.requester_name ?? assist.name ?? null,
     kind: assist.kind,
     at: assist.created_at ?? assist.at ?? null,
+    wanted: assistCount(assist.wanted),
   }
+}
+
+/**
+ * How many of a thing are still being asked for (#591).
+ *
+ * ⚠️ Anything unusable becomes 1, never 0. A row from before the column
+ * existed has no `wanted`, and a "×0" badge would read as "nobody is asking" —
+ * the exact opposite of what a live row means. One is the honest floor: the
+ * row exists, so at least one is outstanding.
+ */
+function assistCount(raw) {
+  const n = Math.floor(Number(raw))
+  return Number.isFinite(n) && n > 0 ? n : 1
 }
 
 /**
@@ -73,11 +87,17 @@ export function assistBadgeState(dib, assist, targetId, currentUserId, opts = {}
       // it); `icon` is the Lucide name a caller with real icons renders
       // instead — see ASSIST_KIND_META's own note on why this can't just be
       // a component reference.
-      label: meta.label,
+      // A count of one says nothing worth saying — "Smoke ×1" is noise on the
+      // overwhelming majority of requests, so the multiple only appears when
+      // there IS one.
+      label: held.wanted > 1 ? `${meta.label} ×${held.wanted}` : meta.label,
       icon: meta.icon,
+      wanted: held.wanted,
       href: attackUrl(targetId),
       tone: 'assist',
-      title: `${meta.label} requested by ${who} · ${fmtAgo(held.at)}`,
+      title: held.wanted > 1
+        ? `${meta.label} requested by ${who} · ${held.wanted} still needed · ${fmtAgo(held.at)}`
+        : `${meta.label} requested by ${who} · ${fmtAgo(held.at)}`,
       action: null,
       mine,
       taken: true,
