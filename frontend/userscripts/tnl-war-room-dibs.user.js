@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.45.0
+// @version      1.45.1
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1966,6 +1966,14 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
    is meant to annotate. The gap is what keeps both readable at 10px. */
 .${BADGE_CLASS}.${ASSIST_CLASS} { gap: 3px; }
 .${ASSIST_N_CLASS} {
+  /* Given the SAME height as the icon and centred inside it, rather than left
+     to flex alignment alone. Two boxes of different heights centre on their
+     box centres, and a digit's visual centre sits above its box centre
+     (ascender/descender leave uneven space), so 9px text beside a 14px glyph
+     reads as sitting low even when the boxes are correctly aligned. Matching
+     the heights makes it optical rather than arithmetic. */
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 14px;
   font: 700 9px/1 system-ui, sans-serif;
   color: #fff; opacity: .95;
   font-variant-numeric: tabular-nums;

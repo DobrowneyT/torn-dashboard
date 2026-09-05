@@ -18,7 +18,7 @@ surface it automatically.
 
 ---
 
-## [3.65.0] - 2026-09-05
+## [3.65.1] - 2026-09-05
 
 ### Fixed
 - **⚠️ The userscript no longer blanks Torn's faction page (#610).** The
@@ -52,7 +52,12 @@ surface it automatically.
   meaning was unreachable on a phone, which is where the board is most often
   read mid-war.
 
-Userscript **v1.45.0**.
+- The roster badge's count is given the icon's own height and centred inside
+  it, rather than left to flex alignment alone: a digit's visual centre sits
+  above its box centre, so 9px text beside a 14px glyph reads as sitting low
+  even when the two boxes are correctly aligned.
+
+Userscript **v1.45.1**.
 
 ## [3.64.0] - 2026-09-05
 
