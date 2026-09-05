@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.37.2
+// @version      1.41.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -73,15 +73,42 @@ const TNLDibs = (function () {
     return Number.isFinite(n) ? n : dflt
   }
 
+  /**
+   * Key/value storage, with a localStorage fallback.
+   *
+   * GM_getValue/GM_setValue do NOT exist in Torn PDA unless the user has also
+   * installed Torn PDA's own GMforPDA.user.js shim — the app ships PDA_storage
+   * and the PDA_http* helpers instead. Every call site here used to name the
+   * GM globals directly, so on PDA the writes threw ReferenceError (the reads
+   * were already inside try/catch and silently returned defaults, which is its
+   * own kind of broken: settings appeared to save and never did).
+   *
+   * localStorage is scoped to torn.com, which is exactly the scope wanted, and
+   * survives reloads. It is not shared with a desktop Tampermonkey install,
+   * so a PDA user signs in once on PDA — acceptable, and better than not at all.
+   */
+  function gmGet(key, fallback) {
+    try { if (typeof GM_getValue === 'function') return GM_getValue(key, fallback) } catch { /* fall through */ }
+    try {
+      const v = window.localStorage?.getItem(key)
+      return v === null || v === undefined ? fallback : v
+    } catch { return fallback }
+  }
+
+  function gmSet(key, value) {
+    try { if (typeof GM_setValue === 'function') { GM_setValue(key, value); return } } catch { /* fall through */ }
+    try { window.localStorage?.setItem(key, value) } catch { /* private mode: session-only */ }
+  }
+
   const settings = {
     on(key) {
-      try { return settingOn(GM_getValue(key, null), key) } catch { return SETTING_DEFAULTS[key] ?? false }
+      return settingOn(gmGet(key, null), key)
     },
-    set(key, value) { GM_setValue(key, value ? 'true' : 'false') },
+    set(key, value) { gmSet(key, value ? 'true' : 'false') },
     num(key) {
-      try { return settingNum(GM_getValue(key, null), key) } catch { return SETTING_NUM_DEFAULTS[key] ?? 0 }
+      return settingNum(gmGet(key, null), key)
     },
-    setNum(key, value) { GM_setValue(key, String(value)) },
+    setNum(key, value) { gmSet(key, String(value)) },
   }
 
   function settingsSignature() {
@@ -161,8 +188,41 @@ const TNLDibs = (function () {
     return Number.isFinite(id) && id > 0 ? id : null
   }
 
+  /**
+   * The war page's route, read off the HASH — never the query string.
+   *
+   * Torn's faction page is a hash-routed SPA: `factions.php?step=your&type=1`
+   * serves every tab behind the same path, and that `type=N` is a per-faction
+   * layout id — it differs between factions and shifts when a faction reorders
+   * its own tabs, so gating on it would work for one faction and silently fail
+   * for the next. The part after `#` is the actual route, and it is stable.
+   *
+   * Deeper war routes are allowed through (`#/war/rank/123`, `#/war/rank?x=1`):
+   * a sub-view of the war page is still the war page. Any other section
+   * (`#/armory`, `#/crimes`, `#/upgrades`, or no hash at all) is not, and gets
+   * nothing — including, critically, none of injectStyles()' layout overrides,
+   * which are written against the war roster's markup and visibly wreck the
+   * other tabs when they leak onto them.
+   */
+  function warRankRouteMatch(hash) {
+    const route = String(hash ?? '').replace(/^#/, '')
+    return /^\/war\/rank(?:[/?#]|$)/.test(route)
+  }
+
   function isFactionPage() {
     return typeof location !== 'undefined' && factionPageMatch(location.pathname)
+  }
+
+  /**
+   * The only faction-page view this script may touch.
+   *
+   * Everything faction-side gates on THIS, not isFactionPage(). The distinction
+   * matters because the hash changes without a page load — Torn routes tabs
+   * client-side — so a script that only checks the path stays switched on for
+   * the rest of the session once the user clicks Armory.
+   */
+  function isWarRankPage() {
+    return isFactionPage() && warRankRouteMatch(location.hash)
   }
 
   function isAttackPage() {
@@ -298,7 +358,7 @@ const TNLDibs = (function () {
 
   function fmtAgo(ts, nowMs = Date.now()) {
     const d = parseDbTime(ts)
-    if (!d) return '—'
+    if (!d) return '\u2014'
     const diff = Math.floor((nowMs - d.getTime()) / 1000)
     if (diff < 60) return 'just now'
     if (diff < 3_600) return `${Math.floor(diff / 60)}m ago`
@@ -385,17 +445,17 @@ const TNLDibs = (function () {
     // padEnd(5) pads to 5 either way, so prefixing the dominant stat's label
     // marks it without moving the number column.
     const line = (label, value) => `${label.padEnd(5)}${String(value).padStart(9)}`
-    const rule = '─'.repeat(14)
-    const out = [line('FF', ff === null || ff === undefined ? '—' : ff.toFixed(2)), rule]
+    const rule = '\u2500'.repeat(14)
+    const out = [line('FF', ff === null || ff === undefined ? '\u2014' : ff.toFixed(2)), rule]
     const dominant = dominantStat(stats)
     for (const [key, label, v] of [['str', 'STR', stats.str], ['def', 'DEF', stats.def], ['spd', 'SPD', stats.spd], ['dex', 'DEX', stats.dex]]) {
-      if (v !== null && v !== undefined) out.push(line(key === dominant ? `▸${label}` : label, formatStat(v)))
+      if (v !== null && v !== undefined) out.push(line(key === dominant ? `\u25B8${label}` : label, formatStat(v)))
     }
     if (out.length > 2) out.push(rule)
     out.push(line('Total', formatStat(stats.total)))
     out.push(rule)
     out.push(`${fmtAgo(stats.spiedAt)} (${statsSourceLabel(stats.source)})`)
-    if (stats.source === 'torn') out.push('Exact — from their own key')
+    if (stats.source === 'torn') out.push('Exact \u2014 from their own key')
     return out.join('\n')
   }
 
@@ -532,7 +592,7 @@ const TNLDibs = (function () {
         action: null,
         mine,
         taken: true,
-        title: `${meta.label} requested by ${who} · ${fmtAgo(assist.at)}`,
+        title: `${meta.label} requested by ${who} \u00B7 ${fmtAgo(assist.at)}`,
       }
     }
     return { mode: 'dibs', href: null, ...buttonState(dib, currentUserId, isAdmin) }
@@ -736,7 +796,7 @@ const TNLDibs = (function () {
         kind: 'traveling',
         text: eta ? `${label} ${eta}` : label,
         tone: 'traveling',
-        title: eta ? `${st.description ?? 'Traveling'} — landing in about ${eta.replace('~', '')}` : (st.description ?? 'Traveling'),
+        title: eta ? `${st.description ?? 'Traveling'} \u2014 landing in about ${eta.replace('~', '')}` : (st.description ?? 'Traveling'),
       }
     }
 
@@ -748,14 +808,14 @@ const TNLDibs = (function () {
     if (kind === 'Okay') {
       const ago = fmtLastActionShort(entry.last_action, nowMs)
       const audience = reviveAudience(entry)
-      const glyph = audience === 'anyone' ? ' 💉' : audience === 'friends' ? ' 💉' : ''
+      const glyph = audience === 'anyone' ? ' \uD83D\uDC89' : audience === 'friends' ? ' \uD83D\uDC89' : ''
       return {
         kind: 'okay',
         text: `${ago ?? 'Okay'}${glyph}`,
         tone: 'okay',
         title: [
-          entry.last_action?.status ? `${entry.last_action.status}${ago ? ` — last action ${ago} ago` : ''}` : null,
-          audience === 'anyone' ? 'Revivable — a hired reviver can bring them up'
+          entry.last_action?.status ? `${entry.last_action.status}${ago ? ` \u2014 last action ${ago} ago` : ''}` : null,
+          audience === 'anyone' ? 'Revivable \u2014 a hired reviver can bring them up'
             : audience === 'friends' ? 'Revivable by their friends & faction only' : null,
           entry.is_on_wall ? 'Defending a territory wall' : null,
           entry.has_early_discharge ? 'Early discharge available' : null,
@@ -862,17 +922,187 @@ const TNLDibs = (function () {
     const current = Number(chain?.current) || 0
     if (current <= 0) return null
     const left = chainSecondsLeft(chain, nowSec)
-    return `⛓${current}${left != null ? ` · ${fmtCountdown(left)}` : ''}`
+    return `\u26D3${current}${left != null ? ` \u00B7 ${fmtCountdown(left)}` : ''}`
+  }
+
+  /**
+   * Torn PDA's own cross-origin transport, used when no GM one exists.
+   *
+   * ⚠️ A privileged transport is NOT optional for this script. The dashboard
+   * API lives on a different origin from torn.com and serves no CORS headers
+   * at all (verified against the live host), so a plain fetch() from the page
+   * is blocked outright. Without one of these, every call fails and the script
+   * can do nothing but show a red light.
+   *
+   * PDA exposes `PDA_httpGet(url, headers)` and
+   * `PDA_httpPost(url, headers, body)` — promises resolving to
+   * `{ status, statusText, responseText, responseHeaders }`. There is no
+   * DELETE, so releasing a dib and clearing an assist are the two things that
+   * cannot work on PDA without a server-side POST alias; they fail with a
+   * message that says so rather than a generic network error.
+   */
+  function pdaTransport() {
+    return (typeof PDA_httpGet === 'function' && typeof PDA_httpPost === 'function')
+      ? { get: PDA_httpGet, post: PDA_httpPost }
+      : null
+  }
+
+  async function pdaRequest(opts, pda) {
+    const method = (opts.method || 'GET').toUpperCase()
+    const started = Date.now()
+    log(`\u2192 ${method} ${redactUrl(opts.url)} (via Torn PDA)`)
+    let res
+    if (method === 'GET') res = await pda.get(opts.url, opts.headers || {})
+    else if (method === 'POST') res = await pda.post(opts.url, opts.headers || {}, opts.body ?? '')
+    else throw new Error(`${method} is not supported by Torn PDA's HTTP bridge`)
+    let parsed = null
+    try { parsed = JSON.parse(res.responseText) } catch { /* not json */ }
+    log(`\u2190 ${res.status} ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
+    return { status: res.status, body: parsed }
+  }
+
+  /** Which transport we resolved to, for the settings panel to report. */
+  function transportName() {
+    if ((typeof GM !== 'undefined' && GM.xmlHttpRequest) || typeof GM_xmlhttpRequest === 'function') return 'GM'
+    if (pdaTransport()) return 'Torn PDA'
+    return 'none'
+  }
+
+  // ── Fight-log observation (#523 follow-up) ───────────────────────────────
+  //
+  // Torn's attack page carries a live fight log, and it shows OTHER players'
+  // actions, not just yours. That is what makes an assist request verifiable:
+  // a raised hand can be answered by observation instead of by someone
+  // remembering to press "I'm coming".
+  //
+  //   <li class="row___MN82U">
+  //     <span class="col1___utZk7">
+  //       <span class="iconWrap___NQz8E"><span class="attacking-events-attack-join"></span></span>
+  //       <span class="message___Tw33z">Onyx joined the fight against 4444444</span>
+  //     </span>
+  //     <span class="col2___e3KXX">69s</span>
+  //   </li>
+  //
+  // ⚠️ The `attacking-events-*` class is the ONLY stable hook on that row.
+  // Everything around it (`row___`, `message___`, `col2___`) is a CSS-module
+  // hash that Torn rotates on every site deploy — the sibling mug-bot script
+  // has a scar comment about exactly this breaking all of its scraping. So the
+  // event TYPE comes from the class, and text is used only for the names and
+  // the grenade flavour, which have nowhere else to come from.
+
+  const FIGHT_EVENT_CLASS = {
+    'attacking-events-attack-join': 'join',
+    'attacking-events-grenade-use': 'grenade',
+  }
+
+  /**
+   * "26s" / "2m 12s" / "1h" → seconds. Torn writes plain seconds today (the
+   * captured sample runs to "132s" rather than "2m 12s"), but a unit it might
+   * start using must not silently parse as a much smaller number — an event
+   * mis-dated as recent is one that wrongly answers a request.
+   */
+  function parseFightLogAge(text) {
+    const t = String(text ?? '').trim().toLowerCase()
+    if (!t) return null
+    const m = t.match(/^(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?$/)
+    if (!m || (!m[1] && !m[2] && !m[3])) return null
+    return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)
+  }
+
+  /**
+   * One log row → `{ kind, actor, subject }`, or null for a row we don't act on.
+   *
+   * `kind` is 'join' | 'smoke' | 'tear'. `subject` is who it was done TO, which
+   * is the whole basis of the filtering below: a grenade thrown at one of OUR
+   * members by an enemy has the same event class as one thrown at the enemy by
+   * us, and only the subject tells them apart.
+   *
+   * ⚠️ "initiated an attack against" carries the SAME
+   * `attacking-events-attack-join` class as "joined the fight against". It is
+   * the person who opened the fight, not a responder — counting it would make
+   * every requester their own first answer. Returns null on purpose.
+   */
+  function parseFightLogRow(row) {
+    const type = FIGHT_EVENT_CLASS[row?.eventClass]
+    if (!type) return null
+    const text = String(row?.text ?? '').trim()
+    if (!text) return null
+
+    if (type === 'join') {
+      const m = text.match(/^(\S+) joined the fight against (\S+)$/)
+      return m ? { kind: 'join', actor: m[1], subject: m[2] } : null
+    }
+
+    // Tolerant on the phrasing, strict on the shape: Torn words the two
+    // grenades differently ("...Grenade near X" vs "...Grenade, smoke clouds
+    // around X"), and a third grenade would arrive worded a third way.
+    const m = text.match(/^(\S+) threw an? (.+?) Grenade\b.*?\b(?:near|around|at)\s+(\S+)$/i)
+    if (!m) return null
+    const flavour = m[2].toLowerCase()
+    const kind = flavour.includes('smoke') ? 'smoke' : flavour.includes('tear') ? 'tear' : null
+    return kind ? { kind, actor: m[1], subject: m[3] } : null
+  }
+
+  /**
+   * The rows that could answer a request, filtered to the ones that actually
+   * concern this fight.
+   *
+   * Four rules, each from a real way the raw log lies:
+   *
+   *  1. SUBJECT MUST BE OUR TARGET. Fights chain — once several people are in,
+   *     one log carries joins and grenades aimed at several different people,
+   *     including at us. "X joined the fight against <someone else>" is not an
+   *     answer to our request, and a Tear Gas thrown AT one of ours is an enemy
+   *     attacking, not a member helping.
+   *  2. ACTOR MUST NOT BE THE TARGET. The target fights back, in the same log.
+   *  3. AFTER THE REQUEST ONLY. Ages are relative ("69s"), so an absolute time
+   *     is derived and compared to when the hand went up. This is what makes
+   *     "smoke first, then ask for help" behave: your own earlier smoke is
+   *     older than the request and cannot answer it.
+   *  4. A JOIN IS NEVER THE REQUESTER. They are definitionally already in the
+   *     fight. Grenades are NOT filtered this way — a smoke you throw yourself
+   *     after asking for three is still one of the three.
+   *
+   * Faction membership is deliberately NOT checked here. The script has no
+   * roster on the attack page, and the names are attacker-controlled text; the
+   * server holds `war_room_state_v2.member_name` + `faction_id` for both sides
+   * and is the only place that can answer it honestly.
+   */
+  function assistCandidates(rows, { targetName, requesterName, requestedAtMs, nowMs = Date.now() } = {}) {
+    if (!targetName) return []
+    const out = []
+    for (const raw of rows ?? []) {
+      const ev = parseFightLogRow(raw)
+      if (!ev) continue
+      if (ev.subject !== targetName) continue                 // rule 1
+      if (ev.actor === targetName) continue                   // rule 2
+      const age = parseFightLogAge(raw.age)
+      if (age === null) continue
+      const atMs = nowMs - age * 1000
+      if (requestedAtMs != null && atMs < requestedAtMs) continue   // rule 3
+      if (ev.kind === 'join' && requesterName && ev.actor === requesterName) continue  // rule 4
+      out.push({ kind: ev.kind, actor: ev.actor, at_ms: atMs })
+    }
+    return out
   }
 
   function gmRequest(opts) {
+    const pda = pdaTransport()
+    const hasGm = (typeof GM !== 'undefined' && GM.xmlHttpRequest)
+      || (typeof GM_xmlhttpRequest !== 'undefined' && GM_xmlhttpRequest)
+    // GM first where both exist: it carries every method, PDA's bridge does not.
+    if (!hasGm && pda) return pdaRequest(opts, pda)
     return new Promise((resolve, reject) => {
-      const xhr = (typeof GM !== 'undefined' && GM.xmlHttpRequest)
-        || (typeof GM_xmlhttpRequest !== 'undefined' && GM_xmlhttpRequest)
-      if (!xhr) return reject(new Error('GM.xmlHttpRequest unavailable'))
+      const xhr = hasGm
+      if (!xhr) {
+        return reject(new Error(
+          'No cross-origin transport: this needs GM.xmlHttpRequest (Tampermonkey/Violentmonkey) ' +
+          'or Torn PDA\'s PDA_httpGet/PDA_httpPost'
+        ))
+      }
       const started = Date.now()
       const method = opts.method || 'GET'
-      log(`→ ${method} ${redactUrl(opts.url)}`)
+      log(`\u2192 ${method} ${redactUrl(opts.url)}`)
       xhr({
         method,
         url: opts.url,
@@ -881,15 +1111,15 @@ const TNLDibs = (function () {
         onload: (res) => {
           let parsed = null
           try { parsed = JSON.parse(res.responseText) } catch { /* not json */ }
-          log(`← ${res.status} ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
+          log(`\u2190 ${res.status} ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
           resolve({ status: res.status, body: parsed })
         },
         onerror: () => {
-          log(`✗ failed ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
+          log(`\u2717 failed ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
           reject(new Error(`request failed: ${redactUrl(opts.url)}`))
         },
         ontimeout: () => {
-          log(`✗ timed out ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
+          log(`\u2717 timed out ${redactUrl(opts.url)} (${Date.now() - started}ms)`)
           reject(new Error(`request timed out: ${redactUrl(opts.url)}`))
         },
       })
@@ -897,9 +1127,9 @@ const TNLDibs = (function () {
   }
 
   const store = {
-    read() { try { return JSON.parse(GM_getValue(STORE_KEY, 'null')) } catch { return null } },
-    write(v) { GM_setValue(STORE_KEY, JSON.stringify(v)) },
-    clear() { GM_setValue(STORE_KEY, 'null') },
+    read() { try { return JSON.parse(gmGet(STORE_KEY, 'null')) } catch { return null } },
+    write(v) { gmSet(STORE_KEY, JSON.stringify(v)) },
+    clear() { gmSet(STORE_KEY, 'null') },
   }
 
   /** Key → faction → tenant → JWT. */
@@ -909,7 +1139,7 @@ const TNLDibs = (function () {
     })
     if (who.body?.error) throw new Error(`Torn rejected the key: ${who.body.error.error}`)
     const info = who.body?.info
-    if (!info?.user) throw new Error('Torn returned no key info — is the key correct?')
+    if (!info?.user) throw new Error('Torn returned no key info \u2014 is the key correct?')
     if (Number(info.access?.level ?? 0) < 3) {
       throw new Error('That is not a Limited Access key. Generate one in Torn and use that.')
     }
@@ -917,7 +1147,7 @@ const TNLDibs = (function () {
     if (!factionId) throw new Error('Torn reports no faction for that key.')
 
     let host = null
-    try { host = GM_getValue(DEBUG_HOST_KEY, '') || null } catch { host = null }
+    host = gmGet(DEBUG_HOST_KEY, '') || null
     if (!host) {
       const tenants = await gmRequest({ url: TENANTS_URL })
       host = resolveTenant(tenants.body, factionId)
@@ -1003,14 +1233,14 @@ const TNLDibs = (function () {
   }
 
   async function refreshToken() {
-    log('token is stale — refreshing')
+    log('token is stale \u2014 refreshing')
     const res = await gmRequest({
       method: 'POST',
       url: `https://${rt.session.host}/api/auth/refresh`,
       headers: { authorization: `Bearer ${rt.session.token}` },
     })
     if (res.status !== 200 || !res.body?.token) {
-      log(`refresh failed (${res.status}) — signing out`)
+      log(`refresh failed (${res.status}) \u2014 signing out`)
       store.clear()
       rt.session = null
       setStatus('auth')
@@ -1149,7 +1379,7 @@ const TNLDibs = (function () {
     if (chainRows.length > 0) rt.chain = chainRows[chainRows.length - 1]
 
     if (opponent !== null && opponent !== rt.opponentId) {
-      log(`opponent is now faction ${opponent} (was ${rt.opponentId ?? 'unknown'}) — resetting`)
+      log(`opponent is now faction ${opponent} (was ${rt.opponentId ?? 'unknown'}) \u2014 resetting`)
       rt.opponentId = opponent
       rt.enemies = new Set()
       rt.dibs = new Map()
@@ -1182,12 +1412,12 @@ const TNLDibs = (function () {
       const id = Number(row.member_id)
       if (Number.isFinite(id) && id > 0) rt.mstats.set(id, row)
     }
-    log(`${stateRows.length} roster rows, ${dibRows.length} dib rows, ${assistRows.length} assist rows →`,
+    log(`${stateRows.length} roster rows, ${dibRows.length} dib rows, ${assistRows.length} assist rows \u2192`,
       `${rt.enemies.size} enemies, ${rt.dibs.size} live claims, ${rt.assists.size} live assists`,
       `(opponent ${rt.opponentId ?? 'unknown'})`)
     // Faction-page-only UI (toasts) — the attack page has neither the dibs
     // targets nor the chain state these read, and would just be noise mid-fight.
-    if (isFactionPage()) {
+    if (isWarRankPage()) {
       checkDibsHospitalAlerts()
       checkChainAlert()
     }
@@ -1251,7 +1481,7 @@ const TNLDibs = (function () {
     if (typeof document !== 'undefined' && document.addEventListener) {
       document.addEventListener('visibilitychange', () => {
         if (document.hidden || !rt.polling) return
-        log('tab visible again — reading now')
+        log('tab visible again \u2014 reading now')
         if (rt.timer) { clearTimeout(rt.timer); rt.timer = null }
         tick()
       })
@@ -1280,6 +1510,8 @@ const TNLDibs = (function () {
   const NO_BS_CLASS = 'tnl-no-bs'
   const LAUNCHER_ID = 'tnl-war-room-link'
   const LAUNCHER_LABEL_ID = 'tnl-war-room-label'
+  /** Fallback home for the launcher where Torn's page-title links are absent. */
+  const LAUNCHER_HOST_ID = 'tnl-war-room-host'
   const LAUNCHER_NAME = 'Torn War Room'
   /** Warline-style online/idle badge on the "Members" header. */
   const MEMBER_COUNT_COLOR = '#0b8a0b'
@@ -1289,6 +1521,8 @@ const TNLDibs = (function () {
   const MC_WORD_CLASS = 'tnl-mc-word'
   const PLAIN_NAME_CLASS = 'tnl-plain-name'
   const TINTING_CLASS = 'tnl-tinting'
+  /** On <html> only while the war roster is the active tab (see scopeCss). */
+  const WAR_ACTIVE_CLASS = 'tnl-war-active'
   /** TornTools' own "row is filtered out" marker. We read it, never set it. */
   const TT_HIDDEN_CLASS = 'tt-hidden'
   /** Semi-transparent, so the hairline reads on Torn's light theme and its dark one. */
@@ -1317,13 +1551,134 @@ const TNLDibs = (function () {
     traveling: '#60a5fa', abroad: '#22d3ee',
   }
 
+  /**
+   * Prefix every selector so the whole sheet is inert unless <html> carries
+   * WAR_ACTIVE_CLASS.
+   *
+   * Removing the <style> on route change (teardownWarUi) is the intended path,
+   * but it is a path that can MISS: it depends on render() being reached, which
+   * depends on Torn firing something we listen for. Torn routes faction tabs
+   * client-side, and a pushState that changes no hash fires neither
+   * `hashchange` nor `popstate`. When that happens the sheet stays applied to a
+   * tab it was never written for, and rules like
+   * `.white-grad { display:flex; width:100% }` inflate Torn's own section
+   * header into an empty full-width bar carrying the tab name.
+   *
+   * Scoping makes the failure impossible rather than unlikely: with the class
+   * off, not one rule matches, whatever went wrong with the teardown.
+   */
+  function scopeSelector(sel, cls) {
+    const s = sel.trim()
+    if (!s) return sel
+    // `html`-leading selectors get the class added TO that html, not prefixed
+    // in front of it — `html.x html.y` can never match, since html is nobody's
+    // descendant. The tint and no-battle-stats toggles are written that way.
+    if (/^html\b/.test(s)) return s.replace(/^html\b/, `html.${cls}`)
+    return `html.${cls} ${s}`
+  }
+
+  /** Split a selector list on top-level commas — `:not(.a, .b)` stays whole. */
+  function splitSelectorList(list) {
+    const out = []
+    let depth = 0
+    let buf = ''
+    for (const ch of list) {
+      if (ch === '(' || ch === '[') depth++
+      else if (ch === ')' || ch === ']') depth--
+      if (ch === ',' && depth === 0) { out.push(buf); buf = ''; continue }
+      buf += ch
+    }
+    out.push(buf)
+    return out
+  }
+
+  /**
+   * Scope one selector list, preserving the whitespace and comments around it —
+   * the sheet is read by people, and a transform that reflows it makes every
+   * future diff unreadable.
+   */
+  function scopeHead(head, cls) {
+    const trivia = head.match(/^(?:\s|\/\*[\s\S]*?\*\/)*/)[0]
+    const rest = head.slice(trivia.length)
+    if (!rest.trim()) return head
+    const scoped = splitSelectorList(rest).map((part) => {
+      const lead = part.match(/^\s*/)[0]
+      const tail = part.match(/\s*$/)[0]
+      const body = part.trim()
+      return body ? lead + scopeSelector(body, cls) + tail : part
+    }).join(',')
+    return trivia + scoped
+  }
+
+  /** Group at-rules nest real rules; @keyframes nests keyframe steps instead. */
+  const AT_GROUP = /^@(media|supports|container|document|layer|scope)\b/
+  const AT_KEYFRAMES = /^@(-\w+-)?keyframes\b/
+
+  function scopeCss(css, cls) {
+    let out = ''
+    let head = ''
+    const stack = []            // 'decl' | 'group' | 'raw'
+    let i = 0
+    while (i < css.length) {
+      if (css[i] === '/' && css[i + 1] === '*') {
+        const end = css.indexOf('*/', i + 2)
+        const stop = end === -1 ? css.length : end + 2
+        const top = stack[stack.length - 1]
+        if (top === 'decl' || top === 'raw') out += css.slice(i, stop)
+        else head += css.slice(i, stop)
+        i = stop
+        continue
+      }
+      const ch = css[i]
+      const top = stack[stack.length - 1]
+      if (top === 'decl') {
+        out += ch
+        if (ch === '}') stack.pop()
+        i++
+        continue
+      }
+      if (top === 'raw') {
+        // Inside @keyframes: copy through, tracking depth. A keyframe step
+        // (`from`, `to`, `0%`) is NOT a selector and must not be scoped.
+        out += ch
+        if (ch === '{') stack.push('decl')
+        else if (ch === '}') stack.pop()
+        i++
+        continue
+      }
+      if (ch === '{') {
+        const trimmed = head.trim()
+        if (trimmed.startsWith('@')) {
+          out += head + '{'
+          stack.push(AT_GROUP.test(trimmed) ? 'group' : AT_KEYFRAMES.test(trimmed) ? 'raw' : 'decl')
+        } else {
+          out += scopeHead(head, cls) + '{'
+          stack.push('decl')
+        }
+        head = ''
+        i++
+        continue
+      }
+      if (ch === '}') {          // closes a group at-rule
+        out += head + '}'
+        head = ''
+        stack.pop()
+        i++
+        continue
+      }
+      head += ch
+      i++
+    }
+    return out + head
+  }
+
   function injectStyles() {
     if (typeof document === 'undefined') return
     if (document.getElementById(STYLE_ID)) return
     const el = document.createElement('style')
     el.id = STYLE_ID
-    el.textContent = `
-/* The header, the list AND each row are flex — all three, or none. Torn lays
+    el.textContent = scopeCss(`
+/* The header, the list AND each row are flex \u2014 all three, or none. Torn lays
    rows out with floats, but the cells we inject are not floated, and non-floated
    content does not sit in DOM order relative to floats. Mixing the two models
    gives the header and the rows two different column orders. */
@@ -1390,7 +1745,7 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
 .${COL_HEAD_CLASS}.${BS_CLASS} { justify-content: center; text-align: center; }
 /* The FF border hugs the number, not the row height, or it clips.
    This is an <a>, so it starts from Torn's link colour and underline until
-   paintStats writes the real ones inline — these keep that off the screen. */
+   paintStats writes the real ones inline \u2014 these keep that off the screen. */
 .${STAT_VALUE_CLASS} {
   color: inherit; text-decoration: none;
   display: inline-block; max-width: 100%;
@@ -1449,7 +1804,7 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
 .${BADGE_CLASS}.${TAKEN_CLASS} { background: #c2410c; cursor: default; }
 .${BADGE_CLASS}.${TAKEN_CLASS}:hover { background: #c2410c; }
 /* A live assist request morphs this same badge into a small icon-only link
-   (#523) — display:flex centres the inlined SVG the way text-align never
+   (#523) \u2014 display:flex centres the inlined SVG the way text-align never
    quite does for a block-level icon. */
 .${BADGE_CLASS}.${ASSIST_CLASS} {
   background: #ea580c; cursor: pointer;
@@ -1480,9 +1835,9 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
 /* Torn's plain .honor-text span is position:absolute (it normally sits as an
    invisible backdrop under the honor-bar image/SVG), and an absolutely
    positioned element is blockified by the CSS spec regardless of any
-   display:inline we set — so it never contributed to its wrapping <a>'s size.
+   display:inline we set \u2014 so it never contributed to its wrapping <a>'s size.
    With the <img> hidden, that <a> had nothing left to size itself on and
-   collapsed to 0×0: the text still painted (absolute escapes a 0-size
+   collapsed to 0\u00D70: the text still painted (absolute escapes a 0-size
    ancestor) but there was no box left to hover or click. position:static
    pulls it back into normal flow so the link sizes around the visible text. */
 .${PLAIN_NAME_CLASS} .honor-text-wrap,
@@ -1517,7 +1872,7 @@ a.${TINT_CLASS}, .${TINT_CLASS} > a { color: var(--tnl-tint) !important; }
 
 /* The dot and the faction tag both go: the name carries activity now, and in a
    two-faction view the tag says nothing. No negative margin to reclaim the space
-   — under flex the name column takes it, and a negative one causes an overlap. */
+   \u2014 under flex the name column takes it, and a negative one causes an overlap. */
 html.${TINTING_CLASS} [class*="userStatusWrap___"],
 html.${TINTING_CLASS} [class*="factionWrap___"] { display: none !important; }
 
@@ -1543,7 +1898,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   background: ${MEMBER_COUNT_COLOR}1f;
 }
 
-/* Narrow screens lose no column and no badge — the name column absorbs the
+/* Narrow screens lose no column and no badge \u2014 the name column absorbs the
    squeeze. The badge cannot shrink (nowrap), so instead "3 online / 8 idle"
    becomes "3 / 8" and colour carries what the words did. */
 @media screen and (max-width: ${NARROW_PX}px) {
@@ -1552,7 +1907,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   .${MEMBER_COUNT_CLASS} .${MC_IDLE_CLASS} { color: ${TINT_COLORS.idle}; }
   .${MEMBER_COUNT_CLASS} { margin-left: 5px; padding: 1px 6px; font-size: 11px; }
 
-  /* A few px off each fixed column — the name column takes the difference. */
+  /* A few px off each fixed column \u2014 the name column takes the difference. */
   .members-cont .level { width: 24px !important; max-width: 24px !important; flex: 0 0 24px !important; }
   .${BS_CLASS} { width: 46px; min-width: 46px; max-width: 46px; flex: 0 0 46px; }
   .members-cont [class*="points___"]:not([class*="tab___"]),
@@ -1594,7 +1949,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   50% { opacity: .55; }
 }
 
-`
+`, WAR_ACTIVE_CLASS)
     ;(document.head || document.documentElement).appendChild(el)
     log('stylesheet injected')
   }
@@ -1719,7 +2074,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       }
       if (state.action === 'none') return
       badge.disabled = true
-      badge.textContent = '…'
+      badge.textContent = '\u2026'
       const res = state.action === 'claim' ? await claim(playerId) : await release(playerId)
       badge.disabled = false
       if (!res.ok) badge.title = res.message
@@ -1756,9 +2111,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     badge.classList.toggle(MINE_CLASS, Boolean(state.mine))
     badge.classList.toggle(TAKEN_CLASS, Boolean(state.taken) && !state.mine)
     badge.title = state.mine
-      ? 'Yours — click to release'
+      ? 'Yours \u2014 click to release'
       : state.taken
-        ? `Claimed by ${state.label}${state.action === 'release' ? ' — click to release (admin)' : ''}`
+        ? `Claimed by ${state.label}${state.action === 'release' ? ' \u2014 click to release (admin)' : ''}`
         : 'Claim this target'
   }
 
@@ -1853,7 +2208,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       for (const id of hospitalExits(mine, rt.hospitalSeen, rt.state)) {
         if (!rowConfirmsOutOfHospital(id)) continue
         const name = anchorNameFor(id) ?? `#${id}`
-        showToast(`${name} left the hospital — your dibs target is up`, 'hospital')
+        showToast(`${name} left the hospital \u2014 your dibs target is up`, 'hospital')
         log(`dibs hospital-exit alert: ${name} (${id})`)
       }
     }
@@ -1872,7 +2227,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (due && rt.chainWarnedTimeout !== timeout) {
       rt.chainWarnedTimeout = timeout
       if (typeof document !== 'undefined') {
-        showToast(`Chain drops in under a minute — ${Number(rt.chain.current) || 0} hits`, 'chain')
+        showToast(`Chain drops in under a minute \u2014 ${Number(rt.chain.current) || 0} hits`, 'chain')
       }
     }
     if (!due) rt.chainWarnedTimeout = null   // re-arm for the next window
@@ -2060,7 +2415,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     cd('Medical CD', m.cooldown_medical)
     cd('Booster CD', m.cooldown_booster)
     const od = parseDbTime(m.overdose_until)
-    if (od && od.getTime() > Date.now()) out.push('☠ Overdosed')
+    if (od && od.getTime() > Date.now()) out.push('\u2620 Overdosed')
     return out
   }
 
@@ -2223,6 +2578,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   }
 
   function applySort(nowMs = Date.now()) {
+    // rt.sortState is keyed by the list ELEMENT, so every list Torn re-renders
+    // leaves its old node pinned in the Map — and with it that whole detached
+    // subtree. On a war page that re-renders for hours this grows without
+    // bound, which is the shape of a session that gets slower and then dies.
+    // Dropping disconnected keys here costs one pass over a Map that should
+    // never hold more than a handful of live lists.
+    for (const list of rt.sortState.keys()) {
+      if (list && list.isConnected === false) rt.sortState.delete(list)
+    }
     // Nothing to do, and nothing to undo — skip the whole walk.
     if (!anySortActive() && !rt.sorted) return
     rt.sorted = anySortActive()
@@ -2287,7 +2651,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     header.addEventListener('click', (e) => {
       if (!sortStateFor(list).key) return
       if (!isTornSortHeader(headerCellOf(header, e.target))) return
-      log('Torn header clicked — releasing our sort')
+      log('Torn header clicked \u2014 releasing our sort')
       rt.sortState.set(list, { key: null, dir: 0 })
       paintSortHeaders()
       applySort()
@@ -2300,7 +2664,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const key = el.dataset.tnlSortKey
       const label = el.dataset.tnlSortLabel ?? ''
       const state = sortStateFor(el._tnlSortList)
-      const arrow = state.key !== key ? '' : state.dir === -1 ? ' ▾' : ' ▴'
+      const arrow = state.key !== key ? '' : state.dir === -1 ? ' \u25BE' : ' \u25B4'
       const text = `${label}${arrow}`
       const target = el._tnlSortLabelEl ?? el
       if (target.textContent !== text) target.textContent = text
@@ -2470,6 +2834,72 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   const ASSIST_OVERLAY_ID = 'tnl-assist-overlay'
   const ASSIST_OVERLAY_STYLE_ID = 'tnl-assist-overlay-style'
   const ASSIST_BTN_ACTIVE_CLASS = 'tnl-assist-btn-active'
+  const ASSIST_HANDLE_CLASS = 'tnl-assist-handle'
+  const ASSIST_COLLAPSED_CLASS = 'tnl-assist-collapsed'
+  /** `{left, top}` in viewport px, and the collapsed flag — both per-browser. */
+  const ASSIST_POS_KEY = 'tnl-dibs-assist-pos'
+  const ASSIST_COLLAPSED_KEY = 'tnl-dibs-assist-collapsed'
+  /** Fallback corner when nothing is stored. Bottom-left: Torn's own attack
+   *  controls sit centre and top-right, which is what the old fixed
+   *  `top:70px; right:10px` was landing on top of. */
+  const ASSIST_MARGIN = 12
+
+  /**
+   * Keep a remembered position inside the window.
+   *
+   * Pure so it can be tested without a DOM, and necessary rather than tidy: a
+   * position saved on a wide desktop puts the panel off-screen on a phone or
+   * after the window is narrowed, and an off-screen panel is unreachable —
+   * there would be no way to drag it back.
+   */
+  function clampAssistPos(pos, size, viewport) {
+    const w = Math.max(0, Number(size?.w) || 0)
+    const h = Math.max(0, Number(size?.h) || 0)
+    const vw = Math.max(0, Number(viewport?.vw) || 0)
+    const vh = Math.max(0, Number(viewport?.vh) || 0)
+    const maxLeft = Math.max(0, vw - w - ASSIST_MARGIN)
+    const maxTop = Math.max(0, vh - h - ASSIST_MARGIN)
+    // `== null` on purpose, not Number.isFinite(Number(v)): Number(null) is 0,
+    // which is finite, so a null "top" would silently mean the TOP edge rather
+    // than "no preference, use the default corner".
+    const has = (v) => v != null && Number.isFinite(Number(v))
+    const left = has(pos?.left) ? Number(pos.left) : maxLeft
+    const top = has(pos?.top) ? Number(pos.top) : maxTop
+    return {
+      left: Math.min(Math.max(ASSIST_MARGIN, left), Math.max(ASSIST_MARGIN, maxLeft)),
+      top: Math.min(Math.max(ASSIST_MARGIN, top), Math.max(ASSIST_MARGIN, maxTop)),
+    }
+  }
+
+  /** Stored position, or null when unset/corrupt — the caller picks a corner. */
+  function parseAssistPos(raw) {
+    if (raw === null || raw === undefined || raw === '') return null
+    let obj = raw
+    if (typeof raw === 'string') {
+      try { obj = JSON.parse(raw) } catch { return null }
+    }
+    if (!obj || typeof obj !== 'object') return null
+    const left = Number(obj.left)
+    const top = Number(obj.top)
+    if (!Number.isFinite(left) || !Number.isFinite(top)) return null
+    return { left, top }
+  }
+
+  function readAssistPos() {
+    return parseAssistPos(gmGet(ASSIST_POS_KEY, null))
+  }
+
+  function writeAssistPos(pos) {
+    gmSet(ASSIST_POS_KEY, JSON.stringify(pos))
+  }
+
+  function assistCollapsed() {
+    return gmGet(ASSIST_COLLAPSED_KEY, 'false') === 'true'
+  }
+
+  function setAssistCollapsed(on) {
+    gmSet(ASSIST_COLLAPSED_KEY, on ? 'true' : 'false')
+  }
 
   /**
    * Attack-page overlay (#523) — small, fixed-position, self-contained.
@@ -2491,8 +2921,12 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     el.textContent = `
 #${ASSIST_OVERLAY_ID} {
   position: fixed; z-index: 2147483000;
-  top: 70px; right: 10px;
-  display: flex; gap: 6px;
+  /* left/top are written by placeAssistOverlay(); these are only the values
+     that apply for the frame before it runs. The old fixed top-right corner is
+     gone: that is where Torn puts its own attack controls, and a pinned panel
+     sitting on them cannot be moved out of the way. */
+  left: ${ASSIST_MARGIN}px; top: ${ASSIST_MARGIN}px;
+  display: flex; gap: 6px; align-items: center;
   background: rgba(17,24,39,.92); border: 1px solid #374151; border-radius: 8px;
   padding: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.4);
   pointer-events: auto;
@@ -2505,9 +2939,138 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 }
 #${ASSIST_OVERLAY_ID} button:hover { background: #374151; }
 #${ASSIST_OVERLAY_ID} button.${ASSIST_BTN_ACTIVE_CLASS} { background: #ea580c; border-color: #ea580c; }
+/* The grab handle. Dragging is bound to this alone, never to the box, so a
+   mis-aimed drag can never swallow a click meant for an assist button. */
+#${ASSIST_OVERLAY_ID} .${ASSIST_HANDLE_CLASS} {
+  width: 14px; height: 30px; flex: 0 0 14px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: grab; color: #9ca3af; user-select: none;
+  border-radius: 4px;
+  /* Scoped to the handle, not the box: this suppresses the browser's own
+     touch gestures so a drag moves the panel instead of scrolling the page,
+     and putting it on the box would kill scrolling over the buttons too. */
+  touch-action: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#${ASSIST_OVERLAY_ID} .${ASSIST_HANDLE_CLASS}:hover { background: #374151; color: #e5e7eb; }
+#${ASSIST_OVERLAY_ID} .${ASSIST_HANDLE_CLASS}:active { cursor: grabbing; }
+/* Collapsed: the handle alone, so it can be parked anywhere without covering
+   anything. Clicking it brings the buttons back. */
+#${ASSIST_OVERLAY_ID}.${ASSIST_COLLAPSED_CLASS} button { display: none; }
+#${ASSIST_OVERLAY_ID}.${ASSIST_COLLAPSED_CLASS} { padding: 3px; opacity: .75; }
+#${ASSIST_OVERLAY_ID}.${ASSIST_COLLAPSED_CLASS}:hover { opacity: 1; }
+/* Touch. A 14px grip and 30px buttons are a mouse's targets, not a thumb's \u2014
+   the usual floor is ~44px, and the handle is the one control that MUST be
+   hittable or the panel can never be moved off whatever it is covering.
+   The hover:none half of the query is there because a touchscreen laptop
+   reports a coarse pointer while still having a real cursor. */
+@media (pointer: coarse) and (hover: none) {
+  #${ASSIST_OVERLAY_ID} { gap: 8px; padding: 8px; }
+  #${ASSIST_OVERLAY_ID} button { width: 44px; height: 44px; }
+  #${ASSIST_OVERLAY_ID} .${ASSIST_HANDLE_CLASS} {
+    width: 26px; flex: 0 0 26px; height: 44px; font-size: 18px;
+  }
+  #${ASSIST_OVERLAY_ID}.${ASSIST_COLLAPSED_CLASS} { padding: 6px; opacity: .85; }
+}
 `
     document.head.appendChild(el)
   }
+
+  /**
+   * Write the remembered position onto the box, clamped to the window.
+   *
+   * Called after every render and on resize, not just on drop: the panel is
+   * `position: fixed`, so a window that shrinks below the stored coordinates
+   * would otherwise strand it off-screen with no way to drag it back.
+   */
+  /**
+   * The area the user can actually see, which on mobile is not window.inner*.
+   *
+   * A phone's URL bar and on-screen keyboard shrink the visual viewport without
+   * changing innerHeight, so clamping to innerHeight parks the panel behind the
+   * keyboard — reachable only by dismissing it, which is exactly when you want
+   * the panel. visualViewport reports the real visible box; falls back cleanly
+   * on desktop and on anything that does not implement it.
+   */
+  function viewportSize() {
+    if (typeof window === 'undefined') return { vw: 0, vh: 0 }
+    const vv = window.visualViewport
+    return {
+      vw: Math.round(vv?.width ?? window.innerWidth ?? 0),
+      vh: Math.round(vv?.height ?? window.innerHeight ?? 0),
+    }
+  }
+
+  function placeAssistOverlay(box) {
+    if (!box || typeof window === 'undefined') return
+    const rect = typeof box.getBoundingClientRect === 'function' ? box.getBoundingClientRect() : null
+    const size = { w: rect?.width ?? 0, h: rect?.height ?? 0 }
+    const viewport = viewportSize()
+    // No stored position → bottom-left, which is the corner Torn leaves clear
+    // on the attack page. clampAssistPos() turns the nulls into exactly that.
+    const stored = readAssistPos()
+    const pos = clampAssistPos(stored ?? { left: ASSIST_MARGIN, top: null }, size, viewport)
+    box.style.left = `${pos.left}px`
+    box.style.top = `${pos.top}px`
+    return pos
+  }
+
+  /**
+   * Pointer-drag on the handle, with the result remembered.
+   *
+   * Pointer events rather than mouse events so this works with a touch drag on
+   * mobile, and setPointerCapture so the drag survives the pointer leaving the
+   * handle mid-move — without it, a fast drag drops the panel the moment the
+   * cursor outruns a 14px target.
+   */
+  function bindAssistDrag(box, handle) {
+    if (!handle || typeof handle.addEventListener !== 'function') return
+    let dragging = null
+
+    handle.addEventListener('pointerdown', (e) => {
+      if (e.button != null && e.button !== 0) return
+      e.preventDefault(); e.stopPropagation()
+      const rect = box.getBoundingClientRect()
+      dragging = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, moved: false }
+      try { handle.setPointerCapture(e.pointerId) } catch { /* not supported: plain move still works */ }
+    })
+
+    handle.addEventListener('pointermove', (e) => {
+      if (!dragging) return
+      e.preventDefault()
+      dragging.moved = true
+      const rect = box.getBoundingClientRect()
+      const pos = clampAssistPos(
+        { left: e.clientX - dragging.dx, top: e.clientY - dragging.dy },
+        { w: rect.width, h: rect.height },
+        viewportSize(),
+      )
+      box.style.left = `${pos.left}px`
+      box.style.top = `${pos.top}px`
+    })
+
+    const end = (e) => {
+      if (!dragging) return
+      const wasDrag = dragging.moved
+      dragging = null
+      try { handle.releasePointerCapture(e.pointerId) } catch { /* nothing to release */ }
+      if (wasDrag) {
+        writeAssistPos({ left: parseFloat(box.style.left) || 0, top: parseFloat(box.style.top) || 0 })
+        return
+      }
+      // A click, not a drag: fold the panel down to the handle so it can be
+      // parked over nothing at all, and remember that too.
+      const next = !box.classList.contains(ASSIST_COLLAPSED_CLASS)
+      box.classList.toggle(ASSIST_COLLAPSED_CLASS, next)
+      setAssistCollapsed(next)
+      placeAssistOverlay(box)
+    }
+    handle.addEventListener('pointerup', end)
+    handle.addEventListener('pointercancel', end)
+  }
+
+  let assistResizeBound = false
 
   function ensureAssistOverlay() {
     if (typeof document === 'undefined') return null
@@ -2515,6 +3078,23 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (box && box.isConnected) return box
     box = document.createElement('div')
     box.id = ASSIST_OVERLAY_ID
+    const handle = document.createElement('div')
+    handle.className = ASSIST_HANDLE_CLASS
+    handle.title = 'Drag to move \u2014 click to collapse'
+    // An SVG grip, not a glyph. The braille-dots character this used to be was
+    // doubly fragile: it renders as mojibake wherever the file is decoded as
+    // anything but UTF-8 (Torn PDA's webview, which is what surfaced it), and
+    // even decoded correctly it depends on the platform having a font that
+    // covers U+2800..U+28FF. This is the one control that MUST be visible —
+    // it is the only way to move the panel off whatever it is covering — so it
+    // gets a shape that cannot fail to draw.
+    handle.innerHTML =
+      '<svg viewBox="0 0 8 16" width="8" height="16" aria-hidden="true" fill="currentColor">'
+      + '<circle cx="2" cy="3" r="1.2"/><circle cx="6" cy="3" r="1.2"/>'
+      + '<circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/>'
+      + '<circle cx="2" cy="13" r="1.2"/><circle cx="6" cy="13" r="1.2"/>'
+      + '</svg>'
+    box.appendChild(handle)
     for (const kind of Object.keys(ASSIST_KIND_META)) {
       const meta = ASSIST_KIND_META[kind]
       const btn = document.createElement('button')
@@ -2545,7 +3125,27 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       })
       box.appendChild(btn)
     }
+    if (assistCollapsed()) box.classList.add(ASSIST_COLLAPSED_CLASS)
     document.body.appendChild(box)
+    bindAssistDrag(box, handle)
+    placeAssistOverlay(box)
+    // Once per page, not once per rebuild: renderAssistOverlay() removes the
+    // box whenever there is no target and builds a fresh one when there is,
+    // so binding here unguarded would stack a new listener on every fight.
+    if (!assistResizeBound && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      assistResizeBound = true
+      const reflow = () => {
+        const live = document.getElementById(ASSIST_OVERLAY_ID)
+        if (live) placeAssistOverlay(live)
+      }
+      window.addEventListener('resize', reflow)
+      // Rotating a phone does not reliably fire `resize` before the new
+      // dimensions settle, and the visual viewport changes on its own as the
+      // URL bar collapses or the keyboard opens — neither raises `resize`.
+      window.addEventListener('orientationchange', reflow)
+      window.visualViewport?.addEventListener?.('resize', reflow)
+      window.visualViewport?.addEventListener?.('scroll', reflow)
+    }
     return box
   }
 
@@ -2675,6 +3275,71 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
+  /**
+   * Undo everything faction-side, for when the SPA routes away from the war
+   * page (#/armory, #/crimes, …) without a page load.
+   *
+   * This is the half that was missing, and it is what made the script look
+   * "active on more pages than the war page": injectStyles() writes ONE
+   * stylesheet into <head> and nothing ever took it out again. Its selectors
+   * are deliberately broad — `.white-grad`, `.table-header`,
+   * `[class*="tableHeader"]`, `ul.members-list`, `.table-body` — because on
+   * the war roster those ARE the roster. They are Torn component classes
+   * reused across every faction tab, so once the user clicked Armory those
+   * same rules forced Torn's own furniture to `display:flex; width:100%`,
+   * which is the empty full-width bar showing the tab name, and on a heavier
+   * tab is enough to collapse the content region outright.
+   *
+   * Row-level cells are not chased here: Torn re-renders the content area on
+   * every route change, so they leave with it. What survives a route change is
+   * what this removes — the stylesheet, the <html> classes, and the furniture
+   * parked on <body> or in the persistent page-title bar. The querySelectorAll
+   * sweep at the end is belt-and-braces for a re-render that kept the rows.
+   */
+  function teardownWarUi() {
+    if (typeof document === 'undefined') return
+    // Cheap bail-out: the stylesheet is injected first and removed last, so its
+    // absence means there is nothing left to undo. This runs on every mutation
+    // batch while the user sits on another tab, so it must cost ~nothing.
+    if (!document.getElementById(STYLE_ID)
+        && !document.documentElement.classList.contains(WAR_ACTIVE_CLASS)) return
+
+    // NOT the launcher, and not its settings panel — those are faction-page
+    // furniture and survive a tab change (see render()). Everything here is
+    // roster furniture: the stylesheet written against the war table, the stat
+    // tooltip, the chain badge and its popover, and the toast host, which has
+    // no styling of its own once the stylesheet is gone.
+    for (const id of [STYLE_ID, TIP_ID, CHAIN_BADGE_ID, TOAST_HOST_ID]) {
+      document.getElementById(id)?.remove()
+    }
+    chainBadge = null
+    if (chainPanelBox && chainPanelBox.isConnected) chainPanelBox.remove()
+    chainPanelBox = null
+    rt.chainOpen = false
+
+    document.documentElement.classList.remove(WAR_ACTIVE_CLASS, NO_BS_CLASS, TINTING_CLASS)
+
+    for (const el of document.querySelectorAll(`.${DIBS_CLASS}, .${BS_CLASS}, .${MEMBER_COUNT_CLASS}`)) {
+      el.remove()
+    }
+    // Sorting positions rows with a flex `order`, which our stylesheet is what
+    // makes meaningful — left behind it would scramble Torn's own list. Scoped
+    // to the two list containers rather than a document-wide [style*="order"]:
+    // that substring also matches every inline `border`, so it would walk most
+    // of the page to find a handful of rows.
+    for (const list of document.querySelectorAll('ul.members-list, .table-body')) {
+      for (const row of list.children) {
+        if (row.style?.order) row.style.order = ''
+      }
+      delete list.dataset.tnlOrderSig
+    }
+    rt.sortState = new Map()
+    rt.sorted = false
+    rt.painted = -1
+    rt.attached = -1
+    log('left the war tab \u2014 roster styles and columns removed (launcher stays)')
+  }
+
   function render() {
     if (typeof document === 'undefined') return
     // #523: two @match surfaces, two render paths — never both. The attack
@@ -2684,9 +3349,24 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // there risks breaking Torn's own attack-page layout, not just no-op.
     if (isAttackPage()) { renderAssistOverlay(); return }
     if (!isFactionPage()) return   // unrecognised page: degrade to nothing
-    injectStyles()
-    // Puts the link back after Torn re-renders the page title out from under it.
+    // The launcher and its status light belong to the whole faction page, not
+    // to the war tab: it is how you reach settings and how you tell whether
+    // the script is connected at all, and both of those are worth knowing from
+    // Armory or Crimes. It is also self-contained — inline-styled, parked in
+    // Torn's own page-title links — so it needs none of the roster stylesheet
+    // below. Re-asserted on every pass because Torn re-renders the page title
+    // out from under it on navigation.
     ensureLauncher()
+    // Faction page, but not the war roster (the user clicked Armory, Crimes,
+    // …): actively undo the ROSTER furniture rather than merely skipping the
+    // paint. The hash moves without a page load, so "skip" would leave the
+    // stylesheet applied to a tab it was never written for.
+    if (!isWarRankPage()) { teardownWarUi(); return }
+    injectStyles()
+    // Arms the scoped stylesheet. Every rule in it is prefixed with this class,
+    // so this line — not the presence of the <style> element — is what makes
+    // the sheet live.
+    document.documentElement.classList.add(WAR_ACTIVE_CLASS)
     document.documentElement.classList.toggle(NO_BS_CLASS, !settings.on(SETTING_STATS))
     let painted = 0      // enemies we intended to badge
     let attached = 0     // badges that actually exist in the DOM
@@ -2778,6 +3458,16 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       render()   // once per batch, not once per touched node
     })
     observer.observe(document, { childList: true, subtree: true })
+    // Torn routes faction tabs client-side, so leaving or entering the war page
+    // fires no navigation the script would otherwise see. Without this the gate
+    // in render() is only ever evaluated against the hash the page happened to
+    // load with. `hashchange` covers Torn's own tab links; `popstate` covers
+    // the browser's back/forward over the same routes.
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      const onRoute = () => { log(`route \u2192 ${location.hash || '(none)'}`); render() }
+      window.addEventListener('hashchange', onRoute)
+      window.addEventListener('popstate', onRoute)
+    }
     scan(document)
     render()
     startTimers()
@@ -2793,12 +3483,50 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
    * connectivity light. Rebuilt on demand: Torn re-renders the page title on
    * navigation and would otherwise drop it.
    */
+  /**
+   * Where the launcher lives: Torn's own page-title links, or our own strip.
+   *
+   * `#top-page-links-list` is a desktop-layout element. When it is absent —
+   * Torn PDA's webview and Torn's narrow mobile layout are the cases seen —
+   * the old code returned null and the launcher simply never appeared, which
+   * is indistinguishable from "the script did not run at all". That made the
+   * one thing you need in order to diagnose anything (the status light) the
+   * first thing to disappear on the platform hardest to debug.
+   *
+   * The fallback is a small fixed strip of our own. It is deliberately plain:
+   * it exists so the script is always reachable and always able to say what
+   * state it is in.
+   */
+  function launcherHost() {
+    const native = document.getElementById('top-page-links-list')
+    if (native) {
+      document.getElementById(LAUNCHER_HOST_ID)?.remove()
+      return native
+    }
+    let host = document.getElementById(LAUNCHER_HOST_ID)
+    if (host && host.isConnected) return host
+    if (!document.body) return null
+    host = document.createElement('div')
+    host.id = LAUNCHER_HOST_ID
+    host.style.cssText = [
+      'position:fixed', 'left:8px', 'top:8px', 'z-index:2147483000',
+      'display:flex', 'align-items:center', 'gap:6px',
+      'background:rgba(17,24,39,.92)', 'border:1px solid #374151',
+      'border-radius:8px', 'padding:4px 8px',
+      'font:12px/1.4 system-ui,sans-serif', 'color:#e5e7eb',
+      'box-shadow:0 4px 16px rgba(0,0,0,.4)', 'cursor:pointer',
+    ].join(';')
+    document.body.appendChild(host)
+    log('no #top-page-links-list on this layout \u2014 using the fallback launcher strip')
+    return host
+  }
+
   function ensureLauncher() {
     if (typeof document === 'undefined') return null
     const found = document.getElementById(LAUNCHER_ID)
     if (found && found.isConnected) { launcher = found; return found }
 
-    const list = document.getElementById('top-page-links-list')
+    const list = launcherHost()
     if (!list) { launcher = null; return null }
 
     const link = document.createElement('a')
@@ -2807,6 +3535,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // Torn's own classes, so it inherits their type, hover and spacing.
     link.className = 't-clear h c-pointer m-icon line-h24 right'
     link.setAttribute('aria-labelledby', LAUNCHER_LABEL_ID)
+    // Those are Torn's own classes and style nothing inside our fallback strip.
+    if (list.id === LAUNCHER_HOST_ID) {
+      link.style.cssText = 'display:flex;align-items:center;gap:6px;color:#e5e7eb;text-decoration:none'
+    }
 
     const iconWrap = document.createElement('span')
     iconWrap.className = 'icon-wrap svg-icon-wrap'
@@ -2877,7 +3609,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     link.id = CHAIN_BADGE_ID
     link.href = '#'
     link.className = 't-clear h c-pointer line-h24 right'
-    link.title = 'Chain — click for the bonus-hit ladder and the save claim'
+    link.title = 'Chain \u2014 click for the bonus-hit ladder and the save claim'
 
     const label = document.createElement('span')
     label.id = CHAIN_BADGE_LABEL_ID
@@ -2952,7 +3684,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     const current = Number(chain?.current) || 0
     const next = nextBonusHit(current)
     const info = document.createElement('div')
-    info.textContent = next ? `${current} hits · next bonus at ${next} (${next - current} to go)` : `${current} hits`
+    info.textContent = next ? `${current} hits \u00B7 next bonus at ${next} (${next - current} to go)` : `${current} hits`
     box.appendChild(info)
 
     const nowSec = Math.floor(Date.now() / 1000)
@@ -3011,8 +3743,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   function statusText(state) {
     return {
-      live: '● live', connecting: '○ connecting…', reconnecting: '○ reconnecting…',
-      auth: '⚠ session expired', idle: '○ not connected', error: '⚠ error',
+      live: '\u25CF live', connecting: '\u25CB connecting\u2026', reconnecting: '\u25CB reconnecting\u2026',
+      auth: '\u26A0 session expired', idle: '\u25CB not connected', error: '\u26A0 error',
     }[state] || state
   }
 
@@ -3028,7 +3760,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (panelStatus) panelStatus.textContent = statusText(state)
     if (panelDot) panelDot.style.background = statusColor(state)
     if (launcher && launcher.isConnected) {
-      launcher.title = `${LAUNCHER_NAME} — ${statusText(state)}`
+      launcher.title = `${LAUNCHER_NAME} \u2014 ${statusText(state)}`
     }
   }
 
@@ -3115,7 +3847,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     box.appendChild(titleInput)
 
     const descInput = document.createElement('textarea')
-    descInput.placeholder = 'What happened, or what you’d like to see'
+    descInput.placeholder = 'What happened, or what you\u2019d like to see'
     descInput.rows = 4
     descInput.maxLength = FEEDBACK_DESC_MAX
     descInput.style.cssText = 'width:100%;box-sizing:border-box;margin-bottom:6px;padding:4px 6px;border-radius:6px;border:1px solid #4b5563;background:#1f2937;color:#e5e7eb;resize:vertical;font:inherit'
@@ -3131,7 +3863,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     send.addEventListener('click', async () => {
       send.disabled = true
       note.style.color = ''
-      note.textContent = 'Sending…'
+      note.textContent = 'Sending\u2026'
       const res = await submitFeedback(category.value, titleInput.value, descInput.value)
       send.disabled = false
       if (!res.ok) {
@@ -3225,6 +3957,17 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       tag.style.cssText = 'font-weight:400;font-size:11px;color:#9ca3af'
       title.appendChild(tag)
     }
+    // Which cross-origin transport we resolved to. On a desktop userscript
+    // manager this is always "GM" and not worth a line, so it is only shown
+    // when it is NOT that — i.e. exactly when someone is trying to work out
+    // why a phone behaves differently from their browser.
+    const transport = transportName()
+    if (transport !== 'GM') {
+      const tag = document.createElement('span')
+      tag.textContent = transport === 'none' ? '\u26A0 no HTTP bridge' : transport
+      tag.style.cssText = `font-weight:400;font-size:11px;color:${transport === 'none' ? '#f59e0b' : '#9ca3af'}`
+      title.appendChild(tag)
+    }
     box.appendChild(title)
 
     panelStatus = document.createElement('div')
@@ -3245,7 +3988,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       go.textContent = 'Connect'
       go.style.cssText = 'width:100%;padding:5px;border-radius:6px;border:0;background:#2563eb;color:#fff;font-weight:600;cursor:pointer'
       go.addEventListener('click', async () => {
-        go.disabled = true; note.textContent = 'Connecting…'
+        go.disabled = true; note.textContent = 'Connecting\u2026'
         try {
           rt.session = await establishSession(input.value.trim())
           input.value = ''
@@ -3257,7 +4000,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
           setStatus('error')
         } finally { go.disabled = false }
       })
-      note.textContent = 'Your key is used once and never stored — only the session token is.'
+      note.textContent = 'Your key is used once and never stored \u2014 only the session token is.'
       box.appendChild(input)
       box.appendChild(go)
     } else {
@@ -3280,7 +4023,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
       const who = document.createElement('div')
       who.style.cssText = 'opacity:.7;margin-bottom:6px'
-      who.textContent = `Signed in as ${rt.session.userId} · ${rt.session.host}`
+      who.textContent = `Signed in as ${rt.session.userId} \u00B7 ${rt.session.host}`
       box.insertBefore(who, box.lastChild)
       row.appendChild(hide)
       row.appendChild(out)
@@ -3290,13 +4033,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       secondRow.style.cssText = 'display:flex;gap:6px;margin-top:6px'
 
       const gear = document.createElement('button')
-      gear.textContent = '⚙ Settings'
+      gear.textContent = '\u2699 Settings'
       gear.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
       gear.addEventListener('click', () => { rt.settingsOpen = true; panel() })
       secondRow.appendChild(gear)
 
       const feedback = document.createElement('button')
-      feedback.textContent = '💬 Feedback'
+      feedback.textContent = '\uD83D\uDCAC Feedback'
       feedback.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
       feedback.addEventListener('click', () => { rt.feedbackOpen = true; panel() })
       secondRow.appendChild(feedback)
@@ -3310,7 +4053,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   async function boot() {
     rt.session = rt.session || store.read()
-    if (!rt.session) { log('no stored session — waiting for a key'); return }
+    if (!rt.session) { log('no stored session \u2014 waiting for a key'); return }
     log(`session for ${rt.session.userId} on ${rt.session.host},`,
       `faction ${rt.session.factionId}, expires ${rt.session.expiresAt ?? 'unknown'}`)
 
@@ -3319,7 +4062,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (!identityMatches(rt.session.userId, mine)) {
       setStatus('error')
       // eslint-disable-next-line no-console
-      console.warn(`[TNL Dibs] token belongs to ${rt.session.userId}, page is ${mine} — refusing to act.`)
+      console.warn(`[TNL Dibs] token belongs to ${rt.session.userId}, page is ${mine} \u2014 refusing to act.`)
       rt.session = null
       return
     }
@@ -3335,6 +4078,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // risks matching something on Torn's own attack-page DOM. The overlay
     // itself is DOM-independent (built from the URL, not from a scan), so it
     // paints once immediately rather than waiting on the first poll.
+    // observe() stays gated on the PATH, not the war route: the MutationObserver
+    // is how we notice Torn rendering the war roster after a hash change, so it
+    // has to already be watching when the user routes onto the war page. render()
+    // is the gate that decides whether that batch paints anything.
     if (isFactionPage()) observe()
     else if (isAttackPage()) renderAssistOverlay()
   }
@@ -3371,6 +4118,13 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // #523: two-@match-surface helpers, the assist-request state/paint seam,
     // and the write functions the attack-page overlay calls.
     factionPageMatch, attackPageMatch, attackTargetId, isFactionPage, isAttackPage,
+    // The war-route gate and the assist panel's placement maths — the pure
+    // halves, so the URL shapes and the off-screen clamp are testable with
+    // no DOM (the clamp is what stops a remembered position stranding the
+    // panel outside a smaller window, where it could never be dragged back).
+    warRankRouteMatch, isWarRankPage, clampAssistPos, parseAssistPos,
+    parseFightLogAge, parseFightLogRow, assistCandidates,
+    scopeCss, scopeSelector, WAR_ACTIVE_CLASS,
     indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
     assistIconSvg, paintDibs,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
@@ -3385,7 +4139,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
     tallyActivity, countLabel, countTooltip,
     statusView, statusSortValue, sortEntries, nextSort, rowState, isTornSortHeader,
-    versionLabel, scriptVersion, attackLinkAttrs, statValueOf,
+    versionLabel, scriptVersion, attackLinkAttrs, statValueOf, transportName, gmGet, gmSet,
     isHospital, hospitalExits, BONUS_HITS, nextBonusHit, chainSecondsLeft, chainDropDue,
     statsIndex, sortStateIndex, orderList, nameSortValue, levelSortValue, scoreSortValue,
     relabelColumnHeaders, paintSortHeaders, shrinkAttack, attackCellOf,
