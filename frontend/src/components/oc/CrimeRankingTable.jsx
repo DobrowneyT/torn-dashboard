@@ -11,7 +11,7 @@
  * than no ranking because it looks like a fact.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, LoaderCircle, ArrowUpDown } from 'lucide-react'
+import { AlertTriangle, LoaderCircle, ArrowUpDown, Link2 } from 'lucide-react'
 import { apiGet } from '../../utils/apiClient'
 import { rankCrimes, sortRanking } from '../../utils/ocRanking'
 import { formatCurrency } from '../../utils/payoutCalculations'
@@ -29,7 +29,7 @@ const COLUMNS = [
   { key: 'incomePerWeek', label: 'Income / wk', align: 'right' },
 ]
 
-export default function CrimeRankingTable({ scenarios }) {
+export default function CrimeRankingTable({ scenarios, chains = [] }) {
   const [cpr, setCpr] = useState(DEFAULT_CPR)
   const [applied, setApplied] = useState(DEFAULT_CPR)
   const [success, setSuccess] = useState(null)
@@ -55,10 +55,21 @@ export default function CrimeRankingTable({ scenarios }) {
     return () => { cancelled = true }
   }, [applied])
 
+  // ⚠️ Chain children are dropped from the table, not hidden behind a toggle.
+  // Ace in the Hole has 0 standalone runs against 124 spawned — it is not a
+  // choice anyone can make, so listing it offers a decision that does not
+  // exist, and counting it beside its own parent double-counts the pipeline.
+  // It keeps its own card in the Simulator, where its crew and success chance
+  // are still real and still worth optimising.
   const rows = useMemo(
-    () => sortRanking(rankCrimes(scenarios, success), sort.key, sort.dir),
-    [scenarios, success, sort]
+    () => sortRanking(
+      rankCrimes(scenarios, success, { chains }).filter((r) => r.spawnable !== false),
+      sort.key, sort.dir,
+    ),
+    [scenarios, success, sort, chains]
   )
+
+  const chained = rows.filter((r) => r.chainLinks)
 
   const toggleSort = (key) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
@@ -106,6 +117,22 @@ export default function CrimeRankingTable({ scenarios }) {
 
       {error && <div className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</div>}
 
+      {/* #585 — the correction that changes decisions, so it is stated up
+          front rather than left to a badge someone has to notice. */}
+      {chained.length > 0 && (
+        <div className="mb-3 flex items-start gap-2 text-xs text-blue-700 dark:text-blue-300">
+          <Link2 className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            {chained.length} crime{chained.length === 1 ? ' is a chain' : 's are chains'} — the
+            payout sits one or two crimes downstream, and their value here is the{' '}
+            <strong>whole chain&apos;s</strong>. Scope is spent once at the start and only repaid if{' '}
+            <strong>every</strong> link succeeds, so the break-even climbs with length: 83.3% for a
+            standalone Elaborate, 91.3% per link over two, 94.1% over three. The crimes they spawn
+            are not listed — you cannot choose them.
+          </span>
+        </div>
+      )}
+
       {unsustainable > 0 && (
         <div className="mb-3 flex items-start gap-2 text-xs text-red-600 dark:text-red-400">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -143,6 +170,18 @@ export default function CrimeRankingTable({ scenarios }) {
               >
                 <td className={`py-2 px-2 font-medium ${r.sustainable === false ? 'line-through text-gray-400' : ''}`}>
                   {r.name}
+                  {r.chainLinks && (
+                    <span
+                      className={`ml-1.5 text-[10px] ${r.chainConfident ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'}`}
+                      title={`${r.chainLinks.join(' → ')}\n\nValue and scope are for the whole chain. ${
+                        r.chainConfident
+                          ? 'Confirmed from our own spawn history.'
+                          : 'Not yet observed in this faction — taken from known Torn chains, so treat the link as unverified here.'
+                      }`}
+                    >
+                      chain ×{r.chainLinks.length}{!r.chainConfident && '?'}
+                    </span>
+                  )}
                   {r.paysInItems && (
                     <span className="ml-1.5 text-[10px] text-blue-600 dark:text-blue-400"
                       title="Pays in items rather than cash — valued from our own completed runs at current prices">
@@ -162,9 +201,22 @@ export default function CrimeRankingTable({ scenarios }) {
                 <td className="py-2 px-2 text-right tabular-nums">
                   {r.successChance == null ? '—' : (
                     <span className={r.sustainable === false ? 'text-red-600 dark:text-red-400' : ''}>
-                      {(r.successChance * 100).toFixed(1)}%
+                      {/* ⚠️ For a chain, the figure compared against the
+                          break-even is the per-link geometric mean, not the
+                          chained probability — comparing 30% against a 94.1%
+                          per-link bar is the natural mistake and it makes every
+                          chain look far worse than it is. */}
+                      {((r.equivalentSuccess ?? r.successChance) * 100).toFixed(1)}%
                       {r.breakEven != null && (
                         <span className="text-gray-400 text-xs"> /{(r.breakEven * 100).toFixed(0)}</span>
+                      )}
+                      {r.chainedSuccess != null && (
+                        <span
+                          className="block text-[10px] text-gray-400"
+                          title="Chance the whole chain completes — every link has to succeed for the scope to come back"
+                        >
+                          {(r.chainedSuccess * 100).toFixed(0)}% end-to-end
+                        </span>
                       )}
                     </span>
                   )}

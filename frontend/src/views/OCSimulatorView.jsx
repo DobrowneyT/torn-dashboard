@@ -53,6 +53,9 @@ const CALC_DEBOUNCE_MS = 250
 
 export default function OCSimulatorView() {
   const [scenarios, setScenarios] = useState(null)
+  // #585: observed previous_crime_id edges, so the ranking can price a crime
+  // whose payout is one or two crimes downstream.
+  const [chains, setChains] = useState([])
   const [loadError, setLoadError] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [rankingOpen, setRankingOpen] = useState(false)
@@ -64,7 +67,7 @@ export default function OCSimulatorView() {
 
   useEffect(() => {
     apiGet('/api/oc-simulator/scenarios')
-      .then((res) => setScenarios(res.scenarios ?? []))
+      .then((res) => { setScenarios(res.scenarios ?? []); setChains(res.chains ?? []) })
       .catch((e) => setLoadError(e?.message || 'Could not load scenarios'))
   }, [])
 
@@ -149,7 +152,7 @@ export default function OCSimulatorView() {
         )}
       </div>
 
-      {rankingOpen && <CrimeRankingTable scenarios={scenarios} />}
+      {rankingOpen && <CrimeRankingTable scenarios={scenarios} chains={chains} />}
 
       {chosen.length === 0 && (
         <div className="card text-sm text-gray-600 dark:text-gray-400">
