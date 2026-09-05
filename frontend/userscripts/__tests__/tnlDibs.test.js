@@ -665,6 +665,53 @@ describe('panelPos — the popover follows its launcher (#590)', () => {
   })
 })
 
+describe('assistPressAction — tap asks for one more, hold gives one back (#600)', () => {
+  const me = '9001'
+  const mineSmoke = { kind: 'smoke', by: 9001, wanted: 3 }
+
+  it('⚠ a second tap on your own kind REQUESTS, it does not cancel', () => {
+    // The whole bug (#600). This used to route to clearAssist — the #523
+    // toggle-off, written before counting existed and never revisited when
+    // #591 added it. So the one gesture that should raise the count was the
+    // one that destroyed the request, and the counter was unreachable from
+    // the surface built for it.
+    expect(S.assistPressAction(mineSmoke, 'smoke', me, 'short')).toBe('request')
+  })
+
+  it('taps through to request for a different kind, a stranger\u2019s request, or nothing live', () => {
+    // One verb on purpose: the server already distinguishes increment from
+    // replace, and a second copy of that rule here could only disagree with it.
+    expect(S.assistPressAction(mineSmoke, 'tear', me, 'short')).toBe('request')
+    expect(S.assistPressAction({ kind: 'smoke', by: 4242 }, 'smoke', me, 'short')).toBe('request')
+    expect(S.assistPressAction(null, 'smoke', me, 'short')).toBe('request')
+  })
+
+  it('holding your own kind takes one back', () => {
+    expect(S.assistPressAction(mineSmoke, 'smoke', me, 'long')).toBe('decrement')
+  })
+
+  it('⚠ holding does nothing when there is nothing of yours to take back', () => {
+    // "If it's already at 0 it does nothing" — a hold is fat-fingerable, and
+    // the alternative is an error the overlay would have to render mid-fight.
+    expect(S.assistPressAction(null, 'smoke', me, 'long')).toBe('noop')
+    expect(S.assistPressAction(mineSmoke, 'tear', me, 'long')).toBe('noop')
+  })
+
+  it('⚠ never lets a hold shave a count off someone else\u2019s request', () => {
+    expect(S.assistPressAction({ kind: 'smoke', by: 4242 }, 'smoke', me, 'long')).toBe('noop')
+  })
+
+  it('compares ids loosely, because the session carries a string and rows carry numbers', () => {
+    expect(S.assistPressAction({ kind: 'smoke', by: 9001 }, 'smoke', 9001, 'long')).toBe('decrement')
+    expect(S.assistPressAction({ kind: 'smoke', by: '9001' }, 'smoke', me, 'long')).toBe('decrement')
+  })
+
+  it('holds for long enough to be deliberate but not long enough to feel stuck', () => {
+    expect(S.LONG_PRESS_MS).toBeGreaterThanOrEqual(350)
+    expect(S.LONG_PRESS_MS).toBeLessThanOrEqual(800)
+  })
+})
+
 describe('debug logging', () => {
   it('is off unless it has been switched on', () => {
     expect(loadScript().S.debugOn()).toBe(false)

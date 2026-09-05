@@ -18,6 +18,34 @@ surface it automatically.
 
 ---
 
+## [3.63.0] - 2026-09-05
+
+### Fixed
+- **A second press on an assist button now raises the count instead of
+  cancelling the request (#600).** The server has incremented on a repeat of
+  the same target and kind since #591, but the overlay never reached it: a
+  press on your own active kind routed to the #523 toggle-off, written before
+  counting existed and never revisited when counting was added. So the one
+  gesture that should raise the count was the one that destroyed the request,
+  and the counter was unreachable from the surface built for it.
+
+### Added
+- **Hold an assist button to take one back.** Half a second, and the last one
+  clears the request — "decrement to zero" and "cancel" are the same act, so
+  there is no separate rule for cancelling. Holding a kind you have not
+  requested does nothing. The hold fires while the button is still held rather
+  than on release, because half a second with no sign of registering is exactly
+  what you cannot afford to guess at mid-fight; the button shrinks under the
+  finger to show it landed.
+- **`POST /api/war-room/assist/decrement`.** A POST rather than a DELETE
+  variant on purpose — Torn PDA's HTTP bridge exposes only `PDA_httpGet` and
+  `PDA_httpPost`, so a DELETE cannot be issued from a phone at all, and this
+  gesture's home is the attack page. Scoped to the caller's own request with no
+  admin branch: a hold is fat-fingerable, and quietly shaving a count off
+  someone else's request is a bad thing to be able to do by accident.
+
+Userscript **v1.43.0**.
+
 ## [3.62.0] - 2026-09-05
 
 ### Changed
