@@ -31,6 +31,10 @@ export const CONFIG_BOUNDS: Record<string, Bounds> = {
   // dib that expires almost instantly is indistinguishable from no dibs.
   dibs_expiry_seconds: { min: 0, max: 600 },
 
+  // A fight is at most 5 minutes, so 600 leaves headroom without letting a
+  // forgotten marker outlive the war. 0 disables auto-expiry entirely.
+  assist_expiry_seconds: { min: 0, max: 600 },
+
   // PUSH-surge alerts (#208). A 0-threshold or 0-window would alert on
   // everything and spam every subscribed member's phone.
   surge_enemy_threshold: { min: 1, max: 100 },
@@ -82,6 +86,7 @@ export const ZERO_OR_FLOOR: Record<string, number> = {
   // 0 = dibs never auto-drop; a claim stands until it is released or the
   // target is hospitalised.
   dibs_expiry_seconds: 5,
+  assist_expiry_seconds: 5,
 }
 
 export type ClampResult =

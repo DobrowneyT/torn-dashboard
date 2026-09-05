@@ -36,7 +36,32 @@ const SLOT_ORDER = [
  * has some value, it just should not read as "this is what they have right
  * now".
  */
-export const LOADOUT_STALE_MS = 60 * 60 * 1000 // 1 hour
+export const LOADOUT_FRESH_MS = 2 * 60 * 60 * 1000    // 2 hours
+export const LOADOUT_STALE_MS = 24 * 60 * 60 * 1000   // 1 day
+
+/**
+ * How much to trust an observation, as three bands rather than a yes/no.
+ *
+ * A single boolean made a 61-minute-old observation and a week-old one look
+ * identical, which is the wrong shape for gear: within a war, what someone was
+ * wearing two hours ago is almost certainly still true, while yesterday's is a
+ * hint at best. The bands are what the icon colours.
+ *
+ *   fresh  (< 2h)     green  — act on it
+ *   aging  (2h–24h)   amber  — probably still right, check if it matters
+ *   stale  (> 24h)    grey   — a hint, not a fact
+ *
+ * An unreadable or absent timestamp is 'stale': the honest answer when we
+ * cannot date an observation is the least confident one.
+ */
+export function loadoutFreshness(row, nowMs = Date.now()) {
+  const at = parseDbTime(row?.observed_at ?? row?.updated_at)
+  if (!at) return 'stale'
+  const age = nowMs - at.getTime()
+  if (age < LOADOUT_FRESH_MS) return 'fresh'
+  if (age < LOADOUT_STALE_MS) return 'aging'
+  return 'stale'
+}
 
 /** Flat "Primary: AK-47, Chest: Combat Vest" list, in a stable slot order. */
 export function loadoutEntries(loadout) {
@@ -63,9 +88,13 @@ export function formatLoadoutTooltip(row, nowMs = Date.now()) {
   return lines.join('\n')
 }
 
-/** Is this observation past the staleness threshold? */
+/**
+ * Is this observation past the staleness threshold?
+ *
+ * Kept as the two-way question for callers that only need "can I show this
+ * confidently" — it is now the third band of loadoutFreshness(), so the two
+ * can never disagree about where the line sits.
+ */
 export function isLoadoutStale(row, nowMs = Date.now()) {
-  const at = parseDbTime(row?.observed_at ?? row?.updated_at)
-  if (!at) return true
-  return nowMs - at.getTime() > LOADOUT_STALE_MS
+  return loadoutFreshness(row, nowMs) === 'stale'
 }

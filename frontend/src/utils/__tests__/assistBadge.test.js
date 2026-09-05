@@ -56,6 +56,43 @@ describe('assistBadgeState', () => {
   })
 })
 
+// #591: a request is a COUNT, not a flag. Two people still owe you a smoke is
+// a different fact from one, and the badge is where a lead reads it.
+describe('the assist count', () => {
+  const assist = (over = {}) => ({ requester_id: 7, requester_name: 'Ally', kind: 'smoke', wanted: 1, ...over })
+
+  it('carries the count through so a caller can render it', () => {
+    expect(assistBadgeState(null, assist({ wanted: 3 }), 1, 9).wanted).toBe(3)
+  })
+
+  it('⚠️ says nothing about a count of one — "Smoke ×1" is noise on the overwhelming majority of requests', () => {
+    const one = assistBadgeState(null, assist({ wanted: 1 }), 1, 9)
+    expect(one.label).toBe('Smoke')
+    expect(one.title).not.toMatch(/×/)
+  })
+
+  it('shows the multiple on the label and spells it out in the title', () => {
+    const three = assistBadgeState(null, assist({ wanted: 3 }), 1, 9)
+    expect(three.label).toBe('Smoke ×3')
+    expect(three.title).toMatch(/3 still needed/)
+  })
+
+  it('treats a missing or unusable count as one, never as zero', () => {
+    // A row from before this column existed, and a garbage value, must not
+    // render as "×0" — which would read as "nobody is asking", the opposite
+    // of what a live row means.
+    for (const bad of [undefined, null, 'x', 0, -2]) {
+      const st = assistBadgeState(null, assist({ wanted: bad }), 1, 9)
+      expect(st.wanted, String(bad)).toBe(1)
+      expect(st.label).toBe('Smoke')
+    }
+  })
+
+  it('reads the userscript index shape too', () => {
+    expect(assistBadgeState(null, { by: 7, name: 'Ally', kind: 'help', wanted: 2 }, 1, 9).label).toBe('Help ×2')
+  })
+})
+
 describe('attackUrl', () => {
   it('builds the attack-page URL for a valid id', () => {
     expect(attackUrl(90200)).toBe('https://www.torn.com/page.php?sid=attack&user2ID=90200')

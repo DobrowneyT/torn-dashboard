@@ -18,6 +18,174 @@ surface it automatically.
 
 ---
 
+## [3.61.0] - 2026-09-05
+
+### Added
+- **Assist requests carry a count, decremented by what actually happens in the
+  fight (#591).** Pressing smoke / tear / help again on the same target raises
+  it — "I need three smokes" is a real thing to say, and stacked grenades are a
+  real use case. A different kind or a different target still replaces, since
+  one person is in one fight asking for one thing.
+- **`POST /api/war-room/assist/observed`**, which the userscript feeds from
+  Torn's attack-page fight log. A button press means "I intend to", which is
+  not the same as going — an observed action is the only signal that cannot
+  lie. Three gates decide whether an event counts, and all three live on the
+  server: the actor name must resolve to someone on the war roster; that member
+  must be in **our** faction (anyone can join a Torn fight, and an enemy join
+  carries the identical event class to a member helping); and the event must
+  not already have been counted. A `join` answers a `help` request — the log
+  and the request are naming the same thing twice.
+- Deduplication is a ledger keyed on `(target_id, actor_id, kind,
+  event_second)`. Every member with the userscript open sees the **same** log,
+  so one join is reported once per observer; without this the counter would
+  drain as fast as people were watching. Torn gives no stable fight id, so the
+  key is the event itself, rounded to the second — two observers' clocks will
+  not agree to the millisecond, and rounding is what makes their reports
+  collide instead of both counting.
+- **The count is visible where it is decided.** The war-roster badge reads
+  `Smoke ×3`, and the attack-page overlay carries a pip on the button you press
+  to raise it — that is the surface where you decide whether to ask for one
+  more, so it has to say how many you have already asked for. A count of one
+  shows nothing: `×1` is noise on the overwhelming majority of requests. An
+  absent or unusable count floors at **one, never zero** — a row from before
+  the column existed would otherwise render `×0`, which reads as "nobody is
+  asking", the opposite of what a live row means.
+- The userscript reports qualifying fight-log events every poll, with no local
+  record of what it has already sent. The server's ledger is the only thing
+  that can answer "has this been counted" correctly, because several members
+  watch the same fight — re-sending is free, missing one is not.
+- A requester cannot answer their own call for **help**: they are already in
+  the fight, and their own join would cancel the request the moment they made
+  it. Enforced server-side on member ids rather than in the script on scraped
+  names. Grenades are deliberately not excluded this way — a smoke you throw
+  yourself after asking for three is genuinely one of the three.
+
+### Fixed
+- **Assist requests no longer expire mid-fight (#591).** The window was a
+  hardcoded 120 seconds, chosen on the reasoning recorded in
+  `warRoomAssistsExpiry.ts` that "Torn fights are seconds, not minutes". A Torn
+  fight runs to **five minutes** — and a fight log captured while investigating
+  this shows a real one already 132 seconds old, twelve seconds past the point
+  where the request had silently vanished. The hand went down while the fight
+  was still going, which is the one moment it must not. The default is now
+  300s.
+- **A target who jails, travels or flies out ends the fight too.** Only
+  `Hospital` counted as a fight ending, so an assist against a target who
+  became unattackable any other way sat out the full window. The test is now
+  "stopped being attackable", which covers `Jail`, `Traveling`, `Abroad` and
+  anything else Torn adds. An unknown state is still treated as attackable on
+  purpose: dropping live requests whenever the roster momentarily lacks a
+  status would cost more than a stale marker does.
+
+### Added
+- **`assist_expiry_seconds`**, a per-faction setting alongside the dibs
+  auto-drop window, editable in War Room settings and clamped to 0–600s (0
+  disables auto-expiry). Deliberately a **separate** knob from
+  `dibs_expiry_seconds`: that one measures how long a claim survives after a
+  target surfaces, so pushing it to 300 to cover a fight would keep claims
+  blocking other claimers for five minutes. The window is read inside the
+  insert transaction, so a settings change mid-flight cannot arm a deadline
+  from one value and sweep it against another.
+
+## [3.60.0] - 2026-09-05
+
+### Fixed
+- **The War Room userscript no longer bleeds its roster styling onto every
+  other faction tab (#523 follow-up).** Its page gate was
+  `pathname === '/factions.php'`, which is every tab on a hash-routed SPA, so
+  `injectStyles()`' overrides applied on Armory, Crimes and Upgrades too —
+  where `.white-grad { display:flex; width:100% }` inflates Torn's own section
+  header into an empty full-width bar carrying the tab name. The gate now
+  reads the hash route (`#/war/rank`, sub-routes allowed) and never the
+  `type=N` query, which is a per-faction layout id that would work for one
+  faction and silently fail for the next. Two halves make it real: a teardown
+  when the SPA routes away, and `scopeCss()` prefixing every rule with
+  `html.tnl-war-active` — the prefix being the load-bearing part, since a
+  `pushState` that changes no hash fires neither `hashchange` nor `popstate`
+  and the teardown would simply never run. The launcher and its status light
+  deliberately stay on every faction tab; only the roster work is gated.
+- **The userscript works on Torn PDA.** The dashboard API is cross-origin from
+  torn.com and serves no CORS headers, so a privileged transport is the only
+  way the script can reach its own backend — and PDA ships
+  `PDA_httpGet`/`PDA_httpPost`, not the GM API. `gmRequest()` now falls back to
+  those. `GM_setValue` was also called unguarded in four places and threw
+  `ReferenceError` there, so all storage goes through `gmGet`/`gmSet` with a
+  `localStorage` fallback. The launcher gained a fallback anchor: it required
+  `#top-page-links-list`, a desktop-layout element, and returned null without
+  it — making "no anchor" indistinguishable from "the script never ran", on the
+  platform hardest to debug.
+- **Every glyph in the userscript survives a non-UTF-8 client.**
+  `files.monchoon.me` sends a bare `Content-Type: application/javascript`, and
+  PDA's webview decodes that as Latin-1 — U+283F arrived as `â ¿` and every
+  other symbol was mangled with it. All non-ASCII inside string literals is now
+  `\uXXXX` escapes, which decode identically under any charset. Comments keep
+  their real characters; they never render.
+- **The attack-page assist panel can be moved.** It was pinned top-right over
+  Torn's own attack controls with no way to shift it. Now draggable by a
+  handle (pointer events, so touch works), position remembered and clamped to
+  the *visual* viewport — not `innerHeight`, which on mobile parks it behind
+  the keyboard. Click the handle to collapse; coarse-pointer sizing gives
+  thumb-sized targets.
+
+### Changed
+- **The loadout shield is graded by age rather than a stale/fresh flag.** One
+  boolean made a 61-minute-old observation and a week-old one look identical,
+  which is the wrong shape for gear: within a war, what someone wore two hours
+  ago is almost certainly still true, while yesterday's is a hint. Three bands
+  now — green under 2h, amber 2–24h, grey beyond — with `isLoadoutStale()` kept
+  as the third band of `loadoutFreshness()` rather than a second threshold, so
+  the two can never disagree. An observation with no readable timestamp reads
+  stale, and the tooltip names the band so colour is never the only signal.
+
+### Added
+- A fight-log parser in the userscript, groundwork for the assist counters
+  (#591). Torn's attack page log shows other players' actions, which is what
+  makes an assist request verifiable by observation rather than by someone
+  remembering to press "I'm coming". The `attacking-events-*` classes are the
+  only stable hooks on those rows; everything around them is a CSS-module hash
+  Torn rotates each deploy.
+
+## [3.59.0] - 2026-09-03
+
+### Fixed
+- **An unconfigured faction is no longer silently paid flat-weighted, and a
+  payout mode picked on the Payout Management page now holds (#587).**
+  Reported by a Leadership/OC-Manager/Warlead member who saw **Flat Weighted**
+  lit whatever the faction setting said. `GET /api/oc-config` returned
+  `payout_mode: null` for a faction that had never saved one, and each reader
+  invented its own meaning for `null`: Payout Management failed the
+  `PAYOUT_MODES.includes(null)` test and fell through to its `flat-weighted`
+  seed, while `FactionConfigContext` read the same `null` as optimistically
+  tiered. A faction could therefore see the tier machinery on screen and be
+  paid by ticket weighting it had never configured. The absent case is now
+  resolved once, server-side, and the default is **equal** — the only mode
+  that is correct with nothing configured, where tiered needs a tier table and
+  flat-weighted needs a ticket policy. A stored value that is not one of the
+  three modes falls back the same way instead of reaching the client as
+  something every consumer rejects. Reading the setting was never role-gated
+  (`requireAuth` only); that is now pinned by a test using a token with no
+  role assignments at all, since the report was first read as an admin-only
+  permissions problem.
+- **Saved payout weeks record the mode that produced them (#587).**
+  `savePayoutWeek()` rebuilds the week record field by field and had simply
+  omitted `payout_mode`, so the column added in
+  `db/migrations/0005-payout-mode.sql` was NULL in every tenant even though
+  the caller passed a mode and the server accepted the column. Reopening a
+  saved week then had nothing to restore and fell back to a hardcoded
+  `'tiered'`, which silently retagged every equal and flat-weighted faction's
+  history; it now falls back to the faction's actual setting.
+- **The faction default no longer lands on top of a mode the user just picked
+  (#587).** `/api/oc-config` resolves after first paint, and opening a
+  historical week also writes the selector, so either could overwrite a
+  deliberate choice. A hand-picked mode is now sticky for the rest of the
+  session.
+
+### Changed
+- `PAYOUT_MODES` and the default now live in one module per side —
+  `server/src/payoutModes.ts` and `frontend/src/utils/payoutCalculations.js` —
+  rather than being duplicated between `admin.ts`'s write validation and each
+  reader's fallback.
+
 ## [3.58.1] - 2026-08-28
 
 ### Fixed
