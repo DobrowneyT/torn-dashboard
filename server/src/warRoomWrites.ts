@@ -262,8 +262,32 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     for (const raw of events.slice(0, 50)) {
       const kind = String(raw?.kind ?? '')
       const actorName = String(raw?.actor_name ?? '').trim()
+      const subjectName = String(raw?.subject_name ?? '').trim()
       const atMs = Number(raw?.at_ms)
       if (!OBSERVED_KINDS.has(kind) || !actorName || !Number.isFinite(atMs)) continue
+
+      // Gate 0 (#618): the event must be about THIS target.
+      //
+      // The script used to decide this itself, by scraping the defender's name
+      // off the attack page and comparing strings. That name came from
+      // `a[href*="profiles.php?XID="]`, a link the page does not reliably
+      // render — when it was missing the script reported NOTHING at all, and a
+      // real smoke went uncounted with every other part working.
+      //
+      // Resolved here instead, on ids against the roster, for exactly the
+      // reason the actor's faction already is: the attack page has no roster
+      // and the names on it are attacker-controlled text, so the client cannot
+      // answer this honestly. Absent subject_name means an older script that
+      // still filters client-side; those reports are accepted as before rather
+      // than being silently dropped by an upgrade they did not take.
+      if (subjectName) {
+        const subject = await db.query(
+          `SELECT member_id FROM war_room_state_v2
+           WHERE member_name = $1 AND deleted_at IS NULL LIMIT 1`,
+          [subjectName]
+        )
+        if (Number(subject.rows[0]?.member_id) !== targetId) continue
+      }
       // Second resolution on purpose: two observers' clocks will not agree to
       // the millisecond, and rounding is what makes their reports collide on
       // the unique index instead of both counting.
