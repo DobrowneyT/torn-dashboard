@@ -18,6 +18,67 @@ surface it automatically.
 
 ---
 
+## [3.68.0] - 2026-09-05
+
+### Fixed
+- **⚠️ The userscript no longer destroys DOM nodes React owns, which is what
+  was blanking Torn's faction page (#613).** Caught on a live page: a
+  `removeChild` trace running straight through react-dom 19's own
+  `commitDeletionEffects` recursion, with the script's own state log showing it
+  stood down correctly a moment later. Torn's faction page is React; React
+  keeps references to the nodes it created and calls `removeChild` on exactly
+  those later. Destroy one in the meantime and that call throws inside React's
+  commit phase, and React tears down the whole subtree.
+- Four places did it, all through operations that look like edits and are not:
+  `el.textContent = 'x'` **replaces** an element's child text node rather than
+  editing it, `el.textContent = ''` removes every child, and `el.replaceWith()`
+  removes the element itself. The status cell was the worst — that write ran
+  every second across every row on the page. The sort headers, the Attack cell
+  and the header relabelling did the same thing less often.
+- Nothing of Torn's is touched now. Our own element is **appended alongside**
+  and theirs is hidden with CSS — `font-size: 0`, because Torn keeps the status
+  as a bare text node and there is no other way to hide one of those. React
+  stays free to update or delete its own nodes whenever it likes.
+- Torn's own text is read live rather than from a copy squirrelled away before
+  we overwrote it. That copy went stale the moment Torn updated a cell we had
+  taken, which is why `tornStatusKind` could disagree with what was on screen.
+- The assist count is centred by **line-height** rather than by flex, on the
+  dashboard's War Room badge as well as the userscript's roster badge — the
+  same miss, twice, because both put small digits beside a slightly taller icon
+  in a centred flex row.
+  Boxing 9px text in a 14px flex item centres the line box, but a glyph does
+  not sit centred within its own line box — the font's ascent and descent are
+  asymmetric, so the digits still read high.
+
+- **Observed assist actions are reported even when the page never names the
+  defender (#618).** A live smoke sat uncounted for twenty seconds with every
+  other part of the chain working. The reporter gated on
+  `attackTargetName()`, which scrapes `a[href*="profiles.php?XID="]` — a link
+  the attack page does not reliably render, and a guess flagged as unverified
+  when it was written. When it came back null the function returned early and
+  **not one event was ever sent**.
+- The subject is now carried on each event and checked **server-side**, on ids
+  against the roster — the same place and for the same reason the actor's
+  faction already is. The attack page has no roster and its names are
+  attacker-controlled text, so the client was never able to answer this
+  honestly. A report with no subject is still accepted, so an older userscript
+  in the wild is not switched off by an upgrade it did not take.
+- Every bail-out in the reporter now logs why. That path is invisible from
+  outside — a count that does not move looks identical whether the log went
+  unread, the parse failed, or the server declined everything — and narrowing
+  it down last time took a live war and a screenshot.
+
+- **The userscript runs on OUR faction's war page only (#619).** `factions.php`
+  serves every faction on Torn and the war route is not ours alone —
+  `?step=profile&ID=9357#/war/rank` is somebody else's war, with the same hash
+  and the same roster markup. Matching on the path alone lit the whole script
+  up there, badging enemies of a war nobody in our faction is in. `step=your`
+  is what separates the faction you belong to from one you are merely looking
+  at. `type=N` is deliberately not used: it is a per-faction layout id that
+  moves when a faction reorders its own tabs.
+
+Userscript **v1.48.0**.
+
 ## [3.65.1] - 2026-09-05
 
 ### Fixed

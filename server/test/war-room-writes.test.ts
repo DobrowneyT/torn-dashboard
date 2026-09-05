@@ -199,6 +199,54 @@ describe('assist counters (#591)', () => {
     expect((await liveAssist(T + 4)).wanted).toBe(1)
   })
 
+  describe('an observed event has to be about THIS target (#618)', () => {
+    const OURS2 = 60011
+    const OTHER = 60012
+
+    it('\u26A0\uFE0F ignores an event whose subject is somebody else', async () => {
+      // Fights chain: one log carries grenades and joins aimed at several
+      // people at once, including at us. Deciding this on the client meant
+      // scraping the defender's name off a page that does not reliably render
+      // it — and when it was missing, nothing was reported at all.
+      await seedRosterMember(OURS2, 'Helper2', TEST_FACTION.tornFactionId)
+      await seedRosterMember(T + 30, 'RealTarget', 99999)
+      await seedRosterMember(OTHER, 'SomeoneElse', 99999)
+      await call('POST', '/api/war-room/assist', { target_id: T + 30, kind: 'smoke' })
+
+      const res = await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 30,
+        events: [{ kind: 'smoke', actor_name: 'Helper2', subject_name: 'SomeoneElse', at_ms: 1_700_000_100_000 }],
+      })
+      expect(res.body.counted).toBe(0)
+      expect((await liveAssist(T + 30)).wanted).toBe(1)
+    })
+
+    it('counts it when the subject IS the target', async () => {
+      await seedRosterMember(OURS2, 'Helper2', TEST_FACTION.tornFactionId)
+      await seedRosterMember(T + 31, 'RealTarget31', 99999)
+      await call('POST', '/api/war-room/assist', { target_id: T + 31, kind: 'smoke' })
+
+      const res = await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 31,
+        events: [{ kind: 'smoke', actor_name: 'Helper2', subject_name: 'RealTarget31', at_ms: 1_700_000_200_000 }],
+      })
+      expect(res.body.counted).toBe(1)
+      expect(await liveAssist(T + 31)).toBeNull()   // decremented to zero
+    })
+
+    it('still accepts a report with no subject, from a script that filters its own', async () => {
+      // An older userscript in the wild must not be silently switched off by
+      // an upgrade it never took.
+      await seedRosterMember(OURS2, 'Helper2', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 32, kind: 'smoke' })
+      const res = await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 32,
+        events: [{ kind: 'smoke', actor_name: 'Helper2', at_ms: 1_700_000_300_000 }],
+      })
+      expect(res.body.counted).toBe(1)
+    })
+  })
+
   describe('holding the button takes one back (#600)', () => {
     it('drops the count by one and reports the new value', async () => {
       await call('POST', '/api/war-room/assist', { target_id: T + 20, kind: 'smoke' })

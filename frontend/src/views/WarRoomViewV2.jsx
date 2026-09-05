@@ -3392,7 +3392,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                       says HOW MANY; the row needs both. */}
                                   {AssistIcon ? <AssistIcon size={12} className="shrink-0" /> : <span className="truncate">{st.label}</span>}
                                   {st.wanted > 1 && (
-                                    <span className="text-[10px] font-bold leading-none tabular-nums">×{st.wanted}</span>
+                                    // Centred by LINE-HEIGHT against the icon's
+                                    // own 12px box, not by `leading-none`. The
+                                    // flex row centres each item's line box, but
+                                    // a glyph does not sit centred within its
+                                    // line box — the font's ascent and descent
+                                    // are asymmetric — so 10px digits beside a
+                                    // 12px icon still read high. Matching the
+                                    // heights hands the decision to the font's
+                                    // own metrics, which is what actually
+                                    // decides where the glyph lands.
+                                    <span className="text-[10px] font-bold tabular-nums h-3 leading-3">×{st.wanted}</span>
                                   )}
                                 </a>
                               )
