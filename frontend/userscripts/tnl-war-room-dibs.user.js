@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.45.1
+// @version      1.46.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -1642,6 +1642,35 @@ const TNLDibs = (function () {
   const ASSIST_CLASS = 'tnl-assist'
   /** The count beside the icon on a roster assist badge (#610). */
   const ASSIST_N_CLASS = 'tnl-assist-n'
+  /**
+   * ⚠️ TAKING OVER A CELL TORN OWNS — READ THIS BEFORE TOUCHING ANY CELL (#613).
+   *
+   * Torn's faction page is React 19. React keeps its own references to the DOM
+   * nodes it created, and on a later update it calls removeChild on exactly
+   * those nodes. If we have destroyed one in the meantime, that call throws
+   * inside React's commit phase and React tears down the whole subtree — which
+   * is the page going blank after anywhere from two to thirty seconds, caught
+   * red-handed by a removeChild trace running through react-dom's own
+   * commitDeletionEffects recursion.
+   *
+   * Every one of these DESTROYS a node React is holding:
+   *
+   *     el.textContent = 'x'   // replaces the child text node
+   *     el.textContent = ''    // removes every child
+   *     el.replaceWith(node)   // removes el itself
+   *
+   * ⚠️ The subtle one is `textContent`: on an ELEMENT it does not edit text,
+   * it swaps the text node out for a new one. (On a Text node it edits data in
+   * place, which is safe — relabelHeaderText relies on that distinction.)
+   *
+   * So we never remove anything of Torn's. We APPEND our own element and hide
+   * theirs with CSS: `font-size: 0` collapses bare text nodes, which is the
+   * only way to hide a text node at all, and `display: none` handles element
+   * children. React remains free to update or delete its own nodes whenever it
+   * likes; they are simply invisible while we are showing ours.
+   */
+  const TOOK_CLASS = 'tnl-took'
+  const OWN_CLASS = 'tnl-own'
   const BS_CLASS = 'tnl-col-bs'
   const STAT_VALUE_CLASS = 'tnl-col-bsv'
   const STYLE_ID = 'tnl-dibs-style'
@@ -1965,16 +1994,24 @@ ul.members-list > li > .clear, .white-grad > .clear { display: none !important; 
    wide, so a corner pip like the attack overlay's would overlap the glyph it
    is meant to annotate. The gap is what keeps both readable at 10px. */
 .${BADGE_CLASS}.${ASSIST_CLASS} { gap: 3px; }
+/* See TOOK_CLASS's own note. font-size:0 is not a trick for its own sake --
+   a bare text node cannot be hidden any other way, and Torn's status cell
+   holds its value as a bare text node. The member-count badge is exempt
+   because it is OURS and lives as a sibling inside a header we have taken. */
+.${TOOK_CLASS} { font-size: 0 !important; }
+.${TOOK_CLASS} > *:not(.${OWN_CLASS}):not(.${MEMBER_COUNT_CLASS}) { display: none !important; }
+.${OWN_CLASS} { font-variant-numeric: inherit; white-space: nowrap; }
+
 .${ASSIST_N_CLASS} {
-  /* Given the SAME height as the icon and centred inside it, rather than left
-     to flex alignment alone. Two boxes of different heights centre on their
-     box centres, and a digit's visual centre sits above its box centre
-     (ascender/descender leave uneven space), so 9px text beside a 14px glyph
-     reads as sitting low even when the boxes are correctly aligned. Matching
-     the heights makes it optical rather than arithmetic. */
-  display: inline-flex; align-items: center; justify-content: center;
-  height: 14px;
-  font: 700 9px/1 system-ui, sans-serif;
+  /* Centred by LINE-HEIGHT, not by flex. Boxing 9px text in a 14px flex item
+     centres the line box, but a glyph does not sit centred within its own line
+     box -- the font's ascent and descent are asymmetric, so the digits still
+     read high. Setting line-height to the icon's height distributes the
+     half-leading using the font's own metrics, which is the thing that
+     actually decides where the glyph lands. */
+  display: inline-block;
+  height: 14px; line-height: 14px;
+  font: 700 9px/14px system-ui, sans-serif;
   color: #fff; opacity: .95;
   font-variant-numeric: tabular-nums;
 }
@@ -2166,6 +2203,64 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return el
   }
 
+  /**
+   * Our own element inside a cell Torn owns, with Torn's content hidden.
+   *
+   * The font size is MEASURED before the cell is zeroed, not guessed: Torn
+   * sizes its columns differently and a hardcoded number would be wrong
+   * somewhere. Measuring once, on creation, also keeps this off the hot path.
+   *
+   * Returns the same element on every later call, so callers can write to it
+   * freely — it is ours, so the destructive operations that are forbidden on
+   * Torn's nodes are all fine on this one.
+   */
+  function ownEl(cell, tag = 'span') {
+    if (!cell) return null
+    let own = cell.querySelector(`:scope > .${OWN_CLASS}`)
+    if (own && own.tagName.toLowerCase() === tag) return own
+    own?.remove()
+    const size = typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+      ? window.getComputedStyle(cell).fontSize
+      : null
+    own = document.createElement(tag)
+    own.className = OWN_CLASS
+    if (size && size !== '0px') own.style.fontSize = size
+    cell.appendChild(own)
+    // Added AFTER measuring — this is what zeroes the cell's font size.
+    cell.classList.add(TOOK_CLASS)
+    return own
+  }
+
+  function ownText(cell, text) {
+    const own = ownEl(cell)
+    if (own && own.textContent !== text) own.textContent = text
+    return own
+  }
+
+  /** Give the cell back to Torn: our node goes, theirs was never touched. */
+  function releaseOwn(cell) {
+    if (!cell) return
+    cell.classList.remove(TOOK_CLASS)
+    cell.querySelector(`:scope > .${OWN_CLASS}`)?.remove()
+  }
+
+  /**
+   * What TORN's own content in this cell says, ignoring ours.
+   *
+   * Their text is still there — hidden, never destroyed — so this reads the
+   * live value rather than a copy squirrelled away in a data attribute before
+   * we overwrote it. That copy used to be the only record of what Torn said,
+   * and it went stale the moment Torn updated a cell we had taken.
+   */
+  function tornTextOf(cell) {
+    let out = ''
+    for (const node of cell?.childNodes ?? []) {
+      if (node.nodeType === 1 && node.classList?.contains(OWN_CLASS)) continue
+      out += node.textContent || ''
+    }
+    return out.trim()
+  }
+
   /** Leaves any child icon alone — a blind `.textContent =` would eat the arrow. */
   function relabelHeaderText(cell, from, to) {
     if (!cell) return
@@ -2173,9 +2268,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       if (node.nodeType === 3 && node.textContent.trim() === from) { node.textContent = to; return }
       // "Members" ships wrapped in a span, where Level and Attack are bare
       // text — match a leaf element too, never a container.
+      //
+      // ⚠️ The two branches are NOT the same operation. On the Text node above,
+      // `textContent =` edits data in place and React's reference stays valid.
+      // On an ELEMENT it swaps the child text node out for a new one, and React
+      // is still holding the old one — see TOOK_CLASS. So this branch takes the
+      // cell over instead of writing through it.
       if (node.nodeType === 1 && node.children.length === 0
           && (node.textContent || '').trim() === from) {
-        node.textContent = to
+        ownText(node, to)
         return
       }
     }
@@ -2517,18 +2618,27 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     for (const el of [attack, ...attack.querySelectorAll('span, a')]) {
       if ((el.textContent || '').trim() === 'Attack' && el.children.length === 0) {
         attack.dataset.tnlAtk = '1'
-        if (el.tagName === 'A' && el.getAttribute('href')) {
-          el.textContent = 'Atk'
-          return
-        }
+        // ⚠️ Both branches used to destroy a node React owns (#613): the first
+        // through `el.textContent =`, which swaps the child text node out, and
+        // the second through `el.replaceWith()`, which removes el itself. React
+        // was still holding both, and the removeChild it tried later is what
+        // took the whole roster down with it.
+        //
+        // Torn's own element stays exactly where it is, hidden, and ours is
+        // appended alongside — an <a> when we have a real target to give it,
+        // plain text otherwise. Torn does not always ship this cell as a link
+        // (outside an active war it is an unstyled span with no href at all),
+        // which is why the anchor is built rather than borrowed.
         const href = playerId === null || playerId === undefined ? null : attackUrl(playerId)
-        if (!href) { el.textContent = 'Atk'; return }
-        const link = document.createElement('a')
-        link.className = 't-blue h c-pointer'
-        link.textContent = 'Atk'
-        link.href = href
-        link.rel = 'noopener noreferrer'
-        el.replaceWith(link)
+        const useLink = href && !(el.tagName === 'A' && el.getAttribute('href'))
+        const own = ownEl(el, useLink ? 'a' : 'span')
+        if (!own) return
+        own.textContent = 'Atk'
+        if (useLink) {
+          own.className = `${OWN_CLASS} t-blue h c-pointer`
+          own.href = href
+          own.rel = 'noopener noreferrer'
+        }
         return
       }
     }
@@ -2553,7 +2663,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   /** What Torn says the status is. Torn is the authority; we only reformat. */
   function tornStatusKind(cell) {
     const c = String(cell?.className ?? '').toLowerCase()
-    const t = String(cell?.dataset?.tnlTorn ?? '').toLowerCase().trim()
+    // Torn's own text, live — it is hidden rather than destroyed now (#613),
+    // so this reads what Torn currently says instead of a copy taken before we
+    // overwrote it, which went stale the moment Torn updated the cell.
+    const t = tornTextOf(cell).toLowerCase()
     const has = (w) => c.includes(w) || t.includes(w)
     if (has('hospital') || has('hosp')) return 'hospital'
     if (has('federal') || has('jail')) return 'jail'
@@ -2563,20 +2676,20 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return null
   }
 
-  function rememberTornStatus(cell) {
-    const shown = (cell.textContent ?? '').trim()
-    if (shown !== cell.dataset.tnlWrote) cell.dataset.tnlTorn = shown
-    return cell.dataset.tnlTorn ?? ''
-  }
-
+  /**
+   * Hand the status cell back to Torn.
+   *
+   * ⚠️ There is nothing to restore any more, and that is the point (#613).
+   * This used to write Torn's remembered text back with `cell.textContent =`,
+   * which destroyed a text node React owned — while trying to undo the damage
+   * done by the identical write on the way in. Now Torn's own content was
+   * never removed, so releasing is just dropping our node and our classes.
+   */
   function releaseStatusCell(cell) {
-    if (!cell || !cell.dataset.tnlWrote) return
-    if ((cell.textContent ?? '').trim() === cell.dataset.tnlWrote) {
-      cell.textContent = cell.dataset.tnlTorn ?? ''
-    }
+    if (!cell) return
+    releaseOwn(cell)
     cell.classList.remove(STATUS_CLASS)
     cell.style.removeProperty('--tnl-status')
-    delete cell.dataset.tnlWrote
     delete cell.dataset.tnlStatusSig
   }
 
@@ -2605,7 +2718,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (!cell) return false
     if (!settings.on(SETTING_STATUS)) { releaseStatusCell(cell); return false }
 
-    rememberTornStatus(cell)
     const entry = rt.state.get(playerId)
     const view = entry ? statusView(entry, nowMs) : null
     if (!view) { releaseStatusCell(cell); return false }
@@ -2619,8 +2731,10 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     if (cell.dataset.tnlStatusSig === sig) return true
     cell.dataset.tnlStatusSig = sig
 
-    cell.textContent = view.text
-    cell.dataset.tnlWrote = view.text
+    // Ours, appended beside Torn's own text rather than replacing it. This
+    // one line ran every second across every row on the page, so it was by far
+    // the most frequent way the script destroyed a node React was holding.
+    ownText(cell, view.text)
     cell.classList.add(STATUS_CLASS)
     cell.style.setProperty('--tnl-status', STATUS_COLORS[view.tone] ?? '#9ca3af')
     if (title) cell.title = title
@@ -2785,9 +2899,12 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // A dedicated child for the label text, not the whole cell — the Name
     // header also hosts the online/idle count badge as a sibling child, and
     // paintSortHeaders() must never touch it.
-    const labelEl = document.createElement('span')
-    el.textContent = ''
-    el.appendChild(labelEl)
+    //
+    // ⚠️ This used to be `el.textContent = ''`, which removes EVERY child —
+    // including whatever text node React put there and is still holding a
+    // reference to (#613). ownEl() appends beside Torn's content and hides it
+    // instead, so React's own nodes are never destroyed.
+    const labelEl = ownEl(el)
     el._tnlSortLabelEl = labelEl
     el.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation()
@@ -4636,6 +4753,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     fmtCountdown, fmtEtaShort, fmtLastActionShort, activityTone, reviveAudience,
     tallyActivity, countLabel, countTooltip,
     statusView, statusSortValue, sortEntries, nextSort, rowState, isTornSortHeader,
+    ownEl, ownText, releaseOwn, tornTextOf, TOOK_CLASS, OWN_CLASS,
     versionLabel, scriptVersion, attackLinkAttrs, statValueOf, transportName, gmGet, gmSet,
     isHospital, hospitalExits, BONUS_HITS, nextBonusHit, chainSecondsLeft, chainDropDue,
     statsIndex, sortStateIndex, orderList, nameSortValue, levelSortValue, scoreSortValue,

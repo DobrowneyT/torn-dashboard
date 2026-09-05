@@ -2394,10 +2394,22 @@ describe('relabelColumnHeaders actually claims Name/Lv/Score for our own sort (#
   // calls that make this feature exist at all were deleted.
   const fakeCell = (text) => ({
     dataset: {}, childNodes: [], children: [],
-    classList: { add() {}, contains: () => false },
+    _classes: new Set(),
+    classList: {
+      add(c) { this._owner._classes.add(c) },
+      remove(c) { this._owner._classes.delete(c) },
+      contains(c) { return this._owner._classes.has(c) },
+    },
+    style: {},
     listeners: {},
     addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) },
     appendChild(child) { this.children.push(child); return child },
+    // ownEl() looks for a direct child it already owns. The fake has to answer
+    // that honestly or every call would append another one (#613).
+    querySelector(sel) {
+      if (!sel.includes('tnl-own')) return null
+      return this.children.find((c) => (c.className ?? '').includes('tnl-own')) ?? null
+    },
     // A real element's textContent setter wipes every child node — the
     // property has to behave that way here too, or the badge-survival test
     // below cannot actually distinguish the fix from the bug it guards.
@@ -2410,11 +2422,14 @@ describe('relabelColumnHeaders actually claims Name/Lv/Score for our own sort (#
     set textContent(v) { this._text = v; this.children = [] },
   })
 
+  // classList methods need to reach the cell they belong to.
+  const cell = (text) => { const c = fakeCell(text); c.classList._owner = c; return c }
+
   function fakeRowWithHeader() {
-    const memberCell = fakeCell('Members')
-    const levelCell = fakeCell('Level')
-    const scoreCell = fakeCell('Score')
-    const attackCell = fakeCell('Attack')
+    const memberCell = cell('Members')
+    const levelCell = cell('Level')
+    const scoreCell = cell('Score')
+    const attackCell = cell('Attack')
     const header = {
       querySelector(sel) {
         if (sel.includes('member')) return memberCell
@@ -2788,6 +2803,9 @@ function loadWithDom() {
         appendChild(child) { this.children.push(child); return child },
         querySelector: () => null,
         removeAttribute(name) { delete this[name] },
+        // Real elements have this; ownEl() uses it to swap a span for an
+        // anchor, and without it that path throws in tests only.
+        remove() { this._removed = true },
       }
       created.push(el)
       return el
@@ -3241,63 +3259,161 @@ describe('the tinted name uses a plain, readable font', () => {
   })
 })
 
+describe('taking over a cell React owns (#613)', () => {
+  // ⚠️ The rule this enforces, in one line: NEVER REMOVE OR REPLACE A NODE
+  // REACT OWNS. Torn's faction page is React 19; React holds references to the
+  // nodes it created and calls removeChild on exactly those later. Destroy one
+  // in the meantime and that call throws inside React's commit phase, which
+  // tears down the whole subtree — the page going blank two to thirty seconds
+  // after it loaded, caught with a removeChild trace running straight through
+  // react-dom's own commitDeletionEffects recursion.
+  function cellWith(text) {
+    const kids = []
+    const classes = new Set()
+    return {
+      _kids: kids, _classes: classes,
+      childNodes: [{ nodeType: 3, textContent: text }],
+      style: {},
+      classList: {
+        add: (c) => classes.add(c), remove: (c) => classes.delete(c),
+        contains: (c) => classes.has(c),
+      },
+      querySelector: (sel) => (sel.includes('tnl-own')
+        ? kids.find((k) => (k.className ?? '').includes('tnl-own')) ?? null : null),
+      appendChild(node) { kids.push(node); return node },
+    }
+  }
+
+  it('⚠️ appends its own node and leaves Torn\u2019s children untouched', () => {
+    const { S: s } = loadWithDom()
+    const cell = cellWith('Okay')
+    s.ownText(cell, '2h14m')
+    expect(cell.childNodes[0].textContent).toBe('Okay')   // never destroyed
+    expect(cell._kids).toHaveLength(1)
+    expect(cell._kids[0].textContent).toBe('2h14m')
+  })
+
+  it('marks the cell so CSS can hide what Torn put there', () => {
+    // font-size:0 rather than display:none, because Torn keeps the status as a
+    // BARE TEXT NODE and there is no other way to hide one of those.
+    const { S: s } = loadWithDom()
+    const cell = cellWith('Okay')
+    s.ownText(cell, '2h14m')
+    expect(cell.classList.contains(s.TOOK_CLASS)).toBe(true)
+  })
+
+  it('reuses the same node on every later call rather than stacking them up', () => {
+    // paintStatus runs every second across every row on the page.
+    const { S: s } = loadWithDom()
+    const cell = cellWith('Okay')
+    s.ownText(cell, 'a')
+    s.ownText(cell, 'b')
+    s.ownText(cell, 'c')
+    expect(cell._kids).toHaveLength(1)
+    expect(cell._kids[0].textContent).toBe('c')
+  })
+
+  it('swaps element type when the caller needs a link instead of a span', () => {
+    const { S: s } = loadWithDom()
+    const cell = cellWith('Attack')
+    s.ownEl(cell, 'span')
+    const link = s.ownEl(cell, 'a')
+    expect(link.tagName).toBe('a')
+  })
+
+  it('⚠️ reads Torn\u2019s live text past our own, so their value is never a stale copy', () => {
+    // The old code remembered Torn's text in a data attribute before
+    // overwriting it, which went stale the moment Torn updated the cell.
+    const { S: s } = loadWithDom()
+    const cell = cellWith('Hospital')
+    s.ownText(cell, '11m')
+    expect(s.tornTextOf(cell)).toBe('Hospital')
+  })
+
+  it('releasing drops only our node — there is nothing of Torn\u2019s to restore', () => {
+    const { S: s } = loadWithDom()
+    const cell = cellWith('Okay')
+    const own = s.ownText(cell, '2h14m')
+    own.remove = () => { cell._kids.length = 0 }
+    s.releaseOwn(cell)
+    expect(cell.classList.contains(s.TOOK_CLASS)).toBe(false)
+    expect(cell.childNodes[0].textContent).toBe('Okay')
+  })
+})
+
 describe('shrinkAttack (#548) — Torn does not always give the Attack cell a real link', () => {
+  // ⚠️ The contract CHANGED in #613, and the old one is what broke the page.
+  // shrinkAttack used to write Torn's own node (`el.textContent = 'Atk'`) or
+  // remove it outright (`el.replaceWith(link)`). Torn's faction page is React,
+  // React was still holding those nodes, and the removeChild it attempted
+  // afterwards took the whole roster down. Nothing of Torn's is touched now:
+  // our label is appended beside it and theirs is hidden by CSS.
   function attackRow({ hasHref } = {}) {
-    let cell
+    const own = []
     const leaf = {
       tagName: hasHref ? 'A' : 'SPAN',
       textContent: 'Attack',
-      children: [],
+      children: [], style: {},
       className: hasHref ? 't-blue h c-pointer' : 't-gray-9',
+      _classes: new Set(),
+      classList: {
+        add(c) { leaf._classes.add(c) },
+        remove(c) { leaf._classes.delete(c) },
+        contains: (c) => leaf._classes.has(c),
+      },
       getAttribute(name) {
         return hasHref && name === 'href' ? '/page.php?sid=attack&user2ID=39773' : null
       },
-      replaceWith(node) {
-        const i = cell._kids.indexOf(leaf)
-        if (i !== -1) cell._kids[i] = node
-      },
+      querySelector: (sel) => (sel.includes('tnl-own') ? own[0] ?? null : null),
+      appendChild(node) { own.push(node); return node },
     }
-    cell = { dataset: {}, _kids: [leaf], querySelectorAll: () => cell._kids.slice() }
+    const cell = { dataset: {}, querySelectorAll: () => [leaf] }
     const row = { dataset: {}, querySelector: (sel) => (sel.includes('attack') ? cell : null) }
-    return { row, cell, leaf }
+    return { row, cell, leaf, own }
   }
 
-  it('leaves Torn’s own working link alone, just relabelling the text', () => {
+  it('⚠️ never writes to or removes Torn\u2019s own node', () => {
     const { S: s } = loadWithDom()
-    const { row, cell, leaf } = attackRow({ hasHref: true })
+    const { row, leaf, own } = attackRow({ hasHref: true })
     s.shrinkAttack(row, 39773)
-    expect(leaf.textContent).toBe('Atk')
-    expect(cell._kids[0]).toBe(leaf)
-    expect(cell.dataset.tnlAtk).toBe('1')
+    expect(leaf.textContent).toBe('Attack')      // untouched
+    expect(own).toHaveLength(1)
+    expect(own[0].textContent).toBe('Atk')
   })
 
-  it('builds a real, working attack link — same URL the BS column uses — when Torn only gave a disabled span', () => {
+  it('hides Torn\u2019s content rather than deleting it', () => {
     const { S: s } = loadWithDom()
-    const { row, cell } = attackRow({ hasHref: false })
+    const { row, leaf } = attackRow({ hasHref: true })
     s.shrinkAttack(row, 39773)
-    const link = cell._kids[0]
-    expect(link.textContent).toBe('Atk')
-    expect(link.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=39773')
+    expect(leaf.classList.contains(s.TOOK_CLASS)).toBe(true)
+  })
+
+  it('builds a real, working attack link when Torn only gave a disabled span', () => {
+    const { S: s } = loadWithDom()
+    const { row, own } = attackRow({ hasHref: false })
+    s.shrinkAttack(row, 39773)
+    expect(own[0].tagName).toBe('a')
+    expect(own[0].href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=39773')
     // No target: a plain click stays in this tab; middle/ctrl-click still
     // opens a new one on its own, same as the BS link (#547 revert).
-    expect(link.target).toBeUndefined()
+    expect(own[0].target).toBeUndefined()
   })
 
-  it('falls back to a label-only rename with no player to link to — never link a teammate row', () => {
+  it('⚠️ never links a teammate row — a label rename and nothing more', () => {
     const { S: s } = loadWithDom()
-    const { row, cell, leaf } = attackRow({ hasHref: false })
+    const { row, own } = attackRow({ hasHref: false })
     s.shrinkAttack(row, null)
-    expect(leaf.textContent).toBe('Atk')
-    expect(cell._kids[0]).toBe(leaf)
+    expect(own[0].tagName).toBe('span')
+    expect(own[0].href).toBeUndefined()
+    expect(own[0].textContent).toBe('Atk')
   })
 
   it('does nothing on a second call — the per-row guard is idempotent', () => {
     const { S: s } = loadWithDom()
-    const { row, cell } = attackRow({ hasHref: false })
+    const { row, own } = attackRow({ hasHref: false })
     s.shrinkAttack(row, 39773)
-    const first = cell._kids[0]
     s.shrinkAttack(row, 39773)
-    expect(cell._kids[0]).toBe(first)
+    expect(own).toHaveLength(1)
   })
 })
 
