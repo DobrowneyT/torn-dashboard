@@ -292,6 +292,30 @@ describe('assist counters (#591)', () => {
       expect(await liveAssist(T + 11)).toBeNull()
     })
 
+    it('⚠️ a requester cannot answer their OWN call for help — they are already in the fight, and their own join would cancel the request the moment they made it', async () => {
+      // The harness user 1400 is the requester; put them on the roster so the
+      // observation resolves to a real in-faction member.
+      await seedRosterMember(1400, 'Fighter', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 12, kind: 'help' })
+      const res = await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 12,
+        events: [{ kind: 'join', actor_name: 'Fighter', at_ms: 1_700_000_500_000 }],
+      })
+      expect(res.body.counted).toBe(0)
+      expect((await liveAssist(T + 12)).wanted).toBe(1)
+    })
+
+    it('but a GRENADE the requester throws themselves does count — asking for three smokes and throwing one is one of the three', async () => {
+      await seedRosterMember(1400, 'Fighter', TEST_FACTION.tornFactionId)
+      await call('POST', '/api/war-room/assist', { target_id: T + 13, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 13, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist/observed', {
+        target_id: T + 13,
+        events: [{ kind: 'smoke', actor_name: 'Fighter', at_ms: 1_700_000_600_000 }],
+      })
+      expect((await liveAssist(T + 13)).wanted).toBe(1)
+    })
+
     it('rejects a malformed body rather than guessing', async () => {
       expect((await call('POST', '/api/war-room/assist/observed', { events: [] })).status).toBe(400)
       expect((await call('POST', '/api/war-room/assist/observed', { target_id: T })).status).toBe(400)

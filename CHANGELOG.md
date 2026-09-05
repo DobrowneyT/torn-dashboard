@@ -42,6 +42,23 @@ surface it automatically.
   key is the event itself, rounded to the second — two observers' clocks will
   not agree to the millisecond, and rounding is what makes their reports
   collide instead of both counting.
+- **The count is visible where it is decided.** The war-roster badge reads
+  `Smoke ×3`, and the attack-page overlay carries a pip on the button you press
+  to raise it — that is the surface where you decide whether to ask for one
+  more, so it has to say how many you have already asked for. A count of one
+  shows nothing: `×1` is noise on the overwhelming majority of requests. An
+  absent or unusable count floors at **one, never zero** — a row from before
+  the column existed would otherwise render `×0`, which reads as "nobody is
+  asking", the opposite of what a live row means.
+- The userscript reports qualifying fight-log events every poll, with no local
+  record of what it has already sent. The server's ledger is the only thing
+  that can answer "has this been counted" correctly, because several members
+  watch the same fight — re-sending is free, missing one is not.
+- A requester cannot answer their own call for **help**: they are already in
+  the fight, and their own join would cancel the request the moment they made
+  it. Enforced server-side on member ids rather than in the script on scraped
+  names. Grenades are deliberately not excluded this way — a smoke you throw
+  yourself after asking for three is genuinely one of the three.
 
 ### Fixed
 - **Assist requests no longer expire mid-fight (#591).** The window was a

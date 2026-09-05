@@ -292,12 +292,21 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
       // A `join` answers a `help` request: the log says "joined the fight",
       // the request says "help", and they are the same thing named twice.
       const wants = kind === 'join' ? 'help' : kind
+      // ⚠️ A requester cannot answer their own call for help: they are already
+      // in the fight, and their own join would otherwise cancel the request the
+      // moment they made it. Checked on IDs here rather than on names in the
+      // script — the attack page carries no roster, so the script has no
+      // reliable way to know its own member id against a scraped name.
+      //
+      // Grenades are NOT excluded this way: a smoke you throw yourself after
+      // asking for three is genuinely one of the three.
       const dropped = await db.query(
         `UPDATE war_room_assists_v2
          SET wanted = wanted - 1, updated_at = now()
          WHERE target_id = $1 AND kind = $2 AND deleted_at IS NULL
+           AND NOT ($2 = 'help' AND requester_id = $3)
          RETURNING *`,
-        [targetId, wants]
+        [targetId, wants, actorId]
       )
       if (dropped.rows.length === 0) continue
       counted++
