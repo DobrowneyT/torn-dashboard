@@ -18,6 +18,24 @@ surface it automatically.
 
 ---
 
+## [3.62.0] - 2026-09-05
+
+### Changed
+- **A new matchup resets push-surge alerting to off (#598).** `surge_alerts_enabled`
+  (#208) and `surge_revive_alerts_enabled` (#359) were set once by a leader and
+  carried forward across every subsequent war, indefinitely — the one part of
+  the room that was not already a clean slate at auto-setup, where state and
+  dibs are tombstoned, the chain is reset and notes are reseeded. Alerting tuned
+  for one war is wrong for the next, and a termed war is the clear case: surge
+  alerts push to **every** subscriber on hospital and revive churn that is
+  entirely expected, so the room cries wolf all week and people mute it — which
+  then costs them the alert in the war where it mattered. Off is the safe
+  default because the failure is asymmetric.
+- The thresholds, windows and cooldowns behind those switches are deliberately
+  **not** reset. They are tuning a leader worked out for their own faction and
+  stay true across matchups; wiping them would mean re-deriving the numbers
+  every week just to turn alerting back on.
+
 ## [3.61.1] - 2026-09-05
 
 ### Fixed

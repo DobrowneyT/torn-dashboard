@@ -82,15 +82,36 @@ export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
         // auto-enable fires (below). matched_detected_at/auto_enabled_at are
         // reset for the new war: a fresh matchup starts its own 30-minute
         // clock and its own one-shot auto-enable attempt.
+        //
+        // Push-surge alerting (#208 status, #359 revives) is reset to OFF with
+        // it (#598). Everything else about the room is already a clean slate
+        // for a new matchup — state and dibs tombstoned, chain reset, notes
+        // reseeded — and the alerting was the one thing carrying forward
+        // indefinitely from whenever a leader last switched it on. Alerting
+        // tuned for one war is wrong for the next: a termed war pushes to
+        // EVERY subscriber on hospital and revive churn that is entirely
+        // expected, so the room cries wolf all week and people mute it, which
+        // then costs them the alert in the war where it mattered.
+        //
+        // Off is the safe default because the failure is asymmetric — wanting
+        // alerts and having to switch them back on costs seconds; a week of
+        // spurious pushes costs the channel.
+        //
+        // ⚠️ The two master switches ONLY. The thresholds, windows and
+        // cooldowns are tuning a leader worked out for their own faction and
+        // they stay true across matchups; wiping them would mean re-deriving
+        // the numbers every week just to turn alerting back on.
         await dbc.query(
           `INSERT INTO war_room_config_v2
              (id, faction_id, faction_name, auto_managed, managed_war_id, enabled,
-              matched_detected_at, auto_enabled_at, updated_at)
-           VALUES (1, $1, $2, true, $3, false, now(), NULL, now())
+              matched_detected_at, auto_enabled_at,
+              surge_alerts_enabled, surge_revive_alerts_enabled, updated_at)
+           VALUES (1, $1, $2, true, $3, false, now(), NULL, false, false, now())
            ON CONFLICT (id) DO UPDATE SET
              faction_id = EXCLUDED.faction_id, faction_name = EXCLUDED.faction_name,
              auto_managed = true, managed_war_id = EXCLUDED.managed_war_id,
              enabled = false, matched_detected_at = now(), auto_enabled_at = NULL,
+             surge_alerts_enabled = false, surge_revive_alerts_enabled = false,
              updated_at = now()`,
           [oppId, opp?.name ?? null, upcoming.id]
         )
