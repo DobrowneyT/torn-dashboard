@@ -708,6 +708,9 @@ CREATE TABLE public.war_room_config_v2 (
   auto_managed boolean DEFAULT false NOT NULL,
   managed_war_id bigint,
   dibs_expiry_seconds integer DEFAULT 30 NOT NULL,
+  -- #591: separate from dibs_expiry_seconds on purpose — that measures how
+  -- long a claim survives after the target surfaces, this measures a fight.
+  assist_expiry_seconds integer DEFAULT 300 NOT NULL,
   headline_text text,
   headline_tone text,
   headline_set_by bigint,

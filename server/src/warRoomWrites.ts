@@ -171,11 +171,21 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
          WHERE requester_id = $1 AND deleted_at IS NULL RETURNING *`,
         [userId]
       )
+      // #591: the window is a faction setting now, not a constant. Read inside
+      // the transaction so a mid-flight settings change cannot arm a deadline
+      // from one value and sweep it against another. A 0 means "never
+      // auto-expire" — the column is nullable, and the sweep skips NULLs.
+      const cfg = await dbc.query(
+        'SELECT assist_expiry_seconds AS secs FROM war_room_config_v2 WHERE id = 1'
+      )
+      const rawSecs = Number(cfg.rows[0]?.secs)
+      const expirySecs = Number.isFinite(rawSecs) ? rawSecs : ASSIST_EXPIRY_SECONDS
       const inserted = await dbc.query(
         `INSERT INTO war_room_assists_v2 (target_id, requester_id, requester_name, kind, war_id, auto_expire_at)
-         VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))
+         VALUES ($1, $2, $3, $4, $5,
+           CASE WHEN $6::int > 0 THEN now() + make_interval(secs => $6::int) ELSE NULL END)
          RETURNING *`,
-        [targetId, userId, name, kind, body?.war_id ?? null, ASSIST_EXPIRY_SECONDS]
+        [targetId, userId, name, kind, body?.war_id ?? null, expirySecs]
       )
       await dbc.query('COMMIT')
       hub.broadcast('assist', [...tombstoned.rows, ...inserted.rows], await serverNow())

@@ -18,6 +18,35 @@ surface it automatically.
 
 ---
 
+## [3.61.0] - 2026-09-05
+
+### Fixed
+- **Assist requests no longer expire mid-fight (#591).** The window was a
+  hardcoded 120 seconds, chosen on the reasoning recorded in
+  `warRoomAssistsExpiry.ts` that "Torn fights are seconds, not minutes". A Torn
+  fight runs to **five minutes** — and a fight log captured while investigating
+  this shows a real one already 132 seconds old, twelve seconds past the point
+  where the request had silently vanished. The hand went down while the fight
+  was still going, which is the one moment it must not. The default is now
+  300s.
+- **A target who jails, travels or flies out ends the fight too.** Only
+  `Hospital` counted as a fight ending, so an assist against a target who
+  became unattackable any other way sat out the full window. The test is now
+  "stopped being attackable", which covers `Jail`, `Traveling`, `Abroad` and
+  anything else Torn adds. An unknown state is still treated as attackable on
+  purpose: dropping live requests whenever the roster momentarily lacks a
+  status would cost more than a stale marker does.
+
+### Added
+- **`assist_expiry_seconds`**, a per-faction setting alongside the dibs
+  auto-drop window, editable in War Room settings and clamped to 0–600s (0
+  disables auto-expiry). Deliberately a **separate** knob from
+  `dibs_expiry_seconds`: that one measures how long a claim survives after a
+  target surfaces, so pushing it to 300 to cover a fight would keep claims
+  blocking other claimers for five minutes. The window is read inside the
+  insert transaction, so a settings change mid-flight cannot arm a deadline
+  from one value and sweep it against another.
+
 ## [3.60.0] - 2026-09-05
 
 ### Fixed

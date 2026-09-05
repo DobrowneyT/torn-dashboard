@@ -18,12 +18,39 @@ interface TargetStatus {
 }
 
 /**
- * Short by design (#523's own framing): a raised hand is only useful for the
- * length of a fight, and Torn fights are seconds, not minutes. Long enough to
- * survive normal poll jitter; short enough that a forgotten marker doesn't
- * outlive the fight it was about.
+ * A raised hand is only useful for the length of the fight it is about.
+ *
+ * ⚠️ This was 120s, on the reasoning that "Torn fights are seconds, not
+ * minutes". That was wrong: a Torn fight runs to FIVE MINUTES, and a captured
+ * log shows a real one already 132 seconds old — twelve seconds past the point
+ * where the request had silently vanished (#591). The hand went down while the
+ * fight was still going, which is the one moment it must not.
+ *
+ * Now the default rather than the rule: `assist_expiry_seconds` in
+ * war_room_config_v2 overrides it, the same way `dibs_expiry_seconds` does for
+ * dibs. They are deliberately SEPARATE knobs — a dib's window measures how long
+ * a claim survives after the target surfaces, so sharing this value would keep
+ * claims blocking other claimers for five minutes.
  */
-export const ASSIST_EXPIRY_SECONDS = 120
+export const ASSIST_EXPIRY_SECONDS = 300
+
+/**
+ * The states in which a target can still be attacked.
+ *
+ * Anything else means the fight is over: hospital, jail, and travelling all put
+ * the target out of reach just as completely. Only Hospital used to count, so a
+ * target who jailed or flew out left every assist against them sitting for the
+ * full window (#591).
+ */
+const ATTACKABLE = new Set(['Okay'])
+
+function attackable(status: TargetStatus | null | undefined): boolean {
+  // An unknown state is treated as attackable on purpose: the alternative is
+  // dropping live requests every time the roster momentarily has no status for
+  // someone, and a stale marker costs less than a vanished one mid-fight.
+  const state = status?.state
+  return state === undefined || state === null || ATTACKABLE.has(state)
+}
 
 /**
  * Snapshot the currently-stored hospital status of every live-assisted
@@ -46,10 +73,11 @@ export async function snapshotAssistedStatus(db: pg.Pool): Promise<Map<number, T
  * Apply the auto-expiry rules against the freshly-synced state and return the
  * assist rows tombstoned this tick (for an 'assist'-channel broadcast).
  *
- *  Fight-ended — the target transitions INTO Hospital (was anything else,
- *  now Hospital) → drop every live assist against them now. Already being in
- *  hospital across two ticks is not a new ending (an assist raised while the
- *  target happens to be mid-hospital-stay keeps its own timeout).
+ *  Fight-ended — the target TRANSITIONS out of attackable (was Okay, now
+ *  Hospital/Jail/Traveling/Abroad/…) → drop every live assist against them
+ *  now. Already being unattackable across two ticks is not a new ending: an
+ *  assist raised while the target happens to be mid-hospital-stay keeps its
+ *  own timeout instead.
  *
  *  Short timeout — auto_expire_at (armed at creation, always) lapses →
  *  drop, whatever the target's status.
@@ -69,7 +97,7 @@ export async function sweepAssistsExpiry(
   for (const row of live.rows) {
     const prev = prevStatus.get(Number(row.target_id)) ?? null
     const next = (row.status as TargetStatus) ?? null
-    if (prev?.state !== 'Hospital' && next?.state === 'Hospital') fightEnded.push(row.id)
+    if (attackable(prev) && !attackable(next)) fightEnded.push(row.id)
   }
 
   const expired = await db.query(

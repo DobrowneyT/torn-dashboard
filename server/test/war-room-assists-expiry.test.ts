@@ -38,6 +38,59 @@ afterAll(async () => {
   await stack?.close()
 })
 
+// #591: the default was 120s, chosen on the reasoning recorded in
+// warRoomAssistsExpiry.ts that "Torn fights are seconds, not minutes". Torn
+// fights actually run to FIVE MINUTES, and a captured fight log shows a real
+// one already 132 seconds old — twelve seconds past the point where the request
+// had silently vanished. The hand goes down while the fight is still on.
+describe('the expiry window (#591)', () => {
+  it('⚠️ defaults to a full Torn fight, not two minutes — a max-length fight outlived its own request under the old 120s', () => {
+    expect(ASSIST_EXPIRY_SECONDS).toBeGreaterThanOrEqual(300)
+  })
+
+  it('is configurable, and the caller\'s value wins over the default', async () => {
+    await setTargetStatus({ state: 'Okay', until: null })
+    // Armed 200s ago. Still live under a 300s window, expired under a 120s one.
+    await seedAssist('smoke', -200 + 300)
+    const prev = await snapshotAssistedStatus(stack.db)
+    const expired = await sweepAssistsExpiry(stack.db, prev)
+    expect(expired).toHaveLength(0)
+  })
+})
+
+// A target who is in jail, travelling or abroad is exactly as unattackable as
+// one in hospital, so the request is exactly as meaningless — but only Hospital
+// used to end it, leaving the rest to sit out the full window.
+describe('a fight ends when the target stops being attackable (#591)', () => {
+  for (const state of ['Hospital', 'Jail', 'Traveling', 'Abroad', 'Fallen']) {
+    it(`drops the assist when the target goes to ${state}`, async () => {
+      await setTargetStatus({ state: 'Okay', until: null })
+      await seedAssist()
+      const prev = await snapshotAssistedStatus(stack.db)
+      await setTargetStatus({ state, until: 1_800_000_000 })
+      const expired = await sweepAssistsExpiry(stack.db, prev)
+      expect(expired.some((r: any) => Number(r.target_id) === TARGET), state).toBe(true)
+    })
+  }
+
+  it('⚠️ does NOT drop one raised while the target was ALREADY unattackable — that is not a fight ENDING, and the request keeps its own timeout', async () => {
+    await setTargetStatus({ state: 'Hospital', until: 1_800_000_000 })
+    await seedAssist()
+    const prev = await snapshotAssistedStatus(stack.db)
+    await setTargetStatus({ state: 'Hospital', until: 1_800_000_000 })
+    const expired = await sweepAssistsExpiry(stack.db, prev)
+    expect(expired).toHaveLength(0)
+  })
+
+  it('leaves it alone while the target is still Okay', async () => {
+    await setTargetStatus({ state: 'Okay', until: null })
+    await seedAssist()
+    const prev = await snapshotAssistedStatus(stack.db)
+    await setTargetStatus({ state: 'Okay', until: null })
+    expect(await sweepAssistsExpiry(stack.db, prev)).toHaveLength(0)
+  })
+})
+
 describe('assist-request auto-expiry', () => {
   it('leaves a fresh assist alone: unexpired deadline, target still Okay', async () => {
     await setTargetStatus({ state: 'Okay', until: null })
