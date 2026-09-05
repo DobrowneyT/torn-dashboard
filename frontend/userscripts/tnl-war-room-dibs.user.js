@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.42.1
+// @version      1.43.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -270,6 +270,35 @@ const TNLDibs = (function () {
   function assistCount(raw) {
     const n = Math.floor(Number(raw))
     return Number.isFinite(n) && n > 0 ? n : 1
+  }
+
+  /** How long a press has to be held before it counts as a hold (#600). */
+  const LONG_PRESS_MS = 500
+
+  /**
+   * What a press on an assist button means.
+   *
+   * ⚠️ The short-press row is the whole bug this replaced (#600). A press on
+   * your own active kind used to route to `clearAssist` — the #523 toggle-off,
+   * written before counting existed and never revisited when #591 added it. So
+   * the one gesture that should raise the count was the one that destroyed the
+   * request, and the counter was unreachable from the surface built for it.
+   *
+   * 'request' covers all three short-press cases on purpose, because the server
+   * already distinguishes them: same target and kind increments, anything else
+   * replaces. Splitting them here would be a second copy of a rule that only
+   * one side can enforce.
+   *
+   * A hold is only ever about YOUR OWN request of THIS kind. Holding a button
+   * you have not pressed does nothing — "if it's already at 0 it does nothing"
+   * — rather than raising an error the overlay would have to render mid-fight.
+   */
+  function assistPressAction(mine, kind, userId, gesture) {
+    const isMine = !!mine && String(mine.by) === String(userId)
+    if (gesture === 'long') {
+      return isMine && mine.kind === kind ? 'decrement' : 'noop'
+    }
+    return 'request'
   }
 
   function indexAssists(rows, into) {
@@ -1328,6 +1357,28 @@ const TNLDibs = (function () {
     rt.assists.set(targetId, { kind, by: rt.session?.userId, name: 'You', at: new Date().toISOString() })
     pokePoll()
     return { ok: true }
+  }
+
+  /**
+   * Take one off your own request (#600) — the overlay's long press.
+   *
+   * ⚠️ A POST, not a DELETE: Torn PDA's bridge has no DELETE at all (see
+   * pdaTransport()), and this gesture's home is the attack page, which is a
+   * phone surface as much as a desktop one. Routing it through DELETE would
+   * have made the whole gesture dead on PDA and working everywhere else, which
+   * is the hardest kind of bug to have reported.
+   *
+   * No optimistic local edit. The server owns `wanted` — the fight log
+   * decrements it too (#591), so this browser's copy is not the only writer and
+   * guessing the new value here would make the pip flicker between our guess
+   * and the truth on the next poll.
+   */
+  async function decrementAssist(targetId) {
+    const res = await api('/api/war-room/assist/decrement', 'POST', { target_id: targetId })
+    if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
+    if (res.body?.cleared) rt.assists.delete(targetId)
+    pokePoll()
+    return { ok: true, wanted: Number(res.body?.wanted) || 0, cleared: !!res.body?.cleared }
   }
 
   async function clearAssist(targetId) {
@@ -2864,6 +2915,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   const ASSIST_OVERLAY_ID = 'tnl-assist-overlay'
   const ASSIST_OVERLAY_STYLE_ID = 'tnl-assist-overlay-style'
   const ASSIST_BTN_ACTIVE_CLASS = 'tnl-assist-btn-active'
+  /** On a button while it is being held, so the hold is visibly registering. */
+  const ASSIST_BTN_HELD_CLASS = 'tnl-assist-btn-held'
   /** The \u00D7N pip on a button whose request is for more than one. */
   const ASSIST_COUNT_CLASS = 'tnl-assist-count'
   const ASSIST_HANDLE_CLASS = 'tnl-assist-handle'
@@ -2971,6 +3024,24 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 }
 #${ASSIST_OVERLAY_ID} button:hover { background: #374151; }
 #${ASSIST_OVERLAY_ID} button.${ASSIST_BTN_ACTIVE_CLASS} { background: #ea580c; border-color: #ea580c; }
+/* Held past the point of being a tap (#600). Half a second is a long time to
+   hold something that gives no sign of noticing, so the button shrinks under
+   the finger the moment the hold starts and springs back if you let go early —
+   which also teaches the gesture without a word of instruction. */
+#${ASSIST_OVERLAY_ID} button.${ASSIST_BTN_HELD_CLASS} {
+  transform: scale(.88);
+  transition: transform ${LONG_PRESS_MS}ms ease-out;
+}
+/* A hold on a touchscreen otherwise selects the icon and pops the callout,
+   both of which land on top of the gesture. The contextmenu half of this is
+   handled in JS -- it is an event, not a style, and no backtick may appear
+   anywhere in this sheet: it is a template literal, and one ends it. */
+#${ASSIST_OVERLAY_ID} button {
+  touch-action: manipulation;
+  user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
 /* The count rides in the button's own corner rather than replacing the icon:
    which KIND you asked for still has to be readable at a glance. */
 #${ASSIST_OVERLAY_ID} button { position: relative; }
@@ -3150,16 +3221,29 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const svg = assistIconSvg(meta.icon, 16)
       if (svg) btn.innerHTML = svg
       else btn.textContent = meta.label
-      btn.addEventListener('click', async (e) => {
-        e.preventDefault(); e.stopPropagation()
+      // Press gesture (#600): a tap asks for one more, a hold gives one back.
+      //
+      // The hold fires at the threshold while the button is STILL HELD rather
+      // than on release. Waiting for release would mean holding for half a
+      // second with no way to tell whether it had registered until you let go,
+      // which mid-fight is exactly when you cannot afford to guess.
+      //
+      // Pointer events rather than mouse events so a thumb and a mouse take the
+      // same path, and `pointercancel` matters more than it looks: a touch that
+      // turns into a page scroll fires cancel, never up, and without it the
+      // timer would survive and fire a decrement the user never asked for.
+      let holdTimer = null
+      let handled = false   // a hold already acted — swallow the click it becomes
+
+      const act = async (gesture) => {
         const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
         if (!targetId) return
-        const mine = rt.assists.get(targetId)
-        const isMine = mine && String(mine.by) === String(rt.session?.userId)
-        // Same kind, clicked again: toggle off — the requester clearing
-        // their own marker (#523's own acceptance criterion).
+        const what = assistPressAction(rt.assists.get(targetId), kind, rt.session?.userId, gesture)
+        if (what === 'noop') return
         btn.disabled = true
-        const res = (isMine && mine.kind === kind) ? await clearAssist(targetId) : await requestAssist(targetId, kind)
+        const res = what === 'decrement'
+          ? await decrementAssist(targetId)
+          : await requestAssist(targetId, kind)
         btn.disabled = false
         // Not showToast(): that relies on injectStyles()' faction-page-only
         // stylesheet for its look, which never runs on the attack page — an
@@ -3168,6 +3252,36 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
         // the control itself.
         if (!res.ok) btn.title = res.message
         renderAssistOverlay()
+      }
+
+      const cancelHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null } }
+
+      btn.addEventListener('pointerdown', (e) => {
+        if (e.button != null && e.button !== 0) return
+        handled = false
+        cancelHold()
+        holdTimer = setTimeout(() => {
+          holdTimer = null
+          handled = true
+          btn.classList.remove(ASSIST_BTN_HELD_CLASS)
+          act('long')
+        }, LONG_PRESS_MS)
+        btn.classList.add(ASSIST_BTN_HELD_CLASS)
+      })
+      for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+        btn.addEventListener(type, () => { cancelHold(); btn.classList.remove(ASSIST_BTN_HELD_CLASS) })
+      }
+      // A hold on a touchscreen raises the context menu and the selection
+      // callout on top of the gesture. Both are suppressed here rather than in
+      // CSS alone because `contextmenu` is an event, not a style.
+      btn.addEventListener('contextmenu', (e) => e.preventDefault())
+      btn.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation()
+        // The hold already acted; the browser still delivers the click that the
+        // press turned into, and letting it through would immediately undo the
+        // decrement by asking for one more.
+        if (handled) { handled = false; return }
+        act('short')
       })
       box.appendChild(btn)
     }
@@ -3232,10 +3346,11 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       }
       const meta = ASSIST_KIND_META[btn.dataset.tnlKind]
       if (meta) {
-        btn.title = wanted > 1
-          ? `${meta.label} \u00B7 ${wanted} still needed \u00B7 click for one more`
-          : active ? `${meta.label} requested \u00B7 click again to ask for another`
-            : meta.label
+        // The hold is the only gesture here with nothing on screen to
+        // advertise it, so the tooltip is where it gets taught.
+        btn.title = active
+          ? `${meta.label} \u00B7 ${wanted} still needed \u00B7 tap for one more, hold to take one back`
+          : `${meta.label} \u00B7 tap to request`
       }
     }
   }
@@ -4355,7 +4470,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     parseFightLogAge, parseFightLogRow, assistCandidates, readFightLogRows, attackTargetName,
     scopeCss, scopeSelector, WAR_ACTIVE_CLASS,
     indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
-    assistIconSvg, paintDibs, assistCount,
+    assistIconSvg, paintDibs, assistCount, assistPressAction, decrementAssist, LONG_PRESS_MS,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,

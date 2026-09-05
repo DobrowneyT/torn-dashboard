@@ -324,6 +324,70 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     return { ok: true, counted }
   })
 
+  /**
+   * Take ONE off your own request (#600), rather than cancelling it outright.
+   *
+   * The overlay's long-press. A short press raises the count; this is how you
+   * put one back when you asked for three smokes and two turned up. At one, the
+   * decrement empties the request and it goes away — "decrement to zero" and
+   * "cancel" are the same act, so there is no separate rule for it.
+   *
+   * ⚠️ A POST, not a DELETE variant, and that is not a style choice: Torn PDA's
+   * HTTP bridge exposes only PDA_httpGet/PDA_httpPost, so a DELETE cannot be
+   * issued from a phone at all. This gesture lives on the attack page, which is
+   * a phone surface as much as a desktop one. The DELETE below stays for the
+   * dashboard and for the admin override — neither of which runs inside PDA.
+   *
+   * Scoped to the caller's OWN row on purpose, with no admin branch: a hold is
+   * a fat-fingerable gesture, and letting it silently shave a count off someone
+   * else's request would be a bad thing to be able to do by accident.
+   */
+  app.post('/api/war-room/assist/decrement', { preHandler: requireAuth() }, async (req, reply) => {
+    const body = req.body as { target_id?: unknown } | null
+    const targetId = Number(body?.target_id)
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return reply.status(400).send({ error: 'target_id required' })
+    }
+    const userId = Number(req.session!.torn_user_id)
+
+    const dbc = await db.connect()
+    try {
+      await dbc.query('BEGIN')
+      const dropped = await dbc.query(
+        `UPDATE war_room_assists_v2
+         SET wanted = wanted - 1, updated_at = now()
+         WHERE requester_id = $1 AND target_id = $2 AND deleted_at IS NULL
+         RETURNING *`,
+        [userId, targetId]
+      )
+      // Nothing of yours live on this target: the hold does nothing at all,
+      // which is the honest answer rather than an error the overlay would have
+      // to render mid-fight.
+      if (dropped.rows.length === 0) {
+        await dbc.query('COMMIT')
+        return { ok: true, wanted: 0, cleared: false }
+      }
+      const finished = await dbc.query(
+        `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
+         WHERE requester_id = $1 AND target_id = $2 AND deleted_at IS NULL AND wanted <= 0
+         RETURNING *`,
+        [userId, targetId]
+      )
+      await dbc.query('COMMIT')
+      hub.broadcast('assist', [...dropped.rows, ...finished.rows], await serverNow())
+      return {
+        ok: true,
+        wanted: finished.rows.length > 0 ? 0 : Number(dropped.rows[0].wanted),
+        cleared: finished.rows.length > 0,
+      }
+    } catch (err) {
+      await dbc.query('ROLLBACK')
+      throw err
+    } finally {
+      dbc.release()
+    }
+  })
+
   app.delete('/api/war-room/assist/:targetId', { preHandler: requireAuth() }, async (req) => {
     const { targetId } = req.params as { targetId: string }
     const userId = Number(req.session!.torn_user_id)

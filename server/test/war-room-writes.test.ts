@@ -199,6 +199,58 @@ describe('assist counters (#591)', () => {
     expect((await liveAssist(T + 4)).wanted).toBe(1)
   })
 
+  describe('holding the button takes one back (#600)', () => {
+    it('drops the count by one and reports the new value', async () => {
+      await call('POST', '/api/war-room/assist', { target_id: T + 20, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 20, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 20, kind: 'smoke' })
+      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 20 })
+      expect(res.status).toBe(200)
+      expect(res.body).toMatchObject({ wanted: 2, cleared: false })
+      expect((await liveAssist(T + 20)).wanted).toBe(2)
+    })
+
+    it('at one, taking the last one back clears the request', async () => {
+      // "Decrement to zero" and "cancel" are the same act, so there is no
+      // separate rule for cancelling.
+      await call('POST', '/api/war-room/assist', { target_id: T + 21, kind: 'tear' })
+      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 21 })
+      expect(res.body).toMatchObject({ wanted: 0, cleared: true })
+      expect(await liveAssist(T + 21)).toBeNull()
+    })
+
+    it('does nothing at all when you have nothing live on that target', async () => {
+      // A hold is fat-fingerable; the honest answer is silence, not an error
+      // the overlay would have to render mid-fight.
+      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 22 })
+      expect(res.status).toBe(200)
+      expect(res.body).toMatchObject({ wanted: 0, cleared: false })
+    })
+
+    it('\u26A0\uFE0F never shaves a count off someone ELSE\u2019s request', async () => {
+      // Deliberately no admin branch on this route, unlike the DELETE: letting
+      // a hold quietly take one off another requester's count would be a bad
+      // thing to be able to do by accident.
+      await stack.db.query(
+        `INSERT INTO war_room_assists_v2 (target_id, requester_id, requester_name, kind, wanted)
+         VALUES ($1, 4242, 'Someone Else', 'smoke', 3)`,
+        [T + 23]
+      )
+      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 23 })
+      expect(res.body).toMatchObject({ wanted: 0, cleared: false })
+      const still = await stack.db.query(
+        'SELECT wanted FROM war_room_assists_v2 WHERE target_id = $1 AND deleted_at IS NULL',
+        [T + 23]
+      )
+      expect(Number(still.rows[0].wanted)).toBe(3)
+    })
+
+    it('rejects a missing target rather than guessing one', async () => {
+      const res = await call('POST', '/api/war-room/assist/decrement', {})
+      expect(res.status).toBe(400)
+    })
+  })
+
   describe('observed actions decrement it', () => {
     const OURS = 60001
     const THEIRS = 60002
