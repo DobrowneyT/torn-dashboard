@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.46.0
+// @version      1.48.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -170,8 +170,27 @@ const TNLDibs = (function () {
   // isFactionPage(); the attack-page overlay MUST gate on isAttackPage(). A
   // page that matches neither (a future @match, or a URL shape that changed
   // under us) gets NEITHER — degrade to nothing rather than guess.
-  function factionPageMatch(pathname) {
-    return pathname === '/factions.php'
+  /**
+   * OUR faction page — not just any faction page (#619).
+   *
+   * ⚠️ `factions.php` serves every faction on Torn, and the war route is not
+   * ours alone: `factions.php?step=profile&ID=9357#/war/rank` is somebody
+   * else's war, with the same hash and the same roster markup. Matching on the
+   * path alone lit the whole script up there — badging enemies of a faction we
+   * are not fighting, and offering Dibs on a war nobody in our faction is in.
+   *
+   * `step` is what separates them: `your` is the faction you are a member of,
+   * anything else (`profile`, and whatever Torn adds next) is someone
+   * observed. Torn redirects a bare `factions.php` to `?step=your&type=1`, so
+   * requiring it costs nothing on the page we do want.
+   *
+   * Deliberately NOT `type=N`: that is a per-faction layout id which differs
+   * between factions and moves when a faction reorders its own tabs — the same
+   * reason warRankRouteMatch() reads the hash instead.
+   */
+  function factionPageMatch(pathname, search) {
+    if (pathname !== '/factions.php') return false
+    return new URLSearchParams(search ?? '').get('step') === 'your'
   }
 
   function attackPageMatch(pathname, search) {
@@ -210,7 +229,7 @@ const TNLDibs = (function () {
   }
 
   function isFactionPage() {
-    return typeof location !== 'undefined' && factionPageMatch(location.pathname)
+    return typeof location !== 'undefined' && factionPageMatch(location.pathname, location.search)
   }
 
   /**
@@ -1156,19 +1175,29 @@ const TNLDibs = (function () {
    * and is the only place that can answer it honestly.
    */
   function assistCandidates(rows, { targetName, requesterName, requestedAtMs, nowMs = Date.now() } = {}) {
-    if (!targetName) return []
+    // ⚠️ No early return on a missing targetName any more (#618). That single
+    // line is what made the whole feature depend on scraping the defender's
+    // name off a page that does not reliably render it as a link: when it came
+    // back null, not one event was ever reported and a live smoke sat
+    // uncounted with every other part of the chain working. Rules 1 and 2 are
+    // a prefilter when a name IS available; the server repeats the check on
+    // ids either way.
     const out = []
     for (const raw of rows ?? []) {
       const ev = parseFightLogRow(raw)
       if (!ev) continue
-      if (ev.subject !== targetName) continue                 // rule 1
-      if (ev.actor === targetName) continue                   // rule 2
+      // Rule 1 is now only a cheap CLIENT-SIDE PREFILTER, and the server
+      // repeats it authoritatively on ids (#618). It runs only when the page
+      // gave us a name to compare against — see reportFightLog() for why that
+      // is not something the attack page reliably offers.
+      if (targetName && ev.subject !== targetName) continue   // rule 1
+      if (targetName && ev.actor === targetName) continue     // rule 2
       const age = parseFightLogAge(raw.age)
       if (age === null) continue
       const atMs = nowMs - age * 1000
       if (requestedAtMs != null && atMs < requestedAtMs) continue   // rule 3
       if (ev.kind === 'join' && requesterName && ev.actor === requesterName) continue  // rule 4
-      out.push({ kind: ev.kind, actor: ev.actor, at_ms: atMs })
+      out.push({ kind: ev.kind, actor: ev.actor, subject: ev.subject, at_ms: atMs })
     }
     return out
   }
@@ -3767,10 +3796,24 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     const open = rt.assists.get(targetId)
     if (!open) return
 
+    // ⚠️ NOT a gate any more, and that is the bug this fixes (#618).
+    //
+    // attackTargetName() looks for `a[href*="profiles.php?XID=<id>"]` on the
+    // attack page. That was always a guess — flagged as unverified when it was
+    // written — and a page that does not render the defender as a profile link
+    // makes it null, at which point this function returned and NOT ONE event
+    // was ever reported. A live smoke sat uncounted for twenty seconds with
+    // everything else working perfectly.
+    //
+    // The name is now a prefilter when we happen to have it, and the server
+    // decides. It resolves the SUBJECT name to a member id and checks it
+    // against the target — on ids, against the roster, which is the same place
+    // and the same reason the actor's faction is already checked there. The
+    // attack page has no roster; the server does.
     const targetName = attackTargetName()
-    if (!targetName) return
 
-    const events = assistCandidates(readFightLogRows(), {
+    const rows = readFightLogRows()
+    const events = assistCandidates(rows, {
       targetName,
       // The session carries an id, not a name, and the log names actors — so
       // "is this the requester" cannot be answered here. It is answered on the
@@ -3778,13 +3821,28 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       requesterName: null,
       requestedAtMs: parseDbTime(open.at)?.getTime() ?? null,
     })
-    if (events.length === 0) return
+    // Every bail-out says why. This path is unobservable from the outside —
+    // a count that does not move looks identical whether the log was unread,
+    // the parse failed, or the server declined every event — and the last
+    // round of this took a live war and a screenshot to narrow down.
+    if (events.length === 0) {
+      log(`fight log: ${rows.length} row(s) read, 0 candidates`,
+        `(target name ${targetName ?? 'unreadable'}, request at ${open.at})`)
+      return
+    }
 
     try {
-      const res = await api('/api/war-room/assist/observed', 'POST', { target_id: targetId, events })
-      if (res.status === 200 && Number(res.body?.counted) > 0) {
-        log(`fight log: ${res.body.counted} observed action(s) counted against the request`)
+      const res = await api('/api/war-room/assist/observed', 'POST', {
+        target_id: targetId,
+        events: events.map((e) => ({ kind: e.kind, actor_name: e.actor, subject_name: e.subject, at_ms: e.at_ms })),
+      })
+      const counted = Number(res.body?.counted)
+      if (res.status === 200 && counted > 0) {
+        log(`fight log: ${counted} observed action(s) counted against the request`)
         pokePoll()
+      } else {
+        log(`fight log: ${events.length} candidate(s) reported, ${counted || 0} counted`,
+          `(HTTP ${res.status})`)
       }
     } catch (err) {
       log('fight-log report failed:', err.message)

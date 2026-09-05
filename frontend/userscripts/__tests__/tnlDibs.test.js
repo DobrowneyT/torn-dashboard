@@ -3259,6 +3259,41 @@ describe('the tinted name uses a plain, readable font', () => {
   })
 })
 
+describe('the fight log reports without needing the page to name the target (#618)', () => {
+  const row = (cls, text, age) => ({ eventClass: cls, text, age })
+
+  it('\u26A0\uFE0F still finds candidates when the target name is unreadable', () => {
+    // The whole bug. attackTargetName() scrapes
+    // `a[href*="profiles.php?XID="]`, a link the attack page does not reliably
+    // render. When it came back null the reporter returned early and NOT ONE
+    // event was sent — a real smoke sat uncounted for twenty seconds with
+    // every other part of the chain working.
+    const out = S.assistCandidates([
+      row('attacking-events-grenade-use', 'ziuta_616 threw a Smoke Grenade, smoke clouds around -tonyMontana', '50s'),
+    ], { targetName: null, requestedAtMs: null, nowMs: 1_700_000_000_000 })
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ kind: 'smoke', actor: 'ziuta_616', subject: '-tonyMontana' })
+  })
+
+  it('carries the subject so the server can check it against the roster', () => {
+    const out = S.assistCandidates([
+      row('attacking-events-attack-join', 'Ally joined the fight against Enemy', '10s'),
+    ], { targetName: null, nowMs: 1_700_000_000_000 })
+    expect(out[0].subject).toBe('Enemy')
+  })
+
+  it('keeps filtering client-side when the page DID give a name', () => {
+    const rows = [
+      row('attacking-events-grenade-use', 'Ally threw a Smoke Grenade, smoke clouds around Enemy', '10s'),
+      row('attacking-events-grenade-use', 'Foe threw a Smoke Grenade, smoke clouds around Teammate', '10s'),
+    ]
+    const out = S.assistCandidates(rows, { targetName: 'Enemy', nowMs: 1_700_000_000_000 })
+    expect(out).toHaveLength(1)
+    expect(out[0].actor).toBe('Ally')
+  })
+
+})
+
 describe('taking over a cell React owns (#613)', () => {
   // ⚠️ The rule this enforces, in one line: NEVER REMOVE OR REPLACE A NODE
   // REACT OWNS. Torn's faction page is React 19; React holds references to the
@@ -3459,11 +3494,31 @@ describe('the narrowed columns carry no leftover Torn margin', () => {
 // ── Assist requests (#523): two @match surfaces, one script ────────────────
 
 describe('page-surface matching', () => {
+  it('⚠️ factionPageMatch requires OUR faction, not just any faction page (#619)', () => {
+    const { S } = loadScript()
+    // factions.php serves every faction on Torn, and the war route is not ours
+    // alone — another faction's war page carries the same hash and the same
+    // roster markup, so the path alone lit the whole script up there: badging
+    // enemies of a war nobody in our faction is in.
+    expect(S.factionPageMatch('/factions.php', '?step=your&type=1')).toBe(true)
+    expect(S.factionPageMatch('/factions.php', '?step=profile&ID=9357&referredFrom=1644686')).toBe(false)
+    expect(S.factionPageMatch('/factions.php', '?step=profile&ID=9357')).toBe(false)
+  })
+
+  it('refuses a faction page with no step at all rather than assuming ours', () => {
+    // Torn redirects a bare factions.php to ?step=your&type=1, so requiring it
+    // costs nothing on the page we DO want — and guessing would put us back on
+    // somebody else's war.
+    const { S } = loadScript()
+    expect(S.factionPageMatch('/factions.php', '')).toBe(false)
+    expect(S.factionPageMatch('/factions.php', undefined)).toBe(false)
+  })
+
   it('factionPageMatch matches only the faction page path', () => {
     const { S } = loadScript()
-    expect(S.factionPageMatch('/factions.php')).toBe(true)
-    expect(S.factionPageMatch('/loader.php')).toBe(false)
-    expect(S.factionPageMatch('/')).toBe(false)
+    expect(S.factionPageMatch('/factions.php', '?step=your')).toBe(true)
+    expect(S.factionPageMatch('/loader.php', '?step=your')).toBe(false)
+    expect(S.factionPageMatch('/', '?step=your')).toBe(false)
   })
 
   it('attackPageMatch requires BOTH the page.php path and sid=attack', () => {
@@ -3691,9 +3746,21 @@ describe('assistCandidates', () => {
     expect(S.assistCandidates([LOG.onyxJoin], opts)[0].at_ms).toBe(1000000 - 69000)
   })
 
-  it('returns nothing when the target is unknown, rather than guessing', () => {
+  it('\u26A0\uFE0F reports candidates even with no target name, and lets the server judge (#618)', () => {
+    // This test used to assert the OPPOSITE — "returns nothing when the target
+    // is unknown, rather than guessing" — and that caution was the bug. The
+    // name came from scraping `a[href*="profiles.php?XID="]` off the attack
+    // page, a link Torn does not reliably render; when it was missing, this
+    // returned [] and NOT ONE event was ever reported. A live smoke went
+    // uncounted for twenty seconds with everything else working.
+    //
+    // Refusing to guess was right. Refusing to REPORT was not: the server
+    // holds the roster and can resolve the subject to an id, which is the only
+    // honest way to answer "was this about our target" anyway.
     const { S } = loadScript()
-    expect(S.assistCandidates(ALL_ROWS, { ...opts, targetName: null })).toEqual([])
+    const out = S.assistCandidates(ALL_ROWS, { ...opts, targetName: null })
+    expect(out.length).toBeGreaterThan(0)
+    expect(out.every((e) => typeof e.subject === 'string' && e.subject.length > 0)).toBe(true)
     expect(S.assistCandidates(null, opts)).toEqual([])
   })
 })

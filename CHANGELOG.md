@@ -18,7 +18,7 @@ surface it automatically.
 
 ---
 
-## [3.66.1] - 2026-09-05
+## [3.68.0] - 2026-09-05
 
 ### Fixed
 - **⚠️ The userscript no longer destroys DOM nodes React owns, which is what
@@ -50,7 +50,34 @@ surface it automatically.
   not sit centred within its own line box — the font's ascent and descent are
   asymmetric, so the digits still read high.
 
-Userscript **v1.46.0**.
+- **Observed assist actions are reported even when the page never names the
+  defender (#618).** A live smoke sat uncounted for twenty seconds with every
+  other part of the chain working. The reporter gated on
+  `attackTargetName()`, which scrapes `a[href*="profiles.php?XID="]` — a link
+  the attack page does not reliably render, and a guess flagged as unverified
+  when it was written. When it came back null the function returned early and
+  **not one event was ever sent**.
+- The subject is now carried on each event and checked **server-side**, on ids
+  against the roster — the same place and for the same reason the actor's
+  faction already is. The attack page has no roster and its names are
+  attacker-controlled text, so the client was never able to answer this
+  honestly. A report with no subject is still accepted, so an older userscript
+  in the wild is not switched off by an upgrade it did not take.
+- Every bail-out in the reporter now logs why. That path is invisible from
+  outside — a count that does not move looks identical whether the log went
+  unread, the parse failed, or the server declined everything — and narrowing
+  it down last time took a live war and a screenshot.
+
+- **The userscript runs on OUR faction's war page only (#619).** `factions.php`
+  serves every faction on Torn and the war route is not ours alone —
+  `?step=profile&ID=9357#/war/rank` is somebody else's war, with the same hash
+  and the same roster markup. Matching on the path alone lit the whole script
+  up there, badging enemies of a war nobody in our faction is in. `step=your`
+  is what separates the faction you belong to from one you are merely looking
+  at. `type=N` is deliberately not used: it is a per-faction layout id that
+  moves when a faction reorders its own tabs.
+
+Userscript **v1.48.0**.
 
 ## [3.65.1] - 2026-09-05
 
