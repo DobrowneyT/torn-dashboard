@@ -6,6 +6,7 @@ import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { fmtDbTime } from '../utils/time'
 import { keyPoolStatus, sortKeyPoolRows } from '../utils/keyPoolTable'
 import { scraperJobSummary } from '../utils/scraperJobInfo'
+import InfoTooltip from '../components/InfoTooltip'
 import { CheckCircle2, AlertTriangle, Loader2, Play, RefreshCw } from 'lucide-react'
 
 function Card({ title, action, children }) {
@@ -268,10 +269,13 @@ export default function GlobalAdminView() {
               {jobs.map((job) => (
                 <tr key={job.job_name} className="border-b border-gray-100 dark:border-slate-700/50">
                   <td className="py-2 pr-4 font-medium text-gray-900 dark:text-white">
-                    <span className="cursor-help underline decoration-dotted decoration-gray-400 underline-offset-2"
-                      title={scraperJobSummary(job.job_name)}>
-                      {job.job_name}
-                    </span>
+                    {/* Was a native `title`, which mobile browsers show on
+                        neither tap nor long press — so on a phone the whole
+                        description was unreachable, with nothing on screen to
+                        say anything was missing (#604). */}
+                    <InfoTooltip label={job.job_name} className="font-medium">
+                      {scraperJobSummary(job.job_name)}
+                    </InfoTooltip>
                   </td>
                   <td className="py-2 pr-4">
                     <ScheduleCell job={job} disabled={busyJob !== null}

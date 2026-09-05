@@ -208,7 +208,10 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
       )
       await dbc.query('COMMIT')
       hub.broadcast('assist', [...tombstoned.rows, ...inserted.rows], await serverNow())
-      return { ok: true }
+      // `wanted` on BOTH branches, not just the increment one: the overlay
+      // paints the count straight off this response (#603), and a branch that
+      // omitted it would leave a fresh request blank until the next poll.
+      return { ok: true, wanted: Number(inserted.rows[0]?.wanted) || 1 }
     } catch (err: any) {
       await dbc.query('ROLLBACK')
       // The partial unique index (one live row per requester) is the last

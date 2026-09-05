@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.43.0
+// @version      1.44.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -301,25 +301,58 @@ const TNLDibs = (function () {
     return 'request'
   }
 
+  /**
+   * Is this delta row the SAME request the badge is already showing?
+   *
+   * ⚠️ This is the question the index used to have no way of asking, and not
+   * asking it is what made every count freeze until a page reload (#603).
+   *
+   * Row `id` answers it outright when both sides have one. The requester
+   * fallback exists for the optimistic entry requestAssist() writes, which has
+   * no id yet — without it, the server's own row for the request we just made
+   * would look like a stranger's and lose the recency test below.
+   */
+  function sameAssistRequest(cur, row) {
+    if (cur?.id != null && row?.id != null) return String(cur.id) === String(row.id)
+    return String(cur?.by) === String(row?.requester_id)
+  }
+
   function indexAssists(rows, into) {
     const byTarget = into ?? new Map()
     for (const row of rows ?? []) {
       const targetId = Number(row.target_id)
       if (!Number.isFinite(targetId) || targetId <= 0) continue
+      const cur = byTarget.get(targetId)
       if (row.deleted_at) {
-        const cur = byTarget.get(targetId)
-        if (cur && String(cur.by) === String(row.requester_id)) byTarget.delete(targetId)
+        if (cur && sameAssistRequest(cur, row)) byTarget.delete(targetId)
         continue
       }
-      const cur = byTarget.get(targetId)
+      // Three ways a row wins the badge slot, and the FIRST TWO are the fix.
+      //
+      // ⚠️ An UPDATE to the request already on screen must always land. The
+      // old rule was recency alone, judged on `created_at` — which does not
+      // change when #591 raises the count with `SET wanted = wanted + 1`. So
+      // the row came back carrying the new number, compared equal, and was
+      // thrown away. Every increment and every decrement was dropped by the
+      // very client that asked for it, and a reload was the only way to see
+      // the truth.
+      //
+      // Worse than transient: requestAssist()'s optimistic entry stamps a
+      // CLIENT clock reading, which is strictly later than the server's
+      // created_at, so afterwards every server row for our own request lost
+      // the comparison for the life of the page.
+      //
+      // Recency still decides between DIFFERENT requesters — several people
+      // can raise a hand on one target and the badge shows one of them.
       const curAt = cur ? parseDbTime(cur.at) : null
       const rowAt = parseDbTime(row.created_at)
-      if (!cur || !curAt || (rowAt && rowAt > curAt)) {
-        byTarget.set(targetId, {
-          kind: row.kind, by: Number(row.requester_id), name: row.requester_name, at: row.created_at,
-          wanted: assistCount(row.wanted),
-        })
-      }
+      const wins = !cur || sameAssistRequest(cur, row) || !curAt || (rowAt && rowAt > curAt)
+      if (!wins) continue
+      byTarget.set(targetId, {
+        id: row.id ?? null,
+        kind: row.kind, by: Number(row.requester_id), name: row.requester_name, at: row.created_at,
+        wanted: assistCount(row.wanted),
+      })
     }
     return byTarget
   }
@@ -1354,9 +1387,24 @@ const TNLDibs = (function () {
     for (const [target, a] of rt.assists) {
       if (String(a.by) === String(rt.session?.userId)) rt.assists.delete(target)
     }
-    rt.assists.set(targetId, { kind, by: rt.session?.userId, name: 'You', at: new Date().toISOString() })
+    // The server's own count, not a guess. It returns `wanted` on both
+    // branches (fresh insert and increment), and painting it here is what makes
+    // the pip move on the press rather than on the next poll — the attack page
+    // is where the decision to ask for one more is taken, so it cannot be the
+    // last surface to know (#603).
+    //
+    // `at` stays a client clock reading, which is fine now that indexAssists
+    // recognises the server's row for this request by requester rather than by
+    // being strictly newer.
+    const wanted = Number(res.body?.wanted)
+    const cur = rt.assists.get(targetId)
+    rt.assists.set(targetId, {
+      id: cur && cur.kind === kind ? cur.id ?? null : null,
+      kind, by: rt.session?.userId, name: 'You', at: new Date().toISOString(),
+      wanted: Number.isFinite(wanted) && wanted > 0 ? wanted : 1,
+    })
     pokePoll()
-    return { ok: true }
+    return { ok: true, wanted }
   }
 
   /**
@@ -1376,9 +1424,17 @@ const TNLDibs = (function () {
   async function decrementAssist(targetId) {
     const res = await api('/api/war-room/assist/decrement', 'POST', { target_id: targetId })
     if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
+    const wanted = Number(res.body?.wanted)
+    const cur = rt.assists.get(targetId)
     if (res.body?.cleared) rt.assists.delete(targetId)
+    else if (cur && Number.isFinite(wanted) && wanted > 0) {
+      // Same reason as requestAssist(): the press has to move the number now.
+      // Only ever lowers OUR OWN request — the server refuses to touch anyone
+      // else's, so painting a drop on a stranger's badge would be a lie.
+      rt.assists.set(targetId, { ...cur, wanted })
+    }
     pokePoll()
-    return { ok: true, wanted: Number(res.body?.wanted) || 0, cleared: !!res.body?.cleared }
+    return { ok: true, wanted: Number.isFinite(wanted) ? wanted : 0, cleared: !!res.body?.cleared }
   }
 
   async function clearAssist(targetId) {
@@ -3256,25 +3312,47 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
       const cancelHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null } }
 
+      // ⚠️ One decrement per gesture, whichever route it arrives by.
+      //
+      // A long press on a touchscreen fires the hold timer AND synthesises a
+      // `contextmenu` — the same physical press reaching us twice. Both routes
+      // go through here, and the time window swallows the second: they are one
+      // gesture, and taking two off a count for one press would be worse than
+      // taking none. The window is generous because the synthesised event can
+      // trail the timer by a good fraction of a second on a slow phone.
+      let lastLongAt = 0
+      const fireLong = () => {
+        const now = Date.now()
+        if (now - lastLongAt < LONG_PRESS_MS) return
+        lastLongAt = now
+        handled = true          // swallow the click a touch press turns into
+        cancelHold()
+        btn.classList.remove(ASSIST_BTN_HELD_CLASS)
+        act('long')
+      }
+
       btn.addEventListener('pointerdown', (e) => {
+        // A right-click's own pointerdown is left alone deliberately: it starts
+        // no hold and clears no latch, so the contextmenu below is the only
+        // thing that acts on it.
         if (e.button != null && e.button !== 0) return
         handled = false
         cancelHold()
-        holdTimer = setTimeout(() => {
-          holdTimer = null
-          handled = true
-          btn.classList.remove(ASSIST_BTN_HELD_CLASS)
-          act('long')
-        }, LONG_PRESS_MS)
+        holdTimer = setTimeout(() => { holdTimer = null; fireLong() }, LONG_PRESS_MS)
         btn.classList.add(ASSIST_BTN_HELD_CLASS)
       })
       for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
         btn.addEventListener(type, () => { cancelHold(); btn.classList.remove(ASSIST_BTN_HELD_CLASS) })
       }
-      // A hold on a touchscreen raises the context menu and the selection
-      // callout on top of the gesture. Both are suppressed here rather than in
-      // CSS alone because `contextmenu` is an event, not a style.
-      btn.addEventListener('contextmenu', (e) => e.preventDefault())
+      // Right-click is the desktop shortcut for the hold — same act, reachable
+      // without waiting half a second at a mouse. preventDefault is not
+      // optional either way: on a touchscreen this event IS the long press,
+      // and letting it through pops the context menu and the selection callout
+      // on top of the gesture.
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault(); e.stopPropagation()
+        fireLong()
+      })
       btn.addEventListener('click', (e) => {
         e.preventDefault(); e.stopPropagation()
         // The hold already acted; the browser still delivers the click that the
@@ -4469,7 +4547,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     warRankRouteMatch, isWarRankPage, clampAssistPos, parseAssistPos, panelPos,
     parseFightLogAge, parseFightLogRow, assistCandidates, readFightLogRows, attackTargetName,
     scopeCss, scopeSelector, WAR_ACTIVE_CLASS,
-    indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
+    indexAssists, sameAssistRequest, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
     assistIconSvg, paintDibs, assistCount, assistPressAction, decrementAssist, LONG_PRESS_MS,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
