@@ -43,6 +43,90 @@ describe('rolesInText', () => {
     expect(rolesInText('Robber and Muscle #1 aim at the guards.', ROLES))
       .toEqual(['Robber', 'Muscle 1'])
   })
+
+  // #473 — collective nouns, measured across all 31 scenarios.
+  describe('collective references', () => {
+    it('⚠️ resolves a nickname for a numbered role family', () => {
+      // Lock Stock _A1_C2_, one of the six checkpoints that named nobody. A
+      // bruiser is an enforcer and the only candidates are the two Muscle.
+      expect(rolesInText('The bruisers feign defeat in an attempt to draw the caterers in.', ROLES))
+        .toEqual(['Muscle 1', 'Muscle 2', 'Muscle 3'])
+    })
+
+    it('resolves a family plural without needing a table entry', () => {
+      // Derived from the role list, so it needs no entry per crime and there is
+      // nothing to tune — which is what keeps it from overfitting 31 samples.
+      expect(rolesInText('The thieves split up to cover both exits.', ROLES))
+        .toEqual(['Thief 1', 'Thief 2'])
+    })
+
+    it('⚠️ treats a metonym as scenery once the prose names actors', () => {
+      // Bidding War _A4_C2_ in spirit: "Bomber #2 sneaks around the Humvee" is
+      // a parked vehicle to sneak around, not the Driver doing anything. The
+      // first cut let collectives ADD to a direct mention and produced exactly
+      // this mis-attribution — which still improved the residual, which is why
+      // the rule cannot be chosen on the residual.
+      const roles = ['Driver', 'Bomber 2']
+      expect(rolesInText('Bomber #2 sneaks around the Humvee to surprise the guard.', roles))
+        .toEqual(['Bomber 2'])
+      expect(rolesInText('The Humvee crashes into the wall but gets stuck halfway through.', roles))
+        .toEqual(['Driver'])
+    })
+
+    it('leaves a genuine whole-crew checkpoint to the crew rule', () => {
+      // Four of the six no-role checkpoints really do mean everyone — "The
+      // whole team assaults the guards" — and must NOT be forced onto a family.
+      expect(rolesInText('The whole team assaults the guards in a desperate attempt.', ROLES))
+        .toEqual([])
+    })
+  })
+
+  // #473 — a role named in the possessive is usually a referent, not a
+  // participant, and averaging them in makes a fatal failure look survivable.
+  describe('possessive referents', () => {
+    const MC = ['Hacker', 'Interrogator', 'Reviver', 'Cat Burglar']
+
+    it('⚠️ drops a role that merely owns something', () => {
+      // Manifest Cruelty _A5_C1_. Interrogator is why the manager needs
+      // reviving, not someone being tested. This one checkpoint is most of why
+      // the crime read 0.113 and now reads 0.041.
+      expect(rolesInText("Reviver curses Interrogator's overexuberance and tries to revive the manager.", MC))
+        .toEqual(['Reviver'])
+    })
+
+    it('keeps both when the possessive is conjoined', () => {
+      // Manifest Cruelty _B6_C2_ — "Hacker and Cat Burglar's search" has both
+      // of them searching.
+      expect(rolesInText("The manager is brought in to aid Hacker and Cat Burglar's search.", MC))
+        .toEqual(['Hacker', 'Cat Burglar'])
+    })
+
+    it('⚠️ keeps a role whose possession is an ACTIVITY, not an object', () => {
+      // The three scenarios a blanket possessive rule made worse, and reading
+      // the sentences predicted all three before the numbers did. Following
+      // someone's instructions tests the instructions.
+      const bftp = ['Engineer', 'Picklock 2']
+      expect(rolesInText("Engineer joins in to help, following Picklock #2's precise instructions.", bftp))
+        .toEqual(['Engineer', 'Picklock 2'])
+      const aith = ['Muscle 1', 'Muscle 2']
+      expect(rolesInText("Muscle #1 follows the guard, leading him straight into Muscle #2's ambush.", aith))
+        .toEqual(['Muscle 1', 'Muscle 2'])
+    })
+
+    it('⚠️ never strips the only role named', () => {
+      // Lock Stock _A2_C2_ — "The guard notices Assassin's nervousness" IS the
+      // Assassin's checkpoint. Stripping it would leave nothing and fall
+      // through to averaging the whole crew, which is a different crime.
+      const ls = ['Assassin', 'Smuggler']
+      expect(rolesInText("The guard notices Assassin's nervousness and starts to question him.", ls))
+        .toEqual(['Assassin'])
+    })
+
+    it('handles the curly apostrophe the diagrams actually use', () => {
+      expect(rolesInText('Thief #2 tries to reclaim Muscle #3\u2019s weapon.', ROLES))
+        .toEqual(['Thief 2'])
+    })
+  })
 })
 
 describe('terminalSignature on the real diagram', () => {

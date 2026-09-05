@@ -247,6 +247,23 @@ describe('ocScenariosMirrorJob', () => {
     expect(res.details).toBeTruthy()
   })
 
+  it('⚠️ stores the mass-weighted residual too, since the two disagree (#473)', async () => {
+    // The plain residual is scale-free and judges the ASSIGNMENT; the weighted
+    // one judges the MONEY, and across the 31 live scenarios they disagree in
+    // both directions. Storing only one would leave a caller unable to tell a
+    // loose fit whose money is fine (Mob Mentality: 0.145 plain, 0.003
+    // weighted) from a tight fit that is wrong about the ending carrying
+    // almost all the probability.
+    await run()
+    const r = await stack.db.query(
+      `SELECT name, ending_map_money_residual, ending_map_money_confident
+         FROM oc_scenarios ORDER BY name`
+    )
+    expect(r.rows.length).toBeGreaterThan(0)
+    expect(r.rows.every((x) => x.ending_map_money_residual !== null)).toBe(true)
+    expect(r.rows.every((x) => typeof x.ending_map_money_confident === 'boolean')).toBe(true)
+  })
+
   it('refuses to map a scenario whose role count contradicts the crime', async () => {
     // A CPR vector of the wrong length produces numbers for a crime nobody is
     // running. Mirror what we know, map nothing.

@@ -189,3 +189,38 @@ describe('hungarian', () => {
     expect(hungarian([[]])).toEqual([])
   })
 })
+
+// #473 — the plain residual is scale-free, which is the right way to CHOOSE an
+// assignment and the wrong way to judge the money it implies.
+describe('mass-weighted residual', () => {
+  it('⚠️ ignores a disagreement that sits where no probability does', () => {
+    // Mob Mentality in miniature: it reads 0.145 plain (flagged a loose fit)
+    // and 0.003 weighted, because its whole disagreement is in endings that
+    // essentially never happen and therefore cost nothing in E(x).
+    const r = assignEndings(petProject, ROLES, PROBES)
+    expect(r.massWeightedResidual).toBeLessThanOrEqual(r.residual + 1e-9)
+  })
+
+  it('is reported alongside the plain residual, never instead of it', () => {
+    // They answer different questions and disagree in BOTH directions, so a
+    // caller has to be able to see each.
+    const r = assignEndings(petProject, ROLES, PROBES)
+    expect(typeof r.residual).toBe('number')
+    expect(typeof r.massWeightedResidual).toBe('number')
+    expect(typeof r.confident).toBe('boolean')
+    expect(typeof r.moneyConfident).toBe('boolean')
+  })
+
+  it('⚠️ refuses to trust money when an ending has no node at all', () => {
+    // An unpriced ending is unpriced however tight the rest of the fit is —
+    // same gate as `confident`, for the same reason.
+    const r = assignEndings(petProject, ROLES, PROBES)
+    if (!r.ok) expect(r.moneyConfident).toBe(false)
+  })
+
+  it('says nothing rather than something when no probe can be simulated', () => {
+    const r = assignEndings(petProject, ROLES, [{ droppedRole: null, endings: { goodEnding1: 1 } }])
+    expect(r.massWeightedResidual).toBe(1)
+    expect(r.moneyConfident).toBe(false)
+  })
+})

@@ -161,9 +161,12 @@ export async function ocScenariosMirrorJob(
 
       await writeEndings(db, scenario.name, good, bad)
       await db.query(
-        `UPDATE oc_scenarios SET ending_map_residual = $2, ending_map_confident = $3
+        `UPDATE oc_scenarios
+            SET ending_map_residual = $2, ending_map_confident = $3,
+                ending_map_money_residual = $4, ending_map_money_confident = $5
           WHERE name = $1`,
-        [scenario.name, good.residual, good.confident]
+        [scenario.name, good.residual, good.confident,
+         good.massWeightedResidual, good.moneyConfident]
       )
       if (good.ok) mapped++
       if (good.problems.length > 0) problems.push(`${scenario.name}: ${good.problems.join('; ')}`)
@@ -172,6 +175,17 @@ export async function ocScenariosMirrorJob(
       // "mapped" and "trustworthy" have to be separately visible.
       else if (!good.confident) {
         problems.push(`${scenario.name}: mapped but a loose fit (residual ${good.residual.toFixed(3)})`)
+      }
+      // ⚠️ Reported SEPARATELY from the loose-fit warning above, because the
+      // two disagree in both directions (#473). Mob Mentality is a loose fit
+      // whose money is fine; a scenario can also fit tightly overall and be
+      // wrong about the ending that carries almost all the probability, which
+      // is the one that actually costs money.
+      if (good.ok && !good.moneyConfident) {
+        problems.push(
+          `${scenario.name}: per-ending money is not trustworthy ` +
+          `(mass-weighted residual ${good.massWeightedResidual.toFixed(3)})`
+        )
       }
     } catch (e) {
       problems.push(`${scenario.name}: ${e instanceof Error ? e.message : String(e)}`)
