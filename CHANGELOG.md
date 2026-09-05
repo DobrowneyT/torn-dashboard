@@ -51,6 +51,28 @@ surface it automatically.
   costs no calls to tornprobability. Reports movement **per scenario**, never
   only the mean, so a change that fixes eight crimes and breaks two is visible
   as exactly that.
+- **⚠️ A role-level fidelity check — the oracle we had been asking at only one
+  point (#473).** `successChance` at all-high is exact for **all 31** scenarios,
+  which is why this went unnoticed for so long. Asked at a *dropped* CPR,
+  **twelve of the thirty-one** disagree with their own flowchart, several
+  badly: Window of Opportunity's Looter 1 at CPR 1 reads **0.9804** from the
+  service and **0.3897** from the diagram. Stored per scenario as
+  `role_fidelity_error` / `role_fidelity_roles` and reported by name, because
+  "this crime is wrong" is unactionable and "Looter 1 and Looter 2 are wrong"
+  tells you which sliders to distrust.
+
+  ⚠️ This is an **upstream disagreement between the two things we mirror, not a
+  bug in this code**, and the ruled-out list is part of the finding: not role
+  attribution (the checkpoints name the Looters explicitly), not parameter
+  ordering (verified P1..P5 against `GetRoleNames`), not terminal
+  classification (`_B5F_` really is a failure — confirmed against the diagram's
+  own `fill:#C62828`), and not an incomplete diagram (768 observed paths and
+  `is_complete`, the best-observed scenario in the set). Engineer and Muscle 2
+  in that same crime match the service to **four decimals** across the whole
+  curve, so the walk, the CPR/100 rule and the multi-role average are sound.
+
+  It also catches what neither residual does: **Snow Blind** (fidelity 0.699)
+  and **Ace in the Hole** (0.480) are both marked "confident" today.
 
 ### Changed
 - The simulator's documented "nickname" hypothesis is retired as **falsified**.

@@ -16,6 +16,7 @@ import {
 import { parseScenarioTree, validateScenarioTree } from '../../oc/scenarioTree.js'
 import { deriveEndingMap, type Probe } from '../../oc/endingMap.js'
 import { assignEndings } from '../../oc/endingAssignment.js'
+import { roleFidelity } from '../../oc/roleFidelity.js'
 
 /**
  * CPR used for the baseline probe, and for the roles NOT being dropped.
@@ -157,16 +158,21 @@ export async function ocScenariosMirrorJob(
       // evaluating the diagram directly maps 29. `deriveEndingMap` is kept only
       // for bad endings, which pay nothing and are not worth a second sweep.
       const good = assignEndings(tree, roleList, probes, 'good')
+      // ⚠️ Asked at every probe, not just the all-high baseline. The baseline
+      // is exact for all 31 scenarios, so checking only there says nothing.
+      const fidelity = roleFidelity(tree, roleList, probes)
       const bad = deriveEndingMap(tree, roleList, probes, 'bad')
 
       await writeEndings(db, scenario.name, good, bad)
       await db.query(
         `UPDATE oc_scenarios
             SET ending_map_residual = $2, ending_map_confident = $3,
-                ending_map_money_residual = $4, ending_map_money_confident = $5
+                ending_map_money_residual = $4, ending_map_money_confident = $5,
+                role_fidelity_error = $6, role_fidelity_roles = $7
           WHERE name = $1`,
         [scenario.name, good.residual, good.confident,
-         good.massWeightedResidual, good.moneyConfident]
+         good.massWeightedResidual, good.moneyConfident,
+         fidelity.worstError, JSON.stringify(fidelity.misModelledRoles)]
       )
       if (good.ok) mapped++
       if (good.problems.length > 0) problems.push(`${scenario.name}: ${good.problems.join('; ')}`)
@@ -181,6 +187,17 @@ export async function ocScenariosMirrorJob(
       // whose money is fine; a scenario can also fit tightly overall and be
       // wrong about the ending that carries almost all the probability, which
       // is the one that actually costs money.
+      // ⚠️ Distinct from both residuals: this says the DIAGRAM disagrees with
+      // the service about a role, which no assignment can repair. Named roles,
+      // because "this crime is wrong" is unactionable and "Looter 1 and Looter
+      // 2 are wrong" tells you which sliders to distrust.
+      if (!fidelity.ok) {
+        problems.push(
+          `${scenario.name}: the flowchart does not reproduce the service's own ` +
+          `success for ${fidelity.misModelledRoles.join(', ') || 'this crime'} ` +
+          `(worst ${fidelity.worstError.toFixed(3)} at ${fidelity.worstProbe})`
+        )
+      }
       if (good.ok && !good.moneyConfident) {
         problems.push(
           `${scenario.name}: per-ending money is not trustworthy ` +

@@ -32,6 +32,7 @@ import { parseScenarioTree } from '../src/oc/scenarioTree.js'
 import { rolesInText, type Probe } from '../src/oc/endingMap.js'
 import { assignEndings } from '../src/oc/endingAssignment.js'
 import { simulatedSuccess } from '../src/oc/scenarioSimulator.js'
+import { roleFidelity } from '../src/oc/roleFidelity.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CACHE = resolve(HERE, '../.cache/oc-ending-map-sweep.json')
@@ -135,6 +136,9 @@ interface Measured {
    * wrong in a way that costs nothing today and everything at a different CPR.
    */
   massWeighted: number
+  /** Largest |simulated - API| success over the sweep, and who is to blame. */
+  fidelityError: number
+  misModelled: string[]
 }
 
 function measure(cached: CachedScenario[]): Measured[] {
@@ -159,6 +163,7 @@ function measure(cached: CachedScenario[]): Measured[] {
       if (named.length > 1) multiRole++
     }
 
+    const fid = roleFidelity(tree, s.roleNames, s.probes)
     const perEnding = Object.entries(assignment.perEnding).sort((a, b) => b[1] - a[1])
     const goodTerminals = tree.terminals.filter((t) => t.ending === 'good').length
 
@@ -189,6 +194,8 @@ function measure(cached: CachedScenario[]): Measured[] {
       worstValue: perEnding[0]?.[1] ?? 0,
       worstMass: perEnding[0] ? massOf(perEnding[0][0]) : 0,
       massWeighted: massSum > 0 ? weighted / massSum : 0,
+      fidelityError: fid.worstError,
+      misModelled: fid.misModelledRoles,
     })
   }
   return out.sort((a, b) => b.residual - a.residual)
@@ -218,8 +225,8 @@ function dumpTexts(cached: CachedScenario[]) {
 
 function report(rows: Measured[], baseline: Record<string, number> | null) {
   const LOOSE = 0.10
-  console.log('residual  massWtd   worst          worstMass  end/term  scenario')
-  console.log('────────  ────────  ─────────────  ─────────  ────────  ────────────────────')
+  console.log('residual  massWtd   fidelity  mis-modelled roles              scenario')
+  console.log('────────  ────────  ────────  ──────────────────────────────  ────────────────────')
   for (const r of rows) {
     const before = baseline?.[r.name]
     const delta = before === undefined ? '' : (r.residual - before)
@@ -229,9 +236,8 @@ function report(rows: Measured[], baseline: Record<string, number> | null) {
     const flag = r.residual > LOOSE ? ' ⚠️' : ''
     console.log(
       `${r.residual.toFixed(4).padStart(8)}  ${r.massWeighted.toFixed(4).padStart(8)}  ` +
-      `${`${r.worstEnding}:${r.worstValue.toFixed(2)}`.padEnd(13)}  ` +
-      `${r.worstMass.toExponential(1).padStart(9)}  ` +
-      `${`${r.endings}/${r.terminals}`.padStart(8)}  ${r.name}${flag}`
+      `${r.fidelityError.toFixed(4).padStart(8)}  ` +
+      `${(r.misModelled.join(', ') || '—').slice(0, 30).padEnd(30)}  ${r.name}${flag}`
     )
   }
   const loose = rows.filter((r) => r.residual > LOOSE)
