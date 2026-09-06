@@ -1,0 +1,41 @@
+# The host-side provisioning agent (#609 slice 6).
+#
+# ⚠️ Runs on the HOST as an ordinary user in the `docker` group — never in a
+# container, and never as root. Provisioning needs Postgres superuser, write
+# access to the deploy directory and Docker; giving those to the admin
+# container, which accepts logins from the internet, would make a compromise
+# there root on this box. Mounting the Docker socket into it would be the same
+# thing wearing a hat.
+#
+# Install:
+#   sudo cp deploy/systemd/tnl-provision-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tnl-provision-agent
+[Unit]
+Description=TNL dashboard faction provisioning agent
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+# ⚠️ Must be in the `docker` group — this is the one privilege the agent holds
+# that the admin container deliberately does not.
+SupplementaryGroups=docker
+WorkingDirectory=/home/ubuntu/torn/torn-dashboard
+ExecStart=/usr/bin/node deploy/host-agent.mjs
+Restart=always
+RestartSec=10
+# The agent is idle almost always; keep its footprint honest.
+Nice=5
+
+# It reads deploy/.env and writes the repo's deploy artifacts, and needs
+# nothing else on the filesystem.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=false
+
+[Install]
+WantedBy=multi-user.target

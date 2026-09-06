@@ -243,7 +243,12 @@ describe('statusPageHtml', () => {
     // It is served unauthenticated, so anything baked into it is public.
     const html = statusPageHtml('1.2.3')
     expect(html).not.toMatch(/password\s*[:=]\s*["'][^"']/i)
-    expect(html).not.toContain('faction_')
+    // ⚠️ A real database name (`faction_tnl`), which is what would leak. The
+    // word boundary is what keeps this honest now that the provisioning card
+    // renders the COLUMN name `torn_faction_id` — a field label is not data,
+    // and loosening the check to a bare substring would have meant either a
+    // permanent false positive or quietly deleting the assertion.
+    expect(html).not.toMatch(/\bfaction_[a-z]/)
   })
 
   it('escapes interpolated values into the DOM', () => {

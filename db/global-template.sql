@@ -115,3 +115,46 @@ CREATE TABLE IF NOT EXISTS fleet_flags (
   description text,
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- ── Faction provisioning requests (#609 slice 6) ────────────────────────────
+--
+-- ⚠️ This table IS the security boundary. The admin container cannot provision
+-- a faction itself — that needs Postgres superuser, write access to the deploy
+-- directory, and Docker, on the one container that accepts logins from the
+-- internet. It writes a REQUEST here instead, and a host-side agent outside
+-- every container claims it and runs ONE known command with these validated
+-- arguments. A fully compromised admin container can therefore only ask for a
+-- faction to be created; it cannot run arbitrary docker or shell. That bound
+-- disappears the moment the Docker socket is mounted instead.
+--
+-- ⚠️ Control-plane-private: db/grants.mjs revokes SELECT from app_global_ro. It
+-- names factions that do not exist yet and carries operator identity.
+CREATE TABLE IF NOT EXISTS provision_requests (
+  id               bigserial PRIMARY KEY,
+  slug             text NOT NULL,
+  display_name     text NOT NULL,
+  torn_faction_id  text NOT NULL,
+  leader_id        text,
+  admin_id         text,
+  status           text NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending', 'running', 'done', 'failed')),
+  -- ⚠️ Provisioning is multi-step and partially completes, so "failed" alone is
+  -- not enough to act on: the operator needs to know whether the database
+  -- exists yet, which decides whether a retry adopts or creates.
+  step             text,
+  log              text NOT NULL DEFAULT '',
+  requested_by     text,
+  requested_at     timestamptz NOT NULL DEFAULT now(),
+  started_at       timestamptz,
+  finished_at      timestamptz,
+  attempts         integer NOT NULL DEFAULT 0
+);
+
+-- ⚠️ At most one live request per slug. Two runs of new-faction.mjs for the
+-- same slug at once is how you get a role that exists and a schema that does
+-- not.
+CREATE UNIQUE INDEX IF NOT EXISTS provision_requests_live_slug
+  ON provision_requests (slug) WHERE status IN ('pending', 'running');
+
+CREATE INDEX IF NOT EXISTS provision_requests_requested_at_idx
+  ON provision_requests (requested_at DESC);
