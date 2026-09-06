@@ -33,6 +33,11 @@ import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { buildAdminApp } from './adminPlane/app.js'
 import { looksHashed } from './adminPlane/password.js'
+import { pgIncidentStore } from './adminPlane/incidentStore.js'
+import { mailConfigFromEnv } from './adminPlane/mailer.js'
+import {
+  startMonitor, DEFAULT_INTERVAL_MS, DEFAULT_DIGEST_HOUR_UTC, type MonitorDeps,
+} from './adminPlane/monitor.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -58,7 +63,7 @@ function required(name: string): string {
     console.error(
       `[admin] ${name} is required. The control plane refuses to start unconfigured — ` +
       `an admin surface that comes up with no gate is worse than one that does not come up. ` +
-      `Generate credentials with: node db/admin-password.mjs`
+      `Generate credentials with: npx tsx db/admin-password.mts`
     )
     process.exit(1)
   }
@@ -76,7 +81,7 @@ const sessionSecret = required('ADMIN_SESSION_SECRET')
 if (!looksHashed(passwordHash)) {
   console.error(
     '[admin] ADMIN_PASSWORD_HASH does not look like a scrypt hash. It must be the output of ' +
-    'node db/admin-password.mjs, not a plaintext password.'
+    'npx tsx db/admin-password.mts, not a plaintext password.'
   )
   process.exit(1)
 }
@@ -117,11 +122,33 @@ const collector = db
   ? { db, backupDir: process.env.ADMIN_BACKUP_DIR ?? '/backups' }
   : undefined
 
+/**
+ * Alerting (#609 slice 4).
+ *
+ * ⚠️ Both delivery channels are OPTIONAL and their absence is not a startup
+ * failure, unlike every credential above. The distinction is what the missing
+ * value would mean: a missing password would mean the gate is open, while a
+ * missing webhook means the status page is the only place alerts appear —
+ * degraded, visible, and safe. Refusing to boot over it would take the whole
+ * control plane down to protect a notification.
+ */
+const alerts: MonitorDeps | undefined = collector && db
+  ? {
+      collector,
+      store: pgIncidentStore(db),
+      discordWebhookUrl: process.env.ADMIN_DISCORD_WEBHOOK_URL || undefined,
+      mail: mailConfigFromEnv(),
+      digestHourUtc: Number(process.env.ADMIN_DIGEST_HOUR_UTC ?? DEFAULT_DIGEST_HOUR_UTC),
+      pageUrl: process.env.ADMIN_PUBLIC_URL || undefined,
+      hostLabel: process.env.ADMIN_HOST_LABEL || undefined,
+    }
+  : undefined
+
 const publicApp = await buildAdminApp({
-  surface: 'public', username, passwordHash, totpSecret, sessionSecret, version, collector,
+  surface: 'public', username, passwordHash, totpSecret, sessionSecret, version, collector, alerts,
 })
 const localApp = await buildAdminApp({
-  surface: 'local', username, passwordHash, totpSecret, sessionSecret, version, collector,
+  surface: 'local', username, passwordHash, totpSecret, sessionSecret, version, collector, alerts,
 })
 
 await publicApp.listen({ host: '0.0.0.0', port: publicPort })
@@ -132,8 +159,26 @@ console.log(
   `local ${localBind}:${localPort} (destructive; published to host loopback only)`
 )
 
+// ⚠️ Started AFTER both listeners are up. The first cycle polls every tenant
+// with a 3s timeout each; running it before `listen` would delay the container
+// answering its own healthcheck, and compose would restart it mid-poll — a
+// crash loop caused by the monitoring rather than by anything it monitors.
+const monitor = alerts
+  ? startMonitor(alerts, Number(process.env.ADMIN_ALERT_INTERVAL_MS ?? DEFAULT_INTERVAL_MS))
+  : null
+
+if (alerts) {
+  console.log(
+    `[admin] monitor armed — discord ${alerts.discordWebhookUrl ? 'configured' : 'OFF'}, ` +
+    `digest ${alerts.mail?.url && alerts.mail?.to ? `to ${alerts.mail.to} at ${alerts.digestHourUtc}:00 UTC` : 'OFF'}`
+  )
+} else {
+  console.warn('[admin] monitor disabled — no DATABASE_URL, so there is nowhere to keep incident state')
+}
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, async () => {
+    monitor?.stop()
     await Promise.allSettled([publicApp.close(), localApp.close(), db?.end()])
     process.exit(0)
   })

@@ -106,6 +106,26 @@ services:
       JWT_SECRET: ${JWT_SECRET:-}
       ADMIN_PUBLIC_PORT: "8090"
       ADMIN_LOCAL_PORT: "8091"
+      # ── Alerting (#609 slice 4) ──────────────────────────────────────────
+      # All optional. Unset means the status page is the only place alerts
+      # appear, which is a supported state — unlike the credentials above,
+      # a missing value here degrades rather than opens anything.
+      #
+      # ⚠️ A literal `$` in ANY of these must be written `$$`. Compose
+      # interpolates inside .env VALUES, and it does it silently: this is
+      # exactly what truncated ADMIN_PASSWORD_HASH mid-string and crash-looped
+      # the container on the live box. SMTP passwords are the likely victim
+      # here. If a value contains a `$`, double it.
+      ADMIN_DISCORD_WEBHOOK_URL: ${ADMIN_DISCORD_WEBHOOK_URL:-}
+      ADMIN_SMTP_URL: ${ADMIN_SMTP_URL:-}
+      ADMIN_DIGEST_TO: ${ADMIN_DIGEST_TO:-}
+      ADMIN_DIGEST_FROM: ${ADMIN_DIGEST_FROM:-}
+      ADMIN_DIGEST_HOUR_UTC: ${ADMIN_DIGEST_HOUR_UTC:-8}
+      ADMIN_ALERT_INTERVAL_MS: ${ADMIN_ALERT_INTERVAL_MS:-60000}
+      # Linked from the digest so the mail can stay short, and used to label
+      # the webhook if this ever runs against more than one fleet.
+      ADMIN_PUBLIC_URL: ${ADMIN_PUBLIC_URL:-}
+      ADMIN_HOST_LABEL: ${ADMIN_HOST_LABEL:-}
     volumes:
       # ⚠️ Read-only, and the only volume this container gets. Backup freshness
       # is the highest-value monitor there is — a job failing for three weeks is

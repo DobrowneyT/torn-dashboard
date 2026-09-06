@@ -74,6 +74,12 @@ export function statusPageHtml(version: string): string {
   .hide { display: none !important; }
   .scroll { overflow-x: auto; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
+  .inc { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .inc:last-child { border-bottom: 0; }
+  .inc .body { flex: 1; min-width: 0; }
+  .inc .t { font-weight: 600; }
+  .inc .d { color: var(--muted); font-size: 12px; }
+  .quiet { color: var(--ok); }
 </style>
 </head>
 <body>
@@ -99,6 +105,12 @@ export function statusPageHtml(version: string): string {
   </div>
 
   <div id="dash" class="hide">
+    <!-- First, and above the fleet summary: this is the only card that ever
+         asks the operator to do something. Everything below it is context. -->
+    <div class="card">
+      <h2>Open incidents</h2>
+      <div id="incidents"></div>
+    </div>
     <div class="card">
       <h2>Fleet</h2>
       <div class="grid" id="stats"></div>
@@ -114,6 +126,13 @@ export function statusPageHtml(version: string): string {
       <h2>Backups &amp; disk</h2>
       <div class="grid" id="ops"></div>
       <div id="missing" class="err"></div>
+    </div>
+    <div class="card">
+      <h2>Last 24 hours</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Time</th><th>Event</th><th>Incident</th></tr></thead>
+        <tbody id="events"></tbody>
+      </table></div>
     </div>
   </div>
 </div>
@@ -131,7 +150,8 @@ export function statusPageHtml(version: string): string {
     });
   }
   function pill(state) {
-    var cls = state === 'ok' ? 'ok' : state === 'degraded' ? 'warn' : 'bad';
+    var cls = (state === 'ok' || state === 'resolved') ? 'ok'
+      : (state === 'degraded' || state === 'notice') ? 'warn' : 'bad';
     return '<span class="pill ' + cls + '">' + esc(state) + '</span>';
   }
   function stat(k, v) {
@@ -207,7 +227,46 @@ export function statusPageHtml(version: string): string {
       : (b.error ? 'Backups unreadable: ' + b.error : '');
   }
 
+  function ago(iso) {
+    var mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+    if (mins < 60) return mins + ' min';
+    if (mins < 2880) return Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm';
+    return Math.floor(mins / 1440) + 'd';
+  }
+
+  function renderAlerts(a) {
+    var open = a.open || [];
+    $('incidents').innerHTML = open.length
+      ? open.map(function (i) {
+          return '<div class="inc">' + pill(i.severity === 'urgent' ? 'urgent' : 'notice') +
+            '<div class="body"><div class="t">' + esc(i.title) + '</div>' +
+            (i.detail ? '<div class="d">' + esc(i.detail) + '</div>' : '') +
+            '<div class="d">open ' + ago(i.openedAt || i.firstSeenAt) + '</div></div></div>';
+        }).join('')
+      : '<div class="quiet">Nothing open.</div>';
+
+    var events = a.events || [];
+    $('events').innerHTML = events.length
+      ? events.map(function (e) {
+          return '<tr><td>' + esc(new Date(e.at).toLocaleTimeString()) + '</td>' +
+            '<td>' + pill(e.kind === 'opened' ? 'opened' : 'resolved') + '</td>' +
+            '<td>' + esc(e.title) + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="3" class="quiet">Nothing opened or resolved.</td></tr>';
+  }
+
   function load() {
+    // ⚠️ Alerts are fetched alongside status and failing separately: the
+    // incident store lives in Postgres, so it is exactly the thing that stops
+    // answering during a database outage — the moment the fleet table matters
+    // most. One dead panel is a far better page than one dead page.
+    fetch('/api/admin/alerts', { headers: { authorization: 'Bearer ' + token } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (a) { if (a) renderAlerts(a); })
+      .catch(function () {
+        $('incidents').innerHTML = '<div class="err">Alert state unavailable.</div>';
+      });
+
     return fetch('/api/admin/status', { headers: { authorization: 'Bearer ' + token } })
       .then(function (r) {
         // An expired session must return to the login form rather than
