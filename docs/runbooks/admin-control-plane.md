@@ -308,7 +308,69 @@ the same slug to a second agent run while the first is still inside
 | `"…_dev" is reserved` | staging databases are `faction_<slug>_dev`, and the fleet monitor excludes them — a faction slugged that way would be invisible to monitoring |
 | a 409 conflict | the database, or a live/completed request, or that Torn faction id already exists |
 
-## 8. When something looks wrong
+## 8. The fleet item catalogue (slice 7)
+
+`/v2/torn/items` is public, so one key serves every faction — one of exactly two
+of twenty scraper jobs the #608 audit found movable. Set your own key:
+
+```
+ADMIN_TORN_API_KEY=
+```
+
+⚠️ **Unset is a supported state, not a failure.** With no key the control plane
+publishes nothing, `items_synced_at` stays NULL, and every tenant syncs from its
+own key pool exactly as before. The boot line says which:
+
+```
+[admin] item catalogue sync disabled — set ADMIN_TORN_API_KEY to publish prices for the fleet.
+```
+
+Force a refresh without waiting for the two-hour cycle (tunnel-only, because it
+makes the container reach out to Torn on demand):
+
+```bash
+curl -s -X POST http://127.0.0.1:8091/api/admin/local/items/sync \
+  -H "authorization: Bearer $TOKEN"; echo
+# → {"rows":1834,"syncedAt":"2026-09-06T12:00:00.000Z"}
+```
+
+A `502` carries the reason verbatim — a bad key and a Torn outage read
+differently, and the previous prices are left intact either way.
+
+### ⚠️ What protects you from the single key
+
+Centralising trades five-fold redundancy for one key, and **the failure is
+silent**: prices quietly stop updating and every faction keeps valuing payouts
+off a stale table. That is the decay that ran unnoticed for months in July
+(#123/#124). Three things stand in the way, and they only work together:
+
+1. **Tenants fall back to their own pools.** A tenant adopts the fleet copy only
+   while `items_synced_at` is under 6 hours old. Past that it claims a pooled key
+   and syncs itself, exactly as before. The control plane is a fast path, never
+   a dependency.
+2. **A refresh is due every 2 hours, well inside that 6-hour window.** Two
+   consecutive failed refreshes cost nothing; the third is when tenants start
+   feeding themselves again. ⚠️ If these two numbers were equal the copy would
+   look stale at the end of every cycle and the feature would save nothing while
+   appearing to work — a test asserts the relationship.
+3. **A truncated response is refused.** Fewer than 100 items is a partial read,
+   not a small catalogue. The sync fails, the previous timestamp stands, and
+   tenants keep using their own pools.
+
+The status page shows `items_synced_at`, and the alerting from slice 4 fires
+`items-stale` once prices exist and go stale — ⚠️ never while the value is NULL,
+because that means "not in service", not "infinitely old".
+
+### If both sources die for a week
+
+Item prices are then **withheld**, not used. The OC Simulator shows a banner
+saying so and reports every item reward as unpriced rather than valuing it at a
+week-old price — the same house rule as `item_value_unmatched` (#441) and
+unpriced endings (#473): absent beats confidently wrong. Every other number on
+the page is unaffected. The fix is to get either source working again; the next
+successful sync clears it.
+
+## 9. When something looks wrong
 
 | symptom | first thing to check |
 |---|---|
@@ -324,6 +386,9 @@ the same slug to a second agent run while the first is still inside
 | the agent logs "No global database credential" | `deploy/.env` has no `DB_PASSWORD_GLOBAL_RW` — run `node db/new-global.mjs --adopt` |
 | the agent starts but `docker compose` fails with a permission error | the service user is not in the `docker` group |
 | a request is stuck at `running` | one run may take 15 minutes before it is killed and marked failed; after that, Retry |
+| the OC Simulator says "item prices unavailable" | both the fleet catalogue and that faction's key pool have failed to refresh for a week — check `items-sync` in that tenant's Global Admin, and the admin boot line for `ADMIN_TORN_API_KEY` |
+| `items_synced_at` stays NULL | no `ADMIN_TORN_API_KEY`, so the fleet publishes nothing; tenants are syncing from their own pools, which is fine |
+| items-sync runs report `source: pool` when you expected `fleet` | the fleet copy is over 6h old, or the tenant cannot reach `global` — both fall back on purpose |
 
 ## Related
 

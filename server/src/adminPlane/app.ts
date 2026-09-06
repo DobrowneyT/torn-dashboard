@@ -35,6 +35,7 @@ import {
   validateProvisionRequest, findConflicts, createProvisionRequest,
   listProvisionRequests, getProvisionRequest, retryProvisionRequest,
 } from './provisioning.js'
+import { syncFleetItems, type ItemsSyncDeps } from './itemsSync.js'
 
 export type Surface = 'public' | 'local'
 
@@ -70,6 +71,8 @@ export interface AdminOptions {
    * 5). Reads are registered on both surfaces; WRITES only on the local one.
    */
   fleetDb?: pg.Pool
+  /** Fleet item catalogue sync (#609 slice 7). Absent without a Torn key. */
+  items?: ItemsSyncDeps
 }
 
 declare module 'fastify' {
@@ -335,6 +338,24 @@ export async function buildAdminApp(opts: AdminOptions): Promise<FastifyInstance
         // caller asked for, and an error here would make a retry after a
         // half-successful run look like a failure.
         return { ok: true, deleted: (res.rowCount ?? 0) > 0 }
+      })
+    }
+
+    // ⚠️ Same reasoning as the digest below: forcing a catalogue refresh makes
+    // this container reach out to Torn on demand, which is an amplifier in
+    // anyone else's hands. Behind the tunnel it is how an operator proves the
+    // key works without waiting up to two hours for the next scheduled run.
+    if (opts.items) {
+      const items = opts.items
+      app.post('/api/admin/local/items/sync', { preHandler: requireAdmin }, async (_req, reply) => {
+        try {
+          return await syncFleetItems(items)
+        } catch (e) {
+          // ⚠️ 502, not 500: the failure is Torn's or the key's, and the
+          // previous prices are intact. The message carries the reason so an
+          // operator is not left guessing between a bad key and an outage.
+          return reply.status(502).send({ error: e instanceof Error ? e.message : String(e) })
+        }
       })
     }
 
