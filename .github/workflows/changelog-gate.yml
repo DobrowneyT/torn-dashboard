@@ -18,6 +18,13 @@ permissions:
   contents: read
   pull-requests: read
 
+# Same reasoning as tests.yml: one run per PR on a single self-hosted runner, so
+# a superseded run queues ahead of the one that matters. This job takes four
+# seconds, but it still has to wait its turn behind everything else.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   changelog-gate:
     name: Changelog + version check
