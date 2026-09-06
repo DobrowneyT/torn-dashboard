@@ -107,10 +107,82 @@ async function seedJoinedAt(dbc: any, memberId: string): Promise<Date> {
   return start
 }
 
+/**
+ * ⚠️ How much of the roster one run may retire before it is treated as a bad
+ * fetch rather than a real event.
+ *
+ * On 2026-08-24 capacityx retired 95 of 96 members in a single run (#645). No
+ * faction empties in an hour; a roster that says so is describing a different
+ * faction. This needs no extra API call and is the last line if the identity
+ * check below is ever bypassed.
+ */
+export const MAX_ROSTER_RETIREMENT = 0.5
+
+/**
+ * Below this many held members the retirement guard does not apply.
+ *
+ * ⚠️ A three-member faction losing two is 67% and entirely plausible. The guard
+ * is about implausible SCALE, and scale needs a denominator worth dividing by —
+ * without this floor a small or newly-provisioned faction could never sync
+ * through an ordinary departure.
+ */
+export const MIN_ROSTER_FOR_RETIREMENT_GUARD = 20
+
 export async function membersSyncJob(deps: JobDeps): Promise<RunResult> {
   const { db, pool, client } = deps
   const claimed = await pool.claim()
   if (!claimed) throw new Error('no pooled key available')
+
+  // ⚠️ **Verify the key still belongs to OUR faction before trusting anything
+  // it returns.** This is #645, and it cost capacityx thirteen days.
+  //
+  // A Torn key answers for its owner's CURRENT faction. When a member leaves,
+  // their key stays in the pool until something notices — and the round-robin
+  // will eventually claim it. `/v2/faction/members` then returns THEIR NEW
+  // FACTION'S roster, which this job wrote as ours: 95 real members marked
+  // departed, 31 strangers inserted, and every real key disabled as "not in
+  // faction". With the pool empty, the only job that could re-enable them is
+  // this one, which needs a key from the pool it just emptied.
+  //
+  // ⚠️ The obvious cheaper check — "the key owner must appear in the roster" —
+  // does NOT catch this, and it is worth saying so because it looks sufficient.
+  // The departed member IS in the roster their key returned; it is their new
+  // faction's. Only the faction ID distinguishes the two.
+  //
+  // One extra call per hourly run, against thirteen days of every scraper
+  // failing in silence.
+  const usRow = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
+  const us = usRow.rows[0]?.torn_faction_id == null ? null : String(usRow.rows[0].torn_faction_id)
+
+  if (us !== null) {
+    // ⚠️ Fails OPEN on a transient error, CLOSED on a definite mismatch.
+    //
+    // Refusing to sync whenever /v2/faction/basic is unavailable would let a
+    // Torn hiccup stop member syncing fleet-wide — trading a rare, guarded
+    // failure for a frequent unguarded one. The two guards below need no API
+    // call and still stand, so an unverifiable run is degraded rather than
+    // dangerous. A run that positively KNOWS the id differs is a different
+    // matter and stops.
+    let theirs: string | null = null
+    try {
+      const basic = await client.fetch('/v2/faction/basic', claimed.key)
+      theirs = basic?.basic?.id == null ? null : String(basic.basic.id)
+    } catch (err) {
+      console.warn(
+        `[members-sync] could not verify the key's faction (${err instanceof Error ? err.message : String(err)}) ` +
+        '— proceeding on the roster-retirement and key-pool guards alone'
+      )
+    }
+    if (theirs !== null && theirs !== us) {
+      // ⚠️ Disable THAT ONE KEY, not the ninety-five members it would have
+      // retired. The key is the thing that is wrong.
+      const reason = `key owner is now in faction ${theirs}, not ${us} — left the faction`
+      await pool.disable(claimed.member_id, reason)
+      throw new Error(
+        `refusing to sync: ${reason}. The key has been disabled; the roster was not touched.`
+      )
+    }
+  }
 
   const data = await client.fetch('/v2/faction/members', claimed.key)
   const roster: Array<{
@@ -122,6 +194,35 @@ export async function membersSyncJob(deps: JobDeps): Promise<RunResult> {
   const dbc = await db.connect()
   try {
     await dbc.query('BEGIN')
+
+    // ⚠️ **Refuse a run that would retire most of the faction** (#645).
+    //
+    // Independent of the identity check above and deliberately so: that one
+    // needs an API call and a configured faction id, this one needs neither.
+    // No faction loses half its members in an hour — a roster saying so is
+    // describing somewhere else. capacityx retired 95 of 96 in a single run.
+    //
+    // Compared against members we currently hold, so a genuinely small faction
+    // is unaffected: retiring 2 of 3 is 67% but the floor below exempts it.
+    const currentCount = await dbc.query(
+      'SELECT count(*)::int AS n FROM members WHERE is_current = true'
+    )
+    const held = Number(currentCount.rows[0]?.n ?? 0)
+    const incoming = new Set(roster.map((m) => String(m.id)))
+    if (held >= MIN_ROSTER_FOR_RETIREMENT_GUARD) {
+      const retiring = await dbc.query(
+        'SELECT member_id FROM members WHERE is_current = true AND NOT (member_id = ANY($1))',
+        [[...incoming]]
+      )
+      const share = retiring.rows.length / held
+      if (share > MAX_ROSTER_RETIREMENT) {
+        await dbc.query('ROLLBACK')
+        throw new Error(
+          `refusing to sync: this roster would retire ${retiring.rows.length} of ${held} members ` +
+          `(${Math.round(share * 100)}%). That is not a faction event — nothing was changed.`
+        )
+      }
+    }
 
     // Whom did we consider present going into this run? (open stints)
     const openBefore = await dbc.query(
@@ -163,6 +264,30 @@ export async function membersSyncJob(deps: JobDeps): Promise<RunResult> {
        WHERE disabled = true AND member_id = ANY($1)`,
       [currentIds]
     )
+
+    // ⚠️ **Never finish a reconcile with an unusable pool** (#645).
+    //
+    // This is the guard that turns a bad hour into a bad hour rather than
+    // thirteen days. Everything above can be wrong in a way nobody predicted;
+    // what made capacityx unrecoverable was not the bad roster but the DEADLOCK
+    // it created — every key disabled, and the only job that could re-enable
+    // them needing a key from the pool it had just emptied.
+    //
+    // The condition mirrors keyPool.claim() exactly. If it ever drifts, this
+    // guard silently stops guarding, which is why it is spelled out rather than
+    // approximated by `disabled = false`.
+    const claimable = await dbc.query(
+      `SELECT count(*)::int AS n FROM member_secrets
+        WHERE disabled = false AND consent_at IS NOT NULL AND cpr_api_key IS NOT NULL
+          AND has_faction_access IS NOT FALSE`
+    )
+    if (Number(claimable.rows[0]?.n ?? 0) === 0 && currentIds.length > 0) {
+      await dbc.query('ROLLBACK')
+      throw new Error(
+        'refusing to sync: this reconcile would leave no usable key in the pool, and ' +
+        'members-sync is the only job that can put one back — nothing was changed.'
+      )
+    }
 
     // Stints: close anyone who dropped off the roster, open a stint for anyone
     // newly present. Members already holding an open stint are left untouched.

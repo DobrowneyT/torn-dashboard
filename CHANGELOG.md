@@ -18,6 +18,54 @@ surface it automatically.
 
 ---
 
+## [3.85.0] - 2026-09-06
+
+### Fixed
+- **⚠️ `members-sync` could adopt another faction's roster and permanently lock
+  a tenant out of its own key pool (#645).** This ran on `capacityx` for
+  **thirteen days** and needed manual SQL to recover.
+
+  A Torn key answers for its owner's **current** faction. When a member leaves,
+  their key stays in the pool until something notices — and the round-robin
+  eventually claims it. On 2026-08-24 that happened:
+  `/v2/faction/members` returned *their new faction's* roster and this job wrote
+  it as ours. 95 real members marked departed, 31 strangers inserted, and every
+  real key disabled as "not in faction". The run recorded **`rows=32,
+  status=success`**.
+
+  It then deadlocked: with no usable key, the only job that could re-enable
+  those keys was this one, which needs a key from the pool it had just emptied.
+  Every Torn-backed scraper failed hourly while `/api/health/ready`, the Docker
+  healthcheck and the #609 fleet status page all reported the tenant healthy.
+
+  Three guards, deliberately independent so no single failure removes them all:
+
+  - **The claimed key must still answer for our faction.** `/v2/faction/basic`
+    is compared against `faction_config.torn_faction_id`; on a mismatch **that
+    one key** is disabled and the run stops without touching the roster —
+    dropping the key was always the right response, not retiring ninety-five
+    members. One extra call per hourly run.
+  - **No run may retire more than half the roster** (above a 20-member floor, so
+    a small faction losing two of three is unaffected). Needs no API call, and
+    catches a truncated or otherwise wrong response from a *valid* key.
+  - **No reconcile may leave the pool with nothing claimable.** This is the one
+    that turns a bad hour into a bad hour rather than thirteen days: the bad
+    roster was recoverable, the deadlock was not.
+
+  ⚠️ **The obvious cheaper check does not work, and a test says so.** "The key
+  owner must appear in the roster it returned" needs no extra call and looks
+  sufficient — I nearly shipped it. It fails on the actual incident: the
+  departed member *is* in the roster their key returns, because it is their new
+  faction's. Only the faction id separates the two.
+
+  ⚠️ The identity check **fails open on a transient error and closed on a
+  definite mismatch.** Refusing to sync whenever `/v2/faction/basic` is
+  unavailable would let a Torn hiccup stop member syncing fleet-wide — trading a
+  rare guarded failure for a frequent unguarded one. The other two guards need
+  no API call and still stand.
+
+---
+
 ## [3.84.0] - 2026-09-06
 
 ### Changed

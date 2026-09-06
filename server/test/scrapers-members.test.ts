@@ -39,6 +39,11 @@ beforeAll(async () => {
   // the shared-stack keys have to exist in the Torn fixture.
   stack.torn.addKey('STAYERKEY1001AAA', { id: '1001', factionId: TEST_FACTION.tornFactionId })
   stack.torn.addKey('BOOMKEY01003CCCC', { id: '1003', factionId: TEST_FACTION.tornFactionId })
+  // #645: members-sync now confirms the claimed key still answers for OUR
+  // faction before trusting the roster it returns.
+  stack.torn.setPath('/v2/faction/basic', {
+    basic: { id: Number(TEST_FACTION.tornFactionId), name: 'Us', tag: 'US' },
+  })
 }, 30000)
 
 afterAll(async () => {
@@ -617,5 +622,124 @@ describe('fallen members', () => {
     // ...but a direct lookup still finds them, so nothing 404s on an old link.
     const direct = await stack.db.query('SELECT member_name FROM members WHERE member_id = $1', ['4001'])
     expect(direct.rows[0].member_name).toBe('Remembered')
+  })
+})
+
+// ── #645: the roster swap that cost capacityx thirteen days ──────────────────
+//
+// On 2026-08-24 a member who had left capacityx still had a key in the pool.
+// The round-robin claimed it, `/v2/faction/members` answered with THEIR NEW
+// FACTION'S roster, and this job wrote it as ours: 95 real members marked
+// departed, 31 strangers inserted, every real key disabled as "not in faction".
+// With the pool empty the only job that could re-enable those keys was this
+// one, which needs a key from the pool it had just emptied — so it failed
+// hourly with `no pooled key available` for thirteen days while every surface
+// reported the tenant healthy.
+//
+// ⚠️ One stack for all of this, not one per describe. An earlier version booted
+// two more embedded Postgres instances and risked flaking unrelated suites by
+// pushing concurrent servers past what the runner has (it had already happened
+// once, in oc.test.ts). Tests that destabilise the suite are not worth the
+// isolation they buy.
+describe('#645 — roster-swap protection', () => {
+  let bare: TestStack
+  const DEPARTED = 'DEPARTEDKEY99999'
+  const LOYAL = 'LOYALKEY00000002'
+
+  const bareDeps = () => ({
+    db: bare.db,
+    pool: createKeyPool({ db: bare.db, encryptionKey: ENCRYPTION_KEY }),
+    client: createTornClient({ baseUrl: bare.tornBaseUrl, budget: { requests: 200, perMs: 1000 } }),
+    encryptionKey: ENCRYPTION_KEY,
+  })
+
+  const ours = () => bare.torn.setPath('/v2/faction/basic', {
+    basic: { id: Number(TEST_FACTION.tornFactionId), name: 'Us', tag: 'US' },
+  })
+  const elsewhere = () => bare.torn.setPath('/v2/faction/basic', {
+    basic: { id: 99999, name: 'Elsewhere', tag: 'ELSE' },
+  })
+  const heldCount = async () =>
+    Number((await bare.db.query('SELECT count(*)::int AS n FROM members WHERE is_current')).rows[0].n)
+
+  beforeAll(async () => {
+    bare = await startTestStack()
+    await bare.db.query(`
+      INSERT INTO members (member_id, member_name, tier, is_current)
+      SELECT (2000 + g)::text, 'Member' || g, 3, true FROM generate_series(1, 30) g
+    `)
+    const pool = createKeyPool({ db: bare.db, encryptionKey: ENCRYPTION_KEY })
+    await pool.store('2001', DEPARTED, { consentVersion: 'v2' })
+    await pool.store('2002', LOYAL, { consentVersion: 'v2' })
+    bare.torn.addKey(DEPARTED, { id: '2001', factionId: '99999' })
+    bare.torn.addKey(LOYAL, { id: '2002', factionId: TEST_FACTION.tornFactionId })
+  }, 60000)
+
+  afterAll(async () => { await bare?.close() })
+
+  it('⚠️ refuses to sync, disables THAT key, and leaves the roster alone', async () => {
+    elsewhere()
+    bare.torn.setPath('/v2/faction/members', {
+      members: [{ id: 90001, name: 'Stranger', days_in_faction: 4 }],
+    })
+
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    await expect(membersSyncJob(bareDeps())).rejects.toThrow(/now in faction 99999/)
+
+    // ⚠️ THE assertion. The bug was never that the run failed — it was that the
+    // run SUCCEEDED and wrote another faction's roster over ours.
+    expect(await heldCount()).toBe(30)
+
+    // ⚠️ The one bad key is disabled; the loyal one is untouched. Dropping that
+    // key was always the correct response, not retiring ninety-five members.
+    const keys = await bare.db.query('SELECT member_id, disabled, last_error FROM member_secrets')
+    const bad = keys.rows.find((r) => r.member_id === '2001')!
+    expect(bad.disabled).toBe(true)
+    expect(bad.last_error).toMatch(/left the faction/)
+    expect(keys.rows.find((r) => r.member_id === '2002')!.disabled).toBe(false)
+  })
+
+  it('⚠️ the cheap check that looks sufficient would NOT have caught this', async () => {
+    // "The key owner must appear in the roster it returned" needs no extra API
+    // call and is the obvious guard — I nearly shipped it. It fails here: the
+    // departed member IS in the roster their key returns, because it is their
+    // new faction's. Only the faction ID separates the two, which is what
+    // justifies the extra call.
+    await bare.db.query(
+      `UPDATE member_secrets SET disabled = false, last_error = NULL WHERE member_id = '2001'`
+    )
+    elsewhere()
+    bare.torn.setPath('/v2/faction/members', {
+      members: [
+        { id: 2001, name: 'Departed', days_in_faction: 9 },   // the key owner, present
+        { id: 90002, name: 'Stranger', days_in_faction: 4 },
+      ],
+    })
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    await expect(membersSyncJob(bareDeps())).rejects.toThrow(/now in faction 99999/)
+    expect(await heldCount()).toBe(30)
+  })
+
+  it('⚠️ refuses a roster that would retire most of the faction', async () => {
+    // The identity check passes here — the key is genuinely ours — so this is
+    // the backstop for a truncated or otherwise wrong response from a VALID
+    // key, which no API call can detect.
+    ours()
+    bare.torn.setPath('/v2/faction/members', {
+      members: [{ id: 2001, name: 'Member1', days_in_faction: 100 }],
+    })
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    await expect(membersSyncJob(bareDeps())).rejects.toThrow(/would retire 29 of 30/)
+    expect(await heldCount()).toBe(30)
+  })
+
+  it('accepts ordinary attrition, so the guard is not itself the outage', async () => {
+    ours()
+    const roster = Array.from({ length: 28 }, (_, i) => ({
+      id: 2001 + i, name: `Member${i + 1}`, days_in_faction: 100,
+    }))
+    bare.torn.setPath('/v2/faction/members', { members: roster })
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    await expect(membersSyncJob(bareDeps())).resolves.toMatchObject({ rows: 28 })
   })
 })
