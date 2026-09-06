@@ -58,6 +58,28 @@ surface it automatically.
   departed member *is* in the roster their key returns, because it is their new
   faction's. Only the faction id separates the two.
 
+- **⚠️ Two more ways the key pool could empty itself (#645 follow-up).** Raised
+  by MonChoon: some Torn errors mean *wait*, not *act*, and acting on a
+  transient one costs a donor's key.
+
+  **Code 13 is no longer treated as fatal.** Torn's own wording is *"The key is
+  temporarily disabled due to owner inactivity"* — it returns by itself when the
+  owner logs in. Treating it as fatal disabled the key, the roster reconcile
+  re-enabled it on the same run because the member is still in the faction, and
+  re-verification disabled it again an hour later: a flap that made the pool
+  look smaller than it was and wrote a misleading `last_error` on a good donor's
+  key. ⚠️ It had a sharper edge too — a faction quiet over a holiday can have
+  most of its keys answer 13 at once, which empties the pool and reaches the
+  #645 deadlock by a completely different route.
+
+  **Re-verification will no longer disable the last claimable key.** ⚠️ That
+  pass runs *after* the roster reconcile commits, so the pool-exhaustion guard
+  above does not cover it — it could empty the pool on its own. A key that
+  errors is not necessarily dead, and even when it is, leaving it enabled makes
+  each job fail loudly rather than every job failing with the indistinguishable
+  `no pooled key available` that hid the original incident for thirteen days.
+  The error is still recorded and the next run re-checks it.
+
   ⚠️ The identity check **fails open on a transient error and closed on a
   definite mismatch.** Refusing to sync whenever `/v2/faction/basic` is
   unavailable would let a Torn hiccup stop member syncing fleet-wide — trading a

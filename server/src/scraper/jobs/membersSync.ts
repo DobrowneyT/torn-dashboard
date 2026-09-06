@@ -22,11 +22,26 @@ import { TornApiError } from '../tornClient.js'
 const STINT_GAP_DAYS = 2
 
 // Torn key errors that mean the key itself is unusable, not "try again later":
-// 2 incorrect key, 7 insufficient permissions, 13 disabled for owner
-// inactivity, 16 access level too low, 18 paused by the owner. Anything else
-// (the transient 5/8/9/17 set, an unknown code, a network blip) leaves the key
-// alone — wrongly dropping a donor's key out of the pool is the worse failure.
-const FATAL_KEY_CODES = new Set([2, 7, 13, 16, 18])
+// 2 incorrect key, 7 insufficient permissions, 16 access level too low,
+// 18 paused by the owner. Anything else (the transient 5/8/9/14/15/17/24 set,
+// an unknown code, a network blip) leaves the key alone — wrongly dropping a
+// donor's key out of the pool is the worse failure.
+//
+// ⚠️ **13 was in this set and has been removed.** Torn's own wording for it is
+// *"The key is temporarily disabled due to owner inactivity"* — it comes back
+// by itself the moment the owner logs in. Treating it as fatal disabled the key,
+// the roster reconcile re-enabled it on the same run because the member is
+// still in the faction, and re-verification disabled it again an hour later:
+// a flap that made the pool look smaller than it was and wrote a misleading
+// `last_error` on a perfectly good donor's key.
+//
+// ⚠️ It also had a sharper edge. A faction quiet over a holiday can have most
+// of its keys answer 13 at once, and disabling all of them empties the pool —
+// the #645 deadlock, reached by a completely different route.
+//
+// 10 (owner in federal jail) is transient for the same reason and was already
+// correctly absent.
+const FATAL_KEY_CODES = new Set([2, 7, 16, 18])
 
 // Surfaced as the run's `details` in Global Admin → Recent Runs.
 export type ReverifyCounts = {
@@ -44,7 +59,42 @@ export type ReverifyCounts = {
  * key that is still broken ends the run disabled again. Best-effort per key:
  * one failure never aborts the rest.
  */
-async function reverifyPooledKeys({ pool, client }: JobDeps): Promise<ReverifyCounts> {
+async function reverifyPooledKeys({ db, pool, client }: JobDeps): Promise<ReverifyCounts> {
+  /**
+   * ⚠️ Re-verification runs AFTER the roster reconcile commits, so the
+   * "never leave the pool unusable" guard in the main body does not cover it —
+   * this pass can empty the pool on its own and recreate the #645 deadlock by
+   * another route.
+   *
+   * So it refuses to disable the LAST claimable key. A key that errors is not
+   * necessarily dead — and even when it is, leaving it enabled makes each job
+   * fail loudly on its own rather than every job failing with the
+   * indistinguishable `no pooled key available`. The error is still recorded;
+   * the next run re-checks it, and a single member logging in refills the pool.
+   *
+   * Mirrors keyPool.claim()'s condition exactly. Approximating it with
+   * `disabled = false` would let the guard drift out of agreement with the
+   * thing it is guarding.
+   */
+  const claimableCount = async (): Promise<number> => {
+    const res = await db.query(
+      `SELECT count(*)::int AS n FROM member_secrets
+        WHERE disabled = false AND consent_at IS NOT NULL AND cpr_api_key IS NOT NULL
+          AND has_faction_access IS NOT FALSE`
+    )
+    return Number(res.rows[0]?.n ?? 0)
+  }
+  const disableUnlessLast = async (memberId: string, reason: string): Promise<boolean> => {
+    if ((await claimableCount()) <= 1) {
+      console.warn(
+        `[members-sync] not disabling ${memberId} (${reason}) — it is the last usable key, ` +
+        'and an empty pool is what members-sync itself needs to recover'
+      )
+      return false
+    }
+    await pool.disable(memberId, reason)
+    return true
+  }
   const counts: ReverifyCounts = {
     keys_checked: 0, keys_promoted: 0, keys_revoked: 0, keys_disabled: 0, keys_unverified: 0,
   }
@@ -58,8 +108,11 @@ async function reverifyPooledKeys({ pool, client }: JobDeps): Promise<ReverifyCo
       if (ownerId !== null && ownerId !== String(row.member_id)) {
         // Mirrors the login-time wrong-account check: the stored key no longer
         // belongs to the member we attribute it to.
-        await pool.disable(row.member_id, `key now belongs to Torn user ${ownerId}, not ${row.member_id}`)
-        counts.keys_disabled += 1
+        const done = await disableUnlessLast(
+          row.member_id, `key now belongs to Torn user ${ownerId}, not ${row.member_id}`
+        )
+        if (done) counts.keys_disabled += 1
+        else counts.keys_unverified += 1
         continue
       }
       const hasFactionAccess = info.access?.faction === true
@@ -71,8 +124,8 @@ async function reverifyPooledKeys({ pool, client }: JobDeps): Promise<ReverifyCo
       if (err instanceof TornApiError && FATAL_KEY_CODES.has(err.tornCode)) {
         // A write failure here must not abort the remaining keys either.
         try {
-          await pool.disable(row.member_id, err.message)
-          counts.keys_disabled += 1
+          if (await disableUnlessLast(row.member_id, err.message)) counts.keys_disabled += 1
+          else counts.keys_unverified += 1
         } catch { counts.keys_unverified += 1 }
       } else {
         // Transient: leave the row exactly as it is and retry next run.

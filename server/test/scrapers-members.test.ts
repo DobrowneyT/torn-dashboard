@@ -145,7 +145,11 @@ describe('key-pool re-verification (#309)', () => {
     stack.torn.addKey('FULLKEY002003CCC', { id: '2003', factionId: TEST_FACTION.tornFactionId, factionAccess: false })
     // Fatal key error (13 = disabled for owner inactivity) ⇒ out of the pool.
     await pool.store('2004', 'DEADKEY002004DDD', { hasFactionAccess: true, keyLevel: 3 })
-    stack.torn.addBadKey('DEADKEY002004DDD', 13, 'Key temporarily disabled due to owner inactivity')
+    // ⚠️ Was code 13, which Torn documents as "TEMPORARILY disabled due to
+    // owner inactivity" — it returns by itself when the owner logs in, so it is
+    // no longer treated as fatal (see FATAL_KEY_CODES). Code 16 is genuinely
+    // terminal: the key's access level cannot rise on its own.
+    stack.torn.addBadKey('DEADKEY002004DDD', 16, 'Access level of this key is not high enough')
     // Transient error (5 = too many requests) ⇒ untouched, retried next run.
     await pool.store('2005', 'BUSYKEY002005EEE', { hasFactionAccess: true, keyLevel: 3 })
     stack.torn.addBadKey('BUSYKEY002005EEE', 5, 'Too many requests')
@@ -180,7 +184,7 @@ describe('key-pool re-verification (#309)', () => {
     // Fatal Torn key error: disabled with the reason for Key Pool Health.
     const fatal = await secret('2004')
     expect(fatal.disabled).toBe(true)
-    expect(fatal.last_error).toContain('13')
+    expect(fatal.last_error).toContain('16')
     // Transient error: untouched, retried next run.
     expect(await secret('2005')).toMatchObject({
       has_faction_access: true, key_level: 3, disabled: false, last_error: null,
@@ -741,5 +745,82 @@ describe('#645 — roster-swap protection', () => {
     bare.torn.setPath('/v2/faction/members', { members: roster })
     const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
     await expect(membersSyncJob(bareDeps())).resolves.toMatchObject({ rows: 28 })
+  })
+})
+
+// ── Torn error classification, and the last key ──────────────────────────────
+//
+// Raised by MonChoon: some Torn API errors mean "wait", not "act". Acting on a
+// transient one costs a donor's key out of the pool, and enough of them at once
+// is the #645 deadlock reached by a different route.
+describe('#645 follow-up — transient Torn errors must not cost keys', () => {
+  let bare: TestStack
+
+  const bareDeps = () => ({
+    db: bare.db,
+    pool: createKeyPool({ db: bare.db, encryptionKey: ENCRYPTION_KEY }),
+    client: createTornClient({ baseUrl: bare.tornBaseUrl, budget: { requests: 200, perMs: 1000 } }),
+    encryptionKey: ENCRYPTION_KEY,
+  })
+
+  const state = async (memberId: string) =>
+    (await bare.db.query('SELECT disabled, last_error FROM member_secrets WHERE member_id = $1', [memberId]))
+      .rows[0]
+
+  beforeAll(async () => {
+    bare = await startTestStack()
+    await bare.db.query(`
+      INSERT INTO members (member_id, member_name, tier, is_current) VALUES
+        ('4001', 'Active', 3, true), ('4002', 'Inactive', 3, true)
+    `)
+    const pool = createKeyPool({ db: bare.db, encryptionKey: ENCRYPTION_KEY })
+    await pool.store('4001', 'ACTIVEKEY0004001', { consentVersion: 'v2' })
+    await pool.store('4002', 'INACTIVEKEY04002', { consentVersion: 'v2' })
+    bare.torn.addKey('ACTIVEKEY0004001', { id: '4001', factionId: TEST_FACTION.tornFactionId })
+    bare.torn.setPath('/v2/faction/basic', {
+      basic: { id: Number(TEST_FACTION.tornFactionId), name: 'Us', tag: 'US' },
+    })
+    bare.torn.setPath('/v2/faction/members', {
+      members: [
+        { id: 4001, name: 'Active', days_in_faction: 90 },
+        { id: 4002, name: 'Inactive', days_in_faction: 90 },
+      ],
+    })
+  }, 60000)
+
+  afterAll(async () => { await bare?.close() })
+
+  it("⚠️ leaves a key alone when Torn says it is TEMPORARILY disabled (code 13)", async () => {
+    // Torn's own wording: "The key is temporarily disabled due to owner
+    // inactivity". It returns by itself when the owner logs in. Treating it as
+    // fatal disabled a perfectly good donor's key, the roster reconcile
+    // re-enabled it on the same run because the member is still in the faction,
+    // and re-verification disabled it again an hour later — a flap that made
+    // the pool look smaller than it was and wrote a misleading last_error.
+    bare.torn.addBadKey('INACTIVEKEY04002', 13, 'Key temporarily disabled due to owner inactivity')
+
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    const result = await membersSyncJob(bareDeps())
+
+    expect((await state('4002')).disabled).toBe(false)
+    expect((result.details as any).keys_unverified).toBeGreaterThan(0)
+    expect((result.details as any).keys_disabled).toBe(0)
+  })
+
+  it('⚠️ refuses to disable the LAST usable key, even on a fatal error', async () => {
+    // Re-verification runs AFTER the roster reconcile commits, so the
+    // pool-exhaustion guard in the main body does not cover it — this pass can
+    // empty the pool on its own. A key that errors is not necessarily dead, and
+    // even when it is, leaving it enabled makes each job fail loudly rather
+    // than every job failing with the indistinguishable "no pooled key
+    // available" that hid #645 for thirteen days.
+    await bare.db.query(`DELETE FROM member_secrets WHERE member_id = '4002'`)
+    bare.torn.addBadKey('ACTIVEKEY0004001', 2, 'Incorrect key')
+
+    const { membersSyncJob } = await import('../src/scraper/jobs/membersSync.js')
+    await membersSyncJob(bareDeps()).catch(() => undefined)
+
+    // Still enabled: it is the only one left.
+    expect((await state('4001')).disabled).toBe(false)
   })
 })
