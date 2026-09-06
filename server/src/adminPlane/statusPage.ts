@@ -80,6 +80,17 @@ export function statusPageHtml(version: string): string {
   .inc .t { font-weight: 600; }
   .inc .d { color: var(--muted); font-size: 12px; }
   .quiet { color: var(--ok); }
+  .provform { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 12px; align-items: end; margin-bottom: 4px; }
+  .provform .f { display: flex; flex-direction: column; }
+  .provform input { margin-bottom: 0; }
+  .provform .end { justify-content: flex-end; }
+  .opt { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .prov { border-top: 1px solid var(--line); padding: 10px 0; }
+  .prov summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .prov summary::-webkit-details-marker { display: none; }
+  .prov pre { margin: 8px 0 0; padding: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+              font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; max-height: 320px; overflow: auto; }
+  .linkish { background: none; border: 0; color: var(--accent); font-weight: 600; font-size: 12px; padding: 0; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -127,6 +138,28 @@ export function statusPageHtml(version: string): string {
       <div class="grid" id="ops"></div>
       <div id="missing" class="err"></div>
     </div>
+    <!-- ⚠️ The only writes on this page, and they are additive and recoverable:
+         a wrongly-created faction can be decommissioned, which is exactly why
+         decommissioning is NOT here and never will be. Nothing on this form
+         touches Docker — it writes a request row for the host-side agent. -->
+    <div class="card">
+      <h2>Provision a faction</h2>
+      <form id="provForm" class="provform">
+        <div class="f"><label for="pSlug">Slug</label>
+          <input id="pSlug" pattern="[a-z][a-z0-9_]{1,20}" maxlength="21" placeholder="mayhem" required></div>
+        <div class="f"><label for="pName">Display name</label>
+          <input id="pName" maxlength="80" placeholder="TNL Mayhem Dashboard" required></div>
+        <div class="f"><label for="pFid">Torn faction id</label>
+          <input id="pFid" inputmode="numeric" pattern="[1-9][0-9]*" placeholder="12345" required></div>
+        <div class="f"><label for="pLead">Leader Torn id <span class="opt">optional</span></label>
+          <input id="pLead" inputmode="numeric" pattern="[1-9][0-9]*"></div>
+        <div class="f"><label for="pAdmin">Operator Torn id <span class="opt">optional</span></label>
+          <input id="pAdmin" inputmode="numeric" pattern="[1-9][0-9]*"></div>
+        <div class="f end"><button type="submit" id="pGo">Create</button></div>
+      </form>
+      <div class="err" id="provErr"></div>
+      <div id="provList"></div>
+    </div>
     <div class="card">
       <h2>Last 24 hours</h2>
       <div class="scroll"><table>
@@ -150,8 +183,9 @@ export function statusPageHtml(version: string): string {
     });
   }
   function pill(state) {
-    var cls = (state === 'ok' || state === 'resolved') ? 'ok'
-      : (state === 'degraded' || state === 'notice') ? 'warn' : 'bad';
+    var cls = (state === 'ok' || state === 'resolved' || state === 'done') ? 'ok'
+      : (state === 'degraded' || state === 'notice' || state === 'running' || state === 'pending') ? 'warn'
+      : 'bad';
     return '<span class="pill ' + cls + '">' + esc(state) + '</span>';
   }
   function stat(k, v) {
@@ -255,7 +289,82 @@ export function statusPageHtml(version: string): string {
       : '<tr><td colspan="3" class="quiet">Nothing opened or resolved.</td></tr>';
   }
 
+  function provPill(r) {
+    return pill(r.status === 'done' ? 'done'
+      : r.status === 'failed' ? 'failed'
+      : r.status === 'running' ? 'running' : 'pending');
+  }
+
+  function renderProvision(list) {
+    if (!list.length) { $('provList').innerHTML = ''; return; }
+    $('provList').innerHTML = list.map(function (r) {
+      // ⚠️ The step is shown next to the status, not buried in the log.
+      // Provisioning is multi-step and partially completes, so "failed" alone
+      // is not actionable — whether the database exists yet decides what to do.
+      return '<details class="prov"><summary>' +
+        provPill(r) +
+        '<strong>' + esc(r.slug) + '</strong>' +
+        '<span class="d">' + esc(r.display_name) + ' · faction ' + esc(r.torn_faction_id) + '</span>' +
+        (r.step ? '<code>' + esc(r.step) + '</code>' : '') +
+        (r.status === 'failed'
+          ? ' <button class="linkish" data-retry="' + r.id + '">Retry</button>'
+          : '') +
+        '</summary><pre>' + esc(r.log || '(no output yet)') + '</pre></details>';
+    }).join('');
+
+    Array.prototype.forEach.call($('provList').querySelectorAll('[data-retry]'), function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        post('/api/admin/provision/' + btn.getAttribute('data-retry') + '/retry', null)
+          .then(loadProvision)
+          .catch(function (e) { $('provErr').textContent = e.message; });
+      });
+    });
+  }
+
+  function post(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+      body: body === null ? undefined : JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (b) {
+        if (!r.ok) throw new Error(b.error || ('HTTP ' + r.status));
+        return b;
+      });
+    });
+  }
+
+  function loadProvision() {
+    return fetch('/api/admin/provision', { headers: { authorization: 'Bearer ' + token } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (b) { if (b) renderProvision(b.requests || []); })
+      .catch(function () {});
+  }
+
+  $('provForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    $('provErr').textContent = '';
+    $('pGo').disabled = true;
+    post('/api/admin/provision', {
+      slug: $('pSlug').value.trim().toLowerCase(),
+      displayName: $('pName').value.trim(),
+      tornFactionId: $('pFid').value.trim(),
+      leaderId: $('pLead').value.trim(),
+      adminId: $('pAdmin').value.trim()
+    })
+      .then(function () {
+        $('pSlug').value = ''; $('pName').value = ''; $('pFid').value = '';
+        $('pLead').value = ''; $('pAdmin').value = '';
+        return loadProvision();
+      })
+      .catch(function (e) { $('provErr').textContent = e.message; })
+      .finally(function () { $('pGo').disabled = false; });
+  });
+
   function load() {
+    loadProvision();
+
     // ⚠️ Alerts are fetched alongside status and failing separately: the
     // incident store lives in Postgres, so it is exactly the thing that stops
     // answering during a database outage — the moment the fleet table matters

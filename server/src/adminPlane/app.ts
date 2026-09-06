@@ -31,6 +31,10 @@ import { statusPageHtml } from './statusPage.js'
 import { openIncidents } from './incidents.js'
 import { buildDigest, type MonitorDeps } from './monitor.js'
 import { sendDigestMail } from './mailer.js'
+import {
+  validateProvisionRequest, findConflicts, createProvisionRequest,
+  listProvisionRequests, getProvisionRequest, retryProvisionRequest,
+} from './provisioning.js'
 
 export type Surface = 'public' | 'local'
 
@@ -202,6 +206,60 @@ export async function buildAdminApp(opts: AdminOptions): Promise<FastifyInstance
         'SELECT key, value, description, updated_at FROM fleet_flags ORDER BY key'
       )
       return { flags: res.rows }
+    })
+  }
+
+  // ── Provisioning a faction (#609 slice 6) ────────────────────────────────
+  //
+  // ⚠️ These are WRITES on the internet-facing surface, and the only ones. The
+  // audit's recommendation was to keep provisioning a CLI; MonChoon reversed
+  // that deliberately, and it is defensible because provisioning is ADDITIVE
+  // AND RECOVERABLE — a wrongly-created faction can be decommissioned, while a
+  // wrongly-dropped one cannot be un-dropped. Decommissioning stays off the web
+  // permanently, and no route here touches Docker or the deploy directory: they
+  // write a request row for the host-side agent to claim.
+  if (opts.fleetDb) {
+    const fleetDb = opts.fleetDb
+
+    app.post('/api/admin/provision', { preHandler: requireAdmin }, async (req, reply) => {
+      const parsed = validateProvisionRequest(req.body)
+      if (!parsed.ok) return reply.status(400).send({ error: parsed.error })
+
+      // ⚠️ Checked before insert so a duplicate is a readable message rather
+      // than a half-provisioned faction discovered by the agent at step three.
+      const conflicts = await findConflicts(fleetDb, parsed.value)
+      if (conflicts.length) {
+        return reply.status(409).send({ error: conflicts[0].reason, conflicts })
+      }
+
+      const row = await createProvisionRequest(fleetDb, parsed.value, req.adminClaims?.sub ?? 'unknown')
+      return reply.status(202).send({ request: row })
+    })
+
+    app.get('/api/admin/provision', { preHandler: requireAdmin }, async (req) => {
+      const { limit } = req.query as { limit?: string }
+      return { requests: await listProvisionRequests(fleetDb, Number(limit) || 20) }
+    })
+
+    app.get('/api/admin/provision/:id', { preHandler: requireAdmin }, async (req, reply) => {
+      const row = await getProvisionRequest(fleetDb, Number((req.params as { id: string }).id))
+      if (!row) return reply.status(404).send({ error: 'No such request' })
+      return { request: row }
+    })
+
+    // Failure has to be re-runnable without hand-repair — new-faction.mjs is
+    // idempotent and has an --adopt path, so a retry is a real option rather
+    // than a hopeful one.
+    app.post('/api/admin/provision/:id/retry', { preHandler: requireAdmin }, async (req, reply) => {
+      const id = Number((req.params as { id: string }).id)
+      const row = await retryProvisionRequest(fleetDb, id)
+      if (!row) {
+        const existing = await getProvisionRequest(fleetDb, id)
+        return reply.status(existing ? 409 : 404).send({
+          error: existing ? `Only a failed request can be retried (this one is ${existing.status}).` : 'No such request',
+        })
+      }
+      return { request: row }
     })
   }
 

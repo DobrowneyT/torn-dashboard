@@ -84,7 +84,7 @@ export async function applyScopedGrants(client, { dbName, roleName, password }) 
  * thing a future table can quietly fail to follow — and the failure mode is a
  * silent widening of who can read the fleet's outage history.
  */
-const CONTROL_PLANE_PRIVATE = ['alert_incidents', 'alert_events', 'control_state']
+const CONTROL_PLANE_PRIVATE = ['alert_incidents', 'alert_events', 'control_state', 'provision_requests']
 
 export async function applyReadOnlyGrants(client, { dbName, roleName, password }) {
   if (!/^[a-z0-9_]+$/.test(dbName) || !/^[a-z0-9_]+$/.test(roleName)) {
