@@ -205,6 +205,11 @@ const serviceBlock = `
       FEEDBACK_GITHUB_REPO: \${FEEDBACK_GITHUB_REPO:-}
       FEEDBACK_LABEL: \${FEEDBACK_LABEL:-}
       PUBLIC_BASE_URL: https://${slug}.\${PUBLIC_DOMAIN:-monchoon.me}
+      # #609: read-only view of the shared \`global\` database. Empty when the
+      # control plane is not provisioned, and the tenant then behaves exactly as
+      # it did before it existed — that optionality is the guarantee the whole
+      # design rests on, so this must never become \`:?\` (required).
+      GLOBAL_DATABASE_URL: \${GLOBAL_DATABASE_URL:-}
     depends_on:
       postgres:
         condition: service_healthy

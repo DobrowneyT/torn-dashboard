@@ -59,3 +59,53 @@ export async function applyScopedGrants(client, { dbName, roleName, password }) 
   await client.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${roleName}`)
   await client.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${roleName}`)
 }
+
+/**
+ * Read-only grants for the shared `global` database (#609).
+ *
+ * ⚠️ The whole architecture rests on this role being genuinely read-only. The
+ * #608 audit chose "tenants read `global` directly" over push or pull precisely
+ * because it keeps the admin container out of every tenant's read path — but
+ * that only holds if a tenant physically CANNOT write. A tenant with INSERT on
+ * a shared table could corrupt what every other faction reads, which is a
+ * worse failure than anything the duplication it replaced could cause.
+ *
+ * So this deliberately does NOT reuse `applyScopedGrants`: that grants
+ * INSERT/UPDATE/DELETE, which is right for a faction's own database and exactly
+ * wrong here. Two functions rather than a boolean flag, because a flag inverted
+ * by a typo would hand out write access silently.
+ */
+export async function applyReadOnlyGrants(client, { dbName, roleName, password }) {
+  if (!/^[a-z0-9_]+$/.test(dbName) || !/^[a-z0-9_]+$/.test(roleName)) {
+    throw new Error(`Unsafe identifier: ${dbName} / ${roleName}`)
+  }
+
+  // Same guard as applyScopedGrants, for the same reason: `ON ALL TABLES IN
+  // SCHEMA public` applies to the CURRENT database, so running this against the
+  // wrong one succeeds while granting nothing.
+  const cur = await client.query('SELECT current_database() AS db')
+  if (cur.rows[0].db !== dbName) {
+    throw new Error(
+      `applyReadOnlyGrants must run on ${dbName}, but this client is connected to ${cur.rows[0].db}`
+    )
+  }
+
+  const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [roleName])
+  if (exists.rowCount === 0) {
+    if (!password) throw new Error(`Role ${roleName} does not exist and no password was supplied`)
+    await client.query(`CREATE ROLE ${roleName} LOGIN PASSWORD '${password.replace(/'/g, "''")}'`)
+  }
+
+  await client.query(`GRANT CONNECT ON DATABASE ${dbName} TO ${roleName}`)
+  await client.query(`GRANT USAGE ON SCHEMA public TO ${roleName}`)
+  await client.query(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${roleName}`)
+
+  // ⚠️ Tables created by a LATER migration must also be readable. Migrations
+  // run as the superuser, so without this a tenant silently cannot see any
+  // table added after provisioning — and the failure surfaces as an empty
+  // result rather than an error.
+  await client.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ${roleName}`)
+
+  // Belt and braces: revoke anything a previous run or a default may have left.
+  await client.query(`REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM ${roleName}`)
+}

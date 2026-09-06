@@ -45,6 +45,23 @@ if (!databaseUrl) {
 const db = databaseUrl ? new pg.Pool({ connectionString: databaseUrl }) : undefined
 db?.on('error', (err) => console.error(`[${factionSlug}] pg pool error:`, err.message))
 
+// #609: read-only connection to the shared `global` database. Entirely
+// optional — a tenant without it behaves exactly as it did before the control
+// plane existed, which is the guarantee the whole design rests on.
+//
+// ⚠️ Small pool, and it must stay small. This is a low-traffic path (fleet
+// metadata, and later the OC model and item prices) shared by every tenant
+// against ONE database. Sizing it like the primary pool would let five tenants
+// exhaust global's connection slots between them and take down the thing they
+// all read — the opposite of the isolation this is supposed to provide.
+const globalDatabaseUrl = process.env.GLOBAL_DATABASE_URL
+const globalDb = globalDatabaseUrl
+  ? new pg.Pool({ connectionString: globalDatabaseUrl, max: 2 })
+  : undefined
+// Logged, never fatal: an unreachable control plane is an expected state.
+globalDb?.on('error', (err) => console.error(`[${factionSlug}] global pg pool error:`, err.message))
+if (!globalDatabaseUrl) console.warn(`[${factionSlug}] GLOBAL_DATABASE_URL not set — control-plane reads disabled`)
+
 // Readiness flags (#76): flipped true below once background work is armed, so
 // /api/health/ready reports the real per-faction state to the uptime monitor.
 const health = { scheduler: false, ticker: false }
@@ -52,6 +69,7 @@ const health = { scheduler: false, ticker: false }
 const app = await buildServer({
   factionSlug,
   db,
+  globalDb,
   tornBaseUrl,
   jwtSecret,
   keyEncryptionKey,
