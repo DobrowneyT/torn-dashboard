@@ -20,6 +20,23 @@ surface it automatically.
 
 ## [3.73.0] - 2026-09-05
 
+### Fixed
+- **⚠️ The admin password hash was silently truncated by Docker Compose.** The
+  conventional scrypt format (`scrypt$N$r$p$salt$hash`) is delivered through
+  `deploy/.env`, and Compose performs variable interpolation on those values —
+  so `$FJjI...` and `$xe8` were substituted as undefined variables and the
+  container received a **truncated** hash. Every login would have failed.
+  Found by a crash-loop on the live box, and only *noticeable* because the
+  fail-closed boot check refused to start rather than serving with a broken
+  credential.
+
+  The format is now dot-separated: `.` is outside the base64 alphabet, so it
+  stays unambiguous, and Compose passes it through untouched. `$$` escaping
+  also works but is a footgun no operator should have to remember on the one
+  credential that fronts every tenant. **Legacy `$`-separated hashes still
+  verify**, so nobody is locked out by the upgrade, and the generator now
+  refuses outright if a value it produced ever contains `$` again.
+
 ### Added
 - **The fleet status page (#609, slice 3 of 7)** — `admin.monchoon.me` now shows
   every tenant, Postgres, backup freshness and disk headroom, refreshing every

@@ -63,6 +63,16 @@ if (password.length < 12) {
 }
 
 const hash = await hashPassword(password)
+
+// ⚠️ Belt and braces after the Compose interpolation incident: if a generated
+// value ever contains `$` again, say so here rather than letting it be
+// silently truncated on its way into the container.
+for (const [name, value] of Object.entries({ hash, totpSecret: '', sessionSecret: '' })) {
+  if (value.includes('$')) {
+    console.error(`Generated ${name} contains "$", which docker compose would mangle in deploy/.env.`)
+    process.exit(3)
+  }
+}
 const totpSecret = generateTotpSecret()
 const sessionSecret = randomBytes(32).toString('hex')
 

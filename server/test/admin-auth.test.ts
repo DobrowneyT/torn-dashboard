@@ -52,10 +52,27 @@ describe('password hashing', () => {
 
   it('carries its parameters, so raising the work factor does not invalidate old hashes', async () => {
     const stored = await hash()
-    const [scheme, n, r, p] = stored.split('$')
+    const [scheme, n, r, p] = stored.split('.')
     expect(scheme).toBe('scrypt')
     expect(Number(n)).toBeGreaterThanOrEqual(1 << 16)
     expect([Number(r), Number(p)]).toEqual([8, 1])
+  })
+
+  it('⚠️ contains no "$", which docker compose would silently truncate', async () => {
+    // Found the hard way: the conventional `scrypt$N$r$p$salt$hash` format is
+    // delivered through deploy/.env, and Compose interpolates `$FJjI...` and
+    // `$xe8` as undefined variables — so the container received a TRUNCATED
+    // hash and every login failed. `.` is outside the base64 alphabet, keeps
+    // the format unambiguous, and Compose passes it through untouched.
+    expect(await hash()).not.toContain('$')
+  })
+
+  it('still verifies a legacy "$"-separated hash, so an upgrade locks nobody out', async () => {
+    const modern = await hash()
+    const legacy = modern.replace(/\./g, '$')
+    expect(looksHashed(legacy)).toBe(true)
+    expect(await verifyPassword(PASSWORD, legacy)).toBe(true)
+    expect(await verifyPassword('wrong', legacy)).toBe(false)
   })
 
   it('⚠️ returns false rather than throwing on a malformed stored hash', async () => {
