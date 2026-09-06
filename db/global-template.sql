@@ -97,3 +97,21 @@ CREATE TABLE IF NOT EXISTS control_state (
   value      jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- ── Fleet feature-flag defaults (#609 slice 5) ──────────────────────────────
+--
+-- Global default, tenant override wins. ⚠️ Unlike the alerting tables above,
+-- these rows ARE for tenants to read — that is the whole point — so
+-- app_global_ro keeps its SELECT.
+--
+-- ⚠️ The row's EXISTENCE is the "set" signal, and the CHECK is what makes that
+-- unambiguous: `'null'::jsonb` is NOT SQL NULL, so a plain NOT NULL column
+-- would store a JSON null happily and leave "set to nothing" indistinguishable
+-- from "unset" — the exact distinction this table exists to preserve. Unset a
+-- flag by DELETEing the row, never by writing null.
+CREATE TABLE IF NOT EXISTS fleet_flags (
+  key         text PRIMARY KEY,
+  value       jsonb NOT NULL CHECK (jsonb_typeof(value) <> 'null'),
+  description text,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);

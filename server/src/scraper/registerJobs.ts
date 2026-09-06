@@ -3,6 +3,7 @@
 // the admin's bring-up step). Called from main.ts; tests drive jobs directly. The admin surface gets the
 // same table through createJobRunner (manual triggers share job code).
 import type pg from 'pg'
+import type { FlagResolver } from '../featureFlags.js'
 import { createKeyPool } from './keyPool.js'
 import { createTornClient } from './tornClient.js'
 import { createRunLogger } from './runLog.js'
@@ -37,6 +38,9 @@ export interface ScraperWiringOptions {
    *  secrets (Global Admin) take precedence. Base URLs are test-injectable. */
   tornStatsApiKey?: string
   bspApiKey?: string
+  /** Fleet defaults for job cadence (#609 slice 5). Shared with the admin
+   *  routes so a flag write invalidates the same cache the scheduler reads. */
+  flags?: FlagResolver
   tornStatsBaseUrl?: string
   bspBaseUrl?: string
 }
@@ -143,7 +147,7 @@ function buildDeps(opts: ScraperWiringOptions): JobDeps {
 export async function startScrapers(opts: ScraperWiringOptions) {
   const deps = buildDeps(opts)
   const runLogger = createRunLogger(opts.db)
-  const scheduler = createScheduler({ db: opts.db, runLogger })
+  const scheduler = createScheduler({ db: opts.db, runLogger, flags: opts.flags })
 
   // A previous process may have died mid-run (redeploy, crash, OOM), leaving
   // rows stuck 'running' forever. Close them out before we start so the run

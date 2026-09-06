@@ -104,6 +104,9 @@ if (db) {
       const { startScrapers } = await import('./scraper/registerJobs.js')
       await startScrapers({
         db, tornBaseUrl, encryptionKey: keyEncryptionKey,
+        // The one resolver built in buildServer — shared so an admin flag
+        // write invalidates the same cache the scheduler reads (#609 slice 5).
+        flags: app.flagResolver,
         // #139: lets war-lifecycle auto-fetch spies on the weekly setup.
         tornStatsApiKey: process.env.TORNSTATS_API_KEY || undefined,
         bspApiKey: process.env.BSP_API_KEY || undefined,

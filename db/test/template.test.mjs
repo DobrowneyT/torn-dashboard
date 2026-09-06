@@ -82,6 +82,10 @@ const NEW_TABLES = [
   'war_room_loadout_observations_v2',
   // Pre-war stacks snapshot (#480)
   'war_stacks_snapshot',
+  // Per-tenant feature-flag overrides (#609 slice 5). The fleet DEFAULTS live
+  // in the shared `global` database; this table is only what a faction has
+  // deliberately set for itself, and the row's existence is the "set" signal.
+  'feature_flags',
 ]
 
 let server

@@ -18,6 +18,85 @@ surface it automatically.
 
 ---
 
+## [3.75.0] - 2026-09-05
+
+### Added
+- **Feature flags: fleet default, tenant override (#609 slice 5/7).** The
+  control plane can now set a baseline that every faction follows, and any
+  faction can override it for itself. Fleet defaults live in `fleet_flags` in
+  the shared `global` database; per-faction overrides live in a new
+  `feature_flags` table in each tenant.
+
+  ⚠️ **"Unset" is a distinct state from "set to a falsy value", and the whole
+  design turns on it.** The obvious `local || global` is wrong the moment a
+  tenant sets a cadence to `0` or a flag to `false` — and in this codebase that
+  is not hypothetical: `member_stats_poll_interval_sec = 0` already means "off"
+  (`warLifecycle.ts`) and `chain_poll_interval_*_sec = 0` means "never poll". A
+  faction that had deliberately switched something off would silently inherit
+  the fleet's "on". So the signal is the **row's existence**, never its value;
+  both tables carry `CHECK (jsonb_typeof(value) <> 'null')` so a JSON null
+  cannot be written as a pretend-unset; and clearing a flag is a `DELETE`. Same
+  bug class as `Number(null) === 0`, which bit `chainedValue` in #585.
+
+  ⚠️ **An unreachable control plane serves the last known fleet defaults, not
+  an empty set.** An empty set is not neutral — it silently reverts every
+  fleet-set value to the code default, so a blip in the admin container would
+  change how a tenant behaves. Keeping the previous snapshot means an
+  unreachable control plane changes nothing at all, which is what the #608
+  "tenants read `global` directly" architecture promises.
+
+  ⚠️ **Writing a fleet flag is a tunnel-only operation** (`PUT`/`DELETE
+  /api/admin/local/flags/:key`), while reading is on the public surface.
+  Provisioning was allowed onto the public surface because it is additive and
+  recoverable; a fleet flag is neither. It takes effect on every tenant within a
+  minute, and the dangerous value is not a malformed one — those are rejected —
+  but a perfectly **valid** one: `* * * * * *` on a scraper cadence would have
+  five factions calling Torn every second on their own pooled keys, a
+  fleet-wide rate-limit ban from one typo with no undo that gives the keys back.
+
+### Changed
+- **Scraper cadence is the first consumer.** A job's schedule now resolves
+  through three layers: this faction's `scraper_jobs.cron_schedule`, then
+  `fleet_flags['scraper.schedule.<job>']`, then the code default in
+  `JOB_TABLE`. Global Admin shows the effective cadence **and which layer
+  supplied it** — without that, a fleet-wide change looks like a local one
+  nobody remembers making, and the first instinct on seeing an unfamiliar
+  cadence is to type over it, silently converting a managed default into a
+  permanent per-faction override. Clearing the field and saving sends an
+  explicit `null`, which is "follow the default" — a real instruction, distinct
+  from omitting the field, and previously there was no way back from an override
+  short of a database edit.
+
+  ⚠️ `scraper_jobs.cron_schedule` is now **nullable**, and NULL means "follow
+  the fleet default" — a real setting that `NOT NULL` made unsayable. New rows
+  are created NULL rather than seeded with the code default, which used to make
+  every job look permanently customised.
+
+  ⚠️ **One-time adoption of previously-seeded rows**, performed in the
+  application rather than in migration 0058: a row whose schedule exactly equals
+  the code default was written by the old seeding and never touched, so it is
+  cleared to NULL and follows the fleet from now on; a row that differs was
+  edited by an operator and is left alone. That inference — "equal to the
+  default means nobody chose it" — is the kind this project usually refuses, and
+  it is sound in this one case because the only two ways the column could hold
+  exactly the default string are the old seed and an operator deliberately
+  typing the default, and for the second the behaviour is identical either way.
+  SQL could not do it: it has no idea what the code default is.
+
+  ⚠️ **A malformed cron expression falls back instead of throwing.**
+  `cron.schedule()` throws on a bad expression and the scheduler registers jobs
+  in a loop, so one typo would abort the loop and leave every job after it
+  unscheduled. Through a **fleet** flag that is worse again: one bad character
+  typed once would stop scraping for every faction at once, with the only
+  symptom being that data quietly stopped arriving. The invalid value is
+  reported on the Global Admin page and in the logs instead.
+
+  `GET /api/admin/scraper/jobs` now returns `cron_schedule` as the faction's
+  override (may be `null`), plus `effective_schedule`, `schedule_source`,
+  `default_schedule`, `fleet_schedule` and `rejected_schedule`.
+
+---
+
 ## [3.74.0] - 2026-09-05
 
 ### Added

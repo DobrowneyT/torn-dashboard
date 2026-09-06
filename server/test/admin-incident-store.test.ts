@@ -15,6 +15,10 @@ import EmbeddedPostgres from 'embedded-postgres'
 import pg from 'pg'
 import { freePort } from './harness.js'
 import { pgIncidentStore } from '../src/adminPlane/incidentStore.js'
+import { buildAdminApp } from '../src/adminPlane/app.js'
+import { hashPassword } from '../src/adminPlane/password.js'
+import { generateTotpSecret } from '../src/adminPlane/totp.js'
+import { mintAdminSession } from '../src/adminPlane/session.js'
 import { reconcile, type Incident } from '../src/adminPlane/incidents.js'
 import type { Alert } from '../src/adminPlane/alertRules.js'
 // @ts-expect-error — plain .mjs helper shared with db/new-global.mjs
@@ -176,5 +180,102 @@ describe('⚠️ the alerting tables are control-plane-private', () => {
   it('still lets a tenant read the fleet metadata it depends on', async () => {
     const res = await reader.query('SELECT schema_version FROM fleet_meta WHERE id = 1')
     expect(res.rows).toHaveLength(1)
+  })
+})
+
+// ── Fleet feature-flag defaults (#609 slice 5) ──────────────────────────────
+
+describe('the fleet flag routes', () => {
+  const SECRET = 'fleet-flag-session-secret'
+  const TOTP = generateTotpSecret()
+
+  const build = async (surface: 'public' | 'local') =>
+    buildAdminApp({
+      surface, username: 'u', passwordHash: await hashPassword('a-long-test-password'),
+      totpSecret: TOTP, sessionSecret: SECRET, version: '9.9.9', fleetDb: writer,
+    })
+
+  const auth = async (surface: 'public' | 'local') =>
+    ({ authorization: `Bearer ${await mintAdminSession(SECRET, 'u', surface)}` })
+
+  it('⚠️ refuses to store a JSON null at the database level', async () => {
+    // The row's EXISTENCE is the "set" signal, so a stored null would be a row
+    // that counts as set while holding nothing — unset and set at once. The
+    // CHECK makes that unsayable rather than merely discouraged.
+    await expect(
+      admin.query(`INSERT INTO fleet_flags (key, value) VALUES ('bad', 'null'::jsonb)`)
+    ).rejects.toThrow(/check constraint/i)
+  })
+
+  it('⚠️ does NOT register the write on the public surface', async () => {
+    // A fleet flag reaches every tenant within a minute, and the dangerous
+    // value is a perfectly VALID one: `* * * * * *` on a scraper cadence would
+    // have five factions calling Torn every second on their own pooled keys — a
+    // fleet-wide rate-limit ban from one typo, with no undo that gives the keys
+    // back. So it 404s here because the route does not exist, not because a
+    // guard said no.
+    const app = await build('public')
+    const res = await app.inject({
+      method: 'PUT', url: '/api/admin/local/flags/scraper.schedule.items-sync',
+      headers: await auth('public'), payload: { value: '0 0 * * * *' },
+    })
+    expect(res.statusCode).toBe(404)
+    await app.close()
+  })
+
+  it('writes, reads and deletes from the local surface', async () => {
+    const local = await build('local')
+    const set = await local.inject({
+      method: 'PUT', url: '/api/admin/local/flags/scraper.schedule.items-sync',
+      headers: await auth('local'),
+      payload: { value: '0 0 */12 * * *', description: 'fleet item catalogue cadence' },
+    })
+    expect(set.statusCode).toBe(200)
+    expect(set.json().flag).toMatchObject({
+      key: 'scraper.schedule.items-sync', value: '0 0 */12 * * *',
+      description: 'fleet item catalogue cadence',
+    })
+
+    // Reading is safe from anywhere, so it IS on the public surface.
+    const pub = await build('public')
+    const list = await pub.inject({
+      method: 'GET', url: '/api/admin/flags', headers: await auth('public'),
+    })
+    expect(list.statusCode).toBe(200)
+    expect(list.json().flags[0]).toMatchObject({ key: 'scraper.schedule.items-sync' })
+    await pub.close()
+
+    const del = await local.inject({
+      method: 'DELETE', url: '/api/admin/local/flags/scraper.schedule.items-sync',
+      headers: await auth('local'),
+    })
+    expect(del.json()).toMatchObject({ ok: true, deleted: true })
+
+    // ⚠️ Deleting an absent flag is reported, not 404'd: "it is not set" is the
+    // state the caller asked for, and an error would make a retry after a
+    // half-successful run look like a failure.
+    const again = await local.inject({
+      method: 'DELETE', url: '/api/admin/local/flags/scraper.schedule.items-sync',
+      headers: await auth('local'),
+    })
+    expect(again.json()).toMatchObject({ ok: true, deleted: false })
+    await local.close()
+  })
+
+  it('⚠️ refuses a null value rather than storing a pretend-unset', async () => {
+    const local = await build('local')
+    const res = await local.inject({
+      method: 'PUT', url: '/api/admin/local/flags/some.flag',
+      headers: await auth('local'), payload: { value: null },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toContain('DELETE')
+    await local.close()
+  })
+
+  it('requires authentication', async () => {
+    const pub = await build('public')
+    expect((await pub.inject({ method: 'GET', url: '/api/admin/flags' })).statusCode).toBe(401)
+    await pub.close()
   })
 })
