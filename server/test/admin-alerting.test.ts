@@ -143,6 +143,97 @@ describe('evaluateAlerts', () => {
   })
 })
 
+describe('key pool and scrapers (#632)', () => {
+  // The two numbers that would have caught #645 on day one instead of day
+  // thirteen. capacityx went from 7 usable keys to ZERO in one run, and
+  // members-sync then logged `no pooled key available` 312 times while every
+  // health surface reported the tenant fine.
+  const withMetrics = (slug: string, metrics: unknown) =>
+    status({ tenants: [{ ...tenant(slug), metrics } as never] })
+
+  it('⚠️ says NOTHING when metrics were not measured', () => {
+    // `metrics === undefined` means no secret configured, or a tenant too old
+    // to serve the endpoint. Reading unmeasured as zero would fire on every
+    // tenant the moment this shipped, for a fact nobody had established —
+    // exactly the mistake the null items timestamp guards against.
+    expect(evaluateAlerts(status({ tenants: [tenant('tnl')] }))).toEqual([])
+  })
+
+  it('⚠️ fires when a faction has no usable key at all', () => {
+    const a = evaluateAlerts(withMetrics('capacityx', {
+      keys: { claimable: 0, enrolled: 7, disabled: 6 },
+      scrapers: { enabledJobs: 19, failing: [], runsLast24h: 0, failuresLast24h: 0 },
+    }))
+    expect(a[0]).toMatchObject({ key: 'keys-empty:capacityx', severity: 'urgent' })
+    expect(a[0].detail).toContain('until a member logs in')
+  })
+
+  it('does not fire "empty" for a faction that has enrolled nobody', () => {
+    // A freshly provisioned faction has no keys because nobody has logged in
+    // yet. That is a bring-up state, not an outage.
+    expect(evaluateAlerts(withMetrics('newbie', {
+      keys: { claimable: 0, enrolled: 0, disabled: 0 },
+      scrapers: { enabledJobs: 0, failing: [], runsLast24h: 0, failuresLast24h: 0 },
+    }))).toEqual([])
+  })
+
+  it('⚠️ fires at ONE key — how #123/#124 started', () => {
+    const a = evaluateAlerts(withMetrics('tnl', {
+      keys: { claimable: 1, enrolled: 5, disabled: 4 },
+      scrapers: { enabledJobs: 19, failing: [], runsLast24h: 10, failuresLast24h: 0 },
+    }))
+    expect(a[0]).toMatchObject({ key: 'keys-low:tnl', severity: 'urgent' })
+  })
+
+  it('stays quiet on a healthy pool', () => {
+    expect(evaluateAlerts(withMetrics('tnl', {
+      keys: { claimable: 6, enrolled: 7, disabled: 1 },
+      scrapers: { enabledJobs: 19, failing: [], runsLast24h: 40, failuresLast24h: 1 },
+    }))).toEqual([])
+  })
+
+  it('⚠️ names the failing JOB rather than counting them', () => {
+    // "3 jobs failing" is not actionable at 3am; "members-sync has failed 12
+    // times and never succeeded" is.
+    const a = evaluateAlerts(withMetrics('capacityx', {
+      keys: { claimable: 2, enrolled: 7, disabled: 5 },
+      scrapers: {
+        enabledJobs: 19, runsLast24h: 24, failuresLast24h: 24,
+        failing: [
+          { jobName: 'members-sync', consecutiveFailures: 12, lastSuccessAt: null, lastError: 'no pooled key available' },
+          { jobName: 'crimes-sync', consecutiveFailures: 1, lastSuccessAt: '2026-09-06T10:00:00.000Z', lastError: 'blip' },
+        ],
+      },
+    }))
+    expect(a.map((x) => x.key)).toEqual(['scraper-failing:capacityx:members-sync'])
+    expect(a[0].title).toContain('12 times')
+    // ⚠️ "never succeeded" is a different fact from "succeeded a while ago".
+    expect(a[0].detail).toContain('never succeeded')
+  })
+
+  it('ignores a job that has failed once', () => {
+    expect(evaluateAlerts(withMetrics('tnl', {
+      keys: { claimable: 5, enrolled: 5, disabled: 0 },
+      scrapers: {
+        enabledJobs: 19, runsLast24h: 40, failuresLast24h: 1,
+        failing: [{ jobName: 'wars-sync', consecutiveFailures: 1, lastSuccessAt: '2026-09-06T09:00:00.000Z', lastError: 'blip' }],
+      },
+    }))).toEqual([])
+  })
+
+  it('⚠️ keeps the key stable so a worsening streak stays ONE incident', () => {
+    const at = (n: number) => evaluateAlerts(withMetrics('tnl', {
+      keys: { claimable: 5, enrolled: 5, disabled: 0 },
+      scrapers: {
+        enabledJobs: 19, runsLast24h: 40, failuresLast24h: n,
+        failing: [{ jobName: 'wars-sync', consecutiveFailures: n, lastSuccessAt: null, lastError: 'x' }],
+      },
+    }))[0]
+    expect(at(3).key).toBe(at(30).key)
+    expect(at(3).title).not.toBe(at(30).title)
+  })
+})
+
 describe('reconcile', () => {
   const down: Alert = { key: 'tenant-down:tnl', severity: 'urgent', title: 'tnl is down', detail: 'x' }
   const t = (n: number) => new Date(Date.parse(NOW) + n * 60_000).toISOString()

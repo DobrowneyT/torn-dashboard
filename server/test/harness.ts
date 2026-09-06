@@ -129,6 +129,10 @@ export interface StackOverrides {
    * crimes — would break tests unrelated to the change.
    */
   ocModel?: Map<string, import('../src/oc/modelLoader.js').OcScenarioModel>
+  /** This tenant's fleet-metrics token (#632). Absent leaves the endpoint
+   *  unregistered, which is the production default until an operator sets
+   *  FLEET_METRICS_SECRET. */
+  fleetMetricsToken?: string
 }
 
 /** Boot embedded Postgres + templated faction DB + Torn fixture + GitHub fixture + API. */
@@ -284,6 +288,7 @@ export async function startTestStack(
     // #606: tests drive a fixture model unless one is supplied, so the suite is
     // never coupled to the dataset committed in the image.
     ocModel: overrides.ocModel,
+    fleetMetricsToken: overrides.fleetMetricsToken,
     factionSlug: TEST_FACTION.slug,
     db,
     tornBaseUrl,

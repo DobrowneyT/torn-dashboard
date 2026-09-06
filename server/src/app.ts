@@ -30,6 +30,8 @@ import { registerExportRoutes } from './exports.js'
 import { createCompetitionTimers, type CompetitionTimers } from './competitions/competitionTimers.js'
 import { createFlagResolver, type FlagResolver } from './featureFlags.js'
 import type { OcScenarioModel } from './oc/modelLoader.js'
+import { collectFleetMetrics } from './fleetMetrics.js'
+import { bearerFrom, tokenMatches } from './fleetMetricsAuth.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
 import { registerMemberNotesRoutes } from './memberNotes.js'
@@ -94,6 +96,13 @@ export interface ServerOptions {
    * adds crimes — would break tests that have nothing to do with the change.
    */
   ocModel?: Map<string, OcScenarioModel>
+  /**
+   * This tenant's fleet-metrics token (#632), derived by the operator as
+   * HMAC-SHA256(FLEET_METRICS_SECRET, slug). Unset disables the endpoint
+   * entirely — a tenant that has not been given a token exposes nothing, which
+   * is the right default for an addition the fleet can run without.
+   */
+  fleetMetricsToken?: string
 }
 
 export interface RateLimitOptions {
@@ -213,6 +222,33 @@ export async function buildServer(
             },
     })
   })
+
+  // ── Fleet metrics (#632) ─────────────────────────────────────────────────
+  //
+  // ⚠️ What /api/health/ready does NOT report: whether anything SUCCEEDS. It
+  // covers database connectivity and whether the scheduler is armed, so
+  // capacityx — which ran zero Torn-backed jobs for thirteen days (#645) —
+  // answered `ok` throughout, as did Docker's healthcheck and the #609 status
+  // page. Two numbers would have caught it on day one.
+  //
+  // ⚠️ Authenticated, and NOT merely by living on the compose network: the
+  // generated tenant vhost proxies `location /api/` wholesale, so this path is
+  // reachable from the internet like any other. #609 is explicit that key-pool
+  // depth is reconnaissance handed over, and that does not stop applying
+  // because the caller is meant to be ours.
+  if (opts.db && opts.fleetMetricsToken) {
+    const expected = opts.fleetMetricsToken
+    const metricsDb = opts.db
+    app.get('/api/internal/fleet-metrics', async (req, reply) => {
+      const presented = bearerFrom(req.headers.authorization)
+      if (presented === null || !tokenMatches(presented, expected)) {
+        // ⚠️ One message for a missing token and a wrong one. Distinguishing
+        // them tells a prober which half they have already solved.
+        return reply.status(401).send({ error: 'Authentication required' })
+      }
+      return collectFleetMetrics(metricsDb)
+    })
+  }
 
   app.decorateRequest('session', null)
 
