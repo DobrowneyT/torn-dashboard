@@ -43,6 +43,50 @@ docker network prune -f --filter until=24h
 echo "--- build cache older than a week ---"
 docker builder prune -f --filter until=168h
 
+# ⚠️ Abandoned CI stacks, and why this sweep exists at all.
+#
+# The compose check tears itself down with `down -v --rmi local`, but that step
+# does not always get to run: `cancel-in-progress` (added alongside this script)
+# kills superseded runs mid-job, and a cancelled job's cleanup has only a grace
+# period to finish. Each escapee leaves a whole project behind — containers, a
+# network, volumes, and TAGGED images that a dangling-image prune will never
+# touch.
+#
+# ⚠️ The pattern is anchored to `tnl-dashboard-ci-` on purpose. Production is
+# `tnl-dashboard` and staging is `tnl-dashboard-dev`; a looser glob would match
+# both, and this is the one place in the script that deletes volumes.
+echo "--- abandoned CI stacks (tnl-dashboard-ci-*) older than a day ---"
+CUTOFF=$(date -u -d '1 day ago' +%s)
+docker compose ls --all --format json 2>/dev/null \
+  | python3 -c '
+import json,sys
+try: data = json.load(sys.stdin)
+except Exception: data = []
+for p in data:
+    n = p.get("Name","")
+    if n.startswith("tnl-dashboard-ci-"):
+        print(n)
+' | while read -r project; do
+  # Only if nothing in it has been running for a day — a live run must survive.
+  running=$(docker ps -q --filter "label=com.docker.compose.project=$project" | wc -l)
+  if [ "$running" -eq 0 ]; then
+    echo "  removing $project"
+    docker compose -p "$project" down -v --rmi local --remove-orphans 2>/dev/null || true
+  fi
+done
+
+# Images from runs whose project record is already gone.
+echo "--- orphaned CI images ---"
+docker images --format '{{.Repository}}:{{.Tag}}\t{{.CreatedAt}}' \
+  | awk -F'\t' '$1 ~ /^tnl-dashboard-ci-/ {print $1}' \
+  | while read -r img; do
+      created=$(docker image inspect "$img" --format '{{.Created}}' 2>/dev/null) || continue
+      if [ "$(date -u -d "$created" +%s)" -lt "$CUTOFF" ]; then
+        echo "  removing $img"
+        docker rmi "$img" >/dev/null 2>&1 || true
+      fi
+    done
+
 echo "--- after ---"
 docker system df
 df -h / | tail -1

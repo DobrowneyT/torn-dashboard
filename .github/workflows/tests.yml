@@ -204,6 +204,16 @@ jobs:
       if: failure()
       run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy logs
 
+    # ⚠️ `--rmi local` is new, and it is the other half of the per-run project
+    # name above. A constant project name meant each run OVERWROTE the previous
+    # run's images; a per-run name means every run leaves its own
+    # `tnl-dashboard-ci-<id>-api-forge` behind forever. Those are TAGGED, so a
+    # dangling-image prune never touches them — the isolation fix would have
+    # quietly become a disk leak of several GB a day.
+    #
+    # `local` removes only images compose built itself, never a pulled one like
+    # `postgres:16` that a custom `image:` field names. The build CACHE survives,
+    # so the next run rebuilds just as fast.
     - name: Tear down
       if: always()
-      run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy down -v
+      run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy down -v --rmi local

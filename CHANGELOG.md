@@ -53,6 +53,22 @@ surface it automatically.
   build layers behind: 4.0 GB of build cache and 4.7 GB of unreferenced images
   against 22 GB free, whose first symptom would be a deploy failing to build.
 
+  ⚠️ **A per-run project name would have leaked images**, so the compose check
+  now tears down with `down -v --rmi local`. A constant name meant each run
+  overwrote the previous run's images; a per-run name means every run leaves its
+  own `tnl-dashboard-ci-<id>-api-forge` behind forever — and those are TAGGED,
+  so a dangling-image prune never touches them. The isolation fix would quietly
+  have become a disk leak of several GB a day. `local` removes only images
+  compose built itself, never a pulled one like `postgres:17-alpine`, and the
+  build cache survives so the next run rebuilds just as fast.
+
+  The prune script also sweeps abandoned `tnl-dashboard-ci-*` projects, because
+  that teardown does not always get to run: `cancel-in-progress` kills
+  superseded runs mid-job and a cancelled job's cleanup has only a grace period.
+  ⚠️ The pattern is anchored to `tnl-dashboard-ci-` deliberately — production is
+  `tnl-dashboard` and staging is `tnl-dashboard-dev`, and that sweep is the one
+  place in the script that deletes volumes.
+
   ⚠️ The script's value is as much in what it refuses to do. It never passes
   `--volumes` — every faction's database and the backup archive are named
   volumes, and Docker calls a volume "unused" whenever no container is attached,
