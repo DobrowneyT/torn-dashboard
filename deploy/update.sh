@@ -31,35 +31,33 @@
 # and nginx/factions/*.conf are gitignored, so `git pull` cannot clobber them.
 set -euo pipefail
 
-# ⚠️ **Everything below runs inside this brace group, and that is load-bearing:
-# this script overwrites ITSELF partway through, at the `git merge` below.**
+# ⚠️ **Everything below runs inside this brace group, and it is load-bearing:
+# this script overwrites ITSELF partway through, at the `git merge`.**
 #
 # Bash does not read a script into memory up front. It reads a chunk (8KB),
 # executes what it has, then reads the NEXT chunk from a saved byte OFFSET. If
-# the file changed on disk in between, that offset now points into different
-# content — so bash resumes mid-statement, or re-runs commands it already ran,
-# with an error naming a line number that explains nothing.
+# the file changed on disk in between, that offset points into different
+# content — bash resumes mid-statement, or re-runs commands it already ran,
+# reporting a line number that explains nothing.
 #
-# Not theoretical. This script is ~20KB and the merge sits at byte ~7000, so
-# bash is still reading from disk when the file is replaced. Any change that
-# adds lines ABOVE the merge — which is most of them — shifts every later
-# offset. Reproduced with a 15KB stand-in that inserted 1.5KB above its own
-# rewrite point: it printed `PHASE 1`, then died with
-# `line 100: adding: command not found` and never ran the rest.
+# Not theoretical: this script is ~20KB and the merge sits at byte ~7000, so
+# bash is still reading from disk when the file is replaced. Reproduced with a
+# 15KB stand-in that inserted 1.5KB above its own rewrite point — it printed
+# PHASE 1, died with `line 100: adding: command not found`, and never ran the
+# rest. Here that region holds the migrations, the rebuild and the readiness
+# check.
 #
 # A brace group fixes it because bash parses a compound command COMPLETELY
-# before executing any of it — the whole body is in memory before the merge can
-# touch the file. ⚠️ The closing `}` must be preceded by an `exit`, or bash
-# still reads past the group for more input and hits the same stale offset;
-# that variant printed every phase correctly and THEN emitted a spurious
-# `command not found`. `exit "$fail"` at the bottom is what seals it.
+# before executing any of it, so the whole script — including the hand-over
+# below — is in memory before the merge can touch the file.
 #
-# ⚠️ An earlier attempt — hash the file, `exec` the new version if it changed —
-# does NOT work and was discarded. The guard has to be read before the file
-# changes, and the guard is exactly what straddles the boundary.
+# ⚠️ The closing `}` must be preceded by an `exit`, or bash reads past the group
+# for more input and hits the same stale offset. That variant ran every phase
+# correctly and THEN emitted a spurious `command not found`. `exit "$fail"` at
+# the bottom is what seals it.
 #
-# The body is deliberately NOT re-indented: this needs to stay a two-line diff
-# so it never obscures a real change in `git blame`.
+# The body is deliberately NOT re-indented, so this stays a small diff that
+# never obscures a real change in `git blame`.
 {
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -163,7 +161,46 @@ trap cleanup EXIT
 echo "==> deploying $BRANCH: $(git rev-parse --short HEAD) → $(git rev-parse --short "origin/$BRANCH")"
 # --ff-only: a server checkout must never invent merge commits; if this fails
 # someone committed on the server — resolve by hand, don't force.
+# Captured before the merge so the hand-over below can tell whether this very
+# file changed. `git hash-object` and not a timestamp: a pull that rewrites the
+# file with identical content must NOT trigger a pointless re-exec.
+SELF_HASH_BEFORE="$(git hash-object deploy/update.sh)"
+
 git merge --ff-only "origin/$BRANCH" --quiet || git pull --ff-only origin "$BRANCH"
+
+# ⚠️ **Hand over to the version we just pulled.**
+#
+# The brace group above stops the new BYTES corrupting this parse, but it does
+# not change which LOGIC runs: without this, the deploy that ships a change to
+# update.sh still executes the OLD script end to end, and the new behaviour
+# only takes effect on the NEXT deploy. A fix to the deploy script would always
+# land one deploy late — including a fix to this very problem.
+#
+# So if the merge changed this file, exec the new copy. Four things make that
+# safe, and all four are why this sits exactly here:
+#
+#   * the flock on fd 9 is inherited through exec, so the new process holds the
+#     same lock and a concurrent cron tick still backs off;
+#   * this runs BEFORE the pre-deploy backup and every mutating step, so
+#     nothing is done twice — the repeated fetch and `merge --ff-only` are
+#     no-ops against a checkout already at origin;
+#   * the marker is only written on a clean finish, so the second pass still
+#     sees the deploy as outstanding and runs it in full;
+#   * the EXIT trap has not been installed yet, so nothing is lost by not
+#     firing it — the new process installs its own.
+#
+# TNL_UPDATE_REEXEC bounds this to ONE hand-over. A second difference would
+# mean the working tree disagrees with HEAD, which is a problem to report
+# rather than to loop on.
+if [ "$(git hash-object deploy/update.sh)" != "$SELF_HASH_BEFORE" ]; then
+  if [ "${TNL_UPDATE_REEXEC:-0}" = 1 ]; then
+    echo "  [warn] update.sh still differs after re-exec — continuing with this process"
+  else
+    echo "==> update.sh changed in this deploy — handing over to the new version"
+    export TNL_UPDATE_REEXEC=1
+    exec "$REPO_DIR/deploy/update.sh" "$@"
+  fi
+fi
 
 # Host-side CLI deps (db/migrate.mjs runs on the host).
 npm ci --omit=dev --workspace @tnl/db --silent 2>/dev/null || npm ci --omit=dev --workspace @tnl/db
@@ -321,6 +358,7 @@ else
     echo "         check: docker compose --project-directory deploy logs admin"
   fi
 fi
+
 
 # Publish the War Room dibs userscript (#487).
 #

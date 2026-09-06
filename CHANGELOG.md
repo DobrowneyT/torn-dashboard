@@ -18,6 +18,24 @@ surface it automatically.
 
 ---
 
+## [3.82.1] - 2026-09-06
+
+### Fixed
+- **Reconciled the two independent fixes to `update.sh`'s self-modification.**
+  `dev` carried the brace group alone (v3.82.0); `main` carried the hotfix
+  (v3.79.1), which has the brace group **and** the hand-over that re-execs the
+  newly-pulled script. Merging the branches conflicted on the same region of the
+  same file.
+
+  ⚠️ Resolved onto **`main`'s** version rather than dev's, because the two are
+  not equivalent: the brace group only makes the *parse* safe, while the
+  hand-over is what makes a change to `update.sh` take effect on the deploy that
+  ships it rather than one deploy later. Keeping dev's copy would have silently
+  dropped the more important half. The admin-container rebuild and the argument
+  parsing from v3.80.0 were re-applied on top.
+
+---
+
 ## [3.82.0] - 2026-09-06
 
 ### Fixed
@@ -112,6 +130,55 @@ surface it automatically.
   `./deploy/update.sh --no-admin` (or `NO_ADMIN=1`) opts out for one run.
   Argument parsing now accepts flags in any order and rejects unknown ones
   rather than silently ignoring them.
+
+---
+
+## [3.79.1] - 2026-09-06
+
+### Fixed
+- **⚠️ HOTFIX: `update.sh` mis-executed itself whenever a deploy changed it, and
+  changes to it took effect one deploy late.** Branched from `main` and merged
+  straight back, because every future deploy-script change depends on this one
+  being in place first.
+
+  **The corruption.** Bash does not read a script into memory up front. It reads
+  a chunk (8KB), executes what it has, then reads the next chunk **from a saved
+  byte offset**. This script overwrites itself at its `git merge`, and it is
+  ~20KB with that merge at byte ~7000 — so bash is still reading from disk when
+  the file is replaced. Any change adding lines *above* the merge shifts every
+  later offset, and bash resumes mid-statement. Reproduced with a 15KB stand-in
+  inserting 1.5KB above its own rewrite point: it printed `PHASE 1`, died with
+  `line 100: adding: command not found`, and never ran the rest. Here that
+  region holds the migrations, the rebuild and the readiness check, so the
+  outcomes are a hard failure naming nothing real — or, if the offset lands on
+  text that happens to parse, running only *part* of a deploy.
+
+  **The staleness.** Even parsed safely, the deploy that ships a change to
+  `update.sh` would still run the OLD script end to end, so new deploy behaviour
+  only took effect on the *next* deploy — including a fix to this very problem.
+
+  Two changes, and they only work together:
+
+  - The body is wrapped in a `{ … }` group. Bash parses a compound command
+    **completely** before executing any of it, so the whole script — including
+    the hand-over below — is in memory before the merge can touch the file.
+    ⚠️ The closing brace must be preceded by an `exit`, or bash reads past the
+    group and hits the same stale offset; that variant ran every phase correctly
+    and *then* emitted a spurious `command not found`.
+  - After the merge, if `git hash-object` shows this file changed, the script
+    **execs the new copy**. The flock on fd 9 is inherited, so the lock holds;
+    it runs before the backup and every mutating step, so nothing happens twice;
+    and the marker is only written on a clean finish, so the second pass still
+    sees the deploy as outstanding and runs it in full. `TNL_UPDATE_REEXEC`
+    bounds it to one hand-over.
+
+  ⚠️ The hand-over alone is **not** sufficient, and was tried first: without the
+  brace group the guard itself straddles the read boundary, so it is corrupted
+  before it can fire. It failed the reproduction identically. The wrap is what
+  makes the hand-over trustworthy.
+
+  Verified end to end: the old script starts, detects the change, hands over,
+  and the new script runs to completion with a clean exit and empty stderr.
 
 ---
 
