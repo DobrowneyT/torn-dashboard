@@ -49,6 +49,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -63,6 +64,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -77,6 +79,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -91,6 +94,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -105,6 +109,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -119,6 +124,7 @@
         "money": 167566309,
         "respect": 348,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -133,6 +139,7 @@
         "money": 150108424,
         "respect": 311,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -147,6 +154,7 @@
         "money": 118217940,
         "respect": 281,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -179,6 +187,7 @@
         "money": 99931212,
         "respect": 248,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     },

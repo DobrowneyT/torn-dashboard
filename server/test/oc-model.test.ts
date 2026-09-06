@@ -162,3 +162,40 @@ describe('resilience', () => {
     expect(loadOcModel('/nonexistent-model-dir').size).toBe(0)
   })
 })
+
+describe('⚠️ chain rewards corroborate the observed chain table (#585)', () => {
+  // Some crimes pay by spawning the next one, and Crimes Hub renders that
+  // crime's NAME where the money would be. Without handling it, "Ace in the
+  // Hole" was swallowed as a role label and four good endings read as
+  // unparseable.
+  //
+  // The payoff is bigger than the parse. KNOWN_CHAINS in ocChains.js was
+  // derived entirely from our own observed `previous_crime_id` edges; Crimes
+  // Hub is a completely independent source, and every edge it reports agrees.
+  const CORROBORATED: Record<string, string> = {
+    'No Reserve': 'Bidding War',
+    'Stacking the Deck': 'Ace in the Hole',
+    'Manifest Cruelty': 'Gone Fission',
+    'Gone Fission': 'Crane Reaction',
+  }
+
+  it('matches KNOWN_CHAINS on every edge it has', () => {
+    for (const [parent, child] of Object.entries(CORROBORATED)) {
+      const s = getScenario(parent)
+      expect(s, `${parent} should be in the model`).toBeDefined()
+      const chained = s!.endings.filter((e) => e.reward?.chainsTo)
+      expect(chained.length, `${parent} should have chain endings`).toBeGreaterThan(0)
+      for (const e of chained) expect(e.reward!.chainsTo).toBe(child)
+    }
+  })
+
+  it('⚠️ values a chain ending as money null, never zero', () => {
+    // The payout is the next crime. Valuing it needs chainedValue() in
+    // ocChains.js — recording 0 here would have the simulator price a chain
+    // parent at nothing, which is the #585 bug in reverse.
+    const deck = getScenario('Stacking the Deck')!
+    for (const e of deck.endings.filter((x) => x.reward?.chainsTo)) {
+      expect(e.reward!.money).toBeNull()
+    }
+  })
+})

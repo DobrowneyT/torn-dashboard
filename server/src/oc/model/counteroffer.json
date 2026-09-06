@@ -44,6 +44,7 @@
         "money": null,
         "respect": 170,
         "itemCount": 12,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -58,6 +59,7 @@
         "money": null,
         "respect": 155,
         "itemCount": 7,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -72,6 +74,7 @@
         "money": null,
         "respect": 136,
         "itemCount": 7,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -86,6 +89,7 @@
         "money": null,
         "respect": 122,
         "itemCount": 8,
+        "chainsTo": null,
         "uncertain": false
       }
     },

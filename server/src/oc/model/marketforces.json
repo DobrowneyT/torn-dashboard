@@ -40,7 +40,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding2",
@@ -49,7 +55,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding3",
@@ -58,7 +70,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding4",
@@ -67,7 +85,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding5",
@@ -76,7 +100,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding1",
@@ -85,7 +115,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 8453868,
+        "respect": 93,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding2",
@@ -94,7 +130,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 7775690,
+        "respect": 87,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding3",
@@ -103,7 +145,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 7106444,
+        "respect": 78,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding4",
@@ -112,7 +160,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 5407000,
+        "respect": 58,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding5",
@@ -121,7 +175,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 4691974,
+        "respect": 50,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding6",
@@ -130,7 +190,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 5981133,
+        "respect": 68,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     }
   ],
   "roleFidelity": {
@@ -140,6 +206,6 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": "crimeshub"
   }
 }

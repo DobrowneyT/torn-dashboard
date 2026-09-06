@@ -30,7 +30,13 @@
       "resolved": false,
       "problem": "badEnding1: ties between _B2F_ and _A1F_ on role evidence — needs a paired-role probe",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding2",
@@ -39,7 +45,13 @@
       "resolved": false,
       "problem": "badEnding2: ties between _B2F_ and _A1F_ on role evidence — needs a paired-role probe",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding3",
@@ -48,7 +60,13 @@
       "resolved": false,
       "problem": "badEnding3: ties between _A5F_ and _A4F_ on role evidence — needs a paired-role probe",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding4",
@@ -57,7 +75,13 @@
       "resolved": false,
       "problem": "badEnding4: ties between _A5F_ and _A4F_ on role evidence — needs a paired-role probe",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding5",
@@ -66,7 +90,13 @@
       "resolved": false,
       "problem": "badEnding5: ties between _B1F_ and _B2F_ on role evidence — needs a paired-role probe (Muscle 1 + Enforcer)",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding6",
@@ -75,7 +105,13 @@
       "resolved": false,
       "problem": "badEnding6: ties between _B1F_ and _B2F_ on role evidence — needs a paired-role probe (Muscle 1 + Enforcer)",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding1",
@@ -84,7 +120,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 12821359,
+        "respect": 103,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding2",
@@ -93,7 +135,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 10803108,
+        "respect": 93,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding3",
@@ -102,7 +150,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 9461986,
+        "respect": 82,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding4",
@@ -111,7 +165,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 7411710,
+        "respect": 72,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     }
   ],
   "roleFidelity": {
@@ -121,6 +181,6 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": "crimeshub"
   }
 }

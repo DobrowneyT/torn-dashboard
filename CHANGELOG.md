@@ -69,8 +69,29 @@ surface it automatically.
   ⚠️ Permission to use the Crimes Hub data was obtained from its author and is
   recorded on #606.
 
-  11 of 31 scenarios currently carry rewards; the source rate-limits at 20
-  requests an hour, so the rest follow.
+  ⚠️ **A seventh reward shape: the payout IS the next crime.** Stacking the
+  Deck's good endings render as `Good End #4 / Ace in the Hole`. Without
+  handling it the crime name was swallowed as a role label and four good
+  endings read as unparseable — and the ending must carry `money: null`, never
+  0, because valuing it needs the chain maths in `ocChains.js` (#585) rather
+  than a figure here.
+
+  ⚠️ **That yielded independent corroboration of #585's chain table.**
+  `KNOWN_CHAINS` was derived entirely from our own observed `previous_crime_id`
+  edges; Crimes Hub is a wholly separate source, and **every edge it reports
+  agrees**: No Reserve → Bidding War, Stacking the Deck → Ace in the Hole,
+  Manifest Cruelty → Gone Fission, Gone Fission → Crane Reaction. The fifth
+  edge, Lock Stock → Hostile Takeover, is uncorroborated for a consistent
+  reason: both of those scenarios are absent from Crimes Hub.
+
+  ⚠️ **Three scenarios are not on Crimes Hub at all**: First Aid and Abet
+  (predicted by the issue), plus **Hostile Takeover and Lock Stock**, which were
+  not. That matters beyond coverage — Hostile Takeover has 7 of 14 endings
+  unresolved and First Aid and Abet 7 of 13, the two worst in the fleet, so the
+  role labels that would resolve them are not available from this source.
+
+  20 of 31 scenarios currently carry rewards (183 endings); the source
+  rate-limits at 20 requests an hour, so the remaining 8 follow.
 
 ---
 

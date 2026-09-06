@@ -39,6 +39,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -53,6 +54,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -67,6 +69,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -81,6 +84,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -95,6 +99,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -109,6 +114,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -123,6 +129,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -137,6 +144,7 @@
         "money": 117161350,
         "respect": 294,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -151,6 +159,7 @@
         "money": 104995714,
         "respect": 272,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -165,6 +174,7 @@
         "money": 93833666,
         "respect": 241,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -179,6 +189,7 @@
         "money": 86187142,
         "respect": 209,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -193,6 +204,7 @@
         "money": 74929714,
         "respect": 179,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -207,6 +219,7 @@
         "money": 66239666,
         "respect": 154,
         "itemCount": null,
+        "chainsTo": null,
         "uncertain": false
       }
     }

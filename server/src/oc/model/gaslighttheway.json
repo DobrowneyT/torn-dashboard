@@ -49,6 +49,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -63,6 +64,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -77,6 +79,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -91,6 +94,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -132,6 +136,7 @@
         "money": null,
         "respect": 92,
         "itemCount": 18,
+        "chainsTo": null,
         "uncertain": false
       }
     },

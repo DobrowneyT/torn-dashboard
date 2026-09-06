@@ -49,6 +49,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -63,6 +64,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -77,6 +79,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -91,6 +94,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -105,6 +109,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -119,6 +124,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -133,6 +139,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -147,6 +154,7 @@
         "money": 0,
         "respect": 0,
         "itemCount": 0,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -161,6 +169,7 @@
         "money": null,
         "respect": 1841,
         "itemCount": 3,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -175,6 +184,7 @@
         "money": null,
         "respect": 1556,
         "itemCount": 2,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -189,6 +199,7 @@
         "money": null,
         "respect": 1464,
         "itemCount": 2,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -203,6 +214,7 @@
         "money": null,
         "respect": 1262,
         "itemCount": 2,
+        "chainsTo": null,
         "uncertain": false
       }
     },
@@ -217,6 +229,7 @@
         "money": null,
         "respect": 1017,
         "itemCount": 1,
+        "chainsTo": null,
         "uncertain": false
       }
     }

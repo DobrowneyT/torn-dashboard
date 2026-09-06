@@ -36,6 +36,10 @@ interface Reward {
   money: number | null
   respect: number | null
   itemCount: number | null
+  /** ⚠️ The reward IS the next crime: Stacking the Deck pays by spawning Ace in
+   *  the Hole. Valuing such an ending needs the chain maths in ocChains.js
+   *  (#585), not a figure here — so money stays null rather than 0. */
+  chainsTo: string | null
   /** Crimes Hub's own "?" marker on an ending it is unsure of. Preserved. */
   uncertain: boolean
 }
@@ -78,6 +82,7 @@ for (const s of scenarios) {
         money: f.money ?? null,
         respect: f.respect ?? null,
         itemCount: f.itemCount ?? null,
+        chainsTo: f.chainsTo ?? null,
         uncertain: !!f.uncertain,
       }
       rewarded += 1

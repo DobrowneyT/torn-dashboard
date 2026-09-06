@@ -45,6 +45,10 @@ export interface OcModelReward {
   money: number | null
   respect: number | null
   itemCount: number | null
+  /** ⚠️ The reward IS the next crime (Stacking the Deck → Ace in the Hole).
+   *  Independently corroborates the observed chain edges in #585's
+   *  KNOWN_CHAINS — all four Crimes Hub reports match. */
+  chainsTo: string | null
   /** Crimes Hub's own "?" marker on an ending it is unsure of. */
   uncertain: boolean
 }

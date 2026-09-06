@@ -30,7 +30,13 @@
       "resolved": false,
       "problem": "badEnding1: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding2",
@@ -39,7 +45,13 @@
       "resolved": false,
       "problem": "badEnding2: ties between _A2F_ and _B8F_ on role evidence — needs a paired-role probe (Car Thief + Techie)",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding3",
@@ -48,7 +60,13 @@
       "resolved": false,
       "problem": "badEnding3: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding4",
@@ -57,7 +75,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding5",
@@ -66,7 +90,13 @@
       "resolved": false,
       "problem": "badEnding5: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding6",
@@ -75,7 +105,13 @@
       "resolved": false,
       "problem": "badEnding6: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "badEnding7",
@@ -84,7 +120,13 @@
       "resolved": false,
       "problem": "badEnding7: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding1",
@@ -93,7 +135,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": null,
+        "itemCount": null,
+        "chainsTo": "Bidding War",
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding2",
@@ -102,7 +150,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": null,
+        "itemCount": null,
+        "chainsTo": "Bidding War",
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding3",
@@ -111,7 +165,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": null,
+        "itemCount": null,
+        "chainsTo": "Bidding War",
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding4",
@@ -120,7 +180,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": null,
+        "itemCount": null,
+        "chainsTo": "Bidding War",
+        "uncertain": false
+      }
     }
   ],
   "roleFidelity": {
@@ -130,6 +196,6 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": "crimeshub"
   }
 }

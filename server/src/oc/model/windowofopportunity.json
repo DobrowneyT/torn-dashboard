@@ -40,7 +40,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": 293,
+        "itemCount": 14,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding2",
@@ -49,7 +55,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": 260,
+        "itemCount": 6,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding3",
@@ -58,7 +70,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": 235,
+        "itemCount": 1,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding4",
@@ -67,7 +85,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": 206,
+        "itemCount": 1,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding5",
@@ -76,7 +100,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": 174,
+        "itemCount": 7,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding6",
@@ -85,7 +115,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": null,
+        "respect": 145,
+        "itemCount": 16,
+        "chainsTo": null,
+        "uncertain": false
+      }
     }
   ],
   "roleFidelity": {
@@ -99,6 +135,6 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": "crimeshub"
   }
 }
