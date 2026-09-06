@@ -18,6 +18,30 @@ surface it automatically.
 
 ---
 
+## [3.81.0] - 2026-09-06
+
+### Added
+- **Tests pinning what happens on a week the faction sits out matchmaking.**
+  MonChoon asked whether the war-lifecycle automation copes when the check after
+  matchmaking finds no war. It does — `upcoming = wars.filter(w => w.start > 0
+  && !w.end)[0] ?? null` followed by `if (upcoming)` makes the whole auto-setup
+  and auto-enable path a clean no-op — but nothing asserted it, and that is one
+  refactor away from no longer being true on a job that runs every three
+  minutes.
+
+  Five cases now cover it: no wars at all, only wars that have already ended
+  (the realistic shape of a week off), a matched war whose opponent cannot be
+  identified, and a response with no `rankedwars` key at all.
+
+  ⚠️ The assertion that matters is not "it did not throw" but that the war
+  room's configuration comes back **byte-for-byte unchanged** — including
+  `faction_id`, the opponent the room points at. A quiet week must not arm the
+  room, and must not disarm one a leader armed by hand: the absence of a ranked
+  war says nothing about whether a human wanted the room on, and one of the five
+  cases exists solely to hold that line.
+
+---
+
 ## [3.80.0] - 2026-09-06
 
 ### Changed
