@@ -22,6 +22,7 @@
 //   node deploy/host-agent.mjs
 //   node deploy/host-agent.mjs --once
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -37,6 +38,39 @@ const repoRoot = join(here, '..')
 const SLUG_PATTERN = /^[a-z][a-z0-9_]{1,20}$/
 const RESERVED_SLUGS = new Set(['global', 'postgres', 'template0', 'template1', 'admin', 'public'])
 const ID_PATTERN = /^[1-9]\d{0,9}$/
+
+/**
+ * The compose invocation, built exactly the way `deploy/update.sh` builds it.
+ *
+ * ⚠️ **The override file is not optional here, and omitting it was a real bug.**
+ * Every `api-<slug>` service lives in `docker-compose.override.yml` — that is
+ * what `db/new-faction.mjs` writes, one step earlier in this very function. But
+ * compose only auto-loads an override when NO `-f` is passed at all, so
+ * `docker compose -f deploy/docker-compose.yml up api-mayhem` fails with
+ * `no such service: api-mayhem`. Provisioning would have got all the way
+ * through creating the database, the role and the deploy artifacts, and then
+ * failed on the last step every single time.
+ *
+ * ⚠️ The same omission is actively dangerous in another form: with only the
+ * base file, compose considers all five running `api-*` containers ORPHANS —
+ * it says so — and `--remove-orphans` on that invocation would delete every
+ * tenant API container on the box. Nothing here passes that flag, and nothing
+ * ever should.
+ *
+ * `--project-directory deploy` matches update.sh so relative paths inside the
+ * override resolve identically; the project name itself is pinned in the
+ * compose file, so the two invocations address the same stack.
+ *
+ * Exported so a test can assert the shape without running docker.
+ */
+export function composeArgs(repoRoot, extra) {
+  const args = ['compose', '-f', 'deploy/docker-compose.yml']
+  if (existsSync(join(repoRoot, 'deploy', 'docker-compose.override.yml'))) {
+    args.push('-f', 'deploy/docker-compose.override.yml')
+  }
+  args.push('--project-directory', 'deploy', ...extra)
+  return args
+}
 
 /** ⚠️ A docker build log is megabytes. Keep the tail — the end is where the
  *  error is — and say what was dropped rather than silently truncating. */
@@ -198,10 +232,9 @@ async function provision(row) {
   // image bakes in the per-faction vhost that new-faction.mjs just wrote.
   await setStep(row.id, 'compose-up')
   await appendLog(row.id, `\n[agent] docker compose up -d --build api-${row.slug} nginx\n`)
-  const up = await run(row.id, 'docker', [
-    'compose', '-f', 'deploy/docker-compose.yml',
+  const up = await run(row.id, 'docker', composeArgs(repoRoot, [
     'up', '-d', '--build', `api-${row.slug}`, 'nginx',
-  ])
+  ]))
   if (up !== 0) {
     await appendLog(row.id, `\n[agent] docker compose exited ${up}\n`)
     // ⚠️ Deliberately NOT rolled back. The database, role and deploy artifacts

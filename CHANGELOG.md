@@ -18,6 +18,51 @@ surface it automatically.
 
 ---
 
+## [3.78.0] - 2026-09-06
+
+### Fixed
+- **⚠️ Provisioning would have failed at its last step, every time (#609 slice
+  6 follow-up).** The host agent ran
+  `docker compose -f deploy/docker-compose.yml up -d --build api-<slug> nginx`,
+  but every `api-<slug>` service lives in `docker-compose.override.yml` — which
+  `db/new-faction.mjs` writes moments earlier in the same function — and compose
+  auto-loads an override **only when no `-f` is passed at all**. So the command
+  dies with `no such service: api-<slug>` *after* the database, the role, the
+  scoped credential and the deploy artifacts have all been created correctly.
+  The agent now builds its invocation exactly as `deploy/update.sh` does, and a
+  test asserts the shape.
+
+  ⚠️ The same omission is dangerous in a second way, now documented in the
+  runbook: with only the base file, compose reports all five running tenant
+  containers as **orphans** — so `--remove-orphans` on that invocation would
+  **delete every tenant API container on the box**. Nothing passes that flag,
+  and a test asserts that too. `docs/runbooks/admin-control-plane.md` now
+  exports `COMPOSE_FILES` up front and uses it throughout, because the wrong
+  invocation is the natural thing to type.
+
+### Changed
+- **`member-stats` now defaults to once a day, not every 4 hours.** The job
+  spends **one Torn call per member per run**, so a ~90-member faction costs
+  ~90 calls a run — 540/day at four-hourly against 90/day here, and roughly
+  2,700 against 450 across five tenants, all on the same pooled keys every other
+  job shares.
+
+  ⚠️ The intraday cadence was never what made competition results correct, which
+  is why it looked load-bearing. #230 added `captureBoundarySamples`: a one-off
+  timer fires at a competition's exact start and end and stamps a sample at that
+  instant (re-armed after a restart by `rearmAll`), and that is what resolution
+  reads. A coarser cadence costs mid-competition standings refreshing daily
+  rather than six times a day, and a wider fallback if a boundary capture ever
+  misses — which the resolver already flags as `partial`.
+
+  ⚠️ No tenant changes cadence unexpectedly. Four of the five factions were
+  already running daily; their stored value now equals the code default, so the
+  #609 slice-5 adoption clears it and they follow the default from here. The
+  fifth (forge) had already adopted the 4-hourly default and now follows the new
+  one. All five converge without a manual step.
+
+---
+
 ## [3.77.0] - 2026-09-06
 
 ### Added

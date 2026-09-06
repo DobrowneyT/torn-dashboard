@@ -80,9 +80,24 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   ['crime-occupancy', '30 * * * * *', crimeOccupancyJob],
   ['cpr-scan', '0 30 5,17 * * *', cprScanJob],
   ['members-sync', '0 5 * * * *', membersSyncJob],
-  // Member stats every 4h (#227): fresh competition leaderboards. Each run
-  // appends a slim sample to member_stat_samples and refreshes the daily blob.
-  ['member-stats', '0 5 */4 * * *', memberStatsJob],
+  // Member stats ONCE A DAY. Each run appends a slim sample to
+  // member_stat_samples and refreshes the daily blob.
+  //
+  // ⚠️ This was every 4h from #227 until 2026-09-06, and the cost is what
+  // changed it: the job spends ONE Torn call PER MEMBER per run, so a ~90-member
+  // faction costs ~90 calls a run — 540/day at four-hourly against 90/day here,
+  // and roughly 2,700 against 450 across the five tenants, all on the same
+  // pooled keys every other job shares.
+  //
+  // ⚠️ The intraday cadence is NOT what makes competition results correct, which
+  // is the reason it looked load-bearing. #230 added `captureBoundarySamples`:
+  // a one-off timer fires at a competition's exact start and end and stamps a
+  // sample at that instant (re-armed after a restart by `rearmAll`), and that
+  // is what resolution reads. What a coarser cadence actually costs is (a)
+  // mid-competition standings refreshing daily rather than six times a day, and
+  // (b) a wider fallback if a boundary capture ever misses — the resolver
+  // already flags such a row `partial`.
+  ['member-stats', '0 5 1 * * *', memberStatsJob],
   // Profile denorms (donator/property/last-action) change slowly — once daily,
   // just after the first member-stats run (#226). Composes via COALESCE.
   ['member-profile', '0 20 1 * * *', memberProfileJob],
