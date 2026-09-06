@@ -14,9 +14,10 @@
  * whose compromise is fleet-wide, that difference is worth the small extra
  * plumbing.
  *
- * ⚠️ Nothing here does anything yet beyond authenticating. Health checks are
- * slice 3, alerting slice 4, provisioning slice 6. This slice exists to get the
- * security boundary reviewed on its own rather than buried in a feature PR.
+ * ⚠️ Every route on this file is a READ, with one exception noted at the point
+ * it is registered. Provisioning (slice 6) is the first write, and it lands on
+ * the public surface deliberately and with its own reasoning; until then the
+ * only thing this listener can change is whether you are logged in.
  */
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
@@ -26,6 +27,9 @@ import { mintAdminSession, verifyAdminSession, type AdminClaims } from './sessio
 import { LoginLimiter } from './lockout.js'
 import { collectFleetStatus, type CollectorDeps } from './statusCollector.js'
 import { statusPageHtml } from './statusPage.js'
+import { openIncidents } from './incidents.js'
+import { buildDigest, type MonitorDeps } from './monitor.js'
+import { sendDigestMail } from './mailer.js'
 
 export type Surface = 'public' | 'local'
 
@@ -45,6 +49,17 @@ export interface AdminOptions {
   /** Fleet status collection (#609 slice 3). Omitted in tests that only
    *  exercise auth, and then the status routes are simply not registered. */
   collector?: CollectorDeps
+  /**
+   * Alerting (#609 slice 4). Supplies the incident store and the digest
+   * configuration so the console can show what the monitor has decided.
+   *
+   * ⚠️ These routes only ever READ the monitor's state — the loop that opens
+   * and closes incidents runs in adminMain.ts, not in a request handler. A
+   * page refresh must never be able to advance the incident state machine, or
+   * two operators looking at the console at once would race the reconciliation
+   * that the whole "one incident, one message" guarantee rests on.
+   */
+  alerts?: MonitorDeps
 }
 
 declare module 'fastify' {
@@ -140,6 +155,37 @@ export async function buildAdminApp(opts: AdminOptions): Promise<FastifyInstance
     )
   }
 
+  if (opts.alerts) {
+    const alerts = opts.alerts
+
+    // What the monitor currently believes, for the console's alerts card.
+    // `openIncidents` filters to those that were actually announced: an alert
+    // seen once and not yet confirmed is not something anyone was told about,
+    // and showing it here would contradict the Discord channel.
+    app.get('/api/admin/alerts', { preHandler: requireAdmin }, async () => {
+      const since = new Date(Date.now() - 24 * 3_600_000).toISOString()
+      const [incidents, events] = await Promise.all([
+        alerts.store.load(),
+        alerts.store.recentEvents(since),
+      ])
+      return { open: openIncidents(incidents), events, since }
+    })
+
+    // ⚠️ A preview, with no side effect and no mail sent. The digest is the
+    // one output of this system that would otherwise be unverifiable without
+    // waiting until tomorrow morning — and an operator who cannot see what an
+    // alert channel says has no way to tell a working channel from a silent
+    // one until the day it matters.
+    app.get('/api/admin/digest', { preHandler: requireAdmin }, async () => {
+      const now = new Date()
+      const since = new Date(now.getTime() - 24 * 3_600_000).toISOString()
+      const status = await collectFleetStatus(alerts.collector)
+      const incidents = await alerts.store.load()
+      const digest = await buildDigest(alerts, status, incidents, since, now.toISOString())
+      return digest
+    })
+  }
+
   // The page itself. Unauthenticated because it contains no data — it is a
   // login form plus the JavaScript that calls /api/admin/status once a session
   // exists. Everything worth protecting is behind that call.
@@ -165,6 +211,26 @@ export async function buildAdminApp(opts: AdminOptions): Promise<FastifyInstance
       ok: true,
       note: 'local control surface — destructive operations land here',
     }))
+
+    // ⚠️ Sending a real email is on the LOCAL surface even though it destroys
+    // nothing, because it is the one route here that makes the container reach
+    // outward on demand. A POST that causes traffic to leave the box is an
+    // amplifier — an attacker who got past the login could use it to mail an
+    // arbitrary address on a schedule they control. Behind the tunnel it is
+    // exactly what it should be: the way an operator proves SMTP works without
+    // waiting until 08:00 UTC.
+    if (opts.alerts) {
+      const alerts = opts.alerts
+      app.post('/api/admin/local/digest/send', { preHandler: requireAdmin }, async () => {
+        const now = new Date()
+        const since = new Date(now.getTime() - 24 * 3_600_000).toISOString()
+        const status = await collectFleetStatus(alerts.collector)
+        const incidents = await alerts.store.load()
+        const digest = await buildDigest(alerts, status, incidents, since, now.toISOString())
+        const result = await sendDigestMail(alerts.mail ?? {}, digest)
+        return { result, subject: digest.subject }
+      })
+    }
   }
 
   return app

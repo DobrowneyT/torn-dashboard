@@ -48,3 +48,52 @@ CREATE TABLE IF NOT EXISTS fleet_meta (
 );
 
 INSERT INTO fleet_meta (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- ── Fleet alerting (#609 slice 4) ───────────────────────────────────────────
+--
+-- ⚠️ Incident state is PERSISTED rather than held in the admin container's
+-- memory, because an in-memory map is empty after every restart — so a redeploy
+-- would re-announce every open incident, turning "one incident, one message"
+-- into "one message per deploy". See server/src/adminPlane/incidents.ts.
+--
+-- ⚠️ These three tables are control-plane-private: db/grants.mjs revokes SELECT
+-- on them from app_global_ro. No tenant reads them, and they carry a fleet-wide
+-- view (which factions exist, which are down) that a single compromised tenant
+-- container has no business holding.
+
+-- Current state, one row per alert key. Rows are DELETEd when an incident
+-- clears; the history lives in alert_events.
+CREATE TABLE IF NOT EXISTS alert_incidents (
+  key           text PRIMARY KEY,
+  severity      text NOT NULL,
+  title         text NOT NULL,
+  detail        text NOT NULL DEFAULT '',
+  first_seen_at timestamptz NOT NULL,
+  last_seen_at  timestamptz NOT NULL,
+  observations  integer NOT NULL DEFAULT 1,
+  misses        integer NOT NULL DEFAULT 0,
+  -- NULL means "seen but not yet confirmed" -- distinct from "confirmed at some
+  -- time". A blip below the confirm threshold produces no message either way.
+  opened_at     timestamptz
+);
+
+-- Append-only history; the daily digest is a query over this, which is what
+-- reports incidents that opened AND closed overnight.
+CREATE TABLE IF NOT EXISTS alert_events (
+  id       bigserial PRIMARY KEY,
+  key      text NOT NULL,
+  kind     text NOT NULL CHECK (kind IN ('opened', 'resolved')),
+  severity text NOT NULL,
+  title    text NOT NULL,
+  detail   text NOT NULL DEFAULT '',
+  at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS alert_events_at_idx ON alert_events (at DESC);
+
+-- The control plane's own bookkeeping (last digest sent, and whatever later
+-- slices need). Generic and tiny on purpose: a table per scalar is worse.
+CREATE TABLE IF NOT EXISTS control_state (
+  key        text PRIMARY KEY,
+  value      jsonb NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);

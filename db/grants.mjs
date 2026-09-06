@@ -75,6 +75,17 @@ export async function applyScopedGrants(client, { dbName, roleName, password }) 
  * wrong here. Two functions rather than a boolean flag, because a flag inverted
  * by a typo would hand out write access silently.
  */
+/**
+ * Tables in `global` that belong to the control plane alone (#609 slice 4).
+ *
+ * Everything else in that database exists to be read by tenants; these three
+ * are the admin container's own incident state and bookkeeping. Listed here
+ * rather than inferred from a naming convention, because a convention is a
+ * thing a future table can quietly fail to follow — and the failure mode is a
+ * silent widening of who can read the fleet's outage history.
+ */
+const CONTROL_PLANE_PRIVATE = ['alert_incidents', 'alert_events', 'control_state']
+
 export async function applyReadOnlyGrants(client, { dbName, roleName, password }) {
   if (!/^[a-z0-9_]+$/.test(dbName) || !/^[a-z0-9_]+$/.test(roleName)) {
     throw new Error(`Unsafe identifier: ${dbName} / ${roleName}`)
@@ -108,4 +119,23 @@ export async function applyReadOnlyGrants(client, { dbName, roleName, password }
 
   // Belt and braces: revoke anything a previous run or a default may have left.
   await client.query(`REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM ${roleName}`)
+
+  // ⚠️ ...and then take back the tables that are not fleet data at all.
+  // `GRANT SELECT ON ALL TABLES` above is the right default for a database
+  // whose purpose is to be read, but CONTROL_PLANE_PRIVATE holds the admin
+  // container's own bookkeeping: which factions are down, what alerted, when
+  // the digest last went out. No tenant reads it, and a compromised tenant
+  // should not get a fleet-wide situation report for free.
+  //
+  // Ordered after the blanket grant on purpose — this function is re-run on
+  // every provisioning and adopt, so the revoke has to be the last word.
+  for (const table of CONTROL_PLANE_PRIVATE) {
+    await client.query(
+      `DO $$ BEGIN
+         IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = '${table}') THEN
+           REVOKE ALL ON ${table} FROM ${roleName};
+         END IF;
+       END $$`
+    )
+  }
 }

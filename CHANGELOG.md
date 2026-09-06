@@ -18,6 +18,107 @@ surface it automatically.
 
 ---
 
+## [3.74.0] - 2026-09-05
+
+### Added
+- **Fleet alerting (#609 slice 4/7).** The control plane now polls itself on a
+  timer, turns the status report into incidents, and tells someone. Three
+  channels, split by how fast a human has to act: a **Discord webhook** for
+  urgent (tenant down or degraded, no recent backup, disk critical, item prices
+  stale), a **daily email digest** for everything else, and the status page —
+  which now leads with an open-incidents card and a last-24-hours log — for the
+  full picture, always.
+
+  ⚠️ **Most of the work here is about NOT sending.** #598 is the standing
+  lesson in this repo: surge alerting had to be turned off by default because a
+  termed war pushed on every hospital churn, so *"the room cries wolf all week
+  and people mute it, which then costs them the alert in the war where it
+  mattered"*. A fleet monitor with three channels has three times that
+  opportunity, so four separate mechanisms stand between an observation and a
+  message:
+
+  - **Confirm before announcing.** An alert must be seen twice before anything
+    is sent. A container restarting during `update.sh` is unreachable for a few
+    seconds; announcing on the first miss would page on every routine deploy.
+  - **Sticky clear.** An incident is not resolved until it has been absent
+    twice. A container in a restart loop answers every other poll, and resolving
+    on the first success gives an up/down/up/down stream — the loudest possible
+    way to report one ongoing incident.
+  - **No re-announcement.** An incident produces exactly one message when it
+    opens and one when it clears. A week-long outage is still one Discord
+    message; the daily digest carries what is *still* open.
+  - **Storm rollup.** The cycle that opens twelve incidents at once is Postgres
+    dying and taking every tenant with it, so a batch larger than ten becomes a
+    single summary — and every cycle is one HTTP request regardless, rather than
+    one per incident into Discord's rate limit.
+
+  ⚠️ **Incident state is persisted in `global`, not held in memory.** An
+  in-memory map is empty after every restart, so a redeploy would re-announce
+  every open incident — turning "one incident, one message" into "one message
+  per deploy", triggered by the exact operation an operator performs while
+  fixing the thing that alerted.
+
+  ⚠️ **A `NULL` item-sync timestamp means "not in service", never "infinitely
+  stale".** `items-sync` does not move to the control plane until slice 7, so
+  that column is null on every fleet running this code; reading null as stale
+  would fire on every cycle from the moment this shipped, for a feature that
+  does not exist. Same bug class as `Number(null) === 0`, which bit
+  `chainedValue` in #585.
+
+  ⚠️ **A faction with no backup at all is a notice, not a page.** Provisioning
+  creates a database immediately and its first dump only at the next nightly
+  run, so the urgent version would page someone minutes after every new faction
+  was created. The danger it guards against takes weeks to matter.
+
+  ⚠️ **The digest is sent every day, including the quiet ones.** Mailing only
+  when something is wrong makes silence ambiguous: an empty inbox means either
+  "the fleet is healthy" or "the monitor died three weeks ago". The key pool
+  decayed to a single key in July (#123/#124) precisely because nothing was
+  supposed to announce anything. A daily digest is its own heartbeat.
+
+  New: `alert_incidents`, `alert_events` and `control_state` in the `global`
+  database (migration `0002-alerting.sql`, schema version 2). ⚠️ All three are
+  **revoked from `app_global_ro`** — `ALTER DEFAULT PRIVILEGES` would otherwise
+  hand every tenant SELECT on the fleet's outage history, and a compromised
+  tenant container has no business holding a fleet-wide situation report.
+
+  New routes: `GET /api/admin/alerts` and `GET /api/admin/digest` (a preview,
+  no mail sent) on the public surface; `POST /api/admin/local/digest/send` on
+  the **tunnel-only** surface — sending mail on demand is the one route that
+  makes this container reach outward, which is an amplifier in anyone else's
+  hands, and it is how an operator proves SMTP works without waiting for 08:00.
+
+  Configuration is entirely optional and unset degrades rather than fails:
+  `ADMIN_DISCORD_WEBHOOK_URL`, `ADMIN_SMTP_URL`, `ADMIN_DIGEST_TO`,
+  `ADMIN_DIGEST_FROM`, `ADMIN_DIGEST_HOUR_UTC`, `ADMIN_ALERT_INTERVAL_MS`,
+  `ADMIN_PUBLIC_URL`, `ADMIN_HOST_LABEL`. Unlike the credentials, a missing
+  value here means the status page is the only place alerts appear — visible
+  and safe — so it must not take the control plane down.
+
+- **`docs/runbooks/admin-control-plane.md`** — the operator runbook for this
+  container: generating credentials, deploying, and a **shell-safe** login
+  sequence. ⚠️ The login commands build their JSON body with `node` and read
+  the password with `read -rsp` rather than interpolating it into a
+  double-quoted string. Interactive bash performs history expansion on `!`
+  *inside* double quotes, which aborted the command before `curl` ever ran and
+  produced a bare `LOGIN FAILED` on the live box with nothing wrong with the
+  application. Any password containing `!`, `$`, `"` or a backtick hits this.
+
+### Fixed
+- **⚠️ Control-plane timestamps could come back in a format `Date.parse`
+  rejects.** `server/src/db.ts` installs a *process-wide* `setTypeParser` for
+  `timestamptz` so the tenant API can serve PostgREST-shaped strings — so a
+  column read anywhere in this process comes back as a `Date` or as
+  `2026-09-05T07:01:00-05` depending on nothing more principled than whether
+  something in the import graph pulled that module in. The second shape is not
+  ISO-8601 (`-05`, no minutes) and `Date.parse` returns `NaN` for it, so a
+  plain `String(value)` would have leaked an unparseable local-offset string
+  into the digest and the status page. The incident store now formats these
+  columns as UTC ISO text in SQL, which is independent of any installed parser.
+  Caught by the store's round-trip test against real Postgres.
+
+---
+
 ## [3.73.0] - 2026-09-05
 
 ### Fixed
