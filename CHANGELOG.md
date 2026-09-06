@@ -18,6 +18,63 @@ surface it automatically.
 
 ---
 
+## [3.72.0] - 2026-09-05
+
+### Added
+- **The admin control plane's security boundary (#609, slice 2 of 7).** The
+  container, its authentication, and the two-listener split. Nothing here does
+  anything yet beyond authenticating — health checks are slice 3, provisioning
+  slice 6 — deliberately, so the security surface gets reviewed on its own
+  rather than buried in a feature PR.
+
+- **Two listeners, split structurally rather than conditionally.** The public
+  surface (`admin.monchoon.me`, behind nginx) registers read routes; the local
+  surface (`127.0.0.1:8091`, reached over an SSH tunnel) registers those plus
+  the destructive ones. ⚠️ A destructive route is unreachable from the internet
+  because it **was never registered there** — it returns 404, not 403. A
+  misconfigured `preHandler` is a plausible mistake that reviews miss; a route
+  absent from the router cannot be called by any request, header or bug.
+
+- **Username + password + TOTP, nothing Torn-related.** A Torn key is pasted
+  into userscripts, rotated and occasionally leaked, so tying fleet-wide access
+  to its lifecycle would make every rotation an access incident.
+  - `scrypt` from `node:crypto` (N=2¹⁷, ~128 MiB/hash), **not** the `sha256hex`
+    helper in `auth.ts` — that one fingerprints API keys, where a fast hash is
+    right, and reusing it for a password is the classic mistake.
+  - ⚠️ **TOTP is required**, which is more than was asked for: this is a public
+    login page in front of the one box that can create factions and rewrite what
+    every tenant reads. Verified against the RFC 6238 test vectors so real
+    authenticator apps agree.
+  - Rate limiting on its own bucket, plus lockout keyed by **username, not IP**
+    — behind nginx every request shares one proxy address, so locking on that
+    would let an attacker lock out the real operator.
+  - ⚠️ **A session secret separate from the tenant `JWT_SECRET`**, cross-checked
+    at boot. Sharing it would make any tenant admin's token — or any single
+    compromised tenant container — a valid fleet credential. The audience claim
+    is a second, independent guard.
+
+- **Refuses to start unconfigured.** No default credentials, and a plaintext
+  value in `ADMIN_PASSWORD_HASH` is rejected with an explanation rather than
+  silently failing every login. An admin surface that comes up with no gate is
+  worse than one that does not come up.
+
+- `npx tsx db/admin-password.mts` generates the credentials and the `otpauth://`
+  URI. Written as `.mts` so it imports the **real** hashing code rather than a
+  second copy — two implementations of a password hash is how you get
+  credentials that verify in one place and not the other.
+
+### Fixed
+- ⚠️ **A compose trap that would have broken every deploy.** Docker Compose
+  interpolates **every** service when it parses the file, *including services
+  behind a profile* — so a single `${ADMIN_SESSION_SECRET:?...}` on the profiled
+  admin service made every `docker compose` command fail for an operator who had
+  not configured the control plane. That is `update.sh`, and one optional
+  container would have taken the whole fleet's deploy with it. Every admin
+  variable now defaults to empty in compose, and fail-closed lives in the
+  application, where it is loud, immediate and contained to one service.
+
+---
+
 ## [3.71.0] - 2026-09-05
 
 ### Added

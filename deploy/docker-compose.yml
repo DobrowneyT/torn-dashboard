@@ -65,6 +65,65 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Admin control plane (#609). Opt-in bring-up, like the backup sidecar:
+  #
+  #   docker compose --profile admin up -d --build admin
+  #
+  # ⚠️ Behind a profile deliberately. This is the one container that can affect
+  # every tenant at once, so deploying it must be a separate act from deploying
+  # tenants — `update.sh` runs a plain `up` and will not start or restart it.
+  #
+  # ⚠️ It REFUSES to start without ADMIN_USERNAME / ADMIN_PASSWORD_HASH /
+  # ADMIN_TOTP_SECRET / ADMIN_SESSION_SECRET (see src/adminMain.ts). An admin
+  # surface that comes up with no gate is worse than one that does not come up.
+  # Generate them with: npx tsx db/admin-password.mts
+  admin:
+    profiles: ["admin"]
+    build:
+      context: ..
+      dockerfile: deploy/admin.Dockerfile
+    environment:
+      # ⚠️ Every value defaults to EMPTY rather than using compose's required
+      # `:?` syntax, and that is not laziness. Compose interpolates every
+      # service when it parses the file — INCLUDING services behind a profile —
+      # so one `:?` here would make every `docker compose` command fail for an
+      # operator who has not configured the admin plane. That is `update.sh`,
+      # and it would take the whole fleet's deploy down for the sake of an
+      # optional container.
+      #
+      # Fail-closed lives in the application instead: src/adminMain.ts refuses
+      # to start when any of these is missing, which is loud, immediate, and
+      # contained to this one service.
+      #
+      # Writer role on the shared global DB — the ONLY writer in the fleet.
+      DATABASE_URL: postgres://app_global_rw:${DB_PASSWORD_GLOBAL_RW:-}@postgres:5432/${GLOBAL_DB_NAME:-global}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      ADMIN_TOTP_SECRET: ${ADMIN_TOTP_SECRET:-}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-}
+      # Cross-checked against ADMIN_SESSION_SECRET at boot: sharing them would
+      # make every tenant session token a valid fleet credential.
+      JWT_SECRET: ${JWT_SECRET:-}
+      ADMIN_PUBLIC_PORT: "8090"
+      ADMIN_LOCAL_PORT: "8091"
+    ports:
+      # ⚠️ The local surface is published to the HOST LOOPBACK only, so it is
+      # unroutable from outside the VPS and reachable over an SSH tunnel:
+      #   ssh -L 8091:127.0.0.1:8091 ubuntu@<vps>
+      # The public surface is NOT published here — nginx proxies to it on the
+      # compose network, so it is never exposed directly.
+      - "127.0.0.1:8091:8091"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/api/admin/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # Mock Torn API for the #116 stress test. Opt-in only:
   #   docker compose --profile stress up -d mock-torn
   # Stress tenants point at it via TORN_API_BASE=http://mock-torn:3999 in
