@@ -28,6 +28,7 @@ import { registerCompetitionRoutes, resolveCompetition } from './competitions.js
 import { registerCalendarRoutes } from './calendar.js'
 import { registerExportRoutes } from './exports.js'
 import { createCompetitionTimers, type CompetitionTimers } from './competitions/competitionTimers.js'
+import { createFlagResolver, type FlagResolver } from './featureFlags.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
 import { registerMemberNotesRoutes } from './memberNotes.js'
@@ -134,11 +135,25 @@ function isRateLimitExempt(url: string): boolean {
 
 export async function buildServer(
   opts: ServerOptions
-): Promise<FastifyInstance & { warRoomHub?: WarRoomHub; pushService?: PushService; competitionTimers?: CompetitionTimers }> {
+): Promise<FastifyInstance & {
+  warRoomHub?: WarRoomHub
+  pushService?: PushService
+  competitionTimers?: CompetitionTimers
+  flagResolver?: FlagResolver
+}> {
   const app = Fastify({ logger: false }) as FastifyInstance & {
     warRoomHub?: WarRoomHub
     pushService?: PushService
     competitionTimers?: CompetitionTimers
+    flagResolver?: FlagResolver
+  }
+
+  // ⚠️ ONE resolver for the whole process (#609 slice 5), shared with the
+  // scraper scheduler through main.ts. Two instances would each hold their own
+  // cache, so an admin flag write would invalidate one of them and the
+  // scheduler would keep running on a value the console says is gone.
+  if (opts.db) {
+    app.flagResolver = createFlagResolver({ db: opts.db, globalDb: opts.globalDb })
   }
 
   // Liveness: the process is up. Cheap, dependency-free — Docker's HEALTHCHECK
@@ -360,7 +375,7 @@ export async function buildServer(
         )
       }
     }
-    registerAdminRoutes(app, { db: opts.db, scrapers, secrets })
+    registerAdminRoutes(app, { db: opts.db, scrapers, secrets, flags: app.flagResolver })
     registerBrandingRoutes(app, { db: opts.db })
     // Per-tenant PWA manifest (follow-up to #206) — each faction's installed app
     // shows its own name/icon instead of the shared "TNL Forge" default.

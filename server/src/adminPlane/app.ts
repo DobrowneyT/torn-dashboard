@@ -20,6 +20,7 @@
  * only thing this listener can change is whether you are logged in.
  */
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
+import type pg from 'pg'
 import rateLimit from '@fastify/rate-limit'
 import { verifyPassword } from './password.js'
 import { verifyTotp } from './totp.js'
@@ -60,6 +61,11 @@ export interface AdminOptions {
    * that the whole "one incident, one message" guarantee rests on.
    */
   alerts?: MonitorDeps
+  /**
+   * Writer pool on `global`, for the fleet feature-flag defaults (#609 slice
+   * 5). Reads are registered on both surfaces; WRITES only on the local one.
+   */
+  fleetDb?: pg.Pool
 }
 
 declare module 'fastify' {
@@ -186,6 +192,19 @@ export async function buildAdminApp(opts: AdminOptions): Promise<FastifyInstance
     })
   }
 
+  // ── Fleet feature-flag defaults (#609 slice 5) ───────────────────────────
+  //
+  // Reading is safe from anywhere; the write is not — see below.
+  if (opts.fleetDb) {
+    const fleetDb = opts.fleetDb
+    app.get('/api/admin/flags', { preHandler: requireAdmin }, async () => {
+      const res = await fleetDb.query(
+        'SELECT key, value, description, updated_at FROM fleet_flags ORDER BY key'
+      )
+      return { flags: res.rows }
+    })
+  }
+
   // The page itself. Unauthenticated because it contains no data — it is a
   // login form plus the JavaScript that calls /api/admin/status once a session
   // exists. Everything worth protecting is behind that call.
@@ -211,6 +230,55 @@ export async function buildAdminApp(opts: AdminOptions): Promise<FastifyInstance
       ok: true,
       note: 'local control surface — destructive operations land here',
     }))
+
+    // ⚠️ **Writing a fleet flag is a tunnel-only operation**, and this is the
+    // one place in slice 5 where that call is worth arguing. Provisioning was
+    // allowed onto the public surface because it is additive and recoverable —
+    // a wrongly-created faction can be decommissioned. A fleet flag is neither:
+    // it takes effect on every tenant within a minute, and the failure that
+    // matters is not a malformed value (resolveJobSchedule rejects those and
+    // falls back) but a perfectly VALID one. `* * * * * *` on a scraper cadence
+    // would have five factions calling Torn every second on their own pooled
+    // keys — a rate-limit ban across the fleet, from one typo, with no undo
+    // that gives the keys back. Nobody needs to do that from a phone.
+    if (opts.fleetDb) {
+      const fleetDb = opts.fleetDb
+      const FLAG_KEY = /^[a-z][a-z0-9_.-]{0,80}$/
+
+      app.put('/api/admin/local/flags/:key', { preHandler: requireAdmin }, async (req, reply) => {
+        const { key } = req.params as { key: string }
+        if (!FLAG_KEY.test(key)) return reply.status(400).send({ error: 'Invalid flag key' })
+        const body = (req.body ?? {}) as { value?: unknown; description?: unknown }
+        // ⚠️ Refused, not stored. A null would produce a row that EXISTS — and
+        // therefore counts as "set" — while holding nothing. Unsetting is a
+        // DELETE, which is the only thing that means "fall back".
+        if (!('value' in body) || body.value === null || body.value === undefined) {
+          return reply.status(400).send({
+            error: 'value is required and may not be null — DELETE the flag to unset it',
+          })
+        }
+        const res = await fleetDb.query(
+          `INSERT INTO fleet_flags (key, value, description) VALUES ($1, $2::jsonb, $3)
+           ON CONFLICT (key) DO UPDATE SET
+             value = EXCLUDED.value,
+             description = COALESCE(EXCLUDED.description, fleet_flags.description),
+             updated_at = now()
+           RETURNING key, value, description, updated_at`,
+          [key, JSON.stringify(body.value), typeof body.description === 'string' ? body.description : null]
+        )
+        return { ok: true, flag: res.rows[0] }
+      })
+
+      app.delete('/api/admin/local/flags/:key', { preHandler: requireAdmin }, async (req, reply) => {
+        const { key } = req.params as { key: string }
+        if (!FLAG_KEY.test(key)) return reply.status(400).send({ error: 'Invalid flag key' })
+        const res = await fleetDb.query('DELETE FROM fleet_flags WHERE key = $1 RETURNING key', [key])
+        // ⚠️ Reported rather than 404'd. "It is not set" is the state the
+        // caller asked for, and an error here would make a retry after a
+        // half-successful run look like a failure.
+        return { ok: true, deleted: (res.rowCount ?? 0) > 0 }
+      })
+    }
 
     // ⚠️ Sending a real email is on the LOCAL surface even though it destroys
     // nothing, because it is the one route here that makes the container reach

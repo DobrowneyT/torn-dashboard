@@ -21,19 +21,49 @@ function Card({ title, action, children }) {
   )
 }
 
+// Where a cadence came from (#609 slice 5). Three layers: this faction's own
+// override, the fleet default set in the control plane, and the code default.
+//
+// ⚠️ The source is shown, not just the value. Without it a fleet-wide change
+// looks like a local one nobody remembers making — and the first instinct on
+// seeing an unfamiliar cadence would be to type over it, silently converting a
+// managed default into a permanent per-faction override.
+const SCHEDULE_SOURCE = {
+  tenant: { label: 'this faction', className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' },
+  fleet: { label: 'fleet default', className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300' },
+  default: { label: 'built-in', className: 'bg-gray-200 text-gray-600 dark:bg-slate-700 dark:text-gray-400' },
+}
+
 function ScheduleCell({ job, onSave, disabled }) {
-  const [value, setValue] = useState(job.cron_schedule)
-  const dirty = value !== job.cron_schedule
+  const override = job.cron_schedule ?? ''
+  const [value, setValue] = useState(override)
+  const dirty = value !== override
+  const source = SCHEDULE_SOURCE[job.schedule_source] ?? SCHEDULE_SOURCE.default
+
+  // ⚠️ Clearing the box and saving sends an explicit null, which is "follow the
+  // fleet default" — a real instruction, distinct from leaving the field alone.
+  // Without it there is no way back from an override short of a database edit.
+  const save = () => onSave(value.trim() === '' ? null : value)
+
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-1">
       <input value={value} onChange={(e) => setValue(e.target.value)} disabled={disabled}
-        spellCheck={false}
-        className="font-mono text-xs px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 w-36" />
+        spellCheck={false} placeholder={job.effective_schedule ?? ''}
+        title={override ? 'This faction overrides the default' : `Following the ${source.label}: ${job.effective_schedule ?? ''}`}
+        className="font-mono text-xs px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-slate-500 w-36" />
+      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${source.className}`}>
+        {source.label}
+      </span>
       {dirty && (
-        <button onClick={() => onSave(value)} disabled={disabled}
+        <button onClick={save} disabled={disabled}
           className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs">
-          Save
+          {value.trim() === '' ? 'Use default' : 'Save'}
         </button>
+      )}
+      {job.rejected_schedule != null && (
+        <span className="text-[10px] text-red-600 dark:text-red-400" title={`Ignored: ${job.rejected_schedule}`}>
+          invalid — using {job.effective_schedule}
+        </span>
       )}
     </span>
   )
@@ -162,7 +192,12 @@ export default function GlobalAdminView() {
     setNotice(null)
     try {
       await apiPut(`/api/admin/scraper/jobs/${job.job_name}`, { cron_schedule })
-      setNotice({ kind: 'ok', msg: `${job.job_name} cadence saved — applies on the API's next restart.` })
+      setNotice({
+        kind: 'ok',
+        msg: cron_schedule === null
+          ? `${job.job_name} now follows the default — applies on the API's next restart.`
+          : `${job.job_name} cadence saved — applies on the API's next restart.`,
+      })
       await load()
     } catch (err) {
       setNotice({ kind: 'err', msg: err.payload?.error || err.message })

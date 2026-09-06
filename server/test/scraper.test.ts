@@ -291,6 +291,112 @@ describe('scheduler (end-to-end demo)', () => {
     expect(recent.some((r) => r.job_name === 'never-runs')).toBe(false)
   })
 
+  describe('cadence: faction override, fleet default, code default (#609 slice 5)', () => {
+    const mkScheduler = async (flags?: unknown) => {
+      const { createRunLogger } = await import('../src/scraper/runLog.js')
+      const { createScheduler } = await import('../src/scraper/scheduler.js')
+      return createScheduler({
+        db: stack.db, runLogger: createRunLogger(stack.db), flags: flags as never,
+      })
+    }
+
+    /** A resolver over a fixed map, with no database behind it. */
+    const fleetFlags = (entries: Record<string, unknown>) => ({
+      async get(key: string) {
+        return key in entries
+          ? { key, value: entries[key], source: 'fleet' as const }
+          : { key, value: undefined, source: 'unset' as const }
+      },
+      async all() { return [] },
+      invalidate() {},
+    })
+
+    it('⚠️ registers a new job with a NULL schedule, not the seeded default', async () => {
+      // Seeding the code default made every job look permanently customised,
+      // which left the fleet layer with nothing to say.
+      const scheduler = await mkScheduler()
+      await scheduler.register('cadence-fresh', '0 0 * * * *', async () => ({ rows: 0 }))
+      const row = await stack.db.query(
+        `SELECT cron_schedule FROM scraper_jobs WHERE job_name = 'cadence-fresh'`
+      )
+      expect(row.rows[0].cron_schedule).toBeNull()
+    })
+
+    it('⚠️ adopts a previously-seeded row that nobody ever edited', async () => {
+      // The old registration wrote the code default into the column. A row
+      // holding exactly that string was written by the seed and never touched,
+      // so it is cleared and follows the fleet from now on.
+      await stack.db.query(
+        `INSERT INTO scraper_jobs (job_name, cron_schedule, enabled) VALUES ('cadence-seeded', '0 5 * * * *', false)`
+      )
+      const scheduler = await mkScheduler()
+      await scheduler.register('cadence-seeded', '0 5 * * * *', async () => ({ rows: 0 }))
+      const row = await stack.db.query(
+        `SELECT cron_schedule FROM scraper_jobs WHERE job_name = 'cadence-seeded'`
+      )
+      expect(row.rows[0].cron_schedule).toBeNull()
+    })
+
+    it("⚠️ leaves a row an operator actually changed alone", async () => {
+      // The inference above is only safe because it cannot touch this case.
+      await stack.db.query(
+        `INSERT INTO scraper_jobs (job_name, cron_schedule, enabled) VALUES ('cadence-edited', '0 30 * * * *', false)`
+      )
+      const scheduler = await mkScheduler()
+      await scheduler.register('cadence-edited', '0 5 * * * *', async () => ({ rows: 0 }))
+      const row = await stack.db.query(
+        `SELECT cron_schedule FROM scraper_jobs WHERE job_name = 'cadence-edited'`
+      )
+      expect(row.rows[0].cron_schedule).toBe('0 30 * * * *')
+    })
+
+    it('resolves each layer and reports where the cadence came from', async () => {
+      const scheduler = await mkScheduler(fleetFlags({
+        'scraper.schedule.cadence-fleet': '0 0 */2 * * *',
+        'scraper.schedule.cadence-local': '0 0 */2 * * *',
+      }))
+      await scheduler.register('cadence-fleet', '0 5 * * * *', async () => ({ rows: 0 }))
+      await scheduler.register('cadence-plain', '0 6 * * * *', async () => ({ rows: 0 }))
+      await scheduler.register('cadence-local', '0 7 * * * *', async () => ({ rows: 0 }))
+      await stack.db.query(
+        `UPDATE scraper_jobs SET cron_schedule = '0 15 * * * *' WHERE job_name = 'cadence-local'`
+      )
+
+      await scheduler.start()
+      try {
+        const byName = new Map(scheduler.schedules().map((r) => [r.jobName, r]))
+        expect(byName.get('cadence-fleet')).toMatchObject({ effective: '0 0 */2 * * *', source: 'fleet' })
+        expect(byName.get('cadence-plain')).toMatchObject({ effective: '0 6 * * * *', source: 'default' })
+        expect(byName.get('cadence-local')).toMatchObject({ effective: '0 15 * * * *', source: 'tenant' })
+      } finally {
+        scheduler.stop()
+      }
+    })
+
+    it('⚠️ a malformed fleet default does not stop the jobs after it starting', async () => {
+      // cron.schedule() throws on a bad expression and start() registers in a
+      // loop, so one bad character typed once into a FLEET flag would stop
+      // scraping for every faction — with the only symptom being that data
+      // quietly stopped arriving.
+      const scheduler = await mkScheduler(fleetFlags({
+        'scraper.schedule.cadence-broken': 'every 6 hours',
+      }))
+      await scheduler.register('cadence-broken', '0 8 * * * *', async () => ({ rows: 0 }))
+      await scheduler.register('cadence-after', '0 9 * * * *', async () => ({ rows: 0 }))
+
+      await expect(scheduler.start()).resolves.toBeUndefined()
+      try {
+        const byName = new Map(scheduler.schedules().map((r) => [r.jobName, r]))
+        expect(byName.get('cadence-broken')).toMatchObject({
+          effective: '0 8 * * * *', source: 'default', rejected: 'every 6 hours',
+        })
+        expect(byName.get('cadence-after')).toMatchObject({ effective: '0 9 * * * *' })
+      } finally {
+        scheduler.stop()
+      }
+    })
+  })
+
   it('a tick that rejects (pool gone under a live scheduler) never escapes as an unhandled rejection', async () => {
     const { createRunLogger } = await import('../src/scraper/runLog.js')
     const { createScheduler } = await import('../src/scraper/scheduler.js')

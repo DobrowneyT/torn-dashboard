@@ -568,7 +568,10 @@ CREATE TABLE public.scraper_runs (
 
 CREATE TABLE public.scraper_jobs (
   job_name text NOT NULL,
-  cron_schedule text NOT NULL,
+  -- ⚠️ NULL means "follow the fleet default" (#609 slice 5), which is a real
+  -- setting and not a missing one. registerJobs.ts resolves
+  -- column -> fleet_flags['scraper.schedule.<job>'] -> the code default.
+  cron_schedule text,
   enabled boolean DEFAULT true NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -1921,3 +1924,19 @@ CREATE VIEW public.weekly_payout_stats AS
     saved_at
    FROM oc_payout_weeks pw
   ORDER BY week_end DESC;
+
+
+-- Per-tenant feature-flag overrides (#609 slice 5). Global default in the
+-- shared `global` database, tenant override wins.
+--
+-- ⚠️ The row's EXISTENCE is the "set" signal, never its value. `local ||
+-- global` breaks the moment a tenant sets a cadence to 0 or a flag to false --
+-- and `member_stats_poll_interval_sec = 0` ALREADY means "off" here
+-- (warLifecycle.ts), so a faction that deliberately disabled something would
+-- silently inherit the fleet's "on". Unset by DELETEing the row; the CHECK
+-- stops a JSON null being written as a pretend-unset.
+CREATE TABLE IF NOT EXISTS public.feature_flags (
+  key        text PRIMARY KEY,
+  value      jsonb NOT NULL CHECK (jsonb_typeof(value) <> 'null'),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);

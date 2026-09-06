@@ -7,6 +7,8 @@ import type pg from 'pg'
 import { ROLES, type Role } from './auth.js'
 import { requireNotVisitor, requireRole } from './authz.js'
 import type { createJobRunner } from './scraper/registerJobs.js'
+import { resolveJobSchedule } from './scraper/scheduleResolution.js'
+import type { FlagResolver } from './featureFlags.js'
 import { SECRET_NAMES, type SecretName, type createSecretStore } from './secrets.js'
 import { PAYOUT_MODES, isPayoutMode } from './payoutModes.js'
 
@@ -16,6 +18,9 @@ export interface AdminDeps {
   scrapers?: ReturnType<typeof createJobRunner>
   /** Per-faction operator secrets (#105); absent without KEY_ENCRYPTION_KEY. */
   secrets?: ReturnType<typeof createSecretStore>
+  /** The process-wide flag resolver (#609 slice 5). Shared with the scraper
+   *  scheduler, so writes here invalidate the cache the scheduler reads. */
+  flags?: FlagResolver
 }
 
 // Leadership manage their faction's settings; admin implies leadership here.
@@ -34,7 +39,7 @@ const ADMIN_GUARD = { preHandler: [requireNotVisitor(), requireRole('admin')] }
 const SETTINGS_KEYS = ['tier_requirements', 'cpr_requirements', 'payout_tickets', 'war_room_defaults', 'payout_mode', 'steadfast_rotation']
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
-  const { db, scrapers, secrets } = deps
+  const { db, scrapers, secrets, flags } = deps
 
   app.get('/api/admin/roles', SETTINGS_GUARD, async () => {
     const res = await db.query(
@@ -142,16 +147,32 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
     const rows = await db.query('SELECT job_name, cron_schedule, enabled, updated_at FROM scraper_jobs')
     const byName = new Map(rows.rows.map((r) => [r.job_name, r]))
     return {
-      jobs: scrapers.jobs.map(({ job_name, default_schedule }) => {
+      jobs: await Promise.all(scrapers.jobs.map(async ({ job_name, default_schedule }) => {
         const row = byName.get(job_name)
+        // ⚠️ Three layers now, and the page shows which one won (#609 slice 5).
+        // `cron_schedule` is this faction's own value and may legitimately be
+        // NULL, meaning "follow the fleet default" — reporting the effective
+        // value without saying where it came from would make a fleet-wide
+        // change look like a local one nobody remembers making.
+        const resolution = await resolveJobSchedule({
+          jobName: job_name,
+          codeDefault: default_schedule,
+          tenantValue: row?.cron_schedule ?? null,
+          flags,
+        })
         return {
           job_name,
-          cron_schedule: row?.cron_schedule ?? default_schedule,
+          cron_schedule: row?.cron_schedule ?? null,
+          effective_schedule: resolution.effective,
+          schedule_source: resolution.source,
+          default_schedule,
+          fleet_schedule: resolution.fleetValue ?? null,
+          rejected_schedule: resolution.rejected ?? null,
           // Jobs default to disabled everywhere — bring-up is explicit.
           enabled: row?.enabled ?? false,
           updated_at: row?.updated_at ?? null,
         }
-      }),
+      })),
     }
   })
 
@@ -171,7 +192,12 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
     if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
       return reply.status(400).send({ error: 'enabled must be a boolean' })
     }
-    if (body.cron_schedule !== undefined) {
+    // ⚠️ An explicit `null` means "clear my override and follow the fleet
+    // default" (#609 slice 5) — a real instruction, distinct from omitting the
+    // field, which means "leave it as it is". Collapsing the two would leave a
+    // faction with no way back to the fleet default short of a DB edit.
+    const clearSchedule = body.cron_schedule === null
+    if (body.cron_schedule !== undefined && !clearSchedule) {
       const cron = await import('node-cron')
       if (typeof body.cron_schedule !== 'string' || !cron.validate(body.cron_schedule)) {
         return reply.status(400).send({ error: 'cron_schedule is not a valid cron expression' })
@@ -182,17 +208,68 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
       `INSERT INTO scraper_jobs (job_name, cron_schedule, enabled) VALUES ($1, $2, $3)
        ON CONFLICT (job_name) DO UPDATE SET
          enabled = COALESCE($4, scraper_jobs.enabled),
-         cron_schedule = COALESCE($5, scraper_jobs.cron_schedule),
+         cron_schedule = CASE WHEN $5 THEN NULL
+                              ELSE COALESCE($6, scraper_jobs.cron_schedule) END,
          updated_at = now()`,
       [
         name,
-        (body.cron_schedule as string | undefined) ?? known.default_schedule,
+        clearSchedule ? null : ((body.cron_schedule as string | undefined) ?? null),
         (body.enabled as boolean | undefined) ?? false,
         body.enabled ?? null,
-        body.cron_schedule ?? null,
+        clearSchedule,
+        clearSchedule ? null : (body.cron_schedule ?? null),
       ]
     )
     return { ok: true }
+  })
+
+  // ── Feature flags (#609 slice 5) ─────────────────────────────────────────
+  //
+  // ⚠️ The tenant's side of "fleet default, local override wins". Writes here
+  // are per-faction and cannot affect anyone else — the fleet defaults live in
+  // the admin container and are written only from its tunnel-only surface.
+  //
+  // ⚠️ Unsetting is a DELETE, never a write of null. The row's EXISTENCE is
+  // the signal, so that a faction that deliberately set a cadence to 0 keeps
+  // it rather than silently inheriting the fleet's "on". See featureFlags.ts.
+  const FLAG_KEY = /^[a-z][a-z0-9_.-]{0,80}$/
+
+  app.get('/api/admin/flags', ADMIN_GUARD, async (_req, reply) => {
+    if (!flags) return reply.status(503).send({ error: 'Feature flags not configured' })
+    return { flags: await flags.all() }
+  })
+
+  app.put('/api/admin/flags/:key', ADMIN_GUARD, async (req, reply) => {
+    if (!flags) return reply.status(503).send({ error: 'Feature flags not configured' })
+    const { key } = req.params as { key: string }
+    if (!FLAG_KEY.test(key)) return reply.status(400).send({ error: 'Invalid flag key' })
+
+    const body = (req.body ?? {}) as { value?: unknown }
+    // ⚠️ `null` is refused rather than stored. Writing it would produce a row
+    // that exists (so it wins over the fleet) but holds nothing — a state with
+    // no meaning that the database CHECK also rejects. Clearing is DELETE.
+    if (!('value' in body) || body.value === null || body.value === undefined) {
+      return reply.status(400).send({
+        error: 'value is required and may not be null — DELETE the flag to unset it',
+      })
+    }
+
+    await db.query(
+      `INSERT INTO feature_flags (key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [key, JSON.stringify(body.value)]
+    )
+    flags.invalidate()
+    return { ok: true, flag: await flags.get(key) }
+  })
+
+  app.delete('/api/admin/flags/:key', ADMIN_GUARD, async (req, reply) => {
+    if (!flags) return reply.status(503).send({ error: 'Feature flags not configured' })
+    const { key } = req.params as { key: string }
+    if (!FLAG_KEY.test(key)) return reply.status(400).send({ error: 'Invalid flag key' })
+    await db.query('DELETE FROM feature_flags WHERE key = $1', [key])
+    flags.invalidate()
+    return { ok: true, flag: await flags.get(key) }
   })
 
   app.post('/api/admin/scraper/jobs/:name/run', ADMIN_GUARD, async (req, reply) => {
