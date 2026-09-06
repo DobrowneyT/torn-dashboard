@@ -31,6 +31,37 @@
 # and nginx/factions/*.conf are gitignored, so `git pull` cannot clobber them.
 set -euo pipefail
 
+# ⚠️ **Everything below runs inside this brace group, and that is load-bearing:
+# this script overwrites ITSELF partway through, at the `git merge` below.**
+#
+# Bash does not read a script into memory up front. It reads a chunk (8KB),
+# executes what it has, then reads the NEXT chunk from a saved byte OFFSET. If
+# the file changed on disk in between, that offset now points into different
+# content — so bash resumes mid-statement, or re-runs commands it already ran,
+# with an error naming a line number that explains nothing.
+#
+# Not theoretical. This script is ~20KB and the merge sits at byte ~7000, so
+# bash is still reading from disk when the file is replaced. Any change that
+# adds lines ABOVE the merge — which is most of them — shifts every later
+# offset. Reproduced with a 15KB stand-in that inserted 1.5KB above its own
+# rewrite point: it printed `PHASE 1`, then died with
+# `line 100: adding: command not found` and never ran the rest.
+#
+# A brace group fixes it because bash parses a compound command COMPLETELY
+# before executing any of it — the whole body is in memory before the merge can
+# touch the file. ⚠️ The closing `}` must be preceded by an `exit`, or bash
+# still reads past the group for more input and hits the same stale offset;
+# that variant printed every phase correctly and THEN emitted a spurious
+# `command not found`. `exit "$fail"` at the bottom is what seals it.
+#
+# ⚠️ An earlier attempt — hash the file, `exec` the new version if it changed —
+# does NOT work and was discarded. The guard has to be read before the file
+# changes, and the guard is exactly what straddles the boundary.
+#
+# The body is deliberately NOT re-indented: this needs to stay a two-line diff
+# so it never obscures a real change in `git blame`.
+{
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
 
@@ -385,3 +416,4 @@ fi
 
 echo "==> deployed $(git rev-parse --short HEAD) ($(date -u +%FT%TZ))"
 exit "$fail"
+}

@@ -18,6 +18,48 @@ surface it automatically.
 
 ---
 
+## [3.82.0] - 2026-09-06
+
+### Fixed
+- **⚠️ `update.sh` could corrupt its own execution when a deploy changed it.**
+  Found while reviewing whether v3.80.0 was safe to promote — it is exactly the
+  shape that triggers this.
+
+  Bash does not read a script into memory up front. It reads a chunk (8KB),
+  executes what it has, then reads the next chunk **from a saved byte offset**.
+  `update.sh` overwrites itself partway through, at its `git merge`, and the
+  script is ~20KB with that merge at byte ~7000 — so bash is still reading from
+  disk when the file is replaced. Any change adding lines *above* the merge
+  shifts every later offset, and bash resumes mid-statement or re-runs commands
+  it already ran.
+
+  Reproduced with a 15KB stand-in that inserted 1.5KB above its own rewrite
+  point: it printed `PHASE 1`, then died with `line 100: adding: command not
+  found`, and never ran the rest. In `update.sh` that region holds the
+  migrations, the rebuild, readiness and the marker — so the realistic outcomes
+  are a hard failure with an error naming nothing real, or, if the offset lands
+  on text that happens to parse, running only *part* of a deploy. Restarting
+  containers while skipping migrations is inside that envelope.
+
+  The fix is two lines: the body is wrapped in a `{ … }` group, because bash
+  parses a compound command **completely** before executing any of it, so the
+  whole script is in memory before the merge can touch the file.
+
+  ⚠️ The closing brace must be preceded by an `exit`, or bash still reads past
+  the group for more input and hits the same stale offset — that variant ran
+  every phase correctly and *then* emitted a spurious `command not found`.
+  `exit "$fail"` already sat at the bottom and is what seals it.
+
+  ⚠️ An earlier attempt — hash the file, `exec` the new version if it changed —
+  was written, tested, and **discarded because it does not work**: the guard has
+  to be read before the file changes, and the guard is precisely what straddles
+  the boundary. It failed the same reproduction.
+
+  The body is deliberately not re-indented, so this stays a two-line change that
+  never obscures a real edit in `git blame`.
+
+---
+
 ## [3.81.0] - 2026-09-06
 
 ### Added
