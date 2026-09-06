@@ -1,0 +1,223 @@
+{
+  "name": "Snow Blind",
+  "slug": "snowblind",
+  "parameterCount": 4,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Hustler",
+      "weight": 48.40533937
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Imitator",
+      "weight": 34.56895649
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Muscle 1",
+      "weight": 8.512932288
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Muscle 2",
+      "weight": 8.512771845
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding1: ties between _A1F_ and _A6F_ on role evidence — needs a paired-role probe (Imitator + Muscle 1)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding2: ties between _A5F_ and _B1F3_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _B1F2_ and _A6F_ on role evidence — needs a paired-role probe (Muscle 2 + Hustler)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding4: no role evidence links it to any ending at depth 3",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding5: ties between _A5F_ and _B1F3_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding6",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding6: ties between _A4F_ and _B1F2_ on role evidence — needs a paired-role probe (Muscle 1 + Imitator)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding7",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding7: ties between _A4F_ and _B1F2_ on role evidence — needs a paired-role probe (Muscle 1 + Imitator)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S1_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 10331828,
+        "respect": 105,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 9669269,
+        "respect": 94,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_B7S1_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 8830000,
+        "respect": 82,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B7S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 8045000,
+        "respect": 72,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_B8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 6946764,
+        "respect": 63,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.6990370648205984,
+    "roles": [
+      "Hustler"
+    ]
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}

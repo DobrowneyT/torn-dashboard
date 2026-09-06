@@ -1,0 +1,186 @@
+{
+  "name": "Honey Trap",
+  "slug": "honeytrap",
+  "parameterCount": 3,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Enforcer",
+      "weight": 26.98428598
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Muscle 1",
+      "weight": 30.86556191
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Muscle 2",
+      "weight": 42.15015211
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding1: ties between _B2F_ and _A1F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding2: ties between _B2F_ and _A1F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _A5F_ and _A4F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding4: ties between _A5F_ and _A4F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding5: ties between _B1F_ and _B2F_ on role evidence — needs a paired-role probe (Muscle 1 + Enforcer)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding6",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding6: ties between _B1F_ and _B2F_ on role evidence — needs a paired-role probe (Muscle 1 + Enforcer)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 12821359,
+        "respect": 103,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 10803108,
+        "respect": 93,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A6S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 9461986,
+        "respect": 82,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B2S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 7411710,
+        "respect": 72,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.000013907026887416407,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}

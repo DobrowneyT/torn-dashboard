@@ -1,0 +1,140 @@
+{
+  "name": "Best of the Lot",
+  "slug": "bestofthelot",
+  "parameterCount": 4,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Picklock",
+      "weight": 20.73368395
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Car Thief",
+      "weight": 19.5328795
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Muscle",
+      "weight": 43.67657367
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Imitator",
+      "weight": 16.05686289
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding1: ties between _A1F1_ and _B1F_ on role evidence — needs a paired-role probe (Imitator + Picklock)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": "_A1F2_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _A2F_ and _A3F_ on role evidence — needs a paired-role probe (Car Thief + Imitator)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding4: ties between _A3F_ and _B1F_ on role evidence — needs a paired-role probe (Picklock + Car Thief)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": "_A4F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding6",
+      "nodeId": "_B1F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A6S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B2S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_B3S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.000004974876764762826,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": null
+  }
+}

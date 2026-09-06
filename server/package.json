@@ -8,7 +8,8 @@
     "start": "tsx src/main.ts",
     "test": "vitest",
     "test:run": "vitest run",
-    "oc:measure": "tsx scripts/oc-ending-map-measure.mts"
+    "oc:measure": "tsx scripts/oc-ending-map-measure.mts",
+    "oc:model:build": "tsx scripts/oc-model-build.mts"
   },
   "dependencies": {
     "@fastify/rate-limit": "^11.2.0",
