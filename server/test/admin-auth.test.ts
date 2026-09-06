@@ -328,3 +328,23 @@ describe('LoginLimiter', () => {
     expect(l.fail('b', 0)).toBe(false)
   })
 })
+
+// Regression guard for a live-box failure: the local surface was bound to the
+// container's own loopback, so Docker's published port forwarded to nothing and
+// every request died with a connection error instead of an HTTP status.
+describe('listener binding', () => {
+  it('⚠️ the local surface listens on a reachable interface, not container loopback', async () => {
+    // Docker forwards a published port to the container's NETWORK INTERFACE,
+    // never to its loopback. Binding 127.0.0.1 inside the container makes
+    // `127.0.0.1:8091:8091` reach a port nothing is listening on. The boundary
+    // is the host-side publication; the bind must stay reachable.
+    const a = await app('local')
+    await a.listen({ host: '0.0.0.0', port: 0 })
+    const addr = a.server.address()
+    const port = typeof addr === 'object' && addr ? addr.port : 0
+    const res = await fetch(`http://127.0.0.1:${port}/api/admin/health`)
+    expect(res.status).toBe(200)
+    expect((await res.json()).surface).toBe('local')
+    await a.close()
+  })
+})

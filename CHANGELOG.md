@@ -21,6 +21,25 @@ surface it automatically.
 ## [3.73.0] - 2026-09-05
 
 ### Fixed
+- **⚠️ The local admin surface was unreachable through its published port.** It
+  bound to the container's own `127.0.0.1`, on the reasoning that loopback is
+  tighter — but Docker forwards a published port to the container's **network
+  interface**, never to its loopback, so `127.0.0.1:8091:8091` reached a port
+  nothing was listening on. Every request died with a connection error rather
+  than an HTTP status (`curl` returned `000`). Found on the live box.
+
+  The listener now binds `0.0.0.0` inside the container, and **the host-side
+  publication is the boundary**: the port exists only on the host's loopback,
+  unroutable from the internet, reachable over an SSH tunnel.
+
+  ⚠️ The honest cost: the local surface is now reachable by anything else on
+  the compose network, so a compromised tenant container could send requests to
+  it. It is not defenceless — the same password + TOTP gate applies, and a
+  local-surface token is rejected on the public surface and vice versa — but it
+  is a real difference from *"only reachable via SSH"*. What the split still
+  buys is that destructive routes are not registered on the internet-facing
+  listener at all.
+
 - **⚠️ The admin password hash was silently truncated by Docker Compose.** The
   conventional scrypt format (`scrypt$N$r$p$salt$hash`) is delivered through
   `deploy/.env`, and Compose performs variable interpolation on those values —
