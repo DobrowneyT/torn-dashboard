@@ -12,8 +12,10 @@
  *   { members, ourMembers, dibs, assist, memberStats, loadout, config, chain,
  *     isInitialLoading, lastTick, pollError, pollNow }
  *
- * `assist` (#523) rides the delta/snapshot machinery exactly like `dibs` —
- * same soft-delete-tombstone shape, no lead gate, keyed by target_id.
+ * `assist` (#523, reshaped by #617) rides the delta/snapshot machinery like
+ * `dibs`, keyed by target_id and with no lead gate — but NOT the same
+ * soft-delete-tombstone shape: a request that is over is a count back at
+ * zero, not a tombstone, and each target carries one row counting every kind.
  *
  * `memberStats` (#336) is LEAD-ONLY and arrives empty for everyone else — the
  * server withholds the channel rather than the client filtering it.
@@ -30,7 +32,6 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { getApiSession, apiGet, apiRefresh } from '../utils/apiClient'
 import { mergeVersionedRows, liveRows } from '../utils/warRoomMerge'
 import { isActiveMember } from '../utils/memberVisibility'
-import { parseDbTime } from '../utils/time'
 
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15_000
@@ -117,15 +118,19 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
 
   const publishAssist = useCallback(() => {
     const byTarget = {}
-    for (const v of liveRows(assistMapRef.current)) {
-      const prev = byTarget[v.target_id]
-      // Multiple live requesters CAN target the same enemy (unlike dibs, an
-      // assist is per-requester, not per-target) — the badge shows one
-      // thing, so the newest raised hand wins, mirroring the NEWEST-WINS
-      // merge rule above (just applied at publish time instead of write time).
-      const at = parseDbTime(v.created_at)?.getTime() ?? 0
-      const prevAt = parseDbTime(prev?.created_at)?.getTime() ?? 0
-      if (!prev || at > prevAt) byTarget[v.target_id] = v
+    // #617: one row per TARGET carrying a count per kind, so there is no
+    // newest-wins pick to make any more — the requests that used to compete
+    // for the badge are now summed into the row itself.
+    //
+    // ⚠️ Zeroed rows are dropped HERE rather than on arrival. The delta ships
+    // them on purpose (reaching zero is how a client learns to clear a badge),
+    // so they must land in the map to overwrite the live row they cancel —
+    // and then not be published, because a row with nothing outstanding is
+    // not a request. Filtering them at merge time would leave the stale count
+    // standing forever.
+    for (const v of assistMapRef.current.values()) {
+      const live = Number(v.help_wanted) + Number(v.smoke_wanted) + Number(v.tear_wanted)
+      if (live > 0) byTarget[v.target_id] = v
     }
     setAssist(byTarget)
   }, [])
@@ -159,11 +164,10 @@ export function useWarRoomSocket({ enabled = true, ourFactionId, onAlert }) {
       mergeVersionedRows(dibsMapRef.current, rows, 'target_id')
       publishDibs()
     } else if (channel === 'assist') {
-      // Keyed by id, not target_id — target_id is not unique on this table
-      // (see publishAssist), so merging by it would let a newer requester's
-      // row silently discard an older live one instead of letting them
-      // coexist in the map.
-      mergeVersionedRows(assistMapRef.current, rows, 'id')
+      // Keyed by target_id since #617 — the table's primary key. It used to be
+      // keyed by `id` precisely BECAUSE target_id was not unique (one row per
+      // requester), which is the shape #617 removed.
+      mergeVersionedRows(assistMapRef.current, rows, 'target_id')
       publishAssist()
     } else if (channel === 'config') {
       setConfig(rows[rows.length - 1])

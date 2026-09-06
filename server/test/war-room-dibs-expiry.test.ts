@@ -507,7 +507,7 @@ describe('auto-drop can be turned off entirely', () => {
 // on the 'assist' channel, the way it already does for dibs above.
 describe('assist-request sweep rides the same ticker tick as the dibs sweep', () => {
   it('drops a live assist on the tick that observes the target enter hospital', async () => {
-    await stack.db.query(`DELETE FROM war_room_assists_v2 WHERE target_id = ${TARGET}`)
+    await stack.db.query(`DELETE FROM war_room_assist_counts_v2 WHERE target_id = ${TARGET}`)
     await stack.db.query(
       `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, level, state)
        VALUES (${TARGET}, ${ENEMY}, 'Foe', 55, $1)
@@ -515,8 +515,8 @@ describe('assist-request sweep rides the same ticker tick as the dibs sweep', ()
       [JSON.stringify({ status: { state: 'Okay', until: null } })]
     )
     await stack.db.query(
-      `INSERT INTO war_room_assists_v2 (target_id, requester_id, requester_name, kind, auto_expire_at)
-       VALUES (${TARGET}, ${HOLDER}, 'Holder', 'help', now() + interval '2 minutes')`
+      `INSERT INTO war_room_assist_counts_v2 (target_id, help_wanted, help_raised_at)
+       VALUES (${TARGET}, 2, now())`
     )
     stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload({ state: 'Hospital', until: 1752209999 }))
 
@@ -526,10 +526,12 @@ describe('assist-request sweep rides the same ticker tick as the dibs sweep', ()
     const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
     await createWarRoomTicker(tickerDeps()).tick()
 
-    const row = await stack.db.query(`SELECT deleted_at FROM war_room_assists_v2 WHERE target_id = ${TARGET}`)
-    expect(row.rows[0].deleted_at).toBeTruthy()
+    // #617: an expired request is a count back at zero, not a tombstone.
+    const row = await stack.db.query(`SELECT help_wanted FROM war_room_assist_counts_v2 WHERE target_id = ${TARGET}`)
+    expect(Number(row.rows[0].help_wanted)).toBe(0)
     const frame = await client.next(
-      (m) => m.type === 'delta' && m.channel === 'assist' && m.rows.some((r: any) => Number(r.target_id) === TARGET && r.deleted_at)
+      (m) => m.type === 'delta' && m.channel === 'assist'
+        && m.rows.some((r: any) => Number(r.target_id) === TARGET && Number(r.help_wanted) === 0)
     )
     expect(frame.rows.some((r: any) => Number(r.target_id) === TARGET)).toBe(true)
 

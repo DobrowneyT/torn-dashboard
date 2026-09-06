@@ -44,6 +44,20 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
 
   const isAdmin = (req: any) => rolesFromClaims(req.session!).includes('admin')
 
+  /**
+   * War leads and up (#617).
+   *
+   * ⚠️ Deliberately WIDER than isAdmin and narrower than "logged in": the war
+   * room is run by war leads, so gating a war-room action on the `admin` role
+   * alone would put it out of reach of the people whose job it is. Mirrors
+   * canSeeLeadOnlyChannels in warRoom.ts — visitors never qualify.
+   */
+  const isLead = (req: any) => {
+    const roles = rolesFromClaims(req.session!)
+    if (roles.includes('visitor')) return false
+    return roles.some((r) => r === 'warlead' || r === 'leadership' || r === 'admin')
+  }
+
   // ── Dibs ────────────────────────────────────────────────────────────────
   // Visitors included: claiming a target is the one mutation the demo role
   // keeps (it's how the war room is trialled).
@@ -149,6 +163,20 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
   // calls `help`; smoke and tear share their names with the request kinds.
   const OBSERVED_KINDS = new Set(['smoke', 'tear', 'join'])
 
+  /**
+   * ⚠️ #617: the count belongs to the TARGET, and every kind coexists.
+   *
+   * Pressing adds one to that kind's count for that target, whoever presses.
+   * The old rule — one live request per requester, a fresh press replacing
+   * whatever you last asked for — modelled the wrong thing: a request is a
+   * property of the fight, not of the person who happened to type it. Two
+   * people can independently know a target needs two more smokes, and the
+   * second one saying so must not erase the first.
+   *
+   * The reinforcement case is the sharpest: whoever joined is now IN the fight
+   * and is best placed to say more help is needed — and under the old rule
+   * their request cancelled the one that brought them.
+   */
   app.post('/api/war-room/assist', { preHandler: requireAuth() }, async (req, reply) => {
     const body = req.body as { target_id?: unknown; kind?: unknown; war_id?: unknown } | null
     const targetId = Number(body?.target_id)
@@ -160,67 +188,56 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
       return reply.status(400).send({ error: `kind must be one of ${[...ASSIST_KINDS].join(', ')}` })
     }
     const userId = Number(req.session!.torn_user_id)
-    const name = await actorName(req.session!.torn_user_id)
+
+    // ⚠️ Column names are built from `kind`, so the ASSIST_KINDS check above is
+    // load-bearing rather than merely a nicety — it is what keeps an attacker
+    // out of this string.
+    const wantedCol = `${kind}_wanted`
+    const raisedCol = `${kind}_raised_at`
 
     const dbc = await db.connect()
     try {
       await dbc.query('BEGIN')
-      // #591: pressing the SAME button on the SAME target again raises the
-      // count rather than replacing the request — "I need three smokes" is a
-      // real thing to say, and stacked smoke grenades are a real use case.
-      const same = await dbc.query(
-        `UPDATE war_room_assists_v2
-         SET wanted = wanted + 1, updated_at = now()
-         WHERE requester_id = $1 AND target_id = $2 AND kind = $3 AND deleted_at IS NULL
-         RETURNING *`,
-        [userId, targetId, kind]
-      )
-      if (same.rows.length > 0) {
-        await dbc.query('COMMIT')
-        hub.broadcast('assist', same.rows, await serverNow())
-        return { ok: true, wanted: Number(same.rows[0].wanted) }
-      }
-
-      // One live assist per requester (mirrors dibs' single-claim rule): a
-      // fresh click against a different target or a different kind replaces
-      // whatever the requester last asked for, and the count restarts. You're
-      // one person, in one fight, asking for one thing.
-      const tombstoned = await dbc.query(
-        `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
-         WHERE requester_id = $1 AND deleted_at IS NULL RETURNING *`,
-        [userId]
-      )
-      // #591: the window is a faction setting now, not a constant. Read inside
-      // the transaction so a mid-flight settings change cannot arm a deadline
-      // from one value and sweep it against another. A 0 means "never
-      // auto-expire" — the column is nullable, and the sweep skips NULLs.
+      // #591: the expiry window is a faction setting, returned to the caller
+      // so the overlay can show how long a request has left.
+      //
+      // ⚠️ It no longer ARMS anything. Under #523 this value was written onto
+      // the row as auto_expire_at, so reading it in the transaction mattered;
+      // since #617 the row stores only when the kind was raised and the sweep
+      // applies the window itself, which is what keeps a settings change from
+      // meaning one thing to the raise and another to the sweep.
       const cfg = await dbc.query(
         'SELECT assist_expiry_seconds AS secs FROM war_room_config_v2 WHERE id = 1'
       )
       const rawSecs = Number(cfg.rows[0]?.secs)
       const expirySecs = Number.isFinite(rawSecs) ? rawSecs : ASSIST_EXPIRY_SECONDS
-      const inserted = await dbc.query(
-        `INSERT INTO war_room_assists_v2 (target_id, requester_id, requester_name, kind, war_id, auto_expire_at)
-         VALUES ($1, $2, $3, $4, $5,
-           CASE WHEN $6::int > 0 THEN now() + make_interval(secs => $6::int) ELSE NULL END)
+
+      // ⚠️ `help_raised_by` is appended to only for `help`, and never shown. It
+      // exists so the #591 rule survives: whoever asked for help cannot answer
+      // it by turning up themselves, and with the count shared there is no
+      // requester_id left to check. A smoke you throw after asking for three is
+      // genuinely one of the three, which is why grenades are not tracked.
+      const row = await dbc.query(
+        `INSERT INTO war_room_assist_counts_v2 (target_id, war_id, ${wantedCol}, ${raisedCol}, help_raised_by)
+         VALUES ($1, $2, 1, now(), CASE WHEN $3::text = 'help' THEN ARRAY[$4::bigint] ELSE '{}'::bigint[] END)
+         ON CONFLICT (target_id) DO UPDATE SET
+           ${wantedCol} = war_room_assist_counts_v2.${wantedCol} + 1,
+           ${raisedCol} = now(),
+           war_id = COALESCE(EXCLUDED.war_id, war_room_assist_counts_v2.war_id),
+           help_raised_by = CASE
+             WHEN $3::text = 'help' AND NOT ($4::bigint = ANY(war_room_assist_counts_v2.help_raised_by))
+               THEN war_room_assist_counts_v2.help_raised_by || $4::bigint
+             ELSE war_room_assist_counts_v2.help_raised_by END,
+           updated_at = now()
          RETURNING *`,
-        [targetId, userId, name, kind, body?.war_id ?? null, expirySecs]
+        [targetId, body?.war_id ?? null, kind, userId]
       )
       await dbc.query('COMMIT')
-      hub.broadcast('assist', [...tombstoned.rows, ...inserted.rows], await serverNow())
-      // `wanted` on BOTH branches, not just the increment one: the overlay
-      // paints the count straight off this response (#603), and a branch that
-      // omitted it would leave a fresh request blank until the next poll.
-      return { ok: true, wanted: Number(inserted.rows[0]?.wanted) || 1 }
-    } catch (err: any) {
+      hub.broadcast('assist', row.rows, await serverNow())
+      // The overlay paints the count straight off this response (#603).
+      return { ok: true, wanted: Number(row.rows[0][wantedCol]), expiry_seconds: expirySecs }
+    } catch (err) {
       await dbc.query('ROLLBACK')
-      // The partial unique index (one live row per requester) is the last
-      // word under a true race — two clicks from the SAME requester landing
-      // concurrently. There is no "owner" to report, unlike dibs' 409: it's
-      // the caller racing themselves, so a plain retry is the whole story.
-      if (err?.code === '23505') {
-        return reply.status(409).send({ error: 'Assist request already in flight — try again' })
-      }
       throw err
     } finally {
       dbc.release()
@@ -319,117 +336,123 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
       // A `join` answers a `help` request: the log says "joined the fight",
       // the request says "help", and they are the same thing named twice.
       const wants = kind === 'join' ? 'help' : kind
-      // ⚠️ A requester cannot answer their own call for help: they are already
-      // in the fight, and their own join would otherwise cancel the request the
-      // moment they made it. Checked on IDs here rather than on names in the
-      // script — the attack page carries no roster, so the script has no
-      // reliable way to know its own member id against a scraped name.
+      const col = `${wants}_wanted`
+
+      // ⚠️ Someone who asked for help cannot answer it by turning up: they were
+      // already in the fight, and their own join would otherwise cancel the
+      // request the moment they made it. With the count shared (#617) there is
+      // no requester_id, so this checks the contributor list the raise keeps.
       //
       // Grenades are NOT excluded this way: a smoke you throw yourself after
       // asking for three is genuinely one of the three.
+      //
+      // ⚠️ GREATEST(...,0) as well as the WHERE guard. The CHECK constraint
+      // forbids a negative count, so an observation arriving against a count
+      // already at zero would abort the whole request rather than being the
+      // no-op it should be.
       const dropped = await db.query(
-        `UPDATE war_room_assists_v2
-         SET wanted = wanted - 1, updated_at = now()
-         WHERE target_id = $1 AND kind = $2 AND deleted_at IS NULL
-           AND NOT ($2 = 'help' AND requester_id = $3)
+        `UPDATE war_room_assist_counts_v2
+         SET ${col} = GREATEST(${col} - 1, 0), updated_at = now()
+         WHERE target_id = $1 AND ${col} > 0
+           AND NOT ($2::text = 'help' AND $3::bigint = ANY(help_raised_by))
          RETURNING *`,
         [targetId, wants, actorId]
       )
       if (dropped.rows.length === 0) continue
       counted++
 
-      // At zero the request has been answered in full and goes away.
-      const finished = await db.query(
-        `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
-         WHERE target_id = $1 AND kind = $2 AND deleted_at IS NULL AND wanted <= 0
-         RETURNING *`,
-        [targetId, wants]
-      )
-      hub.broadcast('assist', [...dropped.rows, ...finished.rows], await serverNow())
+      // ⚠️ At zero the kind simply is not being asked for any more. The ROW
+      // stays while any kind is non-zero — and is broadcast either way, because
+      // the client clears a badge by seeing the count reach zero, not by the
+      // row disappearing.
+      hub.broadcast('assist', dropped.rows, await serverNow())
     }
 
     return { ok: true, counted }
   })
 
   /**
-   * Take ONE off your own request (#600), rather than cancelling it outright.
+   * Take ONE off a target's count (#600, reshaped by #617).
    *
-   * The overlay's long-press. A short press raises the count; this is how you
-   * put one back when you asked for three smokes and two turned up. At one, the
-   * decrement empties the request and it goes away — "decrement to zero" and
-   * "cancel" are the same act, so there is no separate rule for it.
+   * The overlay's long-press. A short press raises a count; this is how you put
+   * one back when three smokes were asked for and two turned up. At zero the
+   * kind simply is not being asked for — "decrement to zero" and "cancel" are
+   * the same act, so there is no separate rule for it.
    *
    * ⚠️ A POST, not a DELETE variant, and that is not a style choice: Torn PDA's
    * HTTP bridge exposes only PDA_httpGet/PDA_httpPost, so a DELETE cannot be
    * issued from a phone at all. This gesture lives on the attack page, which is
-   * a phone surface as much as a desktop one. The DELETE below stays for the
-   * dashboard and for the admin override — neither of which runs inside PDA.
+   * a phone surface as much as a desktop one.
    *
-   * Scoped to the caller's OWN row on purpose, with no admin branch: a hold is
-   * a fat-fingerable gesture, and letting it silently shave a count off someone
-   * else's request would be a bad thing to be able to do by accident.
+   * ⚠️ **Anyone in the war room may decrement, and the old "your own request
+   * only" guard is gone rather than merely relaxed.** With the count shared
+   * there is no "your own" left to scope to. Dibs-holder-only was considered
+   * and rejected for a checkable reason: `dibs_expiry_seconds` defaults to 30,
+   * so any fight lasting over half a minute — which is most of them — would
+   * leave nobody able to correct the count. The tighter rule reads better and
+   * fails worse.
+   *
+   * What still limits accidents is the gesture: a deliberate hold, costing one
+   * unit that anyone can immediately re-raise. That is a much smaller
+   * consequence than the old rule protected against, which was a whole request.
    */
   app.post('/api/war-room/assist/decrement', { preHandler: requireAuth() }, async (req, reply) => {
-    const body = req.body as { target_id?: unknown } | null
+    const body = req.body as { target_id?: unknown; kind?: unknown } | null
     const targetId = Number(body?.target_id)
     if (!Number.isFinite(targetId) || targetId <= 0) {
       return reply.status(400).send({ error: 'target_id required' })
     }
-    const userId = Number(req.session!.torn_user_id)
-
-    const dbc = await db.connect()
-    try {
-      await dbc.query('BEGIN')
-      const dropped = await dbc.query(
-        `UPDATE war_room_assists_v2
-         SET wanted = wanted - 1, updated_at = now()
-         WHERE requester_id = $1 AND target_id = $2 AND deleted_at IS NULL
-         RETURNING *`,
-        [userId, targetId]
-      )
-      // Nothing of yours live on this target: the hold does nothing at all,
-      // which is the honest answer rather than an error the overlay would have
-      // to render mid-fight.
-      if (dropped.rows.length === 0) {
-        await dbc.query('COMMIT')
-        return { ok: true, wanted: 0, cleared: false }
-      }
-      const finished = await dbc.query(
-        `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
-         WHERE requester_id = $1 AND target_id = $2 AND deleted_at IS NULL AND wanted <= 0
-         RETURNING *`,
-        [userId, targetId]
-      )
-      await dbc.query('COMMIT')
-      hub.broadcast('assist', [...dropped.rows, ...finished.rows], await serverNow())
-      return {
-        ok: true,
-        wanted: finished.rows.length > 0 ? 0 : Number(dropped.rows[0].wanted),
-        cleared: finished.rows.length > 0,
-      }
-    } catch (err) {
-      await dbc.query('ROLLBACK')
-      throw err
-    } finally {
-      dbc.release()
+    // ⚠️ `kind` is now required. Under the old model a requester had exactly one
+    // live request, so "take one off mine" was unambiguous; a target with a
+    // smoke AND a tear outstanding has no such default, and guessing would
+    // silently answer the wrong call.
+    const kind = String(body?.kind ?? '')
+    if (!ASSIST_KINDS.has(kind)) {
+      return reply.status(400).send({ error: `kind must be one of ${[...ASSIST_KINDS].join(', ')}` })
     }
+    const col = `${kind}_wanted`
+
+    const dropped = await db.query(
+      `UPDATE war_room_assist_counts_v2
+       SET ${col} = GREATEST(${col} - 1, 0), updated_at = now()
+       WHERE target_id = $1 AND ${col} > 0
+       RETURNING *`,
+      [targetId]
+    )
+    // Nothing outstanding of that kind: the hold does nothing, which is the
+    // honest answer rather than an error the overlay must render mid-fight.
+    if (dropped.rows.length === 0) return { ok: true, wanted: 0, cleared: false }
+
+    hub.broadcast('assist', dropped.rows, await serverNow())
+    const wanted = Number(dropped.rows[0][col])
+    return { ok: true, wanted, cleared: wanted === 0 }
   })
 
-  app.delete('/api/war-room/assist/:targetId', { preHandler: requireAuth() }, async (req) => {
+  /**
+   * Clear every kind on a target.
+   *
+   * ⚠️ Leads only, where decrement is open to anyone. The two are different in
+   * kind, not degree: a decrement removes one unit that anyone can re-raise,
+   * while this wipes what several people independently asked for. With no
+   * "your own request" left to scope it to (#617), an open blunt instrument is
+   * not a reasonable default — the fine-grained action is the one that stays
+   * open to everybody.
+   */
+  app.delete('/api/war-room/assist/:targetId', { preHandler: requireAuth() }, async (req, reply) => {
     const { targetId } = req.params as { targetId: string }
-    const userId = Number(req.session!.torn_user_id)
-    // Non-admins clear only their own request (a filtered no-op otherwise).
-    const res = isAdmin(req)
-      ? await db.query(
-          `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
-           WHERE target_id = $1 AND deleted_at IS NULL RETURNING *`,
-          [targetId]
-        )
-      : await db.query(
-          `UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now()
-           WHERE target_id = $1 AND deleted_at IS NULL AND requester_id = $2 RETURNING *`,
-          [targetId, userId]
-        )
+    if (!isLead(req)) {
+      return reply.status(403).send({
+        error: 'Clearing every request on a target is a lead action — press and hold to take one off instead.',
+      })
+    }
+    const res = await db.query(
+      `UPDATE war_room_assist_counts_v2
+       SET help_wanted = 0, smoke_wanted = 0, tear_wanted = 0,
+           help_raised_by = '{}', updated_at = now()
+       WHERE target_id = $1 AND (help_wanted > 0 OR smoke_wanted > 0 OR tear_wanted > 0)
+       RETURNING *`,
+      [targetId]
+    )
     if (res.rows.length > 0) hub.broadcast('assist', res.rows, await serverNow())
     return { ok: true }
   })

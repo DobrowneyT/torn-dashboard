@@ -67,7 +67,13 @@ export async function clearWarRoomState(db: pg.Pool) {
   )
   // #523: a new matchup must not inherit the prior war's raised hands either.
   const assist = await db.query(
-    'UPDATE war_room_assists_v2 SET deleted_at = now(), updated_at = now() WHERE deleted_at IS NULL RETURNING *'
+    // #617: a new war starts with nothing asked for. Counts are zeroed rather
+    // than rows deleted, so a client holding the old row sees it go to zero.
+    `UPDATE war_room_assist_counts_v2
+        SET help_wanted = 0, smoke_wanted = 0, tear_wanted = 0,
+            help_raised_by = '{}', updated_at = now()
+      WHERE help_wanted > 0 OR smoke_wanted > 0 OR tear_wanted > 0
+      RETURNING *`
   )
   const chain = await db.query(
     `UPDATE war_room_chain_v2 SET current = NULL, max = NULL, modifier = NULL,

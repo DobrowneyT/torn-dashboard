@@ -18,6 +18,50 @@ surface it automatically.
 
 ---
 
+## [3.88.0] - 2026-09-06
+
+### Changed
+
+- **Assist requests now accumulate on the TARGET, not on whoever typed them (#617).**
+  A target can need a smoke AND a tear AND a body at once, and several people
+  asking for the same thing add up instead of overwriting each other.
+
+  #523 built assists around one live request per requester, enforced by a
+  partial unique index. Two rules followed from that and both were wrong: a
+  second person raising a hand on a target REPLACED the first request, and a
+  different kind from the same person replaced their previous one. The
+  reinforcement case makes it plainest — whoever joined a fight is now in it
+  and is best placed to say more help is needed, and under the old rule their
+  request cancelled the one that brought them.
+
+  - New `war_room_assist_counts_v2`: one row per target, a count and a
+    `raised_at` per kind (migration `0059`). The old table is kept and simply
+    stops being read — a live war may be in flight at deploy, and those rows
+    are the only record of what people asked for. Dropping it is a later
+    migration, the same discipline #606 used for the mirror tables.
+  - Expiry is per kind: a smoke asked for four minutes ago and a tear asked
+    for just now no longer age out together. An expiring kind clears outright
+    rather than decaying a unit at a time on a clock matching neither raise.
+  - Taking one back (the overlay's long press) is open to anyone and now
+    requires the kind. There is no owner to check any more, and a dib can
+    expire while a long fight runs on — whoever is actually in it is best
+    placed to say "we're fine now".
+  - Clearing a target outright is leads-only (was: the requester, or an admin).
+    A stray clear drops every outstanding call on that target, and nobody
+    watching a badge can tell it was cleared rather than answered.
+  - The badge names nobody. A count is the sum of everyone who asked, so there
+    is no one person to name and picking one would print an arbitrary choice as
+    fact. It shows the most urgent live kind — help, then smoke, then tear —
+    and spells the rest out in the title.
+  - The attack-page overlay lights up what the TARGET still needs rather than
+    only what you personally asked for, which is the thing you want to know
+    before pressing.
+
+### Fixed
+
+- Clearing a target's assists was gated on the `admin` role, putting a war-room
+  action out of reach of the war leads who run it (#617).
+
 ## [3.85.0] - 2026-09-06
 
 ### Fixed

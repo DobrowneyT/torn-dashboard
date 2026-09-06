@@ -40,31 +40,57 @@ export function attackUrl(targetId) {
   return Number.isFinite(id) && id > 0 ? `https://www.torn.com/page.php?sid=attack&user2ID=${id}` : null
 }
 
-/** The two row shapes: `{requester_id, requester_name, kind, created_at}` (REST) and a userscript-style index entry. */
-function assistHolder(assist) {
-  if (!assist) return null
-  const id = assist.requester_id ?? assist.by
-  if (id === null || id === undefined) return null
-  return {
-    id,
-    name: assist.requester_name ?? assist.name ?? null,
-    kind: assist.kind,
-    at: assist.created_at ?? assist.at ?? null,
-    wanted: assistCount(assist.wanted),
-  }
-}
+/**
+ * Which kind the one badge shows when several are outstanding (#617).
+ *
+ * ⚠️ Order is meaning, not taste. `help` is a PERSON needed in a fight that is
+ * already going badly; smoke and tear are consumables that improve the odds.
+ * If a target needs a body and a smoke, the body is the one a lead scanning
+ * the board has to see. Every live kind still reaches them — the ones this
+ * order loses from the glyph are spelled out in the title.
+ */
+const KIND_PRIORITY = ['help', 'smoke', 'tear']
 
 /**
  * How many of a thing are still being asked for (#591).
  *
- * ⚠️ Anything unusable becomes 1, never 0. A row from before the column
- * existed has no `wanted`, and a "×0" badge would read as "nobody is asking" —
- * the exact opposite of what a live row means. One is the honest floor: the
- * row exists, so at least one is outstanding.
+ * ⚠️ Reads 0 as 0 since #617, where the old shape could not. Under #523 the
+ * row's existence WAS the request, so a missing or zero `wanted` meant a row
+ * written before the column existed and 1 was the honest floor — "×0" would
+ * have read as "nobody is asking" about a row that by definition meant someone
+ * was. Now the count IS the request: a kind at zero is nobody asking, and the
+ * caller must be able to tell that from one still outstanding.
  */
 function assistCount(raw) {
   const n = Math.floor(Number(raw))
-  return Number.isFinite(n) && n > 0 ? n : 1
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+/**
+ * Collapse a counts row to the one kind the badge shows, plus everything live.
+ *
+ * Accepts the #617 per-target row (`{help_wanted, smoke_raised_at, …}`) and
+ * the userscript's own index entry shape.
+ */
+function assistHolder(assist) {
+  if (!assist) return null
+  const live = KIND_PRIORITY
+    .map(kind => ({
+      kind,
+      wanted: assistCount(assist[`${kind}_wanted`]),
+      at: assist[`${kind}_raised_at`] ?? null,
+    }))
+    .filter(k => k.wanted > 0)
+  if (live.length === 0) return null
+  // KIND_PRIORITY order is preserved by the map above, so the first survivor
+  // is the highest-priority live kind.
+  return { ...live[0], live }
+}
+
+/** "Smoke ×2" / "Help" — the count only when there is more than one. */
+function kindPhrase({ kind, wanted }) {
+  const meta = ASSIST_KIND_META[kind] ?? { label: kind ?? 'Assist' }
+  return wanted > 1 ? `${meta.label} ×${wanted}` : meta.label
 }
 
 /**
@@ -79,8 +105,23 @@ export function assistBadgeState(dib, assist, targetId, currentUserId, opts = {}
   const held = assistHolder(assist)
   if (held) {
     const meta = ASSIST_KIND_META[held.kind] ?? { icon: 'life-buoy', label: held.kind ?? 'Assist' }
-    const mine = String(held.id) === String(currentUserId)
-    const who = mine ? 'you' : (held.name ?? 'someone')
+    // ⚠️ #617: no requester on the row any more, so no "requested by …". That
+    // is MonChoon's call ("drop the name, show the count only") and it follows
+    // from the model rather than from taste: a count is the sum of everyone
+    // who asked, so there is no one person to name, and naming the first or
+    // the last would be picking one arbitrarily and printing it as fact.
+    //
+    // When several kinds are live the badge still shows ONE (the row has no
+    // horizontal space for more — the #523 constraint is unchanged); the title
+    // carries the rest, so nothing is hidden from someone who looks.
+    const others = held.live.filter(k => k.kind !== held.kind)
+    const detail = [
+      `${kindPhrase(held)} requested`,
+      // Not lowercased: the kind names are the badge's own labels, and
+      // "also Smoke ×3" matches what the glyph would say if it had room.
+      ...others.map(k => `also ${kindPhrase(k)}`),
+      fmtAgo(held.at),
+    ]
     return {
       mode: 'assist',
       // `label` stays readable text (fallback for any caller that just prints
@@ -90,16 +131,16 @@ export function assistBadgeState(dib, assist, targetId, currentUserId, opts = {}
       // A count of one says nothing worth saying — "Smoke ×1" is noise on the
       // overwhelming majority of requests, so the multiple only appears when
       // there IS one.
-      label: held.wanted > 1 ? `${meta.label} ×${held.wanted}` : meta.label,
+      label: kindPhrase(held),
       icon: meta.icon,
       wanted: held.wanted,
+      /** Every live kind, highest-priority first — for callers with room to show more than one. */
+      kinds: held.live,
       href: attackUrl(targetId),
       tone: 'assist',
-      title: held.wanted > 1
-        ? `${meta.label} requested by ${who} · ${held.wanted} still needed · ${fmtAgo(held.at)}`
-        : `${meta.label} requested by ${who} · ${fmtAgo(held.at)}`,
+      title: detail.join(' · '),
       action: null,
-      mine,
+      mine: false,
       taken: true,
     }
   }
