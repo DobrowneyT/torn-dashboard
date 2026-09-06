@@ -1,0 +1,222 @@
+{
+  "name": "Blast from the Past",
+  "slug": "blastfromthepast",
+  "parameterCount": 6,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Picklock 1",
+      "weight": 10.84876785
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Hacker",
+      "weight": 12.05662038
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Engineer",
+      "weight": 24.0155975
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Bomber",
+      "weight": 15.61710346
+    },
+    {
+      "positionId": "P5",
+      "roleName": "Muscle",
+      "weight": 34.58815764
+    },
+    {
+      "positionId": "P6",
+      "roleName": "Picklock 2",
+      "weight": 2.873753178
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": "_A1F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": "_A2F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _A3F_ and _A4F_ on role evidence — needs a paired-role probe (Engineer + Muscle)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": "_A4F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": "_A5F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A9S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 167566309,
+        "respect": 348,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A10S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 150108424,
+        "respect": 311,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_B8S1_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 118217940,
+        "respect": 281,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding310",
+      "nodeId": null,
+      "kind": "good",
+      "resolved": false,
+      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
+      "starved": true,
+      "reward": null
+    },
+    {
+      "key": "goodEnding35",
+      "nodeId": null,
+      "kind": "good",
+      "resolved": false,
+      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
+      "starved": true,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 99931212,
+        "respect": 248,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding410",
+      "nodeId": null,
+      "kind": "good",
+      "resolved": false,
+      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
+      "starved": true,
+      "reward": null
+    },
+    {
+      "key": "goodEnding45",
+      "nodeId": null,
+      "kind": "good",
+      "resolved": false,
+      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
+      "starved": true,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.004851777274762381,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}

@@ -7,7 +7,56 @@ import { requireAuth, requireRole } from './authz.js'
 import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
 import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js'
 import { matchRolesToPositions } from './oc/roleMatch.js'
-import { buildItemCatalog, priceNodeItems, catalogFreshness, EMPTY_CATALOG } from './oc/itemPricing.js'
+import {
+  buildItemCatalog, priceNodeItems, catalogFreshness, EMPTY_CATALOG, type ItemDropInput,
+} from './oc/itemPricing.js'
+import { loadOcModel, type OcScenarioModel } from './oc/modelLoader.js'
+
+/**
+ * One assembled scenario: the committed model (#606) with this faction's own
+ * observations overlaid.
+ *
+ * ⚠️ Shaped exactly like the rows the SQL used to return, so everything
+ * downstream — item pricing, expectedValue, the client — is untouched by where
+ * the data now comes from. The two `money` notions stay distinct: `money_avg`
+ * on an ending is what WE observed; `reward` is what the model publishes.
+ */
+interface ScenarioEndingRow {
+  ending_key: string
+  node_id: string | null
+  kind: string
+  resolved: boolean
+  starved: boolean
+  problem: string | null
+  money_avg: number | null
+  money_min: number | null
+  money_max: number | null
+  respect_avg: number | null
+  observations: number | null
+  /** Item drops we have OBSERVED on this node (#441), priced below. */
+  items?: ItemDropInput[] | null
+  /** The model's published reward (#606), where Crimes Hub had one. ⚠️ A
+   *  different claim from `money_avg`, and the client must tell them apart. */
+  reward: unknown
+  item_value_avg?: number | null
+  item_value_unmatched?: string[]
+}
+
+interface ScenarioRow {
+  name: string
+  parameter_count: number
+  is_complete: boolean
+  diagram_valid: boolean
+  diagram_problems: unknown
+  observed_paths: number | null
+  fetched_at: string | null
+  ending_map_residual: number | null
+  ending_map_confident: boolean | null
+  ending_map_money_residual: number | null
+  ending_map_money_confident: boolean | null
+  roles: Array<{ position_id: string; role_name: string; weight: number }>
+  endings: ScenarioEndingRow[]
+}
 import { DEFAULT_PAYOUT_MODE, isPayoutMode } from './payoutModes.js'
 
 export interface OcDeps {
@@ -15,6 +64,17 @@ export interface OcDeps {
   tornBaseUrl: string
   /** Key-at-rest secret — server-side Torn reads claim from the pool (#98). */
   encryptionKey?: string
+  /**
+   * The OC scenario model (#606). Defaults to the dataset committed in the
+   * image, which is what every tenant runs.
+   *
+   * ⚠️ Injectable so tests can supply a small fixture. The alternative —
+   * asserting against the real committed dataset — would couple the whole suite
+   * to its exact contents, so a routine model refresh when Torn ships a game
+   * update would break tests that have nothing to do with the change. Torn adds
+   * crimes; the suite should not care.
+   */
+  ocModel?: Map<string, OcScenarioModel>
 }
 
 async function fetchLiveCrimes(deps: OcDeps): Promise<
@@ -51,6 +111,9 @@ async function fetchRoster(db: pg.Pool) {
 }
 
 export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
+  /** The model this server runs on. Read through a function so an injected
+   *  fixture is honoured everywhere, not just in the listing. */
+  const ocModel = () => deps.ocModel ?? loadOcModel()
   app.get('/api/crimes', { preHandler: requireAuth() }, async (req) => {
     const q = req.query as { limit?: string; offset?: string }
     const limit = clamp(q.limit, 1000, 2000)
@@ -156,41 +219,106 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
     '/api/oc-simulator/scenarios',
     { preHandler: requireRole(...SIM_ROLES) },
     async () => {
-      const rows = await deps.db.query(
-        `SELECT s.name, s.parameter_count, s.is_complete, s.observed_paths,
-                s.diagram_valid, s.diagram_problems, s.fetched_at,
-                COALESCE((
-                  SELECT jsonb_agg(jsonb_build_object(
-                           'position_id', r.position_id,
-                           'role_name', r.role_name,
-                           'weight', r.weight)
-                         ORDER BY length(r.position_id), r.position_id)
-                  FROM oc_scenario_roles r WHERE r.scenario_name = s.name
-                ), '[]'::jsonb) AS roles,
-                -- Endings travel with their resolution state. An ending we
-                -- could not map keeps its row so the UI can say WHY, rather
-                -- than silently pricing the crime on a subset of its outcomes.
-                -- #440: the payout for each ending, joined through the derived
-                -- node id. LEFT JOIN on purpose — an ending we mapped but have
-                -- no observations for keeps its row with null money, which
-                -- expectedValue() reports as an unpriced ending and therefore a
-                -- lower bound. Dropping it would silently shrink the crime.
-                COALESCE((
-                  SELECT jsonb_agg(jsonb_build_object(
-                           'ending_key', e.ending_key, 'node_id', e.node_id,
-                           'kind', e.kind, 'resolved', e.resolved, 'starved', e.starved, 'problem', e.problem,
-                           'money_avg', st.money_avg, 'money_min', st.money_min,
-                           'money_max', st.money_max, 'respect_avg', st.respect_avg,
-                           'observations', st.n, 'items', st.items)
-                         ORDER BY e.kind, e.ending_key)
-                  FROM oc_scenario_endings e
-                  LEFT JOIN oc_scenario_node_stats st
-                    ON st.scenario_name = e.scenario_name AND st.node_id = e.node_id
-                  WHERE e.scenario_name = s.name
-                ), '[]'::jsonb) AS endings
-           FROM oc_scenarios s
-          ORDER BY s.name`
+      // ⚠️ #606: the MODEL comes from the committed dataset, not from
+      // per-tenant tables. Only our OWN OBSERVATIONS are queried here.
+      //
+      // The mirror populated those tables only where somebody had enabled the
+      // `oc-scenarios-mirror` job, so on 2026-09-06 three of five live tenants
+      // held ZERO scenarios and their Simulator was silently empty — an empty
+      // table looks exactly like a crime with no data. Scenario structure is
+      // Torn game data, identical for every faction, so it belongs in the image
+      // where it cannot be present on some tenants and absent on others.
+      //
+      // ⚠️ Queried INDEPENDENTLY of oc_scenarios, not joined through it. Keying
+      // observations off the mirror's rows would reproduce the very bug this
+      // replaces: a tenant with no mirror rows would get no observations
+      // either, even though its own crime history is perfectly intact.
+      const statsRows = await deps.db.query(
+        `SELECT scenario_name, node_id, money_avg, money_min, money_max,
+                respect_avg, n, items
+           FROM oc_scenario_node_stats`
       )
+      const statsBy = new Map<string, Map<string, Record<string, unknown>>>()
+      for (const r of statsRows.rows) {
+        if (!statsBy.has(r.scenario_name)) statsBy.set(r.scenario_name, new Map())
+        statsBy.get(r.scenario_name)!.set(String(r.node_id), r)
+      }
+
+      // ⚠️ Still read from oc_scenarios, on purpose. These columns are OURS —
+      // derived from our own runs — and they are rehomed by a later migration.
+      // Reading them here keeps this change to the read path alone, so the
+      // mirror tables are dropped only once the switch has been proven live.
+      // A tenant with no rows simply has no quality figures, which is correct:
+      // it has made no observations to derive them from.
+      const derivedRows = await deps.db.query(
+        `SELECT name, observed_paths, fetched_at, ending_map_residual,
+                ending_map_confident, ending_map_money_residual,
+                ending_map_money_confident
+           FROM oc_scenarios`
+      )
+      const derivedBy = new Map(derivedRows.rows.map((r) => [r.name, r]))
+
+      // The model is the FLOOR; observations are an overlay. A faction that has
+      // never run a crime still gets every scenario, role and ending — it just
+      // has no money on them.
+      const rows = {
+        rows: [...ocModel().values()]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((m) => {
+            const derived = derivedBy.get(m.name) ?? {}
+            const stats = statsBy.get(m.name)
+            return {
+              name: m.name,
+              parameter_count: m.parameterCount,
+              is_complete: m.isComplete,
+              diagram_valid: m.diagramValid,
+              diagram_problems: m.diagramProblems,
+              observed_paths: (derived as any).observed_paths ?? null,
+              fetched_at: (derived as any).fetched_at ?? null,
+              ending_map_residual: (derived as any).ending_map_residual ?? null,
+              ending_map_confident: (derived as any).ending_map_confident ?? null,
+              ending_map_money_residual: (derived as any).ending_map_money_residual ?? null,
+              ending_map_money_confident: (derived as any).ending_map_money_confident ?? null,
+              // ⚠️ `length` first, then lexical — the ordering the SQL used.
+              // A plain sort puts P10 between P1 and P2, which silently
+              // reorders every role slider on a six-position crime.
+              roles: [...m.roles]
+                .sort((a, b) =>
+                  a.positionId.length - b.positionId.length ||
+                  a.positionId.localeCompare(b.positionId))
+                .map((r) => ({ position_id: r.positionId, role_name: r.roleName, weight: r.weight })),
+              // Endings keep their resolution state so the UI can say WHY one
+              // could not be mapped, rather than silently pricing the crime on
+              // a subset of its outcomes. An ending we mapped but have no
+              // observations for keeps its row with null money, which
+              // expectedValue() reports as unpriced and therefore a lower bound.
+              endings: [...m.endings]
+                .sort((a, b) => a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key))
+                .map((e) => {
+                  const st = (e.nodeId ? stats?.get(e.nodeId) : undefined) as any
+                  return {
+                    ending_key: e.key,
+                    node_id: e.nodeId,
+                    kind: e.kind,
+                    resolved: e.resolved,
+                    starved: e.starved,
+                    problem: e.problem,
+                    money_avg: st?.money_avg ?? null,
+                    money_min: st?.money_min ?? null,
+                    money_max: st?.money_max ?? null,
+                    respect_avg: st?.respect_avg ?? null,
+                    observations: st?.n ?? null,
+                    items: st?.items ?? null,
+                    // #606: the published reward, where Crimes Hub had one.
+                    // ⚠️ Distinct from money_avg, which is what WE have observed.
+                    // Two different claims about the same ending, and the client
+                    // must be able to tell them apart.
+                    reward: e.reward,
+                  }
+                }),
+            } as ScenarioRow
+          }),
+      }
 
       // #441 follow-up: price each ending's observed item drops at CURRENT
       // market prices, same convention as #448's crime-level average
@@ -214,7 +342,9 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       const itemCatalog = itemPrices.fresh ? buildItemCatalog(itemCatalogRows.rows) : EMPTY_CATALOG
       for (const s of rows.rows) {
         for (const e of s.endings ?? []) {
-          const priced = priceNodeItems(e.items, e.observations, itemCatalog)
+          // ⚠️ `?? 0`, and priceNodeItems returns null for n <= 0. An ending we
+          // have never observed must come back unpriced, not priced at zero.
+          const priced = priceNodeItems(e.items, e.observations ?? 0, itemCatalog)
           e.item_value_avg = priced ? priced.value : null
           e.item_value_unmatched = priced ? priced.unmatched : []
           delete e.items
@@ -369,12 +499,18 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
     async (req, reply) => {
       const { scenario } = req.params as { scenario: string }
 
-      const roles = await deps.db.query(
-        'SELECT position_id, role_name FROM oc_scenario_roles WHERE scenario_name = $1',
-        [scenario]
-      )
-      if (roles.rows.length === 0) {
-        return reply.status(404).send({ error: `no mirrored roles for ${scenario}` })
+      // #606: roles come from the committed model. ⚠️ The 404 message changes
+      // meaning with it — "not mirrored" described a per-tenant gap that could
+      // differ between factions, which is exactly the state this removed.
+      const scenarioModel = ocModel().get(scenario)
+      if (!scenarioModel || scenarioModel.roles.length === 0) {
+        return reply.status(404).send({ error: `unknown scenario: ${scenario}` })
+      }
+      const roles = {
+        rows: [...scenarioModel.roles]
+          .sort((a, b) =>
+            a.positionId.length - b.positionId.length || a.positionId.localeCompare(b.positionId))
+          .map((r) => ({ position_id: r.positionId, role_name: r.roleName })),
       }
 
       // Torn's own labels for this crime's positions, and its position ids.
@@ -461,11 +597,17 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
         return reply.status(400).send({ error: 'cpr must be a number between 0 and 100' })
       }
 
-      const scenarios = await deps.db.query(
-        `SELECT s.name, s.parameter_count,
-                (SELECT count(*)::int FROM oc_scenario_roles r WHERE r.scenario_name = s.name) AS role_count
-           FROM oc_scenarios s ORDER BY s.name`
-      )
+      // #606: every scenario, from the committed model — so this answers the
+      // same for every faction rather than only for those whose mirror ran.
+      const scenarios = {
+        rows: [...ocModel().values()]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((m) => ({
+            name: m.name,
+            parameter_count: m.parameterCount,
+            role_count: m.roles.length,
+          })),
+      }
 
       const client = createProbabilityClient()
       const out: Array<Record<string, unknown>> = []
@@ -536,14 +678,11 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       // length that crime actually takes. A wrong-length vector still returns
       // numbers from the upstream service — numbers describing a crime nobody
       // is running, which would look completely ordinary on the page.
-      const known = await deps.db.query(
-        'SELECT parameter_count FROM oc_scenarios WHERE name = $1',
-        [scenario]
-      )
-      if (known.rows.length === 0) {
+      const known = ocModel().get(scenario)
+      if (!known) {
         return reply.status(404).send({ error: `unknown scenario: ${scenario}` })
       }
-      const expected = Number(known.rows[0].parameter_count)
+      const expected = Number(known.parameterCount)
       if (parameters.length !== expected) {
         return reply.status(400).send({
           error: `${scenario} takes ${expected} roles, got ${parameters.length}`,

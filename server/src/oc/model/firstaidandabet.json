@@ -1,0 +1,157 @@
+{
+  "name": "First Aid and Abet",
+  "slug": "firstaidandabet",
+  "parameterCount": 3,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Picklock",
+      "weight": 26.040303247907904
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Decoy",
+      "weight": 30.73072727408889
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Pickpocket",
+      "weight": 43.228969478003215
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding1: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Picklock + Decoy)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": "_A2F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _B5F_ and _A1F_ on role evidence — needs a paired-role probe (Decoy + Pickpocket)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding4: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Picklock + Decoy)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding5: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Picklock + Decoy)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding6",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding6: ties between _A1F_ and _B4F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding7",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding7: ties between _B5F_ and _A1F_ on role evidence — needs a paired-role probe (Decoy + Pickpocket)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding8",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding8: ties between _B5F_ and _A1F_ on role evidence — needs a paired-role probe (Decoy + Pickpocket)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A7S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A7S3_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_B7S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.4659450794499962,
+    "roles": [
+      "Decoy",
+      "Picklock",
+      "Pickpocket"
+    ]
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": null
+  }
+}

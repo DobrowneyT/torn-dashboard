@@ -1,0 +1,125 @@
+{
+  "name": "Dish It Out",
+  "slug": "dishitout",
+  "parameterCount": 5,
+  "isComplete": false,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Assassin",
+      "weight": 37.3380808914086
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Muscle",
+      "weight": 25.243817634035594
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Saboteur 1",
+      "weight": 14.639223669899579
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Saboteur 2",
+      "weight": 8.911747057590532
+    },
+    {
+      "positionId": "P5",
+      "roleName": "Engineer",
+      "weight": 13.867130747065687
+    }
+  ],
+  "endings": [
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 48252000,
+        "respect": 223,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 41055000,
+        "respect": 195,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_B7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 38144000,
+        "respect": 176,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_A8S3_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 26844000,
+        "respect": 133,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_B7S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 31726500,
+        "respect": 152,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.637072927987822,
+    "roles": [
+      "Engineer",
+      "Muscle",
+      "Saboteur 1"
+    ]
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}
