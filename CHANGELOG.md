@@ -18,6 +18,45 @@ surface it automatically.
 
 ---
 
+## [3.90.0] - 2026-09-06
+
+### Added
+
+- **Admin credential rotation prints a scannable QR, and `--rotate` edits
+  `deploy/.env` in place (#646).** Rotating meant copying four values by hand
+  and typing a 32-character base32 secret into an authenticator — friction that
+  makes rotation something to avoid, which is the opposite of what a rotation
+  tool is for.
+
+  - ⚠️ The QR is drawn **locally**, never through an image service. A
+    `chart.googleapis.com`-style URL would send the TOTP secret — half the
+    admin credential — to a third party in a query string, where it would sit
+    in their request logs. A strange thing to do while rotating out of concern
+    about exposure.
+  - `--password-only` keeps the existing TOTP secret and is the common case: a
+    leaked password and a lost phone are different incidents, and forcing both
+    to rotate together means every password change costs re-enrolling the
+    authenticator.
+  - ⚠️ `ADMIN_SESSION_SECRET` is never rotated as a side effect — that
+    invalidates every live admin session, which is correct when intended and
+    baffling when not. `--rotate-session` asks for it explicitly.
+  - The in-place edit is its own tested module (`db/adminEnvFile.mjs`), because
+    `deploy/.env` holds every faction's database password and is not in git. It
+    replaces keys where they sit rather than appending (two copies would work by
+    accident — dotenv and compose both take the last — while leaving the old
+    credential visible with no way to tell which is live), preserves comments
+    and ordering, guards the missing-trailing-newline trap, and writes via temp
+    file + rename.
+
+### Fixed
+
+- A dead check in the admin credential generator (#646): the `$`-in-credentials
+  guard looped over `{ hash, totpSecret: '', sessionSecret: '' }` with both
+  secrets declared *after* the loop and passed as empty strings, so two of the
+  three values it claimed to check were never examined. Base32 and hex cannot
+  produce a `$`, so nothing slipped through — the check simply was not doing
+  what it said.
+
 ## [3.89.0] - 2026-09-06
 
 ### Added

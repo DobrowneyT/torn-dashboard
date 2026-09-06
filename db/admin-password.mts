@@ -1,9 +1,13 @@
-// Generates admin control-plane credentials (#609 slice 2).
+// Generates admin control-plane credentials (#609 slice 2, #646).
 //
-//   npx tsx db/admin-password.mts
+//   npx tsx db/admin-password.mts                    # print the four lines
+//   npx tsx db/admin-password.mts --rotate           # rewrite deploy/.env in place
+//   npx tsx db/admin-password.mts --rotate --password-only
+//   npx tsx db/admin-password.mts --rotate --rotate-session
 //
-// Prints the four lines to paste into deploy/.env, plus the otpauth:// URI to
-// scan into an authenticator app.
+// Prints the four lines to paste into deploy/.env, plus a SCANNABLE QR for the
+// authenticator app — typing a 32-character base32 secret by hand is the step
+// that made rotation something to avoid.
 //
 // ⚠️ A .mts run under tsx, not a .mjs, so it imports the REAL hashing and TOTP
 // code the server uses rather than a second copy. Two implementations of a
@@ -15,6 +19,10 @@
 // set a new one.
 import { createInterface } from 'node:readline/promises'
 import { randomBytes } from 'node:crypto'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { parseArgs } from 'node:util'
+import { readEnv, writeEnv, setEnvValues, envValue } from './adminEnvFile.mjs'
 import { hashPassword } from '../server/src/adminPlane/password.js'
 import { generateTotpSecret, totpUri } from '../server/src/adminPlane/totp.js'
 
@@ -50,6 +58,27 @@ async function readAnswers(): Promise<{ username: string; password: string }> {
   return { username: lines[0].trim(), password: lines[1].trim() }
 }
 
+const { values: args } = parseArgs({
+  options: {
+    rotate: { type: 'boolean' },
+    'password-only': { type: 'boolean' },
+    'rotate-session': { type: 'boolean' },
+  },
+})
+
+const here = dirname(fileURLToPath(import.meta.url))
+const envPath = join(here, '..', 'deploy', '.env')
+const existing = args.rotate ? readEnv(envPath) : ''
+
+if (args.rotate && existing === '') {
+  console.error(`No ${envPath} to rotate. Run without --rotate and create it first.`)
+  process.exit(2)
+}
+if (args['password-only'] && !args.rotate) {
+  console.error('--password-only only makes sense with --rotate.')
+  process.exit(2)
+}
+
 const { username, password } = await readAnswers()
 
 if (!username) {
@@ -64,34 +93,124 @@ if (password.length < 12) {
 
 const hash = await hashPassword(password)
 
+/**
+ * ⚠️ **Keeping the existing TOTP secret is the common case, not the exotic
+ * one.** A leaked password and a lost phone are different incidents; forcing
+ * both to rotate together means every password change costs re-enrolling the
+ * authenticator, which is exactly the friction that makes people not rotate.
+ */
+const keepTotp = args['password-only'] === true
+const totpSecret = keepTotp
+  ? (envValue(existing, 'ADMIN_TOTP_SECRET') ?? generateTotpSecret())
+  : generateTotpSecret()
+
+if (keepTotp && envValue(existing, 'ADMIN_TOTP_SECRET') === null) {
+  console.error('--password-only was given but deploy/.env has no ADMIN_TOTP_SECRET to keep.')
+  process.exit(2)
+}
+
+/**
+ * ⚠️ **Never rotated as a side effect.** Changing ADMIN_SESSION_SECRET
+ * invalidates every live admin session — correct when you mean it, baffling
+ * when you did not. On a rotation the existing value is kept unless
+ * --rotate-session says otherwise.
+ */
+const sessionSecret = args.rotate && !args['rotate-session']
+  ? (envValue(existing, 'ADMIN_SESSION_SECRET') ?? randomBytes(32).toString('hex'))
+  : randomBytes(32).toString('hex')
+
 // ⚠️ Belt and braces after the Compose interpolation incident: if a generated
-// value ever contains `$` again, say so here rather than letting it be
-// silently truncated on its way into the container.
-for (const [name, value] of Object.entries({ hash, totpSecret: '', sessionSecret: '' })) {
+// value ever contains `$`, say so here rather than letting it be silently
+// truncated on its way into the container.
+//
+// ⚠️ This check used to run BEFORE totpSecret and sessionSecret existed and was
+// passed empty strings for both, so it only ever examined the hash. Moved below
+// the generation so it checks what it claims to.
+for (const [name, value] of Object.entries({ hash, totpSecret, sessionSecret })) {
   if (value.includes('$')) {
     console.error(`Generated ${name} contains "$", which docker compose would mangle in deploy/.env.`)
     process.exit(3)
   }
 }
-const totpSecret = generateTotpSecret()
-const sessionSecret = randomBytes(32).toString('hex')
 
-console.log(`
+/**
+ * Render the otpauth URI as a QR in the terminal.
+ *
+ * ⚠️ Drawn LOCALLY, never through an image service. A
+ * `chart.googleapis.com`-style URL would send the TOTP secret — half the admin
+ * credential — to a third party in a query string, where it would sit in their
+ * request logs. That is a strange thing to do while rotating a credential
+ * because you are worried about exposure.
+ *
+ * ⚠️ Never throws. If the terminal cannot render it, the URI below is still the
+ * authoritative thing to enter by hand; losing the picture must not lose the
+ * secret.
+ */
+async function printQr(uri: string): Promise<void> {
+  try {
+    const mod = await import('qrcode-terminal')
+    // ⚠️ Called as a METHOD, not destructured. qrcode-terminal's generate()
+    // reads `this.error_level`, so pulling the function off the object gives
+    // `bad rs block @ errorCorrectLevel:undefined` — a failure that looks like
+    // a bad payload rather than a lost receiver.
+    const qr = ((mod as { default?: unknown }).default ?? mod) as {
+      generate(text: string, opts: { small: boolean }): void
+    }
+    if (typeof qr.generate !== 'function') throw new Error('no generate()')
+    qr.generate(uri, { small: true })
+  } catch (err) {
+    console.log(`  (could not draw a QR here: ${err instanceof Error ? err.message : String(err)})`)
+  }
+}
+
+const lines = {
+  ADMIN_USERNAME: username,
+  ADMIN_PASSWORD_HASH: hash,
+  ADMIN_TOTP_SECRET: totpSecret,
+  ADMIN_SESSION_SECRET: sessionSecret,
+}
+
+if (args.rotate) {
+  writeEnv(envPath, setEnvValues(existing, lines))
+  console.log(`
+Rewrote ${envPath} in place:
+
+  ADMIN_USERNAME         ${username}
+  ADMIN_PASSWORD_HASH    (new)
+  ADMIN_TOTP_SECRET      ${keepTotp ? 'unchanged — your authenticator still works' : '(new — rescan below)'}
+  ADMIN_SESSION_SECRET   ${args['rotate-session'] ? '(new — every live admin session is now invalid)' : 'unchanged'}
+
+⚠️ Comments, ordering and every other key were preserved, and the file was
+written via a temp file and renamed — deploy/.env holds every faction's database
+password, and a half-written one is not recoverable from git.
+
+Apply it:
+  docker compose --profile admin -f deploy/docker-compose.yml \
+    -f deploy/docker-compose.override.yml --project-directory deploy up -d admin
+`)
+} else {
+  console.log(`
 Add these to deploy/.env:
 
-ADMIN_USERNAME=${username}
-ADMIN_PASSWORD_HASH=${hash}
-ADMIN_TOTP_SECRET=${totpSecret}
-ADMIN_SESSION_SECRET=${sessionSecret}
+${Object.entries(lines).map(([k, v]) => `${k}=${v}`).join('\n')}
 
 ⚠️ ADMIN_SESSION_SECRET must NOT equal JWT_SECRET — the container refuses to
 start if it does, because sharing it would make every tenant session token a
 valid admin credential.
 
-Scan this into your authenticator app (Aegis, 1Password, Google Authenticator):
-
-  ${totpUri(totpSecret, username)}
-
-Then check the app shows a code BEFORE you rely on it — a mistyped secret is
-only discoverable at login, when you are already locked out.
+Next time, \`--rotate\` edits deploy/.env in place instead.
 `)
+}
+
+if (keepTotp) {
+  console.log('Your authenticator entry is unchanged — nothing to rescan.\n')
+} else {
+  console.log('Scan this into your authenticator app (Aegis, 1Password, Google Authenticator):\n')
+  await printQr(totpUri(totpSecret, username))
+  console.log(`
+Or enter it by hand:  ${totpUri(totpSecret, username)}
+
+⚠️ Check the app shows a code BEFORE you rely on it — a mistyped secret is only
+discoverable at login, when you are already locked out.
+`)
+}
