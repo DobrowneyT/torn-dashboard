@@ -4,6 +4,19 @@ on:
   pull_request:
     branches: [dev, main]
 
+# ⚠️ One run per PR, and a new push cancels the old one.
+#
+# This runs on a SINGLE self-hosted runner, so a superseded run is not merely
+# wasted — it sits in the queue ahead of the run you actually care about. A
+# force-push during review used to leave the previous run burning a slot for its
+# full ~7 minutes, which is most of a PR's wall-clock time.
+#
+# `github.ref` is `refs/pull/<n>/merge` here, so each PR gets its own group and
+# concurrent PRs never cancel one another.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   node-tests:
     name: Node Tests (Vitest — frontend, server, db)
@@ -41,7 +54,14 @@ jobs:
     # not a CI sandbox. tnl-dashboard-dev (staging) already reserves its own
     # name the same way; this job gets a third, disposable one.
     env:
-      COMPOSE_PROJECT_NAME: tnl-dashboard-ci
+      # ⚠️ **Per-RUN, not a constant.** It used to be the fixed string
+      # `tnl-dashboard-ci`, which is safe only while exactly one of these
+      # jobs can ever run at a time. Two concurrent runs would share the
+      # project, fight over the same containers, and each finish with
+      # `down -v` — tearing down the other's stack, on the box that also
+      # runs production. Deriving it from the run id makes this job safe to
+      # parallelise, which is the prerequisite for adding a second runner.
+      COMPOSE_PROJECT_NAME: tnl-dashboard-ci-${{ github.run_id }}
 
     steps:
     - name: Checkout repository
@@ -49,13 +69,32 @@ jobs:
 
     - name: Configure compose environment
       run: |
+        set -euo pipefail
         cp deploy/.env.example deploy/.env
         # Isolated from BOTH the runner's own defaults AND production's real
         # ports (production listens on 5432/8088 on this same host) — a
         # plain "avoid the runner's defaults" comment stopped being enough
         # the moment this started running on the production box itself.
-        echo "POSTGRES_HOST_PORT=55432" >> deploy/.env
-        echo "HTTP_PORT=18088" >> deploy/.env
+        #
+        # ⚠️ Allocated at RUN TIME rather than hardcoded, for the same reason
+        # the project name is: two concurrent runs on fixed ports collide, and
+        # the second fails to bind with an error that looks nothing like its
+        # cause. Picked from a wide range and checked against what is actually
+        # listening, so a run also cannot collide with production or staging.
+        pick_port() {
+          local p
+          while :; do
+            p=$(shuf -i 20000-60000 -n 1)
+            ss -ltn "( sport = :$p )" | grep -q LISTEN || { echo "$p"; return; }
+          done
+        }
+        PG_PORT=$(pick_port)
+        WEB_PORT=$(pick_port)
+        echo "POSTGRES_HOST_PORT=$PG_PORT" >> deploy/.env
+        echo "HTTP_PORT=$WEB_PORT" >> deploy/.env
+        # Later steps curl the stack; they need the port this run actually got.
+        echo "CI_HTTP_PORT=$WEB_PORT" >> "$GITHUB_ENV"
+        echo "project $COMPOSE_PROJECT_NAME  pg:$PG_PORT  http:$WEB_PORT"
 
     - name: Build images
       run: docker compose -f deploy/docker-compose.yml --project-directory deploy build
@@ -77,15 +116,15 @@ jobs:
 
     - name: Probe API health through nginx
       run: |
-        curl -fsS --retry 10 --retry-delay 2 --retry-all-errors http://localhost:18088/api/health | tee /tmp/health.json
+        curl -fsS --retry 10 --retry-delay 2 --retry-all-errors http://localhost:${CI_HTTP_PORT}/api/health | tee /tmp/health.json
         grep -q '"status":"ok"' /tmp/health.json
         grep -q '"faction":"forge"' /tmp/health.json
         # Host-header routing answers for the faction's own hostname too.
-        curl -fsS -H 'Host: forge.localhost' http://localhost:18088/api/health | grep -q '"faction":"forge"'
+        curl -fsS -H 'Host: forge.localhost' http://localhost:${CI_HTTP_PORT}/api/health | grep -q '"faction":"forge"'
 
     - name: Probe SPA through nginx
       run: |
-        curl -fsS http://localhost:18088/ | grep -qi '<div id="root"'
+        curl -fsS http://localhost:${CI_HTTP_PORT}/ | grep -qi '<div id="root"'
 
     # Cache policy (#382). Silent to a human — a wrong header here just means
     # users quietly run an old bundle for hours after a deploy and report bugs
@@ -96,22 +135,22 @@ jobs:
         # The entry document must never be stored, on the bare path AND on a
         # client-side route (which reaches index.html by internal redirect).
         for path in / /index.html /war-room; do
-          curl -fsSI "http://localhost:18088$path" | grep -qi 'cache-control: no-store' \
+          curl -fsSI "http://localhost:${CI_HTTP_PORT}$path" | grep -qi 'cache-control: no-store' \
             || { echo "::error::$path is missing no-store"; exit 1; }
         done
         # The service worker outlives even a hard refresh if it goes stale.
-        curl -fsSI http://localhost:18088/sw.js | grep -qi 'cache-control: no-store' \
+        curl -fsSI http://localhost:${CI_HTTP_PORT}/sw.js | grep -qi 'cache-control: no-store' \
           || { echo "::error::/sw.js is missing no-store"; exit 1; }
         # Content-hashed assets are safe to cache forever, and should be.
-        asset=$(curl -fsS http://localhost:18088/ | grep -o '/assets/[^"]*\.js' | head -1)
+        asset=$(curl -fsS http://localhost:${CI_HTTP_PORT}/ | grep -o '/assets/[^"]*\.js' | head -1)
         test -n "$asset" || { echo "::error::no hashed asset found in index.html"; exit 1; }
-        curl -fsSI "http://localhost:18088$asset" | grep -qi 'cache-control: public, max-age=31536000, immutable' \
+        curl -fsSI "http://localhost:${CI_HTTP_PORT}$asset" | grep -qi 'cache-control: public, max-age=31536000, immutable' \
           || { echo "::error::$asset is not immutably cached"; exit 1; }
 
     # Readiness reports live DB connectivity per faction (slice #76).
     - name: Probe readiness through nginx
       run: |
-        curl -fsS -H 'Host: forge.localhost' http://localhost:18088/api/health/ready | tee /tmp/ready.json
+        curl -fsS -H 'Host: forge.localhost' http://localhost:${CI_HTTP_PORT}/api/health/ready | tee /tmp/ready.json
         grep -q '"status":"ok"' /tmp/ready.json
         grep -q '"db":"up"' /tmp/ready.json
 
@@ -165,6 +204,16 @@ jobs:
       if: failure()
       run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy logs
 
+    # ⚠️ `--rmi local` is new, and it is the other half of the per-run project
+    # name above. A constant project name meant each run OVERWROTE the previous
+    # run's images; a per-run name means every run leaves its own
+    # `tnl-dashboard-ci-<id>-api-forge` behind forever. Those are TAGGED, so a
+    # dangling-image prune never touches them — the isolation fix would have
+    # quietly become a disk leak of several GB a day.
+    #
+    # `local` removes only images compose built itself, never a pulled one like
+    # `postgres:16` that a custom `image:` field names. The build CACHE survives,
+    # so the next run rebuilds just as fast.
     - name: Tear down
       if: always()
-      run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy down -v
+      run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy down -v --rmi local
