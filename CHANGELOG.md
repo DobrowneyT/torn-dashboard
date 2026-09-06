@@ -18,6 +18,61 @@ surface it automatically.
 
 ---
 
+## [3.81.0] - 2026-09-06
+
+### Added
+- **Tests pinning what happens on a week the faction sits out matchmaking.**
+  MonChoon asked whether the war-lifecycle automation copes when the check after
+  matchmaking finds no war. It does — `upcoming = wars.filter(w => w.start > 0
+  && !w.end)[0] ?? null` followed by `if (upcoming)` makes the whole auto-setup
+  and auto-enable path a clean no-op — but nothing asserted it, and that is one
+  refactor away from no longer being true on a job that runs every three
+  minutes.
+
+  Five cases now cover it: no wars at all, only wars that have already ended
+  (the realistic shape of a week off), a matched war whose opponent cannot be
+  identified, and a response with no `rankedwars` key at all.
+
+  ⚠️ The assertion that matters is not "it did not throw" but that the war
+  room's configuration comes back **byte-for-byte unchanged** — including
+  `faction_id`, the opponent the room points at. A quiet week must not arm the
+  room, and must not disarm one a leader armed by hand: the absence of a ranked
+  war says nothing about whether a human wanted the room on, and one of the five
+  cases exists solely to hold that line.
+
+---
+
+## [3.80.0] - 2026-09-06
+
+### Changed
+- **`update.sh` now rebuilds the admin control plane on every deploy.** ⚠️ This
+  reverses the #609 slice 2 decision to keep it a deliberate, separate act
+  (*"a bad push here is fleet-wide"*), at MonChoon's request — the cost of
+  remembering had bitten twice, most visibly as a stale admin UI mistaken for a
+  missing feature.
+
+  Most of the original safety survives the reversal, by construction rather than
+  by care:
+
+  - ⚠️ It runs **after tenant readiness**, so tenants are already deployed and
+    verified. A broken admin build cannot delay, block or roll back a tenant
+    deploy — which was the actual content of "fleet-wide", and it still holds.
+  - ⚠️ It is **non-fatal** and never touches the deploy's exit code. Failing the
+    deploy would leave the `--if-changed` marker stale, and cron would then
+    rebuild the whole fleet every five minutes over an optional container. Now
+    that #609 slice 4 alerting exists, an admin container that is down is
+    exactly what should page — that is the right channel, not a deploy's exit
+    status.
+  - ⚠️ It is **skipped entirely** when `ADMIN_PASSWORD_HASH` is unset, because
+    the container refuses to start unconfigured by design; building it on a host
+    that never ran the setup would manufacture a permanent, meaningless warning.
+
+  `./deploy/update.sh --no-admin` (or `NO_ADMIN=1`) opts out for one run.
+  Argument parsing now accepts flags in any order and rejects unknown ones
+  rather than silently ignoring them.
+
+---
+
 ## [3.79.0] - 2026-09-06
 
 ### Changed
