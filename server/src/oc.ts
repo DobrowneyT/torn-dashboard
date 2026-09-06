@@ -10,7 +10,7 @@ import { matchRolesToPositions } from './oc/roleMatch.js'
 import {
   buildItemCatalog, priceNodeItems, catalogFreshness, EMPTY_CATALOG, type ItemDropInput,
 } from './oc/itemPricing.js'
-import { loadOcModel } from './oc/modelLoader.js'
+import { loadOcModel, type OcScenarioModel } from './oc/modelLoader.js'
 
 /**
  * One assembled scenario: the committed model (#606) with this faction's own
@@ -64,6 +64,17 @@ export interface OcDeps {
   tornBaseUrl: string
   /** Key-at-rest secret — server-side Torn reads claim from the pool (#98). */
   encryptionKey?: string
+  /**
+   * The OC scenario model (#606). Defaults to the dataset committed in the
+   * image, which is what every tenant runs.
+   *
+   * ⚠️ Injectable so tests can supply a small fixture. The alternative —
+   * asserting against the real committed dataset — would couple the whole suite
+   * to its exact contents, so a routine model refresh when Torn ships a game
+   * update would break tests that have nothing to do with the change. Torn adds
+   * crimes; the suite should not care.
+   */
+  ocModel?: Map<string, OcScenarioModel>
 }
 
 async function fetchLiveCrimes(deps: OcDeps): Promise<
@@ -100,6 +111,9 @@ async function fetchRoster(db: pg.Pool) {
 }
 
 export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
+  /** The model this server runs on. Read through a function so an injected
+   *  fixture is honoured everywhere, not just in the listing. */
+  const ocModel = () => deps.ocModel ?? loadOcModel()
   app.get('/api/crimes', { preHandler: requireAuth() }, async (req) => {
     const q = req.query as { limit?: string; offset?: string }
     const limit = clamp(q.limit, 1000, 2000)
@@ -248,7 +262,7 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       // never run a crime still gets every scenario, role and ending — it just
       // has no money on them.
       const rows = {
-        rows: [...loadOcModel().values()]
+        rows: [...ocModel().values()]
           .sort((a, b) => a.name.localeCompare(b.name))
           .map((m) => {
             const derived = derivedBy.get(m.name) ?? {}
@@ -485,12 +499,18 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
     async (req, reply) => {
       const { scenario } = req.params as { scenario: string }
 
-      const roles = await deps.db.query(
-        'SELECT position_id, role_name FROM oc_scenario_roles WHERE scenario_name = $1',
-        [scenario]
-      )
-      if (roles.rows.length === 0) {
-        return reply.status(404).send({ error: `no mirrored roles for ${scenario}` })
+      // #606: roles come from the committed model. ⚠️ The 404 message changes
+      // meaning with it — "not mirrored" described a per-tenant gap that could
+      // differ between factions, which is exactly the state this removed.
+      const scenarioModel = ocModel().get(scenario)
+      if (!scenarioModel || scenarioModel.roles.length === 0) {
+        return reply.status(404).send({ error: `unknown scenario: ${scenario}` })
+      }
+      const roles = {
+        rows: [...scenarioModel.roles]
+          .sort((a, b) =>
+            a.positionId.length - b.positionId.length || a.positionId.localeCompare(b.positionId))
+          .map((r) => ({ position_id: r.positionId, role_name: r.roleName })),
       }
 
       // Torn's own labels for this crime's positions, and its position ids.
@@ -577,11 +597,17 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
         return reply.status(400).send({ error: 'cpr must be a number between 0 and 100' })
       }
 
-      const scenarios = await deps.db.query(
-        `SELECT s.name, s.parameter_count,
-                (SELECT count(*)::int FROM oc_scenario_roles r WHERE r.scenario_name = s.name) AS role_count
-           FROM oc_scenarios s ORDER BY s.name`
-      )
+      // #606: every scenario, from the committed model — so this answers the
+      // same for every faction rather than only for those whose mirror ran.
+      const scenarios = {
+        rows: [...ocModel().values()]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((m) => ({
+            name: m.name,
+            parameter_count: m.parameterCount,
+            role_count: m.roles.length,
+          })),
+      }
 
       const client = createProbabilityClient()
       const out: Array<Record<string, unknown>> = []
@@ -652,14 +678,11 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       // length that crime actually takes. A wrong-length vector still returns
       // numbers from the upstream service — numbers describing a crime nobody
       // is running, which would look completely ordinary on the page.
-      const known = await deps.db.query(
-        'SELECT parameter_count FROM oc_scenarios WHERE name = $1',
-        [scenario]
-      )
-      if (known.rows.length === 0) {
+      const known = ocModel().get(scenario)
+      if (!known) {
         return reply.status(404).send({ error: `unknown scenario: ${scenario}` })
       }
-      const expected = Number(known.rows[0].parameter_count)
+      const expected = Number(known.parameterCount)
       if (parameters.length !== expected) {
         return reply.status(400).send({
           error: `${scenario} takes ${expected} roles, got ${parameters.length}`,

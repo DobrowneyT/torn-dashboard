@@ -1,12 +1,57 @@
 // OC read surface (slice #62), black-box at the HTTP seam.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
+import { ocModelFixture } from './ocModelFixture.js'
+
+/**
+ * The scenario model these tests run against (#606).
+ *
+ * ⚠️ Injected rather than asserted against `src/oc/model/`. Torn adds crimes and
+ * revises flowcharts, so coupling the suite to the committed dataset would let
+ * a routine model refresh break tests that have nothing to do with the change.
+ *
+ * The shapes here are the ones the assertions care about: a resolved ending, an
+ * ending we could not map (with its reason), and a starved one (#473).
+ */
+const OC_MODEL = ocModelFixture([
+  {
+    name: 'Break the Bank',
+    parameterCount: 6,
+    roles: [['P1', 'Robber', 20], ['P2', 'Muscle 1', 20]],
+    endings: [
+      { key: 'goodEnding1', nodeId: '_A8S_', kind: 'good', resolved: true },
+      {
+        key: 'goodEnding3', kind: 'good', resolved: false,
+        problem: 'goodEnding3: ties between _A9S_ and _A10S_',
+      },
+      {
+        key: 'goodEnding35', kind: 'good', resolved: false, starved: true,
+        problem: 'no diagram counterpart — priced at $0 pending an upstream diagram fix',
+      },
+    ],
+  },
+  { name: 'Lock Stock', parameterCount: 5, isComplete: false, roles: [['P1', 'Picklock', 50], ['P2', 'Muscle', 50]] },
+  // ⚠️ Scenarios the later describe blocks used to INSERT mid-test. The model
+  // is no longer per-tenant data, so it cannot be added to from inside an `it`
+  // — every scenario a test needs must be declared here up front.
+  { name: 'Honey Trap', parameterCount: 3 },        // mirrored, never completed
+  { name: 'Painting Job', parameterCount: 3 },
+  { name: 'Mystery Job', parameterCount: 3 },
+  {
+    name: 'Window Job',
+    parameterCount: 4,
+    endings: [
+      { key: 'goodEnding1', nodeId: '_A8S_', kind: 'good', resolved: true },
+      { key: 'goodEnding2', nodeId: '_C6S_', kind: 'good', resolved: true },
+    ],
+  },
+])
 
 let stack: TestStack
 let token: string
 
 beforeAll(async () => {
-  stack = await startTestStack()
+  stack = await startTestStack(undefined, {}, { ocModel: OC_MODEL })
 
   await stack.db.query(`
     INSERT INTO members (member_id, member_name, tier, tier_override, is_current) VALUES
@@ -242,17 +287,9 @@ describe('OC Simulator endpoints', () => {
       VALUES ('Break the Bank', 6, true, 411, true),
              ('Lock Stock', 5, false, 126, true)
     `)
-    await stack.db.query(`
-      INSERT INTO oc_scenario_roles (scenario_name, position_id, role_name, weight) VALUES
-        ('Break the Bank', 'P1', 'Robber', 20),
-        ('Break the Bank', 'P2', 'Muscle 1', 20)
-    `)
-    await stack.db.query(`
-      INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved, starved, problem) VALUES
-        ('Break the Bank', 'goodEnding1', '_A8S_', 'good', true, false, NULL),
-        ('Break the Bank', 'goodEnding3', NULL, 'good', false, false, 'goodEnding3: ties between _A9S_ and _A10S_'),
-        ('Break the Bank', 'goodEnding35', NULL, 'good', false, true, 'no diagram counterpart — priced at $0 pending an upstream diagram fix')
-    `)
+    // ⚠️ Roles and endings now come from OC_MODEL above, not from these tables
+    // (#606). `oc_scenarios` is still seeded because observed_paths and the
+    // ending-map quality columns are OURS and still read from it.
   })
 
   const simGet = async (path: string) => {
@@ -715,5 +752,90 @@ describe('GET /api/oc-simulator/ranking', () => {
     const lock = body.crimes.find((c: any) => c.name === 'Lock Stock')
     expect(lock.success).toBeNull()
     expect(lock.error).toMatch(/role count/)
+  })
+})
+
+describe('⚠️ a faction with no mirror rows still gets the whole model (#606)', () => {
+  // THE bug this change removes. `oc-scenarios-mirror` only populated the
+  // per-tenant tables where somebody had enabled the job, so on 2026-09-06
+  // three of five live tenants held ZERO scenarios and their Simulator was
+  // silently empty — an empty table looks exactly like a crime with no data.
+  //
+  // Scenario structure is Torn game data, identical for every faction, so it
+  // now ships in the image where it cannot be present on some tenants and
+  // absent on others.
+  //
+  // ⚠️ Reuses the existing stack and empties oc_scenarios, rather than booting a
+  // second one. A first draft started another embedded Postgres and flaked
+  // admin-incident-store.test.ts by pushing concurrent instances past what the
+  // runner has — a test that breaks an unrelated suite is not worth the
+  // isolation. Rows are restored afterwards so ordering stays irrelevant.
+  let saved: unknown[] = []
+  let token = ''
+
+  const simGet = async (path: string) => {
+    const res = await fetch(`${stack.baseUrl}${path}`, { headers: { authorization: `Bearer ${token}` } })
+    return { status: res.status, body: (await res.json()) as any }
+  }
+
+  beforeAll(async () => {
+    // The ocmanager key seeded by the earlier block; logging in again is
+    // cheaper than another role grant.
+    const login = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'SIMMANAGERKEY123' }),
+    })
+    token = ((await login.json()) as any).token
+    saved = (await stack.db.query('SELECT * FROM oc_scenarios')).rows
+    // ⚠️ DELETE, not TRUNCATE: oc_scenario_roles and _endings still carry
+    // foreign keys to this table. That they do is itself a reminder that the
+    // mirror tables are still present — dropping them is a later slice, only
+    // once this switch has been proven in production.
+    await stack.db.query('DELETE FROM oc_scenario_endings')
+    await stack.db.query('DELETE FROM oc_scenario_roles')
+    await stack.db.query('DELETE FROM oc_scenarios')
+  })
+
+  afterAll(async () => {
+    for (const r of saved as Array<Record<string, unknown>>) {
+      await stack.db.query(
+        `INSERT INTO oc_scenarios (name, parameter_count, is_complete, observed_paths, diagram_valid)
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+        [r.name, r.parameter_count, r.is_complete, r.observed_paths, r.diagram_valid]
+      )
+    }
+  })
+
+  it('serves every scenario despite an empty oc_scenarios table', async () => {
+    const empty = await stack.db.query('SELECT count(*)::int AS n FROM oc_scenarios')
+    expect(empty.rows[0].n).toBe(0)
+
+    const { status, body } = await simGet('/api/oc-simulator/scenarios')
+    expect(status).toBe(200)
+    expect(body.scenarios.map((s: any) => s.name)).toContain('Break the Bank')
+    expect(body.scenarios.length).toBe(OC_MODEL.size)
+  })
+
+  it('carries roles and endings, with no observations rather than no rows', async () => {
+    const { body } = await simGet('/api/oc-simulator/scenarios')
+    const btb = body.scenarios.find((s: any) => s.name === 'Break the Bank')
+    expect(btb.roles.map((r: any) => r.role_name)).toEqual(['Robber', 'Muscle 1'])
+    expect(btb.endings.length).toBe(3)
+    // ⚠️ Our own derived column is absent, which is correct: with no rows there
+    // are no observations to derive it from. null, never 0 — reporting zero
+    // would state a measurement we never made (#351, #441).
+    expect(btb.observed_paths).toBeNull()
+  })
+
+  it('answers the roster lookup, which also reads the model', async () => {
+    // roster-cpr/:scenario used to 404 with "no mirrored roles for X" on a
+    // tenant whose mirror had never run — a per-faction gap in data that cannot
+    // differ between factions.
+    expect((await simGet('/api/oc-simulator/roster-cpr/Break%20the%20Bank')).status).toBe(200)
+  })
+
+  it('⚠️ still 404s for a scenario that genuinely does not exist', async () => {
+    expect((await simGet('/api/oc-simulator/roster-cpr/Not%20A%20Crime')).status).toBe(404)
   })
 })
