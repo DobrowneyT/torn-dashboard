@@ -234,12 +234,116 @@ describe('global-admin scraper surface', () => {
     // Bring-up is explicit: nothing scrapes until the admin turns it on.
     const itemsJob = list.body.jobs.find((j: any) => j.job_name === 'items-sync')
     expect(itemsJob.enabled).toBe(false)
-    expect(itemsJob.cron_schedule).toBeTruthy()
+    // ⚠️ #609 slice 5: `cron_schedule` is now this faction's OVERRIDE, and null
+    // means "follow the fleet default" — a real setting, not a missing one. The
+    // cadence the scheduler will actually use is `effective_schedule`, and
+    // `schedule_source` says which of the three layers supplied it.
+    expect(itemsJob.cron_schedule).toBeNull()
+    expect(itemsJob.effective_schedule).toBeTruthy()
+    expect(itemsJob.schedule_source).toBe('default')
+    expect(itemsJob.effective_schedule).toBe(itemsJob.default_schedule)
 
     const toggle = await api('PUT', '/api/admin/scraper/jobs/items-sync', adminToken, { enabled: true })
     expect(toggle.status).toBe(200)
     const after = await api('GET', '/api/admin/scraper/jobs', adminToken)
     expect(after.body.jobs.find((j: any) => j.job_name === 'items-sync').enabled).toBe(true)
+  })
+})
+
+describe('feature flags (#609 slice 5)', () => {
+  it('stores, resolves and clears a tenant flag', async () => {
+    const put = await api('PUT', '/api/admin/flags/scraper.schedule.items-sync', adminToken, {
+      value: '0 0 */12 * * *',
+    })
+    expect(put.status).toBe(200)
+    expect(put.body.flag).toMatchObject({ value: '0 0 */12 * * *', source: 'tenant' })
+
+    const list = await api('GET', '/api/admin/flags', adminToken)
+    expect(list.status).toBe(200)
+    expect(list.body.flags).toContainEqual(
+      expect.objectContaining({ key: 'scraper.schedule.items-sync', source: 'tenant' })
+    )
+
+    const del = await api('DELETE', '/api/admin/flags/scraper.schedule.items-sync', adminToken)
+    expect(del.status).toBe(200)
+    expect(del.body.flag).toMatchObject({ source: 'unset' })
+  })
+
+  it('⚠️ a flag write takes effect on the scheduler view immediately', async () => {
+    // The resolver caches for a minute, so a write that did not invalidate it
+    // would leave the console showing a value the scheduler is not using —
+    // exactly the confusion this feature is supposed to remove.
+    await api('PUT', '/api/admin/flags/scraper.schedule.crimes-sync', adminToken, {
+      value: '0 0 */4 * * *',
+    })
+    const list = await api('GET', '/api/admin/flags', adminToken)
+    expect(list.body.flags.find((f: any) => f.key === 'scraper.schedule.crimes-sync'))
+      .toMatchObject({ value: '0 0 */4 * * *' })
+    await api('DELETE', '/api/admin/flags/scraper.schedule.crimes-sync', adminToken)
+  })
+
+  it('⚠️ refuses a null value rather than storing a row that means nothing', async () => {
+    // A stored null would produce a row that EXISTS — and therefore counts as
+    // "set", beating any fleet default — while holding nothing. Unsetting is a
+    // DELETE, and only a DELETE.
+    const bad = await api('PUT', '/api/admin/flags/some.flag', adminToken, { value: null })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toContain('DELETE')
+  })
+
+  it('⚠️ keeps a tenant-set 0, which is a real setting in this codebase', async () => {
+    // member_stats_poll_interval_sec = 0 already means "off" (warLifecycle.ts).
+    const put = await api('PUT', '/api/admin/flags/war.member_stats_poll_interval_sec', adminToken, {
+      value: 0,
+    })
+    expect(put.status).toBe(200)
+    expect(put.body.flag.value).toBe(0)
+    expect(put.body.flag.source).toBe('tenant')
+    await api('DELETE', '/api/admin/flags/war.member_stats_poll_interval_sec', adminToken)
+  })
+
+  it('rejects a malformed key', async () => {
+    const bad = await api('PUT', '/api/admin/flags/Bad Key!', adminToken, { value: 1 })
+    expect(bad.status).toBe(400)
+  })
+
+  it('is global-admin only', async () => {
+    const asLeader = await api('GET', '/api/admin/flags', leadershipToken)
+    expect(asLeader.status).toBe(403)
+  })
+})
+
+describe('scraper cadence override (#609 slice 5)', () => {
+  it('⚠️ an explicit null clears the override and returns to the fleet default', async () => {
+    // Distinct from omitting the field, which means "leave it alone".
+    // Collapsing the two would leave a faction with no way back short of a DB
+    // edit.
+    const set = await api('PUT', '/api/admin/scraper/jobs/items-sync', adminToken, {
+      cron_schedule: '0 0 */3 * * *',
+    })
+    expect(set.status).toBe(200)
+    let list = await api('GET', '/api/admin/scraper/jobs', adminToken)
+    let job = list.body.jobs.find((j: any) => j.job_name === 'items-sync')
+    expect(job).toMatchObject({ cron_schedule: '0 0 */3 * * *', schedule_source: 'tenant' })
+
+    const clear = await api('PUT', '/api/admin/scraper/jobs/items-sync', adminToken, {
+      cron_schedule: null,
+    })
+    expect(clear.status).toBe(200)
+    list = await api('GET', '/api/admin/scraper/jobs', adminToken)
+    job = list.body.jobs.find((j: any) => j.job_name === 'items-sync')
+    expect(job.cron_schedule).toBeNull()
+    expect(job.schedule_source).toBe('default')
+    expect(job.effective_schedule).toBe(job.default_schedule)
+  })
+
+  it('toggling enabled does not disturb an existing override', async () => {
+    await api('PUT', '/api/admin/scraper/jobs/crimes-sync', adminToken, { cron_schedule: '0 0 */5 * * *' })
+    await api('PUT', '/api/admin/scraper/jobs/crimes-sync', adminToken, { enabled: true })
+    const list = await api('GET', '/api/admin/scraper/jobs', adminToken)
+    const job = list.body.jobs.find((j: any) => j.job_name === 'crimes-sync')
+    expect(job).toMatchObject({ cron_schedule: '0 0 */5 * * *', enabled: true })
+    await api('PUT', '/api/admin/scraper/jobs/crimes-sync', adminToken, { cron_schedule: null, enabled: false })
   })
 })
 

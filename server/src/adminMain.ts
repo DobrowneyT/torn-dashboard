@@ -146,9 +146,11 @@ const alerts: MonitorDeps | undefined = collector && db
 
 const publicApp = await buildAdminApp({
   surface: 'public', username, passwordHash, totpSecret, sessionSecret, version, collector, alerts,
+  fleetDb: db,
 })
 const localApp = await buildAdminApp({
   surface: 'local', username, passwordHash, totpSecret, sessionSecret, version, collector, alerts,
+  fleetDb: db,
 })
 
 await publicApp.listen({ host: '0.0.0.0', port: publicPort })

@@ -179,7 +179,57 @@ one, the scheduler seeds its clock rather than firing immediately — otherwise 
 container started at 23:00 would mail a digest covering nothing, seconds after a
 deploy. Use the local `digest/send` route above to see one now.
 
-## 6. When something looks wrong
+## 6. Fleet feature-flag defaults (slice 5)
+
+A fleet default applies to every faction that has not set the same flag for
+itself. Reading is on the public surface; **writing is tunnel-only**, because a
+flag reaches every tenant within a minute and the dangerous value is a valid one
+— `* * * * * *` on a scraper cadence would have five factions calling Torn every
+second on their own pooled keys, which is a fleet-wide rate-limit ban from one
+typo with no undo that gives the keys back.
+
+```bash
+# What the fleet currently sets (public surface, read-only)
+curl -s http://127.0.0.1:8091/api/admin/flags -H "authorization: Bearer $TOKEN"; echo
+
+# Set one — tunnel-only
+curl -s -X PUT http://127.0.0.1:8091/api/admin/local/flags/scraper.schedule.items-sync \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  --data-raw '{"value":"0 0 */12 * * *","description":"item catalogue, twice daily"}'; echo
+
+# Unset it. ⚠️ DELETE, never a write of null — the row's EXISTENCE is the
+# "set" signal, so a stored null would be a flag that is set and empty at once.
+curl -s -X DELETE http://127.0.0.1:8091/api/admin/local/flags/scraper.schedule.items-sync \
+  -H "authorization: Bearer $TOKEN"; echo
+```
+
+**Scraper cadence** is the first consumer. Its key is
+`scraper.schedule.<job_name>`, and a job's schedule resolves through three
+layers, most specific first:
+
+1. the faction's own `scraper_jobs.cron_schedule` (Global Admin → Scrapers)
+2. `fleet_flags['scraper.schedule.<job>']` — what you set above
+3. the code default in `JOB_TABLE`
+
+Global Admin shows the effective cadence and a badge saying which layer supplied
+it. Clearing the field there and saving returns that faction to the default.
+
+⚠️ **A faction that has its own value will not pick up a fleet default.** After
+the upgrade to v3.75.0 most jobs follow the default automatically — a row whose
+schedule exactly matched the built-in was adopted, since only the old seeding
+could have written it — but anything an operator ever edited stays theirs until
+they clear it. That is deliberate: silently retiming every faction's scrapers on
+a deploy is a fleet-wide Torn rate-limit event.
+
+⚠️ **Cadence changes arm on the tenant API's next restart.** The scheduler
+creates its cron tasks at startup. A flag write is picked up within a minute by
+anything that reads flags live, but the running cron tasks are not rebuilt.
+
+⚠️ **An invalid expression is ignored, not fatal.** It falls back to the code
+default and is reported on the Global Admin page and in the API logs. Check
+there if a cadence you set does not appear to have taken.
+
+## 7. When something looks wrong
 
 | symptom | first thing to check |
 |---|---|
@@ -189,6 +239,8 @@ deploy. Use the local `digest/send` route above to see one now.
 | `Authentication required` on every call | `$TOKEN` is empty because the login above failed silently |
 | no Discord message during an outage | fewer than two cycles have passed, or `ADMIN_DISCORD_WEBHOOK_URL` is unset — check the boot line in §2 |
 | status page loads but the incidents card says unavailable | the incident store is in Postgres, so this is what a database outage looks like; the fleet table is fetched separately and still works |
+| a fleet flag has no effect on one faction | that faction has its own override — Global Admin shows the source badge; clear it there |
+| a fleet cadence flag has no effect anywhere | cron tasks are built at startup; restart the tenant APIs. If it still does nothing, the expression was rejected — check the API logs |
 
 ## Related
 
