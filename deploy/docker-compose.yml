@@ -106,12 +106,26 @@ services:
       JWT_SECRET: ${JWT_SECRET:-}
       ADMIN_PUBLIC_PORT: "8090"
       ADMIN_LOCAL_PORT: "8091"
+    volumes:
+      # ⚠️ Read-only, and the only volume this container gets. Backup freshness
+      # is the highest-value monitor there is — a job failing for three weeks is
+      # worse than no backup, because you believe you have one — and mounting
+      # the same volume also gives `statfs` the real host filesystem behind it,
+      # so disk headroom comes free. `ro` because nothing here should ever be
+      # able to delete a dump.
+      - backups:/backups:ro
     ports:
-      # ⚠️ The local surface is published to the HOST LOOPBACK only, so it is
-      # unroutable from outside the VPS and reachable over an SSH tunnel:
+      # ⚠️ THIS LINE is the security boundary for the local surface, not the
+      # process's bind address. Docker forwards a published port to the
+      # container's network interface, never to its loopback — binding the
+      # listener to the container's 127.0.0.1 makes the published port reach
+      # nothing at all (curl returns 000, not an HTTP status). So the listener
+      # binds 0.0.0.0 inside, and `127.0.0.1:` here is what keeps it off the
+      # internet. Reachable over an SSH tunnel:
       #   ssh -L 8091:127.0.0.1:8091 ubuntu@<vps>
-      # The public surface is NOT published here — nginx proxies to it on the
-      # compose network, so it is never exposed directly.
+      #
+      # The public surface is deliberately NOT published — nginx proxies to it
+      # over the compose network, so it is never exposed directly.
       - "127.0.0.1:8091:8091"
     depends_on:
       postgres:
