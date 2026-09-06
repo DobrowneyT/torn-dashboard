@@ -18,6 +18,50 @@ surface it automatically.
 
 ---
 
+## [3.73.0] - 2026-09-05
+
+### Added
+- **The fleet status page (#609, slice 3 of 7)** — `admin.monchoon.me` now shows
+  every tenant, Postgres, backup freshness and disk headroom, refreshing every
+  30 seconds behind the slice-2 login.
+
+- **⚠️ Tenant discovery costs nothing and breaks no isolation.** The writer role
+  can read `pg_database` — a shared catalog — so the tenant list comes from the
+  cluster itself rather than a config file that would drift the moment a faction
+  was added. Verified on the live cluster that the same role **cannot CONNECT**
+  to any `faction_*` database: it learns the names and nothing else. No Docker
+  socket, no per-tenant credential, no cross-tenant database access, exactly as
+  the #608 audit required.
+
+- **Monitors chosen for what actually goes wrong, not what is easy to check:**
+  - **Backup freshness**, and a named list of factions with **no dump at all**.
+    ⚠️ Computed against the known tenant list, not against the files present — a
+    check that only looked at existing files reports a never-backed-up faction
+    as perfectly healthy, because its absence is invisible. A job failing for
+    three weeks is worse than no backup, because you believe you have one.
+  - **Disk headroom**, free from the same read-only `/backups` mount.
+  - Per-tenant DB, scheduler and ticker state, plus which global schema and OC
+    model version each tenant is reading.
+
+- **Everything degrades rather than throwing.** Postgres down still produces a
+  report — *"the control plane's own database is down"* is the headline finding,
+  not a reason to return a blank page during the incident. One dead tenant does
+  not hide the healthy ones, and a wedged tenant is timed out at 3s rather than
+  stalling the page.
+
+  ⚠️ A tenant reporting `global: "unavailable"` is **not** counted as degraded.
+  Tenants are designed to work with the control plane down, and marking it a
+  fault would make this page report the fleet as unhealthy whenever the box
+  rendering the page is the thing that is broken.
+
+- The page is one self-contained HTML string — no build step, no framework, no
+  frontend workspace in the image. A status page is a table and a login form,
+  and the simplest thing that can work is the most likely to be working when it
+  is needed. Served unauthenticated because it contains **no data**: it is a
+  login form plus the script that calls the authenticated status endpoint.
+
+---
+
 ## [3.72.0] - 2026-09-05
 
 ### Added

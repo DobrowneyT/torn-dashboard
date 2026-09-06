@@ -16,6 +16,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import pg from 'pg'
 import { buildAdminApp } from './adminPlane/app.js'
 import { looksHashed } from './adminPlane/password.js'
 
@@ -77,15 +78,33 @@ if (process.env.JWT_SECRET && sessionSecret === process.env.JWT_SECRET) {
   process.exit(1)
 }
 
+// Writer pool on the shared `global` database — the only writer in the fleet.
+// Small: this is a low-traffic control surface, and exhausting global's
+// connection slots would degrade the thing every tenant reads.
+const databaseUrl = process.env.DATABASE_URL
+const db = databaseUrl ? new pg.Pool({ connectionString: databaseUrl, max: 4 }) : undefined
+db?.on('error', (err) => console.error('[admin] pg pool error:', err.message))
+if (!databaseUrl) {
+  console.warn('[admin] DATABASE_URL not set — status collection disabled')
+}
+
 const version = readVersion()
 const publicPort = Number(process.env.ADMIN_PUBLIC_PORT ?? 8090)
 const localPort = Number(process.env.ADMIN_LOCAL_PORT ?? 8091)
 
+// ⚠️ Status collection needs no privilege beyond reading `pg_database` for the
+// tenant list: tenants are polled over plain HTTP on the compose network, and
+// `app_global_rw` cannot CONNECT to any faction database (verified on the live
+// cluster). No Docker socket, no per-tenant credential.
+const collector = db
+  ? { db, backupDir: process.env.ADMIN_BACKUP_DIR ?? '/backups' }
+  : undefined
+
 const publicApp = await buildAdminApp({
-  surface: 'public', username, passwordHash, totpSecret, sessionSecret, version,
+  surface: 'public', username, passwordHash, totpSecret, sessionSecret, version, collector,
 })
 const localApp = await buildAdminApp({
-  surface: 'local', username, passwordHash, totpSecret, sessionSecret, version,
+  surface: 'local', username, passwordHash, totpSecret, sessionSecret, version, collector,
 })
 
 await publicApp.listen({ host: '0.0.0.0', port: publicPort })
@@ -95,7 +114,7 @@ console.log(`[admin] v${version} public :${publicPort} (read + provisioning), lo
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, async () => {
-    await Promise.allSettled([publicApp.close(), localApp.close()])
+    await Promise.allSettled([publicApp.close(), localApp.close(), db?.end()])
     process.exit(0)
   })
 }

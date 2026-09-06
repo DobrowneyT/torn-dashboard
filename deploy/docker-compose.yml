@@ -106,6 +106,14 @@ services:
       JWT_SECRET: ${JWT_SECRET:-}
       ADMIN_PUBLIC_PORT: "8090"
       ADMIN_LOCAL_PORT: "8091"
+    volumes:
+      # ⚠️ Read-only, and the only volume this container gets. Backup freshness
+      # is the highest-value monitor there is — a job failing for three weeks is
+      # worse than no backup, because you believe you have one — and mounting
+      # the same volume also gives `statfs` the real host filesystem behind it,
+      # so disk headroom comes free. `ro` because nothing here should ever be
+      # able to delete a dump.
+      - backups:/backups:ro
     ports:
       # ⚠️ The local surface is published to the HOST LOOPBACK only, so it is
       # unroutable from outside the VPS and reachable over an SSH tunnel:
