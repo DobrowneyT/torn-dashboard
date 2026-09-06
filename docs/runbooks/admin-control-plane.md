@@ -389,7 +389,35 @@ unpriced endings (#473): absent beats confidently wrong. Every other number on
 the page is unaffected. The fix is to get either source working again; the next
 successful sync clears it.
 
-## 9. When something looks wrong
+## 9. Keeping Docker disk under control
+
+This box runs production, staging **and** the CI runner on one Docker daemon, so
+every PR leaves build layers behind. Measured on 2026-09-06: 4.0 GB of build
+cache and 4.7 GB of unreferenced images, against 22 GB free — a slow leak whose
+first symptom is a deploy failing to build.
+
+`deploy/docker-prune.sh` handles it. Install it as a nightly cron:
+
+```bash
+crontab -e
+# 17 4 * * *  /home/ubuntu/torn/torn-dashboard/deploy/docker-prune.sh >> /home/ubuntu/torn/docker-prune.log 2>&1
+```
+
+Run it by hand any time — it prints `docker system df` before and after.
+
+⚠️ **Never add `--volumes`, and never run `docker volume prune`.** Every
+faction's database and the backup archive live in named volumes, and Docker
+calls a volume "unused" whenever no container is currently attached — true of
+any stack that is stopped, mid-deploy or mid-restore. One prune at the wrong
+moment is every tenant's data, and the backups with it.
+
+⚠️ **Never add `-a` to the image prune.** That removes every image not attached
+to a *running* container, base images included. Nothing breaks, but the next
+compose build re-pulls and re-builds from scratch — the CI job that takes four
+minutes takes fifteen, on every PR, until the cache warms again. A permanent
+runner's whole value is that cache.
+
+## 10. When something looks wrong
 
 | symptom | first thing to check |
 |---|---|
@@ -406,6 +434,7 @@ successful sync clears it.
 | the agent starts but `docker compose` fails with a permission error | the service user is not in the `docker` group |
 | `no such service: api-<slug>` from a hand-run compose command | the override file was not passed — see § 2, and never add `--remove-orphans` to that invocation |
 | a request is stuck at `running` | one run may take 15 minutes before it is killed and marked failed; after that, Retry |
+| a deploy or CI run fails with "no space left on device" | `df -h /` then run `deploy/docker-prune.sh`; if the cron is not installed yet, see § 9 |
 | the OC Simulator says "item prices unavailable" | both the fleet catalogue and that faction's key pool have failed to refresh for a week — check `items-sync` in that tenant's Global Admin, and the admin boot line for `ADMIN_TORN_API_KEY` |
 | `items_synced_at` stays NULL | no `ADMIN_TORN_API_KEY`, so the fleet publishes nothing; tenants are syncing from their own pools, which is fine |
 | items-sync runs report `source: pool` when you expected `fleet` | the fleet copy is over 6h old, or the tenant cannot reach `global` — both fall back on purpose |

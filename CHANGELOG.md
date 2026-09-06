@@ -18,6 +18,51 @@ surface it automatically.
 
 ---
 
+## [3.79.0] - 2026-09-06
+
+### Changed
+- **CI: a PR's wall clock was three-quarters queueing, not testing.** Measured
+  on this repo's own runs — Node Tests execute in ~3 min, the compose check in
+  ~4 min, the changelog gate in 4 seconds, so ~7 minutes of work took **12–14
+  minutes**. The two jobs were already declared parallel (no `needs:` between
+  them); there is one self-hosted runner, so everything serialised, including
+  across PRs. One run showed the compose check starting five minutes after the
+  node tests finished, purely waiting for a slot.
+
+  Two changes, both prerequisites for adding a second runner rather than
+  speed-ups on their own:
+
+  - **`concurrency` with `cancel-in-progress` on both workflows.** A superseded
+    run is worse than wasted on a single runner: it queues *ahead* of the run
+    you care about. A force-push during review kept the previous run burning a
+    slot for its full ~7 minutes. `github.ref` is `refs/pull/<n>/merge`, so each
+    PR gets its own group and concurrent PRs never cancel one another.
+  - **⚠️ The compose check is now safe to run concurrently.**
+    `COMPOSE_PROJECT_NAME` was the fixed string `tnl-dashboard-ci` and the ports
+    were hardcoded 55432/18088 — safe only while exactly one such job can ever
+    exist. Two concurrent runs would share the project, fight over the same
+    containers and ports, and each finish with `down -v`, tearing down the
+    other's stack **on the box that also runs production**. The project name now
+    carries `github.run_id`, and both ports are allocated at run time from a
+    wide range and checked against what is actually listening — so a run cannot
+    collide with another run, with staging, or with production.
+
+### Added
+- **`deploy/docker-prune.sh`** and a runbook section for it. This box runs
+  production, staging and the CI runner on one Docker daemon, so every PR leaves
+  build layers behind: 4.0 GB of build cache and 4.7 GB of unreferenced images
+  against 22 GB free, whose first symptom would be a deploy failing to build.
+
+  ⚠️ The script's value is as much in what it refuses to do. It never passes
+  `--volumes` — every faction's database and the backup archive are named
+  volumes, and Docker calls a volume "unused" whenever no container is attached,
+  which is true of any stack that is stopped, mid-deploy or mid-restore. And it
+  never passes `-a` to the image prune, which would drop base images and turn
+  the four-minute compose check into a fifteen-minute one on every PR until the
+  cache warmed again — a permanent runner's whole value being that cache.
+
+---
+
 ## [3.78.0] - 2026-09-06
 
 ### Fixed
