@@ -126,6 +126,12 @@ services:
       # the webhook if this ever runs against more than one fleet.
       ADMIN_PUBLIC_URL: ${ADMIN_PUBLIC_URL:-}
       ADMIN_HOST_LABEL: ${ADMIN_HOST_LABEL:-}
+      # ⚠️ The ONLY Torn credential this box ever holds (#609 slice 7).
+      # /v2/torn/items is public, which is exactly why the item catalogue is one
+      # of only two jobs the #608 audit found movable off the tenants. Unset
+      # means the fleet publishes no prices and every tenant syncs from its own
+      # key pool, as it did before — a supported state, not a failure.
+      ADMIN_TORN_API_KEY: ${ADMIN_TORN_API_KEY:-}
     volumes:
       # ⚠️ Read-only, and the only volume this container gets. Backup freshness
       # is the highest-value monitor there is — a job failing for three weeks is

@@ -52,8 +52,25 @@ export const ITEMS_STALE_AFTER_MS = 6 * 60 * 60 * 1000
 export async function readFleetMeta(globalDb: pg.Pool | undefined): Promise<FleetMeta | null> {
   if (!globalDb) return null
   try {
+    // ⚠️ **Timestamps are formatted by Postgres, not by the driver, and this
+    // was a live bug rather than a precaution.**
+    //
+    // `src/db.ts` installs a PROCESS-WIDE `setTypeParser` for timestamptz so
+    // the tenant API can serve PostgREST-shaped strings — so these columns
+    // arrive as `2026-09-06T07:00:00-05`, which is not ISO-8601 (`-05`, no
+    // minutes) and which `new Date()` rejects outright. `.toISOString()` on an
+    // Invalid Date THROWS, and the throw lands in this function's own
+    // `catch { return null }` — so the moment `items_synced_at` became
+    // non-null, every tenant would have read the control plane as permanently
+    // "unavailable" and silently stopped using it. Nothing would have looked
+    // broken; the feature would just never have worked.
+    //
+    // It has not bitten yet only because slice 7 is the first thing that ever
+    // writes that column. Formatting in SQL removes the question entirely.
+    const iso = (col: string) =>
+      `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ${col}`
     const res = await globalDb.query(
-      `SELECT schema_version, oc_model_version, oc_model_built_at, items_synced_at
+      `SELECT schema_version, oc_model_version, ${iso('oc_model_built_at')}, ${iso('items_synced_at')}
          FROM fleet_meta WHERE id = 1`
     )
     const row = res.rows[0]
@@ -61,8 +78,8 @@ export async function readFleetMeta(globalDb: pg.Pool | undefined): Promise<Flee
     return {
       schemaVersion: Number(row.schema_version),
       ocModelVersion: row.oc_model_version ?? null,
-      ocModelBuiltAt: row.oc_model_built_at ? new Date(row.oc_model_built_at).toISOString() : null,
-      itemsSyncedAt: row.items_synced_at ? new Date(row.items_synced_at).toISOString() : null,
+      ocModelBuiltAt: row.oc_model_built_at ? String(row.oc_model_built_at) : null,
+      itemsSyncedAt: row.items_synced_at ? String(row.items_synced_at) : null,
     }
   } catch {
     return null

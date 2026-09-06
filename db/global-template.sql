@@ -158,3 +158,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS provision_requests_live_slug
 
 CREATE INDEX IF NOT EXISTS provision_requests_requested_at_idx
   ON provision_requests (requested_at DESC);
+
+-- ── The fleet item catalogue (#609 slice 7) ─────────────────────────────────
+--
+-- One of exactly TWO jobs the #608 audit found movable: /v2/torn/items is
+-- public, so one key serves the whole fleet where every faction-scoped job
+-- needs that faction's own pool.
+--
+-- ⚠️ This table is what the "silent single point of failure" warning is about.
+-- Each tenant currently fetches from its own hourly re-verified pool (#309) and
+-- survives any one key dying; fed by one key, prices quietly stop updating and
+-- every faction keeps valuing payouts off a stale table -- the decay that ran
+-- for months in July (#123/#124). Both mitigations live in the tenant and are
+-- required together: it adopts these rows only while fleet_meta.items_synced_at
+-- is fresh, and otherwise falls back to its own key pool.
+--
+-- ⚠️ Tenants MUST read this, unlike the alerting and provisioning tables, so
+-- app_global_ro keeps its SELECT. Columns mirror the tenant `items` table
+-- exactly so adopting the fleet copy is a straight upsert.
+CREATE TABLE IF NOT EXISTS items (
+  id           integer PRIMARY KEY,
+  name         text NOT NULL,
+  description  text,
+  effect       text,
+  type         text,
+  sub_type     text,
+  market_price bigint,
+  sell_price   bigint,
+  buy_price    bigint,
+  circulation  integer,
+  is_tradable  boolean DEFAULT true,
+  image_url    text,
+  last_updated timestamptz NOT NULL DEFAULT now()
+);

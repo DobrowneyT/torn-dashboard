@@ -56,6 +56,11 @@ export default function OCSimulatorView() {
   // #585: observed previous_crime_id edges, so the ranking can price a crime
   // whose payout is one or two crimes downstream.
   const [chains, setChains] = useState([])
+  // #609 slice 7: whether the item catalogue behind every dollar figure below
+  // is fresh enough to use. The server withholds prices rather than serving
+  // stale ones, so without this the page would show a fleet of "unpriced"
+  // endings and no explanation for it.
+  const [itemPrices, setItemPrices] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [rankingOpen, setRankingOpen] = useState(false)
@@ -67,7 +72,11 @@ export default function OCSimulatorView() {
 
   useEffect(() => {
     apiGet('/api/oc-simulator/scenarios')
-      .then((res) => { setScenarios(res.scenarios ?? []); setChains(res.chains ?? []) })
+      .then((res) => {
+        setScenarios(res.scenarios ?? [])
+        setChains(res.chains ?? [])
+        setItemPrices(res.item_prices ?? null)
+      })
       .catch((e) => setLoadError(e?.message || 'Could not load scenarios'))
   }, [])
 
@@ -136,6 +145,21 @@ export default function OCSimulatorView() {
             </button>
           </div>
         </div>
+
+        {/* ⚠️ Prices are REFUSED, not silently used, once the catalogue has gone
+            stale (#609 slice 7) — the same rule as unpriced endings (#473) and
+            item_value_unmatched (#441). Everything below then reports as
+            unpriced, which without this banner looks like a data problem
+            rather than a deliberate refusal with a fixable cause. */}
+        {itemPrices && itemPrices.fresh === false && (
+          <div className="mt-3 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-3 py-2">
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              <strong>Item prices unavailable.</strong> {itemPrices.reason} Item rewards below are
+              reported as unpriced rather than valued at a stale price — every other number is
+              unaffected. Check the <em>items-sync</em> job in Global Admin.
+            </p>
+          </div>
+        )}
 
         {chosen.length > 1 && totalScope != null && (
           <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">

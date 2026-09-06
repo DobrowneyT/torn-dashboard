@@ -18,6 +18,88 @@ surface it automatically.
 
 ---
 
+## [3.77.0] - 2026-09-06
+
+### Added
+- **The item catalogue moves to the control plane (#609 slice 7/7).**
+  `/v2/torn/items` is public, so the admin container's single key serves every
+  faction — one of exactly two of twenty scraper jobs the #608 audit found
+  movable, and a straight rate-limit win of four API calls a cycle. New
+  `ADMIN_TORN_API_KEY`; new `items` table in `global` (migration `0005`, schema
+  version 5). ⚠️ Unlike the alerting and provisioning tables, tenants **keep**
+  SELECT here — reading it is the entire point.
+
+  ⚠️ **Centralising trades five-fold redundancy for one key, and the failure is
+  silent.** Today each tenant fetches from its own hourly re-verified pool
+  (#309) and survives any single key dying; fed by one key, prices quietly stop
+  updating and every faction keeps valuing payouts off a stale table — the decay
+  that ran unnoticed for months in July (#123/#124). #609 requires **both**
+  mitigations, not either/or, and both are here:
+
+  - **Tenants fall back to their own pools.** A tenant adopts the fleet copy
+    only while `items_synced_at` is under 6 hours old; past that it claims a
+    pooled key and syncs itself exactly as before. Every failure path — control
+    plane unreachable, prices stale, the copy readable but the query failing
+    partway — falls through to the pool rather than up to the run logger.
+  - **Stale prices are refused with a reason, never silently used.** Once *both*
+    sources have failed for a week the OC Simulator withholds item values and
+    says why, rather than valuing rewards at a week-old price. The same house
+    rule as `item_value_unmatched` (#441), unpriced endings (#473) and
+    null-not-zero (#351): absent beats confidently wrong.
+
+  ⚠️ **The tenant's own `items` table stays the read path.** Nothing queries
+  `global.items` at request time, deliberately — that would put the control
+  plane in every tenant's read path and break the one guarantee the whole
+  architecture rests on: kill the admin container and every tenant keeps working
+  on its last-consumed data.
+
+  ⚠️ **The refresh cadence (2h) must stay comfortably inside the freshness
+  window (6h), and the first draft had them equal.** With both at six hours the
+  fleet copy would reach the staleness boundary at the exact moment the next
+  refresh was due, so every tenant would spend the tail of each cycle falling
+  back to its own pool — the feature would cost one Torn call per faction and
+  save nothing, while appearing to work. A test now asserts the relationship
+  rather than trusting two constants to stay in step.
+
+  ⚠️ **A response below 100 items is refused.** A handful is not a small
+  catalogue — it is a partial read, a changed shape, or an error body that
+  happened to parse. Publishing those rows and stamping `items_synced_at` would
+  tell every tenant the prices are current while the table held almost nothing,
+  which is worse than the outage it came from. The timestamp is also the last
+  write inside the same transaction as the rows, so a crash halfway leaves the
+  previous timestamp standing rather than a fresh stamp over a half-written
+  table. And a Torn error **body** returned with HTTP 200 is treated as a
+  failure, not as an empty catalogue.
+
+  Withholding is expressed as an *empty* catalogue, so it travels the path #441
+  already built — every drop comes back in `item_value_unmatched` — rather than
+  through a second, parallel notion of "unpriced" the client would have to
+  learn. The OC Simulator gains a banner explaining the refusal, since without
+  it a page full of "unpriced" looks like a data problem rather than a
+  deliberate, fixable refusal.
+
+### Fixed
+- **⚠️ `readFleetMeta` would have reported the control plane as permanently
+  unavailable to every tenant, from the moment `items_synced_at` became
+  non-null.** `server/src/db.ts` installs a *process-wide* `setTypeParser` for
+  `timestamptz` so the tenant API can serve PostgREST-shaped strings, so that
+  column arrived as `2026-09-06T07:00:00-05` — not ISO-8601 (`-05`, no minutes)
+  and rejected by `new Date()`. Calling `.toISOString()` on the resulting
+  Invalid Date **throws**, and the throw landed in `readFleetMeta`'s own
+  `catch { return null }`, which means "control plane unavailable". Nothing
+  would have looked broken; the fleet fast path would simply never have engaged.
+
+  It had not bitten yet only because slice 7 is the first thing that ever writes
+  that column. It was invisible to the slice-1 tests because they fake the pool
+  with `Date` objects, which node-pg does not produce in this process — so the
+  fix comes with an end-to-end test against a real connection, and the fake has
+  been corrected to return what the query actually returns. `readFleetMeta` and
+  `itemsSyncIsDue` now format these columns as UTC ISO text in SQL, independent
+  of any installed parser. Same defect and same fix as the incident store in
+  v3.74.0.
+
+---
+
 ## [3.76.0] - 2026-09-05
 
 ### Added

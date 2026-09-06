@@ -41,6 +41,9 @@ export interface ScraperWiringOptions {
   /** Fleet defaults for job cadence (#609 slice 5). Shared with the admin
    *  routes so a flag write invalidates the same cache the scheduler reads. */
   flags?: FlagResolver
+  /** Read-only pool on the shared `global` database (#609 slice 7). Absent
+   *  means items-sync uses this faction's key pool, exactly as before. */
+  globalDb?: pg.Pool
   tornStatsBaseUrl?: string
   bspBaseUrl?: string
 }
@@ -130,6 +133,7 @@ function buildDeps(opts: ScraperWiringOptions): JobDeps {
   const { db, tornBaseUrl, encryptionKey } = opts
   return {
     db,
+    globalDb: opts.globalDb,
     pool: createKeyPool({ db, encryptionKey }),
     encryptionKey,
     // Torn allows 100 req/min per key; stay well inside it pool-wide.
