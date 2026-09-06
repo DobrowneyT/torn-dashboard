@@ -55,11 +55,30 @@ this at boot and refuses to start.
 
 ## 2. Deploy
 
+⚠️ **Always pass BOTH compose files.** Every `api-<slug>` service lives in
+`docker-compose.override.yml`, and compose auto-loads an override only when no
+`-f` is given at all — so a bare `-f deploy/docker-compose.yml` cannot see the
+tenants. Two consequences, one annoying and one destructive:
+
+- `docker compose -f deploy/docker-compose.yml restart api-tnl` fails with
+  `no such service: api-tnl`
+- ⚠️ that same invocation reports all five running tenant containers as
+  **orphans**, so adding `--remove-orphans` to it would **delete every tenant
+  API container on the box**
+
+`deploy/update.sh` builds the invocation correctly; export the same thing before
+running anything by hand:
+
+```bash
+cd /home/ubuntu/torn/torn-dashboard
+export COMPOSE_FILES="-f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory deploy"
+```
+
 ```bash
 cd /home/ubuntu/torn/torn-dashboard
 ./deploy/update.sh                       # tenants, from main — does its own fetch/reset
-docker compose --profile admin -f deploy/docker-compose.yml up -d --build admin
-docker compose -f deploy/docker-compose.yml logs --tail=40 admin
+docker compose --profile admin $COMPOSE_FILES up -d --build admin
+docker compose $COMPOSE_FILES logs --tail=40 admin
 ```
 
 ⚠️ Do **not** `git pull` before `update.sh`. It fetches and resets on its own,
@@ -127,7 +146,7 @@ curl -s -o /dev/null -w '%{http_code} (want 401)\n' -X POST http://127.0.0.1:809
   -H 'content-type: application/json' --data-raw "$NOCODE"
 
 # a destructive/outbound route does not EXIST on the public surface → 404
-docker compose -f deploy/docker-compose.yml exec admin \
+docker compose $COMPOSE_FILES exec admin \
   node -e "fetch('http://127.0.0.1:8090/api/admin/local/ping').then(r=>console.log(r.status,'(want 404)'))"
 ```
 
@@ -268,7 +287,7 @@ journalctl -u tnl-provision-agent -f      # or watch the service
 2. `node db/new-faction.mjs --slug … --name … --faction-id …` — database, schema,
    seed, `faction_config`, first role grants, the scoped `app_<slug>` credential,
    the compose override and the nginx vhost.
-3. `docker compose -f deploy/docker-compose.yml up -d --build api-<slug> nginx` —
+3. `docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build api-<slug> nginx` —
    the only step that needs Docker, and the only reason the agent exists.
 
 Output streams into the request row and is shown on the page. ⚠️ It is redacted
@@ -385,6 +404,7 @@ successful sync clears it.
 | a provisioning request sits at `pending` | the host agent is not running: `systemctl status tnl-provision-agent` |
 | the agent logs "No global database credential" | `deploy/.env` has no `DB_PASSWORD_GLOBAL_RW` — run `node db/new-global.mjs --adopt` |
 | the agent starts but `docker compose` fails with a permission error | the service user is not in the `docker` group |
+| `no such service: api-<slug>` from a hand-run compose command | the override file was not passed — see § 2, and never add `--remove-orphans` to that invocation |
 | a request is stuck at `running` | one run may take 15 minutes before it is killed and marked failed; after that, Retry |
 | the OC Simulator says "item prices unavailable" | both the fleet catalogue and that faction's key pool have failed to refresh for a week — check `items-sync` in that tenant's Global Admin, and the admin boot line for `ADMIN_TORN_API_KEY` |
 | `items_synced_at` stays NULL | no `ADMIN_TORN_API_KEY`, so the fleet publishes nothing; tenants are syncing from their own pools, which is fine |

@@ -10,7 +10,7 @@
 // Which means the validation IS the interface to a process holding Postgres
 // superuser and Docker, and it gets tested like one.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,7 +27,7 @@ import { generateTotpSecret } from '../src/adminPlane/totp.js'
 import { mintAdminSession } from '../src/adminPlane/session.js'
 // @ts-expect-error — the host agent is a plain .mjs script; these are its
 // duplicated copies of the rules above, and the duplication is the point.
-import { validate as agentValidate, redact } from '../../deploy/host-agent.mjs'
+import { validate as agentValidate, redact, composeArgs } from '../../deploy/host-agent.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const TEMPLATE = readFileSync(join(here, '..', '..', 'db', 'global-template.sql'), 'utf8')
@@ -366,5 +366,45 @@ describe('the provisioning routes', () => {
     })
     expect(retried.json().request.status).toBe('pending')
     await app.close()
+  })
+})
+
+describe('⚠️ the agent\'s compose invocation', () => {
+  // This SHIPPED broken in slice 6 and would have failed every provisioning run
+  // at the last step. Every `api-<slug>` service lives in
+  // docker-compose.override.yml — which db/new-faction.mjs writes moments
+  // earlier in the same function — but compose auto-loads an override only when
+  // NO `-f` is passed at all. So `docker compose -f deploy/docker-compose.yml
+  // up api-mayhem` dies with `no such service: api-mayhem`, after the database,
+  // the role and the deploy artifacts had all been created correctly.
+  const repoWith = (override: boolean) => {
+    const dir = mkdtempSync(join(tmpdir(), 'compose-args-'))
+    mkdirSync(join(dir, 'deploy'))
+    writeFileSync(join(dir, 'deploy', 'docker-compose.yml'), 'services: {}')
+    if (override) writeFileSync(join(dir, 'deploy', 'docker-compose.override.yml'), 'services: {}')
+    return dir
+  }
+
+  it('passes the override file, which is where every tenant service lives', () => {
+    const args = composeArgs(repoWith(true), ['up', '-d', '--build', 'api-mayhem', 'nginx'])
+    expect(args.join(' ')).toBe(
+      'compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml ' +
+      '--project-directory deploy up -d --build api-mayhem nginx'
+    )
+  })
+
+  it('omits it on a host that has none, rather than failing on a missing file', () => {
+    // A box with no factions provisioned yet has no override file at all.
+    const args = composeArgs(repoWith(false), ['up', '-d'])
+    expect(args).not.toContain('deploy/docker-compose.override.yml')
+    expect(args.join(' ')).toContain('--project-directory deploy')
+  })
+
+  it('⚠️ never passes --remove-orphans', () => {
+    // With only the base file compose calls all five running tenant containers
+    // orphans — it says so in its output — so that flag on this invocation
+    // would DELETE every tenant API container on the box.
+    expect(composeArgs(repoWith(true), ['up', '-d', '--build', 'api-x', 'nginx']))
+      .not.toContain('--remove-orphans')
   })
 })
