@@ -18,6 +18,37 @@ surface it automatically.
 
 ---
 
+## [3.80.0] - 2026-09-06
+
+### Changed
+- **`update.sh` now rebuilds the admin control plane on every deploy.** ⚠️ This
+  reverses the #609 slice 2 decision to keep it a deliberate, separate act
+  (*"a bad push here is fleet-wide"*), at MonChoon's request — the cost of
+  remembering had bitten twice, most visibly as a stale admin UI mistaken for a
+  missing feature.
+
+  Most of the original safety survives the reversal, by construction rather than
+  by care:
+
+  - ⚠️ It runs **after tenant readiness**, so tenants are already deployed and
+    verified. A broken admin build cannot delay, block or roll back a tenant
+    deploy — which was the actual content of "fleet-wide", and it still holds.
+  - ⚠️ It is **non-fatal** and never touches the deploy's exit code. Failing the
+    deploy would leave the `--if-changed` marker stale, and cron would then
+    rebuild the whole fleet every five minutes over an optional container. Now
+    that #609 slice 4 alerting exists, an admin container that is down is
+    exactly what should page — that is the right channel, not a deploy's exit
+    status.
+  - ⚠️ It is **skipped entirely** when `ADMIN_PASSWORD_HASH` is unset, because
+    the container refuses to start unconfigured by design; building it on a host
+    that never ran the setup would manufacture a permanent, meaningless warning.
+
+  `./deploy/update.sh --no-admin` (or `NO_ADMIN=1`) opts out for one run.
+  Argument parsing now accepts flags in any order and rejects unknown ones
+  rather than silently ignoring them.
+
+---
+
 ## [3.79.0] - 2026-09-06
 
 ### Changed

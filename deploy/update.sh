@@ -6,6 +6,7 @@
 #                                     #   the last SUCCESSFUL deploy (not since
 #                                     #   the last `git pull` — see MARKER below)
 #   SKIP_BACKUP=1 ./deploy/update.sh  # skip the pre-deploy safety dump
+#   ./deploy/update.sh --no-admin     # leave the admin control plane alone
 #
 # To force a redeploy of the current checkout — the recovery path when a run was
 # interrupted — drop the flag: `./deploy/update.sh`. Prefer running it detached,
@@ -82,7 +83,17 @@ REMOTE="$(git rev-parse "origin/$BRANCH")"
 # always deploys once and re-arms the mechanism. That is also what recovers a
 # box already stuck in the state described above.
 DEPLOYED="$(cat "$MARKER" 2>/dev/null || true)"
-if [ "${1:-}" = "--if-changed" ] && [ "$DEPLOYED" = "$REMOTE" ]; then
+IF_CHANGED=0
+NO_ADMIN="${NO_ADMIN:-0}"
+for arg in "$@"; do
+  case "$arg" in
+    --if-changed) IF_CHANGED=1 ;;
+    --no-admin)   NO_ADMIN=1 ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+if [ "$IF_CHANGED" = 1 ] && [ "$DEPLOYED" = "$REMOTE" ]; then
   exit 0
 fi
 
@@ -243,6 +254,42 @@ for conf in deploy/nginx/factions/*.conf; do
     fail=1
   fi
 done
+
+# ── Admin control plane (#609) ───────────────────────────────────────────────
+#
+# Rebuilt on every deploy. ⚠️ This reverses the #609 slice 2 decision to keep it
+# a deliberate, separate act ("a bad push here is fleet-wide"), at MonChoon's
+# request on 2026-09-06 — the cost of remembering had bitten twice, most visibly
+# as a stale UI mistaken for a missing feature.
+#
+# Three things keep most of the original safety anyway:
+#
+# ⚠️ It runs AFTER readiness, so tenants are already deployed and verified. A
+# broken admin build cannot delay, block or roll back a tenant deploy — which
+# was the actual content of "fleet-wide", and it still holds.
+#
+# ⚠️ It is NON-FATAL and never touches `fail`. Letting it fail the deploy would
+# leave the --if-changed marker stale, and the cron would then rebuild the whole
+# fleet every five minutes over an optional container. Now that #609 slice 4
+# alerting exists, an admin container that is down is precisely what should
+# page — that is the right channel for it, not the deploy's exit code.
+#
+# ⚠️ It is SKIPPED entirely when the control plane is not configured. Without
+# credentials the container refuses to start by design, so building it on a host
+# that never ran the setup would manufacture a permanent, meaningless warning.
+if [ "$NO_ADMIN" = 1 ]; then
+  echo "==> admin control plane — skipped (--no-admin)"
+elif [ -z "$(env_value ADMIN_PASSWORD_HASH)" ]; then
+  echo "==> admin control plane — not configured, skipping (see docs/runbooks/admin-control-plane.md)"
+else
+  echo "==> admin control plane"
+  if "${COMPOSE[@]}" --profile admin up -d --build admin; then
+    echo "  ok   admin"
+  else
+    echo "  [warn] the admin container failed to build or start — tenants are unaffected."
+    echo "         check: docker compose --project-directory deploy logs admin"
+  fi
+fi
 
 # Publish the War Room dibs userscript (#487).
 #
