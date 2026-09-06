@@ -20,6 +20,7 @@
  */
 import { pricingQuality, paysInItems } from './ocScenarioPayouts'
 import { scopeFor, breakEvenSuccess, netScope, moneyPerScope } from './ocScope'
+import { buildChainIndex, chainFrom, chainConfident, chainedValue, chainedScope } from './ocChains'
 import { makeCategoryResolver } from './ocPlanner'
 import { config } from '../config'
 
@@ -134,9 +135,102 @@ export function rankCrime(scenario, successChance, { resolver, now } = {}) {
   }
 }
 
-/** Build the whole table. `successByName` comes from the ranking endpoint. */
+/**
+ * Build the whole table. `successByName` comes from the ranking endpoint.
+ *
+ * ## Chains (#585)
+ *
+ * Pass `chains` — the observed `previous_crime_id` edges — and three things
+ * change, all of them corrections to numbers that are actively wrong today:
+ *
+ *   1. **A chain parent stops reporting $0.** Its `totalPerRun` becomes the
+ *      whole chain's expected value, so Manifest Cruelty is finally worth
+ *      something rather than ranking below crimes that pay a hundredth as much.
+ *
+ *   2. **A chain child leaves the table.** Not because it is worthless — Crane
+ *      Reaction is the most valuable crime in the game — but because it cannot
+ *      be spawned, so offering it as a ranked choice is offering a decision
+ *      nobody can make, and counting it separately double-counts the pipeline.
+ *
+ *   3. ⚠️ **Scope is re-derived over the whole chain**, and this is the part
+ *      that bites. Cost is paid once at the root and the reward only lands if
+ *      EVERY link succeeds, so the break-even climbs from 83.3% to 91.3% per
+ *      link over two and 94.1% over three. At TNL's own rates all three
+ *      Elaborate chains are scope-negative — Manifest Cruelty runs at -3.20 a
+ *      spawn — while remaining excellent money. `netScope` and `moneyPerScope`
+ *      point opposite ways for these crimes, and that is the real finding, not
+ *      a rounding artefact.
+ *
+ * Without `chains` every crime is a one-link chain and the results are
+ * identical to the pre-#585 behaviour, so callers that have not been updated
+ * keep working unchanged.
+ */
 export function rankCrimes(scenarios, successByName, opts = {}) {
-  return (scenarios ?? []).map((s) => rankCrime(s, successByName?.[s.name], opts))
+  const rows = (scenarios ?? []).map((s) => rankCrime(s, successByName?.[s.name], opts))
+  if (!opts.chains) return rows
+
+  const index = buildChainIndex(opts.chains)
+  const valueByName = {}
+  const categoryByName = {}
+  for (const r of rows) {
+    valueByName[r.name] = r.totalPerRun
+    categoryByName[r.name] = r.categoryKey
+  }
+
+  // ⚠️ The per-run figures on each row are already weighted by that crime's own
+  // success chance, but the chain maths needs the UNWEIGHTED value per link —
+  // it applies the reach probability itself. Dividing it back out here keeps
+  // the correction in one place instead of changing what rankCrime() means.
+  const rawValueByName = {}
+  for (const r of rows) {
+    const p = r.successChance
+    rawValueByName[r.name] = r.totalPerRun === null || !Number.isFinite(p) || p <= 0
+      ? r.totalPerRun
+      : r.totalPerRun / p
+  }
+
+  return rows.map((row) => {
+    const links = chainFrom(row.name, index)
+    const isChild = index.isChild(row.name)
+    const chained = links.length > 1
+      ? chainedValue(links, successByName, rawValueByName)
+      : null
+    const scope = links.length > 1
+      ? chainedScope(links, successByName, categoryByName)
+      : null
+
+    const total = chained?.expected ?? row.totalPerRun
+
+    return {
+      ...row,
+      // ⚠️ A chain child stays in the returned rows with `spawnable: false`
+      // rather than being filtered out. The Simulator still needs it — a child
+      // is a real crime with its own crew and its own success chance, and
+      // MonChoon's point stands that putting weaker members on the parent and
+      // stronger ones on the payoff link is a real strategy. It is only the
+      // RANKING that must not offer it, and the table can drop it on this flag.
+      spawnable: !isChild,
+      chainLinks: links.length > 1 ? links.map((l) => l.name) : null,
+      chainConfident: links.length > 1 ? chainConfident(links) : null,
+      chainSource: links.length > 1 ? (links[0].source ?? null) : null,
+      chainedSuccess: scope?.chainedSuccess ?? null,
+      chainPricingComplete: chained?.complete ?? null,
+      totalPerRun: total,
+      moneyPerScope: total !== null && scope
+        ? (scope.cost > 0 ? total / scope.cost : null)
+        : row.moneyPerScope,
+      netScope: scope ? scope.net : row.netScope,
+      breakEven: scope ? scope.breakEvenPerLink : row.breakEven,
+      // Compared against the per-link break-even, not the raw chained
+      // probability — see chainedScope. Getting this wrong makes every chain
+      // look doomed.
+      equivalentSuccess: scope?.equivalentSuccess ?? null,
+      sustainable: scope ? scope.sustainable : row.sustainable,
+      incomePerWeek: total !== null && row.spawnsPerWeek != null
+        ? total * row.spawnsPerWeek
+        : row.incomePerWeek,
+    }
+  })
 }
 
 /**

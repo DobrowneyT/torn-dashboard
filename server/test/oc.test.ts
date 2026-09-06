@@ -530,6 +530,33 @@ describe('item reward value on the scenarios payload', () => {
     expect(Number(lock.item_reward.avg_value)).toBeGreaterThan(1_000_000)
   })
 
+  // #585 — the chain edges Torn has been telling us about all along.
+  it('⚠️ derives chain edges from previous_crime_id, which nothing has ever read', async () => {
+    // Verified across the fleet: every successful parent spawns exactly one
+    // child and no failed or expired one ever does. That determinism is why the
+    // client can treat an edge as fact rather than a probability to model.
+    await stack.db.query(`
+      INSERT INTO crimes (crime_id, name, difficulty, status, created_at, previous_crime_id) VALUES
+        ('mc1', 'Manifest Cruelty', 8, 'Successful', 1700000000, NULL),
+        ('gf1', 'Gone Fission',     9, 'Successful', 1700000100, 'mc1'),
+        ('cr1', 'Crane Reaction',  10, 'Successful', 1700000200, 'gf1')
+      ON CONFLICT DO NOTHING
+    `)
+    const { body } = await get2('/api/oc-simulator/scenarios')
+    const edges = new Map(
+      (body.chains as any[]).map((c) => [`${c.parent}->${c.child}`, c.observations])
+    )
+    expect(edges.get('Manifest Cruelty->Gone Fission')).toBe(1)
+    expect(edges.get('Gone Fission->Crane Reaction')).toBe(1)
+  })
+
+  it('does not invent an edge for a crime that spawned nothing', async () => {
+    // A crime with no previous_crime_id pointing at it is not a chain parent,
+    // and a phantom edge would silently attribute somebody else's payout to it.
+    const { body } = await get2('/api/oc-simulator/scenarios')
+    expect((body.chains as any[]).some((c) => c.parent === 'Honey Trap')).toBe(false)
+  })
+
   it('reports null, not zero, for a crime we have never completed', async () => {
     // ⚠️ "No history" must not read as "drops nothing" — that would rank the
     // crime we know least about as the worst.

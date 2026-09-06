@@ -7,7 +7,8 @@
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "oc:measure": "tsx scripts/oc-ending-map-measure.mts"
   },
   "dependencies": {
     "@fastify/rate-limit": "^11.2.0",

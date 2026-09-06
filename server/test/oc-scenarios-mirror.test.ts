@@ -247,6 +247,37 @@ describe('ocScenariosMirrorJob', () => {
     expect(res.details).toBeTruthy()
   })
 
+  it('⚠️ stores the mass-weighted residual too, since the two disagree (#473)', async () => {
+    // The plain residual is scale-free and judges the ASSIGNMENT; the weighted
+    // one judges the MONEY, and across the 31 live scenarios they disagree in
+    // both directions. Storing only one would leave a caller unable to tell a
+    // loose fit whose money is fine (Mob Mentality: 0.145 plain, 0.003
+    // weighted) from a tight fit that is wrong about the ending carrying
+    // almost all the probability.
+    await run()
+    const r = await stack.db.query(
+      `SELECT name, ending_map_money_residual, ending_map_money_confident
+         FROM oc_scenarios ORDER BY name`
+    )
+    expect(r.rows.length).toBeGreaterThan(0)
+    expect(r.rows.every((x) => x.ending_map_money_residual !== null)).toBe(true)
+    expect(r.rows.every((x) => typeof x.ending_map_money_confident === 'boolean')).toBe(true)
+  })
+
+  it('⚠️ records which roles the flowchart fails to reproduce (#473)', async () => {
+    // The simulator was only ever checked against successChance at all-high,
+    // where it is exact for every one of the 31 live scenarios. Asked at a
+    // dropped CPR, twelve disagree — so the check has to run over the whole
+    // sweep and name the roles, not just pass at the baseline.
+    await run()
+    const r = await stack.db.query(
+      `SELECT name, role_fidelity_error, role_fidelity_roles FROM oc_scenarios ORDER BY name`
+    )
+    expect(r.rows.length).toBeGreaterThan(0)
+    expect(r.rows.every((x) => x.role_fidelity_error !== null)).toBe(true)
+    expect(r.rows.every((x) => Array.isArray(x.role_fidelity_roles))).toBe(true)
+  })
+
   it('refuses to map a scenario whose role count contradicts the crime', async () => {
     // A CPR vector of the wrong length produces numbers for a crime nobody is
     // running. Mirror what we know, map nothing.

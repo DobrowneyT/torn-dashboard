@@ -43,16 +43,26 @@ import { rolesInText } from './endingMap.js'
  * team assaults the guards"*, *"The crew finds the side entrance locked"*. Six
  * of 604 checkpoints read this way.
  *
- * ⚠️ **This rule is the weakest thing in the file.** Measured against
- * `successChance` on the six affected scenarios it is the best of three
- * candidates (0.0517 mean error, against 0.0540 for a fixed 0.99 and 0.0544 for
- * an automatic pass) but it LOSES on two of the six, and every error is ~0.05 —
- * far too large for one checkpoint in twenty to explain. Something else is
- * wrong in those crimes and it is currently hiding behind this rule.
+ * ⚠️ **Measured, and the nickname hypothesis it used to carry is dead** (#473).
+ * The suspicion was that checkpoints referring to the crew by nickname
+ * attributed to nobody and were hiding behind this rule. Dumping every no-role
+ * checkpoint in all 31 diagrams and reading them settled it:
  *
- * The live hypothesis is **nicknames**: Lock Stock's *"The bruisers feign
- * defeat"* almost certainly means Muscle #1 and Muscle #2, not the whole crew.
- * Resolving those would shrink the no-role set and is the next thing to test.
+ *   - Only TWO of the six were mis-attributed — Lock Stock's *"The bruisers
+ *     feign defeat"* (Muscle #1 + #2) and Bidding War's *"The Humvee crashes
+ *     into the wall"* (the Driver). Both are now resolved by `rolesInText`.
+ *   - The other four genuinely mean everyone — *"The whole team assaults the
+ *     guards"*, *"The crew finds the side entrance locked"* — so this rule is
+ *     right for them, not a fallback hiding a fault.
+ *   - ⚠️ And both mis-attributed checkpoints were in scenarios that ALREADY
+ *     fit tightly, so fixing them improved nothing that was loose. Eight of the
+ *     ten loose fits contain no no-role checkpoint at all.
+ *
+ * The fault in the loose group is the OPPOSITE one: over-attribution, where a
+ * role named only in the possessive gets averaged in as a participant. Manifest
+ * Cruelty's *"Reviver curses Interrogator's overexuberance"* made a fatal
+ * Reviver failure look survivable and cost that crime 0.113 of residual. See
+ * `dropPossessiveReferents` in endingMap.ts.
  */
 export function checkpointPass(
   text: string,

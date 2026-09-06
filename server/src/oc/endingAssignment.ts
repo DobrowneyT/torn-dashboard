@@ -41,6 +41,36 @@ export interface AssignmentResult {
   /** Per-ending mean disagreement, for the pairs that were accepted. */
   perEnding: Record<string, number>
   /**
+   * The same disagreement, weighted by how much probability each ending
+   * actually carries (#473).
+   *
+   * ⚠️ `residual` is scale-free on purpose — see `disagreement` — which is
+   * right for CHOOSING an assignment and misleading as a measure of how wrong
+   * the resulting MONEY is. An ending at 1e-4 that we simulate at 3e-4 moves
+   * the plain residual as much as the dominant ending being wrong by half,
+   * while costing nothing at all in E(x), because E(x) weights every ending by
+   * its probability.
+   *
+   * Measured across all 31 scenarios the two disagree in BOTH directions.
+   * Mob Mentality reads 0.145 plain (flagged as a loose fit) and 0.003
+   * weighted — its whole disagreement sits in endings that essentially never
+   * happen. Before the possessive fix in this same issue, Plucking the Lotus
+   * Petal read 0.061 plain (comfortably "confident") and 0.108 weighted, with
+   * the error in the ending carrying 98% of the mass.
+   *
+   * So this is the figure to trust the per-ending money on, and `residual`
+   * stays the figure to judge the assignment on. Both are reported because
+   * they answer different questions.
+   */
+  massWeightedResidual: number
+  /**
+   * Whether the per-ending MONEY can be trusted — `confident` for E(x).
+   *
+   * Separate from `confident` for the reason above: a mapping can be a poor
+   * fit overall while being right about everything that pays, and vice versa.
+   */
+  moneyConfident: boolean
+  /**
    * Whether the fit is tight enough to trust the per-ending money.
    *
    * ⚠️ Separate from `ok` on purpose. `ok` says every reported ending got a
@@ -74,6 +104,22 @@ export interface AssignmentResult {
 export const MAX_CONFIDENT_RESIDUAL = 0.10
 
 /**
+ * Mass-weighted residual above which the per-ending money is not trusted.
+ *
+ * ⚠️ A DISCOVERED split, not a chosen one — held to the same standard as
+ * MAX_CONFIDENT_RESIDUAL above. Sorting all 31 scenarios by their mass-weighted
+ * residual leaves one order-of-magnitude gap and no other:
+ *
+ *     0.3700 … 0.0390  0.0365  0.0353      14 scenarios
+ *                      ── x10.4 gap ──
+ *     0.0034  0.0025 … 0.0000               17 scenarios
+ *
+ * Every other adjacent gap in that range is 1.5x or less. 0.01 sits inside the
+ * only real discontinuity in the population.
+ */
+export const MAX_MONEY_RESIDUAL = 0.01
+
+/**
  * Scale-free disagreement between two probabilities, in [0, 1].
  *
  * ⚠️ Not the absolute difference. The dominant all-pass ending sits near 0.97
@@ -105,6 +151,7 @@ export function assignEndings(
   if (usable.length === 0) {
     return {
       map: {}, ok: false, confident: false, residual: 1, perEnding: {},
+      massWeightedResidual: 1, moneyConfident: false,
       problems: ['no probe carried its CPR vector, so nothing can be simulated'],
       unmatched: { endings: [], terminals: [] },
     }
@@ -158,14 +205,32 @@ export function assignEndings(
     )
   }
 
+  // ⚠️ Weighted by the BASELINE probabilities — the all-high probe, which is
+  // the closest thing to "how often this ending actually happens" that the
+  // sweep contains. Weighting by each probe's own numbers would let the
+  // deliberately crippled low-CPR probes, which exist to separate endings
+  // rather than to describe reality, dominate a figure about money.
+  const baseline = usable.find((p) => p.droppedRole == null) ?? usable[0]
+  let massSum = 0
+  let weighted = 0
+  for (const [key, dis] of Object.entries(perEnding)) {
+    const m = Number(baseline?.endings?.[key] ?? 0)
+    if (!Number.isFinite(m) || m <= 0) continue
+    massSum += m
+    weighted += m * dis
+  }
+  const massWeightedResidual = massSum > 0 ? weighted / massSum : 0
+
   return {
     map,
     // Success is "every ending the API reports has a node", which is what
     // pricing needs. Spare terminals are reported but do not fail the crime.
     ok: unmatchedEndings.length === 0,
     confident: unmatchedEndings.length === 0 && residual <= MAX_CONFIDENT_RESIDUAL,
+    moneyConfident: unmatchedEndings.length === 0 && massWeightedResidual <= MAX_MONEY_RESIDUAL,
     problems,
     residual,
+    massWeightedResidual,
     unmatched: { endings: unmatchedEndings, terminals: unmatchedTerminals },
     perEnding,
   }
