@@ -18,6 +18,8 @@
  */
 import type pg from 'pg'
 import { readdir, stat, statfs } from 'node:fs/promises'
+import { deriveTenantToken } from '../fleetMetricsAuth.js'
+import type { FleetMetrics } from '../fleetMetrics.js'
 
 export type TenantState = 'ok' | 'degraded' | 'down'
 
@@ -32,6 +34,15 @@ export interface TenantStatus {
   global?: unknown
   error?: string
   latencyMs?: number
+  /**
+   * Key-pool depth and failing scrapers (#632). ⚠️ Absent when no
+   * FLEET_METRICS_SECRET is configured, or when the tenant is too old to serve
+   * the endpoint — which must read as "not measured", never as "all fine". The
+   * alert rules treat undefined and zero as different things for exactly the
+   * reason #645 went unnoticed for thirteen days.
+   */
+  metrics?: FleetMetrics
+  metricsError?: string
 }
 
 export interface BackupStatus {
@@ -99,7 +110,8 @@ export async function discoverTenants(db: pg.Pool): Promise<string[]> {
 export async function checkTenant(
   slug: string,
   fetchImpl: typeof fetch = fetch,
-  timeoutMs = TENANT_TIMEOUT_MS
+  timeoutMs = TENANT_TIMEOUT_MS,
+  fleetSecret?: string
 ): Promise<TenantStatus> {
   const started = Date.now()
   const controller = new AbortController()
@@ -130,6 +142,36 @@ export async function checkTenant(
       error: e instanceof Error ? (e.name === 'AbortError' ? `no response in ${timeoutMs}ms` : e.message) : String(e),
       latencyMs: Date.now() - started,
     }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * The metrics a tenant will only tell an authenticated caller (#632).
+ *
+ * ⚠️ Separate from the readiness probe, and failing separately. A tenant too
+ * old to serve this endpoint, or one whose token does not match, must not be
+ * reported as DOWN — it is answering perfectly well, we simply cannot see
+ * inside it. Conflating the two would make a rollout look like an outage.
+ */
+export async function fetchTenantMetrics(
+  slug: string,
+  fleetSecret: string,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = TENANT_TIMEOUT_MS
+): Promise<{ metrics?: FleetMetrics; metricsError?: string }> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetchImpl(`http://api-${slug}:8080/api/internal/fleet-metrics`, {
+      headers: { authorization: `Bearer ${deriveTenantToken(fleetSecret, slug)}` },
+      signal: controller.signal,
+    })
+    if (!res.ok) return { metricsError: `HTTP ${res.status}` }
+    return { metrics: (await res.json()) as FleetMetrics }
+  } catch (e) {
+    return { metricsError: e instanceof Error ? e.message : String(e) }
   } finally {
     clearTimeout(timer)
   }
@@ -203,6 +245,9 @@ export interface CollectorDeps {
   backupDir?: string
   fetchImpl?: typeof fetch
   now?: () => number
+  /** Derives each tenant's metrics token (#632). Absent leaves `metrics`
+   *  undefined on every tenant, which the alert rules read as unmeasured. */
+  fleetMetricsSecret?: string
 }
 
 export async function collectFleetStatus(deps: CollectorDeps): Promise<FleetStatus> {
@@ -233,7 +278,14 @@ export async function collectFleetStatus(deps: CollectorDeps): Promise<FleetStat
 
   // In parallel: one slow tenant must not serialise behind the others.
   const statuses = await Promise.all(
-    tenants.map((slug) => checkTenant(slug, deps.fetchImpl))
+    tenants.map(async (slug) => {
+      const status = await checkTenant(slug, deps.fetchImpl)
+      // ⚠️ Only asked of a tenant that answered. A container that is down has
+      // nothing to say about its key pool, and a failed metrics call on top of
+      // a failed readiness call is noise on an incident already reported.
+      if (!deps.fleetMetricsSecret || status.state === 'down') return status
+      return { ...status, ...(await fetchTenantMetrics(slug, deps.fleetMetricsSecret, deps.fetchImpl)) }
+    })
   )
 
   const backupDir = deps.backupDir ?? '/backups'

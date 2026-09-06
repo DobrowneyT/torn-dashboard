@@ -120,7 +120,14 @@ const localBind = process.env.ADMIN_LOCAL_BIND ?? '0.0.0.0'
 // `app_global_rw` cannot CONNECT to any faction database (verified on the live
 // cluster). No Docker socket, no per-tenant credential.
 const collector = db
-  ? { db, backupDir: process.env.ADMIN_BACKUP_DIR ?? '/backups' }
+  ? {
+      db,
+      backupDir: process.env.ADMIN_BACKUP_DIR ?? '/backups',
+      // #632: derives each tenant's metrics token. Absent leaves `metrics`
+      // undefined on every tenant, which the alert rules read as UNMEASURED
+      // and stay silent about — never as "all fine".
+      fleetMetricsSecret: process.env.FLEET_METRICS_SECRET || undefined,
+    }
   : undefined
 
 /**

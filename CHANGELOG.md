@@ -18,6 +18,67 @@ surface it automatically.
 
 ---
 
+## [3.89.0] - 2026-09-06
+
+### Added
+- **Fleet monitoring can finally see key-pool depth and failing scrapers
+  (#632).** The two numbers that would have caught #645 on **day one** instead
+  of day thirteen.
+
+  ⚠️ **What the existing health checks do not report: whether anything
+  SUCCEEDS.** `/api/health/ready` covers database connectivity and whether the
+  scheduler is *armed*, so capacityx — which ran zero Torn-backed jobs for
+  thirteen days — answered `ok` throughout, as did Docker's healthcheck and the
+  #609 status page (`5/5 tenants up`). Meanwhile `members-sync` logged
+  `no pooled key available` 312 times into a table nobody was reading.
+
+  New authenticated `GET /api/internal/fleet-metrics` on each tenant, reporting
+  claimable/enrolled/disabled keys and each enabled job's consecutive-failure
+  streak, last success and last error.
+
+  ⚠️ **`claimable` mirrors `keyPool.claim()`'s condition exactly**, not
+  `disabled = false`. That difference is what capacityx turned on: it held one
+  *enabled* key that `claim()` would never return, because the key had no
+  faction access. A looser count would have reported the pool as fine.
+
+  ⚠️ **Not one shared secret pasted into every tenant.** Each tenant holds only
+  its own token, derived as `HMAC-SHA256(FLEET_METRICS_SECRET, slug)`; the admin
+  container holds the secret and derives what it needs. A shared secret would
+  mean a leak from **any** faction's environment reads **every** faction's
+  metrics — one faction's compromise should be one faction. An intermediate
+  version of this change passed the fleet secret to each tenant so it could
+  derive its own token, which defeated the entire point; tenants now receive a
+  literal `FLEET_METRICS_TOKEN` and never see the secret.
+
+  ⚠️ **The endpoint is genuinely public and is authenticated accordingly.** The
+  generated tenant vhost proxies `location /api/` wholesale, so living on the
+  compose network protects nothing. Comparison is constant-time and
+  length-checked first, because `timingSafeEqual` throws on a length mismatch —
+  a short token would 500 rather than 401, which is itself an oracle.
+
+  New alert rules: `keys-empty` (urgent — self-sustaining, since `members-sync`
+  is the only job that can refill the pool and it needs a key from the pool it
+  just emptied), `keys-low` at one key (how #123/#124 started), and
+  `scraper-failing` per job after three consecutive failures.
+
+  ⚠️ **Unmeasured is not "fine".** A tenant with no `metrics` — no secret
+  configured, or too old to serve the endpoint — produces **no alerts at all**
+  rather than alerts reading zero. Treating unmeasured as zero would have fired
+  on every tenant the moment this shipped, for a fact nobody had established.
+  Same rule as the null item-sync timestamp in v3.77.0.
+
+  ⚠️ Alerts name the failing **job**, not a count. "3 jobs failing" is not
+  actionable at 3am; "members-sync has failed 12 times and never succeeded" is.
+  Job names are identical on every tenant and reveal nothing about a faction —
+  the reconnaissance concern #609 raised is member ids and key material, and the
+  payload carries neither.
+
+  `db/fleet-metrics-token.mjs` prints the token for an existing faction;
+  `db/new-faction.mjs` writes it for new ones. Unset `FLEET_METRICS_SECRET`
+  leaves the endpoint unregistered everywhere.
+
+---
+
 ## [3.88.0] - 2026-09-06
 
 ### Changed
