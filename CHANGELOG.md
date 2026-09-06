@@ -18,6 +18,76 @@ surface it automatically.
 
 ---
 
+## [3.85.0] - 2026-09-06
+
+### Fixed
+- **⚠️ `members-sync` could adopt another faction's roster and permanently lock
+  a tenant out of its own key pool (#645).** This ran on `capacityx` for
+  **thirteen days** and needed manual SQL to recover.
+
+  A Torn key answers for its owner's **current** faction. When a member leaves,
+  their key stays in the pool until something notices — and the round-robin
+  eventually claims it. On 2026-08-24 that happened:
+  `/v2/faction/members` returned *their new faction's* roster and this job wrote
+  it as ours. 95 real members marked departed, 31 strangers inserted, and every
+  real key disabled as "not in faction". The run recorded **`rows=32,
+  status=success`**.
+
+  It then deadlocked: with no usable key, the only job that could re-enable
+  those keys was this one, which needs a key from the pool it had just emptied.
+  Every Torn-backed scraper failed hourly while `/api/health/ready`, the Docker
+  healthcheck and the #609 fleet status page all reported the tenant healthy.
+
+  Three guards, deliberately independent so no single failure removes them all:
+
+  - **The claimed key must still answer for our faction.** `/v2/faction/basic`
+    is compared against `faction_config.torn_faction_id`; on a mismatch **that
+    one key** is disabled and the run stops without touching the roster —
+    dropping the key was always the right response, not retiring ninety-five
+    members. One extra call per hourly run.
+  - **No run may retire more than half the roster** (above a 20-member floor, so
+    a small faction losing two of three is unaffected). Needs no API call, and
+    catches a truncated or otherwise wrong response from a *valid* key.
+  - **No reconcile may leave the pool with nothing claimable.** This is the one
+    that turns a bad hour into a bad hour rather than thirteen days: the bad
+    roster was recoverable, the deadlock was not.
+
+  ⚠️ **The obvious cheaper check does not work, and a test says so.** "The key
+  owner must appear in the roster it returned" needs no extra call and looks
+  sufficient — I nearly shipped it. It fails on the actual incident: the
+  departed member *is* in the roster their key returns, because it is their new
+  faction's. Only the faction id separates the two.
+
+- **⚠️ Two more ways the key pool could empty itself (#645 follow-up).** Raised
+  by MonChoon: some Torn errors mean *wait*, not *act*, and acting on a
+  transient one costs a donor's key.
+
+  **Code 13 is no longer treated as fatal.** Torn's own wording is *"The key is
+  temporarily disabled due to owner inactivity"* — it returns by itself when the
+  owner logs in. Treating it as fatal disabled the key, the roster reconcile
+  re-enabled it on the same run because the member is still in the faction, and
+  re-verification disabled it again an hour later: a flap that made the pool
+  look smaller than it was and wrote a misleading `last_error` on a good donor's
+  key. ⚠️ It had a sharper edge too — a faction quiet over a holiday can have
+  most of its keys answer 13 at once, which empties the pool and reaches the
+  #645 deadlock by a completely different route.
+
+  **Re-verification will no longer disable the last claimable key.** ⚠️ That
+  pass runs *after* the roster reconcile commits, so the pool-exhaustion guard
+  above does not cover it — it could empty the pool on its own. A key that
+  errors is not necessarily dead, and even when it is, leaving it enabled makes
+  each job fail loudly rather than every job failing with the indistinguishable
+  `no pooled key available` that hid the original incident for thirteen days.
+  The error is still recorded and the next run re-checks it.
+
+  ⚠️ The identity check **fails open on a transient error and closed on a
+  definite mismatch.** Refusing to sync whenever `/v2/faction/basic` is
+  unavailable would let a Torn hiccup stop member syncing fleet-wide — trading a
+  rare guarded failure for a frequent unguarded one. The other two guards need
+  no API call and still stand.
+
+---
+
 ## [3.84.0] - 2026-09-06
 
 ### Changed
