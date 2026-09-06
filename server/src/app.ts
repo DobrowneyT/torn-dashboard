@@ -29,6 +29,7 @@ import { registerCalendarRoutes } from './calendar.js'
 import { registerExportRoutes } from './exports.js'
 import { createCompetitionTimers, type CompetitionTimers } from './competitions/competitionTimers.js'
 import { createFlagResolver, type FlagResolver } from './featureFlags.js'
+import type { OcScenarioModel } from './oc/modelLoader.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
 import { registerMemberNotesRoutes } from './memberNotes.js'
@@ -84,6 +85,15 @@ export interface ServerOptions {
   rateLimit?: RateLimitOptions | false
   /** War-room socket keepalive period, ms. Overridden only by tests. */
   warRoomHeartbeatMs?: number
+  /**
+   * OC scenario model override (#606). Production uses the dataset committed in
+   * the image.
+   *
+   * ⚠️ Injectable for tests only. Asserting against the real dataset would
+   * couple the suite to its exact contents, so a routine model refresh — Torn
+   * adds crimes — would break tests that have nothing to do with the change.
+   */
+  ocModel?: Map<string, OcScenarioModel>
 }
 
 export interface RateLimitOptions {
@@ -341,7 +351,10 @@ export async function buildServer(
     })
 
     registerMemberRoutes(app, opts.db)
-    registerOcRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
+    registerOcRoutes(app, {
+      db: opts.db, tornBaseUrl: opts.tornBaseUrl,
+      encryptionKey: opts.keyEncryptionKey, ocModel: opts.ocModel,
+    })
     registerPayoutRoutes(app, opts.db)
     registerWarRoutes(app, opts.db)
     registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })

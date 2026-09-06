@@ -18,6 +18,46 @@ surface it automatically.
 
 ---
 
+## [3.84.0] - 2026-09-06
+
+### Changed
+- **The OC Simulator reads the built-in model (#606).** All four call sites in
+  `oc.ts` — the scenario listing, the roster lookup, the ranking and the
+  parameter-count guard — now assemble from the dataset committed in the image
+  instead of the three per-tenant mirror tables.
+
+  ⚠️ **This is the change that fixes the live symptom.** Measured on the fleet
+  on 2026-09-06, `tnl` and `forge` held 31 scenarios and **mayhem, ascension and
+  capacityx held zero**, because `oc-scenarios-mirror` only populated where
+  somebody had enabled the job — and an empty table looks exactly like a crime
+  with no data. A test now runs the whole simulator surface against a database
+  with `oc_scenarios` emptied and asserts every scenario, role and ending still
+  comes back.
+
+  ⚠️ **The model is the floor; our observations are an overlay.** Node stats are
+  queried independently rather than joined through `oc_scenarios` — joining
+  would have reproduced the very bug being fixed, since a tenant with no mirror
+  rows would get no observations either, though its own crime history is intact.
+  An ending with no observations keeps its row with `money_avg: null`, which
+  `expectedValue()` already reports as unpriced and therefore a lower bound.
+
+  ⚠️ `observed_paths` and the ending-map quality columns are **still read from
+  `oc_scenarios`**: those are ours, derived from our own runs, and are rehomed
+  by a later migration. Keeping this change to the read path alone means the
+  mirror tables and the job are removed only once the switch has run in
+  production — never delete the old source before the new one has been proven.
+
+  ⚠️ The model is **injectable** (`ServerOptions.ocModel`) and the suite drives
+  a fixture. Asserting against the committed dataset would couple every OC test
+  to its exact contents, so a routine refresh — Torn adds crimes — would break
+  tests unrelated to the change.
+
+  Endings now also carry `reward`, the model's published payout, kept distinct
+  from `money_avg`, which is what this faction has observed. Two different
+  claims about the same ending, and the client must be able to tell them apart.
+
+---
+
 ## [3.83.0] - 2026-09-06
 
 ### Added

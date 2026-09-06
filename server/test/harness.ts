@@ -120,6 +120,15 @@ export interface StackOverrides {
    * wait for — war-room.test.ts sets a few tens of ms to watch a real ping.
    */
   warRoomHeartbeatMs?: number
+  /**
+   * OC scenario model (#606). Absent means the real committed dataset.
+   *
+   * ⚠️ Tests that assert on scenario structure should inject a fixture via
+   * `ocModelFixture()`. Asserting against the committed dataset would couple
+   * the suite to its exact contents, so a routine model refresh — Torn adds
+   * crimes — would break tests unrelated to the change.
+   */
+  ocModel?: Map<string, import('../src/oc/modelLoader.js').OcScenarioModel>
 }
 
 /** Boot embedded Postgres + templated faction DB + Torn fixture + GitHub fixture + API. */
@@ -272,6 +281,9 @@ export async function startTestStack(
 
   // The API under test, over real HTTP
   const app = await buildServer({
+    // #606: tests drive a fixture model unless one is supplied, so the suite is
+    // never coupled to the dataset committed in the image.
+    ocModel: overrides.ocModel,
     factionSlug: TEST_FACTION.slug,
     db,
     tornBaseUrl,
