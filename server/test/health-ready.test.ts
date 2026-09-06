@@ -29,6 +29,33 @@ describe('GET /api/health/ready — readiness', () => {
     expect(body.ticker).toBe('disarmed')
   })
 
+  // #609: what this tenant is reading from the control plane.
+  it('reports the control plane as not configured when there is none', async () => {
+    // The overwhelmingly common case today, and it must read as a deliberate
+    // absence rather than a fault.
+    const res = await fetch(`${stack.baseUrl}/api/health/ready`)
+    expect((await res.json() as any).global).toBe('not_configured')
+  })
+
+  it('⚠️ stays 200 when the global database is unreachable', async () => {
+    // The guarantee the whole #608 design rests on: tenants keep working when
+    // the control plane is down. Failing readiness here would turn an
+    // intentional, survivable degradation into a paged outage — and an operator
+    // would learn to ignore the alert.
+    const app = await buildServer({
+      factionSlug: 'lonely',
+      db: stack.db,
+      globalDb: new pg.Pool({ host: '127.0.0.1', port: 1, connectionTimeoutMillis: 50 }),
+      tornBaseUrl: 'http://127.0.0.1:9',
+      jwtSecret: 'irrelevant',
+      keyEncryptionKey: TEST_KEY_ENCRYPTION_KEY,
+    })
+    const res = await app.inject({ method: 'GET', url: '/api/health/ready' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ status: 'ok', global: 'unavailable' })
+    await app.close()
+  })
+
   it('returns 503 degraded when the database is unreachable', async () => {
     const app = await buildServer({
       factionSlug: 'downtenant',

@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import type pg from 'pg'
+import { readFleetMeta, itemsAreFresh } from './globalDb.js'
 import {
   factionIdentity,
   loginWithTornKey,
@@ -46,6 +47,9 @@ export interface HealthFlags {
 export interface ServerOptions {
   factionSlug: string
   db?: pg.Pool
+  /** Read-only pool on the shared `global` database (#609). Optional on
+   *  purpose: a tenant with no control plane works exactly as it did before. */
+  globalDb?: pg.Pool
   tornBaseUrl?: string
   jwtSecret?: string
   /** Readiness flags for /api/health/ready; owned and updated by the caller. */
@@ -155,6 +159,16 @@ export async function buildServer(
         db = 'down'
       }
     }
+    // #609: what this tenant is reading from the control plane. Reported here
+    // because /api/health/ready is what a fleet status page polls, and "which
+    // model version is this tenant on" is otherwise invisible.
+    //
+    // ⚠️ `global: 'unavailable'` is NOT a degraded state and must never make
+    // this endpoint 503. Tenants are designed to work with the control plane
+    // down; failing readiness would turn an intentional degradation into an
+    // outage, and an uptime monitor would page for the one thing the
+    // architecture guarantees is survivable.
+    const fleet = await readFleetMeta(opts.globalDb)
     const ok = db !== 'down'
     return reply.status(ok ? 200 : 503).send({
       status: ok ? 'ok' : 'degraded',
@@ -162,6 +176,16 @@ export async function buildServer(
       db,
       scheduler: health.scheduler ? 'armed' : 'disarmed',
       ticker: health.ticker ? 'armed' : 'disarmed',
+      global: !opts.globalDb
+        ? 'not_configured'
+        : fleet === null
+          ? 'unavailable'
+          : {
+              schema_version: fleet.schemaVersion,
+              oc_model_version: fleet.ocModelVersion,
+              items_synced_at: fleet.itemsSyncedAt,
+              items_fresh: itemsAreFresh(fleet),
+            },
     })
   })
 

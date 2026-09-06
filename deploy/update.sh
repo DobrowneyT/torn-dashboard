@@ -182,6 +182,22 @@ for db in $DBS; do
   node db/migrate.mjs --db "$db"
 done
 
+# #609: the shared `global` database has its own migration lane, because its
+# schema has nothing in common with a faction's — running one lane against the
+# other would apply the wrong shape to a live database.
+#
+# ⚠️ Skipped, not failed, when the database does not exist. The control plane is
+# optional by design: a deploy on a host that has never run db/new-global.mjs
+# must succeed exactly as it did before, or this feature would turn an opt-in
+# addition into a hard dependency for every existing installation.
+GLOBAL_DB="$("${COMPOSE[@]}" exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -tAc \
+  "SELECT datname FROM pg_database WHERE datname = 'global'")"
+if [ -n "$GLOBAL_DB" ]; then
+  node db/migrate.mjs --global
+else
+  echo "  global database not provisioned — skipping (run db/new-global.mjs to enable the control plane)"
+fi
+
 # Rebuild images; compose recreates only the containers whose config or image
 # actually changed (the SPA lives in the nginx image, so it rides along).
 echo "==> rebuild + restart"

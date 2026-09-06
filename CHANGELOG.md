@@ -18,6 +18,58 @@ surface it automatically.
 
 ---
 
+## [3.71.0] - 2026-09-05
+
+### Added
+- **The shared `global` database — foundation of the admin control plane
+  (#609, slice 1 of 7).** Torn-wide facts that are identical for every faction
+  get one home instead of N copies that can disagree.
+
+  ⚠️ **The organizing principle came out of the #608 audit and is not what the
+  issue originally assumed.** The question is not *"is this data Torn-global"*
+  but ***can one API key fetch it*** — every faction-scoped endpoint needs that
+  faction's own pooled keys, so members, crimes, wars, attacks and revives can
+  never move here however much duplication they cause. Checked against all 20
+  scraper jobs' real endpoints, **exactly two qualify**: the OC scenario model
+  (needs no Torn key) and the item catalogue (public `/v2/torn/items`).
+
+- **Two Postgres roles, and the split is load-bearing.** `app_global_ro` for
+  every tenant (SELECT only) and `app_global_rw` for the admin container. The
+  audit chose *tenants read `global` directly* over push or pull because it
+  keeps the control plane out of every tenant's read path — which makes
+  "killing the admin container leaves every tenant fully functional" true by
+  construction. That only holds if a tenant **physically cannot write**: a
+  shared table corrupted by one faction is read by all of them. Proved against
+  real Postgres, including that a tenant can read a table added by a *later*
+  migration but still cannot write to it.
+
+- **A separate migration lane** (`db/migrations-global/`, `node db/migrate.mjs
+  --global`) and `db/new-global.mjs` to provision the database and both roles.
+  `update.sh` runs the lane, and **skips it when the database does not exist**
+  — the control plane is opt-in, and a deploy on a host that has never
+  provisioned it must succeed exactly as before.
+
+- **Tenants report what they are reading** on `/api/health/ready`: global schema
+  version, OC model version, and item-price freshness. This is what a fleet
+  status page will poll, and satisfies #609's "a tenant reports which version it
+  is running" ahead of the page existing.
+
+  ⚠️ **An unreachable control plane reports `global: "unavailable"` and stays
+  HTTP 200.** Failing readiness would turn the one degradation this architecture
+  guarantees is survivable into a paged outage — and an operator would learn to
+  ignore the alert.
+
+- **A staleness rule for shared item prices, ahead of the data moving.**
+  Centralising `items-sync` will trade five-fold key-pool redundancy for a
+  single key, and that failure is silent: prices stop moving and every faction
+  keeps valuing payouts off them. `itemsAreFresh` treats **"never synced" as
+  stale rather than fresh** — NULL and "synced long ago" are the same answer to
+  *may I price a payout with this?*, and defaulting the unknown case to yes is
+  exactly how a silent mis-valuation happens (the #351 rule, and the shape of
+  the key-pool decay that ran unnoticed for months in #123/#124).
+
+---
+
 ## [3.70.0] - 2026-09-05
 
 ### Fixed
