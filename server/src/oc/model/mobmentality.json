@@ -1,0 +1,88 @@
+{
+  "name": "Mob Mentality",
+  "slug": "mobmentality",
+  "parameterCount": 4,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [
+    "1 narrative node(s) that stop without reaching an ending: _A4F_Cont_"
+  ],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Looter 1",
+      "weight": 33.96650646
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Looter 2",
+      "weight": 26.48850715
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Looter 3",
+      "weight": 18.36444021
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Looter 4",
+      "weight": 21.18054618
+    }
+  ],
+  "endings": [
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A7S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_B2S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B3S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_D3S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.000008739666093826592,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": null
+  }
+}

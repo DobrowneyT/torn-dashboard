@@ -1,0 +1,238 @@
+{
+  "name": "Crane Reaction",
+  "slug": "cranereaction",
+  "parameterCount": 6,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Sniper",
+      "weight": 40.73886856841122
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Lookout",
+      "weight": 16.623960934255475
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Engineer",
+      "weight": 8.286087919744741
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Bomber",
+      "weight": 15.8901690506963
+    },
+    {
+      "positionId": "P5",
+      "roleName": "Muscle 1",
+      "weight": 10.683294142974866
+    },
+    {
+      "positionId": "P6",
+      "roleName": "Muscle 2",
+      "weight": 7.777619383917385
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding1: ties between _A1F_ and _A4F_ on role evidence — needs a paired-role probe (Lookout + Muscle 1)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": "_A2F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": "_A3F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding4: ties between _B7F_ and _A4F_ on role evidence — needs a paired-role probe (Muscle 1 + Sniper)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding5: ties between _A7F_ and _A1F_ on role evidence — needs a paired-role probe (Bomber + Sniper)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding6",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding6: ties between _B7F_ and _A4F_ on role evidence — needs a paired-role probe (Muscle 1 + Sniper)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding7",
+      "nodeId": "_A7F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding8",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding8: ties between _B7F_ and _A4F_ on role evidence — needs a paired-role probe (Muscle 1 + Sniper)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": null,
+        "respect": 1841,
+        "itemCount": 3,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": null,
+        "respect": 1556,
+        "itemCount": 2,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A8S3_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": null,
+        "respect": 1464,
+        "itemCount": 2,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": null,
+        "respect": 1262,
+        "itemCount": 2,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_B7S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": null,
+        "respect": 1017,
+        "itemCount": 1,
+        "uncertain": false
+      }
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.4548380357745424,
+    "roles": [
+      "Bomber",
+      "Lookout",
+      "Muscle 2",
+      "Sniper"
+    ]
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "name": "Plucking the Lotus Petal",
+  "slug": "pluckingthelotuspetal",
+  "parameterCount": 4,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Robber 1",
+      "weight": 14.027682053942709
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Hustler",
+      "weight": 14.394494084394903
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Robber 2",
+      "weight": 23.680942608167083
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Muscle",
+      "weight": 47.89688125349531
+    }
+  ],
+  "endings": [
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_B8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_C6S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.000009678972580862144,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": null
+  }
+}

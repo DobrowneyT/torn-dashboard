@@ -1,0 +1,120 @@
+{
+  "name": "Counter Offer",
+  "slug": "counteroffer",
+  "parameterCount": 5,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Robber",
+      "weight": 35.94505104
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Looter",
+      "weight": 6.998750427
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Hacker",
+      "weight": 12.1275068
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Picklock",
+      "weight": 16.5353262
+    },
+    {
+      "positionId": "P5",
+      "roleName": "Engineer",
+      "weight": 28.39336554
+    }
+  ],
+  "endings": [
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": null,
+        "respect": 170,
+        "itemCount": 12,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A7S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": null,
+        "respect": 155,
+        "itemCount": 7,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A5S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": null,
+        "respect": 136,
+        "itemCount": 7,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": null,
+      "kind": "good",
+      "resolved": false,
+      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
+      "starved": true,
+      "reward": {
+        "money": null,
+        "respect": 122,
+        "itemCount": 8,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": null,
+      "kind": "good",
+      "resolved": false,
+      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
+      "starved": true,
+      "reward": null
+    },
+    {
+      "key": "goodEnding6",
+      "nodeId": "_B5S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.009803957922752682,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}

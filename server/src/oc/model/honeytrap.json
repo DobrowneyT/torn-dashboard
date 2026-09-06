@@ -1,0 +1,126 @@
+{
+  "name": "Honey Trap",
+  "slug": "honeytrap",
+  "parameterCount": 3,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Enforcer",
+      "weight": 26.98428598
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Muscle 1",
+      "weight": 30.86556191
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Muscle 2",
+      "weight": 42.15015211
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding1: ties between _B2F_ and _A1F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding2: ties between _B2F_ and _A1F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _A5F_ and _A4F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding4: ties between _A5F_ and _A4F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding5: ties between _B1F_ and _B2F_ on role evidence — needs a paired-role probe (Muscle 1 + Enforcer)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding6",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding6: ties between _B1F_ and _B2F_ on role evidence — needs a paired-role probe (Muscle 1 + Enforcer)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A6S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B2S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.000013907026887416407,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": null
+  }
+}

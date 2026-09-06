@@ -1,0 +1,176 @@
+{
+  "name": "Guardian Ángels",
+  "slug": "guardianangels",
+  "parameterCount": 3,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Enforcer",
+      "weight": 27.404376861170505
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Hustler",
+      "weight": 42.10252351813381
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Engineer",
+      "weight": 30.49309962016114
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding1: ties between _A5F_ and _A1F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding2: ties between _A2F_ and _B4F_ on role evidence — needs a paired-role probe (Hustler + Engineer)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _A5F_ and _A1F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding4: ties between _A5F_ and _A1F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding5: ties between _B4F_ and _A6F_ on role evidence — needs a paired-role probe",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding6",
+      "nodeId": "_B5F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 8434642,
+        "respect": 104,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 7166481,
+        "respect": 91,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A9S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 6389142,
+        "respect": 81,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B6S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 4884720,
+        "respect": 71,
+        "itemCount": null,
+        "uncertain": false
+      }
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.0047665602341873115,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}

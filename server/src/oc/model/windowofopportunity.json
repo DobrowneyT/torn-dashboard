@@ -1,0 +1,104 @@
+{
+  "name": "Window of Opportunity",
+  "slug": "windowofopportunity",
+  "parameterCount": 5,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Engineer",
+      "weight": 14.55335487209706
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Looter 1",
+      "weight": 19.544697437213543
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Looter 2",
+      "weight": 25.802321762790502
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Muscle 1",
+      "weight": 23.086816638821606
+    },
+    {
+      "positionId": "P5",
+      "roleName": "Muscle 2",
+      "weight": 17.012809289077286
+    }
+  ],
+  "endings": [
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A8S3_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_C6S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_B8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding6",
+      "nodeId": "_B8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.5907293101296627,
+    "roles": [
+      "Looter 1",
+      "Looter 2",
+      "Muscle 1"
+    ]
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": null
+  }
+}

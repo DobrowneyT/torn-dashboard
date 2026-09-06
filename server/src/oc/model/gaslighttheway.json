@@ -1,0 +1,157 @@
+{
+  "name": "Gaslight the Way",
+  "slug": "gaslighttheway",
+  "parameterCount": 6,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Imitator 1",
+      "weight": 9.394999578
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Imitator 2",
+      "weight": 27.46467248
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Imitator 3",
+      "weight": 41.32194207
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Looter 1",
+      "weight": 9.394999578
+    },
+    {
+      "positionId": "P5",
+      "roleName": "Looter 2",
+      "weight": -0.0003562738035
+    },
+    {
+      "positionId": "P6",
+      "roleName": "Looter 3",
+      "weight": 12.42374256
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": "_A1F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": "_A2F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _A3F_ and _B8F_ on role evidence — needs a paired-role probe (Looter 3 + Imitator 3)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": "_B8F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A7S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_B7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B7S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": null,
+        "respect": 92,
+        "itemCount": 18,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_B9S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.000008392412500057844,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}

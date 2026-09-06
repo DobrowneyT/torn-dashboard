@@ -1,0 +1,145 @@
+{
+  "name": "Market Forces",
+  "slug": "marketforces",
+  "parameterCount": 5,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Enforcer",
+      "weight": 29.4020952
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Negotiator",
+      "weight": 27.22899702
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Lookout",
+      "weight": 16.36647471
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Arsonist",
+      "weight": 4.456390991
+    },
+    {
+      "positionId": "P5",
+      "roleName": "Muscle",
+      "weight": 22.54604208
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": "_A1F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": "_A2F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": "_A3F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": "_B4F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": "_B5F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_A5S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_B5S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding6",
+      "nodeId": "_A4S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.00000940015741035527,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": null
+  }
+}

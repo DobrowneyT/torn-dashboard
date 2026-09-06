@@ -1,0 +1,177 @@
+{
+  "name": "Hostile Takeover",
+  "slug": "hostiletakeover",
+  "parameterCount": 6,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Hacker",
+      "weight": 11.154471089082223
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Engineer",
+      "weight": 15.240409558114203
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Cat Burglar",
+      "weight": 16.003004887681396
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Kidnapper",
+      "weight": 12.980809844427426
+    },
+    {
+      "positionId": "P5",
+      "roleName": "Negotiator",
+      "weight": 23.952564641966315
+    },
+    {
+      "positionId": "P6",
+      "roleName": "Muscle",
+      "weight": 20.668739978728432
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding1: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Kidnapper + Negotiator)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding2: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Kidnapper + Negotiator)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _B4F_ and _B5F_ on role evidence — needs a paired-role probe (Hacker + Engineer)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding4: ties between _A5F_ and _B5F_ on role evidence — needs a paired-role probe (Cat Burglar + Hacker)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding5: ties between _A5F_ and _B5F_ on role evidence — needs a paired-role probe (Cat Burglar + Hacker)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding6",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding6: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Kidnapper + Negotiator)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding7",
+      "nodeId": "_B6F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding8",
+      "nodeId": "_B7F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "badEnding9",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding9: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Kidnapper + Negotiator)",
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_B8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_B8S2_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_A8S3_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": null
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.000014552362290087828,
+    "roles": []
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": null
+  }
+}

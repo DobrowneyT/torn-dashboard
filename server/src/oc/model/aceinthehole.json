@@ -1,0 +1,149 @@
+{
+  "name": "Ace in the Hole",
+  "slug": "aceinthehole",
+  "parameterCount": 5,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Imitator",
+      "weight": 21.07540412
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Muscle 1",
+      "weight": 18.29831955
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Muscle 2",
+      "weight": 24.65084339
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Hacker",
+      "weight": 28.3434151
+    },
+    {
+      "positionId": "P5",
+      "roleName": "Driver",
+      "weight": 7.632017841
+    }
+  ],
+  "endings": [
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 562692618,
+        "respect": 951,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A9S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 450918600,
+        "respect": 838,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A10S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 416313794,
+        "respect": 674,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_C8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 383018850,
+        "respect": 562,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_C9S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 338898930,
+        "respect": 374,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding6",
+      "nodeId": "_B7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 438276375,
+        "respect": 750,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding7",
+      "nodeId": "_D7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 360558125,
+        "respect": 479,
+        "itemCount": null,
+        "uncertain": false
+      }
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.48037226720245296,
+    "roles": [
+      "Driver",
+      "Hacker",
+      "Muscle 1",
+      "Muscle 2"
+    ]
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "name": "Clinical Precision",
+  "slug": "clinicalprecision",
+  "parameterCount": 4,
+  "isComplete": true,
+  "diagramValid": true,
+  "diagramProblems": [],
+  "roles": [
+    {
+      "positionId": "P1",
+      "roleName": "Imitator",
+      "weight": 43.31533431
+    },
+    {
+      "positionId": "P2",
+      "roleName": "Cat Burglar",
+      "weight": 18.93905648
+    },
+    {
+      "positionId": "P3",
+      "roleName": "Assassin",
+      "weight": 16.0581518
+    },
+    {
+      "positionId": "P4",
+      "roleName": "Cleaner",
+      "weight": 21.68745741
+    }
+  ],
+  "endings": [
+    {
+      "key": "badEnding1",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding1: ties between _A1F_ and _C5F_ on role evidence — needs a paired-role probe (Imitator + Cat Burglar)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding2",
+      "nodeId": "_A4F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding3",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding3: ties between _B4F_ and _C5F_ on role evidence — needs a paired-role probe (Cat Burglar + Cleaner)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding4",
+      "nodeId": "_C6F_",
+      "kind": "bad",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding5",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding5: ties between _B4F_ and _A1F_ on role evidence — needs a paired-role probe (Imitator + Cat Burglar)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding6",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding6: ties between _B4F_ and _C5F_ on role evidence — needs a paired-role probe (Cat Burglar + Cleaner)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "badEnding7",
+      "nodeId": null,
+      "kind": "bad",
+      "resolved": false,
+      "problem": "badEnding7: ties between _A6F_ and _B4F_ on role evidence — needs a paired-role probe (Cleaner + Assassin)",
+      "starved": false,
+      "reward": {
+        "money": 0,
+        "respect": 0,
+        "itemCount": 0,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding1",
+      "nodeId": "_A8S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 117161350,
+        "respect": 294,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding2",
+      "nodeId": "_A9S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 104995714,
+        "respect": 272,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding3",
+      "nodeId": "_A6S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 93833666,
+        "respect": 241,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding4",
+      "nodeId": "_C7S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 86187142,
+        "respect": 209,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding5",
+      "nodeId": "_B6S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 74929714,
+        "respect": 179,
+        "itemCount": null,
+        "uncertain": false
+      }
+    },
+    {
+      "key": "goodEnding6",
+      "nodeId": "_B5S_",
+      "kind": "good",
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "reward": {
+        "money": 66239666,
+        "respect": 154,
+        "itemCount": null,
+        "uncertain": false
+      }
+    }
+  ],
+  "roleFidelity": {
+    "error": 0.4849000054484748,
+    "roles": [
+      "Imitator"
+    ]
+  },
+  "sources": {
+    "structure": "tornprobability",
+    "roles": "tornprobability",
+    "rewards": "crimeshub"
+  }
+}

@@ -18,6 +18,62 @@ surface it automatically.
 
 ---
 
+## [3.83.0] - 2026-09-06
+
+### Added
+- **The built-in OC scenario model (#606, first slice).** The 31 scenarios —
+  graph, roles with weights, endings, and per-ending rewards where known — are
+  now committed under `server/src/oc/model/`, with a loader and a maintainer
+  build script. Nothing reads it yet; the read path moves in the next slice.
+
+  ⚠️ **The live symptom this exists to fix**: measured on the fleet on
+  2026-09-06, `tnl` and `forge` held 31 scenarios and **mayhem, ascension and
+  capacityx held zero**. The per-tenant mirror only populates where somebody
+  enabled the `oc-scenarios-mirror` job, so the Simulator was silently empty for
+  three of five factions — and an empty table looks exactly like a crime with no
+  data. A file shipped in the image cannot be present on some tenants and absent
+  on others.
+
+  ⚠️ **The dataset may be incomplete; it may never be wrong.** Crimes Hub's
+  reward display has at least six shapes — cash, item counts, "one from each
+  pool", ranges (`x14-15`), probabilistic drops (`x4 (43%)`), and bad endings —
+  and each was discovered by a scenario breaking the parser written for the
+  previous ones. The first parser was positional and recorded Crane Reaction's
+  good endings as `money: 0`, which asserts *"this ending pays nothing"* when
+  the truth is *"it pays in items we have not priced here"*. A fabricated figure
+  in a committed file is strictly worse than an absent one, so the extractor now
+  refuses any shape it does not recognise and the build publishes `null` — the
+  same rule as `item_value_unmatched` (#441), unpriced endings (#473) and
+  null-not-zero (#351). Four of Gaslight the Way's good endings are unpublished
+  on exactly these grounds, and a test asserts no good ending is ever recorded
+  as paying nothing.
+
+  ⚠️ **Two sources, deliberately not interchangeable.** tornprobability supplies
+  the graph, ending probabilities and `successChance`; Crimes Hub supplies
+  per-ending money, respect and item counts. Crimes Hub carries no success
+  probabilities at all — the percentages it does show are *item-drop* odds — so
+  it cannot replace the first, and tornprobability carries no payouts, so it
+  cannot replace the second. Every file records which source gave what.
+
+  ⚠️ **23 Crimes Hub endings are dropped, and the build says so.** Our upstream
+  reports only good endings for some crimes while Crimes Hub draws the bad ones:
+  Ace in the Hole loses 11, Counter Offer 6, Dish It Out 6 — from the 11
+  scenarios captured so far. Placing them needs the graph structure, so it is
+  the next slice; reporting the count keeps the gap from looking like it does
+  not exist.
+
+  Diagrams live in sibling `.mmd` files (1.1 MB, against 404 KB for everything
+  else) so a refresh produces a reviewable diff rather than a one-line JSON blob
+  — which is most of the reason for committing this rather than scheduling it.
+
+  ⚠️ Permission to use the Crimes Hub data was obtained from its author and is
+  recorded on #606.
+
+  11 of 31 scenarios currently carry rewards; the source rate-limits at 20
+  requests an hour, so the rest follow.
+
+---
+
 ## [3.82.1] - 2026-09-06
 
 ### Fixed
