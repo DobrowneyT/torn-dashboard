@@ -229,7 +229,86 @@ anything that reads flags live, but the running cron tasks are not rebuilt.
 default and is reported on the Global Admin page and in the API logs. Check
 there if a cadence you set does not appear to have taken.
 
-## 7. When something looks wrong
+## 7. Provisioning a faction (slice 6)
+
+From `admin.monchoon.me` → **Provision a faction**: slug, display name, Torn
+faction id, and optionally the leader's and operator's Torn user ids. No SSH.
+
+⚠️ **The admin container does not provision anything.** It validates the form and
+writes a row to `provision_requests`; a host-side agent outside every container
+claims the row and runs one known command with those arguments. That is why no
+container mounts the Docker socket: a fully compromised admin container can ask
+for a faction to be created and nothing else.
+
+### Installing the agent (once)
+
+```bash
+sudo cp deploy/systemd/tnl-provision-agent.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tnl-provision-agent
+systemctl status tnl-provision-agent --no-pager
+```
+
+It runs as `ubuntu`, must be in the `docker` group, and reads its Postgres
+credential from `deploy/.env` (`DB_PASSWORD_GLOBAL_RW`, written by
+`db/new-global.mjs`) or from `GLOBAL_DATABASE_URL_RW`.
+
+Handle one request by hand, without the timer:
+
+```bash
+node deploy/host-agent.mjs --once
+journalctl -u tnl-provision-agent -f      # or watch the service
+```
+
+### What it does, in order
+
+1. **Re-validates** the row against the same rules as the API. ⚠️ Deliberately
+   duplicated: "the API validated it" stops being true the day anything else
+   writes to that table, and this is the process holding superuser and Docker.
+2. `node db/new-faction.mjs --slug … --name … --faction-id …` — database, schema,
+   seed, `faction_config`, first role grants, the scoped `app_<slug>` credential,
+   the compose override and the nginx vhost.
+3. `docker compose -f deploy/docker-compose.yml up -d --build api-<slug> nginx` —
+   the only step that needs Docker, and the only reason the agent exists.
+
+Output streams into the request row and is shown on the page. ⚠️ It is redacted
+on the way in (`KEY=`/`SECRET=`/`PASSWORD=` lines and connection-string
+passwords), because that log is served over the admin API.
+
+### After it says done
+
+The stack is running but the **host** nginx and TLS are not touched — this is
+deliberate, the agent has no business editing a certificate. Point
+`<slug>.monchoon.me` at the box and extend the cert yourself:
+
+```bash
+sudo vi /etc/nginx/sites-available/tnl-dashboard     # add <slug>.monchoon.me to server_name
+sudo certbot --nginx --expand -d monchoon.me -d <slug>.monchoon.me   # plus the existing ones
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+See `deploy/LAUNCH.md` § 4.3.
+
+### When it fails
+
+The page shows **which step** failed and the captured log, and offers **Retry**.
+⚠️ A failed run is not rolled back, and that is on purpose: if `new-faction.mjs`
+succeeded and only the container failed to come up, the database, role and deploy
+artifacts are correct — undoing them would throw away the expensive, correct work
+and leave the retry nothing to adopt. `new-faction.mjs` is idempotent, so a retry
+walks the same path.
+
+⚠️ Only a **failed** request can be retried. Re-queueing a running one would hand
+the same slug to a second agent run while the first is still inside
+`new-faction.mjs`.
+
+| the form says | what it means |
+|---|---|
+| "Slug must be 2–21 characters…" | the slug goes into `CREATE DATABASE faction_<slug>`; the cap is because Postgres truncates identifiers at 63 bytes **silently** |
+| `"…_dev" is reserved` | staging databases are `faction_<slug>_dev`, and the fleet monitor excludes them — a faction slugged that way would be invisible to monitoring |
+| a 409 conflict | the database, or a live/completed request, or that Torn faction id already exists |
+
+## 8. When something looks wrong
 
 | symptom | first thing to check |
 |---|---|
@@ -241,6 +320,10 @@ there if a cadence you set does not appear to have taken.
 | status page loads but the incidents card says unavailable | the incident store is in Postgres, so this is what a database outage looks like; the fleet table is fetched separately and still works |
 | a fleet flag has no effect on one faction | that faction has its own override — Global Admin shows the source badge; clear it there |
 | a fleet cadence flag has no effect anywhere | cron tasks are built at startup; restart the tenant APIs. If it still does nothing, the expression was rejected — check the API logs |
+| a provisioning request sits at `pending` | the host agent is not running: `systemctl status tnl-provision-agent` |
+| the agent logs "No global database credential" | `deploy/.env` has no `DB_PASSWORD_GLOBAL_RW` — run `node db/new-global.mjs --adopt` |
+| the agent starts but `docker compose` fails with a permission error | the service user is not in the `docker` group |
+| a request is stuck at `running` | one run may take 15 minutes before it is killed and marked failed; after that, Retry |
 
 ## Related
 

@@ -18,6 +18,83 @@ surface it automatically.
 
 ---
 
+## [3.76.0] - 2026-09-05
+
+### Added
+- **Provision a faction from the admin console (#609 slice 6/7).**
+  `admin.monchoon.me` now takes a slug, display name, Torn faction id and
+  optional leader/operator ids, and brings the faction up — database, schema,
+  seed, `faction_config`, first role grants, scoped `app_<slug>` credential,
+  compose override, nginx vhost and container. No SSH.
+
+  ⚠️ **The admin container does not provision anything, and that is the whole
+  design.** Doing so needs Postgres superuser, write access to the deploy
+  directory and Docker — on the one container that accepts logins from the
+  internet. So it validates the form and writes a row to `provision_requests`;
+  a new host-side agent (`deploy/host-agent.mjs`, systemd unit included) runs
+  outside every container, claims the row, and executes **one known command
+  with schema-validated arguments**. A fully compromised admin container can ask
+  for a faction to be created and nothing else. **No container mounts the Docker
+  socket**, and mounting it would collapse exactly this bound.
+
+  ⚠️ Every subprocess is spawned with an **argv array and no shell**, so a slug
+  containing shell metacharacters is an argument rather than a command — an
+  independent defence from the validation, on purpose.
+
+  ⚠️ **These are the only writes on the internet-facing surface.** The #608
+  audit recommended keeping provisioning a CLI; MonChoon reversed that
+  deliberately, and it holds because provisioning is *additive and recoverable*
+  — a wrongly-created faction can be decommissioned, while a wrongly-dropped one
+  cannot be un-dropped. Decommissioning stays off the web permanently.
+
+  ⚠️ **The slug is re-validated at the API boundary and again in the agent.**
+  `db/new-faction.mjs` interpolates it into `CREATE DATABASE faction_${slug}`
+  and `CREATE ROLE app_${slug}`; that guard used to protect a human at a CLI and
+  now protects a web form. The rules are duplicated on purpose — "the API
+  validated it" stops being true the day anything else writes to that table, and
+  the agent is the process holding superuser and Docker. A test compares the two
+  implementations against each other rather than assuming they agree.
+
+  ⚠️ **A length cap of 21, because Postgres truncates identifiers at 63 bytes
+  SILENTLY** — two different `faction_<62 chars>` names land on the same
+  database with no error, discovered much later.
+
+  ⚠️ **Slugs ending in `_dev` are refused.** The staging stack's databases are
+  `faction_<slug>_dev` and the fleet monitor deliberately excludes them, so a
+  real faction slugged that way would be a tenant the monitor never reports on.
+
+  ⚠️ **Failure is visible, re-runnable, and not rolled back.** The page shows
+  which step failed and the captured log, and offers Retry. If `new-faction.mjs`
+  succeeded and only the container failed to come up, the database, role and
+  deploy artifacts are correct — undoing them would throw away the expensive,
+  correct work and leave the retry nothing to adopt. `new-faction.mjs` is
+  idempotent, so a retry walks the same path. Only a **failed** request may be
+  retried: re-queueing a running one would hand the same slug to a second agent
+  run mid-flight, which a partial unique index also blocks at the database.
+
+  ⚠️ **The captured log is redacted on the way in.** `new-faction.mjs` states
+  that the generated credential is never printed, and it is not — but this log
+  is served over the admin API, so `KEY=`/`SECRET=`/`PASSWORD=` lines and
+  connection-string passwords are masked here rather than relying on a promise
+  made in another file.
+
+  ⚠️ A hung `docker build` is killed after 15 minutes and the request marked
+  failed. Left running it would hold the row forever, and the partial unique
+  index would then block every retry for that slug.
+
+  New in `global`: `provision_requests` (migration `0004`, schema version 4),
+  revoked from `app_global_ro` — it names factions that do not exist yet and
+  carries operator identity.
+
+### Changed
+- The status page's "no fleet data" assertion now matches a real database name
+  (`faction_tnl`) rather than the bare substring, which the provisioning card's
+  `torn_faction_id` column label would otherwise have tripped permanently. A
+  field label is not data; loosening the check to keep a bare substring test
+  passing would have meant quietly deleting the assertion instead.
+
+---
+
 ## [3.75.0] - 2026-09-05
 
 ### Added
