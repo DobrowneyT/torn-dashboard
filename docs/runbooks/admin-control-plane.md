@@ -76,10 +76,25 @@ export COMPOSE_FILES="-f deploy/docker-compose.yml -f deploy/docker-compose.over
 
 ```bash
 cd /home/ubuntu/torn/torn-dashboard
-./deploy/update.sh                       # tenants, from main — does its own fetch/reset
-docker compose --profile admin $COMPOSE_FILES up -d --build admin
+./deploy/update.sh                       # tenants AND the admin plane — does its own fetch/reset
 docker compose $COMPOSE_FILES logs --tail=40 admin
 ```
+
+⚠️ **`update.sh` rebuilds the admin container on every deploy** (changed
+2026-09-06; it used to be a separate deliberate step). Three properties are
+worth knowing because they shape what a failure looks like:
+
+- It runs **after** tenant readiness, so a broken admin build cannot delay or
+  block a tenant deploy.
+- It is **non-fatal** — the deploy still succeeds and the log carries
+  `[warn] the admin container failed to build or start`. Failing the deploy
+  would leave the `--if-changed` marker stale and have cron rebuild the whole
+  fleet every five minutes over an optional container. An admin container that
+  is down is what the § 5 alerting is for.
+- It is **skipped** when `ADMIN_PASSWORD_HASH` is unset, since the container
+  refuses to start unconfigured by design.
+
+`./deploy/update.sh --no-admin` opts out for one run.
 
 ⚠️ Do **not** `git pull` before `update.sh`. It fetches and resets on its own,
 and a manual pull leaves the branches divergent.
@@ -422,6 +437,8 @@ runner's whole value is that cache.
 | symptom | first thing to check |
 |---|---|
 | container `Restarting (1)` | `logs admin` — it refuses to start on a missing or plaintext credential, and says which |
+| the admin UI is missing a feature you just shipped | before 2026-09-06 `update.sh` did not rebuild this container; it does now. Check the version on the page footer against `VERSION` |
+| a deploy logs `[warn] the admin container failed to build` | tenants are fine and the deploy succeeded — `logs admin`, fix, redeploy |
 | `curl` returns `000` | you are hitting a port nothing publishes; the local surface is `127.0.0.1:8091` on the **host** |
 | `LOGIN FAILED` with a code that matches your phone | history expansion — see §3; `set +H` and rebuild the body with `node` |
 | `Authentication required` on every call | `$TOKEN` is empty because the login above failed silently |

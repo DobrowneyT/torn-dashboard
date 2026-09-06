@@ -18,6 +18,121 @@ surface it automatically.
 
 ---
 
+## [3.82.1] - 2026-09-06
+
+### Fixed
+- **Reconciled the two independent fixes to `update.sh`'s self-modification.**
+  `dev` carried the brace group alone (v3.82.0); `main` carried the hotfix
+  (v3.79.1), which has the brace group **and** the hand-over that re-execs the
+  newly-pulled script. Merging the branches conflicted on the same region of the
+  same file.
+
+  ⚠️ Resolved onto **`main`'s** version rather than dev's, because the two are
+  not equivalent: the brace group only makes the *parse* safe, while the
+  hand-over is what makes a change to `update.sh` take effect on the deploy that
+  ships it rather than one deploy later. Keeping dev's copy would have silently
+  dropped the more important half. The admin-container rebuild and the argument
+  parsing from v3.80.0 were re-applied on top.
+
+---
+
+## [3.82.0] - 2026-09-06
+
+### Fixed
+- **⚠️ `update.sh` could corrupt its own execution when a deploy changed it.**
+  Found while reviewing whether v3.80.0 was safe to promote — it is exactly the
+  shape that triggers this.
+
+  Bash does not read a script into memory up front. It reads a chunk (8KB),
+  executes what it has, then reads the next chunk **from a saved byte offset**.
+  `update.sh` overwrites itself partway through, at its `git merge`, and the
+  script is ~20KB with that merge at byte ~7000 — so bash is still reading from
+  disk when the file is replaced. Any change adding lines *above* the merge
+  shifts every later offset, and bash resumes mid-statement or re-runs commands
+  it already ran.
+
+  Reproduced with a 15KB stand-in that inserted 1.5KB above its own rewrite
+  point: it printed `PHASE 1`, then died with `line 100: adding: command not
+  found`, and never ran the rest. In `update.sh` that region holds the
+  migrations, the rebuild, readiness and the marker — so the realistic outcomes
+  are a hard failure with an error naming nothing real, or, if the offset lands
+  on text that happens to parse, running only *part* of a deploy. Restarting
+  containers while skipping migrations is inside that envelope.
+
+  The fix is two lines: the body is wrapped in a `{ … }` group, because bash
+  parses a compound command **completely** before executing any of it, so the
+  whole script is in memory before the merge can touch the file.
+
+  ⚠️ The closing brace must be preceded by an `exit`, or bash still reads past
+  the group for more input and hits the same stale offset — that variant ran
+  every phase correctly and *then* emitted a spurious `command not found`.
+  `exit "$fail"` already sat at the bottom and is what seals it.
+
+  ⚠️ An earlier attempt — hash the file, `exec` the new version if it changed —
+  was written, tested, and **discarded because it does not work**: the guard has
+  to be read before the file changes, and the guard is precisely what straddles
+  the boundary. It failed the same reproduction.
+
+  The body is deliberately not re-indented, so this stays a two-line change that
+  never obscures a real edit in `git blame`.
+
+---
+
+## [3.81.0] - 2026-09-06
+
+### Added
+- **Tests pinning what happens on a week the faction sits out matchmaking.**
+  MonChoon asked whether the war-lifecycle automation copes when the check after
+  matchmaking finds no war. It does — `upcoming = wars.filter(w => w.start > 0
+  && !w.end)[0] ?? null` followed by `if (upcoming)` makes the whole auto-setup
+  and auto-enable path a clean no-op — but nothing asserted it, and that is one
+  refactor away from no longer being true on a job that runs every three
+  minutes.
+
+  Five cases now cover it: no wars at all, only wars that have already ended
+  (the realistic shape of a week off), a matched war whose opponent cannot be
+  identified, and a response with no `rankedwars` key at all.
+
+  ⚠️ The assertion that matters is not "it did not throw" but that the war
+  room's configuration comes back **byte-for-byte unchanged** — including
+  `faction_id`, the opponent the room points at. A quiet week must not arm the
+  room, and must not disarm one a leader armed by hand: the absence of a ranked
+  war says nothing about whether a human wanted the room on, and one of the five
+  cases exists solely to hold that line.
+
+---
+
+## [3.80.0] - 2026-09-06
+
+### Changed
+- **`update.sh` now rebuilds the admin control plane on every deploy.** ⚠️ This
+  reverses the #609 slice 2 decision to keep it a deliberate, separate act
+  (*"a bad push here is fleet-wide"*), at MonChoon's request — the cost of
+  remembering had bitten twice, most visibly as a stale admin UI mistaken for a
+  missing feature.
+
+  Most of the original safety survives the reversal, by construction rather than
+  by care:
+
+  - ⚠️ It runs **after tenant readiness**, so tenants are already deployed and
+    verified. A broken admin build cannot delay, block or roll back a tenant
+    deploy — which was the actual content of "fleet-wide", and it still holds.
+  - ⚠️ It is **non-fatal** and never touches the deploy's exit code. Failing the
+    deploy would leave the `--if-changed` marker stale, and cron would then
+    rebuild the whole fleet every five minutes over an optional container. Now
+    that #609 slice 4 alerting exists, an admin container that is down is
+    exactly what should page — that is the right channel, not a deploy's exit
+    status.
+  - ⚠️ It is **skipped entirely** when `ADMIN_PASSWORD_HASH` is unset, because
+    the container refuses to start unconfigured by design; building it on a host
+    that never ran the setup would manufacture a permanent, meaningless warning.
+
+  `./deploy/update.sh --no-admin` (or `NO_ADMIN=1`) opts out for one run.
+  Argument parsing now accepts flags in any order and rejects unknown ones
+  rather than silently ignoring them.
+
+---
+
 ## [3.79.1] - 2026-09-06
 
 ### Fixed

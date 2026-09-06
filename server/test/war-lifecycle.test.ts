@@ -272,3 +272,130 @@ describe('war lifecycle spy auto-fetch (#139)', () => {
     expect(result.details!.spies).toEqual({ skipped: 'no_provider' })
   })
 })
+
+// ── A week the faction sits out ──────────────────────────────────────────────
+//
+// MonChoon, 2026-09-06: *"some weeks a faction might not enter matchmaking (take
+// a week off from fighting), so I just want to be sure that if the check after
+// matchmaking returns no faction or no war or something it won't break — it's
+// essentially a no-op."*
+//
+// It already is, and these pin it there. The behaviour falls out of
+// `upcoming = wars.filter(w => w.start > 0 && !w.end)[0] ?? null` followed by
+// `if (upcoming)`, which is easy to refactor into something that no longer
+// holds — so the guarantee is asserted rather than left implied.
+//
+// ⚠️ The assertion that matters is not "it did not throw". It is that the war
+// room's own configuration is byte-for-byte untouched: a quiet week must not
+// arm the room, disarm a room a leader armed by hand, or repoint it at a stale
+// opponent.
+describe('a week with no matched war (#weeks off)', () => {
+  const CONFIG = () => stack.db.query(
+    // `faction_id` is the OPPONENT the room points at — the field a stale
+    // matchup would corrupt, so it is the one most worth pinning here.
+    `SELECT enabled, auto_managed, managed_war_id, faction_id, faction_name,
+            matched_detected_at, auto_enabled_at
+       FROM war_room_config_v2 WHERE id = 1`
+  ).then((r) => r.rows[0])
+
+  /** The state a faction rests in after last week's war ended and automation
+   *  released ownership: room off, nothing owned. */
+  async function restingState() {
+    await stack.db.query(
+      `UPDATE war_room_config_v2
+          SET enabled = false, auto_managed = false, managed_war_id = NULL,
+              matched_detected_at = NULL, auto_enabled_at = NULL
+        WHERE id = 1`
+    )
+  }
+
+  const setWars = (wars: unknown[]) =>
+    stack.torn.setHandler(`/v2/faction/${US}/rankedwars`, () => ({ rankedwars: wars }))
+
+  afterAll(() => {
+    // Leave the fixture as the rest of the file expects it.
+    setWars([{
+      id: 800, start: warStart, end: warEnd ?? 0, target: 4000,
+      factions: [{ id: US, name: 'Us', score: 0 }, { id: ENEMY, name: 'New Foes', score: 0 }],
+    }])
+  })
+
+  it('does nothing at all when the faction is in no wars', async () => {
+    await restingState()
+    setWars([])
+    const before = await CONFIG()
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    const result = await warLifecycleJob(deps())
+
+    expect(result.details!.actions).toEqual([])
+    expect(await CONFIG()).toEqual(before)
+  })
+
+  it('does nothing when every war on record has already ended', async () => {
+    // The realistic shape of a week off: last week's war is still returned by
+    // the API, finished, and no new one has been matched.
+    await restingState()
+    const past = Math.floor(Date.now() / 1000) - 7 * 86_400
+    setWars([
+      { id: 800, start: past, end: past + 86_400, target: 4000,
+        factions: [{ id: US, name: 'Us' }, { id: ENEMY, name: 'Old Foes' }] },
+      { id: 799, start: past - 7 * 86_400, end: past - 6 * 86_400, target: 4000,
+        factions: [{ id: US, name: 'Us' }, { id: 90011, name: 'Older Foes' }] },
+    ])
+    const before = await CONFIG()
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    expect((await warLifecycleJob(deps())).details!.actions).toEqual([])
+    expect(await CONFIG()).toEqual(before)
+  })
+
+  it('⚠️ leaves a manually-armed room alone through a quiet week', async () => {
+    // A leader can run the room outside a ranked war (a chain, a practice
+    // session). Automation not finding a war must not be read as "nothing is
+    // happening, switch it off" — the absence of a war says nothing about
+    // whether a human wanted the room on.
+    await stack.db.query(
+      `UPDATE war_room_config_v2
+          SET enabled = true, auto_managed = false, managed_war_id = NULL WHERE id = 1`
+    )
+    setWars([])
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    expect((await warLifecycleJob(deps())).details!.actions).toEqual([])
+    const cfg = await CONFIG()
+    expect(cfg.enabled).toBe(true)
+    expect(cfg.auto_managed).toBe(false)
+  })
+
+  it('⚠️ does not set up a war whose opponent it cannot identify', async () => {
+    // `factions` carrying only us — a shape Torn has no reason to return, which
+    // is exactly why it is worth pinning. Auto-setup gates on `oppId`, so this
+    // must stay a no-op rather than seeding a room pointed at nobody.
+    await restingState()
+    setWars([{
+      id: 801, start: Math.floor(Date.now() / 1000) + 3600, end: 0, target: 4000,
+      factions: [{ id: US, name: 'Us', score: 0 }],
+    }])
+    const before = await CONFIG()
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    expect((await warLifecycleJob(deps())).details!.actions).toEqual([])
+    expect(await CONFIG()).toEqual(before)
+  })
+
+  it('⚠️ survives a response with no rankedwars key at all', async () => {
+    // "or something" — an error body, a shape change, a truncated response.
+    // `data.rankedwars ?? []` is what carries this, and it is one edit away
+    // from becoming a TypeError on a job that runs every three minutes.
+    await restingState()
+    stack.torn.setHandler(`/v2/faction/${US}/rankedwars`, () => ({}))
+    const before = await CONFIG()
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    const result = await warLifecycleJob(deps())
+
+    expect(result.details!.actions).toEqual([])
+    expect(await CONFIG()).toEqual(before)
+  })
+})
