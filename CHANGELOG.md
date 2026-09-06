@@ -18,6 +18,86 @@ surface it automatically.
 
 ---
 
+## [3.73.0] - 2026-09-05
+
+### Fixed
+- **⚠️ The local admin surface was unreachable through its published port.** It
+  bound to the container's own `127.0.0.1`, on the reasoning that loopback is
+  tighter — but Docker forwards a published port to the container's **network
+  interface**, never to its loopback, so `127.0.0.1:8091:8091` reached a port
+  nothing was listening on. Every request died with a connection error rather
+  than an HTTP status (`curl` returned `000`). Found on the live box.
+
+  The listener now binds `0.0.0.0` inside the container, and **the host-side
+  publication is the boundary**: the port exists only on the host's loopback,
+  unroutable from the internet, reachable over an SSH tunnel.
+
+  ⚠️ The honest cost: the local surface is now reachable by anything else on
+  the compose network, so a compromised tenant container could send requests to
+  it. It is not defenceless — the same password + TOTP gate applies, and a
+  local-surface token is rejected on the public surface and vice versa — but it
+  is a real difference from *"only reachable via SSH"*. What the split still
+  buys is that destructive routes are not registered on the internet-facing
+  listener at all.
+
+- **⚠️ The admin password hash was silently truncated by Docker Compose.** The
+  conventional scrypt format (`scrypt$N$r$p$salt$hash`) is delivered through
+  `deploy/.env`, and Compose performs variable interpolation on those values —
+  so `$FJjI...` and `$xe8` were substituted as undefined variables and the
+  container received a **truncated** hash. Every login would have failed.
+  Found by a crash-loop on the live box, and only *noticeable* because the
+  fail-closed boot check refused to start rather than serving with a broken
+  credential.
+
+  The format is now dot-separated: `.` is outside the base64 alphabet, so it
+  stays unambiguous, and Compose passes it through untouched. `$$` escaping
+  also works but is a footgun no operator should have to remember on the one
+  credential that fronts every tenant. **Legacy `$`-separated hashes still
+  verify**, so nobody is locked out by the upgrade, and the generator now
+  refuses outright if a value it produced ever contains `$` again.
+
+### Added
+- **The fleet status page (#609, slice 3 of 7)** — `admin.monchoon.me` now shows
+  every tenant, Postgres, backup freshness and disk headroom, refreshing every
+  30 seconds behind the slice-2 login.
+
+- **⚠️ Tenant discovery costs nothing and breaks no isolation.** The writer role
+  can read `pg_database` — a shared catalog — so the tenant list comes from the
+  cluster itself rather than a config file that would drift the moment a faction
+  was added. Verified on the live cluster that the same role **cannot CONNECT**
+  to any `faction_*` database: it learns the names and nothing else. No Docker
+  socket, no per-tenant credential, no cross-tenant database access, exactly as
+  the #608 audit required.
+
+- **Monitors chosen for what actually goes wrong, not what is easy to check:**
+  - **Backup freshness**, and a named list of factions with **no dump at all**.
+    ⚠️ Computed against the known tenant list, not against the files present — a
+    check that only looked at existing files reports a never-backed-up faction
+    as perfectly healthy, because its absence is invisible. A job failing for
+    three weeks is worse than no backup, because you believe you have one.
+  - **Disk headroom**, free from the same read-only `/backups` mount.
+  - Per-tenant DB, scheduler and ticker state, plus which global schema and OC
+    model version each tenant is reading.
+
+- **Everything degrades rather than throwing.** Postgres down still produces a
+  report — *"the control plane's own database is down"* is the headline finding,
+  not a reason to return a blank page during the incident. One dead tenant does
+  not hide the healthy ones, and a wedged tenant is timed out at 3s rather than
+  stalling the page.
+
+  ⚠️ A tenant reporting `global: "unavailable"` is **not** counted as degraded.
+  Tenants are designed to work with the control plane down, and marking it a
+  fault would make this page report the fleet as unhealthy whenever the box
+  rendering the page is the thing that is broken.
+
+- The page is one self-contained HTML string — no build step, no framework, no
+  frontend workspace in the image. A status page is a table and a login form,
+  and the simplest thing that can work is the most likely to be working when it
+  is needed. Served unauthenticated because it contains **no data**: it is a
+  login form plus the script that calls the authenticated status endpoint.
+
+---
+
 ## [3.72.0] - 2026-09-05
 
 ### Added

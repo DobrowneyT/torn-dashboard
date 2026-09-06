@@ -24,6 +24,8 @@ import { verifyPassword } from './password.js'
 import { verifyTotp } from './totp.js'
 import { mintAdminSession, verifyAdminSession, type AdminClaims } from './session.js'
 import { LoginLimiter } from './lockout.js'
+import { collectFleetStatus, type CollectorDeps } from './statusCollector.js'
+import { statusPageHtml } from './statusPage.js'
 
 export type Surface = 'public' | 'local'
 
@@ -40,6 +42,9 @@ export interface AdminOptions {
   /** Shared for tests so lockout can be exercised without waiting. */
   limiter?: LoginLimiter
   version?: string
+  /** Fleet status collection (#609 slice 3). Omitted in tests that only
+   *  exercise auth, and then the status routes are simply not registered. */
+  collector?: CollectorDeps
 }
 
 declare module 'fastify' {
@@ -127,6 +132,23 @@ export async function buildAdminApp(opts: AdminOptions): Promise<FastifyInstance
     username: req.adminClaims?.sub,
     surface: opts.surface,
   }))
+
+  if (opts.collector) {
+    const collector = opts.collector
+    app.get('/api/admin/status', { preHandler: requireAdmin }, async () =>
+      collectFleetStatus(collector)
+    )
+  }
+
+  // The page itself. Unauthenticated because it contains no data — it is a
+  // login form plus the JavaScript that calls /api/admin/status once a session
+  // exists. Everything worth protecting is behind that call.
+  if (opts.surface === 'public') {
+    app.get('/', async (_req, reply) => {
+      reply.type('text/html; charset=utf-8')
+      return statusPageHtml(opts.version ?? 'dev')
+    })
+  }
 
   // ── Local-only routes ───────────────────────────────────────────────────
   //

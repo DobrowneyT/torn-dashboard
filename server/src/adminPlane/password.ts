@@ -35,15 +35,27 @@ const SALT_BYTES = 16
 /**
  * Hash a password into a self-describing string.
  *
- * Format: `scrypt$N$r$p$salt_b64$hash_b64`. The parameters travel WITH the hash
+ * Format: `scrypt.N.r.p.salt_b64.hash_b64`. The parameters travel WITH the hash
  * so raising the work factor later does not invalidate every existing
  * credential — an old hash still verifies against the parameters it was made
  * with, which is what makes the upgrade path exist at all.
+ *
+ * ⚠️ **Dot-separated, NOT the conventional `$`, and this is load-bearing.** The
+ * hash is delivered through `deploy/.env`, and Docker Compose performs variable
+ * interpolation on those values: `scrypt$131072$8$1$FJjI...` has `$FJjI...`
+ * and `$xe8` substituted as undefined variables, so the container receives a
+ * TRUNCATED hash and every login fails. It cost a crash-loop on the live box to
+ * find, and the fail-closed boot check was the only reason it was noticeable
+ * rather than a mysterious wrong-password.
+ *
+ * `$$` escaping works but is a footgun no operator should be asked to remember
+ * on the one credential that fronts every tenant. `.` is outside the base64
+ * alphabet, so the format stays unambiguous, and Compose passes it untouched.
  */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(SALT_BYTES)
   const hash = await scrypt(password, salt, KEYLEN, PARAMS)
-  return `scrypt$${PARAMS.N}$${PARAMS.r}$${PARAMS.p}$${salt.toString('base64')}$${hash.toString('base64')}`
+  return `scrypt.${PARAMS.N}.${PARAMS.r}.${PARAMS.p}.${salt.toString('base64')}.${hash.toString('base64')}`
 }
 
 /**
@@ -56,7 +68,10 @@ export async function hashPassword(password: string): Promise<string> {
  */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   try {
-    const parts = stored.split('$')
+    // ⚠️ Legacy `$`-separated hashes are still accepted, so an operator who
+    // generated one before this changed is not locked out by an upgrade. New
+    // hashes are always dot-separated.
+    const parts = stored.includes('.') ? stored.split('.') : stored.split('$')
     if (parts.length !== 6 || parts[0] !== 'scrypt') return false
     const [, n, r, p, saltB64, hashB64] = parts
     const salt = Buffer.from(saltB64, 'base64')
@@ -77,5 +92,6 @@ export async function verifyPassword(password: string, stored: string): Promise<
 
 /** Is this a hash this module produced? Used to reject a plaintext env value. */
 export function looksHashed(value: string): boolean {
-  return /^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/.test(value)
+  return /^scrypt\.\d+\.\d+\.\d+\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+$/.test(value)
+    || /^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/.test(value)
 }

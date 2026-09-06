@@ -52,10 +52,27 @@ describe('password hashing', () => {
 
   it('carries its parameters, so raising the work factor does not invalidate old hashes', async () => {
     const stored = await hash()
-    const [scheme, n, r, p] = stored.split('$')
+    const [scheme, n, r, p] = stored.split('.')
     expect(scheme).toBe('scrypt')
     expect(Number(n)).toBeGreaterThanOrEqual(1 << 16)
     expect([Number(r), Number(p)]).toEqual([8, 1])
+  })
+
+  it('⚠️ contains no "$", which docker compose would silently truncate', async () => {
+    // Found the hard way: the conventional `scrypt$N$r$p$salt$hash` format is
+    // delivered through deploy/.env, and Compose interpolates `$FJjI...` and
+    // `$xe8` as undefined variables — so the container received a TRUNCATED
+    // hash and every login failed. `.` is outside the base64 alphabet, keeps
+    // the format unambiguous, and Compose passes it through untouched.
+    expect(await hash()).not.toContain('$')
+  })
+
+  it('still verifies a legacy "$"-separated hash, so an upgrade locks nobody out', async () => {
+    const modern = await hash()
+    const legacy = modern.replace(/\./g, '$')
+    expect(looksHashed(legacy)).toBe(true)
+    expect(await verifyPassword(PASSWORD, legacy)).toBe(true)
+    expect(await verifyPassword('wrong', legacy)).toBe(false)
   })
 
   it('⚠️ returns false rather than throwing on a malformed stored hash', async () => {
@@ -309,5 +326,25 @@ describe('LoginLimiter', () => {
     const l = new LoginLimiter(2, 1000)
     l.fail('a', 0)
     expect(l.fail('b', 0)).toBe(false)
+  })
+})
+
+// Regression guard for a live-box failure: the local surface was bound to the
+// container's own loopback, so Docker's published port forwarded to nothing and
+// every request died with a connection error instead of an HTTP status.
+describe('listener binding', () => {
+  it('⚠️ the local surface listens on a reachable interface, not container loopback', async () => {
+    // Docker forwards a published port to the container's NETWORK INTERFACE,
+    // never to its loopback. Binding 127.0.0.1 inside the container makes
+    // `127.0.0.1:8091:8091` reach a port nothing is listening on. The boundary
+    // is the host-side publication; the bind must stay reachable.
+    const a = await app('local')
+    await a.listen({ host: '0.0.0.0', port: 0 })
+    const addr = a.server.address()
+    const port = typeof addr === 'object' && addr ? addr.port : 0
+    const res = await fetch(`http://127.0.0.1:${port}/api/admin/health`)
+    expect(res.status).toBe(200)
+    expect((await res.json()).surface).toBe('local')
+    await a.close()
   })
 })
