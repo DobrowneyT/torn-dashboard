@@ -145,13 +145,35 @@ describe('dibs', () => {
 describe('assist counters (#591)', () => {
   const T = 90400
 
-  async function liveAssist(targetId: number, requesterId = 1400) {
+  /**
+   * #617: counts live on the TARGET, per kind. The old helper took a requester
+   * because a request was owned by one; there is no owner any more.
+   */
+  async function counts(targetId: number): Promise<any> {
     const r = await stack.db.query(
-      `SELECT wanted, deleted_at FROM war_room_assists_v2
-       WHERE target_id = $1 AND requester_id = $2 AND deleted_at IS NULL`,
-      [targetId, requesterId]
+      `SELECT help_wanted, smoke_wanted, tear_wanted, help_raised_by
+         FROM war_room_assist_counts_v2 WHERE target_id = $1`,
+      [targetId]
     )
     return r.rows[0] ?? null
+  }
+  const wanted = async (targetId: number, kind: 'help' | 'smoke' | 'tear') =>
+    Number((await counts(targetId))?.[`${kind}_wanted`] ?? 0)
+
+  /**
+   * Total still wanted on a target, across kinds, or null when nothing is.
+   *
+   * Shaped to read like the pre-#617 helper it replaces so the observation
+   * tests below — which each raise exactly ONE kind per target, making the
+   * total and that kind's count the same number — keep asserting precisely
+   * what they asserted before the model changed. Their subject is the
+   * observation pipeline, not the counter's shape.
+   */
+  async function liveAssist(targetId: number): Promise<any> {
+    const row = await counts(targetId)
+    if (!row) return null
+    const total = Number(row.help_wanted) + Number(row.smoke_wanted) + Number(row.tear_wanted)
+    return total > 0 ? { wanted: total } : null
   }
 
   /** Put a member on the war roster so the server can resolve their name. */
@@ -169,34 +191,46 @@ describe('assist counters (#591)', () => {
   it('a fresh request starts at one', async () => {
     const res = await call('POST', '/api/war-room/assist', { target_id: T, kind: 'smoke' })
     expect(res.status).toBe(200)
-    expect((await liveAssist(T)).wanted).toBe(1)
+    expect(await wanted(T, 'smoke')).toBe(1)
   })
 
   it('pressing the SAME kind on the SAME target again raises the count', async () => {
-    await call('POST', '/api/war-room/assist', { target_id: T + 1, kind: 'smoke' })
-    await call('POST', '/api/war-room/assist', { target_id: T + 1, kind: 'smoke' })
-    await call('POST', '/api/war-room/assist', { target_id: T + 1, kind: 'smoke' })
-    expect((await liveAssist(T + 1)).wanted).toBe(3)
+    for (let i = 0; i < 3; i++) {
+      await call('POST', '/api/war-room/assist', { target_id: T + 1, kind: 'smoke' })
+    }
+    expect(await wanted(T + 1, 'smoke')).toBe(3)
   })
 
-  it('⚠️ a DIFFERENT kind still replaces rather than stacking — one person is in one fight asking for one thing, which is the rule the unique index enforces', async () => {
+  it('⚠️ #617: kinds COEXIST — a tear does not erase a smoke', async () => {
+    // This inverts the #523 rule. A target can need a smoke AND a tear AND a
+    // body, and asking for one must not cancel another. The previous version
+    // of this test asserted the opposite and was named for it.
     await call('POST', '/api/war-room/assist', { target_id: T + 2, kind: 'smoke' })
     await call('POST', '/api/war-room/assist', { target_id: T + 2, kind: 'smoke' })
     await call('POST', '/api/war-room/assist', { target_id: T + 2, kind: 'tear' })
-    const live = await stack.db.query(
-      `SELECT kind, wanted FROM war_room_assists_v2
-       WHERE requester_id = 1400 AND deleted_at IS NULL`
-    )
-    expect(live.rows).toHaveLength(1)
-    expect(live.rows[0]).toMatchObject({ kind: 'tear', wanted: 1 })
+    expect(await counts(T + 2)).toMatchObject({
+      smoke_wanted: 2, tear_wanted: 1, help_wanted: 0,
+    })
   })
 
-  it('a different TARGET replaces too, and restarts the count', async () => {
+  it('⚠️ #617: a request on another target leaves the first one standing', async () => {
+    // Under #523 one live request per requester meant a second target wiped
+    // the first — you were "one person in one fight". A request is a property
+    // of the FIGHT, and two fights can both need help.
     await call('POST', '/api/war-room/assist', { target_id: T + 3, kind: 'help' })
     await call('POST', '/api/war-room/assist', { target_id: T + 3, kind: 'help' })
     await call('POST', '/api/war-room/assist', { target_id: T + 4, kind: 'help' })
-    expect(await liveAssist(T + 3)).toBeNull()
-    expect((await liveAssist(T + 4)).wanted).toBe(1)
+    expect(await wanted(T + 3, 'help')).toBe(2)
+    expect(await wanted(T + 4, 'help')).toBe(1)
+  })
+
+  it('⚠️ #617: a SECOND person reinforces rather than replacing', async () => {
+    // The case the issue is built on. Whoever joined a fight is now IN it and
+    // is best placed to say more help is needed — and under the old rule their
+    // request cancelled the one that brought them.
+    await call('POST', '/api/war-room/assist', { target_id: T + 40, kind: 'help' })
+    await call('POST', '/api/war-room/assist', { target_id: T + 40, kind: 'help' }, 'rival')
+    expect(await wanted(T + 40, 'help')).toBe(2)
   })
 
   describe('an observed event has to be about THIS target (#618)', () => {
@@ -249,53 +283,74 @@ describe('assist counters (#591)', () => {
 
   describe('holding the button takes one back (#600)', () => {
     it('drops the count by one and reports the new value', async () => {
-      await call('POST', '/api/war-room/assist', { target_id: T + 20, kind: 'smoke' })
-      await call('POST', '/api/war-room/assist', { target_id: T + 20, kind: 'smoke' })
-      await call('POST', '/api/war-room/assist', { target_id: T + 20, kind: 'smoke' })
-      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 20 })
+      for (let i = 0; i < 3; i++) {
+        await call('POST', '/api/war-room/assist', { target_id: T + 20, kind: 'smoke' })
+      }
+      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 20, kind: 'smoke' })
       expect(res.status).toBe(200)
       expect(res.body).toMatchObject({ wanted: 2, cleared: false })
-      expect((await liveAssist(T + 20)).wanted).toBe(2)
+      expect(await wanted(T + 20, 'smoke')).toBe(2)
     })
 
     it('at one, taking the last one back clears the request', async () => {
       // "Decrement to zero" and "cancel" are the same act, so there is no
       // separate rule for cancelling.
       await call('POST', '/api/war-room/assist', { target_id: T + 21, kind: 'tear' })
-      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 21 })
+      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 21, kind: 'tear' })
       expect(res.body).toMatchObject({ wanted: 0, cleared: true })
-      expect(await liveAssist(T + 21)).toBeNull()
+      expect(await wanted(T + 21, 'tear')).toBe(0)
     })
 
-    it('does nothing at all when you have nothing live on that target', async () => {
+    it('does nothing at all when nothing is live on that target', async () => {
       // A hold is fat-fingerable; the honest answer is silence, not an error
       // the overlay would have to render mid-fight.
-      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 22 })
+      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 22, kind: 'help' })
       expect(res.status).toBe(200)
       expect(res.body).toMatchObject({ wanted: 0, cleared: false })
     })
 
-    it('\u26A0\uFE0F never shaves a count off someone ELSE\u2019s request', async () => {
-      // Deliberately no admin branch on this route, unlike the DELETE: letting
-      // a hold quietly take one off another requester's count would be a bad
-      // thing to be able to do by accident.
-      await stack.db.query(
-        `INSERT INTO war_room_assists_v2 (target_id, requester_id, requester_name, kind, wanted)
-         VALUES ($1, 4242, 'Someone Else', 'smoke', 3)`,
-        [T + 23]
-      )
-      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 23 })
-      expect(res.body).toMatchObject({ wanted: 0, cleared: false })
-      const still = await stack.db.query(
-        'SELECT wanted FROM war_room_assists_v2 WHERE target_id = $1 AND deleted_at IS NULL',
-        [T + 23]
-      )
-      expect(Number(still.rows[0].wanted)).toBe(3)
+    it('takes one off only the kind named, leaving the others standing', async () => {
+      // Replaces #600's "never shaves someone ELSE's count". Under #617 there
+      // is no else — the count is the target's, and MonChoon's call was that
+      // anyone may take one back, because a dib expires while a fight runs
+      // long and the person best placed to say "we're fine now" is whoever is
+      // in it. What must still not happen is a smoke hold eating a tear.
+      await call('POST', '/api/war-room/assist', { target_id: T + 23, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 23, kind: 'smoke' })
+      await call('POST', '/api/war-room/assist', { target_id: T + 23, kind: 'tear' })
+      await call('POST', '/api/war-room/assist/decrement', { target_id: T + 23, kind: 'smoke' })
+      expect(await counts(T + 23)).toMatchObject({ smoke_wanted: 1, tear_wanted: 1 })
     })
 
-    it('rejects a missing target rather than guessing one', async () => {
-      const res = await call('POST', '/api/war-room/assist/decrement', {})
-      expect(res.status).toBe(400)
+    it('⚠️ #617: anyone may take one back, not just whoever raised it', async () => {
+      await call('POST', '/api/war-room/assist', { target_id: T + 24, kind: 'help' })
+      const res = await call('POST', '/api/war-room/assist/decrement', { target_id: T + 24, kind: 'help' }, 'rival')
+      expect(res.body).toMatchObject({ wanted: 0, cleared: true })
+    })
+
+    it('rejects a missing target, and a missing kind, rather than guessing one', async () => {
+      // #617 made kind REQUIRED here: with counts per kind there is no longer
+      // a single "your live request" for the server to infer.
+      expect((await call('POST', '/api/war-room/assist/decrement', {})).status).toBe(400)
+      expect((await call('POST', '/api/war-room/assist/decrement', { target_id: T + 25 })).status).toBe(400)
+    })
+  })
+
+  describe('clearing a target outright is leads-only (#617)', () => {
+    it('⚠️ a plain member cannot wipe a target’s counts', async () => {
+      // Taking ONE back is everyone's (above); wiping the board is not. A
+      // stray clear during a chain silently drops every outstanding call on
+      // that target, and nobody watching a badge can tell it was cleared
+      // rather than answered.
+      await call('POST', '/api/war-room/assist', { target_id: T + 26, kind: 'help' })
+      expect((await call('DELETE', `/api/war-room/assist/${T + 26}`)).status).toBe(403)
+      expect(await wanted(T + 26, 'help')).toBe(1)
+    })
+
+    it('a war lead can', async () => {
+      const res = await call('DELETE', `/api/war-room/assist/${T + 26}`, undefined, 'warlead')
+      expect(res.status).toBe(200)
+      expect(await counts(T + 26)).toMatchObject({ help_wanted: 0, smoke_wanted: 0, tear_wanted: 0 })
     })
   })
 
@@ -439,74 +494,56 @@ describe('assist requests (#523)', () => {
     expect(req.status).toBe(200)
 
     const frame = await watcher.next((m) => m.type === 'delta' && m.channel === 'assist')
-    const live = frame.rows.find((r: any) => !r.deleted_at)
-    expect(live).toMatchObject({ target_id: 90300, requester_id: 1400, requester_name: 'Fighter', kind: 'smoke' })
-    // Armed at creation, always — unlike dibs there is no "still in hospital,
-    // no deadline yet" state.
-    expect(live.auto_expire_at).toBeTruthy()
+    const live = frame.rows.find((r: any) => r.target_id === 90300)
+    // #617: no requester_id/requester_name on the wire any more — MonChoon's
+    // call was "drop the name, show the count only".
+    expect(live).toMatchObject({ target_id: 90300, smoke_wanted: 1, help_wanted: 0 })
+    // Armed at raise, always — unlike dibs there is no "still in hospital, no
+    // deadline yet" state. Per-kind since #617.
+    expect(live.smoke_raised_at).toBeTruthy()
 
     watcher.ws.close()
   })
 
-  it('one live assist per requester: a second request (any target, any kind) tombstones the first', async () => {
-    await call('POST', '/api/war-room/assist', { target_id: 90301, kind: 'smoke' })
-    const second = await call('POST', '/api/war-room/assist', { target_id: 90302, kind: 'help' })
-    expect(second.status).toBe(200)
+  // ⚠️ #523's "one live assist per requester: a second request (any target,
+  // any kind) tombstones the first" test USED to live here. That rule is what
+  // #617 removes, so the test is not repaired but inverted, and it now sits
+  // with its siblings in the #591 block above as "a request on another target
+  // leaves the first one standing".
 
-    const first = await stack.db.query(
-      `SELECT deleted_at FROM war_room_assists_v2 WHERE target_id = 90301 AND requester_id = 1400`
-    )
-    expect(first.rows[0].deleted_at).toBeTruthy()
-    const live = await stack.db.query(
-      `SELECT kind FROM war_room_assists_v2 WHERE target_id = 90302 AND requester_id = 1400 AND deleted_at IS NULL`
-    )
-    expect(live.rows[0].kind).toBe('help')
-  })
-
-  it('two different requesters can raise a hand on the SAME target at once', async () => {
+  it('two different requesters raising the SAME kind on the SAME target stack up', async () => {
+    // Was "…can raise a hand at once", asserting two rows. Since #617 there is
+    // one row per target, so the observable is the count rather than the
+    // cardinality — the point of the test is unchanged.
     await call('POST', '/api/war-room/assist', { target_id: 90303, kind: 'tear' })
-    const rival = await call('POST', '/api/war-room/assist', { target_id: 90303, kind: 'help' }, 'rival')
+    const rival = await call('POST', '/api/war-room/assist', { target_id: 90303, kind: 'tear' }, 'rival')
     expect(rival.status).toBe(200)
 
     const live = await stack.db.query(
-      `SELECT requester_id, kind FROM war_room_assists_v2 WHERE target_id = 90303 AND deleted_at IS NULL ORDER BY requester_id`
+      `SELECT tear_wanted FROM war_room_assist_counts_v2 WHERE target_id = 90303`
     )
-    expect(live.rows).toHaveLength(2)
+    expect(Number(live.rows[0].tear_wanted)).toBe(2)
   })
 
-  it('the requester can clear their own request; a non-requester cannot; an admin can', async () => {
-    await call('POST', '/api/war-room/assist', { target_id: 90304, kind: 'help' })
-
-    const denied = await call('DELETE', '/api/war-room/assist/90304', undefined, 'rival')
-    expect(denied.status).toBe(200) // filtered no-op, matches the dibs release shape
-    const stillLive = await stack.db.query(
-      `SELECT count(*)::int AS n FROM war_room_assists_v2 WHERE target_id = 90304 AND deleted_at IS NULL`
-    )
-    expect(stillLive.rows[0].n).toBe(1)
-
-    const cleared = await call('DELETE', '/api/war-room/assist/90304')
-    expect(cleared.status).toBe(200)
-    const gone = await stack.db.query(
-      `SELECT count(*)::int AS n FROM war_room_assists_v2 WHERE target_id = 90304 AND deleted_at IS NULL`
-    )
-    expect(gone.rows[0].n).toBe(0)
-
+  it('an admin can clear a target outright', async () => {
+    // The member-denied half of this moved to the #617 leads-only block above;
+    // what remains here is that leadership retains the override it always had.
     await call('POST', '/api/war-room/assist', { target_id: 90305, kind: 'smoke' })
     const adminCleared = await call('DELETE', '/api/war-room/assist/90305', undefined, 'admin')
     expect(adminCleared.status).toBe(200)
-    const goneToo = await stack.db.query(
-      `SELECT count(*)::int AS n FROM war_room_assists_v2 WHERE target_id = 90305 AND deleted_at IS NULL`
+    const gone = await stack.db.query(
+      `SELECT smoke_wanted FROM war_room_assist_counts_v2 WHERE target_id = 90305`
     )
-    expect(goneToo.rows[0].n).toBe(0)
+    expect(Number(gone.rows[0].smoke_wanted)).toBe(0)
   })
 
   it('visitors CAN raise their hand (the one visitor-permitted mutation, same as dibs)', async () => {
     const req = await call('POST', '/api/war-room/assist', { target_id: 90306, kind: 'smoke' }, 'visitor')
     expect(req.status).toBe(200)
     const row = await stack.db.query(
-      `SELECT requester_id FROM war_room_assists_v2 WHERE target_id = 90306 AND deleted_at IS NULL`
+      `SELECT smoke_wanted FROM war_room_assist_counts_v2 WHERE target_id = 90306`
     )
-    expect(row.rows[0].requester_id).toBe(1402)
+    expect(Number(row.rows[0].smoke_wanted)).toBe(1)
   })
 
   it('the delta/snapshot endpoint carries an assist channel', async () => {

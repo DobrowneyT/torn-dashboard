@@ -57,7 +57,10 @@ const CHANNELS = {
   memberstats: 'SELECT * FROM war_room_member_stats_v2',
   // #523: live "raise a hand" assist requests. Rides the delta/snapshot
   // machinery exactly like dibs — same soft-delete semantics, no lead gate.
-  assist: 'SELECT * FROM war_room_assists_v2',
+  // #617: one row per TARGET carrying a count per kind, replacing the row per
+  // request. Rows with every count at zero are still sent — the client clears a
+  // badge by seeing the count reach zero, not by the row disappearing.
+  assist: 'SELECT * FROM war_room_assist_counts_v2',
   // #528 Part 2: enemy loadout observations. NOT the raw base query used by
   // channelRows() below — 'loadout' is handled as a special case there,
   // because unlike every other channel this one is append-only with no
@@ -104,7 +107,18 @@ export function canSeeLeadOnlyChannels(claims: {
  * ⚠️ Only these three carry `deleted_at`; adding the filter to the others
  * would be a SQL error, not a no-op.
  */
-const SOFT_DELETED_CHANNELS = new Set<WarRoomChannel>(['state', 'dibs', 'assist'])
+const SOFT_DELETED_CHANNELS = new Set<WarRoomChannel>(['state', 'dibs'])
+
+/**
+ * ⚠️ `assist` carries no `deleted_at` since #617 — a kind that is not being
+ * asked for is a count of zero, not a tombstone. The snapshot/delta asymmetry
+ * above still applies, it is just spelled differently: a DELTA must carry
+ * zeroed rows, because reaching zero is how a client clears a badge, while a
+ * SNAPSHOT must omit them for the same reason it omits tombstones — a client
+ * with no prior state has nothing to clear, and sending every target ever
+ * assisted is the 2627-rows-to-describe-1-claim problem in another costume.
+ */
+const ASSIST_LIVE = 'help_wanted > 0 OR smoke_wanted > 0 OR tear_wanted > 0'
 
 /**
  * ⚠️ A FULL snapshot omits tombstones; a delta must carry them.
@@ -154,6 +168,7 @@ async function channelRows(
     const res = await db.query(`${base} WHERE updated_at > $1`, [since])
     return res.rows
   }
+  if (channel === 'assist') return (await db.query(`${base} WHERE ${ASSIST_LIVE}`)).rows
   const res = SOFT_DELETED_CHANNELS.has(channel)
     ? await db.query(`${base} WHERE deleted_at IS NULL`)
     : await db.query(base)
