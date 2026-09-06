@@ -7,7 +7,7 @@ import { requireAuth, requireRole } from './authz.js'
 import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
 import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js'
 import { matchRolesToPositions } from './oc/roleMatch.js'
-import { buildItemCatalog, priceNodeItems } from './oc/itemPricing.js'
+import { buildItemCatalog, priceNodeItems, catalogFreshness, EMPTY_CATALOG } from './oc/itemPricing.js'
 import { DEFAULT_PAYOUT_MODE, isPayoutMode } from './payoutModes.js'
 
 export interface OcDeps {
@@ -197,8 +197,21 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       // (GREATEST(market_price, sell_price) below in itemPricing.ts). This is
       // what turns an ending that pays in items (Window of Opportunity, and
       // everything paysInItems() flags) from "unpriced" into a real E(x).
-      const itemCatalogRows = await deps.db.query('SELECT name, market_price, sell_price FROM items')
-      const itemCatalog = buildItemCatalog(itemCatalogRows.rows)
+      // ⚠️ #609 slice 7: prices are REFUSED when the catalogue has gone stale,
+      // never silently used. Withholding is expressed as an EMPTY catalogue so
+      // it travels the path #441 already built — every drop comes back in
+      // `item_value_unmatched` — rather than through a second, parallel notion
+      // of "unpriced" that the client would have to learn.
+      const itemCatalogRows = await deps.db.query(
+        'SELECT name, market_price, sell_price, last_updated FROM items'
+      )
+      const catalogAsOf = itemCatalogRows.rows.reduce<string | null>((newest, r) => {
+        const v = r.last_updated == null ? null : String(r.last_updated)
+        if (!v) return newest
+        return newest === null || Date.parse(v) > Date.parse(newest) ? v : newest
+      }, null)
+      const itemPrices = catalogFreshness(catalogAsOf)
+      const itemCatalog = itemPrices.fresh ? buildItemCatalog(itemCatalogRows.rows) : EMPTY_CATALOG
       for (const s of rows.rows) {
         for (const e of s.endings ?? []) {
           const priced = priceNodeItems(e.items, e.observations, itemCatalog)
@@ -302,9 +315,19 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       )
 
       return {
+        // Says whether the numbers below can be trusted, and why not when they
+        // cannot. A client that ignores this shows zeroes; one that reads it
+        // can say "prices unavailable" instead, which is the difference #609
+        // asks for.
+        item_prices: itemPrices,
         chains: chains.rows,
         scenarios: rows.rows.map((s) => {
-          const item = itemsByName.get(s.name)
+          // ⚠️ Withheld under the same rule as the ending prices above. This
+          // one is computed in SQL against the same table, so leaving it
+          // untouched would have the page report a confident crime-level
+          // average beside endings that all say "unpriced" — two answers to
+          // one question, and the wrong one looks authoritative.
+          const item = itemPrices.fresh ? itemsByName.get(s.name) : null
           const spawn = spawnsByName.get(s.name)
           return {
             ...s,

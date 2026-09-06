@@ -10,11 +10,24 @@ import { readFleetMeta, itemsAreFresh, ITEMS_STALE_AFTER_MS } from '../src/globa
 const pool = (rows: unknown[]) => ({ query: async () => ({ rows }) }) as any
 const failing = () => ({ query: async () => { throw new Error('ECONNREFUSED') } }) as any
 
+// ⚠️ ISO STRINGS, not Date objects, and the change is a correction rather than
+// a preference. This fake used to hand back `Date`s, which node-pg does not
+// produce in this process — `src/db.ts` installs a process-wide timestamptz
+// parser for PostgREST compatibility, so the column really arrived as
+// `2026-09-05T07:00:00-05`, which `new Date()` rejects. readFleetMeta then
+// threw inside its own `catch { return null }` and every tenant would have read
+// the control plane as permanently unavailable the moment `items_synced_at`
+// became non-null (#609 slice 7 is the first thing that writes it).
+//
+// readFleetMeta now formats these columns as UTC ISO text in SQL, so this is
+// what the query returns. The end-to-end proof, against a real connection with
+// the parser installed, lives in fleet-items.test.ts — a fake cannot catch a
+// bug that is about what the driver actually does.
 const META = {
   schema_version: 1,
   oc_model_version: '2026.09.05',
-  oc_model_built_at: new Date('2026-09-05T10:00:00Z'),
-  items_synced_at: new Date('2026-09-05T12:00:00Z'),
+  oc_model_built_at: '2026-09-05T10:00:00.000Z',
+  items_synced_at: '2026-09-05T12:00:00.000Z',
 }
 
 describe('readFleetMeta', () => {

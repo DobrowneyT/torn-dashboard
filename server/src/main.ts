@@ -107,6 +107,9 @@ if (db) {
         // The one resolver built in buildServer — shared so an admin flag
         // write invalidates the same cache the scheduler reads (#609 slice 5).
         flags: app.flagResolver,
+        // The fleet item catalogue fast path (#609 slice 7). items-sync adopts
+        // it while it is fresh and falls back to this faction's pool otherwise.
+        globalDb,
         // #139: lets war-lifecycle auto-fetch spies on the weekly setup.
         tornStatsApiKey: process.env.TORNSTATS_API_KEY || undefined,
         bspApiKey: process.env.BSP_API_KEY || undefined,

@@ -35,6 +35,7 @@ import { buildAdminApp } from './adminPlane/app.js'
 import { looksHashed } from './adminPlane/password.js'
 import { pgIncidentStore } from './adminPlane/incidentStore.js'
 import { mailConfigFromEnv } from './adminPlane/mailer.js'
+import { startItemsSync } from './adminPlane/itemsSync.js'
 import {
   startMonitor, DEFAULT_INTERVAL_MS, DEFAULT_DIGEST_HOUR_UTC, type MonitorDeps,
 } from './adminPlane/monitor.js'
@@ -144,13 +145,31 @@ const alerts: MonitorDeps | undefined = collector && db
     }
   : undefined
 
+/**
+ * The fleet item catalogue (#609 slice 7).
+ *
+ * ⚠️ Optional, and its absence is silent-by-design rather than a failure: with
+ * no key the control plane simply never publishes prices, `items_synced_at`
+ * stays NULL, and every tenant syncs from its own pool exactly as it did
+ * before. That is the SAME null the alert rules treat as "not in service" — the
+ * two readings have to agree, or a fleet with no key would page every minute.
+ *
+ * ⚠️ This is MonChoon's own Torn key, and it is the only Torn credential this
+ * box will ever hold. /v2/torn/items is public, which is precisely why this job
+ * is one of only two the #608 audit found movable.
+ */
+const tornApiKey = process.env.ADMIN_TORN_API_KEY || undefined
+const items = db && tornApiKey ? { db, apiKey: tornApiKey } : undefined
+
 const publicApp = await buildAdminApp({
   surface: 'public', username, passwordHash, totpSecret, sessionSecret, version, collector, alerts,
   fleetDb: db,
+  items,
 })
 const localApp = await buildAdminApp({
   surface: 'local', username, passwordHash, totpSecret, sessionSecret, version, collector, alerts,
   fleetDb: db,
+  items,
 })
 
 await publicApp.listen({ host: '0.0.0.0', port: publicPort })
@@ -169,6 +188,14 @@ const monitor = alerts
   ? startMonitor(alerts, Number(process.env.ADMIN_ALERT_INTERVAL_MS ?? DEFAULT_INTERVAL_MS))
   : null
 
+const itemsSync = items ? startItemsSync(items) : null
+if (!items) {
+  console.warn(
+    '[admin] item catalogue sync disabled — set ADMIN_TORN_API_KEY to publish prices for the fleet. ' +
+    'Tenants keep syncing from their own key pools.'
+  )
+}
+
 if (alerts) {
   console.log(
     `[admin] monitor armed — discord ${alerts.discordWebhookUrl ? 'configured' : 'OFF'}, ` +
@@ -181,6 +208,7 @@ if (alerts) {
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, async () => {
     monitor?.stop()
+    itemsSync?.stop()
     await Promise.allSettled([publicApp.close(), localApp.close(), db?.end()])
     process.exit(0)
   })
