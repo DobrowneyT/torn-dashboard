@@ -20,14 +20,32 @@ async function setTargetStatus(status: Record<string, unknown> | null) {
   )
 }
 
-async function seedAssist(kind = 'smoke', autoExpireInSec: number | null = ASSIST_EXPIRY_SECONDS) {
-  await stack.db.query(`DELETE FROM war_room_assists_v2 WHERE target_id = ${TARGET}`)
+/**
+ * Raise one request on TARGET.
+ *
+ * ⚠️ #617 moved the deadline off the row: there is no per-request
+ * `auto_expire_at` any more, only a `*_raised_at` per kind that the sweep
+ * measures against the configured window. So the old `autoExpireInSec`
+ * argument becomes its mirror image — how long AGO the hand went up — and
+ * "already lapsed" is expressed by backdating the raise rather than by
+ * writing a deadline in the past.
+ */
+async function seedAssist(kind = 'smoke', raisedSecondsAgo = 0) {
+  await stack.db.query(`DELETE FROM war_room_assist_counts_v2 WHERE target_id = ${TARGET}`)
   await stack.db.query(
-    `INSERT INTO war_room_assists_v2 (target_id, requester_id, requester_name, kind, auto_expire_at)
-     VALUES ($1, $2, 'Requester', $3,
-       CASE WHEN $4::int IS NULL THEN NULL ELSE now() + make_interval(secs => $4::int) END)`,
-    [TARGET, REQUESTER, kind, autoExpireInSec]
+    `INSERT INTO war_room_assist_counts_v2 (target_id, ${kind}_wanted, ${kind}_raised_at)
+     VALUES ($1, 1, now() - make_interval(secs => $2::int))`,
+    [TARGET, raisedSecondsAgo]
   )
+}
+
+/** What is still wanted on TARGET, across kinds. */
+async function stillWanted(): Promise<number> {
+  const r = await stack.db.query(
+    `SELECT help_wanted + smoke_wanted + tear_wanted AS n
+       FROM war_room_assist_counts_v2 WHERE target_id = ${TARGET}`
+  )
+  return Number(r.rows[0]?.n ?? 0)
 }
 
 beforeAll(async () => {
@@ -99,8 +117,7 @@ describe('assist-request auto-expiry', () => {
     await setTargetStatus({ state: 'Okay', until: null })
     const expired = await sweepAssistsExpiry(stack.db, prev)
     expect(expired).toHaveLength(0)
-    const row = await stack.db.query(`SELECT deleted_at FROM war_room_assists_v2 WHERE target_id = ${TARGET}`)
-    expect(row.rows[0].deleted_at).toBeNull()
+    expect(await stillWanted()).toBe(1)
   })
 
   it('drops the assist the instant the target goes into hospital — the fight ended', async () => {
@@ -111,8 +128,7 @@ describe('assist-request auto-expiry', () => {
 
     const expired = await sweepAssistsExpiry(stack.db, prev)
     expect(expired.some((r: any) => Number(r.target_id) === TARGET)).toBe(true)
-    const row = await stack.db.query(`SELECT deleted_at FROM war_room_assists_v2 WHERE target_id = ${TARGET}`)
-    expect(row.rows[0].deleted_at).toBeTruthy()
+    expect(await stillWanted()).toBe(0)
   })
 
   it('does not treat an assist raised while already hospitalised as a fresh fight-end', async () => {
@@ -125,27 +141,35 @@ describe('assist-request auto-expiry', () => {
 
     const expired = await sweepAssistsExpiry(stack.db, prev)
     expect(expired).toHaveLength(0)
-    const row = await stack.db.query(`SELECT deleted_at FROM war_room_assists_v2 WHERE target_id = ${TARGET}`)
-    expect(row.rows[0].deleted_at).toBeNull()
+    expect(await stillWanted()).toBe(1)
   })
 
   it('drops the assist once the short timeout lapses, regardless of target status', async () => {
     await setTargetStatus({ state: 'Okay', until: null })
-    await seedAssist('help', -1) // already-lapsed deadline
+    await seedAssist('help', ASSIST_EXPIRY_SECONDS + 60) // raised long enough ago to have lapsed
     const prev = await snapshotAssistedStatus(stack.db)
     await setTargetStatus({ state: 'Okay', until: null })
 
     const expired = await sweepAssistsExpiry(stack.db, prev)
-    expect(expired.some((r: any) => Number(r.target_id) === TARGET && r.kind === 'help')).toBe(true)
+    expect(expired.some((r: any) => Number(r.target_id) === TARGET && Number(r.help_wanted) === 0)).toBe(true)
   })
 
-  it('leaves an assist with no deadline (NULL auto_expire_at) alone on the timeout path', async () => {
+  it('⚠️ leaves a count with no raised_at alone on the timeout path', async () => {
+    // Not hypothetical: 0059's backfill sums the old per-requester rows into a
+    // count without inventing a raise time for it, so every row carried over
+    // from #523 starts life in exactly this state. Expiring on a NULL
+    // timestamp would wipe them all on the first tick after the migration.
     await setTargetStatus({ state: 'Okay', until: null })
-    await seedAssist('tear', null)
+    await stack.db.query(`DELETE FROM war_room_assist_counts_v2 WHERE target_id = ${TARGET}`)
+    await stack.db.query(
+      `INSERT INTO war_room_assist_counts_v2 (target_id, tear_wanted, tear_raised_at)
+       VALUES (${TARGET}, 1, NULL)`
+    )
     const prev = await snapshotAssistedStatus(stack.db)
     await setTargetStatus({ state: 'Okay', until: null })
 
     const expired = await sweepAssistsExpiry(stack.db, prev)
     expect(expired).toHaveLength(0)
+    expect(await stillWanted()).toBe(1)
   })
 })

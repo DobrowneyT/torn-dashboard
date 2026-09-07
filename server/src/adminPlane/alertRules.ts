@@ -41,6 +41,12 @@ export interface Alert {
 }
 
 export interface AlertThresholds {
+  /** Claimable keys at or below this is urgent. #123/#124 decayed to ONE key
+   *  and nothing announced it for months. */
+  keyPoolLow: number
+  /** Consecutive failures before a scraper job is called broken rather than
+   *  unlucky. */
+  scraperFailStreak: number
   /** No dump newer than this is urgent — the "you believe you have a backup" case. */
   backupUrgentHours: number
   /** Past a day's cadence but not yet alarming. */
@@ -52,6 +58,8 @@ export interface AlertThresholds {
 }
 
 export const DEFAULT_THRESHOLDS: AlertThresholds = {
+  keyPoolLow: 1,
+  scraperFailStreak: 3,
   backupUrgentHours: 48,
   backupNoticeHours: 26,
   diskUrgentPercent: 90,
@@ -94,6 +102,57 @@ export function evaluateAlerts(
         severity: 'urgent',
         title: `${t.slug} is degraded`,
         detail: `db=${t.db ?? 'unknown'} scheduler=${t.scheduler ?? '?'} ticker=${t.ticker ?? '?'}`,
+      })
+    }
+  }
+
+  // ── Key pool and scrapers (#632) ────────────────────────────────────────
+  //
+  // ⚠️ The two numbers that would have caught #645 on day one instead of day
+  // thirteen. capacityx went from 7 usable keys to ZERO in a single run, and
+  // members-sync then logged `no pooled key available` 312 times while every
+  // health surface reported the tenant fine.
+  for (const t of status.tenants) {
+    // ⚠️ `metrics === undefined` means NOT MEASURED and must stay silent — no
+    // secret configured, or a tenant too old to serve the endpoint. Treating
+    // unmeasured as zero would fire on every tenant the moment this shipped,
+    // for a fact nobody had established. Same rule as the null items timestamp.
+    if (!t.metrics) continue
+
+    const claimable = t.metrics.keys.claimable
+    if (claimable === 0 && t.metrics.keys.enrolled > 0) {
+      // ⚠️ Distinct from "low": zero claimable keys is self-sustaining, because
+      // members-sync is the only job that can refill the pool and it needs a
+      // key from the pool it just emptied (#645).
+      alerts.push({
+        key: `keys-empty:${t.slug}`,
+        severity: 'urgent',
+        title: `${t.slug} has no usable API key`,
+        detail:
+          `${t.metrics.keys.enrolled} enrolled, ${t.metrics.keys.disabled} disabled, 0 claimable. ` +
+          'Every Torn-backed job will fail until a member logs in.',
+      })
+    } else if (claimable > 0 && claimable <= thresholds.keyPoolLow) {
+      alerts.push({
+        key: `keys-low:${t.slug}`,
+        severity: 'urgent',
+        title: `${t.slug} is down to ${claimable} usable API key`,
+        detail: 'One key dying takes the faction offline. This is how #123/#124 started.',
+      })
+    }
+
+    // ⚠️ Reported per JOB, not as a count. "3 jobs failing" is not actionable;
+    // "members-sync has failed 12 times, never succeeded" is. Job names are
+    // identical on every tenant and reveal nothing about a faction.
+    for (const job of t.metrics.scrapers.failing) {
+      if (job.consecutiveFailures < thresholds.scraperFailStreak) continue
+      alerts.push({
+        key: `scraper-failing:${t.slug}:${job.jobName}`,
+        severity: 'urgent',
+        title: `${t.slug}: ${job.jobName} has failed ${job.consecutiveFailures} times running`,
+        detail:
+          (job.lastSuccessAt ? `Last success ${job.lastSuccessAt}. ` : 'It has never succeeded. ') +
+          (job.lastError ?? 'no error recorded'),
       })
     }
   }

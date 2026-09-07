@@ -1,6 +1,6 @@
 {
   "name": "@tnl/db",
-  "version": "0.1.0",
+  "version": "3.91.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "dotenv": "^17.2.3",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
     "embedded-postgres": "^17.5.0-beta.15",

@@ -18,6 +18,252 @@ surface it automatically.
 
 ---
 
+## [3.91.0] - 2026-09-07
+
+### Added
+
+- **Payouts for six more OC scenarios (#606).** Leave No Trace, Sneaky Git Grab,
+  Plucking the Lotus Petal, Mob Mentality, Thou Shalt Not Steal and Stage
+  Fright — 30 endings that previously priced as unknown. The model now carries
+  rewards for all 26 scenarios Crimes Hub has pages for.
+- **`server/src/oc/crimeshub-facts.json` is now committed**, as the build's
+  reviewable input. ⚠️ It was not before, and that was a latent trap: the
+  original capture existed only as a transient file, so the committed model
+  could not be rebuilt without re-scraping all 26 pages — and a rebuild
+  attempted without it would have destroyed the data it could not recover. The
+  20 scenarios captured earlier were reconstructed out of the model files to
+  close the gap.
+
+### Fixed
+
+- **Three wrong claims in the model refresh runbook (#606).**
+  - The 20-requests-an-hour cap is **our fetch tooling's, not Crimes Hub's**.
+    The origin served 200s to `curl` throughout a window in which every fetch
+    was refused; the refusal was a pagefetch bug (a `rate_limited` verdict
+    cached under the robots.txt TTL, turning one exhausted hour into a 24-hour
+    lockout with the quota reading empty — pagefetch#21).
+  - **Five** scenarios have no Crimes Hub page, not three: Hostile Takeover,
+    First Aid and Abet, Lock Stock, Pet Project and Best Of The Lot. Two
+    conflicting lists of three were in circulation and neither was right. All
+    five are listed on the index but unlinked — registered, not yet mapped.
+  - Crimes Hub's slug for Plucking the Lotus Petal is `lotuspetal`. A wrong
+    slug returns 200 with a "NOT FOUND" body, so nothing throws and the
+    scenario just arrives unpriced — indistinguishable from having no data.
+
+## [3.90.0] - 2026-09-06
+
+### Added
+
+- **Admin credential rotation prints a scannable QR, and `--rotate` edits
+  `deploy/.env` in place (#646).** Rotating meant copying four values by hand
+  and typing a 32-character base32 secret into an authenticator — friction that
+  makes rotation something to avoid, which is the opposite of what a rotation
+  tool is for.
+
+  - ⚠️ The QR is drawn **locally**, never through an image service. A
+    `chart.googleapis.com`-style URL would send the TOTP secret — half the
+    admin credential — to a third party in a query string, where it would sit
+    in their request logs. A strange thing to do while rotating out of concern
+    about exposure.
+  - `--password-only` keeps the existing TOTP secret and is the common case: a
+    leaked password and a lost phone are different incidents, and forcing both
+    to rotate together means every password change costs re-enrolling the
+    authenticator.
+  - ⚠️ `ADMIN_SESSION_SECRET` is never rotated as a side effect — that
+    invalidates every live admin session, which is correct when intended and
+    baffling when not. `--rotate-session` asks for it explicitly.
+  - The in-place edit is its own tested module (`db/adminEnvFile.mjs`), because
+    `deploy/.env` holds every faction's database password and is not in git. It
+    replaces keys where they sit rather than appending (two copies would work by
+    accident — dotenv and compose both take the last — while leaving the old
+    credential visible with no way to tell which is live), preserves comments
+    and ordering, guards the missing-trailing-newline trap, and writes via temp
+    file + rename.
+
+### Fixed
+
+- A dead check in the admin credential generator (#646): the `$`-in-credentials
+  guard looped over `{ hash, totpSecret: '', sessionSecret: '' }` with both
+  secrets declared *after* the loop and passed as empty strings, so two of the
+  three values it claimed to check were never examined. Base32 and hex cannot
+  produce a `$`, so nothing slipped through — the check simply was not doing
+  what it said.
+
+## [3.89.0] - 2026-09-06
+
+### Added
+- **Fleet monitoring can finally see key-pool depth and failing scrapers
+  (#632).** The two numbers that would have caught #645 on **day one** instead
+  of day thirteen.
+
+  ⚠️ **What the existing health checks do not report: whether anything
+  SUCCEEDS.** `/api/health/ready` covers database connectivity and whether the
+  scheduler is *armed*, so capacityx — which ran zero Torn-backed jobs for
+  thirteen days — answered `ok` throughout, as did Docker's healthcheck and the
+  #609 status page (`5/5 tenants up`). Meanwhile `members-sync` logged
+  `no pooled key available` 312 times into a table nobody was reading.
+
+  New authenticated `GET /api/internal/fleet-metrics` on each tenant, reporting
+  claimable/enrolled/disabled keys and each enabled job's consecutive-failure
+  streak, last success and last error.
+
+  ⚠️ **`claimable` mirrors `keyPool.claim()`'s condition exactly**, not
+  `disabled = false`. That difference is what capacityx turned on: it held one
+  *enabled* key that `claim()` would never return, because the key had no
+  faction access. A looser count would have reported the pool as fine.
+
+  ⚠️ **Not one shared secret pasted into every tenant.** Each tenant holds only
+  its own token, derived as `HMAC-SHA256(FLEET_METRICS_SECRET, slug)`; the admin
+  container holds the secret and derives what it needs. A shared secret would
+  mean a leak from **any** faction's environment reads **every** faction's
+  metrics — one faction's compromise should be one faction. An intermediate
+  version of this change passed the fleet secret to each tenant so it could
+  derive its own token, which defeated the entire point; tenants now receive a
+  literal `FLEET_METRICS_TOKEN` and never see the secret.
+
+  ⚠️ **The endpoint is genuinely public and is authenticated accordingly.** The
+  generated tenant vhost proxies `location /api/` wholesale, so living on the
+  compose network protects nothing. Comparison is constant-time and
+  length-checked first, because `timingSafeEqual` throws on a length mismatch —
+  a short token would 500 rather than 401, which is itself an oracle.
+
+  New alert rules: `keys-empty` (urgent — self-sustaining, since `members-sync`
+  is the only job that can refill the pool and it needs a key from the pool it
+  just emptied), `keys-low` at one key (how #123/#124 started), and
+  `scraper-failing` per job after three consecutive failures.
+
+  ⚠️ **Unmeasured is not "fine".** A tenant with no `metrics` — no secret
+  configured, or too old to serve the endpoint — produces **no alerts at all**
+  rather than alerts reading zero. Treating unmeasured as zero would have fired
+  on every tenant the moment this shipped, for a fact nobody had established.
+  Same rule as the null item-sync timestamp in v3.77.0.
+
+  ⚠️ Alerts name the failing **job**, not a count. "3 jobs failing" is not
+  actionable at 3am; "members-sync has failed 12 times and never succeeded" is.
+  Job names are identical on every tenant and reveal nothing about a faction —
+  the reconnaissance concern #609 raised is member ids and key material, and the
+  payload carries neither.
+
+  `db/fleet-metrics-token.mjs` prints the token for an existing faction;
+  `db/new-faction.mjs` writes it for new ones. Unset `FLEET_METRICS_SECRET`
+  leaves the endpoint unregistered everywhere.
+
+---
+
+## [3.88.0] - 2026-09-06
+
+### Changed
+
+- **Assist requests now accumulate on the TARGET, not on whoever typed them (#617).**
+  A target can need a smoke AND a tear AND a body at once, and several people
+  asking for the same thing add up instead of overwriting each other.
+
+  #523 built assists around one live request per requester, enforced by a
+  partial unique index. Two rules followed from that and both were wrong: a
+  second person raising a hand on a target REPLACED the first request, and a
+  different kind from the same person replaced their previous one. The
+  reinforcement case makes it plainest — whoever joined a fight is now in it
+  and is best placed to say more help is needed, and under the old rule their
+  request cancelled the one that brought them.
+
+  - New `war_room_assist_counts_v2`: one row per target, a count and a
+    `raised_at` per kind (migration `0059`). The old table is kept and simply
+    stops being read — a live war may be in flight at deploy, and those rows
+    are the only record of what people asked for. Dropping it is a later
+    migration, the same discipline #606 used for the mirror tables.
+  - Expiry is per kind: a smoke asked for four minutes ago and a tear asked
+    for just now no longer age out together. An expiring kind clears outright
+    rather than decaying a unit at a time on a clock matching neither raise.
+  - Taking one back (the overlay's long press) is open to anyone and now
+    requires the kind. There is no owner to check any more, and a dib can
+    expire while a long fight runs on — whoever is actually in it is best
+    placed to say "we're fine now".
+  - Clearing a target outright is leads-only (was: the requester, or an admin).
+    A stray clear drops every outstanding call on that target, and nobody
+    watching a badge can tell it was cleared rather than answered.
+  - The badge names nobody. A count is the sum of everyone who asked, so there
+    is no one person to name and picking one would print an arbitrary choice as
+    fact. It shows the most urgent live kind — help, then smoke, then tear —
+    and spells the rest out in the title.
+  - The attack-page overlay lights up what the TARGET still needs rather than
+    only what you personally asked for, which is the thing you want to know
+    before pressing.
+
+### Fixed
+
+- Clearing a target's assists was gated on the `admin` role, putting a war-room
+  action out of reach of the war leads who run it (#617).
+
+## [3.85.0] - 2026-09-06
+
+### Fixed
+- **⚠️ `members-sync` could adopt another faction's roster and permanently lock
+  a tenant out of its own key pool (#645).** This ran on `capacityx` for
+  **thirteen days** and needed manual SQL to recover.
+
+  A Torn key answers for its owner's **current** faction. When a member leaves,
+  their key stays in the pool until something notices — and the round-robin
+  eventually claims it. On 2026-08-24 that happened:
+  `/v2/faction/members` returned *their new faction's* roster and this job wrote
+  it as ours. 95 real members marked departed, 31 strangers inserted, and every
+  real key disabled as "not in faction". The run recorded **`rows=32,
+  status=success`**.
+
+  It then deadlocked: with no usable key, the only job that could re-enable
+  those keys was this one, which needs a key from the pool it had just emptied.
+  Every Torn-backed scraper failed hourly while `/api/health/ready`, the Docker
+  healthcheck and the #609 fleet status page all reported the tenant healthy.
+
+  Three guards, deliberately independent so no single failure removes them all:
+
+  - **The claimed key must still answer for our faction.** `/v2/faction/basic`
+    is compared against `faction_config.torn_faction_id`; on a mismatch **that
+    one key** is disabled and the run stops without touching the roster —
+    dropping the key was always the right response, not retiring ninety-five
+    members. One extra call per hourly run.
+  - **No run may retire more than half the roster** (above a 20-member floor, so
+    a small faction losing two of three is unaffected). Needs no API call, and
+    catches a truncated or otherwise wrong response from a *valid* key.
+  - **No reconcile may leave the pool with nothing claimable.** This is the one
+    that turns a bad hour into a bad hour rather than thirteen days: the bad
+    roster was recoverable, the deadlock was not.
+
+  ⚠️ **The obvious cheaper check does not work, and a test says so.** "The key
+  owner must appear in the roster it returned" needs no extra call and looks
+  sufficient — I nearly shipped it. It fails on the actual incident: the
+  departed member *is* in the roster their key returns, because it is their new
+  faction's. Only the faction id separates the two.
+
+- **⚠️ Two more ways the key pool could empty itself (#645 follow-up).** Raised
+  by MonChoon: some Torn errors mean *wait*, not *act*, and acting on a
+  transient one costs a donor's key.
+
+  **Code 13 is no longer treated as fatal.** Torn's own wording is *"The key is
+  temporarily disabled due to owner inactivity"* — it returns by itself when the
+  owner logs in. Treating it as fatal disabled the key, the roster reconcile
+  re-enabled it on the same run because the member is still in the faction, and
+  re-verification disabled it again an hour later: a flap that made the pool
+  look smaller than it was and wrote a misleading `last_error` on a good donor's
+  key. ⚠️ It had a sharper edge too — a faction quiet over a holiday can have
+  most of its keys answer 13 at once, which empties the pool and reaches the
+  #645 deadlock by a completely different route.
+
+  **Re-verification will no longer disable the last claimable key.** ⚠️ That
+  pass runs *after* the roster reconcile commits, so the pool-exhaustion guard
+  above does not cover it — it could empty the pool on its own. A key that
+  errors is not necessarily dead, and even when it is, leaving it enabled makes
+  each job fail loudly rather than every job failing with the indistinguishable
+  `no pooled key available` that hid the original incident for thirteen days.
+  The error is still recorded and the next run re-checks it.
+
+  ⚠️ The identity check **fails open on a transient error and closed on a
+  definite mismatch.** Refusing to sync whenever `/v2/faction/basic` is
+  unavailable would let a Torn hiccup stop member syncing fleet-wide — trading a
+  rare guarded failure for a frequent unguarded one. The other two guards need
+  no API call and still stand.
+
+---
+
 ## [3.84.0] - 2026-09-06
 
 ### Changed

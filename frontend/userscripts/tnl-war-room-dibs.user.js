@@ -277,10 +277,11 @@ const TNLDibs = (function () {
   /**
    * How many of a thing are still being asked for (#591).
    *
-   * ⚠️ Anything unusable becomes 1, never 0. A row from before the column
-   * existed carries no `wanted`, and a "×0" badge would read as "nobody is
-   * asking" — the opposite of what a live row means. One is the honest floor:
-   * the row exists, so at least one is outstanding.
+   * ⚠️ Reads 0 as 0 since #617, where the old shape could not. Under #523 the
+   * ROW was the request, so a missing count meant a row written before the
+   * column existed and 1 was the honest floor. Now the COUNT is the request: a
+   * kind at zero is nobody asking, and rounding garbage up to 1 would invent a
+   * request nobody made and send someone into a fight that is over.
    *
    * Mirrors assistCount() in frontend/src/utils/assistBadge.js. The two cannot
    * import from each other (this file has no npm imports at all), so they are
@@ -288,7 +289,33 @@ const TNLDibs = (function () {
    */
   function assistCount(raw) {
     const n = Math.floor(Number(raw))
-    return Number.isFinite(n) && n > 0 ? n : 1
+    return Number.isFinite(n) && n > 0 ? n : 0
+  }
+
+  /**
+   * Which kind the one badge shows when several are outstanding (#617).
+   * Mirrors KIND_PRIORITY in frontend/src/utils/assistBadge.js — see there for
+   * why help outranks smoke outranks tear.
+   */
+  const KIND_PRIORITY = ['help', 'smoke', 'tear']
+
+  /**
+   * When the oldest still-outstanding kind went up, in ms — or null if none of
+   * them carry a timestamp (rows carried over by 0059's backfill do not).
+   */
+  function earliestRaisedAtMs(assist) {
+    const times = liveKinds(assist)
+      .map(k => parseDbTime(k.at)?.getTime())
+      .filter(t => Number.isFinite(t))
+    return times.length ? Math.min(...times) : null
+  }
+
+  /** Every kind still outstanding on a counts row, highest-priority first. */
+  function liveKinds(assist) {
+    if (!assist) return []
+    return KIND_PRIORITY
+      .map(kind => ({ kind, wanted: assistCount(assist[`${kind}_wanted`]), at: assist[`${kind}_raised_at`] ?? null }))
+      .filter(k => k.wanted > 0)
   }
 
   /** How long a press has to be held before it counts as a hold (#600). */
@@ -303,75 +330,47 @@ const TNLDibs = (function () {
    * the one gesture that should raise the count was the one that destroyed the
    * request, and the counter was unreachable from the surface built for it.
    *
-   * 'request' covers all three short-press cases on purpose, because the server
-   * already distinguishes them: same target and kind increments, anything else
-   * replaces. Splitting them here would be a second copy of a rule that only
-   * one side can enforce.
+   * 'request' covers every short-press case on purpose, because the server
+   * already decides what it means: since #617 a press always ADDS one to this
+   * target's count of this kind, whoever pressed it.
    *
-   * A hold is only ever about YOUR OWN request of THIS kind. Holding a button
-   * you have not pressed does nothing — "if it's already at 0 it does nothing"
-   * — rather than raising an error the overlay would have to render mid-fight.
+   * ⚠️ #617 widened the hold. It used to be "only ever about YOUR OWN request
+   * of THIS kind", which stopped working the moment counts became shared:
+   * MonChoon's call was that anyone may take one back, because a dib expires
+   * while a long fight runs on and the person best placed to say "we're fine
+   * now" is whoever is actually in it. So a hold needs only that THIS KIND is
+   * outstanding on this target — no ownership test, because there is no owner.
+   * Holding a kind nobody is asking for still does nothing, rather than
+   * raising an error the overlay would have to render mid-fight.
    */
-  function assistPressAction(mine, kind, userId, gesture) {
-    const isMine = !!mine && String(mine.by) === String(userId)
-    if (gesture === 'long') {
-      return isMine && mine.kind === kind ? 'decrement' : 'noop'
-    }
-    return 'request'
+  function assistPressAction(assist, kind, gesture) {
+    if (gesture !== 'long') return 'request'
+    return liveKinds(assist).some(k => k.kind === kind) ? 'decrement' : 'noop'
   }
 
   /**
-   * Is this delta row the SAME request the badge is already showing?
+   * targetId → the #617 counts row.
    *
-   * ⚠️ This is the question the index used to have no way of asking, and not
-   * asking it is what made every count freeze until a page reload (#603).
+   * ⚠️ Far simpler than the #523/#603 version it replaces, and the deletions
+   * are the point. That one carried `sameAssistRequest`, a recency race on
+   * `created_at`, and an acknowledged gap where a tombstone for the
+   * currently-shown requester blanked a target another requester still wanted
+   * — all of it machinery for picking ONE row out of several competing for a
+   * single badge slot. #617 makes the row per-target, so there is nothing to
+   * pick and none of that can go wrong.
    *
-   * Row `id` answers it outright when both sides have one. The requester
-   * fallback exists for the optimistic entry requestAssist() writes, which has
-   * no id yet — without it, the server's own row for the request we just made
-   * would look like a stranger's and lose the recency test below.
+   * ⚠️ A row whose counts are all zero is DELETED from the index rather than
+   * skipped. The delta ships zeroed rows deliberately — reaching zero is how a
+   * client learns to clear a badge — so a zeroed row is not noise to ignore,
+   * it is the cancellation of whatever is on screen.
    */
-  function sameAssistRequest(cur, row) {
-    if (cur?.id != null && row?.id != null) return String(cur.id) === String(row.id)
-    return String(cur?.by) === String(row?.requester_id)
-  }
-
   function indexAssists(rows, into) {
     const byTarget = into ?? new Map()
     for (const row of rows ?? []) {
       const targetId = Number(row.target_id)
       if (!Number.isFinite(targetId) || targetId <= 0) continue
-      const cur = byTarget.get(targetId)
-      if (row.deleted_at) {
-        if (cur && sameAssistRequest(cur, row)) byTarget.delete(targetId)
-        continue
-      }
-      // Three ways a row wins the badge slot, and the FIRST TWO are the fix.
-      //
-      // ⚠️ An UPDATE to the request already on screen must always land. The
-      // old rule was recency alone, judged on `created_at` — which does not
-      // change when #591 raises the count with `SET wanted = wanted + 1`. So
-      // the row came back carrying the new number, compared equal, and was
-      // thrown away. Every increment and every decrement was dropped by the
-      // very client that asked for it, and a reload was the only way to see
-      // the truth.
-      //
-      // Worse than transient: requestAssist()'s optimistic entry stamps a
-      // CLIENT clock reading, which is strictly later than the server's
-      // created_at, so afterwards every server row for our own request lost
-      // the comparison for the life of the page.
-      //
-      // Recency still decides between DIFFERENT requesters — several people
-      // can raise a hand on one target and the badge shows one of them.
-      const curAt = cur ? parseDbTime(cur.at) : null
-      const rowAt = parseDbTime(row.created_at)
-      const wins = !cur || sameAssistRequest(cur, row) || !curAt || (rowAt && rowAt > curAt)
-      if (!wins) continue
-      byTarget.set(targetId, {
-        id: row.id ?? null,
-        kind: row.kind, by: Number(row.requester_id), name: row.requester_name, at: row.created_at,
-        wanted: assistCount(row.wanted),
-      })
+      if (liveKinds(row).length === 0) byTarget.delete(targetId)
+      else byTarget.set(targetId, { ...row, target_id: targetId })
     }
     return byTarget
   }
@@ -679,26 +678,37 @@ const TNLDibs = (function () {
    * badge is meant to touch paintDibs() alone.
    */
   function badgeState(dib, assist, targetId, currentUserId, isAdmin = false) {
-    if (assist) {
-      const meta = ASSIST_KIND_META[assist.kind] ?? { icon: 'life-buoy', label: assist.kind ?? 'Assist' }
-      const mine = String(assist.by) === String(currentUserId)
-      const who = mine ? 'you' : (assist.name ?? 'someone')
+    const live = liveKinds(assist)
+    if (live.length > 0) {
+      const [held, ...others] = live
+      const meta = ASSIST_KIND_META[held.kind] ?? { icon: 'life-buoy', label: held.kind ?? 'Assist' }
       // A count of one says nothing worth saying — "Smoke ×1" is noise on the
       // overwhelming majority of requests, so the multiple appears only when
       // there is one.
-      const wanted = assistCount(assist.wanted)
+      const phrase = (k) => {
+        const m = ASSIST_KIND_META[k.kind] ?? { label: k.kind ?? 'Assist' }
+        return k.wanted > 1 ? `${m.label} \u00D7${k.wanted}` : m.label
+      }
+      // ⚠️ #617: no requester on the row, so no "requested by …". The count is
+      // the sum of everyone who asked — there is no one person to name, and
+      // picking one would print an arbitrary choice as fact. Several kinds can
+      // be live at once now; the badge still shows one (the row has no width
+      // for more) and the title carries the rest.
       return {
         mode: 'assist',
-        label: wanted > 1 ? `${meta.label} \u00D7${wanted}` : meta.label,
+        label: phrase(held),
         icon: meta.icon,
-        wanted,
+        wanted: held.wanted,
+        kinds: live,
         href: attackUrl(targetId),
         action: null,
-        mine,
+        mine: false,
         taken: true,
-        title: wanted > 1
-          ? `${meta.label} requested by ${who} \u00B7 ${wanted} still needed \u00B7 ${fmtAgo(assist.at)}`
-          : `${meta.label} requested by ${who} \u00B7 ${fmtAgo(assist.at)}`,
+        title: [
+          `${phrase(held)} requested`,
+          ...others.map(k => `also ${phrase(k)}`),
+          fmtAgo(held.at),
+        ].join(' \u00B7 '),
       }
     }
     return { mode: 'dibs', href: null, ...buttonState(dib, currentUserId, isAdmin) }
@@ -1410,27 +1420,22 @@ const TNLDibs = (function () {
   async function requestAssist(targetId, kind) {
     const res = await api('/api/war-room/assist', 'POST', { target_id: targetId, kind })
     if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
-    // One live assist per requester, same rule the server enforces — mirror it
-    // optimistically so a switch from one kind/target to another does not
-    // flash the old badge before the next poll lands.
-    for (const [target, a] of rt.assists) {
-      if (String(a.by) === String(rt.session?.userId)) rt.assists.delete(target)
-    }
-    // The server's own count, not a guess. It returns `wanted` on both
-    // branches (fresh insert and increment), and painting it here is what makes
-    // the pip move on the press rather than on the next poll — the attack page
-    // is where the decision to ask for one more is taken, so it cannot be the
-    // last surface to know (#603).
+    // ⚠️ #617 deleted the "clear my other request first" sweep that stood here.
+    // It mirrored a server rule — one live assist per requester — that no
+    // longer exists: asking for a smoke on this target does not cancel the
+    // help you asked for on that one, so wiping them locally would blank
+    // badges the server still considers live.
     //
-    // `at` stays a client clock reading, which is fine now that indexAssists
-    // recognises the server's row for this request by requester rather than by
-    // being strictly newer.
+    // The server's own count, not a guess. Painting it here is what makes the
+    // pip move on the press rather than on the next poll — the attack page is
+    // where the decision to ask for one more is taken, so it cannot be the
+    // last surface to know (#603).
     const wanted = Number(res.body?.wanted)
-    const cur = rt.assists.get(targetId)
+    const cur = rt.assists.get(targetId) ?? { target_id: targetId }
     rt.assists.set(targetId, {
-      id: cur && cur.kind === kind ? cur.id ?? null : null,
-      kind, by: rt.session?.userId, name: 'You', at: new Date().toISOString(),
-      wanted: Number.isFinite(wanted) && wanted > 0 ? wanted : 1,
+      ...cur,
+      [`${kind}_wanted`]: Number.isFinite(wanted) && wanted > 0 ? wanted : 1,
+      [`${kind}_raised_at`]: new Date().toISOString(),
     })
     pokePoll()
     return { ok: true, wanted }
@@ -1450,17 +1455,25 @@ const TNLDibs = (function () {
    * guessing the new value here would make the pip flicker between our guess
    * and the truth on the next poll.
    */
-  async function decrementAssist(targetId) {
-    const res = await api('/api/war-room/assist/decrement', 'POST', { target_id: targetId })
+  async function decrementAssist(targetId, kind) {
+    // ⚠️ `kind` is REQUIRED since #617 (the server 400s without it): with a
+    // count per kind there is no single "your live request" left for it to
+    // infer, and guessing here would take one off the wrong pile.
+    const res = await api('/api/war-room/assist/decrement', 'POST', { target_id: targetId, kind })
     if (res.status !== 200) return { ok: false, message: res.body?.error || `HTTP ${res.status}` }
     const wanted = Number(res.body?.wanted)
     const cur = rt.assists.get(targetId)
-    if (res.body?.cleared) rt.assists.delete(targetId)
-    else if (cur && Number.isFinite(wanted) && wanted > 0) {
+    if (cur && Number.isFinite(wanted)) {
       // Same reason as requestAssist(): the press has to move the number now.
-      // Only ever lowers OUR OWN request — the server refuses to touch anyone
-      // else's, so painting a drop on a stranger's badge would be a lie.
-      rt.assists.set(targetId, { ...cur, wanted })
+      //
+      // ⚠️ `cleared` means THIS KIND reached zero, not that the target is
+      // clear — another kind can still be outstanding, so the row is updated
+      // and then dropped only if nothing at all is left. Deleting on `cleared`
+      // alone (what #600 did, when a row was one kind) would blank a badge
+      // that should have fallen back to showing the kind still wanted.
+      const next = { ...cur, [`${kind}_wanted`]: Math.max(wanted, 0) }
+      if (liveKinds(next).length === 0) rt.assists.delete(targetId)
+      else rt.assists.set(targetId, next)
     }
     pokePoll()
     return { ok: true, wanted: Number.isFinite(wanted) ? wanted : 0, cleared: !!res.body?.cleared }
@@ -3509,11 +3522,11 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const act = async (gesture) => {
         const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
         if (!targetId) return
-        const what = assistPressAction(rt.assists.get(targetId), kind, rt.session?.userId, gesture)
+        const what = assistPressAction(rt.assists.get(targetId), kind, gesture)
         if (what === 'noop') return
         btn.disabled = true
         const res = what === 'decrement'
-          ? await decrementAssist(targetId)
+          ? await decrementAssist(targetId, kind)
           : await requestAssist(targetId, kind)
         btn.disabled = false
         // Not showToast(): that relies on injectStyles()' faction-page-only
@@ -3615,16 +3628,20 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     injectAssistOverlayStyles()
     const box = ensureAssistOverlay()
     if (!box) return
-    const mine = rt.assists.get(targetId)
-    const isMine = mine && String(mine.by) === String(rt.session?.userId)
+    // ⚠️ #617: what's outstanding on the TARGET, not what you personally
+    // asked for. The old version lit a button only while YOUR request of that
+    // kind was live, which under shared counts would hide the very thing this
+    // panel exists to tell you — walking into a fight where two people already
+    // want a smoke, the buttons would sit dark because neither was yours.
+    const open = rt.assists.get(targetId)
+    const wantedByKind = new Map(liveKinds(open).map(k => [k.kind, k.wanted]))
     for (const btn of box.querySelectorAll('button')) {
-      const active = Boolean(isMine && mine.kind === btn.dataset.tnlKind)
-      btn.classList.toggle(ASSIST_BTN_ACTIVE_CLASS, active)
+      const wanted = wantedByKind.get(btn.dataset.tnlKind) ?? 0
+      btn.classList.toggle(ASSIST_BTN_ACTIVE_CLASS, wanted > 0)
       // #591: the count belongs ON the button you press to raise it — this is
       // the surface where you decide whether to ask for one more, so it has to
-      // say how many you have already asked for without a round trip to the
-      // roster. Only shown past one: "×1" is noise.
-      const wanted = active ? assistCount(mine.wanted) : 0
+      // say how many are already wanted without a round trip to the roster.
+      // Only shown past one: "×1" is noise.
       let pip = btn.querySelector(`.${ASSIST_COUNT_CLASS}`)
       if (wanted > 1) {
         if (!pip) {
@@ -3641,7 +3658,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       if (meta) {
         // The hold is the only gesture here with nothing on screen to
         // advertise it, so the tooltip is where it gets taught.
-        btn.title = active
+        btn.title = wanted > 0
           ? `${meta.label} \u00B7 ${wanted} still needed \u00B7 tap for one more, hold to take one back`
           : `${meta.label} \u00B7 tap to request`
       }
@@ -3819,7 +3836,11 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       // "is this the requester" cannot be answered here. It is answered on the
       // server instead, on ids, where a scraped name is never trusted anyway.
       requesterName: null,
-      requestedAtMs: parseDbTime(open.at)?.getTime() ?? null,
+      // ⚠️ #617: the EARLIEST live raise, not the newest. Each kind carries its
+      // own timestamp now, and this bound exists to drop log lines from before
+      // anyone asked — so taking the latest would discard events that answer a
+      // kind raised earlier and still outstanding.
+      requestedAtMs: earliestRaisedAtMs(open),
     })
     // Every bail-out says why. This path is unobservable from the outside —
     // a count that does not move looks identical whether the log was unread,
@@ -3827,7 +3848,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // round of this took a live war and a screenshot to narrow down.
     if (events.length === 0) {
       log(`fight log: ${rows.length} row(s) read, 0 candidates`,
-        `(target name ${targetName ?? 'unreadable'}, request at ${open.at})`)
+        `(target name ${targetName ?? 'unreadable'}, earliest request at ${earliestRaisedAtMs(open) ?? 'unknown'})`)
       return
     }
 
@@ -4797,8 +4818,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     warRankRouteMatch, isWarRankPage, warRosterPresent, memberLists, clampAssistPos, parseAssistPos, panelPos,
     parseFightLogAge, parseFightLogRow, assistCandidates, readFightLogRows, attackTargetName,
     scopeCss, scopeSelector, WAR_ACTIVE_CLASS,
-    indexAssists, sameAssistRequest, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
+    indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
     assistIconSvg, paintDibs, assistCount, assistPressAction, decrementAssist, LONG_PRESS_MS,
+    liveKinds, earliestRaisedAtMs, KIND_PRIORITY,
     identityMatches, panelNeedsKey, panelExpanded, statusText, statusColor,
     opponentFrom, pollDelay, redactUrl, debugOn, establishSession, store, main,
     formatStat, dominantStat, statScore, fairFight, rowStats,

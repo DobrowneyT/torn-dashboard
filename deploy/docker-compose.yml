@@ -132,6 +132,12 @@ services:
       # means the fleet publishes no prices and every tenant syncs from its own
       # key pool, as it did before — a supported state, not a failure.
       ADMIN_TORN_API_KEY: ${ADMIN_TORN_API_KEY:-}
+      # ⚠️ Fleet metrics (#632). The admin container holds the FLEET secret and
+      # derives each tenant's token as HMAC-SHA256(secret, slug); every tenant
+      # holds only its own derived value. One shared secret pasted into all of
+      # them would mean a leak from ANY faction's env reads EVERY faction's
+      # metrics — one faction's compromise should be one faction.
+      FLEET_METRICS_SECRET: ${FLEET_METRICS_SECRET:-}
     volumes:
       # ⚠️ Read-only, and the only volume this container gets. Backup freshness
       # is the highest-value monitor there is — a job failing for three weeks is

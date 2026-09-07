@@ -714,124 +714,133 @@ describe('warRosterPresent — the DOM decides, not the URL (#610)', () => {
   })
 })
 
-describe('indexAssists sees an UPDATE, not just a create (#603)', () => {
-  const base = {
-    id: 7, target_id: 500, requester_id: 9001, requester_name: 'Me',
-    kind: 'smoke', wanted: 1, created_at: '2026-09-05T10:00:00Z',
-  }
+/** A #617 per-target counts row, with every kind at zero unless named. */
+const countsRow = (over = {}) => ({
+  target_id: 500, help_wanted: 0, smoke_wanted: 0, tear_wanted: 0,
+  help_raised_at: null, smoke_raised_at: null, tear_raised_at: null,
+  ...over,
+})
 
-  it('⚠ raises the count when the same row comes back with a bigger wanted', () => {
-    // The whole bug. The map is keyed by TARGET and recency was judged on
-    // `created_at`, which does not change when #591 does
-    // `SET wanted = wanted + 1`. The row came back carrying the new number,
-    // compared equal, and was thrown away — so every increment was dropped by
-    // the very client that asked for it, and a reload was the only way to see
-    // the truth.
-    const map = S.indexAssists([base])
-    expect(map.get(500).wanted).toBe(1)
-    S.indexAssists([{ ...base, wanted: 3 }], map)
-    expect(map.get(500).wanted).toBe(3)
+// ⚠️ #603's whole describe block stood here — "indexAssists sees an UPDATE,
+// not just a create" — along with the `sameAssistRequest` block under it.
+// Both are DELETED rather than ported, because #617 makes the bugs they
+// guarded structurally impossible rather than merely fixed: they were all
+// about picking one row out of several competing for a single badge slot
+// (recency races on created_at, an optimistic entry stamped with a client
+// clock outrunning the server, a stranger's tombstone blanking a live
+// request). One row per target, keyed by the primary key, has nothing to
+// pick and no clock to compare.
+describe('indexAssists keys the counts row by target (#617)', () => {
+  it('takes the count straight off the row', () => {
+    const map = S.indexAssists([countsRow({ smoke_wanted: 1 })])
+    expect(map.get(500).smoke_wanted).toBe(1)
+    S.indexAssists([countsRow({ smoke_wanted: 3 })], map)
+    expect(map.get(500).smoke_wanted).toBe(3)
   })
 
-  it('lowers it again on the way back down', () => {
-    const map = S.indexAssists([{ ...base, wanted: 3 }])
-    S.indexAssists([{ ...base, wanted: 1 }], map)
-    expect(map.get(500).wanted).toBe(1)
-  })
-
-  it('⚠ lets the server correct an optimistic entry stamped with a client clock', () => {
-    // requestAssist() writes `at: new Date().toISOString()` — strictly LATER
-    // than the server's created_at. Under the old recency-only rule that entry
-    // beat every subsequent server row for the life of the page, which is why
-    // a refresh was the only thing that ever showed the real count.
-    const map = new Map([[500, {
-      kind: 'smoke', by: 9001, name: 'You', wanted: 1,
-      at: '2030-01-01T00:00:00Z',   // a clock way ahead of the server's
-    }]])
-    S.indexAssists([{ ...base, wanted: 4 }], map)
-    expect(map.get(500).wanted).toBe(4)
-    expect(map.get(500).id).toBe(7)
-  })
-
-  it('still lets a NEWER requester take the badge slot from an older one', () => {
-    // Several people can raise a hand on one target and the badge shows one.
-    // That rule is what the fix had to preserve while making updates land.
-    const map = S.indexAssists([base])
-    S.indexAssists([{
-      ...base, id: 8, requester_id: 4242, requester_name: 'Ally',
-      kind: 'tear', created_at: '2026-09-05T10:05:00Z',
-    }], map)
-    expect(map.get(500)).toMatchObject({ id: 8, by: 4242, kind: 'tear' })
-  })
-
-  it('⚠ does not let an OLDER stranger displace the request on screen', () => {
-    const map = S.indexAssists([{ ...base, id: 8, created_at: '2026-09-05T10:05:00Z' }])
-    S.indexAssists([{
-      ...base, id: 9, requester_id: 4242, created_at: '2026-09-05T09:00:00Z',
-    }], map)
-    expect(map.get(500).id).toBe(8)
-  })
-
-  it('a tombstone for the shown request clears the slot; a stranger\u2019s does not', () => {
-    const map = S.indexAssists([base])
-    S.indexAssists([{ ...base, id: 99, requester_id: 4242, deleted_at: '2026-09-05T10:01:00Z' }], map)
+  it('⚠️ a row with every count at zero CLEARS the target', () => {
+    // The delta ships zeroed rows deliberately — reaching zero is how a client
+    // learns to clear a badge — so a zeroed row is not noise to skip, it is
+    // the cancellation of whatever is on screen.
+    const map = S.indexAssists([countsRow({ smoke_wanted: 2 })])
     expect(map.get(500)).toBeTruthy()
-    S.indexAssists([{ ...base, deleted_at: '2026-09-05T10:02:00Z' }], map)
+    S.indexAssists([countsRow({ smoke_wanted: 0 })], map)
     expect(map.get(500)).toBeUndefined()
+  })
+
+  it('keeps the target while ANY kind is still wanted', () => {
+    const map = S.indexAssists([countsRow({ smoke_wanted: 1, help_wanted: 2 })])
+    S.indexAssists([countsRow({ smoke_wanted: 0, help_wanted: 2 })], map)
+    expect(map.get(500).help_wanted).toBe(2)
+  })
+
+  it('ignores a row with no usable target id', () => {
+    const map = S.indexAssists([{ ...countsRow({ help_wanted: 1 }), target_id: 0 }])
+    expect(map.size).toBe(0)
   })
 })
 
-describe('sameAssistRequest', () => {
-  it('matches on row id when both carry one', () => {
-    expect(S.sameAssistRequest({ id: 7, by: 1 }, { id: 7, requester_id: 2 })).toBe(true)
-    expect(S.sameAssistRequest({ id: 7, by: 1 }, { id: 8, requester_id: 1 })).toBe(false)
+describe('liveKinds ranks what is outstanding (#617)', () => {
+  it('lists every live kind, most urgent first', () => {
+    const live = S.liveKinds(countsRow({ tear_wanted: 1, help_wanted: 2, smoke_wanted: 3 }))
+    expect(live.map(k => k.kind)).toEqual(['help', 'smoke', 'tear'])
+    expect(live.map(k => k.wanted)).toEqual([2, 3, 1])
   })
 
-  it('falls back to the requester for an optimistic entry that has no id yet', () => {
-    expect(S.sameAssistRequest({ by: 9001 }, { id: 7, requester_id: 9001 })).toBe(true)
-    expect(S.sameAssistRequest({ by: 9001 }, { id: 7, requester_id: 4242 })).toBe(false)
+  it('is empty for a zeroed row, a null row, and an unusable count', () => {
+    expect(S.liveKinds(countsRow({}))).toEqual([])
+    expect(S.liveKinds(null)).toEqual([])
+    expect(S.liveKinds(countsRow({ help_wanted: 'x' }))).toEqual([])
+  })
+
+  it('⚠️ matches the dashboard priority exactly — the two files cannot import each other', () => {
+    expect(S.KIND_PRIORITY).toEqual(['help', 'smoke', 'tear'])
+  })
+})
+
+describe('earliestRaisedAtMs (#617)', () => {
+  it('⚠️ takes the OLDEST live raise, so an older outstanding kind is not cut off', () => {
+    // This bounds which fight-log lines can answer a request. Taking the
+    // NEWEST would discard events answering a kind raised earlier and still
+    // wanted.
+    const at = S.earliestRaisedAtMs(countsRow({
+      help_wanted: 1, help_raised_at: '2026-09-05T10:00:00Z',
+      smoke_wanted: 1, smoke_raised_at: '2026-09-05T10:05:00Z',
+    }))
+    expect(at).toBe(Date.parse('2026-09-05T10:00:00Z'))
+  })
+
+  it('ignores the timestamp of a kind nobody is asking for', () => {
+    const at = S.earliestRaisedAtMs(countsRow({
+      help_wanted: 1, help_raised_at: '2026-09-05T10:05:00Z',
+      smoke_wanted: 0, smoke_raised_at: '2026-09-05T09:00:00Z',
+    }))
+    expect(at).toBe(Date.parse('2026-09-05T10:05:00Z'))
+  })
+
+  it('is null when nothing carries a timestamp — 0059 backfills rows that way', () => {
+    expect(S.earliestRaisedAtMs(countsRow({ help_wanted: 1 }))).toBeNull()
+    expect(S.earliestRaisedAtMs(null)).toBeNull()
   })
 })
 
 describe('assistPressAction — tap asks for one more, hold gives one back (#600)', () => {
-  const me = '9001'
-  const mineSmoke = { kind: 'smoke', by: 9001, wanted: 3 }
+  const smokeWanted = countsRow({ smoke_wanted: 3 })
 
-  it('⚠ a second tap on your own kind REQUESTS, it does not cancel', () => {
+  it('⚠ a second tap on the same kind REQUESTS, it does not cancel', () => {
     // The whole bug (#600). This used to route to clearAssist — the #523
     // toggle-off, written before counting existed and never revisited when
     // #591 added it. So the one gesture that should raise the count was the
     // one that destroyed the request, and the counter was unreachable from
     // the surface built for it.
-    expect(S.assistPressAction(mineSmoke, 'smoke', me, 'short')).toBe('request')
+    expect(S.assistPressAction(smokeWanted, 'smoke', 'short')).toBe('request')
   })
 
-  it('taps through to request for a different kind, a stranger\u2019s request, or nothing live', () => {
-    // One verb on purpose: the server already distinguishes increment from
-    // replace, and a second copy of that rule here could only disagree with it.
-    expect(S.assistPressAction(mineSmoke, 'tear', me, 'short')).toBe('request')
-    expect(S.assistPressAction({ kind: 'smoke', by: 4242 }, 'smoke', me, 'short')).toBe('request')
-    expect(S.assistPressAction(null, 'smoke', me, 'short')).toBe('request')
+  it('taps through to request for a different kind, or nothing live', () => {
+    // One verb on purpose: the server already decides what a press means, and
+    // a second copy of that rule here could only disagree with it.
+    expect(S.assistPressAction(smokeWanted, 'tear', 'short')).toBe('request')
+    expect(S.assistPressAction(null, 'smoke', 'short')).toBe('request')
   })
 
-  it('holding your own kind takes one back', () => {
-    expect(S.assistPressAction(mineSmoke, 'smoke', me, 'long')).toBe('decrement')
+  it('holding a kind that is wanted takes one back', () => {
+    expect(S.assistPressAction(smokeWanted, 'smoke', 'long')).toBe('decrement')
   })
 
-  it('⚠ holding does nothing when there is nothing of yours to take back', () => {
+  it('⚠ holding does nothing when that kind is not wanted', () => {
     // "If it's already at 0 it does nothing" — a hold is fat-fingerable, and
     // the alternative is an error the overlay would have to render mid-fight.
-    expect(S.assistPressAction(null, 'smoke', me, 'long')).toBe('noop')
-    expect(S.assistPressAction(mineSmoke, 'tear', me, 'long')).toBe('noop')
+    expect(S.assistPressAction(null, 'smoke', 'long')).toBe('noop')
+    expect(S.assistPressAction(smokeWanted, 'tear', 'long')).toBe('noop')
+    expect(S.assistPressAction(countsRow({ smoke_wanted: 0 }), 'smoke', 'long')).toBe('noop')
   })
 
-  it('⚠ never lets a hold shave a count off someone else\u2019s request', () => {
-    expect(S.assistPressAction({ kind: 'smoke', by: 4242 }, 'smoke', me, 'long')).toBe('noop')
-  })
-
-  it('compares ids loosely, because the session carries a string and rows carry numbers', () => {
-    expect(S.assistPressAction({ kind: 'smoke', by: 9001 }, 'smoke', 9001, 'long')).toBe('decrement')
-    expect(S.assistPressAction({ kind: 'smoke', by: '9001' }, 'smoke', me, 'long')).toBe('decrement')
+  it('⚠ #617: a hold no longer needs to be YOUR request', () => {
+    // Inverts #600's "never lets a hold shave a count off someone else's
+    // request". There is no owner any more: MonChoon's call was that anyone
+    // may take one back, because a dib expires while a long fight runs on and
+    // whoever is actually in it is best placed to say "we're fine now".
+    expect(S.assistPressAction(smokeWanted, 'smoke', 'long')).toBe('decrement')
   })
 
   it('holds for long enough to be deliberate but not long enough to feel stuck', () => {
@@ -3885,82 +3894,59 @@ describe('gmGet/gmSet', () => {
   })
 })
 
+// ⚠️ #617 removed the per-requester contention this block was mostly about:
+// "newest wins the slot", "a losing requester's tombstone must not blank a
+// live winner". Those cannot happen with one row per target, so the tests are
+// gone rather than ported. What survives is the shape of the index itself.
 describe('indexAssists', () => {
+  const row = (over = {}) => ({
+    target_id: 90200, help_wanted: 0, smoke_wanted: 0, tear_wanted: 0,
+    help_raised_at: null, smoke_raised_at: null, tear_raised_at: null, ...over,
+  })
+
   it('indexes a live row, keyed by target', () => {
     const { S } = loadScript()
-    const idx = S.indexAssists([
-      { target_id: 90200, requester_id: 1300, requester_name: 'Scout', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
-    ], new Map())
-    // `id` joined the entry in #603 — it is how an UPDATE to this same request
-    // is recognised on the next delta instead of being discarded as stale.
-    expect(idx.get(90200)).toEqual({
-      id: null, kind: 'smoke', by: 1300, name: 'Scout', at: '2026-08-21T10:00:00Z', wanted: 1,
-    })
+    const idx = S.indexAssists([row({ smoke_wanted: 1, smoke_raised_at: '2026-08-21T10:00:00Z' })], new Map())
+    expect(idx.get(90200)).toMatchObject({ target_id: 90200, smoke_wanted: 1 })
   })
 
-  // #591: a request is a count. The index has to carry it or the badge and the
-  // overlay pip have nothing to render from.
   it('carries the count through', () => {
     const { S } = loadScript()
-    const idx = S.indexAssists([
-      { target_id: 90201, requester_id: 1300, requester_name: 'Scout', kind: 'smoke', created_at: '2026-08-21T10:00:00Z', wanted: 4 },
-    ], new Map())
-    expect(idx.get(90201).wanted).toBe(4)
+    const idx = S.indexAssists([row({ target_id: 90201, smoke_wanted: 4 })], new Map())
+    expect(idx.get(90201).smoke_wanted).toBe(4)
   })
 
-  it('⚠️ floors an absent or unusable count at ONE, never zero — a row from before the column existed would otherwise render "×0", which reads as "nobody is asking", the opposite of what a live row means', () => {
+  it('⚠️ #617: an absent or unusable count reads as ZERO, not as one', () => {
+    // Inverts #591's floor-at-one. That rule existed because the ROW was the
+    // request, so a row with no readable count still meant somebody was
+    // asking. Now the COUNT is the request: rounding garbage up to 1 would
+    // invent a request nobody made.
     const { S } = loadScript()
     for (const bad of [undefined, null, 0, -3, 'x']) {
-      expect(S.assistCount(bad), String(bad)).toBe(1)
+      expect(S.assistCount(bad), String(bad)).toBe(0)
     }
     expect(S.assistCount(4)).toBe(4)
   })
 
   it('the badge only shows a multiple when there is one', () => {
     const { S } = loadScript()
-    const one = S.badgeState(null, { by: 7, name: 'A', kind: 'smoke', wanted: 1 }, 1, 9)
-    expect(one.label).toBe('Smoke')
-    const three = S.badgeState(null, { by: 7, name: 'A', kind: 'smoke', wanted: 3 }, 1, 9)
+    expect(S.badgeState(null, row({ smoke_wanted: 1 }), 1, 9).label).toBe('Smoke')
+    const three = S.badgeState(null, row({ smoke_wanted: 3 }), 1, 9)
     expect(three.label).toBe('Smoke \u00D73')
-    expect(three.title).toMatch(/3 still needed/)
+    expect(three.title).toMatch(/Smoke \u00D73/)
   })
 
-  it('a tombstone for the currently-shown requester clears the target', () => {
+  it('a zeroed row clears the target', () => {
     const { S } = loadScript()
     const idx = new Map()
-    S.indexAssists([{ target_id: 1, requester_id: 999, requester_name: 'A', kind: 'help', created_at: '2026-08-21T10:00:00Z' }], idx)
-    S.indexAssists([{ target_id: 1, requester_id: 999, deleted_at: '2026-08-21T10:01:00Z' }], idx)
+    S.indexAssists([row({ target_id: 1, help_wanted: 1 })], idx)
+    S.indexAssists([row({ target_id: 1, help_wanted: 0 })], idx)
     expect(idx.has(1)).toBe(false)
-  })
-
-  it('⚠️ a tombstone for a DIFFERENT (losing) requester does not clear a still-live winner', () => {
-    const { S } = loadScript()
-    const idx = new Map()
-    S.indexAssists([
-      { target_id: 1, requester_id: 111, requester_name: 'Old', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
-      { target_id: 1, requester_id: 222, requester_name: 'New', kind: 'help', created_at: '2026-08-21T10:05:00Z' },
-    ], idx)
-    // Newest wins the slot — 222 ("New").
-    expect(idx.get(1)).toMatchObject({ by: 222, name: 'New' })
-    // 111's tombstone (arriving late) must not blank the target: it is not
-    // the row currently shown.
-    S.indexAssists([{ target_id: 1, requester_id: 111, deleted_at: '2026-08-21T10:06:00Z' }], idx)
-    expect(idx.get(1)).toMatchObject({ by: 222, name: 'New' })
-  })
-
-  it('the newest live request wins the slot regardless of arrival order', () => {
-    const { S } = loadScript()
-    const idx = new Map()
-    S.indexAssists([
-      { target_id: 1, requester_id: 222, requester_name: 'New', kind: 'help', created_at: '2026-08-21T10:05:00Z' },
-      { target_id: 1, requester_id: 111, requester_name: 'Old', kind: 'smoke', created_at: '2026-08-21T10:00:00Z' },
-    ], idx)
-    expect(idx.get(1)).toMatchObject({ by: 222, name: 'New' })
   })
 
   it('ignores a row with no usable target id', () => {
     const { S } = loadScript()
-    const idx = S.indexAssists([{ target_id: 0, requester_id: 1, kind: 'help' }], new Map())
+    const idx = S.indexAssists([row({ target_id: 0, help_wanted: 1 })], new Map())
     expect(idx.size).toBe(0)
   })
 })
@@ -4145,6 +4131,15 @@ describe('enemy loadout capture (#528 Part 2)', () => {
 
 describe('badgeState', () => {
   const ME = '2250591'
+  /** A #617 per-target counts row, stamped now for whatever is wanted. */
+  const assistRow = (over = {}) => ({
+    target_id: 1, help_wanted: 0, smoke_wanted: 0, tear_wanted: 0,
+    help_raised_at: null, smoke_raised_at: null, tear_raised_at: null,
+    ...over,
+    ...Object.fromEntries(Object.keys(over)
+      .filter(k => k.endsWith('_wanted'))
+      .map(k => [k.replace('_wanted', '_raised_at'), new Date().toISOString()])),
+  })
 
   it('falls through to buttonState with no active assist', () => {
     const { S } = loadScript()
@@ -4155,21 +4150,29 @@ describe('badgeState', () => {
   it('⚠️ an active assist morphs the SAME badge — dibs underneath is untouched but hidden', () => {
     const { S } = loadScript()
     const dib = { by: 999, name: 'Thug' } // dibbed too — must not show through
-    const assist = { kind: 'smoke', by: 1300, name: 'Scout', at: new Date().toISOString() }
-    const st = S.badgeState(dib, assist, 90200, ME)
+    const st = S.badgeState(dib, assistRow({ smoke_wanted: 1 }), 90200, ME)
     expect(st.mode).toBe('assist')
     expect(st.label).toBe('Smoke')
     expect(st.icon).toBe('cloud-fog')
     expect(st.href).toBe('https://www.torn.com/page.php?sid=attack&user2ID=90200')
     expect(st.title).toContain('Smoke')
-    expect(st.title).toContain('Scout')
   })
 
-  it('reads "you" when the current user is the requester', () => {
+  it('⚠️ #617: names nobody, because a count is everyone who asked', () => {
+    // Replaces 'reads "you" when the current user is the requester'. The row
+    // carries no requester now: a count is a sum, so there is no one person to
+    // name, and picking one would print an arbitrary choice as fact.
     const { S } = loadScript()
-    const st = S.badgeState(null, { kind: 'help', by: ME, name: 'You', at: new Date().toISOString() }, 5, ME)
-    expect(st.mine).toBe(true)
-    expect(st.title).toContain('you')
+    const st = S.badgeState(null, assistRow({ help_wanted: 2 }), 5, ME)
+    expect(st.mine).toBe(false)
+    expect(st.title).not.toMatch(/\byou\b|requested by/)
+  })
+
+  it('⚠️ #617: shows the most urgent kind, and the rest in the title', () => {
+    const { S } = loadScript()
+    const st = S.badgeState(null, assistRow({ smoke_wanted: 3, help_wanted: 1 }), 1, ME)
+    expect(st.label).toBe('Help')
+    expect(st.title).toContain('Smoke \u00D73')
   })
 
   it('reverts to the normal dibs control once the assist clears', () => {
@@ -4181,10 +4184,9 @@ describe('badgeState', () => {
 
   it('shows each kind with its own Lucide icon name — matching the dashboard, not an emoji', () => {
     const { S } = loadScript()
-    const at = new Date().toISOString()
-    expect(S.badgeState(null, { kind: 'smoke', by: 1, at }, 1, ME).icon).toBe('cloud-fog')
-    expect(S.badgeState(null, { kind: 'tear', by: 1, at }, 1, ME).icon).toBe('droplet')
-    expect(S.badgeState(null, { kind: 'help', by: 1, at }, 1, ME).icon).toBe('life-buoy')
+    expect(S.badgeState(null, assistRow({ smoke_wanted: 1 }), 1, ME).icon).toBe('cloud-fog')
+    expect(S.badgeState(null, assistRow({ tear_wanted: 1 }), 1, ME).icon).toBe('droplet')
+    expect(S.badgeState(null, assistRow({ help_wanted: 1 }), 1, ME).icon).toBe('life-buoy')
   })
 })
 
@@ -4262,27 +4264,44 @@ describe('paintSignature carries the assist mode/title', () => {
 
 describe('requestAssist / clearAssist', () => {
   const session = { host: 'forge.monchoon.me', token: 'jwt', userId: '2250591', factionId: '10739' }
+  const liveSmokeRow = () => ({
+    target_id: 90200, help_wanted: 0, smoke_wanted: 1, tear_wanted: 0,
+    help_raised_at: null, smoke_raised_at: new Date().toISOString(), tear_raised_at: null,
+  })
 
   it('⚠️ shows the request as active the moment the POST succeeds (same optimistic-paint contract as claim)', async () => {
-    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 200, body: {} } } })
+    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 200, body: { wanted: 2 } } } })
     S.setSession({ ...session })
 
     const res = await S.requestAssist(90200, 'smoke')
 
     expect(res.ok).toBe(true)
-    const entry = S.assistsIndex().get(90200)
-    expect(entry).toMatchObject({ kind: 'smoke', by: session.userId })
+    // The SERVER's count, not a guess — someone else may already have asked.
+    expect(S.assistsIndex().get(90200)).toMatchObject({ smoke_wanted: 2 })
   })
 
-  it('mirrors the one-live-assist-per-requester rule locally, so a switch does not show two', async () => {
-    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 200, body: {} } } })
+  it('⚠️ #617: a request on one target leaves another target\u2019s alone', async () => {
+    // Inverts "mirrors the one-live-assist-per-requester rule locally". That
+    // local sweep mirrored a SERVER rule #617 deleted, so keeping it would
+    // blank badges the server still considers live.
+    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 200, body: { wanted: 1 } } } })
     S.setSession({ ...session })
 
     await S.requestAssist(111, 'smoke')
     await S.requestAssist(222, 'help')
 
-    expect(S.assistsIndex().has(111)).toBe(false)
-    expect(S.assistsIndex().get(222)).toMatchObject({ kind: 'help' })
+    expect(S.assistsIndex().get(111)).toMatchObject({ smoke_wanted: 1 })
+    expect(S.assistsIndex().get(222)).toMatchObject({ help_wanted: 1 })
+  })
+
+  it('⚠️ #617: asking for a second KIND on one target keeps the first', async () => {
+    const { S } = loadScript({ routes: { '/api/war-room/assist': { status: 200, body: { wanted: 1 } } } })
+    S.setSession({ ...session })
+
+    await S.requestAssist(333, 'smoke')
+    await S.requestAssist(333, 'tear')
+
+    expect(S.assistsIndex().get(333)).toMatchObject({ smoke_wanted: 1, tear_wanted: 1 })
   })
 
   it('paints nothing when the server refuses the request', async () => {
@@ -4298,7 +4317,7 @@ describe('requestAssist / clearAssist', () => {
   it('clears the local index the moment a release succeeds', async () => {
     const { S } = loadScript({ routes: { '/api/war-room/assist/': { status: 200, body: {} } } })
     S.setSession({ ...session })
-    S.indexAssists([{ target_id: 90200, requester_id: 2250591, requester_name: 'You', kind: 'smoke', created_at: new Date().toISOString() }], S.assistsIndex())
+    S.indexAssists([liveSmokeRow()], S.assistsIndex())
 
     const res = await S.clearAssist(90200)
 
@@ -4306,10 +4325,54 @@ describe('requestAssist / clearAssist', () => {
     expect(S.assistsIndex().has(90200)).toBe(false)
   })
 
+  // #617 made `kind` required on this route and widened who may press it.
+  // Neither is visible from the index alone, so both are asserted on the wire.
+  it('\u26A0\ufe0f #617: sends the KIND, which the server now demands', async () => {
+    const { S, calls } = loadScript({
+      routes: { '/api/war-room/assist/decrement': { status: 200, body: { wanted: 1, cleared: false } } },
+    })
+    S.setSession({ ...session })
+    S.indexAssists([{ ...liveSmokeRow(), smoke_wanted: 2 }], S.assistsIndex())
+
+    await S.decrementAssist(90200, 'smoke')
+
+    // `data`, not `body` — GM.xmlHttpRequest's field name, as above.
+    const sent = calls.find(c => String(c.url).includes('/assist/decrement'))
+    expect(JSON.parse(sent.data)).toMatchObject({ target_id: 90200, kind: 'smoke' })
+    expect(S.assistsIndex().get(90200).smoke_wanted).toBe(1)
+  })
+
+  it('\u26A0\ufe0f #617: `cleared` drops only that KIND, not the whole target', async () => {
+    // `cleared` means this kind reached zero. Deleting the target on it — what
+    // #600 did, when a row was one kind — would blank a badge that should have
+    // fallen back to the kind still wanted.
+    const { S } = loadScript({
+      routes: { '/api/war-room/assist/decrement': { status: 200, body: { wanted: 0, cleared: true } } },
+    })
+    S.setSession({ ...session })
+    S.indexAssists([{ ...liveSmokeRow(), help_wanted: 2, help_raised_at: new Date().toISOString() }], S.assistsIndex())
+
+    await S.decrementAssist(90200, 'smoke')
+
+    expect(S.assistsIndex().get(90200)).toMatchObject({ smoke_wanted: 0, help_wanted: 2 })
+  })
+
+  it('drops the target once the last kind is taken back', async () => {
+    const { S } = loadScript({
+      routes: { '/api/war-room/assist/decrement': { status: 200, body: { wanted: 0, cleared: true } } },
+    })
+    S.setSession({ ...session })
+    S.indexAssists([liveSmokeRow()], S.assistsIndex())
+
+    await S.decrementAssist(90200, 'smoke')
+
+    expect(S.assistsIndex().has(90200)).toBe(false)
+  })
+
   it('leaves a failed clear alone rather than dropping the badge', async () => {
     const { S } = loadScript({ routes: { '/api/war-room/assist/': { status: 500, body: {} } } })
     S.setSession({ ...session })
-    S.indexAssists([{ target_id: 90200, requester_id: 2250591, requester_name: 'You', kind: 'smoke', created_at: new Date().toISOString() }], S.assistsIndex())
+    S.indexAssists([liveSmokeRow()], S.assistsIndex())
 
     const res = await S.clearAssist(90200)
 

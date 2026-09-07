@@ -8,7 +8,7 @@
 // Connection: defaults to the local compose stack, reading deploy/.env for the
 // Postgres credentials. Standard PG* env vars override everything.
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs'
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -176,6 +176,13 @@ try {
 // 4. Deploy artifacts. The compose override is auto-loaded by
 // `docker compose up`, so a new faction needs no compose-file edits; the
 // nginx vhost is baked into the nginx image on its next build.
+// #632: derived from the fleet secret if the operator has set one. Empty when
+// they have not, which leaves the metrics endpoint unregistered on this tenant.
+const fleetMetricsSecret = process.env.FLEET_METRICS_SECRET ?? composeEnv.FLEET_METRICS_SECRET ?? ''
+const fleetMetricsToken = fleetMetricsSecret
+  ? createHmac('sha256', fleetMetricsSecret).update(slug).digest('hex')
+  : ''
+
 const OVERRIDE_HEADER = `# Per-faction API processes — managed by db/new-faction.mjs (slice #75).
 # Auto-loaded by \`docker compose up\` alongside docker-compose.yml.
 services:
@@ -210,6 +217,12 @@ const serviceBlock = `
       # it did before it existed — that optionality is the guarantee the whole
       # design rests on, so this must never become \`:?\` (required).
       GLOBAL_DATABASE_URL: \${GLOBAL_DATABASE_URL:-}
+      # ⚠️ THIS faction's own fleet-metrics token (#632), not the fleet secret.
+      # Putting FLEET_METRICS_SECRET in every tenant would mean a leak from any
+      # one faction reads every faction's metrics; the admin container holds the
+      # secret and derives what it needs. Regenerate with
+      # \`node db/fleet-metrics-token.mjs ${slug}\`.
+      FLEET_METRICS_TOKEN: ${fleetMetricsToken}
     depends_on:
       postgres:
         condition: service_healthy

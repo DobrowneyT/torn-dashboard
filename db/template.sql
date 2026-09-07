@@ -1940,3 +1940,29 @@ CREATE TABLE IF NOT EXISTS public.feature_flags (
   value      jsonb NOT NULL CHECK (jsonb_typeof(value) <> 'null'),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+
+-- #617: assist requests belong to the TARGET, not to whoever typed them.
+-- Counts per kind coexist -- a target can need a smoke AND a tear AND a body --
+-- and a second person raising a hand ADDS to the count rather than replacing
+-- the first request. See db/migrations/0059-assist-counts-on-target.sql.
+CREATE TABLE IF NOT EXISTS public.war_room_assist_counts_v2 (
+  target_id      bigint PRIMARY KEY,
+  war_id         bigint,
+  help_wanted    integer NOT NULL DEFAULT 0 CHECK (help_wanted  >= 0),
+  smoke_wanted   integer NOT NULL DEFAULT 0 CHECK (smoke_wanted >= 0),
+  tear_wanted    integer NOT NULL DEFAULT 0 CHECK (tear_wanted  >= 0),
+  -- ⚠️ Expiry is per KIND: a smoke asked for four minutes ago and a tear asked
+  -- for just now must not age out together.
+  help_raised_at  timestamp with time zone,
+  smoke_raised_at timestamp with time zone,
+  tear_raised_at  timestamp with time zone,
+  -- ⚠️ Never displayed. Kept only for the #591 rule that someone asking for
+  -- help cannot answer it by turning up themselves; with counts shared there is
+  -- no requester_id left to check against.
+  help_raised_by  bigint[] NOT NULL DEFAULT '{}',
+  updated_at     timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS war_room_assist_counts_v2_updated_at_idx
+  ON public.war_room_assist_counts_v2 (updated_at);

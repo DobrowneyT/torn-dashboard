@@ -32,7 +32,38 @@ cd /home/ubuntu/torn/torn-dashboard
 npx tsx db/admin-password.mts
 ```
 
-It prints four lines ready to paste into `deploy/.env`:
+It prints four lines ready to paste into `deploy/.env`, and draws the TOTP
+secret as a **scannable QR** — typing 32 base32 characters by hand is the step
+that made rotation something to avoid.
+
+⚠️ The QR is drawn locally, never through an image service. A
+`chart.googleapis.com`-style URL would send half the admin credential to a third
+party in a query string, where it would sit in their request logs — a strange
+thing to do while rotating a credential out of concern about exposure.
+
+### Rotating later
+
+```bash
+npx tsx db/admin-password.mts --rotate                  # new password AND new TOTP
+npx tsx db/admin-password.mts --rotate --password-only  # new password, SAME authenticator
+npx tsx db/admin-password.mts --rotate --rotate-session # also invalidate live sessions
+```
+
+`--rotate` rewrites `deploy/.env` **in place**: keys are replaced where they sit,
+comments and ordering survive, and every other value — including each faction's
+`DB_PASSWORD_*` — is untouched. It writes via a temp file and renames, because a
+half-written `deploy/.env` is not recoverable from git.
+
+⚠️ `--password-only` is the common case. A leaked password and a lost phone are
+different incidents; forcing both to rotate together means every password change
+costs re-enrolling the authenticator, which is the friction that stops people
+rotating at all.
+
+⚠️ `ADMIN_SESSION_SECRET` is **never** rotated as a side effect — that
+invalidates every live admin session, which is right when you mean it and
+baffling when you did not. `--rotate-session` asks for it explicitly.
+
+The four lines it prints without `--rotate`:
 
 ```
 ADMIN_USERNAME=...
