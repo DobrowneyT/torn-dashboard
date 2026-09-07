@@ -3,6 +3,7 @@
   "slug": "guardianangels",
   "parameterCount": 3,
   "isComplete": true,
+  "observedPaths": 231,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -174,6 +175,68 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A7S_",
+      "n": 3833,
+      "money": {
+        "min": 8101000,
+        "max": 9000000,
+        "avg": 8555822
+      },
+      "respect": {
+        "min": 93,
+        "max": 113,
+        "avg": 103
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 1633,
+      "money": {
+        "min": 6751000,
+        "max": 7650000,
+        "avg": 7202513
+      },
+      "respect": {
+        "min": 83,
+        "max": 102,
+        "avg": 93
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A9S_",
+      "n": 344,
+      "money": {
+        "min": 5851000,
+        "max": 6748000,
+        "avg": 6289878
+      },
+      "respect": {
+        "min": 74,
+        "max": 90,
+        "avg": 82
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B6S_",
+      "n": 1505,
+      "money": {
+        "min": 4501000,
+        "max": 5400000,
+        "avg": 4947132
+      },
+      "respect": {
+        "min": 65,
+        "max": 79,
+        "avg": 72
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.0047665602341873115,
     "roles": []
@@ -181,6 +244,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

@@ -3,6 +3,7 @@
   "slug": "counteroffer",
   "parameterCount": 5,
   "isComplete": true,
+  "observedPaths": 954,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -112,6 +113,383 @@
       "reward": null
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A4F_",
+      "n": 174,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Flexible Body Armor",
+          "occurrences": 156
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Liquid Body Armor",
+          "occurrences": 18
+        }
+      ]
+    },
+    {
+      "nodeId": "_A5F_",
+      "n": 36,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Flexible Body Armor",
+          "occurrences": 33
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Liquid Body Armor",
+          "occurrences": 3
+        }
+      ]
+    },
+    {
+      "nodeId": "_A5S_",
+      "n": 1595,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 123,
+        "max": 151,
+        "avg": 137
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Flexible Body Armor",
+          "occurrences": 1458
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "SIG 552",
+          "occurrences": 516
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Jackhammer",
+          "occurrences": 500
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "China Lake",
+          "occurrences": 295
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Stoner 96",
+          "occurrences": 284
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Liquid Body Armor",
+          "occurrences": 137
+        }
+      ]
+    },
+    {
+      "nodeId": "_A7S2_",
+      "n": 1549,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 135,
+        "max": 170,
+        "avg": 153
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Flexible Body Armor",
+          "occurrences": 1395
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "China Lake",
+          "occurrences": 486
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Stoner 96",
+          "occurrences": 429
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "SIG 552",
+          "occurrences": 327
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Jackhammer",
+          "occurrences": 307
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Liquid Body Armor",
+          "occurrences": 154
+        }
+      ]
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 5227,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 154,
+        "max": 189,
+        "avg": 171
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Flexible Body Armor",
+          "occurrences": 4772
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "China Lake",
+          "occurrences": 1591
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Stoner 96",
+          "occurrences": 1553
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "SMAW Launcher",
+          "occurrences": 1305
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Negev NG-5",
+          "occurrences": 1078
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Jackhammer",
+          "occurrences": 1048
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Milkor MGL",
+          "occurrences": 1036
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "SIG 552",
+          "occurrences": 1035
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "PKM",
+          "occurrences": 1017
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Type 98 Anti Tank",
+          "occurrences": 791
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Liquid Body Armor",
+          "occurrences": 455
+        }
+      ]
+    },
+    {
+      "nodeId": "_B5S_",
+      "n": 386,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 108,
+        "max": 132,
+        "avg": 120
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Stoner 96",
+          "occurrences": 227
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Jackhammer",
+          "occurrences": 201
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "SIG 552",
+          "occurrences": 173
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "China Lake",
+          "occurrences": 171
+        }
+      ]
+    }
+  ],
   "roleFidelity": {
     "error": 0.009803957922752682,
     "roles": []
@@ -119,6 +497,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

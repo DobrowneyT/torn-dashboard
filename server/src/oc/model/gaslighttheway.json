@@ -3,6 +3,7 @@
   "slug": "gaslighttheway",
   "parameterCount": 6,
   "isComplete": true,
+  "observedPaths": 281,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -150,6 +151,268 @@
       "reward": null
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A7S2_",
+      "n": 840,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 99,
+        "max": 120,
+        "avg": 110
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 14,
+            "max": 15,
+            "min": 14
+          },
+          "name": "Pixie Sticks",
+          "occurrences": 840
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 2,
+            "min": 1
+          },
+          "name": "Bottle of Moonshine",
+          "occurrences": 840
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Can of Crocozade",
+          "occurrences": 480
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Can of Damp Valley",
+          "occurrences": 282
+        },
+        {
+          "qty": {
+            "avg": 3,
+            "max": 3,
+            "min": 3
+          },
+          "name": "Can of Goose Juice",
+          "occurrences": 42
+        }
+      ]
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 4300,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 110,
+        "max": 134,
+        "avg": 122
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 14,
+            "max": 15,
+            "min": 14
+          },
+          "name": "Pixie Sticks",
+          "occurrences": 4300
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 2,
+            "min": 1
+          },
+          "name": "Bottle of Moonshine",
+          "occurrences": 4300
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Can of Crocozade",
+          "occurrences": 2545
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Can of Damp Valley",
+          "occurrences": 1432
+        },
+        {
+          "qty": {
+            "avg": 3,
+            "max": 3,
+            "min": 3
+          },
+          "name": "Can of Goose Juice",
+          "occurrences": 195
+        }
+      ]
+    },
+    {
+      "nodeId": "_B7S2_",
+      "n": 205,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 77,
+        "max": 94,
+        "avg": 86
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 14,
+            "max": 15,
+            "min": 14
+          },
+          "name": "Pixie Sticks",
+          "occurrences": 205
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Can of Crocozade",
+          "occurrences": 108
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Can of Damp Valley",
+          "occurrences": 71
+        },
+        {
+          "qty": {
+            "avg": 3,
+            "max": 3,
+            "min": 3
+          },
+          "name": "Can of Goose Juice",
+          "occurrences": 13
+        }
+      ]
+    },
+    {
+      "nodeId": "_B7S_",
+      "n": 936,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 88,
+        "max": 107,
+        "avg": 98
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 14,
+            "max": 15,
+            "min": 14
+          },
+          "name": "Pixie Sticks",
+          "occurrences": 936
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Can of Crocozade",
+          "occurrences": 483
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Can of Damp Valley",
+          "occurrences": 343
+        },
+        {
+          "qty": {
+            "avg": 3,
+            "max": 3,
+            "min": 3
+          },
+          "name": "Can of Goose Juice",
+          "occurrences": 73
+        }
+      ]
+    },
+    {
+      "nodeId": "_B9S_",
+      "n": 834,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 66,
+        "max": 80,
+        "avg": 73
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 4,
+            "max": 4,
+            "min": 4
+          },
+          "name": "Can of Crocozade",
+          "occurrences": 425
+        },
+        {
+          "qty": {
+            "avg": 6,
+            "max": 6,
+            "min": 6
+          },
+          "name": "Can of Damp Valley",
+          "occurrences": 409
+        }
+      ]
+    }
+  ],
   "roleFidelity": {
     "error": 0.000008392412500057844,
     "roles": []
@@ -157,6 +420,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

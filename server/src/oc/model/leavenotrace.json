@@ -3,6 +3,7 @@
   "slug": "leavenotrace",
   "parameterCount": 3,
   "isComplete": true,
+  "observedPaths": 174,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -168,6 +169,98 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A6S_",
+      "n": 98,
+      "money": {
+        "min": 15665000,
+        "max": 17802000,
+        "avg": 16688388
+      },
+      "respect": {
+        "min": 72,
+        "max": 88,
+        "avg": 80
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S2_",
+      "n": 774,
+      "money": {
+        "min": 22141000,
+        "max": 24299000,
+        "avg": 23231009
+      },
+      "respect": {
+        "min": 108,
+        "max": 132,
+        "avg": 119
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 2310,
+      "money": {
+        "min": 24303000,
+        "max": 26999000,
+        "avg": 25681648
+      },
+      "respect": {
+        "min": 120,
+        "max": 147,
+        "avg": 134
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S1_",
+      "n": 1525,
+      "money": {
+        "min": 19981000,
+        "max": 22140000,
+        "avg": 21058751
+      },
+      "respect": {
+        "min": 96,
+        "max": 118,
+        "avg": 107
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S2_",
+      "n": 493,
+      "money": {
+        "min": 17834000,
+        "max": 19979000,
+        "avg": 18865621
+      },
+      "respect": {
+        "min": 84,
+        "max": 103,
+        "avg": 93
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B3S_",
+      "n": 247,
+      "money": {
+        "min": 13517000,
+        "max": 15660000,
+        "avg": 14648429
+      },
+      "respect": {
+        "min": 60,
+        "max": 74,
+        "avg": 67
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.000010274979443170018,
     "roles": []
@@ -175,6 +268,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

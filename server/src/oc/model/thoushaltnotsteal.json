@@ -3,6 +3,7 @@
   "slug": "thoushaltnotsteal",
   "parameterCount": 3,
   "isComplete": false,
+  "observedPaths": 169,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -114,6 +115,98 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A5S_",
+      "n": 249,
+      "money": {
+        "min": 962000,
+        "max": 1023000,
+        "avg": 1007000
+      },
+      "respect": {
+        "min": 29,
+        "max": 36,
+        "avg": 32
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A6S_",
+      "n": 75,
+      "money": {
+        "min": 1035000,
+        "max": 1088000,
+        "avg": 1072707
+      },
+      "respect": {
+        "min": 34,
+        "max": 41,
+        "avg": 38
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S2_",
+      "n": 207,
+      "money": {
+        "min": 1067000,
+        "max": 1154000,
+        "avg": 1126768
+      },
+      "respect": {
+        "min": 38,
+        "max": 46,
+        "avg": 42
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 1002,
+      "money": {
+        "min": 1275000,
+        "max": 1358000,
+        "avg": 1331125
+      },
+      "respect": {
+        "min": 42,
+        "max": 51,
+        "avg": 47
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B7S2_",
+      "n": 34,
+      "money": {
+        "min": 687000,
+        "max": 743000,
+        "avg": 728735
+      },
+      "respect": {
+        "min": 21,
+        "max": 26,
+        "avg": 24
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B7S_",
+      "n": 118,
+      "money": {
+        "min": 866000,
+        "max": 936000,
+        "avg": 910627
+      },
+      "respect": {
+        "min": 25,
+        "max": 31,
+        "avg": 28
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.480251469608029,
     "roles": [
@@ -125,6 +218,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

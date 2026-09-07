@@ -18,6 +18,51 @@ surface it automatically.
 
 ---
 
+## [3.94.0] - 2026-09-07
+
+### Removed
+
+- **`oc-scenarios-mirror` and its three per-tenant tables are gone (#606 slice
+  3).** Scenario structure is Torn game data — the flowchart for Crane Reaction
+  is identical for every faction and changes when Torn ships an update, perhaps
+  a few times a year. Mirroring it per tenant on a schedule spent API budget and
+  scraper slots on a constant, and let two tenants disagree about a fact that
+  cannot differ between them.
+
+  ⚠️ Worse, it ran only where somebody had enabled the job: on 2026-09-06
+  **three of five live tenants held zero scenarios** and their Simulator was
+  silently empty — an empty table looks exactly like a crime with no data.
+
+  Migration `0060` drops `oc_scenarios`, `oc_scenario_roles`,
+  `oc_scenario_endings` and `oc_scenario_node_stats`, after creating and
+  backfilling their replacement.
+
+### Changed
+
+- **The model now carries per-node money/respect/item aggregates and
+  `observed_paths`.** ⚠️ Both were global all along — the mirror wrote them
+  straight from tornprobability's feed — so dropping those tables without
+  carrying them first would have stripped the per-node payouts, E(x) and
+  success figures the Simulator renders, and an empty stats map looks exactly
+  like a node nobody has run. `observed_paths` in particular is how many paths
+  **tornprobability** observed, not us, despite an old comment in `oc.ts`
+  calling it ours.
+- **Our own probe measurements moved to `oc_scenario_quality`.** The four
+  `ending_map_*` columns are genuinely per-tenant — derived by the maintainer
+  probe sweep (#471/#473) against a tenant's own data — so they stay in the
+  tenant database, now in a table with no dependency on the dropped mirror.
+- **`fetched_at` is always null and stays in the response shape.** It meant
+  "when we last fetched from tornprobability"; with no fetcher there is no
+  honest value, and a build timestamp would assert a freshness the data does
+  not have.
+- A crime with no model — a newly released OC that neither tornprobability nor
+  Crimes Hub has mapped — simply does not appear in the Simulator. MonChoon's
+  call, 2026-09-07.
+
+⚠️ **Refreshing the model now requires the export to include `node_stats` and
+`observed_paths`.** An export without them builds a model that looks complete
+and shows no money. The runbook SQL is updated and says so.
+
 ## [3.93.0] - 2026-09-07
 
 ### Added

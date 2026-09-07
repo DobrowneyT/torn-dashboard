@@ -3,6 +3,7 @@
   "slug": "mobmentality",
   "parameterCount": 4,
   "isComplete": true,
+  "observedPaths": 152,
   "diagramValid": true,
   "diagramProblems": [
     "1 narrative node(s) that stop without reaching an ending: _A4F_Cont_"
@@ -106,6 +107,98 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A5F_",
+      "n": 1,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S2_",
+      "n": 2837,
+      "money": {
+        "min": 920000,
+        "max": 1325000,
+        "avg": 1043306
+      },
+      "respect": {
+        "min": 38,
+        "max": 51,
+        "avg": 44
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 8128,
+      "money": {
+        "min": 997000,
+        "max": 1440000,
+        "avg": 1157059
+      },
+      "respect": {
+        "min": 43,
+        "max": 53,
+        "avg": 48
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B2S_",
+      "n": 1480,
+      "money": {
+        "min": 816000,
+        "max": 1195000,
+        "avg": 937141
+      },
+      "respect": {
+        "min": 34,
+        "max": 49,
+        "avg": 39
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B3S_",
+      "n": 303,
+      "money": {
+        "min": 736000,
+        "max": 1076000,
+        "avg": 831667
+      },
+      "respect": {
+        "min": 30,
+        "max": 45,
+        "avg": 34
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_D3S_",
+      "n": 282,
+      "money": {
+        "min": 512000,
+        "max": 966000,
+        "avg": 751184
+      },
+      "respect": {
+        "min": 26,
+        "max": 40,
+        "avg": 29
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.000008739666093826592,
     "roles": []
@@ -113,6 +206,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

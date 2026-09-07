@@ -3,6 +3,7 @@
   "slug": "lockstock",
   "parameterCount": 5,
   "isComplete": false,
+  "observedPaths": 180,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -133,6 +134,7 @@
       "reward": null
     }
   ],
+  "nodeStats": [],
   "roleFidelity": {
     "error": 0.318495487523574,
     "roles": [
@@ -143,6 +145,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": null,
+    "nodeStats": "tornprobability"
   }
 }

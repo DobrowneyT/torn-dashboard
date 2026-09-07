@@ -3,6 +3,7 @@
   "slug": "gonefission",
   "parameterCount": 5,
   "isComplete": false,
+  "observedPaths": 292,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -163,6 +164,7 @@
       }
     }
   ],
+  "nodeStats": [],
   "roleFidelity": {
     "error": 0.24493823473865128,
     "roles": [
@@ -174,6 +176,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

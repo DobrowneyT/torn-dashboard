@@ -52,10 +52,14 @@ const NEW_TABLES = [
   'member_faction_stints',
   // Observed OC occupancy + its poll heartbeat (#389)
   'crime_occupancy', 'crime_occupancy_polls',
-  // Mirrored OC probability model (#390)
-  'oc_scenarios', 'oc_scenario_roles', 'oc_scenario_endings',
-  // Observed money/respect per ending node (#440)
-  'oc_scenario_node_stats',
+  // ⚠️ The four mirrored OC tables (#390/#440) were DROPPED by migration 0060
+  // (#606 slice 3). Scenario structure, roles, endings and the per-node
+  // money/respect aggregates were all tornprobability's global data, so they
+  // ship in the image instead — where they cannot be present on one tenant and
+  // absent on another, which is exactly what happened: on 2026-09-06 three of
+  // five live tenants had never run the mirror job and their Simulator was
+  // silently empty. What remains per-tenant is our OWN probe measurements:
+  'oc_scenario_quality',
   // Per-member war notes (#199)
   'member_notes',
   // Web Push subscriptions (#207)
