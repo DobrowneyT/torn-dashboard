@@ -72,17 +72,41 @@ export interface OcModelRole {
   weight: number
 }
 
+/**
+ * Per-node aggregates from tornprobability's feed (#606 slice 3).
+ *
+ * ⚠️ GLOBAL figures, not any faction's own results — they moved here out of
+ * `oc_scenario_node_stats`, which `oc-scenarios-mirror` wrote straight from the
+ * upstream feed. A faction's own observations are layered over these at read
+ * time and live in its own container's database.
+ *
+ * ⚠️ `n` must reach the UI. An average from one run looks exactly like an
+ * average from six thousand, and the largest node in the live feed carries
+ * 20,129 observations.
+ */
+export interface OcModelNodeStat {
+  nodeId: string
+  n: number
+  money: { min: number | null; max: number | null; avg: number | null }
+  respect: { min: number | null; max: number | null; avg: number | null }
+  items: unknown[]
+}
+
 export interface OcScenarioModel {
   name: string
   slug: string
   parameterCount: number
   isComplete: boolean
+  /** Paths observed by tornprobability. Null where they have not mapped it. */
+  observedPaths: number | null
   diagramValid: boolean
   diagramProblems: unknown
   roles: OcModelRole[]
   endings: OcModelEnding[]
+  /** Empty for a scenario tornprobability has not mapped — absent, never zero. */
+  nodeStats: OcModelNodeStat[]
   roleFidelity: { error: number; roles: unknown } | null
-  sources: { structure: string; roles: string; rewards: RewardSource }
+  sources: { structure: string; roles: string; rewards: RewardSource; nodeStats?: string }
 }
 
 let cache: Map<string, OcScenarioModel> | null = null

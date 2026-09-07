@@ -3,6 +3,7 @@
   "slug": "firstaidandabet",
   "parameterCount": 3,
   "isComplete": true,
+  "observedPaths": 500,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -141,6 +142,268 @@
       "reward": null
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A7S2_",
+      "n": 325,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 29,
+        "max": 36,
+        "avg": 32
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 12,
+            "max": 26,
+            "min": 4
+          },
+          "name": "Morphine",
+          "occurrences": 325
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 1
+          },
+          "name": "Box of Medical Supplies",
+          "occurrences": 325
+        },
+        {
+          "qty": {
+            "avg": 4,
+            "max": 4,
+            "min": 3
+          },
+          "name": "First Aid Kit",
+          "occurrences": 310
+        },
+        {
+          "qty": {
+            "avg": 5,
+            "max": 5,
+            "min": 5
+          },
+          "name": "Small First Aid Kit",
+          "occurrences": 15
+        }
+      ]
+    },
+    {
+      "nodeId": "_A7S3_",
+      "n": 59,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 26,
+        "max": 32,
+        "avg": 29
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 18,
+            "max": 18,
+            "min": 16
+          },
+          "name": "Morphine",
+          "occurrences": 59
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Box of Medical Supplies",
+          "occurrences": 59
+        },
+        {
+          "qty": {
+            "avg": 4,
+            "max": 4,
+            "min": 3
+          },
+          "name": "First Aid Kit",
+          "occurrences": 55
+        },
+        {
+          "qty": {
+            "avg": 5,
+            "max": 5,
+            "min": 5
+          },
+          "name": "Small First Aid Kit",
+          "occurrences": 4
+        }
+      ]
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 1455,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 32,
+        "max": 40,
+        "avg": 36
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 13,
+            "max": 26,
+            "min": 4
+          },
+          "name": "Morphine",
+          "occurrences": 1455
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 1
+          },
+          "name": "Box of Medical Supplies",
+          "occurrences": 1455
+        },
+        {
+          "qty": {
+            "avg": 4,
+            "max": 4,
+            "min": 3
+          },
+          "name": "First Aid Kit",
+          "occurrences": 1377
+        },
+        {
+          "qty": {
+            "avg": 5,
+            "max": 5,
+            "min": 5
+          },
+          "name": "Small First Aid Kit",
+          "occurrences": 78
+        }
+      ]
+    },
+    {
+      "nodeId": "_B7S2_",
+      "n": 90,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 19,
+        "max": 24,
+        "avg": 22
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 9,
+            "max": 10,
+            "min": 4
+          },
+          "name": "Morphine",
+          "occurrences": 90
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Box of Medical Supplies",
+          "occurrences": 90
+        },
+        {
+          "qty": {
+            "avg": 4,
+            "max": 4,
+            "min": 3
+          },
+          "name": "First Aid Kit",
+          "occurrences": 70
+        },
+        {
+          "qty": {
+            "avg": 3,
+            "max": 5,
+            "min": 1
+          },
+          "name": "Small First Aid Kit",
+          "occurrences": 20
+        }
+      ]
+    },
+    {
+      "nodeId": "_B7S_",
+      "n": 402,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 23,
+        "max": 28,
+        "avg": 25
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 9,
+            "max": 10,
+            "min": 4
+          },
+          "name": "Morphine",
+          "occurrences": 402
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Box of Medical Supplies",
+          "occurrences": 402
+        },
+        {
+          "qty": {
+            "avg": 4,
+            "max": 4,
+            "min": 3
+          },
+          "name": "First Aid Kit",
+          "occurrences": 319
+        },
+        {
+          "qty": {
+            "avg": 3,
+            "max": 5,
+            "min": 1
+          },
+          "name": "Small First Aid Kit",
+          "occurrences": 83
+        }
+      ]
+    }
+  ],
   "roleFidelity": {
     "error": 0.4659450794499962,
     "roles": [
@@ -152,6 +415,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": null,
+    "nodeStats": "tornprobability"
   }
 }

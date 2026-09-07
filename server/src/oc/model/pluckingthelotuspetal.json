@@ -3,6 +3,7 @@
   "slug": "pluckingthelotuspetal",
   "parameterCount": 4,
   "isComplete": true,
+  "observedPaths": 668,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -89,6 +90,68 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A8S2_",
+      "n": 590,
+      "money": {
+        "min": 7576000,
+        "max": 8273000,
+        "avg": 8008005
+      },
+      "respect": {
+        "min": 85,
+        "max": 104,
+        "avg": 94
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 2192,
+      "money": {
+        "min": 8335000,
+        "max": 9291000,
+        "avg": 8997863
+      },
+      "respect": {
+        "min": 95,
+        "max": 116,
+        "avg": 105
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B8S_",
+      "n": 240,
+      "money": {
+        "min": 4746000,
+        "max": 6454000,
+        "avg": 5614825
+      },
+      "respect": {
+        "min": 76,
+        "max": 93,
+        "avg": 85
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_C6S_",
+      "n": 689,
+      "money": {
+        "min": 6470000,
+        "max": 7347000,
+        "avg": 7148460
+      },
+      "respect": {
+        "min": 66,
+        "max": 81,
+        "avg": 74
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.000009678972580862144,
     "roles": []
@@ -96,6 +159,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

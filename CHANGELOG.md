@@ -18,6 +18,129 @@ surface it automatically.
 
 ---
 
+## [3.94.0] - 2026-09-07
+
+### Removed
+
+- **`oc-scenarios-mirror` and its three per-tenant tables are gone (#606 slice
+  3).** Scenario structure is Torn game data — the flowchart for Crane Reaction
+  is identical for every faction and changes when Torn ships an update, perhaps
+  a few times a year. Mirroring it per tenant on a schedule spent API budget and
+  scraper slots on a constant, and let two tenants disagree about a fact that
+  cannot differ between them.
+
+  ⚠️ Worse, it ran only where somebody had enabled the job: on 2026-09-06
+  **three of five live tenants held zero scenarios** and their Simulator was
+  silently empty — an empty table looks exactly like a crime with no data.
+
+  Migration `0060` drops `oc_scenarios`, `oc_scenario_roles`,
+  `oc_scenario_endings` and `oc_scenario_node_stats`, after creating and
+  backfilling their replacement.
+
+### Changed
+
+- **The model now carries per-node money/respect/item aggregates and
+  `observed_paths`.** ⚠️ Both were global all along — the mirror wrote them
+  straight from tornprobability's feed — so dropping those tables without
+  carrying them first would have stripped the per-node payouts, E(x) and
+  success figures the Simulator renders, and an empty stats map looks exactly
+  like a node nobody has run. `observed_paths` in particular is how many paths
+  **tornprobability** observed, not us, despite an old comment in `oc.ts`
+  calling it ours.
+- **Our own probe measurements moved to `oc_scenario_quality`.** The four
+  `ending_map_*` columns are genuinely per-tenant — derived by the maintainer
+  probe sweep (#471/#473) against a tenant's own data — so they stay in the
+  tenant database, now in a table with no dependency on the dropped mirror.
+- **`fetched_at` is always null and stays in the response shape.** It meant
+  "when we last fetched from tornprobability"; with no fetcher there is no
+  honest value, and a build timestamp would assert a freshness the data does
+  not have.
+- A crime with no model — a newly released OC that neither tornprobability nor
+  Crimes Hub has mapped — simply does not appear in the Simulator. MonChoon's
+  call, 2026-09-07.
+
+⚠️ **Refreshing the model now requires the export to include `node_stats` and
+`observed_paths`.** An export without them builds a model that looks complete
+and shows no money. The runbook SQL is updated and says so.
+
+## [3.93.0] - 2026-09-07
+
+### Added
+
+- **Loadout capture now records weapon specials, item quality and needle
+  sightings (#616).** Userscript `@version` 1.50.0.
+
+  - **Specials and attachments.** Read from `data-bonus-attachment-title` /
+    `-description` — Torn's own words — never from the class, which carries a
+    slug that would need a lookup table for every bonus in the game.
+    ⚠️ `blank-bonus-25` is an EMPTY bonus slot with a blank title; Torn draws
+    four per weapon as padding, so counting them would give every weapon —
+    including Fists — four phantom specials. Skipped at capture and refused by
+    the validator.
+  - **Quality.** ⚠️ Rarity is Torn's own glow, not item circulation. An earlier
+    analysis proposed `circulation < 5000`, which measures how many exist and
+    tracks quality only by accident. Matched by PREFIX (`glow-yellow___B37GS`
+    carries a CSS-module hash that changes on Torn's next rebuild; pinning it
+    would silently report every rare weapon as ordinary).
+    ⚠️ One capture showed a weapon carrying both `glow-yellow` and a separate
+    `orange` token. That is probably the real tier, but it rests on a single
+    sample — so both are stored as observed and **neither is interpreted**.
+  - **Needles.** ⚠️ Recorded as "seen using needles", not as live state.
+    Fighters roll them — inject, fight, switch, inject — so the temp slot shows
+    only whichever was loaded at that instant. Absence is explicitly not
+    evidence: a miss means "not caught mid-injection", never "does not use
+    needles", and the UI renders no negative from it.
+  - **Display: notable weapons first, ordinary ones kept.** Sorted, never
+    filtered — a hard filter would make "genuinely unarmoured" and "not
+    captured yet" look identical to a lead.
+  - **Armour is listed in full**, unchanged. Torn paints no quality on it and
+    exposes no bonuses for it, so there is nothing to rank on; a rare-armour
+    list is a later hard-coded follow-up.
+
+  All fields are best-effort, the same rule #528 set for `item_id`: a weapon
+  with no bonuses is ordinary, not broken, and a capture is never rejected for
+  lacking them.
+
+## [3.92.0] - 2026-09-07
+
+### Changed
+
+- **Payout time now comes from the crime-occupancy poller whenever it ran at
+  all, instead of being discarded over jitter (#665).** The gate was "was this
+  window perfectly watched"; it is now "did we watch at all".
+
+  ⚠️ Measured over 30 days of production: forge and tnl each poll ~1435 of 1440
+  minutes a day — **99.97% coverage** — and each still accumulate **four** gaps
+  over the 180s tolerance, the worst 240s, totalling about 13 minutes. Since
+  roughly one lands per week, a week-long payout window almost always contained
+  one and almost always fell back to the legacy `crime_slots` calculation. That
+  fallback is structurally lossy: the table is snapshot-keyed, so a seat change
+  or a leave-and-rejoin silently overwrites `joined_at` and the earlier stint is
+  gone. Thirteen minutes of jitter was throwing away a month of minute-accurate
+  data in favour of a source that loses whole stints.
+
+  Ambiguous gaps are credited rather than reconciled. With a worst gap of 240s
+  the error is bounded at about four minutes; the fallback's error is unbounded.
+
+- **Gaps of an hour or more are surfaced in the Occupancy panel**, separately
+  from ordinary jitter. ⚠️ An hour unwatched can hide an entire stint from start
+  to finish — someone joined and left inside it and left no trace — so the
+  resulting payout is wrong in a way nobody can see from the number. Short gaps
+  cost a few minutes of one member's credit and stay silent.
+
+### Fixed
+
+- The Occupancy panel claimed a window was "fully watched" whenever occupancy
+  drove the payout. Since those are no longer the same statement, it now says
+  what it actually knows.
+
+⚠️ **Saved payout history is unaffected.** `oc_payout_weeks` / `oc_payout_members`
+store computed results and are read back verbatim, so every already-saved week
+displays exactly what it displayed before. The no-polls fallback is retained for
+one reason: occupancy data begins 2026-08-13 and **22 of forge's 25 saved weeks
+predate it**, so a pure-occupancy rule would credit those windows zero and a
+re-save would overwrite a real historical payout with zeros.
+
 ## [3.91.2] - 2026-09-07
 
 ⚠️ 3.91.1 was cut from `main` as a hotfix (the userscript `@version` bump for

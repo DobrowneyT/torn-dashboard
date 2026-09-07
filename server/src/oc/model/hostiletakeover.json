@@ -3,6 +3,7 @@
   "slug": "hostiletakeover",
   "parameterCount": 6,
   "isComplete": true,
+  "observedPaths": 187,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -165,6 +166,83 @@
       "reward": null
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A8S2_",
+      "n": 38,
+      "money": {
+        "min": 625888000,
+        "max": 871850000,
+        "avg": 817745368
+      },
+      "respect": {
+        "min": 854,
+        "max": 1041,
+        "avg": 959
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S3_",
+      "n": 14,
+      "money": {
+        "min": 618538000,
+        "max": 871850000,
+        "avg": 828069071
+      },
+      "respect": {
+        "min": 765,
+        "max": 927,
+        "avg": 845
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 116,
+      "money": {
+        "min": 615563000,
+        "max": 874038000,
+        "avg": 802941802
+      },
+      "respect": {
+        "min": 951,
+        "max": 1158,
+        "avg": 1048
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B8S2_",
+      "n": 25,
+      "money": {
+        "min": 495688000,
+        "max": 608475000,
+        "avg": 572365880
+      },
+      "respect": {
+        "min": 569,
+        "max": 690,
+        "avg": 626
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B8S_",
+      "n": 106,
+      "money": {
+        "min": 482038000,
+        "max": 612500000,
+        "avg": 572096774
+      },
+      "respect": {
+        "min": 664,
+        "max": 812,
+        "avg": 738
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.000014552362290087828,
     "roles": []
@@ -172,6 +250,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": null,
+    "nodeStats": "tornprobability"
   }
 }

@@ -58,6 +58,8 @@ export default function OccupancyPanel({ results }) {
   const [open, setOpen] = useState(false)
 
   const coverage = coverageVerdict(results?.occupancyCoverage, results?.windowStart, results?.windowEnd)
+  // Absent on an older saved result, so default to none rather than throwing.
+  const significantGaps = results?.occupancyCoverage?.significantGaps ?? []
   // No coverage object at all: a payout saved before this existed. It makes no
   // claim about occupancy, so the panel makes none either.
   if (coverage.state === 'unavailable') return null
@@ -87,16 +89,49 @@ export default function OccupancyPanel({ results }) {
 
       {open && (
         <div className="mt-4 space-y-4 text-sm">
+          {/* ⚠️ #665: "using occupancy" and "fully watched" are no longer the
+              same statement, and this copy used to conflate them. Occupancy now
+              drives the payout whenever the poller ran at all; short gaps are
+              credited rather than discarded. Saying "fully watched" over a
+              window with a gap would be the page asserting something it has not
+              checked. */}
           {results?.timeSource === 'occupancy' ? (
             <p className="text-xs text-green-700 dark:text-green-400">
-              This window was fully watched — tickets and payout share on this page are computed
-              from these observed figures, not the legacy crime_slots calculation below.
+              Tickets and payout share on this page are computed from these observed figures,
+              not the legacy crime_slots calculation below.
             </p>
           ) : (
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              This window has a coverage gap (or predates the poller), so payouts on this page fell
+              The poller did not run at any point in this window, so payouts on this page fell
               back to the legacy crime_slots calculation. These numbers are shown for comparison only.
             </p>
+          )}
+
+          {/* ⚠️ An hour or more unwatched can hide an entire stint from start to
+              finish — someone joined and left inside it and we have no trace.
+              Short gaps cost a few minutes of one member's credit and are
+              absorbed silently; these are not, because the resulting payout is
+              wrong in a way nobody can see from the number alone. */}
+          {significantGaps.length > 0 && (
+            <div className="rounded border border-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2">
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                {significantGaps.length === 1
+                  ? 'A significant stretch of this window went unwatched'
+                  : `${significantGaps.length} significant stretches of this window went unwatched`}
+              </p>
+              <ul className="mt-1 space-y-0.5 text-xs text-amber-700 dark:text-amber-400 tabular-nums">
+                {significantGaps.map(([a, b]) => (
+                  <li key={`${a}-${b}`}>
+                    {formatDuration(b - a)} — {new Date(a * 1000).toLocaleString()} to{' '}
+                    {new Date(b * 1000).toLocaleString()}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                Anyone who joined and left entirely within a gap is invisible to this calculation
+                and has been credited nothing for it.
+              </p>
+            </div>
           )}
 
           {/* Coverage */}

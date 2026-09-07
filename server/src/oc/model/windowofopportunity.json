@@ -3,6 +3,7 @@
   "slug": "windowofopportunity",
   "parameterCount": 5,
   "isComplete": true,
+  "observedPaths": 774,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -124,6 +125,284 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A8S2_",
+      "n": 781,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 235,
+        "max": 287,
+        "avg": 261
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Priceless Painting",
+          "occurrences": 781
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Shabti Sculpture",
+          "occurrences": 336
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Ganesha Sculpture",
+          "occurrences": 286
+        },
+        {
+          "qty": {
+            "avg": 3,
+            "max": 3,
+            "min": 3
+          },
+          "name": "Vairocana Buddha Sculpture",
+          "occurrences": 159
+        }
+      ]
+    },
+    {
+      "nodeId": "_A8S3_",
+      "n": 173,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 209,
+        "max": 255,
+        "avg": 233
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Priceless Painting",
+          "occurrences": 173
+        }
+      ]
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 3930,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 261,
+        "max": 319,
+        "avg": 290
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Priceless Painting",
+          "occurrences": 3930
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Shabti Sculpture",
+          "occurrences": 1638
+        },
+        {
+          "qty": {
+            "avg": 3,
+            "max": 3,
+            "min": 3
+          },
+          "name": "Ganesha Sculpture",
+          "occurrences": 1406
+        },
+        {
+          "qty": {
+            "avg": 8,
+            "max": 8,
+            "min": 8
+          },
+          "name": "Vairocana Buddha Sculpture",
+          "occurrences": 886
+        }
+      ]
+    },
+    {
+      "nodeId": "_B8S2_",
+      "n": 139,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 130,
+        "max": 159,
+        "avg": 145
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 4,
+            "max": 4,
+            "min": 4
+          },
+          "name": "Medieval Helmet",
+          "occurrences": 88
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Companion Script : Ubay",
+          "occurrences": 60
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Companion Script : Ali",
+          "occurrences": 50
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Companion Script : Abdullah",
+          "occurrences": 29
+        },
+        {
+          "qty": {
+            "avg": 5,
+            "max": 5,
+            "min": 5
+          },
+          "name": "Flail",
+          "occurrences": 26
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Naval Cutlass",
+          "occurrences": 25
+        }
+      ]
+    },
+    {
+      "nodeId": "_B8S_",
+      "n": 524,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 156,
+        "max": 191,
+        "avg": 174
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Naval Cutlass",
+          "occurrences": 524
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Companion Script : Ali",
+          "occurrences": 223
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Companion Script : Ubay",
+          "occurrences": 173
+        },
+        {
+          "qty": {
+            "avg": 2,
+            "max": 2,
+            "min": 2
+          },
+          "name": "Companion Script : Abdullah",
+          "occurrences": 128
+        }
+      ]
+    },
+    {
+      "nodeId": "_C6S_",
+      "n": 1313,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 182,
+        "max": 223,
+        "avg": 203
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Priceless Painting",
+          "occurrences": 1313
+        }
+      ]
+    }
+  ],
   "roleFidelity": {
     "error": 0.5907293101296627,
     "roles": [
@@ -135,6 +414,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

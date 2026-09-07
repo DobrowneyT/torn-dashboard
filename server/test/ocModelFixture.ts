@@ -9,7 +9,7 @@
  * Tests that care about the REAL dataset (`oc-model.test.ts`) load it directly
  * and are the only place that should.
  */
-import type { OcScenarioModel, OcModelEnding, OcModelRole } from '../src/oc/modelLoader.js'
+import type { OcScenarioModel, OcModelEnding, OcModelNodeStat, OcModelRole } from '../src/oc/modelLoader.js'
 
 export interface FixtureScenario {
   name: string
@@ -17,6 +17,9 @@ export interface FixtureScenario {
   isComplete?: boolean
   roles?: Array<[positionId: string, roleName: string, weight?: number]>
   endings?: Array<Partial<OcModelEnding> & { key: string }>
+  /** #606 slice 3 — both ship with the model now. */
+  observedPaths?: number | null
+  nodeStats?: OcModelNodeStat[]
 }
 
 export function ocModelFixture(scenarios: FixtureScenario[]): Map<string, OcScenarioModel> {
@@ -39,6 +42,12 @@ export function ocModelFixture(scenarios: FixtureScenario[]): Map<string, OcScen
       slug: s.name.toLowerCase().replace(/[^a-z0-9]/g, ''),
       parameterCount: s.parameterCount ?? roles.length,
       isComplete: s.isComplete ?? true,
+      // #606 slice 3: both now travel with the model. `nodeStats` defaults to
+      // empty rather than to invented figures — a scenario nobody has mapped
+      // has no observations, and a fixture that fabricated some would let a
+      // test pass against numbers no tenant could ever see.
+      observedPaths: s.observedPaths ?? null,
+      nodeStats: s.nodeStats ?? [],
       diagramValid: true,
       diagramProblems: null,
       roles,

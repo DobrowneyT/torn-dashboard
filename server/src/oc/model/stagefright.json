@@ -3,6 +3,7 @@
   "slug": "stagefright",
   "parameterCount": 6,
   "isComplete": true,
+  "observedPaths": 87,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -144,6 +145,123 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A6S_",
+      "n": 10281,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 97,
+        "max": 174,
+        "avg": 152
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 22,
+            "max": 30,
+            "min": 17
+          },
+          "name": "Xanax",
+          "occurrences": 10281
+        }
+      ]
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 2162,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 87,
+        "max": 157,
+        "avg": 140
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 18,
+            "max": 27,
+            "min": 15
+          },
+          "name": "Xanax",
+          "occurrences": 2162
+        }
+      ]
+    },
+    {
+      "nodeId": "_B2F_",
+      "n": 1,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B2S_",
+      "n": 893,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 67,
+        "max": 122,
+        "avg": 110
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 12,
+            "max": 19,
+            "min": 10
+          },
+          "name": "Xanax",
+          "occurrences": 893
+        }
+      ]
+    },
+    {
+      "nodeId": "_B4S_",
+      "n": 3736,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 77,
+        "max": 139,
+        "avg": 125
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 15,
+            "max": 23,
+            "min": 12
+          },
+          "name": "Xanax",
+          "occurrences": 3736
+        }
+      ]
+    }
+  ],
   "roleFidelity": {
     "error": 0.0048987301004976835,
     "roles": []
@@ -151,6 +269,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

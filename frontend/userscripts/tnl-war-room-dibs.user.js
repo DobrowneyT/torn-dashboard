@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.49.0
+// @version      1.50.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -3696,6 +3696,70 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     return null
   }
 
+  /**
+   * The bonuses attached to one weapon (#616).
+   *
+   * ⚠️ Read the `data-` attributes, never the class. `data-bonus-attachment-title`
+   * and `-description` are Torn's own words for the bonus and survive a CSS
+   * rename; the class carries a slug that would need a slug→name table for
+   * every bonus in the game to be useful.
+   *
+   * ⚠️ `bonus-attachment-blank-bonus-25` is an EMPTY slot, not a bonus — it
+   * carries an empty title and description. Anything counting bonuses must skip
+   * these or every weapon gains phantom specials. Absent, never zero.
+   *
+   * Specials and attachments share this one mechanism and are NOT distinguished
+   * in the DOM: Assassinate and Plunder are weapon specials, while 100mW Laser
+   * and Recoil Pad are buyable attachments that sit on ordinary weapons too. We
+   * keep both and record what Torn said, rather than filtering to a hard-coded
+   * specials list that would silently drop anything Torn adds later.
+   */
+  function captureBonuses(el) {
+    const out = []
+    for (const i of el.querySelectorAll('[data-bonus-attachment-title]')) {
+      const title = (i.getAttribute('data-bonus-attachment-title') || '').trim()
+      if (!title) continue   // blank-bonus-N: an empty slot
+      const entry = { title }
+      const desc = (i.getAttribute('data-bonus-attachment-description') || '').trim()
+      if (desc) entry.description = desc
+      out.push(entry)
+    }
+    return out
+  }
+
+  /**
+   * The item-quality tier Torn paints on the wrapper (#616).
+   *
+   * MonChoon: "'rare' isn't about the number of items in circulation, it's
+   * about the quality of the item itself… For the quality types there is
+   * Yellow, Orange, and Red."
+   *
+   * ⚠️ Matched by PREFIX, never by the full class. `glow-yellow___B37GS`
+   * carries a CSS-module hash that changes on Torn's next bundle rebuild;
+   * hard-coding it would work until then and afterwards report every rare
+   * weapon as ordinary — a silent failure that looks like a data problem.
+   *
+   * ⚠️ A second colour token was observed alongside the glow on exactly one
+   * weapon (a defender's P90: `glow-yellow___B37GS orange___A_oX6`). It is
+   * probably the real tier, with `glow-*` as generic "this item glows"
+   * styling — but that rests on ONE sample, and getting it wrong mislabels
+   * every rare weapon in the fleet. So both tokens are stored as observed and
+   * neither is interpreted here. Deriving a tier waits for a red-tier sighting.
+   */
+  const QUALITY_TOKENS = ['yellow', 'orange', 'red']
+
+  function captureQuality(el) {
+    const out = {}
+    const classes = String(el.getAttribute('class') || '').split(/\s+/)
+    for (const c of classes) {
+      const glow = /^glow-([a-z]+)(?:___|$)/.exec(c)
+      if (glow) { out.glow = glow[1]; continue }
+      const bare = /^([a-z]+)(?:___|$)/.exec(c)
+      if (bare && QUALITY_TOKENS.includes(bare[1])) out.colour = bare[1]
+    }
+    return out
+  }
+
   function captureWeapons(scope) {
     const out = {}
     if (!scope) return out
@@ -3707,6 +3771,11 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const entry = { name }
       const itemId = weaponItemIdFromSrc(el.querySelector('img')?.getAttribute('src'))
       if (itemId) entry.item_id = itemId
+      const bonuses = captureBonuses(el)
+      if (bonuses.length > 0) entry.bonuses = bonuses
+      const quality = captureQuality(el)
+      if (quality.glow) entry.glow = quality.glow
+      if (quality.colour) entry.colour = quality.colour
       out[slot] = entry
     }
     return out
@@ -4854,6 +4923,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     parseWeaponAriaLabel, weaponItemIdFromSrc, mapArmorAltToSlot,
     loadoutIsEmpty,
     defenderScopeElement, captureWeapons, captureArmor, captureLoadout,
+    captureBonuses, captureQuality,
   }
 })()
 

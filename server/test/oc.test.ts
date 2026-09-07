@@ -17,6 +17,7 @@ const OC_MODEL = ocModelFixture([
   {
     name: 'Break the Bank',
     parameterCount: 6,
+    observedPaths: 411,
     roles: [['P1', 'Robber', 20], ['P2', 'Muscle 1', 20]],
     endings: [
       { key: 'goodEnding1', nodeId: '_A8S_', kind: 'good', resolved: true },
@@ -30,7 +31,7 @@ const OC_MODEL = ocModelFixture([
       },
     ],
   },
-  { name: 'Lock Stock', parameterCount: 5, isComplete: false, roles: [['P1', 'Picklock', 50], ['P2', 'Muscle', 50]] },
+  { name: 'Lock Stock', parameterCount: 5, isComplete: false, observedPaths: 126, roles: [['P1', 'Picklock', 50], ['P2', 'Muscle', 50]] },
   // ⚠️ Scenarios the later describe blocks used to INSERT mid-test. The model
   // is no longer per-tenant data, so it cannot be added to from inside an `it`
   // — every scenario a test needs must be declared here up front.
@@ -43,6 +44,27 @@ const OC_MODEL = ocModelFixture([
     endings: [
       { key: 'goodEnding1', nodeId: '_A8S_', kind: 'good', resolved: true },
       { key: 'goodEnding2', nodeId: '_C6S_', kind: 'good', resolved: true },
+    ],
+    // ⚠️ #606 slice 3: node stats moved OUT of oc_scenario_node_stats and into
+    // the model. They were always tornprobability's global aggregates, so they
+    // belong here rather than being INSERTed per tenant.
+    //
+    nodeStats: [
+      {
+        nodeId: '_A8S_', n: 3718,
+        money: { min: 0, max: 0, avg: 0 },
+        respect: { min: null, max: null, avg: 290 },
+        items: [
+          { name: 'Priceless Painting II', occurrences: 3718, qty: { min: 1, max: 1, avg: 1 } },
+          { name: 'Shabti Sculpture II', occurrences: 1547, qty: { min: 2, max: 2, avg: 2 } },
+        ],
+      },
+      {
+        nodeId: '_C6S_', n: 100,
+        money: { min: 0, max: 0, avg: 0 },
+        respect: { min: null, max: null, avg: 200 },
+        items: [{ name: 'Unrecorded Relic', occurrences: 100, qty: { min: 1, max: 1, avg: 1 } }],
+      },
     ],
   },
 ])
@@ -282,14 +304,9 @@ describe('OC Simulator endpoints', () => {
     })
     ocToken = ((await login.json()) as any).token
 
-    await stack.db.query(`
-      INSERT INTO oc_scenarios (name, parameter_count, is_complete, observed_paths, diagram_valid)
-      VALUES ('Break the Bank', 6, true, 411, true),
-             ('Lock Stock', 5, false, 126, true)
-    `)
-    // ⚠️ Roles and endings now come from OC_MODEL above, not from these tables
-    // (#606). `oc_scenarios` is still seeded because observed_paths and the
-    // ending-map quality columns are OURS and still read from it.
+    // ⚠️ #606 slice 3: nothing to seed. Structure, roles, endings,
+    // observed_paths and node stats ALL come from OC_MODEL now — the mirror
+    // tables this used to INSERT into are dropped by migration 0060.
   })
 
   const simGet = async (path: string) => {
@@ -490,10 +507,6 @@ describe('item reward value on the scenarios payload', () => {
         ('lk2', '500', 'Fancy Car', 1, 1000, 1000)
     `)
     // A mirrored crime we have never completed, for the "no history" case.
-    await stack.db.query(
-      `INSERT INTO oc_scenarios (name, parameter_count, is_complete, diagram_valid)
-       VALUES ('Honey Trap', 3, true, true) ON CONFLICT DO NOTHING`
-    )
   })
 
   const get2 = async (path: string) => {
@@ -525,10 +538,6 @@ describe('item reward value on the scenarios payload', () => {
       INSERT INTO crime_reward_items (crime_id, item_id, item_name, quantity, unit_value, total_value)
       VALUES ('pp1', '501', 'Priceless Painting', 1, 5, 5)
     `)
-    await stack.db.query(
-      `INSERT INTO oc_scenarios (name, parameter_count, diagram_valid)
-       VALUES ('Painting Job', 3, true) ON CONFLICT DO NOTHING`
-    )
     const { body } = await get2('/api/oc-simulator/scenarios')
     const job = body.scenarios.find((s: any) => s.name === 'Painting Job')
     expect(Number(job.item_reward.avg_value)).toBe(70_000_000)
@@ -548,10 +557,6 @@ describe('item reward value on the scenarios payload', () => {
       INSERT INTO crime_reward_items (crime_id, item_id, item_name, quantity, unit_value, total_value)
       VALUES ('my1', '502', 'Mystery Thing', 1, 999999, 999999)
     `)
-    await stack.db.query(
-      `INSERT INTO oc_scenarios (name, parameter_count, diagram_valid)
-       VALUES ('Mystery Job', 3, true) ON CONFLICT DO NOTHING`
-    )
     const { body } = await get2('/api/oc-simulator/scenarios')
     const job = body.scenarios.find((s: any) => s.name === 'Mystery Job')
     expect(Number(job.item_reward.avg_value)).toBe(0)
@@ -645,31 +650,6 @@ describe('ending item value on the scenarios payload (#441 follow-up)', () => {
       ON CONFLICT (id) DO UPDATE SET
         market_price = EXCLUDED.market_price, sell_price = EXCLUDED.sell_price
     `)
-    await stack.db.query(`
-      INSERT INTO oc_scenarios (name, parameter_count, diagram_valid)
-      VALUES ('Window Job', 4, true) ON CONFLICT DO NOTHING
-    `)
-    await stack.db.query(`
-      INSERT INTO oc_scenario_endings (scenario_name, ending_key, node_id, kind, resolved) VALUES
-        ('Window Job', 'goodEnding1', '_A8S_', 'good', true),
-        ('Window Job', 'goodEnding2', '_C6S_', 'good', true)
-    `)
-    // _A8S_ pays $0 money and real items — the Window of Opportunity shape.
-    // _C6S_ pays $0 money and one item this catalogue cannot price.
-    await stack.db.query(`
-      INSERT INTO oc_scenario_node_stats
-        (scenario_name, node_id, n, money_avg, respect_avg, items) VALUES
-        ('Window Job', '_A8S_', 3718, 0, 290, $1::jsonb),
-        ('Window Job', '_C6S_', 100, 0, 200, $2::jsonb)
-    `, [
-      JSON.stringify([
-        { name: 'Priceless Painting II', occurrences: 3718, qty: { min: 1, max: 1, avg: 1 } },
-        { name: 'Shabti Sculpture II', occurrences: 1547, qty: { min: 2, max: 2, avg: 2 } },
-      ]),
-      JSON.stringify([
-        { name: 'Unrecorded Relic', occurrences: 100, qty: { min: 1, max: 1, avg: 1 } },
-      ]),
-    ])
   })
 
   const getItems = async (path: string) => {
@@ -765,12 +745,11 @@ describe('⚠️ a faction with no mirror rows still gets the whole model (#606)
   // now ships in the image where it cannot be present on some tenants and
   // absent on others.
   //
-  // ⚠️ Reuses the existing stack and empties oc_scenarios, rather than booting a
+  // ⚠️ Reuses the existing stack rather than booting a
   // second one. A first draft started another embedded Postgres and flaked
   // admin-incident-store.test.ts by pushing concurrent instances past what the
   // runner has — a test that breaks an unrelated suite is not worth the
   // isolation. Rows are restored afterwards so ordering stays irrelevant.
-  let saved: unknown[] = []
   let token = ''
 
   const simGet = async (path: string) => {
@@ -787,29 +766,20 @@ describe('⚠️ a faction with no mirror rows still gets the whole model (#606)
       body: JSON.stringify({ apiKey: 'SIMMANAGERKEY123' }),
     })
     token = ((await login.json()) as any).token
-    saved = (await stack.db.query('SELECT * FROM oc_scenarios')).rows
-    // ⚠️ DELETE, not TRUNCATE: oc_scenario_roles and _endings still carry
-    // foreign keys to this table. That they do is itself a reminder that the
-    // mirror tables are still present — dropping them is a later slice, only
-    // once this switch has been proven in production.
-    await stack.db.query('DELETE FROM oc_scenario_endings')
-    await stack.db.query('DELETE FROM oc_scenario_roles')
-    await stack.db.query('DELETE FROM oc_scenarios')
   })
 
-  afterAll(async () => {
-    for (const r of saved as Array<Record<string, unknown>>) {
-      await stack.db.query(
-        `INSERT INTO oc_scenarios (name, parameter_count, is_complete, observed_paths, diagram_valid)
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-        [r.name, r.parameter_count, r.is_complete, r.observed_paths, r.diagram_valid]
-      )
-    }
-  })
-
-  it('serves every scenario despite an empty oc_scenarios table', async () => {
-    const empty = await stack.db.query('SELECT count(*)::int AS n FROM oc_scenarios')
-    expect(empty.rows[0].n).toBe(0)
+  it('⚠️ #606: serves every scenario with NO per-tenant OC data at all', async () => {
+    // This used to empty `oc_scenarios` first and assert the model still came
+    // through. Since slice 3 that table does not exist — so the property is
+    // now true by construction rather than by arrangement, which is the whole
+    // point of the migration: the mirror ran only where somebody enabled the
+    // job, and on 2026-09-06 three of five live tenants held ZERO scenarios
+    // and their Simulator was silently empty.
+    const gone = await stack.db.query(
+      `SELECT count(*)::int AS n FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'oc_scenarios'`
+    )
+    expect(gone.rows[0].n).toBe(0)
 
     const { status, body } = await simGet('/api/oc-simulator/scenarios')
     expect(status).toBe(200)
@@ -817,15 +787,31 @@ describe('⚠️ a faction with no mirror rows still gets the whole model (#606)
     expect(body.scenarios.length).toBe(OC_MODEL.size)
   })
 
-  it('carries roles and endings, with no observations rather than no rows', async () => {
+  it('carries roles, endings and the global path count from the model', async () => {
     const { body } = await simGet('/api/oc-simulator/scenarios')
     const btb = body.scenarios.find((s: any) => s.name === 'Break the Bank')
     expect(btb.roles.map((r: any) => r.role_name)).toEqual(['Robber', 'Muscle 1'])
     expect(btb.endings.length).toBe(3)
-    // ⚠️ Our own derived column is absent, which is correct: with no rows there
-    // are no observations to derive it from. null, never 0 — reporting zero
-    // would state a measurement we never made (#351, #441).
-    expect(btb.observed_paths).toBeNull()
+    // ⚠️ #606 slice 3 moved this. It used to be null here, and the comment said
+    // that was correct because "with no rows there are no observations to
+    // derive it from" — but `observed_paths` was never ours to derive. Despite
+    // the name it is how many paths TORNPROBABILITY observed, written by the
+    // mirror straight from their feed, so it is global game data and now ships
+    // in the image. Leaving it per-tenant would have meant a number with no
+    // writer, stuck at whatever the last mirror run happened to leave.
+    expect(btb.observed_paths).toBe(411)
+  })
+
+  it('⚠️ reports NO ending-map quality, because this tenant has run no probe sweep', async () => {
+    // The genuinely per-tenant half. `ending_map_*` IS ours — measured by the
+    // maintainer probe sweep against a tenant's own data — so it stays in the
+    // tenant database (`oc_scenario_quality`) and is absent until measured.
+    // null, never 0: reporting zero would state a measurement never made
+    // (#351, #441).
+    const { body } = await simGet('/api/oc-simulator/scenarios')
+    const btb = body.scenarios.find((s: any) => s.name === 'Break the Bank')
+    expect(btb.ending_map_residual).toBeNull()
+    expect(btb.ending_map_confident).toBeNull()
   })
 
   it('answers the roster lookup, which also reads the model', async () => {

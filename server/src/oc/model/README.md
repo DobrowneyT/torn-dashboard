@@ -47,7 +47,7 @@ From a tenant whose `oc-scenarios-mirror` has run (`tnl` or `forge`):
 
 ```sql
 SELECT json_agg(x ORDER BY x.name) FROM (
-  SELECT s.name, s.parameter_count, s.is_complete, s.diagram, s.diagram_valid,
+  SELECT s.name, s.parameter_count, s.is_complete, s.observed_paths, s.diagram, s.diagram_valid,
          s.diagram_problems, s.role_fidelity_error, s.role_fidelity_roles,
          (SELECT json_agg(json_build_object('position_id', r.position_id,
                  'role_name', r.role_name, 'weight', r.weight) ORDER BY r.position_id)
@@ -55,10 +55,20 @@ SELECT json_agg(x ORDER BY x.name) FROM (
          (SELECT json_agg(json_build_object('ending_key', e.ending_key,
                  'node_id', e.node_id, 'kind', e.kind, 'resolved', e.resolved,
                  'problem', e.problem, 'starved', e.starved) ORDER BY e.ending_key)
-            FROM oc_scenario_endings e WHERE e.scenario_name = s.name) AS endings
+            FROM oc_scenario_endings e WHERE e.scenario_name = s.name) AS endings,
+         (SELECT json_agg(json_build_object('node_id', n.node_id, 'n', n.n,
+                 'money_min', n.money_min, 'money_max', n.money_max, 'money_avg', n.money_avg,
+                 'respect_min', n.respect_min, 'respect_max', n.respect_max,
+                 'respect_avg', n.respect_avg, 'items', n.items) ORDER BY n.node_id)
+            FROM oc_scenario_node_stats n WHERE n.scenario_name = s.name) AS node_stats
     FROM oc_scenarios s
 ) x
 ```
+
+⚠️ `node_stats` is not optional. These are tornprobability's GLOBAL aggregates
+(the mirror wrote them straight from the upstream feed), and they are what the
+Simulator renders as per-node payouts, E(x) and success figures. An export
+without them produces a model that looks complete and shows no money.
 
 ⚠️ This step disappears once the mirror tables are dropped; the export becomes
 the previous contents of this directory.

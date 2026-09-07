@@ -148,95 +148,6 @@ CREATE TABLE public.crime_occupancy_polls (
 );
 CREATE INDEX crime_occupancy_polls_at_idx ON public.crime_occupancy_polls (polled_at DESC);
 
--- #390: our own copy of the OC probability model from tornprobability.com.
--- The simulator computes against this copy, never the live service (one
--- person's server, non-standard port, no SLA) — an outage degrades to stale
--- numbers instead of a dead page. Note it is HTTPS on 3000, not HTTP.
-CREATE TABLE public.oc_scenarios (
-  name             text PRIMARY KEY,
-  parameter_count  int  NOT NULL,
-  -- NULL means we have not read the /scenarios page, which is distinct from
-  -- false: the API does not carry completeness, and an in-progress model
-  -- answers with numbers that look exactly as authoritative as a finished one.
-  is_complete      boolean,
-  observed_paths   int,
-  diagram          text,
-  diagram_valid    boolean,
-  diagram_problems jsonb NOT NULL DEFAULT '[]'::jsonb,
-  fetched_at       timestamptz,
-  updated_at       timestamptz NOT NULL DEFAULT now(),
-  -- #471: how well the simulated distribution matched the API's. `ok` means
-  -- every reported ending got a node; `confident` means the numbers behind that
-  -- assignment line up — a map can be complete and still be wrong about which
-  -- ending is which.
-  ending_map_residual numeric,
-  ending_map_confident boolean,
-  -- #473: the same disagreement weighted by how much probability each ending
-  -- carries. The plain residual is scale-free (right for choosing an
-  -- assignment, misleading for judging money); this one is what E(x) can be
-  -- trusted on. They disagree in both directions, so both are kept.
-  ending_map_money_residual numeric,
-  ending_map_money_confident boolean,
-  -- #473: largest disagreement between the flowchart and the service's own
-  -- successChance across the probe sweep, and the roles responsible. Exact at
-  -- the all-high baseline for every scenario, which is why this needed asking
-  -- at a dropped CPR to find.
-  role_fidelity_error numeric,
-  role_fidelity_roles jsonb
-);
-
--- GetRoleNames spells a scenario "Mob Mentality" and its role "Looter 1";
--- GetRoleWeights spells the same two "MobMentality" and "Looter1". The mirror
--- normalises both sides — a raw join drops every multi-word name.
-CREATE TABLE public.oc_scenario_roles (
-  scenario_name text NOT NULL REFERENCES public.oc_scenarios(name) ON DELETE CASCADE,
-  position_id   text NOT NULL,
-  role_name     text NOT NULL,
-  weight        numeric,
-  PRIMARY KEY (scenario_name, position_id)
-);
-
--- goodEndingN -> diagram node id. Nothing in either API response states this
--- correspondence, and position matching is WRONG: Break the Bank's derived
--- mapping swaps positions 3 and 4 against declaration order.
-CREATE TABLE public.oc_scenario_endings (
-  scenario_name text NOT NULL REFERENCES public.oc_scenarios(name) ON DELETE CASCADE,
-  ending_key    text NOT NULL,
-  node_id       text,
-  kind          text NOT NULL,
-  resolved      boolean NOT NULL DEFAULT false,
-  -- #473: the API reports this ending but the diagram draws no matching
-  -- terminal — a CONFIRMED gap (not merely unresolved), priced at $0 rather
-  -- than left as a permanent lower bound. See migration 0053.
-  starved       boolean NOT NULL DEFAULT false,
-  problem       text,
-  PRIMARY KEY (scenario_name, ending_key)
-);
-CREATE INDEX oc_scenario_endings_node_idx
-  ON public.oc_scenario_endings (scenario_name, node_id);
-
--- #440: observed money/respect per diagram node, from the same SSE connection
--- that serves the flowchart. Joined to endings through oc_scenario_endings so
--- E(x) is computed rather than hand-entered.
-CREATE TABLE public.oc_scenario_node_stats (
-  scenario_name text NOT NULL REFERENCES public.oc_scenarios(name) ON DELETE CASCADE,
-  node_id       text NOT NULL,
-  -- Observation count, 1 to 6,419 across the real feed. Must reach the UI: an
-  -- average from one run looks exactly like an average from six thousand.
-  n             integer NOT NULL DEFAULT 0,
-  money_min     bigint,
-  money_max     bigint,
-  money_avg     bigint,
-  respect_min   numeric,
-  respect_max   numeric,
-  respect_avg   numeric,
-  -- Item drops observed at this node (#441 follow-up): [{name, occurrences,
-  -- qty:{min,max,avg}}]. Priced against the items table at read time, same as
-  -- #448's crime-level average, so it always reflects current market prices.
-  items         jsonb NOT NULL DEFAULT '[]'::jsonb,
-  updated_at    timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (scenario_name, node_id)
-);
 
 CREATE TABLE public.crimes (
   crime_id text NOT NULL,
@@ -454,6 +365,23 @@ CREATE TABLE public.members (
   -- forever, so is_current stays true, but they are excluded from every
   -- member listing, stat and scrape. See 0042-fallen-members.sql.
   is_fallen boolean DEFAULT false NOT NULL
+);
+
+-- #606 slice 3: OUR OWN ending-map quality measurements, derived by the
+-- maintainer probe sweep (#471/#473). The scenario model itself ships in the
+-- image and is identical everywhere; these are per-tenant because they are
+-- measured against a tenant's own data.
+--
+-- ⚠️ No foreign key. The `oc_scenarios` table these columns used to live on is
+-- gone, and keying to any surviving table would recreate the coupling that
+-- migration removed.
+CREATE TABLE public.oc_scenario_quality (
+  scenario_name             text PRIMARY KEY,
+  ending_map_residual       numeric,
+  ending_map_confident      boolean,
+  ending_map_money_residual numeric,
+  ending_map_money_confident boolean,
+  updated_at                timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE public.oc_crime_positions (

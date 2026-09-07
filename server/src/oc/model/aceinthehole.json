@@ -3,6 +3,7 @@
   "slug": "aceinthehole",
   "parameterCount": 5,
   "isComplete": true,
+  "observedPaths": 473,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -139,6 +140,113 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A10S_",
+      "n": 223,
+      "money": {
+        "min": 394373000,
+        "max": 429164000,
+        "avg": 419643211
+      },
+      "respect": {
+        "min": 594,
+        "max": 810,
+        "avg": 663
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 1366,
+      "money": {
+        "min": 512584000,
+        "max": 579998000,
+        "avg": 567665282
+      },
+      "respect": {
+        "min": 780,
+        "max": 1035,
+        "avg": 940
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A9S_",
+      "n": 419,
+      "money": {
+        "min": 410089000,
+        "max": 463992000,
+        "avg": 454981222
+      },
+      "respect": {
+        "min": 729,
+        "max": 932,
+        "avg": 846
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B7S_",
+      "n": 740,
+      "money": {
+        "min": 321582000,
+        "max": 452383000,
+        "avg": 434640978
+      },
+      "respect": {
+        "min": 471,
+        "max": 829,
+        "avg": 734
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_C8S_",
+      "n": 540,
+      "money": {
+        "min": 349466000,
+        "max": 394388000,
+        "avg": 386669900
+      },
+      "respect": {
+        "min": 509,
+        "max": 701,
+        "avg": 571
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_C9S_",
+      "n": 276,
+      "money": {
+        "min": 280005000,
+        "max": 347885000,
+        "avg": 338518562
+      },
+      "respect": {
+        "min": 338,
+        "max": 415,
+        "avg": 376
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_D7S_",
+      "n": 306,
+      "money": {
+        "min": 289273000,
+        "max": 371181000,
+        "avg": 360306291
+      },
+      "respect": {
+        "min": 395,
+        "max": 518,
+        "avg": 468
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.48037226720245296,
     "roles": [
@@ -151,6 +259,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }
