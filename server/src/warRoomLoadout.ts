@@ -22,6 +22,10 @@ const ITEM_ID_MAX = 10_000_000
  *  few hundred bytes (nine slots at most); this catches a client trying to
  *  stuff the jsonb column rather than constraining honest use. */
 export const LOADOUT_MAX_BYTES = 4_000
+/** Four bonus containers render per weapon in the observed DOM; allow headroom. */
+export const BONUS_MAX = 8
+/** Torn's own bonus descriptions run to about 60 chars ("26% chance to Slow…"). */
+export const DESCRIPTION_MAX = 200
 
 /** Per-member rate limit, mirroring feedback.ts's in-process pattern. A
  *  legitimate capture happens once per fight (the userscript dedupes by
@@ -67,7 +71,9 @@ function validateSlotMap(raw: unknown, allowedSlots: readonly string[]): Record<
   for (const [slot, entry] of Object.entries(raw)) {
     if (!allowedSlots.includes(slot)) return `unknown slot "${slot}"`
     if (!isPlainObject(entry)) return `slot "${slot}" must be an object`
-    const extraKeys = Object.keys(entry).filter((k) => k !== 'name' && k !== 'item_id')
+    const extraKeys = Object.keys(entry).filter(
+      (k) => k !== 'name' && k !== 'item_id' && k !== 'bonuses' && k !== 'glow' && k !== 'colour'
+    )
     if (extraKeys.length > 0) return `slot "${slot}" has unexpected field(s): ${extraKeys.join(', ')}`
     const name = entry.name
     if (typeof name !== 'string' || !name.trim()) return `slot "${slot}" needs a non-empty name`
@@ -83,6 +89,52 @@ function validateSlotMap(raw: unknown, allowedSlots: readonly string[]): Record<
       }
       clean.item_id = id
     }
+
+    // ⚠️ #616: bonuses, glow and colour are all BEST-EFFORT, exactly like
+    // item_id. A weapon with none is ordinary, not broken, and a capture must
+    // never be rejected for lacking them — armour carries no glow at all, and
+    // rejecting on that would refuse every armour capture we already take.
+    if (entry.bonuses !== undefined && entry.bonuses !== null) {
+      if (!Array.isArray(entry.bonuses)) return `slot "${slot}" bonuses must be an array`
+      if (entry.bonuses.length > BONUS_MAX) {
+        return `slot "${slot}" has more than ${BONUS_MAX} bonuses`
+      }
+      const bonuses: Record<string, unknown>[] = []
+      for (const b of entry.bonuses) {
+        if (!isPlainObject(b)) return `slot "${slot}" bonus must be an object`
+        const title = b.title
+        // ⚠️ A blank title is Torn's EMPTY bonus slot (`blank-bonus-25`), which
+        // the userscript already skips. Refuse it here too rather than storing
+        // a nameless bonus that would render as a phantom special.
+        if (typeof title !== 'string' || !title.trim()) return `slot "${slot}" bonus needs a title`
+        if (title.length > NAME_MAX) return `slot "${slot}" bonus title exceeds ${NAME_MAX} chars`
+        const cleanBonus: Record<string, unknown> = { title: title.trim() }
+        if (b.description !== undefined && b.description !== null) {
+          const d = b.description
+          if (typeof d !== 'string') return `slot "${slot}" bonus description must be a string`
+          if (d.length > DESCRIPTION_MAX) {
+            return `slot "${slot}" bonus description exceeds ${DESCRIPTION_MAX} chars`
+          }
+          if (d.trim()) cleanBonus.description = d.trim()
+        }
+        bonuses.push(cleanBonus)
+      }
+      if (bonuses.length > 0) clean.bonuses = bonuses
+    }
+
+    // ⚠️ Stored as OBSERVED, not interpreted. `glow` is the token from Torn's
+    // `glow-<x>___<hash>` class and `colour` a sibling tier token seen once
+    // (a defender's P90: `glow-yellow orange`). Which of the two is the real
+    // rarity tier is not yet settled — see the userscript's captureQuality —
+    // so both are kept verbatim and neither is turned into a boolean here.
+    for (const key of ['glow', 'colour'] as const) {
+      const v = entry[key]
+      if (v === undefined || v === null) continue
+      if (typeof v !== 'string' || !v.trim()) return `slot "${slot}" ${key} must be a non-empty string`
+      if (!/^[a-z]{1,20}$/.test(v.trim())) return `slot "${slot}" ${key} must be a simple token`
+      clean[key] = v.trim()
+    }
+
     out[slot] = clean
   }
   return out

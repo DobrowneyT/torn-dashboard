@@ -4028,11 +4028,114 @@ describe('enemy loadout capture (#528 Part 2)', () => {
   // scopes every subsequent read inside that ancestor. This harness models
   // that exact duplicate-id shape so a regression to the unscoped read fails
   // here, not in a live faction's data.
+  // Values below are copied verbatim from a real mid-fight capture MonChoon
+  // supplied on 2026-09-07 (attacker MonChoon_616 vs defender Just53) — the
+  // capture that proved the defender's bonuses are exposed at all.
+  describe('#616 weapon bonuses and quality', () => {
+    const bonusEl = (title, description) => ({
+      getAttribute: (n) => ({ 'data-bonus-attachment-title': title, 'data-bonus-attachment-description': description })[n] ?? null,
+    })
+    const weaponEl = (cls, bonuses = []) => ({
+      getAttribute: (n) => (n === 'class' ? cls : n === 'aria-label' ? 'Attack with P90' : null),
+      querySelector: () => null,
+      querySelectorAll: (sel) => (sel === '[data-bonus-attachment-title]' ? bonuses : []),
+    })
+
+    it('reads Torn’s own words for each bonus', () => {
+      const { S } = loadScript()
+      const el = weaponEl('weaponWrapper___pdF1a glow-yellow___B37GS', [
+        bonusEl('Slow', '26% chance to Slow opponent reducing Speed by 25% (x3)'),
+      ])
+      expect(S.captureBonuses(el)).toEqual([
+        { title: 'Slow', description: '26% chance to Slow opponent reducing Speed by 25% (x3)' },
+      ])
+    })
+
+    it('\u26a0\ufe0f skips blank-bonus slots — an empty slot is not a bonus', () => {
+      // `bonus-attachment-blank-bonus-25` renders with an empty title AND an
+      // empty description. Torn uses it to pad the four bonus containers every
+      // weapon draws, so counting them would give every weapon four phantom
+      // specials — including Fists.
+      const { S } = loadScript()
+      const el = weaponEl('weaponWrapper___pdF1a', [
+        bonusEl('Plunder', '24% increased money mugged on final hit'),
+        bonusEl('', ''),
+        bonusEl('', ''),
+      ])
+      expect(S.captureBonuses(el)).toEqual([
+        { title: 'Plunder', description: '24% increased money mugged on final hit' },
+      ])
+    })
+
+    it('keeps a bonus with no description rather than dropping it', () => {
+      const { S } = loadScript()
+      expect(S.captureBonuses(weaponEl('x', [bonusEl('Assassinate', '')]))).toEqual([{ title: 'Assassinate' }])
+    })
+
+    it('\u26a0\ufe0f reads the glow by PREFIX, so a bundle rebuild cannot break it', () => {
+      // The class is `glow-yellow___B37GS`. That hash changes whenever Torn
+      // rebuilds; matching the whole class would work until then and afterwards
+      // report every rare weapon as ordinary — a silent failure that looks like
+      // a data problem rather than a selector problem.
+      const { S } = loadScript()
+      expect(S.captureQuality(weaponEl('weaponWrapper___pdF1a weaponSlot___Wq6XA glow-yellow___B37GS')))
+        .toEqual({ glow: 'yellow' })
+      // A different hash on the same token must read identically.
+      expect(S.captureQuality(weaponEl('glow-yellow___ZZZZZ')).glow).toBe('yellow')
+    })
+
+    it('\u26a0\ufe0f captures BOTH quality tokens without deciding which is the tier', () => {
+      // The defender's P90 carried `glow-yellow___B37GS orange___A_oX6`, the
+      // only weapon in any capture so far with a second colour token. It is
+      // probably the real tier, with glow-* as generic styling — but that rests
+      // on one sample, and guessing wrong mislabels every rare weapon we hold.
+      // So both are recorded and neither is interpreted.
+      const { S } = loadScript()
+      expect(S.captureQuality(weaponEl('weaponWrapper___pdF1a defender___l1ETt glow-yellow___B37GS orange___A_oX6')))
+        .toEqual({ glow: 'yellow', colour: 'orange' })
+    })
+
+    it('reads glow-default for an ordinary weapon, and ignores unrelated classes', () => {
+      const { S } = loadScript()
+      expect(S.captureQuality(weaponEl('weaponWrapperSmall___OltF2 weaponSlot___Wq6XA glow-default___RmCvA withoutGradient___loBNq')))
+        .toEqual({ glow: 'default' })
+    })
+
+    it('folds bonuses and quality into the captured weapon entry', () => {
+      const { S } = loadScript()
+      const scope = {
+        querySelector: (sel) => (sel === '#weapon_main'
+          ? weaponEl('glow-yellow___B37GS orange___A_oX6', [bonusEl('Slow', 'reduces Speed')])
+          : null),
+        querySelectorAll: () => [],
+      }
+      expect(S.captureWeapons(scope).primary).toEqual({
+        name: 'P90',
+        bonuses: [{ title: 'Slow', description: 'reduces Speed' }],
+        glow: 'yellow',
+        colour: 'orange',
+      })
+    })
+
+    it('a weapon with neither still captures, carrying only its name', () => {
+      const { S } = loadScript()
+      const scope = {
+        querySelector: (sel) => (sel === '#weapon_main' ? weaponEl('weaponWrapper___pdF1a') : null),
+        querySelectorAll: () => [],
+      }
+      expect(S.captureWeapons(scope).primary).toEqual({ name: 'P90' })
+    })
+  })
+
   describe('defenderScopeElement / captureWeapons / captureArmor / captureLoadout — attacker vs defender scoping', () => {
     function fakeElement(props = {}) {
       return {
         getAttribute: (name) => props[name] ?? null,
         querySelector: () => null,
+        // #616: captureBonuses() reads this on every weapon wrapper. Defaulting
+        // to empty keeps the pre-#616 fixtures meaningful — a weapon with no
+        // bonus elements is an ordinary weapon, which is the common case.
+        querySelectorAll: () => [],
         ...props,
       }
     }
