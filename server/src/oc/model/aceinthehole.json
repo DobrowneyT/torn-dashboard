@@ -4,6 +4,7 @@
   "parameterCount": 5,
   "isComplete": true,
   "observedPaths": 473,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -42,6 +43,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 562692618,
         "respect": 951,
@@ -58,6 +60,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 450918600,
         "respect": 838,
@@ -74,6 +77,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 416313794,
         "respect": 674,
@@ -90,6 +94,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 383018850,
         "respect": 562,
@@ -106,6 +111,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 338898930,
         "respect": 374,
@@ -122,6 +128,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 438276375,
         "respect": 750,
@@ -138,6 +145,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 360558125,
         "respect": 479,

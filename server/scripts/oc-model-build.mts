@@ -68,7 +68,12 @@ const hub = args.crimeshub ? JSON.parse(readFileSync(args.crimeshub, 'utf8')) : 
  */
 const overrides = JSON.parse(
   readFileSync(join(here, '..', 'src', 'oc', 'model-overrides.json'), 'utf8')
-) as Record<string, { aliasEndings?: Record<string, string>; rewardFrom?: Record<string, string> }>
+) as Record<string, {
+  aliasEndings?: Record<string, string>
+  rewardFrom?: Record<string, string>
+  disputedKind?: Record<string, 'good' | 'bad'>
+  disputedSuccessChance?: number
+}>
 
 mkdirSync(outDir, { recursive: true })
 // Rebuild from scratch so a scenario Torn removed disappears from the diff
@@ -76,7 +81,7 @@ mkdirSync(outDir, { recursive: true })
 for (const f of readdirSync(outDir)) if (/\.(json|mmd)$/.test(f)) rmSync(join(outDir, f))
 
 const index: Array<{ slug: string; name: string }> = []
-let rewarded = 0, skipped = 0, unparsed = 0, aliased = 0
+let rewarded = 0, skipped = 0, unparsed = 0, aliased = 0, disputed = 0
 /** ⚠️ Crimes Hub terminals with no counterpart in our mirrored model. These are
  *  DROPPED, and the count is reported because it is a real gap rather than a
  *  rounding error: seven scenarios (Counter Offer, Window of Opportunity, Ace
@@ -127,6 +132,16 @@ for (const s of scenarios) {
       starved: e.starved ?? false,
       /** Set below for a surplus label folded onto a terminal it shares. */
       aliasOf: null as string | null,
+      /**
+       * What CRIMES HUB says this ending's kind is, when it disagrees with the
+       * probability service — never what we have decided it is.
+       *
+       * ⚠️ `kind` above is deliberately left alone. Adopting the other source's
+       * answer would replace one confident classification with another, and on
+       * Counter Offer the source doing the disagreeing has marked both endings
+       * with its own '?'. This field exists so the page can SHOW the conflict.
+       */
+      disputedKind: null as 'good' | 'bad' | null,
       reward,
     }
   })
@@ -173,6 +188,21 @@ for (const s of scenarios) {
     aliased += 1
   }
 
+  for (const [key, kind] of Object.entries(over.disputedKind ?? {})) {
+    const e = endings.find((x) => x.key === key)
+    if (!e) {
+      throw new Error(`model-overrides.json: ${slug} disputes ${key}, which is not an ending on that scenario`)
+    }
+    if (e.kind === kind) {
+      throw new Error(
+        `model-overrides.json: ${slug} records ${key} as disputed-${kind}, but that is ` +
+        `already its kind — a dispute has to be a disagreement`
+      )
+    }
+    e.disputedKind = kind
+    disputed += 1
+  }
+
   const doc = {
     name: s.name,
     slug,
@@ -182,6 +212,16 @@ for (const s of scenarios) {
      *  which is why it travels with the model rather than staying per-tenant.
      *  The Simulator renders it as "N observed paths". */
     observedPaths: s.observed_paths == null ? null : Number(s.observed_paths),
+    /**
+     * What Crimes Hub's model makes this crew's success chance, where the two
+     * services disagree about how some endings are classified (#606).
+     *
+     * ⚠️ Captured at a SPECIFIC crew — all CPRs at 75 — so it is a second
+     * opinion to display beside ours at the same crew, never a figure to
+     * recompute from or to substitute for the live one. `null` on every
+     * scenario where the two agree, which is all but one.
+     */
+    disputedSuccessChance: over.disputedSuccessChance ?? null,
     diagramValid: s.diagram_valid,
     diagramProblems: s.diagram_problems ?? null,
     roles: (s.roles ?? []).map((r: any) => ({
@@ -254,6 +294,7 @@ console.log(`  endings with rewards:  ${rewarded}`)
 console.log(`  no Crimes Hub data:    ${skipped}`)
 console.log(`  unparsed (left null):  ${unparsed}`)
 console.log(`  aliased onto a shared terminal: ${aliased}`)
+console.log(`  disputed classification:       ${disputed}`)
 if (orphans.length) {
   console.log(`\n⚠️  ${orphans.length} Crimes Hub ending(s) have NO counterpart in our model and were dropped.`)
   console.log('   Our upstream reports only good endings for some crimes while Crimes Hub draws the')

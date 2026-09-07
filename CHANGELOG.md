@@ -18,6 +18,60 @@ surface it automatically.
 
 ---
 
+## [3.96.0] - 2026-09-07
+
+### Added
+
+- **The Simulator says when the two sources disagree about whether an ending is a
+  success**, instead of resolving it silently in either direction.
+
+  Counter Offer is the case. Crimes Hub's four good terminals match ours
+  one-to-one — 45.625/15.208/19.011/5.070 against 45.62/15.21/19.01/5.07, every
+  one inside 0.005 points — so there is no deficit and nothing for our
+  `goodEnding4` and `goodEnding5` to fold into. They are **extra success mass**:
+
+  ```
+  our success 91.588  −  hub success 84.91  =  6.678
+  goodEnding5  5.407  +  goodEnding4 1.267  =  6.674
+  our failure   8.412  +  6.674             = 15.086   vs hub failure 15.09
+  ```
+
+  It closes to 0.004 points, and Crimes Hub's flowchart draws exactly two bad
+  ends we do not have — the two it labels **"Bad End #5?"** and **"Bad End #6?"**,
+  the only endings on the crime it marks with a question mark.
+
+  ⚠️ **Deliberately not resolved.** The probability service counts those two as
+  successes; Crimes Hub counts them as failures; both models are internally
+  consistent and sum to 100%. Adopting either would swap one confident number for
+  another, on the say-so of a source hedging with its own "?". The endings carry
+  `disputedKind` (`disputed_kind` over the API) recording what the *other* source
+  says, and `kind` is untouched.
+
+  ⚠️ **This is why the aliasing was not generalised.** In our data Blast from the
+  Past and Counter Offer look identical — starved good endings holding real
+  probability. They mean opposite things: Blast's belong to good terminals it
+  already draws, Counter Offer's belong to *bad* ones. Aliasing Counter Offer's
+  onto good terminals, which the Blast precedent suggested, would have invented
+  about **$1.4M** of expected value that does not exist.
+
+  The panel derives the alternative figure **live** — our success chance minus the
+  contested endings' probability — rather than reading the recorded one, so the
+  caveat holds at every crew instead of only the one it was captured at. The
+  recorded `disputedSuccessChance` is kept as the anchor proving the derivation
+  reproduces Crimes Hub's published 84.91% at all-75, and a test pins it.
+
+  ⚠️ **The expected value is unaffected** — a failure pays $0 and a starved ending
+  is priced $0, so E(x) is identical either way. What moves is the success chance
+  and the **scope verdict** that reads off it: at Intermediate (costs 3, pays 4)
+  this crew nets 0.66 scope per run at 91.59% and 0.40 at 84.91%. The panel now
+  says to treat that margin as the optimistic end of a range.
+
+### Changed
+
+- A contested ending's row shows **"Crimes Hub: failure"** in place of the
+  starved tag. "No diagram match" describes a *gap*, and this is not one — the
+  other model has the ending, it just files it on the other side.
+
 ## [3.95.0] - 2026-09-07
 
 ### Added

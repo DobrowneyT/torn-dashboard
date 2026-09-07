@@ -71,6 +71,16 @@ export interface OcModelEnding {
    * `model-overrides.json` with its evidence; `null` for an ordinary ending.
    */
   aliasOf: string | null
+  /**
+   * What Crimes Hub calls this ending, where it disagrees with the probability
+   * service about success vs failure (#606). `null` when they agree.
+   *
+   * ⚠️ NOT applied to `kind` — it is the other source's answer, recorded so the
+   * Simulator can show that a figure is contested. On Counter Offer, adopting it
+   * would move the headline success chance by 6.7 points on the say-so of a
+   * source that has marked both endings with its own question mark.
+   */
+  disputedKind: 'good' | 'bad' | null
   /** ⚠️ `null` when no reward figure is known — either the scenario has no
    *  Crimes Hub coverage, or its shape was not recognised and was deliberately
    *  not guessed at. Absent beats confidently wrong (#441/#473/#351). */
@@ -110,6 +120,14 @@ export interface OcScenarioModel {
   isComplete: boolean
   /** Paths observed by tornprobability. Null where they have not mapped it. */
   observedPaths: number | null
+  /**
+   * Crimes Hub's success chance for this crew, where the two services classify
+   * some endings differently (#606). Null wherever they agree.
+   *
+   * ⚠️ Captured at ONE crew — all CPRs at 75 — so it is a second opinion to
+   * show beside ours at that same crew, never a figure to compute from.
+   */
+  disputedSuccessChance: number | null
   diagramValid: boolean
   diagramProblems: unknown
   roles: OcModelRole[]

@@ -4,6 +4,7 @@
   "parameterCount": 5,
   "isComplete": false,
   "observedPaths": 180,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -42,6 +43,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -52,6 +54,7 @@
       "problem": "badEnding2: ties between _A3F_ and _A2F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -62,6 +65,7 @@
       "problem": "badEnding3: ties between _A3F_ and _A2F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -72,6 +76,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -82,6 +87,7 @@
       "problem": "badEnding5: ties between _A4F_ and _A7F_ on role evidence — needs a paired-role probe (Smuggler + Hacker)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -92,6 +98,7 @@
       "problem": "badEnding6: ties between _A6F_ and _A5F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -102,6 +109,7 @@
       "problem": "badEnding7: ties between _A7F_ and _A6F_ on role evidence — needs a paired-role probe (Hacker + Muscle 1)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -112,6 +120,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -122,6 +131,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -132,6 +142,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -142,6 +153,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     }
   ],

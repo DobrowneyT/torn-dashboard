@@ -4,6 +4,7 @@
   "parameterCount": 4,
   "isComplete": true,
   "observedPaths": 139,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -37,6 +38,7 @@
       "problem": "badEnding1: ties between _A1F1_ and _B1F_ on role evidence — needs a paired-role probe (Imitator + Picklock)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -47,6 +49,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -57,6 +60,7 @@
       "problem": "badEnding3: ties between _A2F_ and _A3F_ on role evidence — needs a paired-role probe (Car Thief + Imitator)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -67,6 +71,7 @@
       "problem": "badEnding4: ties between _A3F_ and _B1F_ on role evidence — needs a paired-role probe (Picklock + Car Thief)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -77,6 +82,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -87,6 +93,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -97,6 +104,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -107,6 +115,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -117,6 +126,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -127,6 +137,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -137,6 +148,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     }
   ],

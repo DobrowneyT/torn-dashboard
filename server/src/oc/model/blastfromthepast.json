@@ -4,6 +4,7 @@
   "parameterCount": 6,
   "isComplete": true,
   "observedPaths": 912,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -47,6 +48,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -63,6 +65,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -79,6 +82,7 @@
       "problem": "badEnding3: ties between _A3F_ and _A4F_ on role evidence — needs a paired-role probe (Engineer + Muscle)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -95,6 +99,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -111,6 +116,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -127,6 +133,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 167566309,
         "respect": 348,
@@ -143,6 +150,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 150108424,
         "respect": 311,
@@ -159,6 +167,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 118217940,
         "respect": 281,
@@ -175,6 +184,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": "goodEnding3",
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -185,6 +195,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": "goodEnding3",
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -195,6 +206,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 99931212,
         "respect": 248,
@@ -211,6 +223,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": "goodEnding4",
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -221,6 +234,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": "goodEnding4",
+      "disputedKind": null,
       "reward": null
     }
   ],
