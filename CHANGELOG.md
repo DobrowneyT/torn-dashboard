@@ -18,6 +18,44 @@ surface it automatically.
 
 ---
 
+## [3.94.1] - 2026-09-07
+
+### Fixed
+
+- **The attack-page assist overlay scrolls with the page instead of hanging in
+  the viewport.** It was `position: fixed`, so it stayed in the same place on
+  screen while the page moved underneath it and covered whatever happened to be
+  behind — the same complaint the faction-page settings panel had before #590,
+  and fixed the same way. Userscript `@version` 1.51.0.
+
+  ⚠️ The trade is deliberate: park it high, scroll a long way down, and it
+  scrolls out of view where a fixed panel would have followed. That is the
+  requested behaviour; the drag handle and the remembered position are what
+  make it workable — put it beside the fight and it stays beside the fight.
+
+  ⚠️ Positions are now stored in **page** coordinates while pointer events and
+  rects arrive in **viewport** coordinates, so both are converted at each seam.
+  Clamping still happens in viewport space: the clamp exists to stop a position
+  saved on a wide desktop stranding the panel off-screen on a phone, and
+  clamping to the document instead would permit exactly the off-screen position
+  it exists to prevent.
+
+  ⚠️ The `visualViewport` **scroll** listener is removed. It re-clamped the
+  panel into the current viewport, which is right when the window changes size
+  and wrong on a scroll — it would have dragged the panel along and undone the
+  whole change. Resizing can orphan a position; scrolling cannot.
+
+- **The overlay no longer covers Torn's chat.** It sat at `2147483000`, above
+  every layer Torn has including its own `2000000000` recaptcha bubble.
+
+  ⚠️ The replacement is **read from the live page**, not hard-coded: Torn sets
+  `#chatRoot`'s z-index in its own stylesheet, so it is absent from any saved
+  copy of the page, and a capture shows values from 10 to 2000000000 with no
+  way to tell which layer is which. The overlay now computes one below the
+  chat's own, which also survives Torn changing the number. Falls back to 9000
+  when there is no chat, or when it reports `auto` — parsing that as 0 would
+  bury the panel under the attack UI it has to sit above.
+
 ## [3.94.0] - 2026-09-07
 
 ### Removed

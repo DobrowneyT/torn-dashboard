@@ -3594,6 +3594,56 @@ describe('page-surface matching', () => {
 // The assist panel is position:fixed on a page whose own controls it used to
 // cover, so it is draggable - and a remembered position must never strand it
 // outside a window it can no longer be dragged back into.
+describe('the assist overlay sits under Torn\u2019s chat (#616 follow-up)', () => {
+  // Its own loader: loadWithDom() passes `window` as undefined, and this
+  // function needs BOTH a document (to find #chatRoot) and a window (to ask
+  // the browser what the chat's computed z-index actually is).
+  function loadWithChat(zIndex, { hasChat = true } = {}) {
+    const mod = { exports: {} }
+    const chat = { id: 'chatRoot' }
+    const document = {
+      getElementById: (id) => (hasChat && id === 'chatRoot' ? chat : null),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      createElement: () => ({ style: {}, dataset: {}, classList: { add() {}, remove() {} }, appendChild() {}, addEventListener() {} }),
+      head: { appendChild() {} },
+      documentElement: { classList: { toggle() {} } },
+    }
+    const window = { getComputedStyle: () => ({ zIndex }) }
+    new Function('module', 'window', 'document', 'GM', 'GM_getValue', 'GM_setValue', source)(
+      mod, window, document, { xmlHttpRequest() {} }, (_k, d) => d, () => {},
+    )
+    return mod.exports
+  }
+
+  it('\u26a0\ufe0f sits ONE BELOW the chat, whatever number Torn uses', () => {
+    // Read at runtime rather than hard-coded: Torn sets #chatRoot's z-index in
+    // its own stylesheet, so it is absent from any saved copy of the page, and
+    // a capture shows values from 10 to 2000000000 with no way to tell which
+    // layer is which. Reading it also survives Torn changing the number.
+    expect(loadWithChat('999999').assistOverlayZ()).toBe(999998)
+    expect(loadWithChat('1000000').assistOverlayZ()).toBe(999999)
+  })
+
+  it('falls back when the chat reports no stacking of its own', () => {
+    // `auto` is what a positioned element that never set one reports. Parsing
+    // it as 0 would bury the panel under the attack UI it has to sit above.
+    for (const z of ['auto', '', 'not-a-number']) {
+      expect(loadWithChat(z).assistOverlayZ(), z).toBe(9000)
+    }
+  })
+
+  it('falls back when there is no chat on the page at all', () => {
+    expect(loadWithChat('999999', { hasChat: false }).assistOverlayZ()).toBe(9000)
+  })
+
+  it('\u26a0\ufe0f is nowhere near the old value, which is what covered the chat', () => {
+    // It used to be 2147483000 — above every layer Torn has, including its
+    // 2000000000 recaptcha bubble. That is why it sat on top of the chat.
+    expect(loadWithChat('999999').assistOverlayZ()).toBeLessThan(2147483000)
+  })
+})
+
 describe('clampAssistPos', () => {
   const size = { w: 200, h: 40 }
   const viewport = { vw: 1000, vh: 800 }
