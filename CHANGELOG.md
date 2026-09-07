@@ -18,6 +18,44 @@ surface it automatically.
 
 ---
 
+## [3.93.0] - 2026-09-07
+
+### Added
+
+- **Loadout capture now records weapon specials, item quality and needle
+  sightings (#616).** Userscript `@version` 1.50.0.
+
+  - **Specials and attachments.** Read from `data-bonus-attachment-title` /
+    `-description` — Torn's own words — never from the class, which carries a
+    slug that would need a lookup table for every bonus in the game.
+    ⚠️ `blank-bonus-25` is an EMPTY bonus slot with a blank title; Torn draws
+    four per weapon as padding, so counting them would give every weapon —
+    including Fists — four phantom specials. Skipped at capture and refused by
+    the validator.
+  - **Quality.** ⚠️ Rarity is Torn's own glow, not item circulation. An earlier
+    analysis proposed `circulation < 5000`, which measures how many exist and
+    tracks quality only by accident. Matched by PREFIX (`glow-yellow___B37GS`
+    carries a CSS-module hash that changes on Torn's next rebuild; pinning it
+    would silently report every rare weapon as ordinary).
+    ⚠️ One capture showed a weapon carrying both `glow-yellow` and a separate
+    `orange` token. That is probably the real tier, but it rests on a single
+    sample — so both are stored as observed and **neither is interpreted**.
+  - **Needles.** ⚠️ Recorded as "seen using needles", not as live state.
+    Fighters roll them — inject, fight, switch, inject — so the temp slot shows
+    only whichever was loaded at that instant. Absence is explicitly not
+    evidence: a miss means "not caught mid-injection", never "does not use
+    needles", and the UI renders no negative from it.
+  - **Display: notable weapons first, ordinary ones kept.** Sorted, never
+    filtered — a hard filter would make "genuinely unarmoured" and "not
+    captured yet" look identical to a lead.
+  - **Armour is listed in full**, unchanged. Torn paints no quality on it and
+    exposes no bonuses for it, so there is nothing to rank on; a rare-armour
+    list is a later hard-coded follow-up.
+
+  All fields are best-effort, the same rule #528 set for `item_id`: a weapon
+  with no bonuses is ordinary, not broken, and a capture is never rejected for
+  lacking them.
+
 ## [3.92.0] - 2026-09-07
 
 ### Changed
