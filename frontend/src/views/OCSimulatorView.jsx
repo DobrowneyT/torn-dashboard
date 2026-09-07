@@ -700,6 +700,19 @@ function ResultPanel({ scenario, result, calculating, error }) {
                           crimes whose pricing is complete. pricingQuality()
                           already scoped its own summary to good endings; this
                           was the one place still asking every row. */}
+                      {/* Two labels, one outcome (#606). The alias is fully resolved
+                          and prices from the same node, so without this the reader
+                          sees two identical payouts on two rows and no reason for
+                          it — which reads as a duplicate row rather than as the
+                          service reporting one terminal under several names. */}
+                      {isGood && meta?.alias_of && (
+                        <span
+                          className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"
+                          title={`Same outcome as ${meta.alias_of} — the probability service reports this diagram ending under more than one label. Both rows price from the same observations, and their probabilities add up.`}
+                        >
+                          = {meta.alias_of}
+                        </span>
+                      )}
                       {isGood && meta?.starved && (
                         <span
                           className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"

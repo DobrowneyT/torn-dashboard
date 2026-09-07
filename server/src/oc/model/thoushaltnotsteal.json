@@ -31,6 +31,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 1318000,
         "respect": 48,
@@ -46,6 +47,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 1120500,
         "respect": 42,
@@ -61,6 +63,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 1081000,
         "respect": 36,
@@ -76,6 +79,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 1009000,
         "respect": 31,
@@ -91,6 +95,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 912000,
         "respect": 28,
@@ -106,6 +111,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 734000,
         "respect": 25,

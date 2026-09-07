@@ -36,6 +36,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -51,6 +52,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -66,6 +68,7 @@
       "resolved": false,
       "problem": "badEnding3: ties between _B1F_ and _B3F_ on role evidence — needs a paired-role probe (Hacker + Cat Burglar)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -81,6 +84,7 @@
       "resolved": false,
       "problem": "badEnding4: ties between _B3F_ and _B2F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -96,6 +100,7 @@
       "resolved": false,
       "problem": "badEnding5: ties between _B3F_ and _B2F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -111,6 +116,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": null,
         "respect": null,
@@ -126,6 +132,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": null,
         "respect": null,
@@ -141,6 +148,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": null,
         "respect": null,
@@ -156,6 +164,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": null,
         "respect": null,

@@ -46,6 +46,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -61,6 +62,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -76,6 +78,7 @@
       "resolved": false,
       "problem": "badEnding3: ties between _A3F_ and _B8F_ on role evidence — needs a paired-role probe (Looter 3 + Imitator 3)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -91,6 +94,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -106,6 +110,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -115,6 +120,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -124,6 +130,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -133,6 +140,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": null,
         "respect": 92,
@@ -148,6 +156,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     }
   ],

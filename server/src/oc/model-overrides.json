@@ -1,0 +1,81 @@
+{
+  "_readme": [
+    "Corrections to the mirrored OC model that cannot be derived from the export (#606).",
+    "",
+    "Every entry here is a RECORDED OBSERVATION with its evidence written down, never an",
+    "inference the build could have made for itself. That is the whole point of the file:",
+    "the two upstream sources disagree in ways only a third check can settle, and once",
+    "settled the answer has to live somewhere durable. The probe sweep that produced the",
+    "ending->node mapping ran against tornprobability's live API and no longer runs, and",
+    "the tenant export carries only its RESULT (resolved/starved), not the per-ending",
+    "probabilities it decided from -- so a correction cannot be re-derived at build time.",
+    "",
+    "Two kinds of entry, deliberately separate because they fix different things:",
+    "",
+    "  aliasEndings  { ourKey: ourOtherKey }",
+    "      The API reports more endings than the flowchart draws terminals for, and the",
+    "      surplus keys are additional labels for a terminal it already has. The alias",
+    "      takes the target's node, so it prices from the same observations instead of",
+    "      being starved at $0.",
+    "",
+    "  rewardFrom    { ourKey: crimesHubKey }",
+    "      Crimes Hub numbers its endings by reward rank; tornprobability numbers them by",
+    "      its own scheme. They usually agree, and where they do not, joining the published",
+    "      reward by key name puts it on the wrong ending. A hub key named here is consumed",
+    "      by the mapping and is NOT also joined to the ending of the same name."
+  ],
+
+  "blastfromthepast": {
+    "_evidence": [
+      "Crimes Hub's own simulator, all six CPRs at 75 (2026-09-07), against tornprobability",
+      "at the same crew. Crimes Hub draws four good terminals; tornprobability reports eight",
+      "good endings. The surplus four are not separate outcomes -- their mass belongs to",
+      "terminals the diagram already has, and the grouping is exact:",
+      "",
+      "  Crimes Hub  Good End #3  = node _B8S1_  17.78%",
+      "    tornprobability  goodEnding3 10.526 + goodEnding35 6.316 + goodEnding310 0.936 = 17.778",
+      "",
+      "  Crimes Hub  Good End #4  = node _B8S2_   5.93%",
+      "    tornprobability  goodEnding4  3.509 + goodEnding45 2.104 + goodEnding410 0.312 =  5.925",
+      "",
+      "Good End #1 (42.10 vs 42.105) and #2 (14.03 vs 14.035) match one-to-one, as do all",
+      "three bad ends, so the two services agree everywhere except this grouping.",
+      "",
+      "Left starved, those four sat at $0 while holding 9.67% of the crime's probability,",
+      "and because a starved ending is priced-by-definition (#473) the panel reported the",
+      "result as COMPLETE: a firm $111,028,512 where the answer is $122,489,526."
+    ],
+    "aliasEndings": {
+      "goodEnding35": "goodEnding3",
+      "goodEnding310": "goodEnding3",
+      "goodEnding45": "goodEnding4",
+      "goodEnding410": "goodEnding4"
+    }
+  },
+
+  "counteroffer": {
+    "_evidence": [
+      "Crimes Hub publishes four good endings for this crime; the diagram draws four good",
+      "terminals; tornprobability reports six good endings. Matching the hub's published",
+      "respect against each terminal's OBSERVED respect identifies the join exactly:",
+      "",
+      "    node      observed respect    Crimes Hub",
+      "    _A7S_          171            goodEnding1  170   (our goodEnding1)",
+      "    _A7S2_         153            goodEnding2  155   (our goodEnding2)",
+      "    _A5S_          137            goodEnding3  136   (our goodEnding3)",
+      "    _B5S_          120            goodEnding4  122   (our goodEnding6)",
+      "",
+      "So Crimes Hub's goodEnding4 is our goodEnding6. Joined by key name it landed instead",
+      "on our goodEnding4 -- which is starved, has no node, and is therefore the one ending",
+      "on the crime that can never carry an observation to check it against.",
+      "",
+      "NOT FIXED HERE: our goodEnding4 and goodEnding5 are still starved and still sit at $0",
+      "while holding real probability. By the Blast from the Past precedent they are surplus",
+      "labels for terminals this crime already has, but which ones needs the same Crimes Hub",
+      "simulator check, and guessing would put invented money on screen."
+    ],
+    "rewardFrom": {
+      "goodEnding6": "goodEnding4"
+    }
+  }
+}

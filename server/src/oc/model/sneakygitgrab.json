@@ -36,6 +36,7 @@
       "resolved": false,
       "problem": "badEnding1: ties between _A3F_ and _A1F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -45,6 +46,7 @@
       "resolved": false,
       "problem": "badEnding2: ties between _A2F_ and _A4F_ on role evidence — needs a paired-role probe (Techie + Pickpocket)",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -54,6 +56,7 @@
       "resolved": false,
       "problem": "badEnding3: ties between _A3F_ and _A1F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -63,6 +66,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -72,6 +76,7 @@
       "resolved": false,
       "problem": "badEnding5: ties between _B6F_ and _A5F_ on role evidence — needs a paired-role probe (Imitator + Hacker)",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -81,6 +86,7 @@
       "resolved": false,
       "problem": "badEnding6: ties between _B6F_ and _A5F_ on role evidence — needs a paired-role probe (Imitator + Hacker)",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -90,6 +96,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 37837500,
         "respect": 179,
@@ -105,6 +112,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 32685000,
         "respect": 156,
@@ -120,6 +128,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 28891000,
         "respect": 140,
@@ -135,6 +144,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 24607000,
         "respect": 124,
@@ -150,6 +160,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 20531000,
         "respect": 107,

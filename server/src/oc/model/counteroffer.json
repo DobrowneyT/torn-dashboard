@@ -41,6 +41,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": null,
         "respect": 170,
@@ -56,6 +57,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": null,
         "respect": 155,
@@ -71,6 +73,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": null,
         "respect": 136,
@@ -86,13 +89,8 @@
       "resolved": false,
       "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
       "starved": true,
-      "reward": {
-        "money": null,
-        "respect": 122,
-        "itemCount": 8,
-        "chainsTo": null,
-        "uncertain": false
-      }
+      "aliasOf": null,
+      "reward": null
     },
     {
       "key": "goodEnding5",
@@ -101,6 +99,7 @@
       "resolved": false,
       "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
       "starved": true,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -110,7 +109,14 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "aliasOf": null,
+      "reward": {
+        "money": null,
+        "respect": 122,
+        "itemCount": 8,
+        "chainsTo": null,
+        "uncertain": false
+      }
     }
   ],
   "nodeStats": [

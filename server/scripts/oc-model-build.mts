@@ -56,13 +56,27 @@ const outDir = args.out ?? OUT_DIR
 const scenarios = JSON.parse(readFileSync(args.export, 'utf8')) as any[]
 const hub = args.crimeshub ? JSON.parse(readFileSync(args.crimeshub, 'utf8')) : {}
 
+/**
+ * Corrections neither source can supply on its own — see the `_readme` in the
+ * file itself for the two entry kinds and why they are recorded rather than
+ * derived.
+ *
+ * ⚠️ Read from the repo, NOT from a flag. Everything else this script consumes
+ * is a capture of somebody else's data that we re-take when it changes; this is
+ * OUR findings about how those two captures line up, and it has to travel with
+ * the code that depends on it or a rebuild silently drops every correction.
+ */
+const overrides = JSON.parse(
+  readFileSync(join(here, '..', 'src', 'oc', 'model-overrides.json'), 'utf8')
+) as Record<string, { aliasEndings?: Record<string, string>; rewardFrom?: Record<string, string> }>
+
 mkdirSync(outDir, { recursive: true })
 // Rebuild from scratch so a scenario Torn removed disappears from the diff
 // rather than lingering as an orphan nobody notices.
 for (const f of readdirSync(outDir)) if (/\.(json|mmd)$/.test(f)) rmSync(join(outDir, f))
 
 const index: Array<{ slug: string; name: string }> = []
-let rewarded = 0, skipped = 0, unparsed = 0
+let rewarded = 0, skipped = 0, unparsed = 0, aliased = 0
 /** ⚠️ Crimes Hub terminals with no counterpart in our mirrored model. These are
  *  DROPPED, and the count is reported because it is a real gap rather than a
  *  rounding error: seven scenarios (Counter Offer, Window of Opportunity, Ace
@@ -74,8 +88,17 @@ const orphans: string[] = []
 for (const s of scenarios) {
   const slug = scenarioSlug(s.name)
   const facts = hub[slug]
+  const over = overrides[slug] ?? {}
+  const rewardFrom = over.rewardFrom ?? {}
+  // ⚠️ A hub ending named as somebody else's source is CONSUMED by that mapping.
+  // Without this, Counter Offer's hub `goodEnding4` would be joined twice — once
+  // correctly onto our goodEnding6, and once by name onto our goodEnding4, which
+  // is the starved ending the mapping exists to take it away from.
+  const claimed = new Set(Object.values(rewardFrom))
   const endings = (s.endings ?? []).map((e: any) => {
-    const f = facts?.endings?.[e.ending_key]
+    const hubKey = rewardFrom[e.ending_key]
+      ?? (claimed.has(e.ending_key) ? null : e.ending_key)
+    const f = hubKey === null ? undefined : facts?.endings?.[hubKey]
     let reward: Reward | null = null
     if (f && !f.unparsed) {
       reward = {
@@ -102,12 +125,52 @@ for (const s of scenarios) {
       resolved: e.resolved,
       problem: e.problem ?? null,
       starved: e.starved ?? false,
+      /** Set below for a surplus label folded onto a terminal it shares. */
+      aliasOf: null as string | null,
       reward,
     }
   })
 
   for (const key of Object.keys(facts?.endings ?? {})) {
+    // A key some ending claims through `rewardFrom` is joined, not orphaned —
+    // it simply does not carry the name of the ending it belongs to.
+    if (claimed.has(key)) continue
     if (!(s.endings ?? []).some((e: any) => e.ending_key === key)) orphans.push(`${slug}/${key}`)
+  }
+
+  /**
+   * Surplus API ending labels folded onto the terminal they actually share.
+   *
+   * ⚠️ Applied AFTER the reward join, and it deliberately does not copy the
+   * target's reward: the alias and its target are the same outcome reported
+   * twice, so they price from the same NODE observations, which is where the
+   * money comes from. Copying the published reward too would double-count
+   * nothing and merely invent a second claim about one ending.
+   *
+   * ⚠️ `starved` goes false because the ending is no longer starved — it has a
+   * terminal. Leaving it true would keep #473's priced-at-$0-by-definition
+   * rule in force and the alias would change nothing at all.
+   */
+  for (const [aliasKey, targetKey] of Object.entries(over.aliasEndings ?? {})) {
+    const alias = endings.find((e) => e.key === aliasKey)
+    const target = endings.find((e) => e.key === targetKey)
+    if (!alias || !target) {
+      throw new Error(
+        `model-overrides.json: ${slug} aliases ${aliasKey} -> ${targetKey}, but ` +
+        `${!alias ? aliasKey : targetKey} is not an ending on that scenario`
+      )
+    }
+    if (!target.nodeId) {
+      throw new Error(
+        `model-overrides.json: ${slug} aliases ${aliasKey} onto ${targetKey}, which has no node`
+      )
+    }
+    alias.nodeId = target.nodeId
+    alias.resolved = true
+    alias.starved = false
+    alias.problem = null
+    alias.aliasOf = targetKey
+    aliased += 1
   }
 
   const doc = {
@@ -190,6 +253,7 @@ console.log(`wrote ${index.length} scenarios to ${outDir}`)
 console.log(`  endings with rewards:  ${rewarded}`)
 console.log(`  no Crimes Hub data:    ${skipped}`)
 console.log(`  unparsed (left null):  ${unparsed}`)
+console.log(`  aliased onto a shared terminal: ${aliased}`)
 if (orphans.length) {
   console.log(`\n⚠️  ${orphans.length} Crimes Hub ending(s) have NO counterpart in our model and were dropped.`)
   console.log('   Our upstream reports only good endings for some crimes while Crimes Hub draws the')

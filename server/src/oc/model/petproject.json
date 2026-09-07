@@ -31,6 +31,7 @@
       "resolved": false,
       "problem": "badEnding1: ties between _A6F_ and _B1F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -40,6 +41,7 @@
       "resolved": false,
       "problem": "badEnding2: ties between _A6F_ and _B1F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -49,6 +51,7 @@
       "resolved": false,
       "problem": "badEnding3: ties between _A7F_ and _C1F_ on role evidence — needs a paired-role probe (Kidnapper + Picklock)",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -58,6 +61,7 @@
       "resolved": false,
       "problem": "badEnding4: ties between _A6F_ and _B1F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -67,6 +71,7 @@
       "resolved": false,
       "problem": "badEnding5: ties between _B2F_ and _C1F_ on role evidence — needs a paired-role probe (Muscle + Picklock)",
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -76,6 +81,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -85,6 +91,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -94,6 +101,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -103,6 +111,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -112,6 +121,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     },
     {
@@ -121,6 +131,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": null
     }
   ],

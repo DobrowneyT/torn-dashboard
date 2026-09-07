@@ -36,6 +36,7 @@
       "resolved": false,
       "problem": "badEnding1: ties between _A1F_ and _A6F_ on role evidence — needs a paired-role probe (Imitator + Muscle 1)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -51,6 +52,7 @@
       "resolved": false,
       "problem": "badEnding2: ties between _A5F_ and _B1F3_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -66,6 +68,7 @@
       "resolved": false,
       "problem": "badEnding3: ties between _B1F2_ and _A6F_ on role evidence — needs a paired-role probe (Muscle 2 + Hustler)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -81,6 +84,7 @@
       "resolved": false,
       "problem": "badEnding4: no role evidence links it to any ending at depth 3",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -96,6 +100,7 @@
       "resolved": false,
       "problem": "badEnding5: ties between _A5F_ and _B1F3_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -111,6 +116,7 @@
       "resolved": false,
       "problem": "badEnding6: ties between _A4F_ and _B1F2_ on role evidence — needs a paired-role probe (Muscle 1 + Imitator)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -126,6 +132,7 @@
       "resolved": false,
       "problem": "badEnding7: ties between _A4F_ and _B1F2_ on role evidence — needs a paired-role probe (Muscle 1 + Imitator)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -141,6 +148,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 10331828,
         "respect": 105,
@@ -156,6 +164,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 9669269,
         "respect": 94,
@@ -171,6 +180,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 8830000,
         "respect": 82,
@@ -186,6 +196,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 8045000,
         "respect": 72,
@@ -201,6 +212,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 6946764,
         "respect": 63,

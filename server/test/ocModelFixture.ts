@@ -35,6 +35,8 @@ export function ocModelFixture(scenarios: FixtureScenario[]): Map<string, OcScen
       resolved: e.resolved ?? true,
       problem: e.problem ?? null,
       starved: e.starved ?? false,
+      // #606: a fixture ending is its own outcome unless a test says otherwise.
+      aliasOf: e.aliasOf ?? null,
       reward: e.reward ?? null,
     }))
     model.set(s.name, {

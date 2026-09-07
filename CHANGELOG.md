@@ -18,6 +18,68 @@ surface it automatically.
 
 ---
 
+## [3.95.0] - 2026-09-07
+
+### Added
+
+- **`server/src/oc/model-overrides.json`** — recorded corrections to the OC model
+  that the build cannot derive for itself, each carrying its evidence.
+
+  ⚠️ This file exists because the corrections are **not re-derivable**. The probe
+  sweep that produced the ending→node mapping ran against tornprobability's live
+  API and no longer runs, and the tenant export carries only its *result*
+  (`resolved` / `starved`), not the per-ending probabilities it decided from. A
+  correction therefore has to be written down or it is lost on the next rebuild.
+
+  Two entry kinds. `aliasEndings` folds a surplus API ending label onto the
+  diagram terminal it actually shares; `rewardFrom` says which Crimes Hub ending
+  holds a given ending's published reward, for the cases where the two services
+  number their endings differently.
+
+### Fixed
+
+- **Blast from the Past's expected value was understated by 10% and presented as
+  exact.** Crimes Hub draws four good terminals for that crime; tornprobability
+  reports eight good endings. The surplus four — `goodEnding35`, `45`, `310`,
+  `410` — were starved, and because a starved ending is priced-at-$0-*by
+  definition* (#473) the panel reported the crime as fully priced: a firm
+  **$111,028,512**, with 9.67% of the probability silently valued at nothing.
+
+  Crimes Hub's own simulator settles it. At all six CPRs at 75:
+
+  | Crimes Hub | | tornprobability |
+  |---|---|---|
+  | Good End #3 = `_B8S1_` | **17.78%** | `goodEnding3` 10.526 + `35` 6.316 + `310` 0.936 = **17.778** |
+  | Good End #4 = `_B8S2_` | **5.93%** | `goodEnding4` 3.509 + `45` 2.104 + `410` 0.312 = **5.925** |
+
+  Good Ends #1 and #2 match one-to-one, as do all three bad ends — the two
+  services agree everywhere except this grouping. The four now resolve to the
+  terminals they share and price from the same observations, giving
+  **$122,489,526**.
+
+- **Counter Offer's published reward sat on the wrong ending.** Crimes Hub
+  numbers endings by reward rank; tornprobability numbers them its own way, and
+  the reward was joined by key name. Matching the hub's published respect against
+  each terminal's *observed* respect identifies the join exactly — `_A7S_` 171 ↔
+  170, `_A7S2_` 153 ↔ 155, `_A5S_` 137 ↔ 136, `_B5S_` 120 ↔ **122** — so the
+  hub's `goodEnding4` is our `goodEnding6`. By name it landed on our
+  `goodEnding4`: the one starved ending on the crime, and therefore the only one
+  with no observation to check it against.
+
+  ⚠️ A hub key claimed through `rewardFrom` is **consumed** by that mapping and is
+  no longer joined to the ending that merely shares its name — otherwise the
+  reward would be attached twice, once correctly and once back where it started.
+
+### Changed
+
+- Endings carry **`aliasOf`** (`alias_of` over the API), and the Simulator shows
+  a quiet `= goodEnding3` beside an aliased row. Without it the reader sees two
+  rows with identical payouts and no reason for it, which reads as a duplicate
+  row rather than as one terminal reported under several labels.
+
+  ⚠️ An alias is **not** a duplicate to filter out. It carries its own
+  probability, and the labels together are what the terminal is worth.
+
 ## [3.94.2] - 2026-09-07
 
 ### Fixed
