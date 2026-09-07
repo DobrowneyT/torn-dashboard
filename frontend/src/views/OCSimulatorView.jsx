@@ -622,7 +622,17 @@ function rewardTooltip(b) {
   return lines.join('\n')
 }
 
-function ResultPanel({ scenario, result, calculating, error }) {
+/**
+ * ⚠️ Exported for tests ONLY, and it earns the export.
+ *
+ * This panel is the one part of the Simulator with real derivation logic in it,
+ * and it shipped a crash in v3.97.0 — a useMemo naming `collapsed` from above
+ * its own declaration, which is a temporal-dead-zone throw the moment the panel
+ * renders with a result. Every pure helper it calls was covered; nothing
+ * mounted the component, so "Cannot access 'o' before initialization" reached
+ * production and took the whole page down. See ResultPanel.test.jsx.
+ */
+export function ResultPanel({ scenario, result, calculating, error }) {
   // ⚠️ E(x) takes BOTH kinds. `expectedValue` has an explicit branch counting
   // bad endings as fully-covered mass paying zero — passing only the good ones
   // made that branch dead code, and the "unpriced coverage" figure was then a
@@ -640,13 +650,6 @@ function ResultPanel({ scenario, result, calculating, error }) {
   )
 
   // Only good endings carry money, and only some of them are priced.
-  const goodProbabilities = useMemo(
-    () => Object.fromEntries(
-      Object.entries(collapsed.probabilities).filter(([k]) => k.startsWith('goodEnding'))
-    ),
-    [collapsed]
-  )
-
   // ⚠️ Alias rows are FOLDED IN, not hidden. goodEnding3, goodEnding35 and
   // goodEnding310 are one outcome under three labels, so the surviving row
   // carries their combined 17.778% — which is what Crimes Hub's simulator
@@ -655,6 +658,18 @@ function ResultPanel({ scenario, result, calculating, error }) {
   const collapsed = useMemo(
     () => collapseAliasedEndings(endingProbabilities, scenario.endings),
     [endingProbabilities, scenario.endings]
+  )
+
+  // ⚠️ MUST stay below `collapsed` — a useMemo dependency array is evaluated
+  // immediately, not deferred with the callback, so naming `collapsed` from
+  // above its own declaration is a temporal-dead-zone throw, not a lint nit.
+  // That shipped in v3.97.0 and took the whole Simulator down with
+  // "Cannot access 'o' before initialization".
+  const goodProbabilities = useMemo(
+    () => Object.fromEntries(
+      Object.entries(collapsed.probabilities).filter(([k]) => k.startsWith('goodEnding'))
+    ),
+    [collapsed]
   )
 
   const endings = useMemo(
