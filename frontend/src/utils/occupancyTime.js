@@ -38,6 +38,24 @@ export const POLL_INTERVAL_SECONDS = 60
 export const MAX_ACCEPTABLE_GAP_SECONDS = 3 * POLL_INTERVAL_SECONDS
 
 /**
+ * A gap worth telling a lead about (#665).
+ *
+ * ⚠️ Deliberately an order of magnitude above MAX_ACCEPTABLE_GAP_SECONDS, and
+ * they answer different questions. The 180s threshold asks "was this window
+ * perfectly watched" — measured in production, the answer is no about once a
+ * week, from jitter of 181–240s. Reporting those would be reporting noise.
+ *
+ * An hour is different in kind. Nobody joins, works and leaves a crime inside
+ * three minutes, so a short gap costs at most a few minutes of one member's
+ * credit; an hour unwatched can hide an entire stint from start to finish, and
+ * the resulting payout is wrong in a way no one can see from the number.
+ *
+ * ⚠️ This does NOT gate the calculation — it annotates it. MonChoon, 2026-09-07:
+ * credit the ambiguous gaps, but surface the significant ones.
+ */
+export const SIGNIFICANT_GAP_SECONDS = 3600
+
+/**
  * One stint's [start, end] in epoch seconds, or null if it is unusable.
  *
  * START is Torn's `torn_joined_at` when we have it. It is exact, where
@@ -112,6 +130,8 @@ export function pollCoverage(polls, fromTimestamp, toTimestamp, maxGap = MAX_ACC
     return {
       covered: false,
       gaps: [[fromTimestamp, toTimestamp]],
+      significantGaps: [[fromTimestamp, toTimestamp]],
+      hasPolls: false,
       pollCount: 0,
       firstPollAt: null,
       lastPollAt: null,
@@ -131,6 +151,15 @@ export function pollCoverage(polls, fromTimestamp, toTimestamp, maxGap = MAX_ACC
   return {
     covered: gaps.length === 0,
     gaps,
+    // ⚠️ #665: the gaps big enough to act on, as distinct from `gaps`, which
+    // catches ordinary jitter. Payouts are no longer gated on `covered` — a
+    // single 181-second blip used to discard a whole window — so this is what
+    // a lead is actually shown.
+    significantGaps: gaps.filter(([a, b]) => b - a >= SIGNIFICANT_GAP_SECONDS),
+    // Whether we watched AT ALL. This is what the payout gate uses now: with
+    // no polls there is nothing to credit and the legacy path is the only
+    // honest source. Distinct from `covered`, which asks for perfection.
+    hasPolls: times.length > 0,
     pollCount: times.length,
     firstPollAt: times[0],
     lastPollAt: times[times.length - 1],

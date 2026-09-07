@@ -624,14 +624,40 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
   // into one continuous stint — is now fixed.
   //
   // But occupancy only helps if it was actually running. MonChoon's stated
-  // concern: "the only issue would be if some faction did not have the
-  // container running constantly." occupancyCoverage.covered is false the
-  // moment there is ANY gap in the window (including at its edges), so the
-  // switch is gated on it — a window with any gap falls all the way back to
-  // the legacy crime_slots-derived calculation above, unchanged, rather than
-  // silently under-crediting whoever left during the gap.
+  // concern in #389: "the only issue would be if some faction did not have the
+  // container running constantly."
+  //
+  // ⚠️ That concern turned out smaller than it looked, and #665 relaxed the
+  // gate accordingly. The two factions with no poller (mayhem, ascension) do
+  // not run payouts at all — MonChoon, 2026-09-07: "they don't use it for
+  // payouts, that's for sure." The gate below therefore asks only whether we
+  // watched at all, not whether we watched perfectly.
   const occupancyCoverage = pollCoverage(crimesData?.occupancy_polls, fromTimestamp, toTimestamp)
-  const usingOccupancy = occupancyCoverage.covered
+  // ⚠️ #665: gated on "did we watch AT ALL", not on "was the watch perfect".
+  //
+  // The original gate was `covered` — false the moment any gap exceeded 180s.
+  // Measured in production over 30 days, forge and tnl each poll ~1435 of 1440
+  // minutes a day (99.97%) and each accumulate FOUR gaps over 180s, the worst
+  // 240s, totalling about 13 minutes. Since roughly one lands per week, a
+  // week-long window almost always contained one, so the occupancy path — the
+  // accurate one — was being discarded nearly every time in favour of the
+  // snapshot calculation, which loses an entire earlier stint on any seat
+  // change or rejoin. Thirteen minutes of jitter was throwing away a month of
+  // minute-accurate data.
+  //
+  // MonChoon, 2026-09-07: "I'm okay with just flipping the switch entirely to
+  // occupancy observed for calculations", with the ambiguous gaps credited and
+  // the significant ones surfaced.
+  //
+  // ⚠️ The fallback survives for ONE case, and it is not the multi-tenant one:
+  // a window with NO polls at all. Occupancy data begins 2026-08-13, and 22 of
+  // forge's 25 saved payout weeks predate it. A pure-occupancy rule would give
+  // every member zero seconds for those windows, and re-saving one would
+  // overwrite a real historical payout with zeros. Saved history is otherwise
+  // untouchable — oc_payout_weeks stores computed results and is read back
+  // verbatim — so this guard is the only thing standing between a
+  // recalculation and destroying the record of what was actually paid.
+  const usingOccupancy = occupancyCoverage.hasPolls
 
   if (usingOccupancy) {
     // crimes-sync runs every 30 minutes; the occupancy poller runs every

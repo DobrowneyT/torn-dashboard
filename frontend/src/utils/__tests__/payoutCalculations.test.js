@@ -1145,9 +1145,11 @@ describe('occupancy drives tickets/payout for a fully-watched window (#389 part 
     executedAt: TO - 10, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM)],
   })
 
-  it('reports timeSource "legacy" when there is any coverage gap', () => {
+  it('reports timeSource "legacy" when there are no polls at all', () => {
+    // `base()` carries no occupancy_polls, so this is the no-data case — the
+    // only one that still falls back since #665.
     const result = calculatePayouts(base(), makeMembers([1]), FROM, TO, 0.20)
-    expect(result.occupancyCoverage.covered).toBe(false)
+    expect(result.occupancyCoverage.hasPolls).toBe(false)
     expect(result.timeSource).toBe('legacy')
   })
 
@@ -1206,9 +1208,14 @@ describe('occupancy drives tickets/payout for a fully-watched window (#389 part 
     expect(m2.crimesCount).toBe(0)
   })
 
-  it('does not switch when the window has even one gap beyond tolerance', () => {
+  it('\u26a0\ufe0f #665: KEEPS using occupancy when the window has a gap', () => {
+    // Inverts #389's "does not switch when the window has even one gap beyond
+    // tolerance". That rule discarded the accurate source over jitter: measured
+    // across 30 days of production, forge and tnl poll 99.97% of minutes and
+    // still accumulate four gaps over 180s each, so a week-long window almost
+    // always contained one and almost always fell back to the snapshot
+    // calculation — which loses an entire earlier stint on any seat change.
     const polls = densePolls()
-    // Drop a chunk from the middle to create a real gap.
     const gapped = polls.filter(p => p.polled_at < FROM + 20 * 60 || p.polled_at > FROM + 30 * 60)
     const data = {
       ...base(),
@@ -1218,9 +1225,52 @@ describe('occupancy drives tickets/payout for a fully-watched window (#389 part 
       occupancy_polls: gapped,
     }
     const result = calculatePayouts(data, makeMembers([1]), FROM, TO, 0.20)
-    expect(result.occupancyCoverage.covered).toBe(false)
+    expect(result.occupancyCoverage.covered).toBe(false)   // still imperfect …
+    expect(result.timeSource).toBe('occupancy')             // … and still used
+    const m1 = result.members.find(m => m.userId === 1 || m.userId === '1')
+    expect(m1.observedSeconds).toBe(2 * 60)
+    expect(m1.ticketTimeSpent).toBe(2 * 60)
+  })
+
+  it('\u26a0\ufe0f #665: falls back to legacy ONLY when nothing was watched at all', () => {
+    // The one surviving fallback, and it exists to protect history rather than
+    // multi-tenancy. Occupancy data starts 2026-08-13; 22 of forge's 25 saved
+    // payout weeks predate it. Under a pure-occupancy rule those windows would
+    // credit every member zero, and re-saving one would overwrite the real
+    // historical payout with zeros.
+    const data = { ...base(), occupancy: [], occupancy_polls: [] }
+    const result = calculatePayouts(data, makeMembers([1]), FROM, TO, 0.20)
+    expect(result.occupancyCoverage.hasPolls).toBe(false)
     expect(result.timeSource).toBe('legacy')
     const m1 = result.members.find(m => m.userId === 1 || m.userId === '1')
     expect(m1.ticketTimeSpent).toBe(TO - 10 - FROM)
+  })
+
+  it('\u26a0\ufe0f #665: reports gaps of an hour or more separately from jitter', () => {
+    // Short gaps are credited silently; an hour unwatched can hide an entire
+    // stint start-to-finish, so it is surfaced rather than absorbed.
+    //
+    // ⚠️ Its own WEEK-long window on purpose: this block's TO is FROM + HOUR,
+    // and a gap of an hour or more cannot exist inside an hour-long window, so
+    // reusing the shared fixture makes the case impossible to construct rather
+    // than merely awkward.
+    const WEEK_TO = FROM + 7 * DAY
+    const polls = []
+    for (let t = FROM; t <= WEEK_TO; t += 150) polls.push({ polled_at: t })
+    const bigGap = polls.filter(p => p.polled_at < FROM + 10 * 60 || p.polled_at > FROM + 80 * 60)
+
+    const data = {
+      ...makeCrimeFixture({
+        executedAt: WEEK_TO - 10, rewardsMoney: 1_000_000, slots: [makeSlot(1, FROM)],
+      }),
+      occupancy: [],
+      occupancy_polls: bigGap,
+    }
+    const result = calculatePayouts(data, makeMembers([1]), FROM, WEEK_TO, 0.20)
+    expect(result.occupancyCoverage.significantGaps.length).toBeGreaterThan(0)
+    expect(result.occupancyCoverage.significantGaps[0][1] - result.occupancyCoverage.significantGaps[0][0])
+      .toBeGreaterThanOrEqual(3600)
+    // Still used, not discarded — that is the whole point of #665.
+    expect(result.timeSource).toBe('occupancy')
   })
 })
