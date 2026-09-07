@@ -18,6 +18,58 @@ surface it automatically.
 
 ---
 
+## [3.97.0] - 2026-09-07
+
+### Changed
+
+- **The Simulator's endings list folds alias rows into the ending they belong
+  to.** Blast from the Past listed `goodEnding3`, `goodEnding35` and
+  `goodEnding310` as three rows with identical payouts — noise, since they are
+  one outcome the probability service labels three ways. Its list goes from 13
+  rows to 9.
+
+  ⚠️ **The probability MOVES; it is not discarded.** `goodEnding3` now reads
+  **17.778%**, which is what Crimes Hub's simulator gives that terminal. Hiding
+  the alias rows instead would have left it reading 10.526% and the column no
+  longer summing to 100% — a worse lie than the noise it removed. A `×3` marker
+  names the merged labels on hover.
+
+  E(x), the payout spread and expected respect are unchanged: an alias prices
+  from the same node as its target, so summing rows that share a payout gives an
+  identical total. Blast from the Past stays at $122,489,526.
+
+- **An items-paying ending says "in items", not "+items".** ⚠️ Nothing is being
+  added. Measured across all 31 scenarios, **21 crimes pay purely in cash, 8
+  purely in items, and not one pays both** — so on those eight this figure *is*
+  the payout, priced at current market rates. The old label read as a bonus on
+  top of a cash reward that does not exist.
+
+### Added
+
+- **Every ending shows the spread behind its averaged figure**, where there is
+  one, and the reward detail on hover: which drops make up an item value, how
+  often each lands, what each contributes, and how many observed runs the whole
+  thing rests on.
+
+  Cash and item value carry different kinds of uncertainty and are reported
+  separately rather than flattened into one ±. Cash is an observed min/avg/max
+  over the node's runs — Blast from the Past's `goodEnding1` averages
+  $172,408,913 across **$158,585,000 – $215,676,000**, a $57M swing that was
+  previously invisible. Item value is an expectation, `Σ dropRate × qty × price`.
+
+  ⚠️ The item **floor counts only drops seen on every observed run**. A drop that
+  landed 780 times in 781 is not a floor, and rounding it into one would present
+  a near-certainty as a guarantee. Neither bound is a promise the game makes,
+  which is why the observation count is stated on the same line as the range —
+  a floor from two runs and one from six thousand otherwise render identically.
+
+  ⚠️ A drop the catalogue cannot price is **excluded from every figure and named**,
+  so the total is a floor rather than a silent underestimate.
+
+- `priceNodeItems()` returns `min`, `max` and a per-drop breakdown alongside
+  `value`; the API ships `item_value_min`, `item_value_max` and `item_drops`
+  (capped at 8, sorted by contribution — the totals cover every drop).
+
 ## [3.96.0] - 2026-09-07
 
 ### Added

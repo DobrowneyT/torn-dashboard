@@ -23,7 +23,7 @@
 export interface ItemDropInput {
   name: string
   occurrences: number
-  qty: { avg: number }
+  qty: { min?: number; avg: number; max?: number }
 }
 
 export interface ItemCatalogEntry {
@@ -31,9 +31,34 @@ export interface ItemCatalogEntry {
   sellPrice: number | null
 }
 
+export interface NodeItemDrop {
+  name: string
+  /** Share of observed runs of this node that dropped it, 0..1. */
+  dropRate: number
+  /** Observed stack size, per drop. */
+  qty: { min: number; avg: number; max: number }
+  /** GREATEST(market_price, sell_price), the same rule #448 uses. */
+  unitPrice: number
+  /** dropRate × qty.avg × unitPrice — this drop's share of `value`. */
+  contribution: number
+}
+
 export interface NodeItemValue {
   /** Expected item value per run of this node, at current prices. */
   value: number
+  /**
+   * The floor: only drops seen on EVERY observed run, at their smallest stack.
+   *
+   * ⚠️ A floor, not a guarantee. It says "these drops have never been missed in
+   * n runs", which for a node observed twice is nearly no evidence at all — the
+   * caller has `observations` and must weigh it. Never presented as a minimum
+   * the game promises.
+   */
+  min: number
+  /** The ceiling: every drop landing at once, at its largest observed stack. */
+  max: number
+  /** Per-item breakdown, biggest contributor first. */
+  drops: NodeItemDrop[]
   /** Item names observed dropping that the catalogue could not price. */
   unmatched: string[]
 }
@@ -69,6 +94,9 @@ export function priceNodeItems(
   if (!Number.isFinite(n) || n <= 0) return null
 
   let value = 0
+  let min = 0
+  let max = 0
+  const drops: NodeItemDrop[] = []
   const unmatched: string[] = []
   for (const item of items) {
     if (!item?.name || !Number.isFinite(item.occurrences) || !Number.isFinite(item.qty?.avg)) continue
@@ -78,9 +106,24 @@ export function priceNodeItems(
     // set) is indistinguishable from an absent one here, and both mean the
     // same thing to a caller: we cannot put a number on this drop.
     if (price <= 0) { unmatched.push(item.name); continue }
-    value += (item.occurrences / n) * item.qty.avg * price
+    const dropRate = item.occurrences / n
+    const contribution = dropRate * item.qty.avg * price
+    value += contribution
+    // ⚠️ The floor counts a drop only where it was seen on EVERY run. A drop
+    // that landed 780 times in 781 is not a floor, and rounding it into one
+    // would present a near-certainty as a guarantee.
+    if (item.occurrences >= n) min += (item.qty.min ?? item.qty.avg) * price
+    max += (item.qty.max ?? item.qty.avg) * price
+    drops.push({
+      name: item.name,
+      dropRate,
+      qty: { min: item.qty.min ?? item.qty.avg, avg: item.qty.avg, max: item.qty.max ?? item.qty.avg },
+      unitPrice: price,
+      contribution,
+    })
   }
-  return { value, unmatched }
+  drops.sort((a, b) => b.contribution - a.contribution)
+  return { value, min, max, drops, unmatched }
 }
 
 

@@ -14,6 +14,8 @@ import {
   endingValue,
   isPriceable,
   withoutEndingPadding,
+  collapseAliasedEndings,
+  endingValueBreakdown,
   THIN_SAMPLE_THRESHOLD,
 } from '../ocScenarioPayouts'
 import { expectedValue } from '../ocExpectedValue'
@@ -401,5 +403,127 @@ describe('withoutEndingPadding', () => {
     // No model at all: nothing is "known", so only real mass survives.
     expect(withoutEndingPadding({ goodEnding1: 0.5, goodEnding2: 0 }, null))
       .toEqual({ goodEnding1: 0.5 })
+  })
+})
+
+/**
+ * Folding alias rows into the ending they share a terminal with (#606).
+ *
+ * The fixture is Blast from the Past's real shape: goodEnding3 with two extra
+ * labels, goodEnding4 with two more.
+ */
+describe('collapseAliasedEndings', () => {
+  const blast = [
+    { ending_key: 'goodEnding1', kind: 'good', resolved: true },
+    { ending_key: 'goodEnding3', kind: 'good', resolved: true },
+    { ending_key: 'goodEnding35', kind: 'good', resolved: true, alias_of: 'goodEnding3' },
+    { ending_key: 'goodEnding310', kind: 'good', resolved: true, alias_of: 'goodEnding3' },
+    { ending_key: 'goodEnding4', kind: 'good', resolved: true },
+    { ending_key: 'goodEnding45', kind: 'good', resolved: true, alias_of: 'goodEnding4' },
+  ]
+  const probs = {
+    goodEnding1: 0.42105, goodEnding3: 0.10526, goodEnding35: 0.06316,
+    goodEnding310: 0.00936, goodEnding4: 0.03509, goodEnding45: 0.02104,
+  }
+
+  it('⚠️ MOVES the probability rather than discarding it', () => {
+    // The whole point. Crimes Hub's simulator gives that terminal 17.78%;
+    // hiding the alias rows would leave it reading 10.526%.
+    const { probabilities } = collapseAliasedEndings(probs, blast)
+    expect(probabilities.goodEnding3).toBeCloseTo(0.17778, 5)
+    expect(probabilities.goodEnding4).toBeCloseTo(0.05613, 5)
+    expect(Object.keys(probabilities).sort())
+      .toEqual(['goodEnding1', 'goodEnding3', 'goodEnding4'])
+  })
+
+  it('conserves total probability', () => {
+    const before = Object.values(probs).reduce((a, b) => a + b, 0)
+    const { probabilities } = collapseAliasedEndings(probs, blast)
+    const after = Object.values(probabilities).reduce((a, b) => a + b, 0)
+    expect(after).toBeCloseTo(before, 10)
+  })
+
+  it('reports which labels were merged, target first', () => {
+    const { mergedLabels } = collapseAliasedEndings(probs, blast)
+    expect(mergedLabels.get('goodEnding3')).toEqual(['goodEnding3', 'goodEnding35', 'goodEnding310'])
+    expect(mergedLabels.get('goodEnding4')).toEqual(['goodEnding4', 'goodEnding45'])
+    expect(mergedLabels.has('goodEnding1')).toBe(false)
+  })
+
+  it('is a no-op on a scenario with no aliases, and never returns the input object', () => {
+    const plain = [{ ending_key: 'goodEnding1', kind: 'good' }]
+    const input = { goodEnding1: 0.5 }
+    const { probabilities, mergedLabels } = collapseAliasedEndings(input, plain)
+    expect(probabilities).toEqual(input)
+    expect(probabilities).not.toBe(input)
+    expect(mergedLabels.size).toBe(0)
+  })
+
+  it('⚠️ resolves a chain rather than losing mass into a row that was itself folded', () => {
+    // The build refuses to record this, but a bad model file must not silently
+    // drop probability into a key nobody can see.
+    const chained = [
+      { ending_key: 'goodEnding1', kind: 'good' },
+      { ending_key: 'goodEnding2', kind: 'good', alias_of: 'goodEnding1' },
+      { ending_key: 'goodEnding3', kind: 'good', alias_of: 'goodEnding2' },
+    ]
+    const { probabilities } = collapseAliasedEndings(
+      { goodEnding1: 0.5, goodEnding2: 0.3, goodEnding3: 0.2 }, chained)
+    expect(probabilities).toEqual({ goodEnding1: 1 })
+  })
+})
+
+describe('endingValueBreakdown', () => {
+  it('reports a cash ending with its observed spread', () => {
+    // Blast from the Past's _A10S_, real figures.
+    const b = endingValueBreakdown({
+      money_avg: 155312854, money_min: 142746000, money_max: 194190000,
+      observations: 6704, item_value_avg: null,
+    })
+    expect(b.kind).toBe('cash')
+    expect(b.total).toBe(155312854)
+    expect(b.range).toEqual({ lo: 142746000, hi: 194190000 })
+    expect(b.observations).toBe(6704)
+  })
+
+  it('⚠️ gives no range when min and max are the same observation', () => {
+    // A node observed once reports min = avg = max. "$5M – $5M" would dress a
+    // single run up as a measured spread.
+    const b = endingValueBreakdown({
+      money_avg: 5000000, money_min: 5000000, money_max: 5000000, observations: 1,
+    })
+    expect(b.range).toBeNull()
+  })
+
+  it('reports an items ending as items, with its drops', () => {
+    const b = endingValueBreakdown({
+      money_avg: 0, item_value_avg: 30811791,
+      item_value_min: 12000000, item_value_max: 61000000, observations: 781,
+      item_drops: [{ name: 'Priceless Painting', dropRate: 1, qty: { min: 1, avg: 1, max: 1 }, unitPrice: 12000000, contribution: 12000000 }],
+    })
+    expect(b.kind).toBe('items')
+    expect(b.total).toBe(30811791)
+    expect(b.range).toEqual({ lo: 12000000, hi: 61000000 })
+    expect(b.drops).toHaveLength(1)
+  })
+
+  it('⚠️ calls it items even when money_avg is a real observed zero', () => {
+    // Every items crime in the fleet reports money 0, not null. Reading that as
+    // "cash, worth nothing" would label eight crimes' entire payout as cash.
+    const b = endingValueBreakdown({ money_avg: 0, item_value_avg: 500, observations: 10 })
+    expect(b.kind).toBe('items')
+  })
+
+  it('returns null for an ending with nothing to break down', () => {
+    expect(endingValueBreakdown({ money_avg: null, item_value_avg: null })).toBeNull()
+    expect(endingValueBreakdown({ money_avg: 0, item_value_avg: 0 })).toBeNull()
+    expect(endingValueBreakdown(null)).toBeNull()
+  })
+
+  it('carries the unpriced drop names through', () => {
+    const b = endingValueBreakdown({
+      money_avg: 0, item_value_avg: 100, item_value_unmatched: ['Mystery Box'],
+    })
+    expect(b.unmatched).toEqual(['Mystery Box'])
   })
 })
