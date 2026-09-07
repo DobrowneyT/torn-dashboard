@@ -67,6 +67,102 @@ export function withoutEndingPadding(probabilities, endings) {
 }
 
 /**
+ * What one ending is worth, broken into the parts a reader can act on (#606).
+ *
+ * ⚠️ Cash and items are never both present. Measured across all 31 scenarios:
+ * 21 crimes pay purely in cash, 8 purely in items, and NOT ONE pays both. So
+ * "cash + item value" is never actually a sum — it is one or the other, and
+ * the UI's job is to say which and how confident the figure is, not to add.
+ *
+ * The two carry different kinds of uncertainty, which is why they are reported
+ * separately rather than flattened into one ± :
+ *
+ *   cash   — an observed min/avg/max over `observations` runs of this node.
+ *   items  — an EXPECTED value: Σ dropRate × qty × price. Its floor counts only
+ *            drops seen on every run; its ceiling is every drop landing at
+ *            once. Neither bound is a game guarantee, and `observations` is
+ *            what says how much either is worth.
+ *
+ * Returns null for an ending with nothing to break down, so callers keep
+ * rendering the plain total.
+ */
+export function endingValueBreakdown(e) {
+  if (!e) return null
+  const money = num(e.money_avg)
+  const items = num(e.item_value_avg)
+  const kind = items !== null && items > 0 ? 'items' : money !== null && money > 0 ? 'cash' : null
+  if (kind === null) return null
+
+  if (kind === 'cash') {
+    const lo = num(e.money_min)
+    const hi = num(e.money_max)
+    return {
+      kind, total: money,
+      // ⚠️ Only a range when the two ends actually differ. A node observed once
+      // reports min = avg = max, and printing "$5M – $5M" would dress a single
+      // observation up as a measured spread.
+      range: lo !== null && hi !== null && hi > lo ? { lo, hi } : null,
+      drops: [], unmatched: e.item_value_unmatched ?? [],
+      observations: num(e.observations),
+    }
+  }
+
+  const lo = num(e.item_value_min)
+  const hi = num(e.item_value_max)
+  return {
+    kind, total: items,
+    range: lo !== null && hi !== null && hi > lo ? { lo, hi } : null,
+    drops: Array.isArray(e.item_drops) ? e.item_drops : [],
+    unmatched: e.item_value_unmatched ?? [],
+    observations: num(e.observations),
+  }
+}
+
+/**
+ * Fold each alias row into the ending it shares a terminal with (#606).
+ *
+ * ⚠️ The probability MOVES, it is not discarded. These are one outcome the
+ * service reports under several labels, so the row that survives has to carry
+ * their combined chance — Blast from the Past's goodEnding3 happens 17.778% of
+ * the time, not the 10.526% its own label reports, and Crimes Hub's simulator
+ * agrees to the third decimal. Simply hiding the alias rows would leave that
+ * ending understated by 7 points and the column no longer summing to 100%.
+ *
+ * Presentation only. E(x), the payout spread and expected respect are all
+ * unchanged: an alias prices from the same node as its target, so summing the
+ * probabilities of rows that share a payout gives the identical total.
+ *
+ * Returns the collapsed probabilities plus `mergedLabels`, target key → every
+ * label the service used for it, so the surviving row can say so on hover
+ * without putting the noise back on screen.
+ */
+export function collapseAliasedEndings(probabilities, endings) {
+  const aliasOf = new Map()
+  for (const e of endings ?? []) {
+    if (e?.alias_of && e.ending_key) aliasOf.set(e.ending_key, e.alias_of)
+  }
+  if (aliasOf.size === 0) return { probabilities: { ...(probabilities ?? {}) }, mergedLabels: new Map() }
+
+  const out = {}
+  const mergedLabels = new Map()
+  for (const [key, p] of Object.entries(probabilities ?? {})) {
+    // ⚠️ Resolve through a chain rather than one hop. The build refuses to
+    // record an alias whose target is itself an alias, but a bounded walk here
+    // costs nothing and means a bad model file cannot lose probability mass
+    // into a row that was itself folded away.
+    let target = key
+    for (let i = 0; i < 8 && aliasOf.has(target); i++) target = aliasOf.get(target)
+    const value = Number(p)
+    out[target] = (out[target] ?? 0) + (Number.isFinite(value) ? value : 0)
+    if (target !== key) {
+      if (!mergedLabels.has(target)) mergedLabels.set(target, [target])
+      mergedLabels.get(target).push(key)
+    }
+  }
+  return { probabilities: out, mergedLabels }
+}
+
+/**
  * Whether an ending has anything to price at all — resolved to a real
  * diagram node, OR confirmed starved (#473: the API reports it, the diagram
  * draws no terminal for it, so it can never get real stats — soft-priced at

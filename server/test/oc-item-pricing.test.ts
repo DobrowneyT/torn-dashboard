@@ -115,3 +115,64 @@ describe('priceNodeItems', () => {
       .toBeNull()
   })
 })
+
+/**
+ * The breakdown behind `value` (#606 follow-up).
+ *
+ * ⚠️ Eight of the fleet's 31 crimes pay purely in items and none pays both, so
+ * on those this IS the payout — not a bonus on top of a cash reward. That makes
+ * the detail behind the single averaged figure worth showing, and worth pinning.
+ */
+describe('priceNodeItems breakdown', () => {
+  const catalog = buildItemCatalog([
+    { name: 'Priceless Painting', market_price: 10_000_000, sell_price: null },
+    { name: 'Shabti Sculpture', market_price: 4_000_000, sell_price: null },
+    { name: 'Mystery Box', market_price: null, sell_price: null },
+  ])
+
+  it('⚠️ counts only never-missed drops toward the floor', () => {
+    // The painting landed on all 100 runs; the sculpture on 50. A floor that
+    // included the sculpture would present a coin flip as a guarantee.
+    const out = priceNodeItems([
+      { name: 'Priceless Painting', occurrences: 100, qty: { min: 1, avg: 1, max: 2 } },
+      { name: 'Shabti Sculpture', occurrences: 50, qty: { min: 1, avg: 1, max: 1 } },
+    ], 100, catalog)
+    expect(out.min).toBe(10_000_000)
+    // Ceiling is every drop at its largest stack, whatever the drop rate.
+    expect(out.max).toBe(2 * 10_000_000 + 4_000_000)
+    // Expected value is unchanged by any of this.
+    expect(out.value).toBe(10_000_000 + 0.5 * 4_000_000)
+  })
+
+  it('sorts drops by what they actually contribute, not by drop rate', () => {
+    const out = priceNodeItems([
+      { name: 'Shabti Sculpture', occurrences: 100, qty: { min: 1, avg: 1, max: 1 } },
+      { name: 'Priceless Painting', occurrences: 60, qty: { min: 1, avg: 1, max: 1 } },
+    ], 100, catalog)
+    // The painting drops less often and is still worth more per run.
+    expect(out.drops.map((d) => d.name)).toEqual(['Priceless Painting', 'Shabti Sculpture'])
+    expect(out.drops[0].contribution).toBe(6_000_000)
+    expect(out.drops[0].dropRate).toBeCloseTo(0.6, 10)
+  })
+
+  it('⚠️ leaves an unpriceable drop out of every figure, and names it', () => {
+    // Absent beats confidently wrong: the total is a floor, and the caller is
+    // told which drop it excludes rather than being handed a silent zero.
+    const out = priceNodeItems([
+      { name: 'Priceless Painting', occurrences: 100, qty: { min: 1, avg: 1, max: 1 } },
+      { name: 'Mystery Box', occurrences: 100, qty: { min: 1, avg: 1, max: 1 } },
+    ], 100, catalog)
+    expect(out.unmatched).toEqual(['Mystery Box'])
+    expect(out.value).toBe(10_000_000)
+    expect(out.max).toBe(10_000_000)
+    expect(out.drops.map((d) => d.name)).toEqual(['Priceless Painting'])
+  })
+
+  it('tolerates a drop with no min/max, falling back to avg rather than zero', () => {
+    const out = priceNodeItems(
+      [{ name: 'Priceless Painting', occurrences: 100, qty: { avg: 3 } }], 100, catalog)
+    expect(out.min).toBe(3 * 10_000_000)
+    expect(out.max).toBe(3 * 10_000_000)
+    expect(out.drops[0].qty).toEqual({ min: 3, avg: 3, max: 3 })
+  })
+})
