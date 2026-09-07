@@ -18,6 +18,46 @@ surface it automatically.
 
 ---
 
+## [3.92.0] - 2026-09-07
+
+### Changed
+
+- **Payout time now comes from the crime-occupancy poller whenever it ran at
+  all, instead of being discarded over jitter (#665).** The gate was "was this
+  window perfectly watched"; it is now "did we watch at all".
+
+  ⚠️ Measured over 30 days of production: forge and tnl each poll ~1435 of 1440
+  minutes a day — **99.97% coverage** — and each still accumulate **four** gaps
+  over the 180s tolerance, the worst 240s, totalling about 13 minutes. Since
+  roughly one lands per week, a week-long payout window almost always contained
+  one and almost always fell back to the legacy `crime_slots` calculation. That
+  fallback is structurally lossy: the table is snapshot-keyed, so a seat change
+  or a leave-and-rejoin silently overwrites `joined_at` and the earlier stint is
+  gone. Thirteen minutes of jitter was throwing away a month of minute-accurate
+  data in favour of a source that loses whole stints.
+
+  Ambiguous gaps are credited rather than reconciled. With a worst gap of 240s
+  the error is bounded at about four minutes; the fallback's error is unbounded.
+
+- **Gaps of an hour or more are surfaced in the Occupancy panel**, separately
+  from ordinary jitter. ⚠️ An hour unwatched can hide an entire stint from start
+  to finish — someone joined and left inside it and left no trace — so the
+  resulting payout is wrong in a way nobody can see from the number. Short gaps
+  cost a few minutes of one member's credit and stay silent.
+
+### Fixed
+
+- The Occupancy panel claimed a window was "fully watched" whenever occupancy
+  drove the payout. Since those are no longer the same statement, it now says
+  what it actually knows.
+
+⚠️ **Saved payout history is unaffected.** `oc_payout_weeks` / `oc_payout_members`
+store computed results and are read back verbatim, so every already-saved week
+displays exactly what it displayed before. The no-polls fallback is retained for
+one reason: occupancy data begins 2026-08-13 and **22 of forge's 25 saved weeks
+predate it**, so a pure-occupancy rule would credit those windows zero and a
+re-save would overwrite a real historical payout with zeros.
+
 ## [3.91.2] - 2026-09-07
 
 ⚠️ 3.91.1 was cut from `main` as a hotfix (the userscript `@version` bump for
