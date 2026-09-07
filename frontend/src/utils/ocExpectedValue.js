@@ -35,12 +35,20 @@ export function payoutsFor(scenario) {
 /**
  * Expected value over the endings we can price.
  *
- * Returns `{ expected, pricedProbability, missing, complete }`.
+ * Returns `{ expected, pricedProbability, missingProbability, missing, complete }`.
  *
- *   expected           Σ P(ending) × payout(ending), over PRICED endings only
- *   pricedProbability  how much of the probability mass that covers (0..1)
- *   missing            ending keys with a probability but no payout
- *   complete           nothing missing — `expected` is the real E(x)
+ *   expected            Σ P(ending) × payout(ending), over PRICED endings only
+ *   pricedProbability   how much of the probability mass that covers (0..1)
+ *   missingProbability  the mass sitting on the endings we could NOT price
+ *   missing             ending keys with a probability but no payout
+ *   complete            nothing missing — `expected` is the real E(x)
+ *
+ * ⚠️ `missingProbability` is NOT `1 - pricedProbability`, and the panel used to
+ * render it as though it were. The service's own numbers do not always sum to
+ * 1 — Window of Opportunity's come to 0.99675 — so the difference silently
+ * folded that residual into the unpriced figure and attributed it to endings
+ * that hold no mass at all. It read "4 endings unpriced, covering 0.33% of the
+ * probability" about four endings at 0.000%.
  *
  * When `complete` is false, `expected` is a LOWER BOUND, not an estimate: the
  * unpriced endings contribute an unknown non-negative amount. Callers must
@@ -55,6 +63,7 @@ export function expectedValue(scenario, endingProbabilities, payouts = payoutsFo
 
   let expected = 0
   let pricedProbability = 0
+  let missingProbability = 0
   const missing = []
 
   for (const [key, p] of Object.entries(probs)) {
@@ -69,7 +78,7 @@ export function expectedValue(scenario, endingProbabilities, payouts = payoutsFo
     // `== null` and not falsy: a genuine 0 is a price, and treating it as
     // missing would report an ending we HAVE measured as unknown. This is the
     // Number(null) === 0 trap from the other direction.
-    if (payout == null) { missing.push(key); continue }
+    if (payout == null) { missing.push(key); missingProbability += p; continue }
     expected += p * payout
     pricedProbability += p
   }
@@ -77,6 +86,7 @@ export function expectedValue(scenario, endingProbabilities, payouts = payoutsFo
   return {
     expected,
     pricedProbability,
+    missingProbability,
     missing,
     complete: missing.length === 0,
   }

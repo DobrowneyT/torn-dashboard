@@ -60,6 +60,17 @@ export interface OcModelEnding {
   resolved: boolean
   problem: string | null
   starved: boolean
+  /**
+   * This ending shares a diagram terminal with the ending named here (#606).
+   *
+   * ⚠️ Not a duplicate row to filter out — it carries its own probability, and
+   * the two together are what the terminal is really worth. Blast from the
+   * Past's goodEnding3, goodEnding35 and goodEnding310 are one outcome the API
+   * reports under three labels, and their probabilities sum to exactly the
+   * 17.78% Crimes Hub's own simulator gives that terminal. Recorded in
+   * `model-overrides.json` with its evidence; `null` for an ordinary ending.
+   */
+  aliasOf: string | null
   /** ⚠️ `null` when no reward figure is known — either the scenario has no
    *  Crimes Hub coverage, or its shape was not recognised and was deliberately
    *  not guessed at. Absent beats confidently wrong (#441/#473/#351). */

@@ -133,3 +133,42 @@ describe('unpriced coverage against the FULL probability space (#471)', () => {
     expect(r.expected).toBeCloseTo(expectedValue('x', goodOnly, PRICED).expected, 6)
   })
 })
+
+/**
+ * The unpriced-coverage figure the panel prints (#606 follow-up).
+ *
+ * ⚠️ This used to be rendered as `1 - pricedProbability`, which is a different
+ * number whenever the service's own probabilities do not sum to 1 — and they
+ * often do not. Window of Opportunity's come to 0.99675, so the panel reported
+ * "0.33% of the probability" as the coverage of four endings sitting at exactly
+ * zero. The residual is upstream mass loss; attributing it to our unpriced
+ * endings pointed the reader at the wrong problem.
+ */
+describe('missingProbability (#606 follow-up)', () => {
+  it('reports the mass actually sitting on the unpriced endings', () => {
+    const ev = expectedValue('X', { goodEnding1: 0.6, goodEnding2: 0.25, badEnding1: 0.15 },
+      { goodEnding1: 100 })
+    expect(ev.missing).toEqual(['goodEnding2'])
+    expect(ev.missingProbability).toBeCloseTo(0.25, 10)
+  })
+
+  it('⚠️ is NOT 1 - pricedProbability when the service loses mass', () => {
+    // Every ending priced, yet the probabilities sum to 0.99675. The old figure
+    // would have claimed 0.33% was unpriced; nothing is.
+    const ev = expectedValue('X', { goodEnding1: 0.84675, badEnding1: 0.15 }, { goodEnding1: 100 })
+    expect(ev.complete).toBe(true)
+    expect(ev.missingProbability).toBe(0)
+    expect(1 - ev.pricedProbability).toBeCloseTo(0.00325, 10)
+  })
+
+  it('counts zero-probability unpriced endings as zero coverage, not as the residual', () => {
+    // The exact production shape: four padded slots, no mass, still listed as
+    // missing by key. Whatever the panel says about them, it must not be a
+    // percentage they do not hold.
+    const ev = expectedValue('X',
+      { goodEnding1: 0.99675, goodEnding7: 0, goodEnding8: 0, goodEnding9: 0, goodEnding10: 0 },
+      { goodEnding1: 100 })
+    expect(ev.missing).toHaveLength(4)
+    expect(ev.missingProbability).toBe(0)
+  })
+})

@@ -36,6 +36,7 @@
       "resolved": false,
       "problem": "badEnding1: ties between _A1F_ and _C5F_ on role evidence — needs a paired-role probe (Imitator + Cat Burglar)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -51,6 +52,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -66,6 +68,7 @@
       "resolved": false,
       "problem": "badEnding3: ties between _B4F_ and _C5F_ on role evidence — needs a paired-role probe (Cat Burglar + Cleaner)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -81,6 +84,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -96,6 +100,7 @@
       "resolved": false,
       "problem": "badEnding5: ties between _B4F_ and _A1F_ on role evidence — needs a paired-role probe (Imitator + Cat Burglar)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -111,6 +116,7 @@
       "resolved": false,
       "problem": "badEnding6: ties between _B4F_ and _C5F_ on role evidence — needs a paired-role probe (Cat Burglar + Cleaner)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -126,6 +132,7 @@
       "resolved": false,
       "problem": "badEnding7: ties between _A6F_ and _B4F_ on role evidence — needs a paired-role probe (Cleaner + Assassin)",
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -141,6 +148,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 117161350,
         "respect": 294,
@@ -156,6 +164,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 104995714,
         "respect": 272,
@@ -171,6 +180,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 93833666,
         "respect": 241,
@@ -186,6 +196,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 86187142,
         "respect": 209,
@@ -201,6 +212,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 74929714,
         "respect": 179,
@@ -216,6 +228,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 66239666,
         "respect": 154,

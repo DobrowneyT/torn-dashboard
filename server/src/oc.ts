@@ -339,6 +339,10 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
                     resolved: e.resolved,
                     starved: e.starved,
                     problem: e.problem,
+                    // #606: which ending this one shares a terminal with, so the
+                    // Simulator can say why two rows carry the same payout
+                    // rather than leaving it looking like a duplicate row.
+                    alias_of: e.aliasOf ?? null,
                     money_avg: st?.money_avg ?? null,
                     money_min: st?.money_min ?? null,
                     money_max: st?.money_max ?? null,

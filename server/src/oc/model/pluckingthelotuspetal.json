@@ -36,6 +36,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 8894000,
         "respect": 105,
@@ -51,6 +52,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 7922000,
         "respect": 93,
@@ -66,6 +68,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 6955000,
         "respect": 71,
@@ -81,6 +84,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 6113000,
         "respect": 85,

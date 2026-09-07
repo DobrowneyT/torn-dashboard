@@ -18,6 +18,118 @@ surface it automatically.
 
 ---
 
+## [3.95.0] - 2026-09-07
+
+### Added
+
+- **`server/src/oc/model-overrides.json`** — recorded corrections to the OC model
+  that the build cannot derive for itself, each carrying its evidence.
+
+  ⚠️ This file exists because the corrections are **not re-derivable**. The probe
+  sweep that produced the ending→node mapping ran against tornprobability's live
+  API and no longer runs, and the tenant export carries only its *result*
+  (`resolved` / `starved`), not the per-ending probabilities it decided from. A
+  correction therefore has to be written down or it is lost on the next rebuild.
+
+  Two entry kinds. `aliasEndings` folds a surplus API ending label onto the
+  diagram terminal it actually shares; `rewardFrom` says which Crimes Hub ending
+  holds a given ending's published reward, for the cases where the two services
+  number their endings differently.
+
+### Fixed
+
+- **Blast from the Past's expected value was understated by 10% and presented as
+  exact.** Crimes Hub draws four good terminals for that crime; tornprobability
+  reports eight good endings. The surplus four — `goodEnding35`, `45`, `310`,
+  `410` — were starved, and because a starved ending is priced-at-$0-*by
+  definition* (#473) the panel reported the crime as fully priced: a firm
+  **$111,028,512**, with 9.67% of the probability silently valued at nothing.
+
+  Crimes Hub's own simulator settles it. At all six CPRs at 75:
+
+  | Crimes Hub | | tornprobability |
+  |---|---|---|
+  | Good End #3 = `_B8S1_` | **17.78%** | `goodEnding3` 10.526 + `35` 6.316 + `310` 0.936 = **17.778** |
+  | Good End #4 = `_B8S2_` | **5.93%** | `goodEnding4` 3.509 + `45` 2.104 + `410` 0.312 = **5.925** |
+
+  Good Ends #1 and #2 match one-to-one, as do all three bad ends — the two
+  services agree everywhere except this grouping. The four now resolve to the
+  terminals they share and price from the same observations, giving
+  **$122,489,526**.
+
+- **Counter Offer's published reward sat on the wrong ending.** Crimes Hub
+  numbers endings by reward rank; tornprobability numbers them its own way, and
+  the reward was joined by key name. Matching the hub's published respect against
+  each terminal's *observed* respect identifies the join exactly — `_A7S_` 171 ↔
+  170, `_A7S2_` 153 ↔ 155, `_A5S_` 137 ↔ 136, `_B5S_` 120 ↔ **122** — so the
+  hub's `goodEnding4` is our `goodEnding6`. By name it landed on our
+  `goodEnding4`: the one starved ending on the crime, and therefore the only one
+  with no observation to check it against.
+
+  ⚠️ A hub key claimed through `rewardFrom` is **consumed** by that mapping and is
+  no longer joined to the ending that merely shares its name — otherwise the
+  reward would be attached twice, once correctly and once back where it started.
+
+### Changed
+
+- Endings carry **`aliasOf`** (`alias_of` over the API), and the Simulator shows
+  a quiet `= goodEnding3` beside an aliased row. Without it the reader sees two
+  rows with identical payouts and no reason for it, which reads as a duplicate
+  row rather than as one terminal reported under several labels.
+
+  ⚠️ An alias is **not** a duplicate to filter out. It carries its own
+  probability, and the labels together are what the terminal is worth.
+
+## [3.94.2] - 2026-09-07
+
+### Fixed
+
+- **The OC Simulator no longer badges endings whose mapping cannot matter.** A
+  bad ending pays $0 by the game's rules, so whether it resolved to a diagram
+  node changes nothing anyone can act on — but the per-row badge asked every
+  ending, not just the good ones, and **97 of the fleet's bad endings are
+  unmapped**. Clinical Precision showed five amber "unmapped" flags on a crime
+  whose pricing is complete. `pricingQuality()` had scoped its own summary line
+  to good endings all along; the row badge was the one place still asking.
+
+  Across all 31 scenarios there are now **zero** unmapped good endings, which is
+  the number that was always being reported — just buried under the bad ones.
+
+- **The Simulator no longer lists ending slots the crime does not have.**
+  tornprobability answers with a fixed number of ending slots and pads the
+  unused tail with exact zeros. Window of Opportunity has six good endings and
+  no bad ones; the response carries `goodEnding1..10` **and** `badEnding1..10`,
+  so **fourteen of its twenty rows described endings that do not exist** — four
+  reading "unpriced", ten reading "$0". The four also reached
+  `expectedValue()`'s `missing`, so the panel announced a lower bound on a crime
+  it had priced in full.
+
+  The server already trims this when building the model (`realEndingKeys`), but
+  the live `/calculate` response is passed through verbatim by design, so
+  `withoutEndingPadding()` does it again client-side.
+
+  ⚠️ The test is **"unknown to the model AND exactly zero"**, never either alone.
+  Zero alone would hide a real ending that is merely unreachable at these CPRs,
+  making it blink in and out of the list as the sliders move. Unknown alone
+  would hide a genuine disagreement — if the service puts real probability on a
+  key we have never heard of, that is precisely what a reader needs told, and it
+  stays on screen as unpriced.
+
+  ⚠️ Deliberately **does not** touch Blast from the Past's `goodEnding35` /
+  `45` / `310` / `410`. Those are in the model, carry 9.67% of that crime's mass
+  between them, and are a separate open question — hiding them behind a fix for
+  a different problem would have buried it.
+
+- **The unpriced-coverage figure is the mass on the unpriced endings, not the
+  leftover.** It was rendered as `1 - pricedProbability`, which is a different
+  number whenever the service's own probabilities do not sum to 1 — and they
+  often do not. Window of Opportunity's come to 0.99675, so the panel read
+  **"4 endings unpriced, covering 0.33% of the probability"** about four endings
+  sitting at exactly 0.000%. The residual is upstream mass loss; attributing it
+  to our unpriced endings pointed the reader at the wrong problem.
+  `expectedValue()` now returns `missingProbability` alongside
+  `pricedProbability`.
+
 ## [3.94.1] - 2026-09-07
 
 ### Fixed

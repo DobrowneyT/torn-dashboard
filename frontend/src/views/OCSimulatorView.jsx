@@ -32,6 +32,7 @@ import { useViewState } from '../contexts/ViewStateContext'
 import { expectedValue } from '../utils/ocExpectedValue'
 import {
   payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
+  withoutEndingPadding,
 } from '../utils/ocScenarioPayouts'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { headcountAtCpr, maxSustainableCpr } from '../utils/ocRosterFit'
@@ -576,31 +577,34 @@ function RoleSensitivity({ row }) {
 }
 
 function ResultPanel({ scenario, result, calculating, error }) {
-  const endings = useMemo(() => {
-    if (!result) return []
-    return Object.entries(result)
-      .filter(([k]) => k.startsWith('goodEnding') || k.startsWith('badEnding'))
-      .sort((a, b) => b[1] - a[1])
-  }, [result])
-
-  // Only good endings carry money, and only some of them are priced.
-  const goodProbabilities = useMemo(() => {
-    if (!result) return {}
-    return Object.fromEntries(Object.entries(result).filter(([k]) => k.startsWith('goodEnding')))
-  }, [result])
-
   // ⚠️ E(x) takes BOTH kinds. `expectedValue` has an explicit branch counting
   // bad endings as fully-covered mass paying zero — passing only the good ones
   // made that branch dead code, and the "unpriced coverage" figure was then a
   // share of the good mass reported as a share of ALL the probability. On
   // Clinical Precision that read 78.72% when the real answer is 16.15%: a
   // five-fold overstatement of how much of the crime we cannot price.
-  const endingProbabilities = useMemo(() => {
-    if (!result) return {}
-    return Object.fromEntries(
-      Object.entries(result).filter(([k]) => k.startsWith('goodEnding') || k.startsWith('badEnding'))
-    )
-  }, [result])
+  //
+  // ⚠️ And the service pads its answer with ending slots the crime does not
+  // have — see withoutEndingPadding(), which is why the raw response is never
+  // read directly here. Everything below derives from the trimmed map, so the
+  // list, E(x) and the respect total cannot disagree about which endings exist.
+  const endingProbabilities = useMemo(
+    () => (result ? withoutEndingPadding(result, scenario.endings) : {}),
+    [result, scenario.endings]
+  )
+
+  // Only good endings carry money, and only some of them are priced.
+  const goodProbabilities = useMemo(
+    () => Object.fromEntries(
+      Object.entries(endingProbabilities).filter(([k]) => k.startsWith('goodEnding'))
+    ),
+    [endingProbabilities]
+  )
+
+  const endings = useMemo(
+    () => Object.entries(endingProbabilities).sort((a, b) => b[1] - a[1]),
+    [endingProbabilities]
+  )
 
   // #440: payouts come from the mirrored feed, joined to endings through the
   // #390 mapping. No hand-entered table any more.
@@ -688,7 +692,28 @@ function ResultPanel({ scenario, result, calculating, error }) {
                     <span className="flex items-center gap-1.5 min-w-0">
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isGood ? 'bg-green-500' : 'bg-red-500'}`} />
                       <span className="truncate">{key}</span>
-                      {meta?.starved && (
+                      {/* ⚠️ GOOD endings only, both of them. A bad ending pays $0 by
+                          the game's rules (BAD_ENDINGS_PAY_ZERO), so whether it
+                          resolved to a diagram node changes nothing anyone can
+                          act on — and 97 of the fleet's bad endings are
+                          unmapped, which put an amber badge on half the rows of
+                          crimes whose pricing is complete. pricingQuality()
+                          already scoped its own summary to good endings; this
+                          was the one place still asking every row. */}
+                      {/* Two labels, one outcome (#606). The alias is fully resolved
+                          and prices from the same node, so without this the reader
+                          sees two identical payouts on two rows and no reason for
+                          it — which reads as a duplicate row rather than as the
+                          service reporting one terminal under several names. */}
+                      {isGood && meta?.alias_of && (
+                        <span
+                          className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"
+                          title={`Same outcome as ${meta.alias_of} — the probability service reports this diagram ending under more than one label. Both rows price from the same observations, and their probabilities add up.`}
+                        >
+                          = {meta.alias_of}
+                        </span>
+                      )}
+                      {isGood && meta?.starved && (
                         <span
                           className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"
                           title={meta.problem || 'No diagram terminal for this ending — confirmed, treated as $0 (#473)'}
@@ -696,7 +721,7 @@ function ResultPanel({ scenario, result, calculating, error }) {
                           no diagram match
                         </span>
                       )}
-                      {meta && !meta.resolved && !meta.starved && (
+                      {isGood && meta && !meta.resolved && !meta.starved && (
                         <span
                           className="text-amber-600 dark:text-amber-400 cursor-help shrink-0"
                           title={meta.problem || 'This ending could not be matched to the diagram'}
@@ -798,7 +823,7 @@ function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly
       {!ev.complete && (
         <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
           {ev.missing.length} ending{ev.missing.length === 1 ? '' : 's'} unpriced, covering{' '}
-          {((1 - ev.pricedProbability) * 100).toFixed(2)}% of the probability. The real value is
+          {(ev.missingProbability * 100).toFixed(2)}% of the probability. The real value is
           higher by an unknown amount — never lower.
         </p>
       )}

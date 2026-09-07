@@ -41,6 +41,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 562692618,
         "respect": 951,
@@ -56,6 +57,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 450918600,
         "respect": 838,
@@ -71,6 +73,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 416313794,
         "respect": 674,
@@ -86,6 +89,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 383018850,
         "respect": 562,
@@ -101,6 +105,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 338898930,
         "respect": 374,
@@ -116,6 +121,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 438276375,
         "respect": 750,
@@ -131,6 +137,7 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
       "reward": {
         "money": 360558125,
         "respect": 479,
