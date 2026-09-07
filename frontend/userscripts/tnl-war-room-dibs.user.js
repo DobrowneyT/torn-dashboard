@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.50.0
+// @version      1.51.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -3289,7 +3289,21 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     el.id = ASSIST_OVERLAY_STYLE_ID
     el.textContent = `
 #${ASSIST_OVERLAY_ID} {
-  position: fixed; z-index: 2147483000;
+  /* ⚠️ ABSOLUTE, not fixed. Fixed pinned it to the viewport, so it hung in the
+     same place on screen while the page scrolled underneath and covered
+     whatever happened to be behind it — the same complaint the faction-page
+     settings panel had before #590, and fixed for the same reason: a panel the
+     user parked somewhere should stay where they put it ON THE PAGE.
+
+     ⚠️ The trade is real and deliberate: park it high and scroll a long way
+     down and it scrolls out of view, where a fixed panel would have followed.
+     That is the behaviour asked for, and the drag handle plus the remembered
+     position are what make it workable — put it beside the fight and it stays
+     beside the fight.
+
+     z-index is NOT set here; assistOverlayZ() writes it, because the value has
+     to be read off Torn's chat at runtime. See its own note. */
+  position: absolute;
   /* left/top are written by placeAssistOverlay(); these are only the values
      that apply for the frame before it runs. The old fixed top-right corner is
      gone: that is where Torn puts its own attack controls, and a pinned panel
@@ -3379,6 +3393,36 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
   }
 
   /**
+   * Sit above the attack page but BELOW Torn's chat.
+   *
+   * ⚠️ Read from the live page rather than hard-coded, because the honest
+   * answer is that we do not know the number. Torn sets `#chatRoot`'s
+   * z-index in its own stylesheet, so it is absent from any saved copy of the
+   * page, and the values visible in a capture span 10 to 2000000000 with no
+   * way to tell which layer is which. A guess would be wrong in one of two
+   * ways, both bad: too high keeps covering the chat, too low buries the panel
+   * under the attack UI it has to sit on top of.
+   *
+   * Asking the browser removes the guess and keeps working if Torn changes the
+   * number. `auto` is the common case for a positioned ancestor that never set
+   * one — treat it as unknown and fall back rather than parsing it as 0.
+   *
+   * ⚠️ The old value was 2147483000, above every layer Torn has including its
+   * 2000000000 recaptcha bubble. That is what put it over the chat.
+   */
+  const ASSIST_Z_FALLBACK = 9000
+
+  function assistOverlayZ() {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return ASSIST_Z_FALLBACK
+    const chat = document.getElementById('chatRoot')
+      ?? document.querySelector('[class*="chat-app"], [id*="chatRoot"]')
+    if (!chat || typeof window.getComputedStyle !== 'function') return ASSIST_Z_FALLBACK
+    const z = Number(window.getComputedStyle(chat).zIndex)
+    // One below the chat: above everything the chat is above, under the chat.
+    return Number.isFinite(z) && z > 1 ? z - 1 : ASSIST_Z_FALLBACK
+  }
+
+  /**
    * Write the remembered position onto the box, clamped to the window.
    *
    * Called after every render and on resize, not just on drop: the panel is
@@ -3403,17 +3447,51 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
   }
 
+  /**
+   * How far the page is scrolled, for converting viewport ↔ page coordinates.
+   *
+   * ⚠️ Needed now that the panel is `position: absolute` (page coordinates)
+   * rather than `fixed` (viewport coordinates). Every rect the browser hands
+   * back — from getBoundingClientRect, from a pointer event — is in VIEWPORT
+   * space, so each has to be shifted before it can be stored or written back.
+   * Getting this wrong is not subtle: the panel jumps by exactly the scroll
+   * offset the moment you drag it.
+   */
+  function assistScroll() {
+    if (typeof window === 'undefined') return { x: 0, y: 0 }
+    return {
+      x: Math.round(window.scrollX ?? window.pageXOffset ?? 0),
+      y: Math.round(window.scrollY ?? window.pageYOffset ?? 0),
+    }
+  }
+
   function placeAssistOverlay(box) {
     if (!box || typeof window === 'undefined') return
+    box.style.zIndex = String(assistOverlayZ())
     const rect = typeof box.getBoundingClientRect === 'function' ? box.getBoundingClientRect() : null
     const size = { w: rect?.width ?? 0, h: rect?.height ?? 0 }
     const viewport = viewportSize()
-    // No stored position → bottom-left, which is the corner Torn leaves clear
-    // on the attack page. clampAssistPos() turns the nulls into exactly that.
+    const scroll = assistScroll()
     const stored = readAssistPos()
-    const pos = clampAssistPos(stored ?? { left: ASSIST_MARGIN, top: null }, size, viewport)
-    box.style.left = `${pos.left}px`
-    box.style.top = `${pos.top}px`
+
+    // ⚠️ Clamped in VIEWPORT space, then shifted into page space.
+    //
+    // The clamp exists so a position saved on a wide desktop cannot strand the
+    // panel off-screen on a phone, where it could never be dragged back. That
+    // question is about the visible window, not the document — a document is
+    // thousands of pixels tall and clamping to it would permit exactly the
+    // off-screen position the clamp exists to prevent.
+    //
+    // A stored position is already in page space, so it comes back to viewport
+    // space for the clamp and returns afterwards. With no stored position the
+    // nulls become the bottom-left corner, which is the corner Torn leaves
+    // clear on the attack page.
+    const wanted = stored
+      ? { left: stored.left - scroll.x, top: stored.top - scroll.y }
+      : { left: ASSIST_MARGIN, top: null }
+    const pos = clampAssistPos(wanted, size, viewport)
+    box.style.left = `${pos.left + scroll.x}px`
+    box.style.top = `${pos.top + scroll.y}px`
     return pos
   }
 
@@ -3442,13 +3520,18 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       e.preventDefault()
       dragging.moved = true
       const rect = box.getBoundingClientRect()
+      // ⚠️ Clamp in viewport space (where the pointer lives), then shift into
+      // page space (where an absolutely positioned box lives). Writing the
+      // pointer coordinates straight to style.left would make the panel jump
+      // by the scroll offset on the first drag of any scrolled page.
       const pos = clampAssistPos(
         { left: e.clientX - dragging.dx, top: e.clientY - dragging.dy },
         { w: rect.width, h: rect.height },
         viewportSize(),
       )
-      box.style.left = `${pos.left}px`
-      box.style.top = `${pos.top}px`
+      const scroll = assistScroll()
+      box.style.left = `${pos.left + scroll.x}px`
+      box.style.top = `${pos.top + scroll.y}px`
     })
 
     const end = (e) => {
@@ -3610,7 +3693,15 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       // URL bar collapses or the keyboard opens — neither raises `resize`.
       window.addEventListener('orientationchange', reflow)
       window.visualViewport?.addEventListener?.('resize', reflow)
-      window.visualViewport?.addEventListener?.('scroll', reflow)
+      // ⚠️ NOT visualViewport 'scroll', which this used to listen for.
+      //
+      // reflow() re-clamps the panel into the current viewport, which is
+      // exactly right when the window CHANGES SIZE and would strand it
+      // off-screen. On a SCROLL it is exactly wrong: now that the panel is
+      // absolutely positioned it already moves with the page, so re-clamping
+      // would drag it back under the pointer on every scroll event and undo
+      // the whole point of the change. Resizing is the only thing that can
+      // orphan a position; scrolling cannot.
     }
     return box
   }
@@ -4885,6 +4976,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // no DOM (the clamp is what stops a remembered position stranding the
     // panel outside a smaller window, where it could never be dragged back).
     warRankRouteMatch, isWarRankPage, warRosterPresent, memberLists, clampAssistPos, parseAssistPos, panelPos,
+    assistOverlayZ, assistScroll,
     parseFightLogAge, parseFightLogRow, assistCandidates, readFightLogRows, attackTargetName,
     scopeCss, scopeSelector, WAR_ACTIVE_CLASS,
     indexAssists, assistsIndex, badgeState, ASSIST_KIND_META, requestAssist, clearAssist,
