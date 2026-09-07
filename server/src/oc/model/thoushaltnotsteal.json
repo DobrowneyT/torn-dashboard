@@ -30,7 +30,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 1318000,
+        "respect": 48,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding2",
@@ -39,7 +45,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 1120500,
+        "respect": 42,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding3",
@@ -48,7 +60,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 1081000,
+        "respect": 36,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding4",
@@ -57,7 +75,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 1009000,
+        "respect": 31,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding5",
@@ -66,7 +90,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 912000,
+        "respect": 28,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding6",
@@ -75,7 +105,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 734000,
+        "respect": 25,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     }
   ],
   "roleFidelity": {
@@ -89,6 +125,6 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": "crimeshub"
   }
 }

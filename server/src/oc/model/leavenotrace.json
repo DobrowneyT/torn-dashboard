@@ -84,7 +84,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 25676284,
+        "respect": 134,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding2",
@@ -93,7 +99,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 23220434,
+        "respect": 120,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding3",
@@ -102,7 +114,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 21059337,
+        "respect": 107,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding4",
@@ -111,7 +129,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 18850244,
+        "respect": 93,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding5",
@@ -120,7 +144,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 16737635,
+        "respect": 80,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding6",
@@ -129,7 +159,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 14624224,
+        "respect": 67,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     }
   ],
   "roleFidelity": {
@@ -139,6 +175,6 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": "crimeshub"
   }
 }
