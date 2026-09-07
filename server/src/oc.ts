@@ -8,8 +8,19 @@ import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
 import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js'
 import { matchRolesToPositions } from './oc/roleMatch.js'
 import {
-  buildItemCatalog, priceNodeItems, catalogFreshness, EMPTY_CATALOG, type ItemDropInput,
+  buildItemCatalog, priceNodeItems, catalogFreshness, EMPTY_CATALOG,
+  type ItemDropInput, type NodeItemDrop,
 } from './oc/itemPricing.js'
+
+/**
+ * How many item drops the Simulator is sent per ending.
+ *
+ * The list is sorted by contribution, so the tail is the drops worth least. The
+ * priced total, floor and ceiling are all sent separately and cover every drop,
+ * so this caps the size of a response that carries every ending of every
+ * scenario without dropping anything from the arithmetic.
+ */
+const ITEM_DROP_ROWS = 8
 import { loadOcModel, type OcScenarioModel } from './oc/modelLoader.js'
 
 /**
@@ -39,6 +50,12 @@ interface ScenarioEndingRow {
    *  different claim from `money_avg`, and the client must tell them apart. */
   reward: unknown
   item_value_avg?: number | null
+  /** Floor and ceiling behind `item_value_avg` — see NodeItemValue's own note
+   *  on why `min` is "never missed in n runs", not a guarantee. */
+  item_value_min?: number | null
+  item_value_max?: number | null
+  /** The biggest contributors behind `item_value_avg`, capped at ITEM_DROP_ROWS. */
+  item_drops?: NodeItemDrop[]
   item_value_unmatched?: string[]
 }
 
@@ -394,6 +411,18 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
           const priced = priceNodeItems(e.items, e.observations ?? 0, itemCatalog)
           e.item_value_avg = priced ? priced.value : null
           e.item_value_unmatched = priced ? priced.unmatched : []
+          // #606 follow-up: the breakdown behind that figure, so the Simulator
+          // can show WHAT an items-paying ending actually drops rather than a
+          // single number the reader has to take on trust. Eight crimes pay
+          // purely in items, and on those this IS the payout.
+          //
+          // ⚠️ Capped. A node can list many drops and this rides on every
+          // ending of every scenario in one response; the tail contributes
+          // almost nothing (the list is sorted by contribution) and the total
+          // is reported separately, so nothing is lost but rows nobody reads.
+          e.item_value_min = priced ? priced.min : null
+          e.item_value_max = priced ? priced.max : null
+          e.item_drops = priced ? priced.drops.slice(0, ITEM_DROP_ROWS) : []
           delete e.items
         }
       }

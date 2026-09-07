@@ -32,7 +32,7 @@ import { useViewState } from '../contexts/ViewStateContext'
 import { expectedValue } from '../utils/ocExpectedValue'
 import {
   payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
-  withoutEndingPadding,
+  withoutEndingPadding, collapseAliasedEndings, endingValueBreakdown,
 } from '../utils/ocScenarioPayouts'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { headcountAtCpr, maxSustainableCpr } from '../utils/ocRosterFit'
@@ -576,6 +576,52 @@ function RoleSensitivity({ row }) {
   )
 }
 
+/**
+ * The whole reward story for one ending, as hover text.
+ *
+ * A tooltip rather than more columns because the endings list is already dense
+ * and this is detail you go looking for, not detail you scan. What it must
+ * always answer: is this cash or items, how wide is it, and how much evidence
+ * is behind it.
+ *
+ * ⚠️ The observation count is stated on the same line as the range, never
+ * apart from it. A floor drawn from two runs and one drawn from six thousand
+ * render identically, and the number is the only thing that separates them.
+ */
+function rewardTooltip(b) {
+  if (!b) return undefined
+  const lines = []
+  const noun = b.kind === 'items' ? 'Item value' : 'Cash'
+  lines.push(`${noun}: ${formatCurrency(Math.round(b.total))} on average`)
+  if (b.range) {
+    lines.push(b.kind === 'items'
+      ? `Ranges ${formatCurrency(Math.round(b.range.lo))} – ${formatCurrency(Math.round(b.range.hi))}`
+        + ' (floor = drops never missed, ceiling = every drop at its largest stack)'
+      : `Observed ${formatCurrency(Math.round(b.range.lo))} – ${formatCurrency(Math.round(b.range.hi))}`)
+  }
+  if (b.observations != null) {
+    lines.push(`From ${b.observations.toLocaleString()} observed run${b.observations === 1 ? '' : 's'}`)
+  }
+  if (b.kind === 'items' && b.drops.length > 0) {
+    lines.push('')
+    lines.push('Drops, at current market prices:')
+    for (const d of b.drops) {
+      const qty = d.qty && d.qty.max !== d.qty.min ? `${d.qty.min}\u2013${d.qty.max}` : `${d.qty?.avg ?? 1}`
+      lines.push(
+        `  ${d.name} \u00D7${qty}  \u00B7  ${(d.dropRate * 100).toFixed(1)}% of runs`
+        + `  \u00B7  ${formatCurrency(Math.round(d.contribution))}`
+      )
+    }
+  }
+  if (b.unmatched.length > 0) {
+    lines.push('')
+    // Absent beats confidently wrong: these drops are real and the total below
+    // does not include them, so the figure is a floor rather than an estimate.
+    lines.push(`Could not price: ${b.unmatched.join(', ')} — the total excludes them.`)
+  }
+  return lines.join('\n')
+}
+
 function ResultPanel({ scenario, result, calculating, error }) {
   // ⚠️ E(x) takes BOTH kinds. `expectedValue` has an explicit branch counting
   // bad endings as fully-covered mass paying zero — passing only the good ones
@@ -596,14 +642,24 @@ function ResultPanel({ scenario, result, calculating, error }) {
   // Only good endings carry money, and only some of them are priced.
   const goodProbabilities = useMemo(
     () => Object.fromEntries(
-      Object.entries(endingProbabilities).filter(([k]) => k.startsWith('goodEnding'))
+      Object.entries(collapsed.probabilities).filter(([k]) => k.startsWith('goodEnding'))
     ),
-    [endingProbabilities]
+    [collapsed]
+  )
+
+  // ⚠️ Alias rows are FOLDED IN, not hidden. goodEnding3, goodEnding35 and
+  // goodEnding310 are one outcome under three labels, so the surviving row
+  // carries their combined 17.778% — which is what Crimes Hub's simulator
+  // reports for that terminal. Hiding them instead would leave the ending
+  // reading 10.526% and the column no longer summing to 100%.
+  const collapsed = useMemo(
+    () => collapseAliasedEndings(endingProbabilities, scenario.endings),
+    [endingProbabilities, scenario.endings]
   )
 
   const endings = useMemo(
-    () => Object.entries(endingProbabilities).sort((a, b) => b[1] - a[1]),
-    [endingProbabilities]
+    () => Object.entries(collapsed.probabilities).sort((a, b) => b[1] - a[1]),
+    [collapsed]
   )
 
   // #440: payouts come from the mirrored feed, joined to endings through the
@@ -614,9 +670,13 @@ function ResultPanel({ scenario, result, calculating, error }) {
   const spread = useMemo(() => payoutSpread(scenario.endings), [scenario.endings])
   const itemsOnly = useMemo(() => paysInItems(scenario.endings), [scenario.endings])
 
+  // ⚠️ The COLLAPSED map, so E(x) and the list agree about which endings exist.
+  // The total is identical either way — an alias prices from the same node as
+  // its target, so summing rows that share a payout changes nothing — but a
+  // `missing` list naming a row nobody can see would be unexplainable.
   const ev = useMemo(
-    () => (result ? expectedValue(scenario.name, endingProbabilities, priced) : null),
-    [scenario.name, endingProbabilities, result, priced]
+    () => (result ? expectedValue(scenario.name, collapsed.probabilities, priced) : null),
+    [scenario.name, collapsed, result, priced]
   )
 
   // Expected respect, on the same terms as expected money.
@@ -690,6 +750,8 @@ function ResultPanel({ scenario, result, calculating, error }) {
                 const isGood = key.startsWith('goodEnding')
                 const payout = isGood ? priced?.[key] : 0
                 const obs = meta?.observations ?? null
+                const merged = collapsed.mergedLabels.get(key) ?? null
+                const breakdown = isGood ? endingValueBreakdown(meta) : null
                 return (
                   <div key={key} className="flex items-center justify-between gap-2 text-xs">
                     <span className="flex items-center gap-1.5 min-w-0">
@@ -703,17 +765,16 @@ function ResultPanel({ scenario, result, calculating, error }) {
                           crimes whose pricing is complete. pricingQuality()
                           already scoped its own summary to good endings; this
                           was the one place still asking every row. */}
-                      {/* Two labels, one outcome (#606). The alias is fully resolved
-                          and prices from the same node, so without this the reader
-                          sees two identical payouts on two rows and no reason for
-                          it — which reads as a duplicate row rather than as the
-                          service reporting one terminal under several names. */}
-                      {isGood && meta?.alias_of && (
+                      {/* One outcome the service labels several ways (#606). The
+                          extra rows are gone — folded into this one — so all that
+                          is left to say is that this row's chance is a sum, which
+                          belongs on hover rather than back in the list. */}
+                      {merged && (
                         <span
                           className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"
-                          title={`Same outcome as ${meta.alias_of} — the probability service reports this diagram ending under more than one label. Both rows price from the same observations, and their probabilities add up.`}
+                          title={`The probability service reports this one diagram ending under ${merged.length} labels (${merged.join(', ')}). Their chances are added together here; the payout is identical for all of them because they share a node.`}
                         >
-                          = {meta.alias_of}
+                          ×{merged.length}
                         </span>
                       )}
                       {/* ⚠️ The two sources disagree about whether this outcome is a
@@ -752,25 +813,39 @@ function ResultPanel({ scenario, result, calculating, error }) {
                       )}
                     </span>
                     <span className="flex items-center gap-3 whitespace-nowrap tabular-nums">
-                      <span className="text-gray-500 dark:text-gray-400">
+                      <span className="text-gray-500 dark:text-gray-400"
+                        title={breakdown ? rewardTooltip(breakdown) : undefined}>
                         {isGood && payout == null
                           ? 'unpriced'
                           : formatCurrency(payout ?? 0)}
                       </span>
+                      {/* The observed spread, where there is one. On a cash
+                          ending this is what the node actually paid across its
+                          runs; on an items ending it is the floor and ceiling of
+                          the drops. Either way the reader was previously shown a
+                          single averaged number with no hint of its width — on
+                          Blast from the Past that hid a $50M swing. */}
+                      {breakdown?.range && (
+                        <span className="text-gray-400 dark:text-gray-500 hidden sm:inline"
+                          title={rewardTooltip(breakdown)}>
+                          {formatCurrency(breakdown.range.lo)}–{formatCurrency(breakdown.range.hi)}
+                        </span>
+                      )}
                       {isGood && payout != null && obs != null && obs < 30 && (
                         <span className="text-amber-600 dark:text-amber-400"
                           title={`Averaged from only ${obs} observed run${obs === 1 ? '' : 's'}`}>
                           n={obs}
                         </span>
                       )}
-                      {isGood && Number(meta?.item_value_avg) > 0 && (
-                        <span className="text-gray-400 dark:text-gray-500" title={
-                          `Includes ${formatCurrency(meta.item_value_avg)} of item value at current market prices` +
-                          (meta.item_value_unmatched?.length
-                            ? ` — could not price: ${meta.item_value_unmatched.join(', ')}`
-                            : '')
-                        }>
-                          +items
+                      {/* ⚠️ "in items", not "+items". Nothing is being ADDED: no
+                          crime in the fleet pays both cash and items, so on the
+                          eight that drop items this figure IS the payout, priced
+                          at current market rates. The old label read as a bonus
+                          on top of a cash reward that does not exist. */}
+                      {isGood && breakdown?.kind === 'items' && (
+                        <span className="text-gray-400 dark:text-gray-500 cursor-help"
+                          title={rewardTooltip(breakdown)}>
+                          in items
                         </span>
                       )}
                       <span className="w-16 text-right">{(p * 100).toFixed(3)}%</span>
