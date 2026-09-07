@@ -4,6 +4,7 @@
   "parameterCount": 5,
   "isComplete": false,
   "observedPaths": 255,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -42,6 +43,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 48252000,
         "respect": 223,
@@ -58,6 +60,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 41055000,
         "respect": 195,
@@ -74,6 +77,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 38144000,
         "respect": 176,
@@ -90,6 +94,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 26844000,
         "respect": 133,
@@ -106,6 +111,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 31726500,
         "respect": 152,

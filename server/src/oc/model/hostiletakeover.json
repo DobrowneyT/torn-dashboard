@@ -4,6 +4,7 @@
   "parameterCount": 6,
   "isComplete": true,
   "observedPaths": 187,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -47,6 +48,7 @@
       "problem": "badEnding1: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Kidnapper + Negotiator)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -57,6 +59,7 @@
       "problem": "badEnding2: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Kidnapper + Negotiator)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -67,6 +70,7 @@
       "problem": "badEnding3: ties between _B4F_ and _B5F_ on role evidence — needs a paired-role probe (Hacker + Engineer)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -77,6 +81,7 @@
       "problem": "badEnding4: ties between _A5F_ and _B5F_ on role evidence — needs a paired-role probe (Cat Burglar + Hacker)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -87,6 +92,7 @@
       "problem": "badEnding5: ties between _A5F_ and _B5F_ on role evidence — needs a paired-role probe (Cat Burglar + Hacker)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -97,6 +103,7 @@
       "problem": "badEnding6: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Kidnapper + Negotiator)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -107,6 +114,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -117,6 +125,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -127,6 +136,7 @@
       "problem": "badEnding9: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Kidnapper + Negotiator)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -137,6 +147,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -147,6 +158,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -157,6 +169,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -167,6 +180,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -177,6 +191,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     }
   ],

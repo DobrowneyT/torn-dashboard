@@ -4,6 +4,7 @@
   "parameterCount": 3,
   "isComplete": true,
   "observedPaths": 174,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -32,6 +33,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -42,6 +44,7 @@
       "problem": "badEnding2: ties between _A3F_ and _B2F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -52,6 +55,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -62,6 +66,7 @@
       "problem": "badEnding4: ties between _A3F_ and _B2F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -72,6 +77,7 @@
       "problem": "badEnding5: ties between _A3F_ and _B2F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -82,6 +88,7 @@
       "problem": "badEnding6: ties between _A3F_ and _B2F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -92,6 +99,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 25676284,
         "respect": 134,
@@ -108,6 +116,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 23220434,
         "respect": 120,
@@ -124,6 +133,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 21059337,
         "respect": 107,
@@ -140,6 +150,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 18850244,
         "respect": 93,
@@ -156,6 +167,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 16737635,
         "respect": 80,
@@ -172,6 +184,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 14624224,
         "respect": 67,

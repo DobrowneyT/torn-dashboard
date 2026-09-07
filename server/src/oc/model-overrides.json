@@ -22,9 +22,14 @@
     "      Crimes Hub numbers its endings by reward rank; tornprobability numbers them by",
     "      its own scheme. They usually agree, and where they do not, joining the published",
     "      reward by key name puts it on the wrong ending. A hub key named here is consumed",
-    "      by the mapping and is NOT also joined to the ending of the same name."
+    "      by the mapping and is NOT also joined to the ending of the same name.",
+    "",
+    "  disputedKind  { ourKey: 'good' | 'bad' }",
+    "      The two services disagree about whether an ending is a success or a failure.",
+    "      The value is what CRIMES HUB says; we do NOT adopt it. Recording the dispute",
+    "      is the whole point -- it is surfaced on the page so a reader can see that a",
+    "      figure is contested, rather than being silently resolved in either direction."
   ],
-
   "blastfromthepast": {
     "_evidence": [
       "Crimes Hub's own simulator, all six CPRs at 75 (2026-09-07), against tornprobability",
@@ -52,30 +57,58 @@
       "goodEnding410": "goodEnding4"
     }
   },
-
   "counteroffer": {
     "_evidence": [
-      "Crimes Hub publishes four good endings for this crime; the diagram draws four good",
-      "terminals; tornprobability reports six good endings. Matching the hub's published",
-      "respect against each terminal's OBSERVED respect identifies the join exactly:",
+      "TWO SEPARATE FINDINGS on this crime. The reward join below is settled; the",
+      "success/failure classification is NOT, and is recorded rather than resolved.",
       "",
-      "    node      observed respect    Crimes Hub",
-      "    _A7S_          171            goodEnding1  170   (our goodEnding1)",
-      "    _A7S2_         153            goodEnding2  155   (our goodEnding2)",
-      "    _A5S_          137            goodEnding3  136   (our goodEnding3)",
-      "    _B5S_          120            goodEnding4  122   (our goodEnding6)",
+      "1. REWARD JOIN. Crimes Hub publishes four good endings; the diagram draws four",
+      "   good terminals; tornprobability reports six good endings. Both the published",
+      "   respect and the simulated probability identify the join, and they agree:",
       "",
-      "So Crimes Hub's goodEnding4 is our goodEnding6. Joined by key name it landed instead",
-      "on our goodEnding4 -- which is starved, has no node, and is therefore the one ending",
-      "on the crime that can never carry an observation to check it against.",
+      "     node      obs respect   hub respect   our prob   hub prob   our key",
+      "     _A7S_        171          170  (#1)    45.625     45.62     goodEnding1",
+      "     _A7S2_       153          155  (#2)    15.208     15.21     goodEnding2",
+      "     _A5S_        137          136  (#3)    19.011     19.01     goodEnding3",
+      "     _B5S_        120          122  (#4)     5.070      5.07     goodEnding6",
       "",
-      "NOT FIXED HERE: our goodEnding4 and goodEnding5 are still starved and still sit at $0",
-      "while holding real probability. By the Blast from the Past precedent they are surplus",
-      "labels for terminals this crime already has, but which ones needs the same Crimes Hub",
-      "simulator check, and guessing would put invented money on screen."
+      "   So Crimes Hub's goodEnding4 is our goodEnding6. Joined by key name it landed",
+      "   on our goodEnding4 -- which is starved, has no node, and is therefore the one",
+      "   ending on the crime with no observation to check it against.",
+      "",
+      "2. DISPUTED CLASSIFICATION. Every terminal above matches ONE-TO-ONE, to within",
+      "   0.005 points, so there is no deficit for our goodEnding4 and goodEnding5 to",
+      "   fold into -- they are not surplus labels the way Blast from the Past's are.",
+      "   They are extra SUCCESS mass that Crimes Hub does not have at all:",
+      "",
+      "     our success 91.588  -  hub success 84.91  =  6.678",
+      "     goodEnding5 5.407   +  goodEnding4 1.267  =  6.674",
+      "     our failure  8.412  +  6.674             = 15.086   vs hub failure 15.09",
+      "",
+      "   It closes to 0.004 points, and Crimes Hub's flowchart draws exactly two bad",
+      "   ends we do not have -- the two it labels 'Bad End #5?' and 'Bad End #6?',",
+      "   the only endings on the crime it marks with a question mark.",
+      "",
+      "   tornprobability counts these two outcomes as successes; Crimes Hub counts",
+      "   them as failures. Both models are internally consistent and sum to 100%.",
+      "",
+      "   NOT RESOLVED, deliberately. The money is unaffected either way -- a failure",
+      "   pays $0 and a starved ending is priced $0 -- so nothing is gained by picking",
+      "   a side there. What IS affected is the headline success chance and the scope",
+      "   verdict it drives: at Intermediate (costs 3, pays 4) this crew nets 0.66",
+      "   scope per run at 91.59% and 0.40 at 84.91%. Overriding tornprobability's own",
+      "   figure on the strength of a source that has marked both endings '?' would",
+      "   trade one confident number for another. The disagreement is shown instead.",
+      "",
+      "   Observed 2026-09-07, all five CPRs at 75, both simulators."
     ],
     "rewardFrom": {
       "goodEnding6": "goodEnding4"
-    }
+    },
+    "disputedKind": {
+      "goodEnding4": "bad",
+      "goodEnding5": "bad"
+    },
+    "disputedSuccessChance": 0.8491
   }
 }

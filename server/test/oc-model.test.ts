@@ -269,3 +269,52 @@ describe('model-overrides.json corrections', () => {
     ])
   })
 })
+
+/**
+ * The recorded success/failure dispute (#606).
+ *
+ * ⚠️ This is the one correction the model deliberately does NOT apply. Counter
+ * Offer's goodEnding4 and goodEnding5 are counted as successes by the
+ * probability service and drawn as failures by Crimes Hub, and both models sum
+ * to 100% — so adopting either answer would replace one confident number with
+ * another. The dispute is recorded and shown instead.
+ */
+describe('disputed classifications', () => {
+  it('records Counter Offer’s two contested endings without adopting the other answer', () => {
+    const m = getScenario('Counter Offer')
+    const by = new Map(m!.endings.map((e) => [e.key, e]))
+    for (const key of ['goodEnding4', 'goodEnding5']) {
+      expect(by.get(key)?.disputedKind, key).toBe('bad')
+      // ⚠️ Ours is unchanged. The whole point is that we did not pick a side.
+      expect(by.get(key)?.kind, key).toBe('good')
+    }
+    // Every other ending on the crime is uncontested.
+    for (const key of ['goodEnding1', 'goodEnding2', 'goodEnding3', 'goodEnding6']) {
+      expect(by.get(key)?.disputedKind, key).toBeNull()
+    }
+  })
+
+  it('⚠️ the recorded second opinion is reproduced by subtracting the contested mass', () => {
+    // This is the anchor for the UI's live derivation. The panel does not read
+    // `disputedSuccessChance` — it computes `ourSuccess - contestedMass`, which
+    // only works because the two models agree on everything else. Observed at
+    // all five CPRs at 75 on 2026-09-07:
+    const OURS = 0.91588            // our simulator's success chance
+    const CONTESTED = 0.05407 + 0.01267   // goodEnding5 + goodEnding4
+    const m = getScenario('Counter Offer')
+    expect(m!.disputedSuccessChance).toBe(0.8491)
+    expect(OURS - CONTESTED).toBeCloseTo(m!.disputedSuccessChance!, 3)
+  })
+
+  it('⚠️ disputes nothing that the overrides file does not name', () => {
+    const disputed: string[] = []
+    for (const s of loadOcModel().values()) {
+      for (const e of s.endings) if (e.disputedKind) disputed.push(`${s.slug}/${e.key}`)
+    }
+    expect(disputed.sort()).toEqual(['counteroffer/goodEnding4', 'counteroffer/goodEnding5'])
+    // And only that one scenario carries a second-opinion success chance.
+    const withAlt = [...loadOcModel().values()]
+      .filter((s) => s.disputedSuccessChance !== null).map((s) => s.slug)
+    expect(withAlt).toEqual(['counteroffer'])
+  })
+})

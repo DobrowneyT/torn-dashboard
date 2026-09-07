@@ -304,6 +304,9 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
               // From the MODEL now (#606 slice 3): tornprobability's own path
               // count is global game data, so it ships in the image.
               observed_paths: m.observedPaths,
+              // #606: Crimes Hub's success chance at all-75 CPRs, where the two
+              // services disagree about how some endings are classified.
+              disputed_success_chance: m.disputedSuccessChance ?? null,
               // ⚠️ Always null since the mirror was deleted, and deliberately
               // kept in the shape rather than removed. It meant "when we last
               // fetched from tornprobability", and with no fetcher there is no
@@ -343,6 +346,10 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
                     // Simulator can say why two rows carry the same payout
                     // rather than leaving it looking like a duplicate row.
                     alias_of: e.aliasOf ?? null,
+                    // #606: what the OTHER source calls this ending's kind where
+                    // the two disagree. Shipped so the page can show the conflict;
+                    // `kind` above is still ours.
+                    disputed_kind: e.disputedKind ?? null,
                     money_avg: st?.money_avg ?? null,
                     money_min: st?.money_min ?? null,
                     money_max: st?.money_max ?? null,

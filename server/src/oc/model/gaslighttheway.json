@@ -4,6 +4,7 @@
   "parameterCount": 6,
   "isComplete": true,
   "observedPaths": 281,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -47,6 +48,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -63,6 +65,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -79,6 +82,7 @@
       "problem": "badEnding3: ties between _A3F_ and _B8F_ on role evidence — needs a paired-role probe (Looter 3 + Imitator 3)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -95,6 +99,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -111,6 +116,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -121,6 +127,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -131,6 +138,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -141,6 +149,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": 92,
@@ -157,6 +166,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     }
   ],

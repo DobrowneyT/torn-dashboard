@@ -19,6 +19,8 @@ export interface FixtureScenario {
   endings?: Array<Partial<OcModelEnding> & { key: string }>
   /** #606 slice 3 — both ship with the model now. */
   observedPaths?: number | null
+  /** #606: the other source's success chance, where the two disagree. */
+  disputedSuccessChance?: number | null
   nodeStats?: OcModelNodeStat[]
 }
 
@@ -37,6 +39,7 @@ export function ocModelFixture(scenarios: FixtureScenario[]): Map<string, OcScen
       starved: e.starved ?? false,
       // #606: a fixture ending is its own outcome unless a test says otherwise.
       aliasOf: e.aliasOf ?? null,
+      disputedKind: e.disputedKind ?? null,
       reward: e.reward ?? null,
     }))
     model.set(s.name, {
@@ -49,6 +52,7 @@ export function ocModelFixture(scenarios: FixtureScenario[]): Map<string, OcScen
       // has no observations, and a fixture that fabricated some would let a
       // test pass against numbers no tenant could ever see.
       observedPaths: s.observedPaths ?? null,
+      disputedSuccessChance: s.disputedSuccessChance ?? null,
       nodeStats: s.nodeStats ?? [],
       diagramValid: true,
       diagramProblems: null,

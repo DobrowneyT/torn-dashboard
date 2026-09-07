@@ -4,6 +4,7 @@
   "parameterCount": 3,
   "isComplete": true,
   "observedPaths": 181,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -32,6 +33,7 @@
       "problem": "badEnding1: ties between _A1F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -48,6 +50,7 @@
       "problem": "badEnding2: ties between _A1F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -64,6 +67,7 @@
       "problem": "badEnding3: ties between _B2F_ and _B1F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -80,6 +84,7 @@
       "problem": "badEnding4: ties between _B2F_ and _B1F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -96,6 +101,7 @@
       "problem": "badEnding5: ties between _A1F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -112,6 +118,7 @@
       "problem": "badEnding6: ties between _C1F_ and _A1F_ on role evidence — needs a paired-role probe (Thief 2 + Thief 1)",
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -128,6 +135,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 1555062,
         "respect": 43,
@@ -144,6 +152,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 1400076,
         "respect": 39,
@@ -160,6 +169,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 1126944,
         "respect": 32,
@@ -176,6 +186,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 1341615,
         "respect": 37,
@@ -192,6 +203,7 @@
       "problem": null,
       "starved": false,
       "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 856800,
         "respect": 26,
