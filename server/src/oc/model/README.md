@@ -71,10 +71,17 @@ One page per scenario at `https://crimeshub-2b4b0.firebaseapp.com/oc/<slug>`.
 shell. A real browser render is required, and roughly a third still come back
 unrendered on the first attempt and need retrying.
 
-⚠️ **The origin rate-limits at 20 requests an hour**, counting *failed*
-attempts and its own `robots.txt` reads. A full refresh of 31 scenarios spans
-two windows, and retrying into a limit you have already hit only pushes it
-further out. Be patient rather than clever.
+⚠️ **Our FETCH TOOLING rate-limits at 20 requests an hour per domain**,
+counting failed attempts and its own `robots.txt` reads. A full refresh spans
+two windows, so be patient rather than clever.
+
+⚠️ This cap is **ours, not Crimes Hub's** — an earlier version of this file said
+"the origin rate-limits", and that was wrong. The origin served 200s to `curl`
+throughout a period when every fetch was being refused. Blaming the wrong party
+matters here: it turns a tooling limit into an apparent request to back off from
+a site that never asked us to. (The refusal was a pagefetch bug — a
+`rate_limited` verdict cached under the robots.txt TTL, so one exhausted hour
+became a 24-hour lockout with the quota reading empty; fixed in pagefetch#21.)
 
 ⚠️ **Slugs need Unicode normalisation.** `Guardian Ángels` carries U+00C1; a
 naive `[^a-z0-9]` strip yields `guardianngels`, which 404s — that scenario would
@@ -84,19 +91,56 @@ one to use.
 ⚠️ Some crimes redirect to a `/v2` path (`aceinthehole`, `breakthebank`,
 `honeytrap`). That is normal.
 
-⚠️ **Three scenarios are not on Crimes Hub at all**: First Aid and Abet,
-Hostile Takeover, and Lock Stock. That matters beyond coverage — Hostile
-Takeover has 7 of 14 endings unresolved and First Aid and Abet 7 of 13, the two
-worst in the fleet, so the labels that would resolve them are unavailable from
-this source.
+⚠️ **Five scenarios have no page on Crimes Hub**, verified against its live
+index on 2026-09-07 — earlier notes said three, and two different lists of three
+were in circulation, neither correct:
+
+| scenario | slots | level | our endings | unresolved |
+|---|---|---|---|---|
+| Hostile Takeover | 6 | 9 | 14 | 7 |
+| First Aid and Abet | 3 | 1 | 13 | 7 |
+| Lock Stock | 5 | 8 | 11 | 5 |
+| Pet Project | 3 | 1 | 11 | 5 |
+| Best Of The Lot | 3 | 2 | 11 | 3 |
+
+All five ARE listed on the index with slot count and level; they are the only
+ones with no detail link, so they read as registered-but-unmapped rather than
+withheld. **26 of 31 are linked**, and we now have all 26.
+
+That matters beyond coverage — Hostile Takeover and First Aid and Abet hold the
+two worst ending-resolution rates in the fleet, so the role labels that would
+resolve them are exactly what is unavailable.
+
+⚠️ **A slug can be irregular, and a miss is SILENT.** Crimes Hub serves
+"Plucking the Lotus Petal" at `/oc/lotuspetal`, not at our
+`pluckingthelotuspetal`. A wrong slug returns a 200 carrying a "NOT FOUND"
+body, so nothing throws — the scenario simply arrives unpriced, which looks
+identical to a scenario that has no data. Check any newly-unpriced scenario
+against the index before concluding the data is absent.
 
 ### 3. Build
 
 ```bash
-npm run oc:model:build -- --export <tenant-export.json> --crimeshub <facts.json>
+npm run oc:model:build -- --export <tenant-export.json> \
+  --crimeshub ../src/oc/crimeshub-facts.json
 ```
 
 Then read the diff. That is the entire point of committing this.
+
+⚠️ **Pass the COMMITTED `server/src/oc/crimeshub-facts.json`, and add to it —
+never build from a file containing only the scenarios you just captured.** The
+build regenerates every scenario from scratch and knows only what the facts file
+holds, so a partial facts file silently blanks the payouts of every scenario
+missing from it. Caught on 2026-09-07 by building to a throwaway `--out` first:
+a six-scenario facts file produced a model that **gained 30 endings and lost
+213**. Build to a temp directory and diff before overwriting this one.
+
+⚠️ That facts file is committed precisely because it was not, once. The
+original capture existed only as a transient input, so the committed model could
+not be rebuilt without re-scraping all 26 pages — and any rebuild attempted
+without it would have destroyed the data it could not recover. The 20 scenarios
+in it now marked `recovered from the committed model` were reconstructed out of
+the model files themselves to close that gap.
 
 ## ⚠️ The parser refuses to guess, and must keep refusing
 

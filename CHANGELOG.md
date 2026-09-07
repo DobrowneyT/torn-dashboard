@@ -18,6 +18,38 @@ surface it automatically.
 
 ---
 
+## [3.91.0] - 2026-09-07
+
+### Added
+
+- **Payouts for six more OC scenarios (#606).** Leave No Trace, Sneaky Git Grab,
+  Plucking the Lotus Petal, Mob Mentality, Thou Shalt Not Steal and Stage
+  Fright — 30 endings that previously priced as unknown. The model now carries
+  rewards for all 26 scenarios Crimes Hub has pages for.
+- **`server/src/oc/crimeshub-facts.json` is now committed**, as the build's
+  reviewable input. ⚠️ It was not before, and that was a latent trap: the
+  original capture existed only as a transient file, so the committed model
+  could not be rebuilt without re-scraping all 26 pages — and a rebuild
+  attempted without it would have destroyed the data it could not recover. The
+  20 scenarios captured earlier were reconstructed out of the model files to
+  close the gap.
+
+### Fixed
+
+- **Three wrong claims in the model refresh runbook (#606).**
+  - The 20-requests-an-hour cap is **our fetch tooling's, not Crimes Hub's**.
+    The origin served 200s to `curl` throughout a window in which every fetch
+    was refused; the refusal was a pagefetch bug (a `rate_limited` verdict
+    cached under the robots.txt TTL, turning one exhausted hour into a 24-hour
+    lockout with the quota reading empty — pagefetch#21).
+  - **Five** scenarios have no Crimes Hub page, not three: Hostile Takeover,
+    First Aid and Abet, Lock Stock, Pet Project and Best Of The Lot. Two
+    conflicting lists of three were in circulation and neither was right. All
+    five are listed on the index but unlinked — registered, not yet mapped.
+  - Crimes Hub's slug for Plucking the Lotus Petal is `lotuspetal`. A wrong
+    slug returns 200 with a "NOT FOUND" body, so nothing throws and the
+    scenario just arrives unpriced — indistinguishable from having no data.
+
 ## [3.90.0] - 2026-09-06
 
 ### Added

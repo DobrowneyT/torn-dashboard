@@ -37,7 +37,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 1371357,
+        "respect": 47,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding2",
@@ -46,7 +52,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 1261826,
+        "respect": 44,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding3",
@@ -55,7 +67,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 1112153,
+        "respect": 38,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding4",
@@ -64,7 +82,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 1045428,
+        "respect": 33,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     },
     {
       "key": "goodEnding5",
@@ -73,7 +97,13 @@
       "resolved": true,
       "problem": null,
       "starved": false,
-      "reward": null
+      "reward": {
+        "money": 829625,
+        "respect": 29,
+        "itemCount": null,
+        "chainsTo": null,
+        "uncertain": false
+      }
     }
   ],
   "roleFidelity": {
@@ -83,6 +113,6 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": "crimeshub"
   }
 }
