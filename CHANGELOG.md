@@ -18,6 +18,33 @@ surface it automatically.
 
 ---
 
+## [3.91.2] - 2026-09-07
+
+⚠️ 3.91.1 was cut from `main` as a hotfix (the userscript `@version` bump for
+#617) while this was in flight, which is why the numbers interleave. It is
+listed below, having arrived here with the `main` → `dev` merge-back.
+
+### Fixed
+
+- **CI: cap vitest workers so embedded-Postgres suites stop timing out.** Every
+  server and db test file boots its own embedded Postgres, and vitest defaults
+  to one worker per core — so the 4-core runner tried to `initdb` four clusters
+  at once. That box also hosts the five production tenant containers and a
+  second Actions runner, so two suites can overlap: up to eight clusters
+  competing for four already-busy cores.
+
+  ⚠️ The symptom was never an assertion. It was `Hook timed out in 180000ms` in
+  whichever file happened to be starting when the box was busiest —
+  `admin-provisioning`, `scrapers-jobs` and `oc` each drew the short straw
+  during this session's work, and every one of them passes in seconds when run
+  alone. The failing file moves around, which is what makes it read as a real
+  bug in whatever changed rather than as contention.
+
+  Capped at two workers on CI, left uncapped locally. ⚠️ This is usually
+  *faster*, not slower: four starved `initdb`s finish later than two that get
+  real CPU. The full server suite ran 265s uncapped on CI and 103s capped
+  locally.
+
 ## [3.91.1] - 2026-09-07
 
 ### Fixed
