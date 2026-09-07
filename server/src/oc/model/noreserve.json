@@ -3,6 +3,7 @@
   "slug": "noreserve",
   "parameterCount": 3,
   "isComplete": true,
+  "observedPaths": 312,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -189,6 +190,7 @@
       }
     }
   ],
+  "nodeStats": [],
   "roleFidelity": {
     "error": 0.004765903045446995,
     "roles": []
@@ -196,6 +198,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

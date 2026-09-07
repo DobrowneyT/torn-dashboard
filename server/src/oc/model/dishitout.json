@@ -3,6 +3,7 @@
   "slug": "dishitout",
   "parameterCount": 5,
   "isComplete": false,
+  "observedPaths": 255,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -109,6 +110,83 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A8S2_",
+      "n": 243,
+      "money": {
+        "min": 39603000,
+        "max": 42073000,
+        "avg": 40889770
+      },
+      "respect": {
+        "min": 180,
+        "max": 221,
+        "avg": 201
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S3_",
+      "n": 47,
+      "money": {
+        "min": 34745000,
+        "max": 39537000,
+        "avg": 37004872
+      },
+      "respect": {
+        "min": 160,
+        "max": 196,
+        "avg": 178
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 910,
+      "money": {
+        "min": 47029000,
+        "max": 49497000,
+        "avg": 48272691
+      },
+      "respect": {
+        "min": 200,
+        "max": 245,
+        "avg": 222
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B7S2_",
+      "n": 94,
+      "money": {
+        "min": 29803000,
+        "max": 34576000,
+        "avg": 32194755
+      },
+      "respect": {
+        "min": 140,
+        "max": 172,
+        "avg": 158
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B7S_",
+      "n": 423,
+      "money": {
+        "min": 24751000,
+        "max": 29697000,
+        "avg": 27242182
+      },
+      "respect": {
+        "min": 120,
+        "max": 147,
+        "avg": 133
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.637072927987822,
     "roles": [
@@ -120,6 +198,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

@@ -3,6 +3,7 @@
   "slug": "cashmeifyoucan",
   "parameterCount": 3,
   "isComplete": true,
+  "observedPaths": 181,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -189,6 +190,128 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A1F_",
+      "n": 1,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A4S_",
+      "n": 2100,
+      "money": {
+        "min": 1313000,
+        "max": 1361000,
+        "avg": 1337355
+      },
+      "respect": {
+        "min": 29,
+        "max": 42,
+        "avg": 37
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 7878,
+      "money": {
+        "min": 1495000,
+        "max": 1616000,
+        "avg": 1556159
+      },
+      "respect": {
+        "min": 37,
+        "max": 51,
+        "avg": 46
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 1467,
+      "money": {
+        "min": 1363000,
+        "max": 1457000,
+        "avg": 1409167
+      },
+      "respect": {
+        "min": 33,
+        "max": 46,
+        "avg": 42
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B1F_",
+      "n": 1,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B2F_",
+      "n": 2,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B3S_",
+      "n": 1623,
+      "money": {
+        "min": 992000,
+        "max": 1238000,
+        "avg": 1168734
+      },
+      "respect": {
+        "min": 26,
+        "max": 40,
+        "avg": 33
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_C2S_",
+      "n": 373,
+      "money": {
+        "min": 811000,
+        "max": 891000,
+        "avg": 849823
+      },
+      "respect": {
+        "min": 22,
+        "max": 36,
+        "avg": 28
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.052492376946523756,
     "roles": [
@@ -199,6 +322,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

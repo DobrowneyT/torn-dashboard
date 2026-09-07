@@ -3,6 +3,7 @@
   "slug": "clinicalprecision",
   "parameterCount": 4,
   "isComplete": true,
+  "observedPaths": 343,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -224,6 +225,98 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A6S_",
+      "n": 707,
+      "money": {
+        "min": 90735000,
+        "max": 100521000,
+        "avg": 95714078
+      },
+      "respect": {
+        "min": 217,
+        "max": 265,
+        "avg": 241
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 7762,
+      "money": {
+        "min": 110342000,
+        "max": 122600000,
+        "avg": 116489390
+      },
+      "respect": {
+        "min": 271,
+        "max": 331,
+        "avg": 301
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A9S_",
+      "n": 3147,
+      "money": {
+        "min": 100534000,
+        "max": 110339000,
+        "avg": 105418393
+      },
+      "respect": {
+        "min": 244,
+        "max": 296,
+        "avg": 270
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B5S_",
+      "n": 652,
+      "money": {
+        "min": 61317000,
+        "max": 71104000,
+        "avg": 66253221
+      },
+      "respect": {
+        "min": 136,
+        "max": 166,
+        "avg": 151
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B6S_",
+      "n": 1597,
+      "money": {
+        "min": 71124000,
+        "max": 80906000,
+        "avg": 75940939
+      },
+      "respect": {
+        "min": 163,
+        "max": 199,
+        "avg": 181
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_C7S_",
+      "n": 2797,
+      "money": {
+        "min": 80922000,
+        "max": 90718000,
+        "avg": 85872724
+      },
+      "respect": {
+        "min": 190,
+        "max": 232,
+        "avg": 211
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.4849000054484748,
     "roles": [
@@ -233,6 +326,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

@@ -115,6 +115,10 @@ for (const s of scenarios) {
     slug,
     parameterCount: s.parameter_count,
     isComplete: s.is_complete,
+    /** ⚠️ How many paths TORNPROBABILITY observed, not us — global game data,
+     *  which is why it travels with the model rather than staying per-tenant.
+     *  The Simulator renders it as "N observed paths". */
+    observedPaths: s.observed_paths == null ? null : Number(s.observed_paths),
     diagramValid: s.diagram_valid,
     diagramProblems: s.diagram_problems ?? null,
     roles: (s.roles ?? []).map((r: any) => ({
@@ -123,6 +127,40 @@ for (const s of scenarios) {
       weight: Number(r.weight),
     })),
     endings,
+    /**
+     * Per-node money/respect/item aggregates (#606 slice 3).
+     *
+     * ⚠️ These are tornprobability's GLOBAL aggregates, not any faction's own
+     * results — `oc-scenarios-mirror` wrote them straight from the upstream
+     * feed's `stats` frame. That is what makes them model data rather than
+     * tenant data, and it is why dropping the mirror table without carrying
+     * them here would have silently stripped the payout, E(x) and success
+     * figures the Simulator renders per node.
+     *
+     * ⚠️ `n` is the observation count and MUST survive: an average from one
+     * run looks exactly like an average from six thousand, and the largest
+     * node in the live feed carries 20,129.
+     *
+     * A faction's OWN observations stay in its container's database and are
+     * layered over this at read time — MonChoon, 2026-09-07: "I don't think it
+     * should be tied to any specific stats from a faction's actual results,
+     * that can be something separate."
+     */
+    nodeStats: (s.node_stats ?? []).map((n: any) => ({
+      nodeId: n.node_id,
+      n: Number(n.n) || 0,
+      money: {
+        min: n.money_min == null ? null : Number(n.money_min),
+        max: n.money_max == null ? null : Number(n.money_max),
+        avg: n.money_avg == null ? null : Number(n.money_avg),
+      },
+      respect: {
+        min: n.respect_min == null ? null : Number(n.respect_min),
+        max: n.respect_max == null ? null : Number(n.respect_max),
+        avg: n.respect_avg == null ? null : Number(n.respect_avg),
+      },
+      items: n.items ?? [],
+    })),
     roleFidelity: s.role_fidelity_error == null
       ? null
       : { error: Number(s.role_fidelity_error), roles: s.role_fidelity_roles ?? null },
@@ -132,6 +170,7 @@ for (const s of scenarios) {
       structure: 'tornprobability',
       roles: 'tornprobability',
       rewards: facts ? 'crimeshub' : null,
+      nodeStats: 'tornprobability',
     },
   }
 

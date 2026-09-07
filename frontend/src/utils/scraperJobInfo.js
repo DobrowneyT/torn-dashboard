@@ -78,11 +78,6 @@ export const SCRAPER_JOB_INFO = {
     'actually SEEN in a crime slot, because Torn never reports a departure — ' +
     'every "left at" elsewhere is inferred. Feeds the payout page\'s observed ' +
     'time. 1 API call per minute (~1,440/day).',
-  'oc-scenarios-mirror':
-    'Nightly mirror of the community OC probability model: scenarios, roles, ' +
-    'weights, flowcharts and the derived ending map, into our own tables so ' +
-    'the OC Simulator never calls the third-party service from a browser. ' +
-    'No Torn API calls; ~150 calls to tornprobability.com per run.',
   'faction-upgrades':
     'Daily snapshot of the faction\'s purchased upgrades, including the ' +
     'Steadfast gym-gain percentages and whether the war or peace branch set ' +

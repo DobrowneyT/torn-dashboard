@@ -3,6 +3,7 @@
   "slug": "sneakygitgrab",
   "parameterCount": 4,
   "isComplete": true,
+  "observedPaths": 327,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -158,6 +159,83 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A7S2_",
+      "n": 1821,
+      "money": {
+        "min": 31602000,
+        "max": 33575000,
+        "avg": 32602070
+      },
+      "respect": {
+        "min": 144,
+        "max": 176,
+        "avg": 160
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 5633,
+      "money": {
+        "min": 35551000,
+        "max": 39499000,
+        "avg": 37525201
+      },
+      "respect": {
+        "min": 160,
+        "max": 196,
+        "avg": 178
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 1770,
+      "money": {
+        "min": 27651000,
+        "max": 29625000,
+        "avg": 28636105
+      },
+      "respect": {
+        "min": 128,
+        "max": 157,
+        "avg": 142
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A9S_",
+      "n": 643,
+      "money": {
+        "min": 23702000,
+        "max": 25675000,
+        "avg": 24718062
+      },
+      "respect": {
+        "min": 112,
+        "max": 137,
+        "avg": 125
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B7S_",
+      "n": 342,
+      "money": {
+        "min": 19755000,
+        "max": 21724000,
+        "avg": 20735962
+      },
+      "respect": {
+        "min": 96,
+        "max": 118,
+        "avg": 107
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.004799282273512673,
     "roles": []
@@ -165,6 +243,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

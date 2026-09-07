@@ -3,6 +3,7 @@
   "slug": "petproject",
   "parameterCount": 3,
   "isComplete": true,
+  "observedPaths": 147,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -123,6 +124,113 @@
       "reward": null
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A7F_",
+      "n": 1,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S1_",
+      "n": 6257,
+      "money": {
+        "min": 730000,
+        "max": 810000,
+        "avg": 770107
+      },
+      "respect": {
+        "min": 32,
+        "max": 40,
+        "avg": 36
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S2_",
+      "n": 977,
+      "money": {
+        "min": 649000,
+        "max": 729000,
+        "avg": 688168
+      },
+      "respect": {
+        "min": 28,
+        "max": 38,
+        "avg": 32
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 174,
+      "money": {
+        "min": 568000,
+        "max": 648000,
+        "avg": 610236
+      },
+      "respect": {
+        "min": 26,
+        "max": 32,
+        "avg": 29
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B2F_",
+      "n": 1,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B3S_",
+      "n": 1790,
+      "money": {
+        "min": 406000,
+        "max": 486000,
+        "avg": 446344
+      },
+      "respect": {
+        "min": 18,
+        "max": 31,
+        "avg": 22
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_C3S_",
+      "n": 1873,
+      "money": {
+        "min": 487000,
+        "max": 567000,
+        "avg": 526615
+      },
+      "respect": {
+        "min": 22,
+        "max": 35,
+        "avg": 26
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.000013839734444354157,
     "roles": []
@@ -130,6 +238,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": null
+    "rewards": null,
+    "nodeStats": "tornprobability"
   }
 }

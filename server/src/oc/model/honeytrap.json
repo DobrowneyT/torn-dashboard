@@ -3,6 +3,7 @@
   "slug": "honeytrap",
   "parameterCount": 3,
   "isComplete": true,
+  "observedPaths": 192,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -174,6 +175,68 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A6S_",
+      "n": 311,
+      "money": {
+        "min": 8780000,
+        "max": 10120000,
+        "avg": 9450788
+      },
+      "respect": {
+        "min": 74,
+        "max": 90,
+        "avg": 82
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 557,
+      "money": {
+        "min": 10130000,
+        "max": 11472000,
+        "avg": 10801768
+      },
+      "respect": {
+        "min": 83,
+        "max": 102,
+        "avg": 93
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 2014,
+      "money": {
+        "min": 12151000,
+        "max": 13500000,
+        "avg": 12817035
+      },
+      "respect": {
+        "min": 93,
+        "max": 113,
+        "avg": 103
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B2S_",
+      "n": 887,
+      "money": {
+        "min": 6752000,
+        "max": 8094000,
+        "avg": 7415645
+      },
+      "respect": {
+        "min": 65,
+        "max": 79,
+        "avg": 72
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.000013907026887416407,
     "roles": []
@@ -181,6 +244,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

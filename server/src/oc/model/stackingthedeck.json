@@ -3,6 +3,7 @@
   "slug": "stackingthedeck",
   "parameterCount": 4,
   "isComplete": true,
+  "observedPaths": 160,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -164,6 +165,7 @@
       }
     }
   ],
+  "nodeStats": [],
   "roleFidelity": {
     "error": 0.00001493179938183431,
     "roles": []
@@ -171,6 +173,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

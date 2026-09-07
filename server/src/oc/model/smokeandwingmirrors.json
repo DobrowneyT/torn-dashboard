@@ -3,6 +3,7 @@
   "slug": "smokeandwingmirrors",
   "parameterCount": 4,
   "isComplete": true,
+  "observedPaths": 303,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -185,6 +186,226 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A1F_",
+      "n": 1,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A3F_",
+      "n": 1,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A7S_",
+      "n": 5658,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 57,
+        "max": 89,
+        "avg": 81
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Veloria LFA",
+          "occurrences": 3431
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Lambrini Torobravo",
+          "occurrences": 1670
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Weston Marlin 177",
+          "occurrences": 557
+        }
+      ]
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 1075,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 53,
+        "max": 80,
+        "avg": 73
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Veloria LFA",
+          "occurrences": 536
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Lambrini Torobravo",
+          "occurrences": 386
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Weston Marlin 177",
+          "occurrences": 153
+        }
+      ]
+    },
+    {
+      "nodeId": "_A9S_",
+      "n": 197,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 58,
+        "max": 71,
+        "avg": 65
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Lambrini Torobravo",
+          "occurrences": 75
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Veloria LFA",
+          "occurrences": 73
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Weston Marlin 177",
+          "occurrences": 49
+        }
+      ]
+    },
+    {
+      "nodeId": "_B3S2_",
+      "n": 635,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 44,
+        "max": 54,
+        "avg": 49
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Weston Marlin 177",
+          "occurrences": 635
+        }
+      ]
+    },
+    {
+      "nodeId": "_B3S_",
+      "n": 2461,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 39,
+        "max": 62,
+        "avg": 57
+      },
+      "items": [
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Lambrini Torobravo",
+          "occurrences": 2458
+        },
+        {
+          "qty": {
+            "avg": 1,
+            "max": 1,
+            "min": 1
+          },
+          "name": "Veloria LFA",
+          "occurrences": 3
+        }
+      ]
+    }
+  ],
   "roleFidelity": {
     "error": 0.000010911591813586585,
     "roles": []
@@ -192,6 +413,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

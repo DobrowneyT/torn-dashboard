@@ -233,28 +233,56 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
       // observations off the mirror's rows would reproduce the very bug this
       // replaces: a tenant with no mirror rows would get no observations
       // either, even though its own crime history is perfectly intact.
-      const statsRows = await deps.db.query(
-        `SELECT scenario_name, node_id, money_avg, money_min, money_max,
-                respect_avg, n, items
-           FROM oc_scenario_node_stats`
-      )
+      // ⚠️ #606 slice 3: node stats now come from the MODEL, not from
+      // `oc_scenario_node_stats`. They were always tornprobability's global
+      // aggregates — the mirror wrote them straight from the upstream feed —
+      // so they are the same for every faction and belong in the image for
+      // exactly the reason the scenario structure above does.
+      //
+      // This is what made dropping the mirror table safe. Doing the migration
+      // without carrying them would have silently stripped the per-node
+      // payouts, E(x) and success figures the Simulator renders, and an empty
+      // stats map looks identical to a node nobody has run.
       const statsBy = new Map<string, Map<string, Record<string, unknown>>>()
-      for (const r of statsRows.rows) {
-        if (!statsBy.has(r.scenario_name)) statsBy.set(r.scenario_name, new Map())
-        statsBy.get(r.scenario_name)!.set(String(r.node_id), r)
+      for (const m of ocModel().values()) {
+        if (m.nodeStats.length === 0) continue
+        const byNode = new Map<string, Record<string, unknown>>()
+        for (const n of m.nodeStats) {
+          byNode.set(String(n.nodeId), {
+            scenario_name: m.name,
+            node_id: n.nodeId,
+            n: n.n,
+            money_min: n.money.min,
+            money_max: n.money.max,
+            money_avg: n.money.avg,
+            respect_avg: n.respect.avg,
+            items: n.items,
+          })
+        }
+        statsBy.set(m.name, byNode)
       }
 
-      // ⚠️ Still read from oc_scenarios, on purpose. These columns are OURS —
-      // derived from our own runs — and they are rehomed by a later migration.
-      // Reading them here keeps this change to the read path alone, so the
-      // mirror tables are dropped only once the switch has been proven live.
+      // ⚠️ #606 slice 3 rehomed these. `ending_map_*` are OURS — derived by the
+      // maintainer probe sweep (#471/#473) against a tenant's own data — so
+      // they stay in the tenant database rather than moving into the image,
+      // per MonChoon's "certain aspects will be scoped to the faction of
+      // interest". They now live in `oc_scenario_quality`, which has no
+      // dependency on the dropped mirror tables.
+      //
+      // ⚠️ `observed_paths` and `fetched_at` are NOT carried over, and an
+      // earlier comment here wrongly called them ours. Both were written by
+      // the mirror job straight from tornprobability's feed — `observed_paths`
+      // is how many paths THEY observed, `fetched_at` is when WE last fetched
+      // from them. With the mirror gone neither has a writer, so keeping them
+      // would have meant showing a number that could only ever go stale.
+      //
       // A tenant with no rows simply has no quality figures, which is correct:
-      // it has made no observations to derive them from.
+      // it has run no probe sweep to derive them from.
       const derivedRows = await deps.db.query(
-        `SELECT name, observed_paths, fetched_at, ending_map_residual,
+        `SELECT scenario_name AS name, ending_map_residual,
                 ending_map_confident, ending_map_money_residual,
                 ending_map_money_confident
-           FROM oc_scenarios`
+           FROM oc_scenario_quality`
       )
       const derivedBy = new Map(derivedRows.rows.map((r) => [r.name, r]))
 
@@ -273,8 +301,16 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
               is_complete: m.isComplete,
               diagram_valid: m.diagramValid,
               diagram_problems: m.diagramProblems,
-              observed_paths: (derived as any).observed_paths ?? null,
-              fetched_at: (derived as any).fetched_at ?? null,
+              // From the MODEL now (#606 slice 3): tornprobability's own path
+              // count is global game data, so it ships in the image.
+              observed_paths: m.observedPaths,
+              // ⚠️ Always null since the mirror was deleted, and deliberately
+              // kept in the shape rather than removed. It meant "when we last
+              // fetched from tornprobability", and with no fetcher there is no
+              // honest value — null says "unknown", where a build timestamp
+              // would assert a freshness the data does not have. The field
+              // stays so an older client reading it sees absent, not missing.
+              fetched_at: null,
               ending_map_residual: (derived as any).ending_map_residual ?? null,
               ending_map_confident: (derived as any).ending_map_confident ?? null,
               ending_map_money_residual: (derived as any).ending_map_money_residual ?? null,

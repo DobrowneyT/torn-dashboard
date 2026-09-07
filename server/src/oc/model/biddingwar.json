@@ -3,6 +3,7 @@
   "slug": "biddingwar",
   "parameterCount": 6,
   "isComplete": true,
+  "observedPaths": 681,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -189,6 +190,68 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A6S2_",
+      "n": 737,
+      "money": {
+        "min": 70840000,
+        "max": 80387000,
+        "avg": 77514923
+      },
+      "respect": {
+        "min": 298,
+        "max": 364,
+        "avg": 331
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A6S_",
+      "n": 2127,
+      "money": {
+        "min": 82553000,
+        "max": 93793000,
+        "avg": 90497844
+      },
+      "respect": {
+        "min": 340,
+        "max": 415,
+        "avg": 377
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S2_",
+      "n": 1009,
+      "money": {
+        "min": 94358000,
+        "max": 107167000,
+        "avg": 103424651
+      },
+      "respect": {
+        "min": 383,
+        "max": 469,
+        "avg": 427
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S_",
+      "n": 3076,
+      "money": {
+        "min": 117991000,
+        "max": 133999000,
+        "avg": 129453034
+      },
+      "respect": {
+        "min": 427,
+        "max": 520,
+        "avg": 474
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.0000118259095762685,
     "roles": []
@@ -196,6 +259,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }

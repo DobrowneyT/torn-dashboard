@@ -3,6 +3,7 @@
   "slug": "snowblind",
   "parameterCount": 4,
   "isComplete": true,
+  "observedPaths": 287,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -209,6 +210,113 @@
       }
     }
   ],
+  "nodeStats": [
+    {
+      "nodeId": "_A4S_",
+      "n": 939,
+      "money": {
+        "min": 5492000,
+        "max": 6588000,
+        "avg": 6042741
+      },
+      "respect": {
+        "min": 47,
+        "max": 58,
+        "avg": 53
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S1_",
+      "n": 8580,
+      "money": {
+        "min": 10111000,
+        "max": 10640000,
+        "avg": 10508118
+      },
+      "respect": {
+        "min": 95,
+        "max": 116,
+        "avg": 106
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_A8S2_",
+      "n": 2074,
+      "money": {
+        "min": 0,
+        "max": 10430000,
+        "avg": 9819751
+      },
+      "respect": {
+        "min": 0,
+        "max": 104,
+        "avg": 94
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B1F3_",
+      "n": 1,
+      "money": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "respect": {
+        "min": 0,
+        "max": 0,
+        "avg": 0
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B7S1_",
+      "n": 1628,
+      "money": {
+        "min": 8513000,
+        "max": 9330000,
+        "avg": 9003846
+      },
+      "respect": {
+        "min": 76,
+        "max": 93,
+        "avg": 85
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B7S2_",
+      "n": 506,
+      "money": {
+        "min": 7462000,
+        "max": 8780000,
+        "avg": 8201527
+      },
+      "respect": {
+        "min": 66,
+        "max": 81,
+        "avg": 73
+      },
+      "items": []
+    },
+    {
+      "nodeId": "_B8S_",
+      "n": 424,
+      "money": {
+        "min": 6390000,
+        "max": 7680000,
+        "avg": 7109776
+      },
+      "respect": {
+        "min": 57,
+        "max": 70,
+        "avg": 63
+      },
+      "items": []
+    }
+  ],
   "roleFidelity": {
     "error": 0.6990370648205984,
     "roles": [
@@ -218,6 +326,7 @@
   "sources": {
     "structure": "tornprobability",
     "roles": "tornprobability",
-    "rewards": "crimeshub"
+    "rewards": "crimeshub",
+    "nodeStats": "tornprobability"
   }
 }
