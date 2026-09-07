@@ -4,6 +4,7 @@
   "parameterCount": 6,
   "isComplete": true,
   "observedPaths": 912,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -46,6 +47,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -61,6 +64,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -76,6 +81,8 @@
       "resolved": false,
       "problem": "badEnding3: ties between _A3F_ and _A4F_ on role evidence — needs a paired-role probe (Engineer + Muscle)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -91,6 +98,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -106,6 +115,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -121,6 +132,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 167566309,
         "respect": 348,
@@ -136,6 +149,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 150108424,
         "respect": 311,
@@ -151,6 +166,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 118217940,
         "respect": 281,
@@ -161,20 +178,24 @@
     },
     {
       "key": "goodEnding310",
-      "nodeId": null,
+      "nodeId": "_B8S1_",
       "kind": "good",
-      "resolved": false,
-      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
-      "starved": true,
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "aliasOf": "goodEnding3",
+      "disputedKind": null,
       "reward": null
     },
     {
       "key": "goodEnding35",
-      "nodeId": null,
+      "nodeId": "_B8S1_",
       "kind": "good",
-      "resolved": false,
-      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
-      "starved": true,
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "aliasOf": "goodEnding3",
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -184,6 +205,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 99931212,
         "respect": 248,
@@ -194,20 +217,24 @@
     },
     {
       "key": "goodEnding410",
-      "nodeId": null,
+      "nodeId": "_B8S2_",
       "kind": "good",
-      "resolved": false,
-      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
-      "starved": true,
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "aliasOf": "goodEnding4",
+      "disputedKind": null,
       "reward": null
     },
     {
       "key": "goodEnding45",
-      "nodeId": null,
+      "nodeId": "_B8S2_",
       "kind": "good",
-      "resolved": false,
-      "problem": "no diagram counterpart — the API reports more good endings than the flowchart draws terminals for; priced at $0 pending an upstream diagram fix",
-      "starved": true,
+      "resolved": true,
+      "problem": null,
+      "starved": false,
+      "aliasOf": "goodEnding4",
+      "disputedKind": null,
       "reward": null
     }
   ],

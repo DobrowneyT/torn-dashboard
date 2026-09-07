@@ -4,6 +4,7 @@
   "parameterCount": 3,
   "isComplete": true,
   "observedPaths": 312,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -31,6 +32,8 @@
       "resolved": false,
       "problem": "badEnding1: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -46,6 +49,8 @@
       "resolved": false,
       "problem": "badEnding2: ties between _A2F_ and _B8F_ on role evidence — needs a paired-role probe (Car Thief + Techie)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -61,6 +66,8 @@
       "resolved": false,
       "problem": "badEnding3: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -76,6 +83,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -91,6 +100,8 @@
       "resolved": false,
       "problem": "badEnding5: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -106,6 +117,8 @@
       "resolved": false,
       "problem": "badEnding6: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -121,6 +134,8 @@
       "resolved": false,
       "problem": "badEnding7: ties between _B8F_ and _A3F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -136,6 +151,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": null,
@@ -151,6 +168,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": null,
@@ -166,6 +185,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": null,
@@ -181,6 +202,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": null,

@@ -25,6 +25,48 @@ const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinit
 export const THIN_SAMPLE_THRESHOLD = 30
 
 /**
+ * The response's ending probabilities, minus the service's zero padding (#606).
+ *
+ * ⚠️ tornprobability answers with a FIXED number of ending slots and pads the
+ * unused tail with exact zeros. Window of Opportunity has six good endings and
+ * no bad ones; the service returns `goodEnding1..10` AND `badEnding1..10`, so
+ * fourteen of those twenty keys describe endings the crime does not have. The
+ * Simulator listed all twenty, which put four rows reading "unpriced" and ten
+ * reading "$0" under a crime whose pricing is in fact complete — and pushed the
+ * four into `expectedValue`'s `missing`, so the panel reported a lower bound
+ * where it had the real answer.
+ *
+ * The server already trims this when BUILDING the model (`realEndingKeys` in
+ * `oc/endingMap.ts`, which drops a trailing run of zeros). It cannot trim the
+ * live `/calculate` response, because that is passed through verbatim on
+ * purpose — so the trim has to happen again here, against a different fact.
+ *
+ * ⚠️ The test is "unknown to the model AND exactly zero", never either alone:
+ *
+ *   - Zero alone would hide a real ending that is simply unreachable at these
+ *     CPRs. Those exist, they are in the model, and a crew that makes one
+ *     reachable must see it appear rather than blink into existence.
+ *   - Unknown alone would hide a genuine disagreement between the service and
+ *     the model. If the service puts real probability on a key we have never
+ *     heard of, that is exactly the thing a reader needs to be told about, and
+ *     it stays on screen as an unpriced ending.
+ *
+ * Keys that are not ending keys at all (`successChance`, and whatever the
+ * service adds next) are dropped here too, so callers stop repeating the
+ * prefix test.
+ */
+export function withoutEndingPadding(probabilities, endings) {
+  const known = new Set((endings ?? []).map((e) => e?.ending_key))
+  const out = {}
+  for (const [key, p] of Object.entries(probabilities ?? {})) {
+    if (!key.startsWith('goodEnding') && !key.startsWith('badEnding')) continue
+    if (!known.has(key) && !(Number(p) > 0)) continue
+    out[key] = p
+  }
+  return out
+}
+
+/**
  * Whether an ending has anything to price at all — resolved to a real
  * diagram node, OR confirmed starved (#473: the API reports it, the diagram
  * draws no terminal for it, so it can never get real stats — soft-priced at

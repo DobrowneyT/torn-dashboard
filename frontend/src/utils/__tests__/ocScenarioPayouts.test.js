@@ -13,6 +13,7 @@ import {
   paysInItems,
   endingValue,
   isPriceable,
+  withoutEndingPadding,
   THIN_SAMPLE_THRESHOLD,
 } from '../ocScenarioPayouts'
 import { expectedValue } from '../ocExpectedValue'
@@ -324,5 +325,81 @@ describe('paysInItems', () => {
       { ending_key: 'goodEnding1', kind: 'good', resolved: true, money_avg: 0, item_value_avg: 0, respect_avg: 290 },
     ]
     expect(paysInItems(unmatched)).toBe(true)
+  })
+})
+
+/**
+ * The service's zero padding (#606 follow-up).
+ *
+ * ⚠️ The fixtures here are the REAL shapes off production on 2026-09-07, not
+ * invented ones. Window of Opportunity is the crime that surfaced this: six
+ * good endings in the model, twenty ending keys in the response.
+ */
+describe('withoutEndingPadding', () => {
+  const wooEndings = [
+    { ending_key: 'goodEnding1', kind: 'good', resolved: true },
+    { ending_key: 'goodEnding2', kind: 'good', resolved: true },
+    { ending_key: 'goodEnding3', kind: 'good', resolved: true },
+    { ending_key: 'goodEnding4', kind: 'good', resolved: true },
+    { ending_key: 'goodEnding5', kind: 'good', resolved: true },
+    { ending_key: 'goodEnding6', kind: 'good', resolved: true },
+  ]
+
+  it('drops the good-ending slots the crime does not have', () => {
+    const raw = {
+      successChance: 0.8339,
+      goodEnding1: 0.42773, goodEnding2: 0.10694, goodEnding3: 0.02673,
+      goodEnding4: 0.17822, goodEnding5: 0.07251, goodEnding6: 0.02176,
+      goodEnding7: 0, goodEnding8: 0, goodEnding9: 0, goodEnding10: 0,
+    }
+    const out = withoutEndingPadding(raw, wooEndings)
+    expect(Object.keys(out).sort()).toEqual(
+      ['goodEnding1', 'goodEnding2', 'goodEnding3', 'goodEnding4', 'goodEnding5', 'goodEnding6']
+    )
+  })
+
+  it('drops bad-ending padding on a crime the model gives no bad endings at all', () => {
+    const raw = { goodEnding1: 0.42773, badEnding1: 0, badEnding2: 0, badEnding7: 0 }
+    expect(withoutEndingPadding(raw, wooEndings)).toEqual({ goodEnding1: 0.42773 })
+  })
+
+  it('drops non-ending keys, so callers stop repeating the prefix test', () => {
+    const raw = { successChance: 0.83, failureChance: 0.17, goodEnding1: 0.5 }
+    expect(withoutEndingPadding(raw, wooEndings)).toEqual({ goodEnding1: 0.5 })
+  })
+
+  it('⚠️ KEEPS a known ending sitting at zero — unreachable is not nonexistent', () => {
+    // goodEnding6 is real and in the model; this crew simply never reaches it.
+    // Dropping it on the zero alone would make a real ending blink in and out
+    // of the list as the sliders move.
+    const raw = { goodEnding1: 0.9, goodEnding6: 0 }
+    expect(withoutEndingPadding(raw, wooEndings)).toEqual({ goodEnding1: 0.9, goodEnding6: 0 })
+  })
+
+  it('⚠️ KEEPS an unknown ending that carries real mass — that is a disagreement, not padding', () => {
+    // If the service puts probability on a key the model has never heard of,
+    // that is exactly what a reader needs told. It stays, and prices as
+    // unpriced, rather than being quietly swept up with the padding.
+    const raw = { goodEnding1: 0.9, goodEnding42: 0.1 }
+    expect(withoutEndingPadding(raw, wooEndings)).toEqual({ goodEnding1: 0.9, goodEnding42: 0.1 })
+  })
+
+  it('keeps Blast from the Past’s composite keys, which are in the model and non-zero', () => {
+    // goodEnding35 / 45 / 310 / 410 are starved, not padding — they hold 9.67%
+    // of that crime's mass between them. Trimming them here would hide a real
+    // (and unresolved) question behind a fix for a different problem.
+    const blast = [
+      { ending_key: 'goodEnding1', kind: 'good', resolved: true },
+      { ending_key: 'goodEnding35', kind: 'good', resolved: false, starved: true },
+    ]
+    const raw = { goodEnding1: 0.42105, goodEnding35: 0.06316, goodEnding9: 0 }
+    expect(withoutEndingPadding(raw, blast)).toEqual({ goodEnding1: 0.42105, goodEnding35: 0.06316 })
+  })
+
+  it('survives a missing model and a missing response without inventing entries', () => {
+    expect(withoutEndingPadding(null, wooEndings)).toEqual({})
+    // No model at all: nothing is "known", so only real mass survives.
+    expect(withoutEndingPadding({ goodEnding1: 0.5, goodEnding2: 0 }, null))
+      .toEqual({ goodEnding1: 0.5 })
   })
 })

@@ -4,6 +4,7 @@
   "parameterCount": 3,
   "isComplete": true,
   "observedPaths": 500,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -31,6 +32,8 @@
       "resolved": false,
       "problem": "badEnding1: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Picklock + Decoy)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -40,6 +43,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -49,6 +54,8 @@
       "resolved": false,
       "problem": "badEnding3: ties between _B5F_ and _A1F_ on role evidence — needs a paired-role probe (Decoy + Pickpocket)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -58,6 +65,8 @@
       "resolved": false,
       "problem": "badEnding4: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Picklock + Decoy)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -67,6 +76,8 @@
       "resolved": false,
       "problem": "badEnding5: ties between _A6F_ and _A1F_ on role evidence — needs a paired-role probe (Picklock + Decoy)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -76,6 +87,8 @@
       "resolved": false,
       "problem": "badEnding6: ties between _A1F_ and _B4F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -85,6 +98,8 @@
       "resolved": false,
       "problem": "badEnding7: ties between _B5F_ and _A1F_ on role evidence — needs a paired-role probe (Decoy + Pickpocket)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -94,6 +109,8 @@
       "resolved": false,
       "problem": "badEnding8: ties between _B5F_ and _A1F_ on role evidence — needs a paired-role probe (Decoy + Pickpocket)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -103,6 +120,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -112,6 +131,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -121,6 +142,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -130,6 +153,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     },
     {
@@ -139,6 +164,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": null
     }
   ],

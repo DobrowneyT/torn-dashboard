@@ -4,6 +4,7 @@
   "parameterCount": 6,
   "isComplete": true,
   "observedPaths": 220,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -46,6 +47,8 @@
       "resolved": false,
       "problem": "badEnding1: ties between _A1F_ and _A4F_ on role evidence — needs a paired-role probe (Lookout + Muscle 1)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -61,6 +64,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -76,6 +81,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -91,6 +98,8 @@
       "resolved": false,
       "problem": "badEnding4: ties between _B7F_ and _A4F_ on role evidence — needs a paired-role probe (Muscle 1 + Sniper)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -106,6 +115,8 @@
       "resolved": false,
       "problem": "badEnding5: ties between _A7F_ and _A1F_ on role evidence — needs a paired-role probe (Bomber + Sniper)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -121,6 +132,8 @@
       "resolved": false,
       "problem": "badEnding6: ties between _B7F_ and _A4F_ on role evidence — needs a paired-role probe (Muscle 1 + Sniper)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -136,6 +149,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -151,6 +166,8 @@
       "resolved": false,
       "problem": "badEnding8: ties between _B7F_ and _A4F_ on role evidence — needs a paired-role probe (Muscle 1 + Sniper)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -166,6 +183,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": 1841,
@@ -181,6 +200,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": 1556,
@@ -196,6 +217,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": 1464,
@@ -211,6 +234,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": 1262,
@@ -226,6 +251,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": 1017,

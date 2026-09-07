@@ -4,6 +4,7 @@
   "parameterCount": 5,
   "isComplete": true,
   "observedPaths": 362,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -41,6 +42,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -56,6 +59,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -71,6 +76,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -86,6 +93,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -101,6 +110,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -116,6 +127,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 8453868,
         "respect": 93,
@@ -131,6 +144,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 7775690,
         "respect": 87,
@@ -146,6 +161,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 7106444,
         "respect": 78,
@@ -161,6 +178,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 5407000,
         "respect": 58,
@@ -176,6 +195,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 4691974,
         "respect": 50,
@@ -191,6 +212,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 5981133,
         "respect": 68,

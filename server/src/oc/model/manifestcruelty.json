@@ -4,6 +4,7 @@
   "parameterCount": 4,
   "isComplete": true,
   "observedPaths": 240,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [],
   "roles": [
@@ -36,6 +37,8 @@
       "resolved": false,
       "problem": "badEnding1: ties between _B5F_ and _A1F_ on role evidence — needs a paired-role probe (Interrogator + Cat Burglar)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -51,6 +54,8 @@
       "resolved": false,
       "problem": "badEnding2: ties between _A2F_ and _A1F_ on role evidence — needs a paired-role probe (Cat Burglar + Interrogator)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -66,6 +71,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -81,6 +88,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -96,6 +105,8 @@
       "resolved": false,
       "problem": "badEnding5: ties between _B6F_ and _A6F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -111,6 +122,8 @@
       "resolved": false,
       "problem": "badEnding6: ties between _A2F_ and _A1F_ on role evidence — needs a paired-role probe (Cat Burglar + Interrogator)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -126,6 +139,8 @@
       "resolved": false,
       "problem": "badEnding7: ties between _B5F_ and _A1F_ on role evidence — needs a paired-role probe (Interrogator + Cat Burglar)",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -141,6 +156,8 @@
       "resolved": false,
       "problem": "badEnding8: ties between _B6F_ and _A6F_ on role evidence — needs a paired-role probe",
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 0,
         "respect": 0,
@@ -156,6 +173,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": null,
@@ -171,6 +190,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": null,
@@ -186,6 +207,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": null,
         "respect": null,

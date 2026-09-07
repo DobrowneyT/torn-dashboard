@@ -32,6 +32,7 @@ import { useViewState } from '../contexts/ViewStateContext'
 import { expectedValue } from '../utils/ocExpectedValue'
 import {
   payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
+  withoutEndingPadding,
 } from '../utils/ocScenarioPayouts'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { headcountAtCpr, maxSustainableCpr } from '../utils/ocRosterFit'
@@ -576,31 +577,34 @@ function RoleSensitivity({ row }) {
 }
 
 function ResultPanel({ scenario, result, calculating, error }) {
-  const endings = useMemo(() => {
-    if (!result) return []
-    return Object.entries(result)
-      .filter(([k]) => k.startsWith('goodEnding') || k.startsWith('badEnding'))
-      .sort((a, b) => b[1] - a[1])
-  }, [result])
-
-  // Only good endings carry money, and only some of them are priced.
-  const goodProbabilities = useMemo(() => {
-    if (!result) return {}
-    return Object.fromEntries(Object.entries(result).filter(([k]) => k.startsWith('goodEnding')))
-  }, [result])
-
   // ⚠️ E(x) takes BOTH kinds. `expectedValue` has an explicit branch counting
   // bad endings as fully-covered mass paying zero — passing only the good ones
   // made that branch dead code, and the "unpriced coverage" figure was then a
   // share of the good mass reported as a share of ALL the probability. On
   // Clinical Precision that read 78.72% when the real answer is 16.15%: a
   // five-fold overstatement of how much of the crime we cannot price.
-  const endingProbabilities = useMemo(() => {
-    if (!result) return {}
-    return Object.fromEntries(
-      Object.entries(result).filter(([k]) => k.startsWith('goodEnding') || k.startsWith('badEnding'))
-    )
-  }, [result])
+  //
+  // ⚠️ And the service pads its answer with ending slots the crime does not
+  // have — see withoutEndingPadding(), which is why the raw response is never
+  // read directly here. Everything below derives from the trimmed map, so the
+  // list, E(x) and the respect total cannot disagree about which endings exist.
+  const endingProbabilities = useMemo(
+    () => (result ? withoutEndingPadding(result, scenario.endings) : {}),
+    [result, scenario.endings]
+  )
+
+  // Only good endings carry money, and only some of them are priced.
+  const goodProbabilities = useMemo(
+    () => Object.fromEntries(
+      Object.entries(endingProbabilities).filter(([k]) => k.startsWith('goodEnding'))
+    ),
+    [endingProbabilities]
+  )
+
+  const endings = useMemo(
+    () => Object.entries(endingProbabilities).sort((a, b) => b[1] - a[1]),
+    [endingProbabilities]
+  )
 
   // #440: payouts come from the mirrored feed, joined to endings through the
   // #390 mapping. No hand-entered table any more.
@@ -668,6 +672,9 @@ function ResultPanel({ scenario, result, calculating, error }) {
             />
           </div>
 
+          <DisputedSuccess endings={endings} endingMeta={endingMeta}
+            successChance={result.successChance} />
+
           <ScopeVerdict scenario={scenario} successChance={result.successChance} />
 
           <ExpectedValue ev={ev} priced={priced} quality={quality} spread={spread}
@@ -688,7 +695,46 @@ function ResultPanel({ scenario, result, calculating, error }) {
                     <span className="flex items-center gap-1.5 min-w-0">
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isGood ? 'bg-green-500' : 'bg-red-500'}`} />
                       <span className="truncate">{key}</span>
-                      {meta?.starved && (
+                      {/* ⚠️ GOOD endings only, both of them. A bad ending pays $0 by
+                          the game's rules (BAD_ENDINGS_PAY_ZERO), so whether it
+                          resolved to a diagram node changes nothing anyone can
+                          act on — and 97 of the fleet's bad endings are
+                          unmapped, which put an amber badge on half the rows of
+                          crimes whose pricing is complete. pricingQuality()
+                          already scoped its own summary to good endings; this
+                          was the one place still asking every row. */}
+                      {/* Two labels, one outcome (#606). The alias is fully resolved
+                          and prices from the same node, so without this the reader
+                          sees two identical payouts on two rows and no reason for
+                          it — which reads as a duplicate row rather than as the
+                          service reporting one terminal under several names. */}
+                      {isGood && meta?.alias_of && (
+                        <span
+                          className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"
+                          title={`Same outcome as ${meta.alias_of} — the probability service reports this diagram ending under more than one label. Both rows price from the same observations, and their probabilities add up.`}
+                        >
+                          = {meta.alias_of}
+                        </span>
+                      )}
+                      {/* ⚠️ The two sources disagree about whether this outcome is a
+                          success or a failure (#606), and neither is adopted. It
+                          takes precedence over the starved tag below because
+                          "no diagram match" describes a GAP, and this is not a
+                          gap — the other model has the ending, it just files it
+                          on the other side. */}
+                      {meta?.disputed_kind && (
+                        <span
+                          className="text-amber-600 dark:text-amber-400 cursor-help shrink-0"
+                          title={
+                            `Contested: the probability service counts this as a ${isGood ? 'success' : 'failure'}, `
+                            + `Crimes Hub draws it as a ${meta.disputed_kind === 'bad' ? 'failure' : 'success'}. `
+                            + 'Neither is adopted — the payout is $0 either way, so only the success chance is affected.'
+                          }
+                        >
+                          Crimes Hub: {meta.disputed_kind === 'bad' ? 'failure' : 'success'}
+                        </span>
+                      )}
+                      {isGood && !meta?.disputed_kind && meta?.starved && (
                         <span
                           className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"
                           title={meta.problem || 'No diagram terminal for this ending — confirmed, treated as $0 (#473)'}
@@ -696,7 +742,7 @@ function ResultPanel({ scenario, result, calculating, error }) {
                           no diagram match
                         </span>
                       )}
-                      {meta && !meta.resolved && !meta.starved && (
+                      {isGood && meta && !meta.resolved && !meta.starved && (
                         <span
                           className="text-amber-600 dark:text-amber-400 cursor-help shrink-0"
                           title={meta.problem || 'This ending could not be matched to the diagram'}
@@ -798,7 +844,7 @@ function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly
       {!ev.complete && (
         <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
           {ev.missing.length} ending{ev.missing.length === 1 ? '' : 's'} unpriced, covering{' '}
-          {((1 - ev.pricedProbability) * 100).toFixed(2)}% of the probability. The real value is
+          {(ev.missingProbability * 100).toFixed(2)}% of the probability. The real value is
           higher by an unknown amount — never lower.
         </p>
       )}
@@ -845,6 +891,64 @@ function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly
  * ⚠️ A crime paying enormous money below its break-even is still one the
  * faction cannot sustain, and E(x) alone will never say so.
  */
+/**
+ * Where the two sources disagree about whether an outcome is a success (#606).
+ *
+ * ⚠️ The alternative figure is DERIVED LIVE, not read from the model. Our
+ * success chance minus the contested endings' probability is what the other
+ * model gives, because the two agree on everything else: on Counter Offer all
+ * four good terminals match to within 0.005 points, and only the classification
+ * of two endings differs. Deriving it means the caveat works at every crew,
+ * where a recorded figure would only be true at the one crew it was captured at.
+ *
+ * `disputed_success_chance` is kept as the ANCHOR that proves the derivation:
+ * at all CPRs 75 it reproduces Crimes Hub's published 84.91%, and a test pins
+ * that. It is evidence, not an input.
+ *
+ * The disagreement does not touch the payout — a failure pays $0 and these
+ * endings are already valued at $0, so E(x) is identical either way. It moves
+ * the success chance, and the scope verdict directly below reads off exactly
+ * that number.
+ */
+function DisputedSuccess({ endings, endingMeta, successChance }) {
+  const ours = Number(successChance)
+  if (!Number.isFinite(ours)) return null
+
+  const contested = endings.filter(([key]) => endingMeta.get(key)?.disputed_kind === 'bad')
+  if (contested.length === 0) return null
+
+  const mass = contested.reduce((sum, [, p]) => sum + (Number(p) || 0), 0)
+  // Nothing worth a warning: the contested endings are unreachable at this crew.
+  if (mass <= 0) return null
+  const theirs = ours - mass
+
+  return (
+    <div className="mt-3 rounded border border-amber-300 dark:border-amber-700/60 p-3">
+      <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+        <div>
+          <div className="font-medium">
+            Contested: Crimes Hub&rsquo;s model puts this crew at {(theirs * 100).toFixed(2)}%.
+          </div>
+          <p className="mt-1 text-gray-600 dark:text-gray-400">
+            The two disagree about {contested.length} ending{contested.length === 1 ? '' : 's'} worth{' '}
+            {(mass * 100).toFixed(2)}% of runs ({contested.map(([k]) => k).join(', ')}). The
+            probability service counts {contested.length === 1 ? 'it' : 'them'} as successes;
+            Crimes Hub draws {contested.length === 1 ? 'it' : 'them'} as failures — and marks{' '}
+            {contested.length === 1 ? 'it' : 'them'} uncertain itself.
+          </p>
+          <p className="mt-1 text-gray-600 dark:text-gray-400">
+            Neither is adopted, and the <span className="font-medium">expected value is
+            unaffected</span> either way — a failure pays nothing, and these are already valued
+            at nothing. The scope verdict below reads off the success chance, so treat its
+            margin as the optimistic end of a range.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ScopeVerdict({ scenario, successChance }) {
   const categoryKey = useMemo(() => {
     const resolve = makeCategoryResolver({

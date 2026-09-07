@@ -199,3 +199,122 @@ describe('⚠️ chain rewards corroborate the observed chain table (#585)', () 
     }
   })
 })
+
+/**
+ * The recorded corrections in `model-overrides.json` (#606).
+ *
+ * ⚠️ Pinned here rather than trusted to the build, because these are the only
+ * facts in the model that CANNOT be re-derived. The probe sweep that produced
+ * the ending→node mapping ran against tornprobability's live API and no longer
+ * runs, and the tenant export carries only its RESULT (resolved/starved), not
+ * the per-ending probabilities it decided from. So if a future rebuild silently
+ * drops the overrides file, the numbers regress to the ones that were wrong —
+ * Blast from the Past back to a firm $111,028,512 where the answer is
+ * $122,489,526 — and nothing else in the suite would notice.
+ */
+describe('model-overrides.json corrections', () => {
+  it('folds Blast from the Past’s surplus ending labels onto the terminals they share', () => {
+    const m = getScenario('Blast from the Past')
+    expect(m, 'Blast from the Past is in the model').toBeTruthy()
+    const by = new Map(m!.endings.map((e) => [e.key, e]))
+
+    // Proven against Crimes Hub's own simulator at all-75 CPRs (2026-09-07):
+    // its Good End #3 reads 17.78%, which is goodEnding3 + 35 + 310 exactly,
+    // and Good End #4 reads 5.93% = goodEnding4 + 45 + 410.
+    for (const key of ['goodEnding35', 'goodEnding310']) {
+      expect(by.get(key)?.nodeId, key).toBe('_B8S1_')
+      expect(by.get(key)?.aliasOf, key).toBe('goodEnding3')
+    }
+    for (const key of ['goodEnding45', 'goodEnding410']) {
+      expect(by.get(key)?.nodeId, key).toBe('_B8S2_')
+      expect(by.get(key)?.aliasOf, key).toBe('goodEnding4')
+    }
+    // ⚠️ The whole point: no longer starved, so #473's priced-at-$0-by-
+    // definition rule stops applying and they price from the node instead.
+    for (const key of ['goodEnding35', 'goodEnding310', 'goodEnding45', 'goodEnding410']) {
+      expect(by.get(key)?.starved, key).toBe(false)
+      expect(by.get(key)?.resolved, key).toBe(true)
+    }
+    // An alias points at a real ending, never at another alias.
+    expect(by.get('goodEnding3')?.aliasOf).toBeNull()
+    expect(by.get('goodEnding4')?.aliasOf).toBeNull()
+  })
+
+  it('puts Counter Offer’s published reward on the ending the observations identify', () => {
+    const m = getScenario('Counter Offer')
+    const by = new Map(m!.endings.map((e) => [e.key, e]))
+    // Crimes Hub's goodEnding4 has respect 122; node _B5S_ — which the API
+    // calls goodEnding6 — is observed at 120. Joined by key name it landed on
+    // our goodEnding4 instead: the one starved ending on the crime, and so the
+    // only one with no observation to check it against.
+    expect(by.get('goodEnding6')?.nodeId).toBe('_B5S_')
+    expect(by.get('goodEnding6')?.reward?.respect).toBe(122)
+    // ⚠️ And it is not ALSO left on the ending that merely shares its name.
+    expect(by.get('goodEnding4')?.reward).toBeNull()
+  })
+
+  it('⚠️ aliases nothing that the overrides file does not name', () => {
+    // The file is a list of exceptions, each with its evidence written down. A
+    // change that started folding endings together generally would show up here
+    // as a count nobody accounted for.
+    const aliased: string[] = []
+    for (const m of loadOcModel().values()) {
+      for (const e of m.endings) if (e.aliasOf) aliased.push(`${m.slug}/${e.key}`)
+    }
+    expect(aliased.sort()).toEqual([
+      'blastfromthepast/goodEnding310',
+      'blastfromthepast/goodEnding35',
+      'blastfromthepast/goodEnding410',
+      'blastfromthepast/goodEnding45',
+    ])
+  })
+})
+
+/**
+ * The recorded success/failure dispute (#606).
+ *
+ * ⚠️ This is the one correction the model deliberately does NOT apply. Counter
+ * Offer's goodEnding4 and goodEnding5 are counted as successes by the
+ * probability service and drawn as failures by Crimes Hub, and both models sum
+ * to 100% — so adopting either answer would replace one confident number with
+ * another. The dispute is recorded and shown instead.
+ */
+describe('disputed classifications', () => {
+  it('records Counter Offer’s two contested endings without adopting the other answer', () => {
+    const m = getScenario('Counter Offer')
+    const by = new Map(m!.endings.map((e) => [e.key, e]))
+    for (const key of ['goodEnding4', 'goodEnding5']) {
+      expect(by.get(key)?.disputedKind, key).toBe('bad')
+      // ⚠️ Ours is unchanged. The whole point is that we did not pick a side.
+      expect(by.get(key)?.kind, key).toBe('good')
+    }
+    // Every other ending on the crime is uncontested.
+    for (const key of ['goodEnding1', 'goodEnding2', 'goodEnding3', 'goodEnding6']) {
+      expect(by.get(key)?.disputedKind, key).toBeNull()
+    }
+  })
+
+  it('⚠️ the recorded second opinion is reproduced by subtracting the contested mass', () => {
+    // This is the anchor for the UI's live derivation. The panel does not read
+    // `disputedSuccessChance` — it computes `ourSuccess - contestedMass`, which
+    // only works because the two models agree on everything else. Observed at
+    // all five CPRs at 75 on 2026-09-07:
+    const OURS = 0.91588            // our simulator's success chance
+    const CONTESTED = 0.05407 + 0.01267   // goodEnding5 + goodEnding4
+    const m = getScenario('Counter Offer')
+    expect(m!.disputedSuccessChance).toBe(0.8491)
+    expect(OURS - CONTESTED).toBeCloseTo(m!.disputedSuccessChance!, 3)
+  })
+
+  it('⚠️ disputes nothing that the overrides file does not name', () => {
+    const disputed: string[] = []
+    for (const s of loadOcModel().values()) {
+      for (const e of s.endings) if (e.disputedKind) disputed.push(`${s.slug}/${e.key}`)
+    }
+    expect(disputed.sort()).toEqual(['counteroffer/goodEnding4', 'counteroffer/goodEnding5'])
+    // And only that one scenario carries a second-opinion success chance.
+    const withAlt = [...loadOcModel().values()]
+      .filter((s) => s.disputedSuccessChance !== null).map((s) => s.slug)
+    expect(withAlt).toEqual(['counteroffer'])
+  })
+})

@@ -4,6 +4,7 @@
   "parameterCount": 4,
   "isComplete": true,
   "observedPaths": 152,
+  "disputedSuccessChance": null,
   "diagramValid": true,
   "diagramProblems": [
     "1 narrative node(s) that stop without reaching an ending: _A4F_Cont_"
@@ -38,6 +39,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 1371357,
         "respect": 47,
@@ -53,6 +56,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 1261826,
         "respect": 44,
@@ -68,6 +73,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 1112153,
         "respect": 38,
@@ -83,6 +90,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 1045428,
         "respect": 33,
@@ -98,6 +107,8 @@
       "resolved": true,
       "problem": null,
       "starved": false,
+      "aliasOf": null,
+      "disputedKind": null,
       "reward": {
         "money": 829625,
         "respect": 29,
