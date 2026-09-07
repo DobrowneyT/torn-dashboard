@@ -20,9 +20,9 @@ surface it automatically.
 
 ## [3.91.2] - 2026-09-07
 
-⚠️ 3.91.1 is not listed here: it is a hotfix cut from `main` (the userscript
-`@version` bump for #617) and reaches `dev` when `main` is merged back. The
-number is skipped rather than reused so the two lines cannot collide.
+⚠️ 3.91.1 was cut from `main` as a hotfix (the userscript `@version` bump for
+#617) while this was in flight, which is why the numbers interleave. It is
+listed below, having arrived here with the `main` → `dev` merge-back.
 
 ### Fixed
 
@@ -44,6 +44,33 @@ number is skipped rather than reused so the two lines cannot collide.
   *faster*, not slower: four starved `initdb`s finish later than two that get
   real CPU. The full server suite ran 265s uncapped on CI and 103s capped
   locally.
+
+## [3.91.1] - 2026-09-07
+
+### Fixed
+
+- **Userscript `@version` bumped to 1.49.0 so #617's rewrite actually reaches
+  installed copies (hotfix).** #617 rewrote the war-room userscript but left
+  `@version` at 1.48.0, and Tampermonkey updates only when that number changes —
+  so every member kept running the old script against the new server. The
+  deploy said so (`userscript changed but @version is still 1.48.0`) and the
+  warning was not acted on.
+
+  ⚠️ That pairing is broken rather than merely stale, which is why this goes
+  straight to `main`:
+
+  - **Hold-to-take-back fails outright.** The old script posts
+    `{target_id}` with no `kind`; since #617 the server requires it and
+    answers 400.
+  - **Every assist badge renders wrong.** The old script reads `row.kind` and
+    `row.wanted` off a row shape that no longer carries them, so any assisted
+    target shows a generic life-buoy at "×1" whatever is actually wanted — and
+    the old `assistCount` floors unusable values to 1, so it cannot even show
+    the true count.
+
+  The dashboard UI was unaffected: it ships in the image and updated with the
+  deploy. This is specifically the Torn attack-page overlay — which is where
+  these buttons are actually pressed.
 
 ## [3.91.0] - 2026-09-07
 

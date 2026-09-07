@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.48.0
+// @version      1.49.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
