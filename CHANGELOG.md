@@ -18,6 +18,56 @@ surface it automatically.
 
 ---
 
+## [3.94.2] - 2026-09-07
+
+### Fixed
+
+- **The OC Simulator no longer badges endings whose mapping cannot matter.** A
+  bad ending pays $0 by the game's rules, so whether it resolved to a diagram
+  node changes nothing anyone can act on — but the per-row badge asked every
+  ending, not just the good ones, and **97 of the fleet's bad endings are
+  unmapped**. Clinical Precision showed five amber "unmapped" flags on a crime
+  whose pricing is complete. `pricingQuality()` had scoped its own summary line
+  to good endings all along; the row badge was the one place still asking.
+
+  Across all 31 scenarios there are now **zero** unmapped good endings, which is
+  the number that was always being reported — just buried under the bad ones.
+
+- **The Simulator no longer lists ending slots the crime does not have.**
+  tornprobability answers with a fixed number of ending slots and pads the
+  unused tail with exact zeros. Window of Opportunity has six good endings and
+  no bad ones; the response carries `goodEnding1..10` **and** `badEnding1..10`,
+  so **fourteen of its twenty rows described endings that do not exist** — four
+  reading "unpriced", ten reading "$0". The four also reached
+  `expectedValue()`'s `missing`, so the panel announced a lower bound on a crime
+  it had priced in full.
+
+  The server already trims this when building the model (`realEndingKeys`), but
+  the live `/calculate` response is passed through verbatim by design, so
+  `withoutEndingPadding()` does it again client-side.
+
+  ⚠️ The test is **"unknown to the model AND exactly zero"**, never either alone.
+  Zero alone would hide a real ending that is merely unreachable at these CPRs,
+  making it blink in and out of the list as the sliders move. Unknown alone
+  would hide a genuine disagreement — if the service puts real probability on a
+  key we have never heard of, that is precisely what a reader needs told, and it
+  stays on screen as unpriced.
+
+  ⚠️ Deliberately **does not** touch Blast from the Past's `goodEnding35` /
+  `45` / `310` / `410`. Those are in the model, carry 9.67% of that crime's mass
+  between them, and are a separate open question — hiding them behind a fix for
+  a different problem would have buried it.
+
+- **The unpriced-coverage figure is the mass on the unpriced endings, not the
+  leftover.** It was rendered as `1 - pricedProbability`, which is a different
+  number whenever the service's own probabilities do not sum to 1 — and they
+  often do not. Window of Opportunity's come to 0.99675, so the panel read
+  **"4 endings unpriced, covering 0.33% of the probability"** about four endings
+  sitting at exactly 0.000%. The residual is upstream mass loss; attributing it
+  to our unpriced endings pointed the reader at the wrong problem.
+  `expectedValue()` now returns `missingProbability` alongside
+  `pricedProbability`.
+
 ## [3.94.1] - 2026-09-07
 
 ### Fixed
