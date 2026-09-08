@@ -18,6 +18,51 @@ surface it automatically.
 
 ---
 
+## [3.98.0] - 2026-09-07
+
+### Changed
+
+- **A role whose name and slot disagree between sources is now matched on its
+  name, instead of being refused.** `matchRolesToPositions` cross-checks
+  tornprobability's role name against its position id, and where the two pointed
+  at different Torn slots it produced no match at all — so the OC Simulator
+  showed *"This role's name and slot disagree between sources, so its readings
+  are not trustworthy enough to count"* and no headcount.
+
+  ⚠️ That was the wrong trade. A disagreement is nearly always tornprobability
+  numbering its slots differently from Torn — precisely the case the **name**
+  lookup is immune to, and the same signal the single-source branch has always
+  preferred for the same stated reason. The refusal bought protection against a
+  name collision that has never been observed, and paid for it with a real
+  headcount on every affected role plus a warning no reader could act on.
+
+  The disagreement is still reported in `conflicts` for diagnosis, and the match
+  records `via: 'name'` so it never claims corroboration it lost. The Simulator
+  warning is gone.
+
+### Added
+
+- **`node db/fleet-metrics-token.mjs --write`** — writes each tenant's
+  `FLEET_METRICS_TOKEN` straight into `deploy/docker-compose.override.yml`,
+  replacing the value where the key exists and inserting it into the
+  `environment:` block where it does not.
+
+  ⚠️ This is the half of #632 that provisioning could never cover.
+  `new-faction.mjs` bakes the token in at creation time, which serves factions
+  created *after* `FLEET_METRICS_SECRET` is set — but the secret is generated
+  once, later, against a fleet that is already running, so **every existing
+  tenant predates it**. Rotating the secret has the same shape: it changes all
+  the tokens at once, and a partial rotation is the worst state, because a
+  tenant on a stale token 401s and reports as *"not measured"* — the exact
+  shape #645 hid in for thirteen days.
+
+  Refuses to write anything if any slug has no `api-<slug>` service, keeps a
+  timestamped backup (the file is gitignored, so there is no `git checkout` to
+  undo a bad write), and rejects a token that is not a 64-char hex digest — a
+  `$` in a compose value is silently interpolated away.
+
+---
+
 ## [3.97.1] - 2026-09-07
 
 ### Fixed

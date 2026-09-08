@@ -16,8 +16,9 @@
  * ⚠️ Both sides ALSO carry a position id ("P1".."P6"), which looks like the
  * cleaner key. It is not trusted on its own: nothing guarantees tornprobability
  * numbers its positions the way Torn does, and an off-by-one there would be
- * completely silent. Name and position must AGREE, and a disagreement is
- * reported rather than resolved.
+ * completely silent. So the two are cross-checked, and where they disagree the
+ * NAME wins — see `conflicts` below for why that is a resolution and not a
+ * coin-flip.
  */
 import { normaliseKey } from './probabilityClient.js'
 
@@ -43,7 +44,17 @@ export interface RoleMatchResult {
   matches: RoleMatch[]
   /** Roles with no Torn position we could tie them to. */
   unmatched: string[]
-  /** Roles where the name and the position id pointed at different things. */
+  /**
+   * Roles where the name and the position id pointed at different things.
+   *
+   * ⚠️ Diagnostic only — these roles ARE matched, on their name, and appear in
+   * `matches` with `via: 'name'`. Refusing them was the original behaviour and
+   * it was the wrong trade: a disagreement is nearly always tornprobability
+   * numbering its slots differently from Torn, which is precisely the case the
+   * name lookup is immune to. The refusal cost a real headcount on every
+   * affected role and put a warning on screen that no reader could act on,
+   * to avoid a name collision that has never been observed.
+   */
   conflicts: Array<{ roleName: string; byName: string; byPosition: string }>
 }
 
@@ -67,14 +78,22 @@ export function matchRolesToPositions(
     const posHit = byPositionId.get(normaliseKey(role.position_id))
 
     if (nameHit && posHit) {
-      // Both sources found something. If they disagree, we do not get to pick:
-      // one of our two assumptions about this crime is wrong, and using either
-      // would produce a confident number built on the broken one.
+      // Both sources found something. Where they disagree we record it and go
+      // with the name — the same signal the single-source branch below already
+      // prefers, and for the same reason: a name collision between the two
+      // services is far less likely than them numbering positions differently.
+      // `via` drops to 'name' so the match never claims corroboration it lost.
       if (normaliseKey(nameHit.position_label) !== normaliseKey(posHit.position_label)) {
         conflicts.push({
           roleName: role.role_name,
           byName: nameHit.position_label,
           byPosition: posHit.position_label,
+        })
+        matches.push({
+          positionId: role.position_id,
+          roleName: role.role_name,
+          positionLabel: nameHit.position_label,
+          via: 'name',
         })
         continue
       }

@@ -28,10 +28,11 @@ describe('matchRolesToPositions', () => {
     expect(r.matches.every((m) => m.via === 'both')).toBe(true)
   })
 
-  it('⚠️ refuses a role where name and position id disagree', () => {
-    // The failure this cross-check exists for. If tornprobability numbered its
-    // positions differently from Torn, trusting the id alone would silently
-    // attach every CPR reading to the wrong role.
+  it('⚠️ matches on the NAME where name and position id disagree', () => {
+    // The failure this cross-check exists for: tornprobability numbering its
+    // positions differently from Torn. Trusting the id would silently attach
+    // every CPR reading to the wrong role — so the name wins, and the
+    // disagreement is still reported for diagnosis.
     const positions = [
       { position_label: 'Robber', position_id: 'P1' },
       { position_label: 'Muscle #1', position_id: 'P4' },   // id says P4
@@ -39,8 +40,13 @@ describe('matchRolesToPositions', () => {
     ]
     const r = matchRolesToPositions(ROLES, positions)
     expect(r.conflicts.map((c) => c.roleName).sort()).toEqual(['Muscle 1', 'Thief 1'])
-    // Refused, not guessed — the conflicted roles produce no match at all.
-    expect(r.matches.map((m) => m.roleName)).toEqual(['Robber'])
+    // ⚠️ Every role still matched, and each to the position its NAME names —
+    // refusing them cost a real headcount and showed a warning nobody could act
+    // on. `via` records that the corroboration was lost.
+    expect(r.matches.map((m) => m.roleName)).toEqual(['Robber', 'Muscle 1', 'Thief 1'])
+    expect(r.matches.map((m) => m.positionLabel)).toEqual(['Robber', 'Muscle #1', 'Thief #1'])
+    expect(r.matches.map((m) => m.via)).toEqual(['both', 'name', 'name'])
+    expect(r.unmatched).toEqual([])
   })
 
   it('falls back to the name when Torn has no position id', () => {
