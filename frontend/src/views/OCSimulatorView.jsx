@@ -503,15 +503,6 @@ function RoleHeadcount({ role, rosterCpr, cpr }) {
       </div>
     )
   }
-  if ((rosterCpr.conflicts ?? []).some((c) => c.roleName === role.role_name)) {
-    return (
-      <div className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
-        This role&apos;s name and slot disagree between sources, so its readings are not
-        trustworthy enough to count.
-      </div>
-    )
-  }
-
   const readings = rosterCpr.readings?.[role.position_id] ?? []
   if (readings.length === 0) {
     return (
