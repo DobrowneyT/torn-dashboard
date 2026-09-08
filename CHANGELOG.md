@@ -18,6 +18,36 @@ surface it automatically.
 
 ---
 
+## [3.97.1] - 2026-09-07
+
+### Fixed
+
+- **⚠️ HOTFIX: the OC Simulator crashed on every render.** v3.97.0 shipped a
+  `useMemo` whose dependency array named `collapsed` from *above* its own
+  declaration. A dependency array is evaluated **immediately**, not deferred
+  with the callback, so that is a temporal-dead-zone throw the moment the result
+  panel renders — surfacing in production as
+  **"Cannot access 'o' before initialization"** and replacing the whole page
+  with the error boundary. `goodProbabilities` now sits below `collapsed`.
+
+  ⚠️ Not device-specific, despite first being reported on a phone: it threw for
+  every user on every browser.
+
+### Added
+
+- **A rendering test for the result panel** (`OCSimulatorResultPanel.test.jsx`),
+  and `ResultPanel` is exported so it can be mounted.
+
+  ⚠️ This is the gap that let the crash ship. Every pure helper in the chain —
+  `withoutEndingPadding`, `collapseAliasedEndings`, `endingValueBreakdown`,
+  `expectedValue` — had tests, and all of them passed. **Nothing mounted the
+  component**, so a fault in how those helpers were wired together was invisible
+  to a suite of 1,743 tests. The new file asserts the folding and the padding
+  trim, but its real job is the render itself: reverting the fix reproduces
+  `ReferenceError: Cannot access 'collapsed' before initialization` in four of
+  its five cases. The loading, calculating, error and items-paying branches are
+  each mounted too, since any of them could carry the next one.
+
 ## [3.97.0] - 2026-09-07
 
 ### Changed
