@@ -18,6 +18,61 @@ surface it automatically.
 
 ---
 
+## [3.98.1] - 2026-09-10
+
+### Fixed
+
+- **The intermittent red build.** Every server test file booted its **own**
+  embedded Postgres cluster — `initdb`, `start`, apply `db/template.sql`, `stop`
+  — 83 times a run. Measured on an idle box that is ~1.6s of pure lifecycle per
+  file, ~900ms of it `initdb`, which is I/O-bound and CPU-hungry. Vitest runs
+  one worker per core, so four fire at once.
+
+  ⚠️ The runner has **four cores**, hosts **all five production tenants**, and
+  carries a **second Actions runner** — so two suites can overlap and ask that
+  box for eight simultaneous cluster bootstraps while it is already busy. That
+  is the whole mechanism: the symptom was never an assertion, always
+  `Hook timed out` in whichever file happened to be starting when the box was
+  busiest. `admin-provisioning`, `scrapers-jobs`, `oc` and `crime-participation`
+  each drew the short straw at least once, and every one of them passes in
+  seconds when run alone.
+
+  There is now **one cluster for the whole run** (`test/globalPostgres.ts`,
+  a vitest `globalSetup`) with two prepared TEMPLATE databases. A test stack
+  costs one `CREATE DATABASE ... TEMPLATE`, which Postgres implements as a file
+  copy: **~44ms against ~1.6s**, and no `initdb` at all. 81 of the 83 files use
+  it; the two that create cluster-scoped **roles** keep their own cluster, and
+  say why in place.
+
+  Measured on four pinned cores — the runner's actual shape — with the server
+  suite run three ways:
+
+  | harness | worker threads | duration |
+  |---|---|---|
+  | per-file clusters | 2 (the #663 cap) | 153.9s |
+  | per-file clusters | 4 | 124.0s |
+  | **shared cluster** | **4** | **66.1s** |
+
+  1961/1961 passing in every cell. ⚠️ Wall clock on the real runner is NOT a
+  usable measure of this: across ten recent pre-change runs the vitest step
+  ranged 149–364s (median 264s), and the first run on this branch came in at
+  263s — indistinguishable from noise, because that box is also serving five
+  production tenants and a concurrent compose build. The controlled measurement
+  above is the evidence; the CI number is not.
+
+- **⚠️ The `maxThreads: 2` cap from #663 is gone.** It was the first attempt at
+  this same flake and it made things *worse* — ~100–150s slower — because
+  starving the parallelism never stopped 83 cluster bootstraps from
+  oversubscribing the box, it only made them queue. With the bootstraps gone, a
+  worker that loses the CPU race runs slower instead of blowing a hook timeout.
+  Capped explicitly at 4 rather than left undefined, so a future runner with
+  more cores cannot stampede the production containers sharing the box.
+
+  The two changes were measured apart: dropping the cap is worth 154s → 124s,
+  and the shared cluster the remaining 124s → 66s.
+
+---
+
 ## [3.98.0] - 2026-09-07
 
 ### Changed
