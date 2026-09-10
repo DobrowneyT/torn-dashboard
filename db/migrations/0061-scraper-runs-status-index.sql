@@ -1,0 +1,29 @@
+-- #632: the fleet-metrics endpoint could not answer at all in production.
+--
+-- ⚠️ Reproduced live on 2026-09-10: every tenant's /api/internal/fleet-metrics
+-- authenticated correctly and then HUNG — 401 without a token in milliseconds,
+-- no response at all with a valid one after 25s. So the monitoring #632 built
+-- to catch #645 was itself down, and the status page reported `metricsError`,
+-- which reads as "not measured" — the exact shape #645 hid in for thirteen
+-- days.
+--
+-- The cause was the consecutive-failure query: a correlated subquery
+-- re-evaluated per row over a CTE spanning ALL of scraper_runs, which is
+-- append-only and has never been pruned. Rebuilt as one indexed lookup per job
+-- (see server/src/fleetMetrics.ts); this is the index that makes it O(jobs)
+-- rather than O(table).
+--
+-- Measured on 504k rows, 16 jobs:
+--
+--   old query                                  ABORTED at 60s
+--   new query, baseline index only                     250ms
+--   new query, with this index                          14ms
+--
+-- ⚠️ A bare (started_at DESC) index was tried alongside it and is deliberately
+-- NOT here. It looks helpful — it takes the 24-hour window count from 55ms to
+-- 4ms — but the planner then prefers it for the per-job "newest success" probe
+-- and walks the whole index filtering by job_name, which puts the main query
+-- back to 370ms. A 26x regression on the query that matters, to save 50ms on
+-- the one that does not.
+CREATE INDEX IF NOT EXISTS idx_scraper_runs_job_status_started
+  ON public.scraper_runs USING btree (job_name, status, started_at DESC);

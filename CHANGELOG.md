@@ -18,6 +18,67 @@ surface it automatically.
 
 ---
 
+## [3.98.2] - 2026-09-10
+
+### Fixed
+
+- **⚠️ The fleet-metrics endpoint could not answer at all, on every tenant.**
+  Verified live: `/api/internal/fleet-metrics` rejected an unauthenticated
+  caller in milliseconds and then returned **nothing after 25 seconds** with a
+  valid token. So the monitoring #632 built to catch #645 was itself down, and
+  the status page reported `metricsError` — which reads as *"not measured"*, the
+  exact shape #645 hid in for thirteen days. A health check that cannot answer
+  is worse than none, because it occupies the slot where a working one would go.
+
+  The consecutive-failure query expressed the streak as a correlated `min(rn)`
+  subquery **re-evaluated per row** over a CTE spanning all of `scraper_runs` —
+  a table that is append-only and has never been pruned. Its growth, measured:
+
+  | rows | old query | rebuilt query |
+  |---|---|---|
+  | 5.5k | 412ms | 2ms |
+  | 10.5k | 765ms | 2ms |
+  | 20.5k | 1,865ms | 3ms |
+  | 50.5k | 8,793ms | 3ms |
+  | 504k | **still running at 60s** | 14ms |
+
+  Rebuilt as two indexed lookups per job — find that job's newest success, then
+  count the failures after it — which is O(jobs × streak length) rather than
+  O(table). Semantics are unchanged, including the case that matters most: a job
+  that has **never** succeeded reports every failure it has ever logged, which is
+  capacityx's shape in #645.
+
+- **`SET statement_timeout` on the metrics path** (5s), on a dedicated
+  connection and reset in `finally`. ⚠️ The admin collector gives up on a tenant
+  after 3s, but Postgres does not stop because the client walked away — the
+  tenant kept burning CPU on an answer nobody was waiting for, once a minute,
+  forever. `db` is a *pool*, so a bare `SET` would have left this endpoint's
+  ceiling on one random connection serving ordinary application queries.
+
+### Added
+
+- **Migration 0061** — `idx_scraper_runs_job_status_started` on
+  `(job_name, status, started_at DESC)`, which is what keeps the rebuilt query
+  O(jobs): 250ms without it, **14ms** with, on 504k rows.
+
+  ⚠️ A bare `(started_at DESC)` index was tried alongside it and deliberately
+  left out. It looks helpful — the 24-hour window count goes 55ms → 4ms — but
+  the planner then prefers it for the per-job "newest success" probe and walks
+  the whole index filtering by `job_name`, putting the query that matters back
+  to **370ms**. A 26× regression on the hot query to save 50ms on the cold one.
+  The migration test asserts it stays absent.
+
+- **A scale regression test.** The old query was fine on the dozen rows the
+  other tests insert and could not answer in production. `fleet-metrics.test.ts`
+  now seeds 40,000 runs across 12 enabled jobs and asserts the call returns
+  under 2s — reverting the query to its old form fails it at 3,885ms.
+
+- **A migration test asserting `db/template.sql` and migration 0061 agree**, so a
+  newly provisioned faction cannot silently be the slow one. Two hand-edited
+  files; nothing else checked.
+
+---
+
 ## [3.98.1] - 2026-09-10
 
 ### Fixed
