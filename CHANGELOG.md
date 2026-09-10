@@ -18,6 +18,51 @@ surface it automatically.
 
 ---
 
+## [3.99.0] - 2026-09-10
+
+### Added
+
+- **`scraper-runs-prune`** (daily, 01:50) — retention for the run log itself.
+  It has been append-only since the first tenant went live, at **~2,250 rows a
+  day per tenant**, and nothing ever removed one. On 2026-09-10 that growth
+  turned an inefficient fleet-metrics query into a live outage: ten abandoned
+  copies of it piled up on one tenant and took a four-core box that also serves
+  production to a **load average of 13.5**. The query is fixed and no longer
+  cares about table size — this is so nothing else inherits the trap.
+
+  ⚠️ **What must SURVIVE the prune is the whole difficulty.** A plain
+  "delete older than 30 days" silently corrupts both figures the fleet-metrics
+  endpoint computes from history, and corrupts them in the direction of looking
+  healthier than the truth:
+
+  - `lastSuccessAt` is `null` for a job that has **never** succeeded, which is
+    deliberately distinct from "succeeded a long time ago". Prune an old success
+    and a quiet-but-working job starts reporting as one that has never worked.
+  - `consecutiveFailures` counts back to the last success. Prune any of those
+    failures and the number quietly *shrinks as the outage deepens*.
+
+  So two classes of row are kept regardless of age: **each job's newest
+  success**, and **every failure after it**. What that leaves is genuinely dead
+  history, and nothing reads it — every other consumer (`admin.ts`,
+  `runLog.ts`) asks for the most recent N runs, never a date range.
+
+  ⚠️ A job that has **never** succeeded therefore keeps its entire streak
+  forever, by design rather than by oversight. Capping it would mean reporting a
+  number smaller than the truth about the most broken job on the fleet — the one
+  case where the count matters most. It is bounded by fixing the job: one
+  success makes the whole history prunable on the next run. A job failing every
+  five minutes for a year costs ~105k rows, which the rebuilt query answers from
+  an index in milliseconds.
+
+  In-flight `running` rows are never deleted: a later `UPDATE` finishes them,
+  and an old `started_at` is exactly what a hung job looks like.
+
+  Eight tests, six of them about what the prune must *not* touch — including
+  round-tripping `collectFleetMetrics` before and after to prove neither figure
+  moves.
+
+---
+
 ## [3.98.2] - 2026-09-10
 
 ### Fixed
