@@ -22,13 +22,20 @@ surface it automatically.
 
 ### Fixed
 
-- **⚠️ The fleet-metrics endpoint could not answer at all, on every tenant.**
-  Verified live: `/api/internal/fleet-metrics` rejected an unauthenticated
-  caller in milliseconds and then returned **nothing after 25 seconds** with a
-  valid token. So the monitoring #632 built to catch #645 was itself down, and
-  the status page reported `metricsError` — which reads as *"not measured"*, the
-  exact shape #645 hid in for thirteen days. A health check that cannot answer
-  is worse than none, because it occupies the slot where a working one would go.
+- **⚠️ The fleet-metrics endpoint took 13–25 seconds, on every tenant — and the
+  collector gives up at 3.** Measured live on `forge`: an unauthenticated caller
+  is rejected in milliseconds, a valid one waits **13.7s, 15.2s, 20.9s** across
+  three consecutive calls, and two earlier attempts exceeded a 25s ceiling
+  outright. `TENANT_TIMEOUT_MS` is **3s**, so no measurement has ever landed:
+  the status page reported `metricsError` for every tenant, which reads as
+  *"not measured"* — the exact shape #645 hid in for thirteen days.
+
+  So the monitoring #632 built to catch #645 has been down since it shipped. A
+  health check that answers four to eight times too late is worse than none,
+  because it occupies the slot where a working one would go.
+
+  ⚠️ And it was getting worse on a clock: `forge` logs **2,248 scraper runs a
+  day**, all of them kept forever.
 
   The consecutive-failure query expressed the streak as a correlated `min(rn)`
   subquery **re-evaluated per row** over a CTE spanning all of `scraper_runs` —

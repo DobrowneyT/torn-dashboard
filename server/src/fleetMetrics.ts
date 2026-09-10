@@ -97,10 +97,13 @@ async function collect(db: pg.PoolClient): Promise<FleetMetrics> {
   // a job that failed once and recovered scores 0. Runs still in flight are
   // excluded: 'running' is neither outcome.
   //
-  // ⚠️ **This query hung in production and took the whole endpoint with it.**
-  // Reproduced on 2026-09-10 against every live tenant: without a token it 401s
-  // in milliseconds, with a valid one it returned nothing at all after 25s. The
-  // first cut expressed the streak as a correlated `min(rn)` subquery
+  // ⚠️ **This query made the endpoint useless in production.** Measured on
+  // 2026-09-10 against the live fleet: without a token it 401s in milliseconds;
+  // with a valid one it answered in 13.7s, 15.2s and 20.9s on three consecutive
+  // calls, and twice exceeded a 25s ceiling outright. The collector's
+  // TENANT_TIMEOUT_MS is 3s, so not one measurement had ever landed.
+  //
+  // The first cut expressed the streak as a correlated `min(rn)` subquery
   // re-evaluated PER ROW over a CTE spanning all of `scraper_runs` — a table
   // that is append-only and has never been pruned. On 504k rows that query was
   // still running when a 60s statement timeout killed it.
