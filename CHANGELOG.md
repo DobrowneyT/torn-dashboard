@@ -44,8 +44,21 @@ surface it automatically.
   it; the two that create cluster-scoped **roles** keep their own cluster, and
   say why in place.
 
-  Measured end-to-end on an idle 16-core box: **90s → 48s**, all 1961 tests
-  passing. The win on the contended four-core runner is the point.
+  Measured on four pinned cores — the runner's actual shape — with the server
+  suite run three ways:
+
+  | harness | worker threads | duration |
+  |---|---|---|
+  | per-file clusters | 2 (the #663 cap) | 153.9s |
+  | per-file clusters | 4 | 124.0s |
+  | **shared cluster** | **4** | **66.1s** |
+
+  1961/1961 passing in every cell. ⚠️ Wall clock on the real runner is NOT a
+  usable measure of this: across ten recent pre-change runs the vitest step
+  ranged 149–364s (median 264s), and the first run on this branch came in at
+  263s — indistinguishable from noise, because that box is also serving five
+  production tenants and a concurrent compose build. The controlled measurement
+  above is the evidence; the CI number is not.
 
 - **⚠️ The `maxThreads: 2` cap from #663 is gone.** It was the first attempt at
   this same flake and it made things *worse* — ~100–150s slower — because
@@ -54,6 +67,9 @@ surface it automatically.
   worker that loses the CPU race runs slower instead of blowing a hook timeout.
   Capped explicitly at 4 rather than left undefined, so a future runner with
   more cores cannot stampede the production containers sharing the box.
+
+  The two changes were measured apart: dropping the cap is worth 154s → 124s,
+  and the shared cluster the remaining 124s → 66s.
 
 ---
 

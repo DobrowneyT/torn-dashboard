@@ -16,10 +16,19 @@
  * `crime-participation` have each drawn the short straw, and every one of them
  * passes in seconds when run alone.
  *
- * ⚠️ Capping workers was tried first (#663) and made it WORSE — measured
- * 100–150s slower, because the cap starves the parallelism without removing
- * the thing that was actually oversubscribing the box. The fix is to stop
- * doing the expensive thing 83 times.
+ * ⚠️ Capping workers was tried first (#663) and made it WORSE, because the cap
+ * starves the parallelism without removing the thing that was actually
+ * oversubscribing the box. The fix is to stop doing the expensive thing 83
+ * times. Measured on four pinned cores, the runner's shape:
+ *
+ *   per-file clusters, 2 threads (the #663 cap)   153.9s
+ *   per-file clusters, 4 threads                  124.0s
+ *   shared cluster,    4 threads                   66.1s
+ *
+ * ⚠️ Do not try to confirm this from a CI run's wall clock. Across ten recent
+ * pre-change runs the vitest step ranged 149–364s; the box serves five
+ * production tenants and a concurrent compose build, and that variance swamps
+ * the effect entirely. Pin the cores and measure, or measure nothing.
  *
  * So: one cluster, started here in the main process before any worker exists,
  * plus two prepared TEMPLATE databases. A test stack then costs one
