@@ -12,13 +12,8 @@
 // tenants fall back to their own pools, and stale prices are refused with a
 // reason rather than used.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import EmbeddedPostgres from 'embedded-postgres'
 import pg from 'pg'
-import { freePort } from './harness.js'
+import { cloneDatabase, GLOBAL_TEMPLATE_DB, type ClonedDatabase } from './sharedPostgres.js'
 import {
   fetchItems, syncFleetItems, itemsSyncIsDue,
   MIN_PLAUSIBLE_ITEMS, ITEMS_SYNC_INTERVAL_MS,
@@ -30,12 +25,7 @@ import {
 import { itemsSyncJob } from '../src/scraper/jobs/itemsSync.js'
 import { readFleetMeta, itemsAreFresh } from '../src/globalDb.js'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const GLOBAL_TEMPLATE = readFileSync(join(here, '..', '..', 'db', 'global-template.sql'), 'utf8')
-
-let embedded: EmbeddedPostgres
-let dataDir: string
-let port: number
+let cloned: ClonedDatabase
 let admin: pg.Client
 let globalDb: pg.Pool
 
@@ -56,26 +46,18 @@ const jsonFetch = (body: unknown, status = 200) =>
   })) as unknown as typeof fetch
 
 beforeAll(async () => {
-  dataDir = mkdtempSync(join(tmpdir(), 'fleet-items-'))
-  port = await freePort()
-  embedded = new EmbeddedPostgres({
-    databaseDir: dataDir, user: 'postgres', password: 'postgres', port, persistent: false,
-  })
-  await embedded.initialise()
-  await embedded.start()
-  await embedded.createDatabase('global')
-  const conn = { host: '127.0.0.1', port, user: 'postgres', password: 'postgres', database: 'global' }
-  admin = new pg.Client(conn)
+  // A clone of the prepared global template on the run's shared cluster; this
+  // file used to boot a cluster of its own. See globalPostgres.ts.
+  cloned = await cloneDatabase(GLOBAL_TEMPLATE_DB, 'fleet_items')
+  admin = new pg.Client(cloned.conn)
   await admin.connect()
-  await admin.query(GLOBAL_TEMPLATE)
-  globalDb = new pg.Pool({ ...conn, max: 4 })
-}, 120_000)
+  globalDb = new pg.Pool({ ...cloned.conn, max: 4 })
+})
 
 afterAll(async () => {
   await globalDb?.end().catch(() => {})
   await admin?.end().catch(() => {})
-  await embedded?.stop().catch(() => {})
-  rmSync(dataDir, { recursive: true, force: true })
+  await cloned?.drop()
 })
 
 async function resetGlobal() {

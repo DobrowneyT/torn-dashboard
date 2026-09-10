@@ -39,6 +39,17 @@ const at = (n: number) => new Date(Date.parse(NOW) + n * 60_000).toISOString()
 const down: Alert = { key: 'tenant-down:tnl', severity: 'urgent', title: 'tnl is down', detail: 'ECONNREFUSED' }
 
 beforeAll(async () => {
+  // ⚠️ This file keeps a cluster of its OWN, against the shared one every other
+  // server test now uses (see test/globalPostgres.ts). `applyScopedGrants` and
+  // `applyReadOnlyGrants` create ROLES, which in Postgres are cluster-scoped,
+  // not database-scoped. On a shared cluster the second file to run would
+  // collide with the first's `app_global_rw` — or worse, silently adopt it
+  // along with the first file's password, and pass while testing nothing.
+  //
+  // Two `initdb`s left out of 83 is a fine price for that. Giving each file
+  // uniquely-named roles would let them join the shared cluster too, but these
+  // are the tests OF the grants, so the role names are part of what is under
+  // test — that is a change to make deliberately, not in passing.
   dataDir = mkdtempSync(join(tmpdir(), 'incident-store-'))
   port = await freePort()
   embedded = new EmbeddedPostgres({
