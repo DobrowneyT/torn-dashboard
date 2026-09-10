@@ -18,6 +18,7 @@ import { memberStatsJob } from './jobs/memberStats.js'
 import { memberProfileJob } from './jobs/memberProfile.js'
 import { memberBattleStatsJob } from './jobs/memberBattleStats.js'
 import { statsSamplesPruneJob } from './jobs/statsSamplesPrune.js'
+import { scraperRunsPruneJob } from './jobs/scraperRunsPrune.js'
 import { warsSyncJob } from './jobs/warsSync.js'
 import { attacksSyncJob } from './jobs/attacksSync.js'
 import { revivesContinuousJob } from './jobs/revivesSync.js'
@@ -108,6 +109,12 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // Prune the intraday sample series past its retention window (#227) — daily,
   // keeping samples still needed to resolve unresolved competitions.
   ['stats-samples-prune', '0 40 1 * * *', statsSamplesPruneJob],
+  // Prune the run log itself. ⚠️ Append-only since launch at ~2,250 rows a day
+  // per tenant, and on 2026-09-10 that growth turned an inefficient
+  // fleet-metrics query into a live outage. Keeps each job's newest success and
+  // every failure since it, so neither figure the metrics endpoint reports can
+  // silently shrink — see the job for why that is the hard part.
+  ['scraper-runs-prune', '0 50 1 * * *', scraperRunsPruneJob],
   ['wars-sync', '0 10 */3 * * *', warsSyncJob],
   ['attacks-sync', '0 20,50 * * * *', attacksSyncJob],
   // Standing revives feed (#358), on the attacks cadence and offset from it so
