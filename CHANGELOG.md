@@ -18,6 +18,129 @@ surface it automatically.
 
 ---
 
+## [3.98.2] - 2026-09-10
+
+### Fixed
+
+- **⚠️ The fleet-metrics endpoint took 13–25 seconds, on every tenant — and the
+  collector gives up at 3.** Measured live on `forge`: an unauthenticated caller
+  is rejected in milliseconds, a valid one waits **13.7s, 15.2s, 20.9s** across
+  three consecutive calls, and two earlier attempts exceeded a 25s ceiling
+  outright. `TENANT_TIMEOUT_MS` is **3s**, so no measurement has ever landed:
+  the status page reported `metricsError` for every tenant, which reads as
+  *"not measured"* — the exact shape #645 hid in for thirteen days.
+
+  So the monitoring #632 built to catch #645 has been down since it shipped. A
+  health check that answers four to eight times too late is worse than none,
+  because it occupies the slot where a working one would go.
+
+  ⚠️ And it was getting worse on a clock: `forge` logs **2,248 scraper runs a
+  day**, all of them kept forever.
+
+  The consecutive-failure query expressed the streak as a correlated `min(rn)`
+  subquery **re-evaluated per row** over a CTE spanning all of `scraper_runs` —
+  a table that is append-only and has never been pruned. Its growth, measured:
+
+  | rows | old query | rebuilt query |
+  |---|---|---|
+  | 5.5k | 412ms | 2ms |
+  | 10.5k | 765ms | 2ms |
+  | 20.5k | 1,865ms | 3ms |
+  | 50.5k | 8,793ms | 3ms |
+  | 504k | **still running at 60s** | 14ms |
+
+  Rebuilt as two indexed lookups per job — find that job's newest success, then
+  count the failures after it — which is O(jobs × streak length) rather than
+  O(table). Semantics are unchanged, including the case that matters most: a job
+  that has **never** succeeded reports every failure it has ever logged, which is
+  capacityx's shape in #645.
+
+- **`SET statement_timeout` on the metrics path** (5s), on a dedicated
+  connection and reset in `finally`. ⚠️ The admin collector gives up on a tenant
+  after 3s, but Postgres does not stop because the client walked away — the
+  tenant kept burning CPU on an answer nobody was waiting for, once a minute,
+  forever. `db` is a *pool*, so a bare `SET` would have left this endpoint's
+  ceiling on one random connection serving ordinary application queries.
+
+### Added
+
+- **Migration 0061** — `idx_scraper_runs_job_status_started` on
+  `(job_name, status, started_at DESC)`, which is what keeps the rebuilt query
+  O(jobs): 250ms without it, **14ms** with, on 504k rows.
+
+  ⚠️ A bare `(started_at DESC)` index was tried alongside it and deliberately
+  left out. It looks helpful — the 24-hour window count goes 55ms → 4ms — but
+  the planner then prefers it for the per-job "newest success" probe and walks
+  the whole index filtering by `job_name`, putting the query that matters back
+  to **370ms**. A 26× regression on the hot query to save 50ms on the cold one.
+  The migration test asserts it stays absent.
+
+- **A scale regression test.** The old query was fine on the dozen rows the
+  other tests insert and could not answer in production. `fleet-metrics.test.ts`
+  now seeds 40,000 runs across 12 enabled jobs and asserts the call returns
+  under 2s — reverting the query to its old form fails it at 3,885ms.
+
+- **A migration test asserting `db/template.sql` and migration 0061 agree**, so a
+  newly provisioned faction cannot silently be the slow one. Two hand-edited
+  files; nothing else checked.
+
+---
+
+## [3.98.1] - 2026-09-10
+
+### Fixed
+
+- **The intermittent red build.** Every server test file booted its **own**
+  embedded Postgres cluster — `initdb`, `start`, apply `db/template.sql`, `stop`
+  — 83 times a run. Measured on an idle box that is ~1.6s of pure lifecycle per
+  file, ~900ms of it `initdb`, which is I/O-bound and CPU-hungry. Vitest runs
+  one worker per core, so four fire at once.
+
+  ⚠️ The runner has **four cores**, hosts **all five production tenants**, and
+  carries a **second Actions runner** — so two suites can overlap and ask that
+  box for eight simultaneous cluster bootstraps while it is already busy. That
+  is the whole mechanism: the symptom was never an assertion, always
+  `Hook timed out` in whichever file happened to be starting when the box was
+  busiest. `admin-provisioning`, `scrapers-jobs`, `oc` and `crime-participation`
+  each drew the short straw at least once, and every one of them passes in
+  seconds when run alone.
+
+  There is now **one cluster for the whole run** (`test/globalPostgres.ts`,
+  a vitest `globalSetup`) with two prepared TEMPLATE databases. A test stack
+  costs one `CREATE DATABASE ... TEMPLATE`, which Postgres implements as a file
+  copy: **~44ms against ~1.6s**, and no `initdb` at all. 81 of the 83 files use
+  it; the two that create cluster-scoped **roles** keep their own cluster, and
+  say why in place.
+
+  Measured on four pinned cores — the runner's actual shape — with the server
+  suite run three ways:
+
+  | harness | worker threads | duration |
+  |---|---|---|
+  | per-file clusters | 2 (the #663 cap) | 153.9s |
+  | per-file clusters | 4 | 124.0s |
+  | **shared cluster** | **4** | **66.1s** |
+
+  1961/1961 passing in every cell. ⚠️ Wall clock on the real runner is NOT a
+  usable measure of this: across ten recent pre-change runs the vitest step
+  ranged 149–364s (median 264s), and the first run on this branch came in at
+  263s — indistinguishable from noise, because that box is also serving five
+  production tenants and a concurrent compose build. The controlled measurement
+  above is the evidence; the CI number is not.
+
+- **⚠️ The `maxThreads: 2` cap from #663 is gone.** It was the first attempt at
+  this same flake and it made things *worse* — ~100–150s slower — because
+  starving the parallelism never stopped 83 cluster bootstraps from
+  oversubscribing the box, it only made them queue. With the bootstraps gone, a
+  worker that loses the CPU race runs slower instead of blowing a hook timeout.
+  Capped explicitly at 4 rather than left undefined, so a future runner with
+  more cores cannot stampede the production containers sharing the box.
+
+  The two changes were measured apart: dropping the cap is worth 154s → 124s,
+  and the shared cluster the remaining 124s → 66s.
+
+---
+
 ## [3.98.0] - 2026-09-07
 
 ### Changed

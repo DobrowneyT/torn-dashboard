@@ -52,7 +52,32 @@ export interface FleetMetrics {
 const ISO = (col: string) =>
   `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
 
+/**
+ * ⚠️ A ceiling on every statement this function runs, and it is not belt and
+ * braces — it is the lesson from the outage above. The admin collector gives up
+ * on a tenant after TENANT_TIMEOUT_MS (3s), but a Postgres query does not stop
+ * because the client walked away: the tenant kept burning CPU on an answer
+ * nobody was waiting for, once a minute, forever. Whatever else is wrong, this
+ * endpoint now fails fast instead of hanging.
+ */
+export const METRICS_STATEMENT_TIMEOUT_MS = 5_000
+
 export async function collectFleetMetrics(db: pg.Pool): Promise<FleetMetrics> {
+  // ⚠️ On a dedicated connection, and reset in `finally`. `db` is a POOL: a
+  // bare `SET statement_timeout` would land on whichever connection the pool
+  // handed out and stay there, silently applying this endpoint's ceiling to
+  // ordinary application queries that have nothing to do with it.
+  const client = await db.connect()
+  try {
+    await client.query(`SET statement_timeout = ${METRICS_STATEMENT_TIMEOUT_MS}`)
+    return await collect(client)
+  } finally {
+    await client.query('SET statement_timeout = DEFAULT').catch(() => {})
+    client.release()
+  }
+}
+
+async function collect(db: pg.PoolClient): Promise<FleetMetrics> {
   const keys = await db.query(
     `SELECT
        count(*) FILTER (
@@ -71,32 +96,56 @@ export async function collectFleetMetrics(db: pg.Pool): Promise<FleetMetrics> {
   // `consecutive_failures` counts back from the newest run until a success, so
   // a job that failed once and recovered scores 0. Runs still in flight are
   // excluded: 'running' is neither outcome.
+  //
+  // ⚠️ **This query made the endpoint useless in production.** Measured on
+  // 2026-09-10 against the live fleet: without a token it 401s in milliseconds;
+  // with a valid one it answered in 13.7s, 15.2s and 20.9s on three consecutive
+  // calls, and twice exceeded a 25s ceiling outright. The collector's
+  // TENANT_TIMEOUT_MS is 3s, so not one measurement had ever landed.
+  //
+  // The first cut expressed the streak as a correlated `min(rn)` subquery
+  // re-evaluated PER ROW over a CTE spanning all of `scraper_runs` — a table
+  // that is append-only and has never been pruned. On 504k rows that query was
+  // still running when a 60s statement timeout killed it.
+  //
+  // So the monitoring #632 built to catch #645 was itself down, and the status
+  // page said `metricsError` — which reads as "not measured", the exact shape
+  // #645 hid in for thirteen days. A health check that cannot answer is worse
+  // than no health check, because it occupies the slot where a working one
+  // would go.
+  //
+  // Rebuilt as two INDEXED lookups per job: find that job's newest success,
+  // then count the failures after it. That is O(jobs x streak length) instead
+  // of O(table), and needs idx_scraper_runs_job_status_started (migration
+  // 0061) to stay that way. Measured on the same 504k rows: 60s+ -> 14ms.
   const failing = await db.query(
-    `WITH finished AS (
-       SELECT job_name, status, started_at, error,
-              row_number() OVER (PARTITION BY job_name ORDER BY started_at DESC) AS rn
-         FROM scraper_runs WHERE status <> 'running'
+    `WITH enabled AS (
+       SELECT job_name FROM scraper_jobs WHERE enabled = true
+     ), last_success AS (
+       SELECT e.job_name,
+              (SELECT max(r.started_at) FROM scraper_runs r
+                WHERE r.job_name = e.job_name AND r.status = 'success') AS success_at
+         FROM enabled e
      ), streak AS (
-       SELECT f.job_name,
-              count(*) FILTER (
-                WHERE f.status = 'failure' AND f.rn < COALESCE((
-                  SELECT min(s.rn) FROM finished s
-                   WHERE s.job_name = f.job_name AND s.status = 'success'
-                ), 1e9)
-              )::int AS consecutive_failures
-         FROM finished f GROUP BY f.job_name
+       SELECT ls.job_name, ls.success_at,
+              -- ⚠️ NULL success_at means the job has NEVER succeeded, so every
+              -- failure it has ever logged is part of the current streak. That
+              -- is capacityx's shape in #645, and it must not collapse to 0.
+              (SELECT count(*)::int FROM scraper_runs r
+                WHERE r.job_name = ls.job_name AND r.status = 'failure'
+                  AND (ls.success_at IS NULL OR r.started_at > ls.success_at)
+              ) AS consecutive_failures
+         FROM last_success ls
      )
-     SELECT j.job_name,
-            COALESCE(s.consecutive_failures, 0) AS consecutive_failures,
-            (SELECT ${ISO('max(r.started_at)')} FROM scraper_runs r
-              WHERE r.job_name = j.job_name AND r.status = 'success') AS last_success_at,
+     SELECT s.job_name,
+            s.consecutive_failures,
+            ${ISO('s.success_at')} AS last_success_at,
             (SELECT r.error FROM scraper_runs r
-              WHERE r.job_name = j.job_name AND r.status = 'failure'
+              WHERE r.job_name = s.job_name AND r.status = 'failure'
               ORDER BY r.started_at DESC LIMIT 1) AS last_error
-       FROM scraper_jobs j
-       LEFT JOIN streak s ON s.job_name = j.job_name
-      WHERE j.enabled = true AND COALESCE(s.consecutive_failures, 0) > 0
-      ORDER BY COALESCE(s.consecutive_failures, 0) DESC, j.job_name`
+       FROM streak s
+      WHERE s.consecutive_failures > 0
+      ORDER BY s.consecutive_failures DESC, s.job_name`
   )
 
   const window = await db.query(

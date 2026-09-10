@@ -1182,6 +1182,11 @@ ALTER TABLE scraper_runs ADD CONSTRAINT scraper_runs_pkey PRIMARY KEY (id);
 ALTER TABLE scraper_runs ADD CONSTRAINT scraper_runs_status_check CHECK (status IN ('running', 'success', 'failure'));
 ALTER TABLE scraper_jobs ADD CONSTRAINT scraper_jobs_pkey PRIMARY KEY (job_name);
 CREATE INDEX idx_scraper_runs_job_started ON public.scraper_runs USING btree (job_name, started_at DESC);
+-- #632: makes the fleet-metrics consecutive-failure query one indexed lookup
+-- per job instead of a scan of the whole (never-pruned) table — 250ms -> 14ms
+-- on 504k rows. See db/migrations/0061 for why a bare (started_at DESC) index
+-- must NOT be added beside it.
+CREATE INDEX idx_scraper_runs_job_status_started ON public.scraper_runs USING btree (job_name, status, started_at DESC);
 ALTER TABLE tier_requirements ADD CONSTRAINT tier_requirements_pkey PRIMARY KEY (tier, requirement_index);
 ALTER TABLE war_member_contributions ADD CONSTRAINT war_member_contributions_pkey PRIMARY KEY (id);
 ALTER TABLE war_payout_members ADD CONSTRAINT war_payout_members_pkey PRIMARY KEY (id);

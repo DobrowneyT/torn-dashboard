@@ -1,27 +1,22 @@
 // Test harness for the two agreed seams:
 //   1. Black-box HTTP against the per-faction API, backed by a REAL faction
-//      database created from db/template.sql on an embedded Postgres.
+//      database cloned from db/template.sql on an embedded Postgres.
 //   2. A fake Torn fixture server injected via the Torn client's base URL —
 //      the only fake in the suite.
+//
+// ⚠️ The cluster is SHARED across the whole run and started once in
+// test/globalPostgres.ts — see the note there for why. Each stack gets its own
+// database cloned from a prepared template, so isolation is per-database rather
+// than per-cluster. Everything `db/template.sql` creates is database-scoped, so
+// that is the same isolation as before; anything CLUSTER-scoped (a role, a
+// tablespace) would now be shared, which is why the two grants tests still boot
+// their own cluster.
 import { createServer, type Server } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { FastifyInstance } from 'fastify'
-import EmbeddedPostgres from 'embedded-postgres'
 import pg from 'pg'
 import { buildServer } from '../src/app.js'
-
-const here = dirname(fileURLToPath(import.meta.url))
-const TEMPLATE = readFileSync(join(here, '..', '..', 'db', 'template.sql'), 'utf8')
-// A real new-faction DB gets the policy-defaults seed (db/new-faction runbook);
-// the admin/OC policy endpoints serve those defaults until a leader edits them.
-const SETTINGS_SEED = readFileSync(
-  join(here, '..', '..', 'db', 'seed', '03_faction_settings_defaults.sql'),
-  'utf8'
-)
+import { cloneDatabase, FACTION_TEMPLATE_DB } from './sharedPostgres.js'
 
 export const TEST_FACTION = {
   slug: 'forge',
@@ -141,37 +136,16 @@ export async function startTestStack(
   feedbackOpts: FeedbackTestOptions = {},
   overrides: StackOverrides = {}
 ): Promise<TestStack> {
-  // Real templated Postgres
-  const pgPort = await freePort()
-  const dataDir = mkdtempSync(join(tmpdir(), 'tnl-server-test-'))
-  const embedded = new EmbeddedPostgres({
-    databaseDir: dataDir,
-    user: 'postgres',
-    password: 'postgres',
-    port: pgPort,
-    persistent: false,
-  })
-  await embedded.initialise()
-  await embedded.start()
-  await embedded.createDatabase('faction_test')
+  // A real faction database, cloned from the prepared template on the shared
+  // cluster. `CREATE DATABASE ... TEMPLATE` is a file copy (~44ms) against the
+  // ~1.6s an `initdb` + `start` + schema apply + `stop` used to cost per file.
+  const cloned = await cloneDatabase(FACTION_TEMPLATE_DB, 'faction_test')
 
-  const db = new pg.Pool({
-    host: '127.0.0.1',
-    port: pgPort,
-    user: 'postgres',
-    password: 'postgres',
-    database: 'faction_test',
-  })
+  const db = new pg.Pool(cloned.conn)
   // Teardown race: embedded Postgres can terminate idle pooled connections
   // (57P01) while the pool is still draining, and an unhandled pool 'error'
   // fails the whole vitest run despite every test passing.
   db.on('error', () => {})
-  await db.query(TEMPLATE)
-  await db.query(SETTINGS_SEED)
-  await db.query(
-    `INSERT INTO faction_config (slug, display_name, torn_faction_id) VALUES ($1, $2, $3)`,
-    [TEST_FACTION.slug, TEST_FACTION.displayName, TEST_FACTION.tornFactionId]
-  )
 
   // Torn fixture server
   const goodKeys = new Map<string, TornFixtureUser>()
@@ -337,8 +311,7 @@ export async function startTestStack(
       await new Promise<void>((resolve, reject) => torn.close((e) => (e ? reject(e) : resolve())))
       await new Promise<void>((resolve, reject) => github.close((e) => (e ? reject(e) : resolve())))
       await db.end()
-      await embedded.stop()
-      rmSync(dataDir, { recursive: true, force: true })
+      await cloned.drop()
     },
   }
 }

@@ -10,13 +10,11 @@
 // Which means the validation IS the interface to a process holding Postgres
 // superuser and Docker, and it gets tested like one.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import EmbeddedPostgres from 'embedded-postgres'
+import { join } from 'node:path'
 import pg from 'pg'
-import { freePort } from './harness.js'
+import { cloneDatabase, GLOBAL_TEMPLATE_DB, type ClonedDatabase } from './sharedPostgres.js'
 import {
   validateProvisionRequest, findConflicts, createProvisionRequest,
   retryProvisionRequest, SLUG_PATTERN,
@@ -29,11 +27,7 @@ import { mintAdminSession } from '../src/adminPlane/session.js'
 // duplicated copies of the rules above, and the duplication is the point.
 import { validate as agentValidate, redact, composeArgs } from '../../deploy/host-agent.mjs'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const TEMPLATE = readFileSync(join(here, '..', '..', 'db', 'global-template.sql'), 'utf8')
-
-let embedded: EmbeddedPostgres
-let dataDir: string
+let cloned: ClonedDatabase
 let port: number
 let admin: pg.Client
 let db: pg.Pool
@@ -46,26 +40,20 @@ const ok = (over: Record<string, unknown> = {}) => ({
 })
 
 beforeAll(async () => {
-  dataDir = mkdtempSync(join(tmpdir(), 'provisioning-'))
-  port = await freePort()
-  embedded = new EmbeddedPostgres({
-    databaseDir: dataDir, user: 'postgres', password: 'postgres', port, persistent: false,
-  })
-  await embedded.initialise()
-  await embedded.start()
-  await embedded.createDatabase('global')
-  const conn = { host: '127.0.0.1', port, user: 'postgres', password: 'postgres', database: 'global' }
-  admin = new pg.Client(conn)
+  // A clone of the prepared global template on the run's shared cluster —
+  // this file used to boot a cluster of its own, and was one of the files the
+  // intermittent `Hook timed out` landed on most often. See globalPostgres.ts.
+  cloned = await cloneDatabase(GLOBAL_TEMPLATE_DB, 'provisioning')
+  port = cloned.conn.port
+  admin = new pg.Client(cloned.conn)
   await admin.connect()
-  await admin.query(TEMPLATE)
-  db = new pg.Pool({ ...conn, max: 4 })
-}, 120_000)
+  db = new pg.Pool({ ...cloned.conn, max: 4 })
+})
 
 afterAll(async () => {
   await db?.end().catch(() => {})
   await admin?.end().catch(() => {})
-  await embedded?.stop().catch(() => {})
-  rmSync(dataDir, { recursive: true, force: true })
+  await cloned?.drop()
 })
 
 const reset = () => admin.query('TRUNCATE provision_requests')
