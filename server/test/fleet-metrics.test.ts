@@ -129,6 +129,82 @@ describe('collectFleetMetrics', () => {
     expect(f.consecutiveFailures).toBe(3)
   })
 
+  it('⚠️ counts only the failures AFTER the last success, not every failure ever', async () => {
+    // The distinction the whole number rests on. A job that has run for months
+    // has a long history of transient failures; reporting all of them would say
+    // "247 consecutive failures" about a job that succeeded an hour ago.
+    await stack.db.query(`
+      INSERT INTO scraper_jobs (job_name, cron_schedule, enabled) VALUES ('long-lived', NULL, true)
+      ON CONFLICT (job_name) DO UPDATE SET enabled = EXCLUDED.enabled
+    `)
+    await stack.db.query(`
+      INSERT INTO scraper_runs (job_name, started_at, status, error) VALUES
+        ('long-lived', now() - interval '30 days', 'failure', 'ancient'),
+        ('long-lived', now() - interval '29 days', 'failure', 'ancient'),
+        ('long-lived', now() - interval '10 days', 'success', NULL),
+        ('long-lived', now() - interval '2 hours',  'failure', 'Torn API 429'),
+        ('long-lived', now() - interval '1 hours',  'failure', 'Torn API 429')
+    `)
+    const m = await collectFleetMetrics(stack.db)
+    const f = m.scrapers.failing.find((x) => x.jobName === 'long-lived')!
+    expect(f.consecutiveFailures).toBe(2)
+    expect(f.lastSuccessAt).not.toBeNull()
+    expect(f.lastError).toContain('429')
+  })
+
+  it('⚠️ answers on a table the size a live tenant actually has', async () => {
+    // THE REGRESSION THIS FILE EXISTS FOR NOW. The first cut of this query
+    // expressed the streak as a correlated `min(rn)` subquery re-evaluated per
+    // row over a CTE spanning all of `scraper_runs` — which is append-only and
+    // has never been pruned. It was fine on the dozen rows the tests above
+    // insert and could not answer AT ALL in production: measured 2026-09-10,
+    // every live tenant 401'd without a token in milliseconds and returned
+    // nothing after 25s with a valid one.
+    //
+    // Growth of the old formulation, measured: 5.5k rows 412ms, 10.5k 765ms,
+    // 20.5k 1865ms, 50.5k 8793ms, 504k still running when a 60s statement
+    // timeout killed it. The rebuilt query is 2-3ms at every one of those.
+    //
+    // 40k rows puts the old query around six seconds — past this endpoint's own
+    // statement timeout — while the current one has roughly three orders of
+    // magnitude of headroom against the assertion below.
+    // ⚠️ Registered as ENABLED jobs, not just rows. The rebuilt query only
+    // probes enabled jobs, so bulk rows belonging to jobs nobody asked about
+    // would let it skip the work this test exists to measure.
+    await stack.db.query(`
+      INSERT INTO scraper_jobs (job_name, cron_schedule, enabled)
+      SELECT 'bulk-' || i, NULL, true FROM generate_series(0, 11) AS i
+      ON CONFLICT (job_name) DO UPDATE SET enabled = true
+    `)
+    await stack.db.query(`
+      INSERT INTO scraper_runs (job_name, started_at, status, error)
+      SELECT 'bulk-' || (i % 12),
+             now() - ((40000 - i) * interval '30 seconds'),
+             CASE WHEN i % 53 = 0 THEN 'failure' ELSE 'success' END,
+             CASE WHEN i % 53 = 0 THEN 'transient' ELSE NULL END
+        FROM generate_series(1, 40000) AS i
+    `)
+    const started = Date.now()
+    const m = await collectFleetMetrics(stack.db)
+    const elapsed = Date.now() - started
+    expect(m.scrapers.runsLast24h).toBeGreaterThan(0)
+    expect(elapsed).toBeLessThan(2000)
+  })
+
+  it('⚠️ does not leave its statement_timeout on the pooled connection', async () => {
+    // `db` is a POOL. A bare `SET statement_timeout` lands on whichever
+    // connection the pool handed out and STAYS there — quietly applying this
+    // endpoint's five-second ceiling to ordinary application queries that have
+    // nothing to do with it, on one connection out of ten, at random.
+    await collectFleetMetrics(stack.db)
+    // Drain enough connections that we are very likely to get the one the call
+    // above used back.
+    for (let i = 0; i < 12; i++) {
+      const r = await stack.db.query('SHOW statement_timeout')
+      expect(r.rows[0].statement_timeout).toBe('0')
+    }
+  })
+
   it('⚠️ never carries a member id or key material', async () => {
     // #609 is explicit that key-pool depth is reconnaissance; that does not
     // stop applying because the caller is meant to be ours. Counts and job
