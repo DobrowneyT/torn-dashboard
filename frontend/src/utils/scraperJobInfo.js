@@ -60,6 +60,11 @@ export const SCRAPER_JOB_INFO = {
     'Housekeeping: prunes the intraday member_stat_samples series past its ' +
     'retention window, keeping samples still needed to resolve competitions. ' +
     'No API calls (DB only).',
+  'scraper-runs-prune':
+    'Housekeeping: prunes this run log past its 30-day window. Keeps each ' +
+    "job's newest success and every failure since it, so the fleet-metrics " +
+    '"last success" and consecutive-failure count stay exact however far back ' +
+    'they reach. No API calls (DB only).',
   'wars-sync':
     'Ranked-wars list sync with live scores, plus the official ' +
     'rankedwarreport once per newly-completed war (GET /v2/faction/{warId}/' +
