@@ -18,6 +18,50 @@ surface it automatically.
 
 ---
 
+## [3.101.0] - 2026-09-11
+
+### Added
+
+- **`maximalCprVector()`** (#691) — step 1 of the CPR algorithm: the highest bar
+  we can set on each role while at least `n` members can still fill it, where
+  `n` is the crime's role count.
+
+  ⚠️ **This is the CEILING of the search space, not the answer we publish.** The
+  algorithm document frames it the same way ("This sets the upper limit of the
+  potential income for each crime"); #692 descends from here looking for the
+  vector that maximises $ per faction member per day. Publishing it directly
+  would ask the whole faction to train to a bar that lets us run exactly one
+  crime.
+
+  ⚠️ **Why `n`:** Hall's marriage theorem. If every one of `n` roles has at
+  least `n` candidates then for any subset S of roles |N(S)| >= n >= |S|, so a
+  crew of *distinct* members always exists. Not a heuristic — provably
+  sufficient for a single crime, and exactly the condition that closes the
+  disjointness gap `ocRosterFit.js` has documented since #442.
+
+  **No safety margin, deliberately.** The output is fragile by construction — on
+  Blast from the Past one CPR point costs six of seven eligible members on three
+  of six roles — and that is fine because nothing is published from it.
+
+  Reports the **cliff** (how many members one more point costs) alongside each
+  threshold, because a bar of 87 with seven clearing it and one clearing 88 is a
+  different object from one with headroom, and #692 needs to know which it has.
+  Keeps the per-role reading count too: the denominators genuinely differ
+  (92, 88, 92, 92, 91, 91 live), and a member with no reading is absent rather
+  than failing (#351).
+
+  Pinned against the real Blast from the Past table from forge, including the
+  off-by-one that MonChoon and I both made in an earlier pass — **Engineer at 86
+  has only 5 eligible, below the bar for a six-role crime, so the answer is 85.**
+  Requiring `n-1` instead of `n` fails seven assertions.
+
+  ⚠️ One test pins the pipeline's sharpest edge: the *same* maximal vector seats
+  **seven** crews against independent per-role pools and **one** against an
+  overlapping roster. Step 1 cannot see overlap — that is `maxDisjointCrews`
+  (#689), and it is why step 1 is a ceiling rather than an answer.
+
+---
+
 ## [3.100.0] - 2026-09-11
 
 ### Added
