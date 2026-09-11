@@ -18,6 +18,53 @@ surface it automatically.
 
 ---
 
+## [3.100.0] - 2026-09-11
+
+### Added
+
+- **`maxDisjointCrews()`** (#689) — how many organised crimes we can actually
+  crew at once, by bipartite matching on real per-member CPR readings rather
+  than by counting heads per role.
+
+  ⚠️ **A per-role headcount can be wrong about this by 5x, always in the
+  optimistic direction.** On Blast from the Past every role has 7–9 eligible
+  members, which reads as "seven crews". If the same nine strong members are the
+  ones clearing every bar, the roster seats **one**. A member cannot be in two
+  crimes at once, so a seat filled on one role is a seat unavailable on every
+  other — and no per-role number can see that.
+
+  This is the assignment problem `ocRosterFit.js` has carried a warning about
+  since #442:
+
+  > ⚠️ Deliberately does NOT check that the eligible sets are disjoint. One
+  > member can be the only person clearing the bar for three roles, and this
+  > would call that crime crewable.
+
+  For a *single* crime the gap is harmless — Hall's marriage theorem says that
+  if every one of `n` roles has at least `n` candidates then a crew of distinct
+  members always exists. The guarantee dies at two concurrent crimes, which is
+  exactly where #688 needs it.
+
+  Returns the seating, not just the count, so the team builder (#443) can build
+  on it instead of reimplementing it. Reports `limitingRoles` — which roles ran
+  dry — so #693 can relax the right threshold instead of lowering every bar.
+
+  ⚠️ "Never observed in this role" and "observed, below the bar" are reported
+  **separately and never summed**: the first is a gap in our measurement, the
+  second a gap in the roster, and confusing them sends someone training a member
+  who is already fine (#351). An absent reading excludes a member rather than
+  passing them — treating unknown as eligible would inflate the count on exactly
+  the roles we have measured least.
+
+  Deterministic by construction, because a leader comparing two runs must not
+  see crews reshuffle when nothing real changed.
+
+  **Verified against exhaustive search on 600 random rosters.** Replacing the
+  augmenting-path search with the naive greedy version — the classic way to get
+  this subtly wrong — fails that cross-check immediately.
+
+---
+
 ## [3.99.0] - 2026-09-10
 
 ### Added
