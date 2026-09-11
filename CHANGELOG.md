@@ -18,6 +18,56 @@ surface it automatically.
 
 ---
 
+## [3.102.0] - 2026-09-11
+
+### Added
+
+- **`personDays()` and `perPersonPerDay()`** (#690) — what a crime is worth per
+  person per day, which is the metric the whole CPR algorithm (#688) optimises
+  against and the only honest way to compare crimes with different role counts.
+  A bigger crime ties up more people for longer, so ranking on raw E(X) silently
+  favours it.
+
+  A crime completes `24h × n` after the first member joins — each member adds
+  24h in their role and the roles run back to back — so one run consumes:
+
+  ```
+  personDays(n, g) = n(n+1)/2  +  (n-1)·g
+  ```
+
+  ⚠️ **The slack term is `(n-1)·g` and is NOT cumulative.** The gaps do not
+  delay the crime; it completes at `24h × n` whatever happens. Joiners arrive
+  *early* and idle rather than the crime finishing *late*, so each non-first
+  joiner is held exactly `g` longer than ideal, **once**. Modelling the gaps as
+  pushing completion out gives `g·n(n-1)/2`, which over-charges a six-role crime
+  by 21% — and because the error grows with `n`, it biases the tier-against-tier
+  comparison the algorithm is built on. I made exactly that mistake in review;
+  the test that catches it walks the join schedule by hand and is deliberately
+  not the closed form under test.
+
+  **Two figures, both reported:**
+
+  - `perParticipant` — what somebody in the crew earns for their time
+  - `perFactionMember` — the same income across the whole roster, so an idle
+    member counts as the cost they are
+
+  ⚠️ They coincide at full utilisation and diverge exactly when the CPR bar is
+  too high to crew a second crime. That is the whole tension the algorithm
+  resolves: optimising the first alone sets every bar to the ceiling and leaves
+  most of the faction earning nothing.
+
+  `g` is **faction behaviour, not a game rule** — the only free parameter in the
+  figure, defaulting to 12h, clamped to `[0, 24h]`, and flagged `gapIsAssumed`
+  until #687 measures our real value. It moves the answer by ~22% across that
+  range, and every threshold the algorithm produces inherits it.
+
+  Absent, never zero, wherever an input is missing (#441/#473/#351) — a crime
+  with no reward coverage has no value we can state, and a zero would read as
+  "worthless". `missing` names what was unavailable, and the parts that *can* be
+  computed still come back.
+
+---
+
 ## [3.101.0] - 2026-09-11
 
 ### Added
