@@ -39,6 +39,8 @@ import { headcountAtCpr, maxSustainableCpr } from '../utils/ocRosterFit'
 import { crimeSensitivity, ROLE_CLASS_LABELS, PROBE_DELTA } from '../utils/ocSensitivity'
 import { scopeVerdict } from '../utils/ocScope'
 import { makeCategoryResolver } from '../utils/ocPlanner'
+import { computeGuidance } from '../utils/ocGuidancePipeline'
+import { GuidancePanel } from './OCGuidancePanel'
 import { config } from '../config'
 import CrimePickerModal from '../components/oc/CrimePickerModal'
 import CrimeRankingTable from '../components/oc/CrimeRankingTable'
@@ -214,7 +216,7 @@ export default function OCSimulatorView() {
  * that crime — six crimes on screen must not mean six requests per adjustment
  * against a small third-party server.
  */
-function CrimeCard({ scenario, onRemove }) {
+export function CrimeCard({ scenario, onRemove }) {
   const [cprs, setCprs] = useState(
     () => Array.from({ length: scenario.parameter_count }, () => DEFAULT_CPR)
   )
@@ -222,6 +224,12 @@ function CrimeCard({ scenario, onRemove }) {
   const [calcError, setCalcError] = useState(null)
   const [calculating, setCalculating] = useState(false)
   const [rosterCpr, setRosterCpr] = useState(null)
+  // ⚠️ Guidance is computed ON DEMAND, never on a slider drag. Each candidate
+  // vector is a request to tornprobability, a small third-party server this
+  // codebase already counts calls against.
+  const [guidance, setGuidance] = useState(null)
+  const [guidanceMeta, setGuidanceMeta] = useState(null)
+  const [computingGuidance, setComputingGuidance] = useState(false)
 
   // Re-seed if the mirror changes a crime's role count under us.
   useEffect(() => {
@@ -287,6 +295,39 @@ function CrimeCard({ scenario, onRemove }) {
       setMeasuring(false)
     }
   }, [scenario, cprs])
+
+  // ⚠️ Cleared whenever the crime changes: a table computed for one crime shown
+  // under another is worse than no table at all.
+  useEffect(() => { setGuidance(null); setGuidanceMeta(null) }, [scenario.name])
+
+  const suggestCprs = useCallback(async () => {
+    setComputingGuidance(true)
+    try {
+      const resolve = makeCategoryResolver({
+        scenarios: config.ocScenarios || {},
+        categories: config.ocCategories || {},
+      })
+      const categoryKey = resolve(scenario.name, null)
+      const out = await computeGuidance({
+        scenario,
+        rosterCpr,
+        category: (config.ocCategories || {})[categoryKey] ?? null,
+        call: (name, parameters) =>
+          apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
+        gap: 0.5,
+        gapIsAssumed: true,
+      })
+      setGuidance(out.guidance)
+      setGuidanceMeta({ reason: out.reason, limitingRoles: out.limitingRoles })
+    } catch {
+      // ⚠️ A failure leaves the panel in its idle state rather than showing a
+      // half-computed table. Nothing here is worth publishing on a guess.
+      setGuidance(null)
+      setGuidanceMeta(null)
+    } finally {
+      setComputingGuidance(false)
+    }
+  }, [scenario, rosterCpr])
 
   const timerRef = useRef(null)
   const seqRef = useRef(0)
@@ -356,7 +397,16 @@ function CrimeCard({ scenario, onRemove }) {
           measuring={measuring}
           onMeasure={measure}
         />
-        <ResultPanel scenario={scenario} result={result} calculating={calculating} error={calcError} />
+        <div>
+          <ResultPanel scenario={scenario} result={result} calculating={calculating} error={calcError} />
+          <GuidancePanel
+            guidance={guidance}
+            reason={guidanceMeta?.reason}
+            limitingRoles={guidanceMeta?.limitingRoles}
+            onCompute={suggestCprs}
+            computing={computingGuidance}
+          />
+        </div>
       </div>
     </div>
   )
