@@ -18,6 +18,71 @@ surface it automatically.
 
 ---
 
+## [3.103.0] - 2026-09-12
+
+### Added
+
+- **`searchThresholds()` and `candidateVectors()`** (#692) — the core of the CPR
+  algorithm (#688): descend from slice 3's ceiling and pick the vector that
+  maximises `$ per faction member per day`.
+
+  **The search is bounded at both ends**, and the lower bound is the part that
+  was not in the source document:
+
+  | bound | what it is |
+  |---|---|
+  | ceiling | `maximalCprVector` (#691) — above it the crime cannot be **crewed** |
+  | floor | the scope break-even — below it the crime cannot be **sustained** |
+
+  ⚠️ **The floor is not about money, and money must never win that argument.**
+  Spawning costs scope up front and only success pays it back, so each category
+  breaks even at `scopeCost / scopeReward`. `ocScope.js` has said so since #442:
+  *"A crime paying enormous money below its break-even is still a crime the
+  faction cannot afford to keep spawning, and money alone will never say so."*
+  A candidate is disqualified **before** it is scored, so a huge payout cannot
+  argue its way past. Disabling that check makes a 50%-success candidate paying
+  `1e12` win three tests.
+
+  **Why it is affordable.** ⚠️ Every candidate vector costs a call to
+  tornprobability — a small third-party server this codebase already counts
+  calls against — so a grid over six roles was never on the table. The structure
+  rescues it: for one crime the objective reduces to `k × E(X)`, where `k` is a
+  step function that is **free** to evaluate (#689) and `E(X)` is monotone and
+  **expensive**. So the candidate set is **one vector per achievable crew
+  count** — the highest vector that still seats `k` crews — which is a handful,
+  not millions. **One probability call per crew count.**
+
+  Generating those vectors extends Hall's theorem from slice 3: `k·n` candidates
+  per role guarantees `k` crews by the same argument slice 3 uses for `k = 1`.
+  That bar is conservative because it cannot see how disjoint the pools are, so
+  each role is then greedily raised while the matching still holds — free,
+  because matching is local. Every candidate carries `verifiedCrews` so the
+  claim is checked rather than assumed.
+
+  ⚠️ **`E(X)` monotonicity is an assumption, not a proof.** Raising a bar shifts
+  probability mass toward better endings, but ending payouts are not ordered — a
+  shift could land on a good ending that pays less, especially where the reward
+  is items. Verify against a tenant with real readings before calling the result
+  an optimum rather than a good heuristic.
+
+  **The incumbent is a seed, not a tiebreak.** It orders the candidates so the
+  search converges sooner, and has no influence on the outcome: if the roster
+  degraded, the published bar is now impossible and must fall. `movement`
+  reports what changed and the near-tie flag says when the pick was arbitrary.
+
+  ⚠️ **Agnostic to the tier ladder, deliberately.** No tier name, tier count or
+  role count appears in this module — the break-even is derived from the
+  caller's category record, which lives in config. A tier added above Elaborate
+  is a config entry, never a change here. There is a test that runs the same
+  search against Advanced, Elaborate, and a hypothetical 9/10 tier.
+
+  Two tests pin the interior optimum from opposite sides: the **same roster and
+  the same code** picks one strong crew under a steep payout decay and three
+  weaker ones under a gentle decay. A search hardwired to either endpoint would
+  be wrong half the time.
+
+---
+
 ## [3.102.1] - 2026-09-11
 
 ### Added
