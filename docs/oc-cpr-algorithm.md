@@ -329,7 +329,7 @@ So: always produce the correct answer for current data, and **report movement
 and why** — *"Engineer 86 → 85: only 5 members now clear 86"* is actionable.
 That is reporting, not damping.
 
-### Step 5 — spawn and scope feasibility · SPECIFIED · not built (#693)
+### Step 5 — spawn and scope feasibility · BUILT (#693)
 
 - **Advanced**: even — 25% each of 4 crimes (50/50 level 7 or 8, then 50/50).
 - **Elaborate**: **2:2:1**, and the "1" is a crime we cannot do. ~20% of
@@ -342,6 +342,36 @@ from whoever is available, usually above the minimum. The document suggests
 assuming halfway between the minimum and step 1's maximal; that is a reasonable
 default and should be a tunable, not baked in, because it is a guess about
 behaviour in the same family as `g`.
+
+#### What the simulation actually models
+
+Deterministic, not Monte Carlo: spawns are allocated by weight in a
+largest-remainder round robin and interleaved, so a heavily-weighted crime
+cannot monopolise the first half of the horizon and flatter itself on
+availability. A leader asking "are we short?" needs a reproducible answer, not a
+sample. Variance is a separate question from feasibility.
+
+⚠️ **Occupancy is deliberately conservative, and the simulation reports by how
+much.** A committed member is reserved for the crime's *full* duration, though
+in reality the last joiner is held one day. For a six-role crime that is 36
+reserved person-days against the 23.5 actually consumed — a **1.53×**
+overstatement, which makes the roster look tighter than it is.
+
+That is the safe direction for a feasibility check (it will not over-promise)
+but it is not free, so `occupancy` carries `reservedPersonDaysPerCrime`,
+`truePersonDaysPerCrime` and the ratio. Modelling the stagger properly means
+reserving a member from their *join* time rather than from spawn, which is a
+scheduling problem rather than a matching one — a refinement, not a correction.
+
+⚠️ **Scope is tracked across the portfolio and never vetoes a spawn.** The
+output is `solvent` plus `shortfallPerDay` — the actionable form. "Two Simple
+spawns a week cover the gap" is something a leader can do; "Elaborate is
+disallowed" is not, and is not what was asked for.
+
+⚠️ **The Elaborate "1 we cannot do" needs no special handling.** A scenario
+nobody can crew reports itself, and the reason distinguishes `no-readings` from
+`below-bar` — forge is currently the first case, which is a measurement gap and
+must never be reported as an infeasible tier.
 
 ### Step 6 — the published guidance table · SPECIFIED · not built (#694)
 
@@ -536,7 +566,7 @@ Monotonicity did not need one; these do.
 | 2 | $/person/day | #690 | built |
 | 3 | maximal-CPR solver | #691 | built |
 | 4 | threshold search | #692 | built |
-| 5 | spawn and scope feasibility | #693 | specified |
+| 5 | spawn and scope feasibility | #693 | built |
 | 6 | published guidance table | #694 | specified |
 
 Related: #687 (measure `g`), #443 (team builder — shares slice 1), #602 (is
