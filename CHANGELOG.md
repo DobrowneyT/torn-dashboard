@@ -18,6 +18,375 @@ surface it automatically.
 
 ---
 
+## [3.106.0] - 2026-09-12
+
+### Added
+
+- **`publishGuidance()`** (#694, slice 6 of #688) — the CPR table members
+  actually read, and the last slice of the algorithm.
+
+  ⚠️ **Two numbers per role, because one of them would lie.** The published bar
+  is a *floor*, not a prediction — members bring whoever is free to a seat,
+  usually above the minimum. A table showing only the floor understates what the
+  crime really returns, and understates it most on exactly the carry roles
+  published as zero. So each role carries `published`, `floor` and `expected`,
+  where `expected` defaults to **halfway between the floor and step 1's
+  ceiling** — precisely what the source document proposes for the same problem
+  in step 5. It is a guess about behaviour in the same family as `g`, so it is a
+  tunable and the table states it as an assumption.
+
+  ⚠️ **Carry roles publish `0`, deliberately.** "You do not need this role
+  trained" is the true instruction, and *any* number invites somebody to train
+  toward it. The bar the simulator actually scored at stays visible as `floor`,
+  because hiding it would make the table unauditable — the two surfaces
+  disagree **by design**, and anyone reconciling them later should not "fix" it.
+  The carry is chosen by **weight**, never because a bar happened to come out
+  low.
+
+  Also in the table:
+
+  - **The cliff** — a bar of 92 with four clearing it and three clearing 93 is a
+    knife edge one departure invalidates, a different instruction from the same
+    number with headroom.
+  - **Reading counts per role**, because absent is not failing (#351).
+  - **Near misses** — who is within N points of qualifying, so a faction-wide
+    table becomes a personal action. ⚠️ Never offered for a carry role: telling
+    somebody they are two points off a bar published as zero is the exact
+    pointless training this table exists to prevent.
+  - **Ordered by weight**, so the roles that decide the outcome are read first
+    rather than whichever happens to be called P1.
+  - **Its own assumptions**, stated — a table that presents itself as permanent
+    truth will be stale within a month and nobody will notice.
+
+  `value.uplift` is **null** rather than 0 when either crew went unpriced: a
+  zero would read as "the expected crew is worth nothing extra", which is a
+  claim we have not made.
+
+---
+
+## [3.105.0] - 2026-09-12
+
+### Added
+
+- **`simulateSpawns()`** (#693, slice 5 of #688) — does the roster survive
+  contact with how crimes actually spawn?
+
+  Slice 4 optimises ONE crime in a steady state. This checks what that cannot
+  see: spawning is lumpy, partly outside our control, and ⚠️ **members are
+  shared across every crime in flight**. A threshold set that is optimal per
+  crime can be unfillable the moment three crimes want the same six people.
+
+  Crewing goes through the #689 matching against members who are **actually
+  free** — never a per-role headcount, which cannot see overlap and is
+  optimistic by up to 5x. Removing the busy-member filter fails two tests.
+
+  **Deterministic, on purpose.** Spawns are allocated by weight in a
+  largest-remainder round robin and interleaved, so a heavily-weighted crime
+  cannot monopolise the first half of the horizon and flatter itself on
+  availability. A leader asking "are we short?" needs a reproducible answer, not
+  a sample; variance is a separate question from feasibility.
+
+  ⚠️ **Occupancy is conservative and says so.** A committed member is reserved
+  for the crime's *full* duration, though in reality the last joiner is held one
+  day — 36 reserved person-days against the 23.5 actually consumed on a six-role
+  crime, a **1.53× overstatement** that makes the roster look tighter than it
+  is. That is the safe direction for a feasibility check but not a free
+  assumption, so the result carries `reservedPersonDaysPerCrime`,
+  `truePersonDaysPerCrime` and the ratio rather than burying it. Modelling the
+  stagger properly is a scheduling problem, and a refinement rather than a
+  correction.
+
+  ⚠️ **Scope is tracked across the portfolio and never vetoes a spawn**, per the
+  #701 decision. The output is `solvent` plus `shortfallPerDay` — actionable,
+  because "this many scope a day short" tells a leader how much cheap spawning
+  covers the gap, where "disallowed" does not.
+
+  ⚠️ **Reports `no-readings` separately from `below-bar`.** A crime nobody can
+  crew names its own reason, so the Elaborate "1 we cannot do" needs no special
+  handling — and forge's current state on those roles is a **measurement gap,
+  never an infeasible tier** (#351).
+
+  Tier-agnostic throughout: scenarios arrive with their own `spawnWeight` and
+  `category`, so the Advanced 25%-each and Elaborate 2:2:1 are *data*, and a
+  tier added above Elaborate is a config entry.
+
+---
+
+## [3.104.0] - 2026-09-12
+
+### Fixed
+
+- **⚠️ The threshold search was starving a role chosen by ALPHABETICAL ORDER**
+  (#692). Setting out to add the source document's carry trade turned up a
+  bigger bug underneath it.
+
+  The roles share a member pool, so in `candidateVectors` whoever is raised
+  first takes first claim on the strongest members and whoever is raised last
+  gets the leftovers. **The greedy raise was already making a carry choice** —
+  it just sorted by position id, so the sacrificed role was whichever happened
+  to sort last. On a six-role crime that is P6, for no reason at all.
+
+  Ordering by **weight descending** makes the sacrifice deliberate: the role
+  that moves success chance most gets the best people, and the least important
+  absorbs the shortfall. That IS the document's carry trade, applied to every
+  candidate rather than only an explicit one. Same roster, same code:
+
+  ```
+  position order:  {P1: 95, P2: 94, P3: 93, P4: 92}   ← P4 starved for sorting last
+  weight order:    {P1: 95, P2: 93, P3: 94, P4: 92}   ← P3 (32.5%) outranks P2 (30.0%)
+  ```
+
+### Added
+
+- **An explicit carry candidate** — the lowest-weight role pinned to its roster
+  floor — generated **only when it lifts another role**. ⚠️ E(X) is monotone in
+  CPR (verified 2026-09-12), so a vector that merely lowers the carry and
+  changes nothing else can only score worse, and every candidate costs a
+  probability call. Generating it unconditionally would double the budget to
+  evaluate vectors we already know lose.
+
+- Weights thread through `searchThresholds` and are optional — without them the
+  order falls back to a stable numeric-aware sort and behaviour is unchanged.
+
+### Known gap, now recorded
+
+- ⚠️ **Publishing `0` on a carry role is a PRESENTATION decision, not a scoring
+  one, and that half is not implemented here.** The bar is a floor, not a
+  prediction: members bring whoever is free to that seat, so scoring a vector at
+  its pinned-low CPR understates what happens, and the search will almost always
+  prefer the un-pinned vector. The publication rule belongs to #694.
+
+  More generally: **scored E(X) is a lower bound on what a crime really
+  returns**, because every seat is scored at exactly the published bar. The
+  source document raises the same point about scope in step 5 — *"it assumes
+  each crime is undertaken with the exact minimum CPR levels"*. The gap is
+  widest on exactly the carry roles #694 will publish as zero.
+
+---
+
+## [3.103.2] - 2026-09-12
+
+### Documentation
+
+- **✅ `E(X)` monotonicity in CPR is VERIFIED** — the one unproved assumption
+  behind #692's candidate generation. Swept flat CPR vectors at 60/70/80/85/90/95
+  against the live probability service and priced each response from the
+  committed model. Monotone in all six scenarios, across three role counts and
+  both reward types:
+
+  | scenario | roles | reward | range |
+  |---|---|---|---|
+  | Blast from the Past | 6 | cash | 70.6M → 162.8M |
+  | Break the Bank | 6 | cash | 179.6M → 363.9M |
+  | Ace in the Hole | 5 | cash | 258.5M → 541.1M |
+  | Clinical Precision | 4 | cash | 54.0M → 114.2M |
+  | Window of Opportunity | 5 | items | 4.33 → 12.86 |
+  | Crane Reaction | 6 | items | 1.15 → 2.88 |
+
+  ⚠️ **The result is tenant-independent, which makes it stronger than planned.**
+  The probability model and payout table are *global* — the model ships in the
+  image and is identical for every faction (#606) — so this is a property of
+  Torn's crime graph, not of anyone's roster. It did not need tnl.
+
+  ⚠️ Item crimes were priced on **`itemCount` as a proxy**, since real prices
+  live in the global item catalogue. That tests the *shape* of the risk, not its
+  magnitude: a crime whose cheap items become likelier as CPR rises would still
+  slip through.
+
+- **✅ Two earlier fixes independently confirmed by the same sweep.** For Ace in
+  the Hole and Window of Opportunity the service returns good endings the model
+  does not know, and **every one has probability exactly 0** — so
+  `withoutEndingPadding` (v3.95.0) is filtering genuine padding, not real
+  endings. The unknown *bad* endings do carry real mass (0.088, 0.101) and
+  contribute nothing, which is what `BAD_ENDINGS_PAY_ZERO` accounts for. **E(X)
+  is complete.**
+
+- **⚠️ Recorded a gap in slice 4: carry-role optimisation is NOT implemented.**
+  `candidateVectors` raises every role as high as it independently can and never
+  deliberately *sacrifices* one to lift the others, so an unequal vector like
+  `{carry: 30, others: 90}` is never considered — and the source document says
+  that shape is usually the better trade. The importance bands are unused for
+  the same reason. **Slice 4 is incomplete until this lands**, and it should land
+  before #693 builds on its output.
+
+### Changed
+
+- **The >30% importance band is 65–70**, not the interim 70–75. ⚠️ Noted in the
+  record that this is narrower and lower-topped than the 25–30% band beneath it,
+  inverting the otherwise monotone pattern — that is as specified, and written
+  down because it looks like a typo and is not.
+
+- **`g` stays at 12h.** It is our specified buffer. #687 goes ahead as a
+  *measurement* to check the assumption; a measured value replacing the default
+  is a separate decision, not an automatic consequence of measuring it.
+
+---
+
+## [3.103.1] - 2026-09-12
+
+### Changed
+
+- **⚠️ The scope break-even no longer disqualifies a CPR vector** (#692). v3.103.0
+  treated it as a hard floor and refused any candidate below it, before scoring,
+  so that money could not argue its way past.
+
+  **That was wrong, because scope is a PORTFOLIO question, not a per-crime one.**
+  MonChoon, 2026-09-12:
+
+  > I am okay to have the higher paying crimes scope negative in the hopes that
+  > some lower ones balance it out (since we cant control spawning) and if things
+  > get to a point where we need to fill up scope a bit, we can always spawn some
+  > lower level crimes, so im not worried about that, whatsoever.
+
+  Scope is fungible across the whole spawn mix and cheaply replenished by
+  running easier crimes. Refusing a lucrative crime because *that one crime* is
+  scope-negative optimises a sub-problem nobody has — and we do not control what
+  spawns, so a per-crime veto buys nothing anyway.
+
+  Every candidate now carries `netScope` and `aboveBreakEven`, and **none is
+  refused for it**. The only remaining rejection is a candidate we cannot price,
+  which is "unmeasured" rather than "worthless" (#441/#473/#351). Solvency across
+  the mix belongs to #693, which simulates the spawn distribution and can
+  actually see the portfolio.
+
+  ⚠️ Worth watching there: scope caps at 100 and regenerates +1/day, so if the
+  chosen mix bleeds faster than the easy crimes replenish, the constraint
+  reappears at portfolio level — which is exactly where #693 should catch it.
+
+### Documentation
+
+- **Carry roles publish `0`, confirmed deliberate** — the simulator uses the
+  lowest real member's CPR so it does not model a literal zero, while the
+  published guidance says zero, because "you do not need this role trained" is
+  the true instruction and any number invites people to train toward it. ⚠️ The
+  two surfaces disagree **by design**; anyone reconciling them later should not
+  "fix" it.
+
+- **"Which crimes can we not do" is now an OUTPUT, not an input.** #688's open
+  question about *which* Elaborate crime is the "1" in 2:2:1 dissolves: a role
+  with fewer readings than the crime has roles returns `null` from #691 and
+  names itself in `limitingRoles`, and a vector yielding `k = 0` is not
+  fieldable. ⚠️ The reason is kept distinct — "nobody is good enough" versus "we
+  have never observed anyone in this role". forge is currently the second case,
+  which is a measurement gap and not a verdict.
+
+- **How to verify the model**, recorded in `docs/oc-cpr-algorithm.md`: forge
+  lacks the readings and tnl has them, so every module in slices 1–4 is pure and
+  injectable and can be run against either tenant. First thing to check is the
+  one unproved assumption — `E(X)` monotonicity in CPR.
+
+---
+
+## [3.103.0] - 2026-09-12
+
+### Added
+
+- **`searchThresholds()` and `candidateVectors()`** (#692) — the core of the CPR
+  algorithm (#688): descend from slice 3's ceiling and pick the vector that
+  maximises `$ per faction member per day`.
+
+  **The search is bounded at both ends**, and the lower bound is the part that
+  was not in the source document:
+
+  | bound | what it is |
+  |---|---|
+  | ceiling | `maximalCprVector` (#691) — above it the crime cannot be **crewed** |
+  | floor | the scope break-even — below it the crime cannot be **sustained** |
+
+  ⚠️ **The floor is not about money, and money must never win that argument.**
+  Spawning costs scope up front and only success pays it back, so each category
+  breaks even at `scopeCost / scopeReward`. `ocScope.js` has said so since #442:
+  *"A crime paying enormous money below its break-even is still a crime the
+  faction cannot afford to keep spawning, and money alone will never say so."*
+  A candidate is disqualified **before** it is scored, so a huge payout cannot
+  argue its way past. Disabling that check makes a 50%-success candidate paying
+  `1e12` win three tests.
+
+  **Why it is affordable.** ⚠️ Every candidate vector costs a call to
+  tornprobability — a small third-party server this codebase already counts
+  calls against — so a grid over six roles was never on the table. The structure
+  rescues it: for one crime the objective reduces to `k × E(X)`, where `k` is a
+  step function that is **free** to evaluate (#689) and `E(X)` is monotone and
+  **expensive**. So the candidate set is **one vector per achievable crew
+  count** — the highest vector that still seats `k` crews — which is a handful,
+  not millions. **One probability call per crew count.**
+
+  Generating those vectors extends Hall's theorem from slice 3: `k·n` candidates
+  per role guarantees `k` crews by the same argument slice 3 uses for `k = 1`.
+  That bar is conservative because it cannot see how disjoint the pools are, so
+  each role is then greedily raised while the matching still holds — free,
+  because matching is local. Every candidate carries `verifiedCrews` so the
+  claim is checked rather than assumed.
+
+  ⚠️ **`E(X)` monotonicity is an assumption, not a proof.** Raising a bar shifts
+  probability mass toward better endings, but ending payouts are not ordered — a
+  shift could land on a good ending that pays less, especially where the reward
+  is items. Verify against a tenant with real readings before calling the result
+  an optimum rather than a good heuristic.
+
+  **The incumbent is a seed, not a tiebreak.** It orders the candidates so the
+  search converges sooner, and has no influence on the outcome: if the roster
+  degraded, the published bar is now impossible and must fall. `movement`
+  reports what changed and the near-tie flag says when the pick was arbitrary.
+
+  ⚠️ **Agnostic to the tier ladder, deliberately.** No tier name, tier count or
+  role count appears in this module — the break-even is derived from the
+  caller's category record, which lives in config. A tier added above Elaborate
+  is a config entry, never a change here. There is a test that runs the same
+  search against Advanced, Elaborate, and a hypothetical 9/10 tier.
+
+  Two tests pin the interior optimum from opposite sides: the **same roster and
+  the same code** picks one strong crew under a steep payout decay and three
+  weaker ones under a gentle decay. A search hardwired to either endpoint would
+  be wrong half the time.
+
+---
+
+## [3.102.1] - 2026-09-11
+
+### Added
+
+- **`docs/oc-cpr-algorithm.md`** — the working record for #688: the source
+  document reproduced verbatim, then every decision taken about it and every
+  mistake made along the way.
+
+  ⚠️ **The mistakes are recorded deliberately.** Two were made twice in one
+  sitting, by both of us, and one shipped a plausible formula that was 21% wrong
+  in a direction that biased the whole tier hierarchy. A file holding only
+  conclusions would let us re-derive them:
+
+  - the **cumulative slack term** — `g·n(n-1)/2` instead of `(n-1)·g`, an error
+    that *grows with `n`* so it never cancels;
+  - the **Engineer off-by-one** — 86 in both the source document and a later
+    screenshot, where only 5 members clear it and a six-role crime needs 6;
+  - reading a **per-role headcount as a crew count**, wrong by 5× and always
+    optimistically;
+  - and a **withdrawn hysteresis requirement** that would have published CPR
+    targets nobody could hit.
+
+  Each entry says how it is now caught in a test.
+
+### Changed
+
+- **Step 3 of the CPR algorithm is deleted, not implemented** (#692). The source
+  document asks for a hand-set hierarchy floor — *"Like maximum of the crime
+  below x 90% or something"* — and flags it unresolved in the same breath.
+
+  It **dissolves under the objective**: once we maximise `$/faction-member/day`
+  across the whole spawn mix, a tier that does not beat the one below simply
+  will not be chosen, so the constraint falls out of the optimisation rather
+  than being imposed on it.
+
+  ⚠️ What that loses is recorded rather than waved away: step 3 also carried the
+  author's point that a higher tier *"could probably be slightly lower because
+  easier CPRs at higher levels mean more flexibility in practice"*, and
+  flexibility has real value a point estimate of throughput misses. If the
+  optimiser starts recommending we abandon a tier and that feels wrong, this is
+  the first place to look — and the fix is to model flexibility explicitly, not
+  to reinstate a 90% fudge.
+
+---
+
 ## [3.102.0] - 2026-09-11
 
 ### Added
