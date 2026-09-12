@@ -187,7 +187,7 @@ is to model flexibility explicitly rather than to reinstate a 90% fudge.
 
 Decision by MonChoon, 2026-09-11: delete it, document it.
 
-### Step 4 — threshold search · SPECIFIED · not built (#692)
+### Step 4 — threshold search · DECIDED · built (#692)
 
 Descend from step 1's ceiling, scoring each candidate vector against the
 objective, and output the minimum CPR per role that we publish.
@@ -216,6 +216,44 @@ free to leave them and report when it does.
 turning one role into a carry (Picklock 2 on BftP is 2.9% impact) and paying for
 it a couple of points elsewhere is usually the better trade. A search that only
 moves all roles together will miss this.
+
+#### ⚠️ Scope is reported, not enforced — and that was a correction
+
+`ocScope.js` supplies a per-category break-even success chance
+(`scopeCost / scopeReward`), below which a crime steadily destroys the resource
+that lets us spawn anything:
+
+| category | break-even |
+|---|---|
+| Introductory | 50.0% |
+| Simple | 66.7% |
+| Intermediate | 75.0% |
+| Advanced | 80.0% |
+| Elaborate | 83.3% |
+
+The first build of slice 4 treated that as a **hard floor** and disqualified any
+vector below it, before scoring, so that money could not argue its way past.
+
+**That was wrong, because scope is a PORTFOLIO question, not a per-crime one.**
+MonChoon, 2026-09-12:
+
+> I am okay to have the higher paying crimes scope negative in the hopes that
+> some lower ones balance it out (since we cant control spawning) and if things
+> get to a point where we need to fill up scope a bit, we can always spawn some
+> lower level crimes, so im not worried about that, whatsoever.
+
+Scope is fungible across the whole spawn mix and cheaply replenished by running
+easier crimes. Refusing a lucrative crime because *that one crime* is
+scope-negative optimises a sub-problem nobody has — and **we do not control what
+spawns**, so a per-crime veto buys nothing anyway.
+
+So every candidate now carries `netScope` and `aboveBreakEven`, and none is
+refused for it. **Solvency across the mix belongs to step 5**, which simulates
+the spawn distribution and can actually see the portfolio.
+
+⚠️ What to watch: scope is capped at 100 and regenerates +1/day. If the chosen
+mix bleeds scope faster than the easy crimes replenish it, the constraint
+reappears at portfolio level — which is exactly where step 5 should catch it.
 
 #### Warm start — and the correction that goes with it
 
@@ -262,11 +300,15 @@ behaviour in the same family as `g`.
 
 ### Step 6 — the published guidance table · SPECIFIED · not built (#694)
 
-⚠️ **Carry roles publish as `0`.** The simulator wants the lowest real member's
-CPR so it does not model a literal zero, but the guidance says zero — because
-"you do not need this role trained" is the true instruction, and any number
-invites people to train toward it. *(Open: confirming this divergence is
-deliberate.)*
+⚠️ **Carry roles publish as `0`. Confirmed deliberate** (MonChoon, 2026-09-12:
+*"I think carry roles should publish 0, even though the simulator effectively
+uses the lowest real number."*).
+
+The simulator wants the lowest real member's CPR so it does not model a literal
+zero, but the guidance says **zero** — because "you do not need this role
+trained" is the true instruction, and any number at all invites people to train
+toward it. The two surfaces disagree **by design**, and anyone reconciling them
+later should not "fix" it.
 
 **Recompute, do not freeze.** Roster churn invalidates these, and step 1's
 output sits on a cliff by construction. Regenerating from live readings is the
@@ -338,15 +380,53 @@ step 4, which does.
 
 ---
 
-## Part 6 — still open
+## Part 6 — verifying the model
 
-1. **Which Elaborate crime can we not do?** The "1" in 2:2:1, and therefore a
-   guaranteed ~20% scope loss on that tier. Permanent, or a CPR problem this
-   algorithm might actually solve? If the latter, the tier's economics change.
-2. **Carry roles: `0` in guidance, lowest real member in the simulator.**
-   Confirming the divergence is deliberate.
-3. **The >30% importance band.** 70–75 is interim, pending empirical work.
-4. **`g`.** Assumed 12h until #687 measures it per tenant.
+⚠️ **forge cannot verify this and tnl can.** MonChoon, 2026-09-12:
+
+> I dont think we can start evaluating which elaborate crimes we can or cant do
+> yet, because we dont have ANY CPR data from our members to know what their
+> levels are for certain roles. However, we should be able to use this same
+> simulator on `tnl.monchoon.me` so that we can verify it as a model.
+
+Every module in slices 1–4 is therefore **pure and injectable**: readings,
+positions, roster size, category and the probability lookup are all parameters,
+and no module reads tenant config or assumes a faction. The same code runs
+against either tenant's data and the answers can be compared by hand.
+
+What to check first, against a tenant that has the readings:
+
+1. **`E(X)` monotonicity in CPR** — the one unproved assumption in step 4's
+   candidate generation. If a higher bar ever scores *lower*, "highest vector
+   per `k`" is a heuristic rather than an optimum, and the write-up must say so.
+2. **The candidate set is small in practice.** It is a handful on synthetic
+   rosters; real readings are lumpier and could yield more distinct crew counts.
+   Each one costs a tornprobability call.
+3. **Whether a chosen vector is actually crewable on the day** — `k` is what the
+   roster supports from a standing start, and does not know who is already
+   committed to a crime in flight.
+
+## Part 7 — still open
+
+1. **The >30% importance band.** 70–75 is interim, pending empirical work.
+2. **`g`.** Assumed 12h until #687 measures it per tenant.
+3. **`E(X)` monotonicity in CPR** — assumed by step 4's candidate generation,
+   not proved. Ending payouts are not ordered, so a higher bar could shift mass
+   onto a good ending that pays less, especially where the reward is items.
+   Verify against a tenant with real readings.
+
+### Closed
+
+- ~~**Which Elaborate crime can we not do?**~~ **Dissolved, 2026-09-12.** It is
+  an OUTPUT now, not an input: a role with fewer readings than the crime has
+  roles returns `null` from step 1 and names itself in `limitingRoles`, and a
+  vector yielding `k = 0` is not fieldable. ⚠️ The reason matters and is kept
+  distinct — "nobody is good enough" versus "we have never observed anyone in
+  this role" (#351). forge is currently the second case on those roles, which is
+  a measurement gap and not a verdict.
+- ~~**Carry roles: `0` or the lowest real member?**~~ **Both, deliberately** —
+  `0` in guidance, lowest real member in the simulator. See step 6.
+- ~~**Step 3's hierarchy rule**~~ — deleted, see step 3.
 
 ## Slices
 
@@ -355,7 +435,7 @@ step 4, which does.
 | 1 | crew-matching engine | #689 | built |
 | 2 | $/person/day | #690 | built |
 | 3 | maximal-CPR solver | #691 | built |
-| 4 | threshold search | #692 | specified |
+| 4 | threshold search | #692 | built |
 | 5 | spawn and scope feasibility | #693 | specified |
 | 6 | published guidance table | #694 | specified |
 

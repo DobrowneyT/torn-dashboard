@@ -18,6 +18,61 @@ surface it automatically.
 
 ---
 
+## [3.103.1] - 2026-09-12
+
+### Changed
+
+- **⚠️ The scope break-even no longer disqualifies a CPR vector** (#692). v3.103.0
+  treated it as a hard floor and refused any candidate below it, before scoring,
+  so that money could not argue its way past.
+
+  **That was wrong, because scope is a PORTFOLIO question, not a per-crime one.**
+  MonChoon, 2026-09-12:
+
+  > I am okay to have the higher paying crimes scope negative in the hopes that
+  > some lower ones balance it out (since we cant control spawning) and if things
+  > get to a point where we need to fill up scope a bit, we can always spawn some
+  > lower level crimes, so im not worried about that, whatsoever.
+
+  Scope is fungible across the whole spawn mix and cheaply replenished by
+  running easier crimes. Refusing a lucrative crime because *that one crime* is
+  scope-negative optimises a sub-problem nobody has — and we do not control what
+  spawns, so a per-crime veto buys nothing anyway.
+
+  Every candidate now carries `netScope` and `aboveBreakEven`, and **none is
+  refused for it**. The only remaining rejection is a candidate we cannot price,
+  which is "unmeasured" rather than "worthless" (#441/#473/#351). Solvency across
+  the mix belongs to #693, which simulates the spawn distribution and can
+  actually see the portfolio.
+
+  ⚠️ Worth watching there: scope caps at 100 and regenerates +1/day, so if the
+  chosen mix bleeds faster than the easy crimes replenish, the constraint
+  reappears at portfolio level — which is exactly where #693 should catch it.
+
+### Documentation
+
+- **Carry roles publish `0`, confirmed deliberate** — the simulator uses the
+  lowest real member's CPR so it does not model a literal zero, while the
+  published guidance says zero, because "you do not need this role trained" is
+  the true instruction and any number invites people to train toward it. ⚠️ The
+  two surfaces disagree **by design**; anyone reconciling them later should not
+  "fix" it.
+
+- **"Which crimes can we not do" is now an OUTPUT, not an input.** #688's open
+  question about *which* Elaborate crime is the "1" in 2:2:1 dissolves: a role
+  with fewer readings than the crime has roles returns `null` from #691 and
+  names itself in `limitingRoles`, and a vector yielding `k = 0` is not
+  fieldable. ⚠️ The reason is kept distinct — "nobody is good enough" versus "we
+  have never observed anyone in this role". forge is currently the second case,
+  which is a measurement gap and not a verdict.
+
+- **How to verify the model**, recorded in `docs/oc-cpr-algorithm.md`: forge
+  lacks the readings and tnl has them, so every module in slices 1–4 is pure and
+  injectable and can be run against either tenant. First thing to check is the
+  one unproved assumption — `E(X)` monotonicity in CPR.
+
+---
+
 ## [3.103.0] - 2026-09-12
 
 ### Added
