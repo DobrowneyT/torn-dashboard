@@ -1,6 +1,6 @@
 {
   "name": "@tnl/frontend",
-  "version": "3.103.1",
+  "version": "3.103.2",
   "private": true,
   "type": "module",
   "scripts": {
