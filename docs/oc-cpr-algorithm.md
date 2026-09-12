@@ -161,6 +161,11 @@ the algorithm produces inherits it. It moves the answer by **~22%** across that
 range — which is why #687 exists to measure our real value from observed
 occupancy.
 
+**Decision, 2026-09-12: keep 12h.** It is our specified buffer and the default
+does not change. #687 still goes ahead as a *measurement*, to check the
+assumption against what actually happens — but a measured value replacing the
+default is a separate decision, not an automatic consequence of measuring it.
+
 ### Step 3 — the hierarchy floor · DECIDED: DELETED
 
 **Removed from the algorithm. Not implemented.**
@@ -199,11 +204,19 @@ is not needed; we have the real numbers.
 
 | role weight | starting band |
 |---|---|
-| >30% | **70–75** *(interim — see below)* |
+| >30% | **65–70** (MonChoon, 2026-09-12) |
 | 25–30% | 65–75 |
 | 15–25% | 60–70 |
 | 10–15% | 55–65 |
 | carry role | floor |
+
+⚠️ Note the >30% band is **narrower and lower-topped** than the 25–30% band
+below it, which inverts the otherwise monotone pattern. That is as specified —
+recorded here because it looks like a typo and is not. The plausible reading is
+that the most important role gets the best available member regardless, so the
+*published minimum* need not be pushed as high; the binding constraint is
+elsewhere. ⚠️ The bands are only a starting shape and the search may leave them,
+so a wrong band costs convergence speed rather than a wrong answer.
 
 ⚠️ **The document's bands stop at 30%, and Muscle on BftP is 34.6%** — the top
 role in the worked example falls off the end of the table. 70–75 is an interim
@@ -214,8 +227,20 @@ free to leave them and report when it does.
 
 **Prioritise dropping a role to a full carry.** The document is explicit that
 turning one role into a carry (Picklock 2 on BftP is 2.9% impact) and paying for
-it a couple of points elsewhere is usually the better trade. A search that only
-moves all roles together will miss this.
+it a couple of points elsewhere is usually the better trade.
+
+⚠️ **NOT IMPLEMENTED as of v3.103.1 — slice 4 is incomplete.** `candidateVectors`
+generates one vector per achievable crew count by raising every role as high as
+it independently can. It never deliberately *sacrifices* one role to lift the
+others, so an unequal vector like `{carry: 30, others: 90}` is never
+considered — and the document says that shape is usually the better trade.
+
+The bands above are therefore also unused: nothing in the current
+implementation reads them. They describe where a carry-aware search *would*
+look.
+
+This is a gap in slice 4, not a new slice. It should be closed before #693
+builds on slice 4's output.
 
 #### ⚠️ Scope is reported, not enforced — and that was a correction
 
@@ -394,26 +419,70 @@ positions, roster size, category and the probability lookup are all parameters,
 and no module reads tenant config or assumes a faction. The same code runs
 against either tenant's data and the answers can be compared by hand.
 
-What to check first, against a tenant that has the readings:
+### ✅ `E(X)` monotonicity in CPR — VERIFIED, 2026-09-12
 
-1. **`E(X)` monotonicity in CPR** — the one unproved assumption in step 4's
-   candidate generation. If a higher bar ever scores *lower*, "highest vector
-   per `k`" is a heuristic rather than an optimum, and the write-up must say so.
-2. **The candidate set is small in practice.** It is a handful on synthetic
-   rosters; real readings are lumpier and could yield more distinct crew counts.
-   Each one costs a tornprobability call.
-3. **Whether a chosen vector is actually crewable on the day** — `k` is what the
-   roster supports from a standing start, and does not know who is already
-   committed to a crime in flight.
+The one unproved assumption in step 4's candidate generation. Swept flat CPR
+vectors at 60/70/80/85/90/95 against the live probability service and priced
+each response from the committed model:
+
+| scenario | roles | reward | result |
+|---|---|---|---|
+| Blast from the Past | 6 | cash | monotone (70.6M → 162.8M) |
+| Break the Bank | 6 | cash | monotone (179.6M → 363.9M) |
+| Ace in the Hole | 5 | cash | monotone (258.5M → 541.1M) |
+| Clinical Precision | 4 | cash | monotone (54.0M → 114.2M) |
+| Window of Opportunity | 5 | items | monotone (4.33 → 12.86 items) |
+| Crane Reaction | 6 | items | monotone (1.15 → 2.88 items) |
+
+⚠️ **This result is tenant-independent, which makes it stronger than planned.**
+The probability model and the payout table are *global* — the model ships in the
+image and is identical for every faction (#606) — so monotonicity is a property
+of Torn's crime graph, not of anyone's roster. It did not need tnl.
+
+⚠️ Item crimes were priced on **`itemCount` as a proxy**, because real item
+prices live in the global item catalogue. That answers "does mass move toward
+endings that drop FEWER items" — the shape of the risk — not its magnitude. A
+crime whose *cheap* items become more likely as CPR rises would still slip
+through; re-check if an item crime ever ranks oddly.
+
+### ✅ Two earlier fixes independently confirmed
+
+The sweep also settled something it was not aimed at. For Ace in the Hole and
+Window of Opportunity the probability service returns good endings the model
+does not know — and at CPR 80 **every one of them has probability exactly 0**:
+
+```
+Ace in the Hole        goodEnding8/9/10  = 0   (total unknown-good mass: 0)
+Window of Opportunity  goodEnding7/8/9/10 = 0  (total unknown-good mass: 0)
+```
+
+So `withoutEndingPadding` (v3.95.0) is filtering genuine padding, not real
+endings — no value is being dropped. The unknown *bad* endings do carry real
+mass (0.088 and 0.101) and contribute nothing, which is exactly what
+`BAD_ENDINGS_PAY_ZERO` in `ocExpectedValue.js` accounts for. **E(X) is
+complete.**
+
+### Still needs a tenant with readings
+
+Monotonicity did not need one; these do.
+
+1. **The candidate set being small in practice.** It is a handful on synthetic
+   rosters; real readings are lumpier and could yield more distinct crew counts,
+   and each one costs a tornprobability call.
+2. **Whether a chosen vector is crewable on the day** — `k` is what the roster
+   supports from a standing start and does not know who is already committed to
+   a crime in flight.
+3. **An end-to-end threshold** for one real crime, checked by hand.
+
+⚠️ forge has no readings for the roles this needs; **tnl does**.
 
 ## Part 7 — still open
 
-1. **The >30% importance band.** 70–75 is interim, pending empirical work.
-2. **`g`.** Assumed 12h until #687 measures it per tenant.
-3. **`E(X)` monotonicity in CPR** — assumed by step 4's candidate generation,
-   not proved. Ending payouts are not ordered, so a higher bar could shift mass
-   onto a good ending that pays less, especially where the reward is items.
-   Verify against a tenant with real readings.
+1. ⚠️ **Carry-role optimisation is not implemented** — see step 4. The current
+   search generates no unequal vectors, so the trade the source document calls
+   the usual best one is never evaluated. **Slice 4 is incomplete until this
+   lands.**
+2. **An end-to-end threshold against tnl's real readings**, checked by hand.
 
 ### Closed
 
@@ -427,6 +496,11 @@ What to check first, against a tenant that has the readings:
 - ~~**Carry roles: `0` or the lowest real member?**~~ **Both, deliberately** —
   `0` in guidance, lowest real member in the simulator. See step 6.
 - ~~**Step 3's hierarchy rule**~~ — deleted, see step 3.
+- ~~**The >30% importance band**~~ — **65–70**, decided 2026-09-12.
+- ~~**`g`**~~ — **stays 12h**, decided 2026-09-12. #687 measures it as a check,
+  not as an automatic replacement.
+- ~~**`E(X)` monotonicity in CPR**~~ — **verified** across six scenarios, three
+  role counts, cash and items. See Part 6.
 
 ## Slices
 

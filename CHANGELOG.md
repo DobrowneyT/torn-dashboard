@@ -18,6 +18,64 @@ surface it automatically.
 
 ---
 
+## [3.103.2] - 2026-09-12
+
+### Documentation
+
+- **✅ `E(X)` monotonicity in CPR is VERIFIED** — the one unproved assumption
+  behind #692's candidate generation. Swept flat CPR vectors at 60/70/80/85/90/95
+  against the live probability service and priced each response from the
+  committed model. Monotone in all six scenarios, across three role counts and
+  both reward types:
+
+  | scenario | roles | reward | range |
+  |---|---|---|---|
+  | Blast from the Past | 6 | cash | 70.6M → 162.8M |
+  | Break the Bank | 6 | cash | 179.6M → 363.9M |
+  | Ace in the Hole | 5 | cash | 258.5M → 541.1M |
+  | Clinical Precision | 4 | cash | 54.0M → 114.2M |
+  | Window of Opportunity | 5 | items | 4.33 → 12.86 |
+  | Crane Reaction | 6 | items | 1.15 → 2.88 |
+
+  ⚠️ **The result is tenant-independent, which makes it stronger than planned.**
+  The probability model and payout table are *global* — the model ships in the
+  image and is identical for every faction (#606) — so this is a property of
+  Torn's crime graph, not of anyone's roster. It did not need tnl.
+
+  ⚠️ Item crimes were priced on **`itemCount` as a proxy**, since real prices
+  live in the global item catalogue. That tests the *shape* of the risk, not its
+  magnitude: a crime whose cheap items become likelier as CPR rises would still
+  slip through.
+
+- **✅ Two earlier fixes independently confirmed by the same sweep.** For Ace in
+  the Hole and Window of Opportunity the service returns good endings the model
+  does not know, and **every one has probability exactly 0** — so
+  `withoutEndingPadding` (v3.95.0) is filtering genuine padding, not real
+  endings. The unknown *bad* endings do carry real mass (0.088, 0.101) and
+  contribute nothing, which is what `BAD_ENDINGS_PAY_ZERO` accounts for. **E(X)
+  is complete.**
+
+- **⚠️ Recorded a gap in slice 4: carry-role optimisation is NOT implemented.**
+  `candidateVectors` raises every role as high as it independently can and never
+  deliberately *sacrifices* one to lift the others, so an unequal vector like
+  `{carry: 30, others: 90}` is never considered — and the source document says
+  that shape is usually the better trade. The importance bands are unused for
+  the same reason. **Slice 4 is incomplete until this lands**, and it should land
+  before #693 builds on its output.
+
+### Changed
+
+- **The >30% importance band is 65–70**, not the interim 70–75. ⚠️ Noted in the
+  record that this is narrower and lower-topped than the 25–30% band beneath it,
+  inverting the otherwise monotone pattern — that is as specified, and written
+  down because it looks like a typo and is not.
+
+- **`g` stays at 12h.** It is our specified buffer. #687 goes ahead as a
+  *measurement* to check the assumption; a measured value replacing the default
+  is a separate decision, not an automatic consequence of measuring it.
+
+---
+
 ## [3.103.1] - 2026-09-12
 
 ### Changed
