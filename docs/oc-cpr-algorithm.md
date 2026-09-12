@@ -229,18 +229,38 @@ free to leave them and report when it does.
 turning one role into a carry (Picklock 2 on BftP is 2.9% impact) and paying for
 it a couple of points elsewhere is usually the better trade.
 
-⚠️ **NOT IMPLEMENTED as of v3.103.1 — slice 4 is incomplete.** `candidateVectors`
-generates one vector per achievable crew count by raising every role as high as
-it independently can. It never deliberately *sacrifices* one role to lift the
-others, so an unequal vector like `{carry: 30, others: 90}` is never
-considered — and the document says that shape is usually the better trade.
+**Closed in v3.104.0 — and building it found a bigger bug underneath.**
 
-The bands above are therefore also unused: nothing in the current
-implementation reads them. They describe where a carry-aware search *would*
-look.
+The greedy raise was *already* sacrificing a role. The roles share a member
+pool, so whoever is raised first takes first claim on the strongest members and
+whoever is raised last gets the leftovers. It sorted by **position id**, which
+meant the starved role was whichever happened to sort last — on a six-role
+crime, P6, chosen for no reason at all.
 
-This is a gap in slice 4, not a new slice. It should be closed before #693
-builds on slice 4's output.
+⚠️ **Ordering the raise by WEIGHT descending is the real carry optimisation**,
+applied to every candidate rather than only an explicit one. The role that moves
+success chance most gets the best people; the least important absorbs the
+shortfall. Same roster, same code:
+
+```
+position order:  {P1: 95, P2: 94, P3: 93, P4: 92}   ← P4 starved for sorting last
+weight order:    {P1: 95, P2: 93, P3: 94, P4: 92}   ← P3 (32.5%) outranks P2 (30.0%)
+```
+
+An explicit carry variant — the lowest-weight role pinned to its roster floor —
+is generated too, but **only when it lifts another role**. E(X) is monotone in
+CPR (verified, Part 6), so a vector that merely lowers the carry and changes
+nothing else can only score worse, and every candidate costs a probability call.
+
+⚠️ **That is only half of the document's carry rule, and the other half is not a
+scoring question at all.** Publishing `0` on a low-impact role is a
+*presentation* decision: the bar is a floor, not a prediction, and members bring
+whoever is free to that seat. Scoring a vector at its pinned-low CPR understates
+what actually happens, so the search will almost always prefer the un-pinned
+one. **The publication rule belongs to step 6** (#694).
+
+This also explains why the bands stay unused: with priority following weight,
+the search finds its own shape and never needs a band to tell it where to look.
 
 #### ⚠️ Scope is reported, not enforced — and that was a correction
 
@@ -478,10 +498,14 @@ Monotonicity did not need one; these do.
 
 ## Part 7 — still open
 
-1. ⚠️ **Carry-role optimisation is not implemented** — see step 4. The current
-   search generates no unequal vectors, so the trade the source document calls
-   the usual best one is never evaluated. **Slice 4 is incomplete until this
-   lands.**
+1. ⚠️ **Published minimum vs expected crew.** The search scores a vector as if
+   every seat is filled at exactly the published bar. That is not what happens —
+   the bar is a floor and members bring whoever is free, usually above it. The
+   source document raises the same point about scope in step 5 (*"it assumes
+   each crime is undertaken with the exact minimum CPR levels... Maybe we could
+   assume half way between the minimum CPR and the 'maximal' CPRs"*). Until this
+   is modelled, **scored E(X) is a lower bound on what a crime really returns**,
+   and the gap is widest on exactly the carry roles step 6 publishes as zero.
 2. **An end-to-end threshold against tnl's real readings**, checked by hand.
 
 ### Closed
@@ -501,6 +525,8 @@ Monotonicity did not need one; these do.
   not as an automatic replacement.
 - ~~**`E(X)` monotonicity in CPR**~~ — **verified** across six scenarios, three
   role counts, cash and items. See Part 6.
+- ~~**Carry-role optimisation**~~ — closed in v3.104.0 by ordering the greedy
+  raise by weight. See step 4; the publication half moved to step 6.
 
 ## Slices
 

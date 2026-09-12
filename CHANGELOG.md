@@ -18,6 +18,58 @@ surface it automatically.
 
 ---
 
+## [3.104.0] - 2026-09-12
+
+### Fixed
+
+- **⚠️ The threshold search was starving a role chosen by ALPHABETICAL ORDER**
+  (#692). Setting out to add the source document's carry trade turned up a
+  bigger bug underneath it.
+
+  The roles share a member pool, so in `candidateVectors` whoever is raised
+  first takes first claim on the strongest members and whoever is raised last
+  gets the leftovers. **The greedy raise was already making a carry choice** —
+  it just sorted by position id, so the sacrificed role was whichever happened
+  to sort last. On a six-role crime that is P6, for no reason at all.
+
+  Ordering by **weight descending** makes the sacrifice deliberate: the role
+  that moves success chance most gets the best people, and the least important
+  absorbs the shortfall. That IS the document's carry trade, applied to every
+  candidate rather than only an explicit one. Same roster, same code:
+
+  ```
+  position order:  {P1: 95, P2: 94, P3: 93, P4: 92}   ← P4 starved for sorting last
+  weight order:    {P1: 95, P2: 93, P3: 94, P4: 92}   ← P3 (32.5%) outranks P2 (30.0%)
+  ```
+
+### Added
+
+- **An explicit carry candidate** — the lowest-weight role pinned to its roster
+  floor — generated **only when it lifts another role**. ⚠️ E(X) is monotone in
+  CPR (verified 2026-09-12), so a vector that merely lowers the carry and
+  changes nothing else can only score worse, and every candidate costs a
+  probability call. Generating it unconditionally would double the budget to
+  evaluate vectors we already know lose.
+
+- Weights thread through `searchThresholds` and are optional — without them the
+  order falls back to a stable numeric-aware sort and behaviour is unchanged.
+
+### Known gap, now recorded
+
+- ⚠️ **Publishing `0` on a carry role is a PRESENTATION decision, not a scoring
+  one, and that half is not implemented here.** The bar is a floor, not a
+  prediction: members bring whoever is free to that seat, so scoring a vector at
+  its pinned-low CPR understates what happens, and the search will almost always
+  prefer the un-pinned vector. The publication rule belongs to #694.
+
+  More generally: **scored E(X) is a lower bound on what a crime really
+  returns**, because every seat is scored at exactly the published bar. The
+  source document raises the same point about scope in step 5 — *"it assumes
+  each crime is undertaken with the exact minimum CPR levels"*. The gap is
+  widest on exactly the carry roles #694 will publish as zero.
+
+---
+
 ## [3.103.2] - 2026-09-12
 
 ### Documentation
