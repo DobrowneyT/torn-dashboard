@@ -373,7 +373,7 @@ nobody can crew reports itself, and the reason distinguishes `no-readings` from
 `below-bar` — forge is currently the first case, which is a measurement gap and
 must never be reported as an infeasible tier.
 
-### Step 6 — the published guidance table · SPECIFIED · not built (#694)
+### Step 6 — the published guidance table · BUILT (#694)
 
 ⚠️ **Carry roles publish as `0`. Confirmed deliberate** (MonChoon, 2026-09-12:
 *"I think carry roles should publish 0, even though the simulator effectively
@@ -388,6 +388,46 @@ later should not "fix" it.
 **Recompute, do not freeze.** Roster churn invalidates these, and step 1's
 output sits on a cliff by construction. Regenerating from live readings is the
 whole point — a hand-maintained document is exactly what drifts today.
+
+#### ⚠️ Two numbers per role, because one of them would lie
+
+Decided 2026-09-12: show **both** the floor and the expected crew.
+
+The published bar is a **floor**, not a prediction — members bring whoever is
+free to a seat, usually above the minimum. A table showing only the floor
+understates what the crime really returns, and understates it most on exactly
+the carry roles published as zero. So every role carries:
+
+| column | meaning |
+|---|---|
+| `published` | what members are told to train to — **0** on a carry |
+| `floor` | the bar the model actually scored at, kept so the table is auditable |
+| `expected` | where a real crew is assumed to land |
+
+`expected` defaults to **halfway between the floor and step 1's ceiling**, which
+is precisely what the source document proposes for the same problem in step 5:
+*"Maybe we could assume half way between the minimum CPR and the 'maximal' CPRs
+from step 1?"* ⚠️ It is a guess about behaviour in the same family as `g`, so it
+is a tunable and the table states it as an assumption.
+
+This closes the "published minimum vs expected crew" open question for the
+*presentation* layer. It does **not** close it for scoring: #692 still scores
+every seat at exactly the floor, so **scored E(X) remains a lower bound**. The
+table can now show both values side by side when the caller prices both crews,
+which makes the gap visible rather than silent.
+
+#### Also in the table
+
+- **The cliff.** A bar of 92 with four clearing it and three clearing 93 is a
+  knife edge one departure invalidates — a different instruction from the same
+  number with headroom.
+- **Reading counts per role**, because absent is not failing (#351) and a role
+  measured on fewer people carries a softer number.
+- **Near misses** — who is within N points of qualifying. ⚠️ Never offered for a
+  carry role: telling somebody they are two points off a bar we publish as zero
+  is the exact pointless training this table exists to prevent.
+- **Ordered by weight**, so the roles that decide the outcome are read first
+  rather than whichever happens to be called P1.
 
 ---
 
@@ -528,15 +568,14 @@ Monotonicity did not need one; these do.
 
 ## Part 7 — still open
 
-1. ⚠️ **Published minimum vs expected crew.** The search scores a vector as if
-   every seat is filled at exactly the published bar. That is not what happens —
-   the bar is a floor and members bring whoever is free, usually above it. The
-   source document raises the same point about scope in step 5 (*"it assumes
-   each crime is undertaken with the exact minimum CPR levels... Maybe we could
-   assume half way between the minimum CPR and the 'maximal' CPRs"*). Until this
-   is modelled, **scored E(X) is a lower bound on what a crime really returns**,
-   and the gap is widest on exactly the carry roles step 6 publishes as zero.
-2. **An end-to-end threshold against tnl's real readings**, checked by hand.
+1. ⚠️ **Scored E(X) is still a lower bound.** Step 6 now *shows* the floor and
+   the expected crew side by side, which makes the gap visible — but step 4 still
+   **scores** every seat at exactly the floor, so the ranking between crimes is
+   computed on the pessimistic figure. Whether that changes any ordering is
+   untested; the blend is a constant, so it may well cancel out.
+2. **Wiring.** Slices 1–6 are pure functions with no call sites. Nothing in the
+   app computes or displays a threshold yet.
+3. **An end-to-end threshold against tnl's real readings**, checked by hand.
 
 ### Closed
 
@@ -567,7 +606,7 @@ Monotonicity did not need one; these do.
 | 3 | maximal-CPR solver | #691 | built |
 | 4 | threshold search | #692 | built |
 | 5 | spawn and scope feasibility | #693 | built |
-| 6 | published guidance table | #694 | specified |
+| 6 | published guidance table | #694 | built |
 
 Related: #687 (measure `g`), #443 (team builder — shares slice 1), #602 (is
 Elaborate worth it — this answers it).
