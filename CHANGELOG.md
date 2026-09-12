@@ -18,6 +18,52 @@ surface it automatically.
 
 ---
 
+## [3.106.0] - 2026-09-12
+
+### Added
+
+- **`publishGuidance()`** (#694, slice 6 of #688) — the CPR table members
+  actually read, and the last slice of the algorithm.
+
+  ⚠️ **Two numbers per role, because one of them would lie.** The published bar
+  is a *floor*, not a prediction — members bring whoever is free to a seat,
+  usually above the minimum. A table showing only the floor understates what the
+  crime really returns, and understates it most on exactly the carry roles
+  published as zero. So each role carries `published`, `floor` and `expected`,
+  where `expected` defaults to **halfway between the floor and step 1's
+  ceiling** — precisely what the source document proposes for the same problem
+  in step 5. It is a guess about behaviour in the same family as `g`, so it is a
+  tunable and the table states it as an assumption.
+
+  ⚠️ **Carry roles publish `0`, deliberately.** "You do not need this role
+  trained" is the true instruction, and *any* number invites somebody to train
+  toward it. The bar the simulator actually scored at stays visible as `floor`,
+  because hiding it would make the table unauditable — the two surfaces
+  disagree **by design**, and anyone reconciling them later should not "fix" it.
+  The carry is chosen by **weight**, never because a bar happened to come out
+  low.
+
+  Also in the table:
+
+  - **The cliff** — a bar of 92 with four clearing it and three clearing 93 is a
+    knife edge one departure invalidates, a different instruction from the same
+    number with headroom.
+  - **Reading counts per role**, because absent is not failing (#351).
+  - **Near misses** — who is within N points of qualifying, so a faction-wide
+    table becomes a personal action. ⚠️ Never offered for a carry role: telling
+    somebody they are two points off a bar published as zero is the exact
+    pointless training this table exists to prevent.
+  - **Ordered by weight**, so the roles that decide the outcome are read first
+    rather than whichever happens to be called P1.
+  - **Its own assumptions**, stated — a table that presents itself as permanent
+    truth will be stale within a month and nobody will notice.
+
+  `value.uplift` is **null** rather than 0 when either crew went unpriced: a
+  zero would read as "the expected crew is worth nothing extra", which is a
+  claim we have not made.
+
+---
+
 ## [3.105.0] - 2026-09-12
 
 ### Added
