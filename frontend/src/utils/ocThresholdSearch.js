@@ -2,17 +2,32 @@
  * The threshold search (#692, slice 4 of #688): the minimum CPR we publish.
  *
  * Descends from slice 3's maximal vector looking for the one that maximises
- * `$ per faction member per day`, and it is bounded at BOTH ends:
+ * `$ per faction member per day`. The ceiling is `maximalCprVector` (#691) —
+ * above it the crime cannot be crewed.
  *
- *   ceiling — `maximalCprVector` (#691). Above it the crime cannot be crewed.
- *   floor   — the scope break-even. Below it the crime cannot be SUSTAINED.
+ * ## ⚠️ Scope is REPORTED here, not enforced
  *
- * ⚠️ **The floor is not about money, and money must never win the argument.**
  * Spawning costs scope up front and only success pays it back, so each category
- * has a break-even success chance of `scopeCost / scopeReward`. `ocScope.js`
- * says it plainly: "A crime paying enormous money below its break-even is still
- * a crime the faction cannot afford to keep spawning, and money alone will
- * never say so."
+ * has a break-even success chance of `scopeCost / scopeReward`, and a crime run
+ * below it bleeds the resource that lets us spawn anything. An earlier version
+ * of this module treated that as a hard floor and disqualified such vectors.
+ *
+ * **That was wrong, and it was wrong because scope is a PORTFOLIO question.**
+ * MonChoon, 2026-09-12:
+ *
+ *   > I am okay to have the higher paying crimes scope negative in the hopes
+ *   > that some lower ones balance it out (since we cant control spawning) and
+ *   > if things get to a point where we need to fill up scope a bit, we can
+ *   > always spawn some lower level crimes.
+ *
+ * Scope is fungible across the whole spawn mix and cheaply replenished by
+ * running easier crimes. Refusing a lucrative crime because that ONE crime is
+ * scope-negative optimises a sub-problem nobody has — and we do not control
+ * what spawns anyway, so a per-crime veto buys nothing.
+ *
+ * So every candidate carries `netScope` and `aboveBreakEven` and none is
+ * refused for it. Solvency across the mix belongs to #693, which simulates the
+ * spawn distribution and can actually see the portfolio.
  *
  * ## Why this is affordable
  *
@@ -60,6 +75,8 @@ export const DEFAULT_MAX_CANDIDATES = 8
  *
  * ⚠️ Derived, never tabulated. Advanced happens to be 4/5 today; if Torn
  * rebalances it, or adds a tier above Elaborate, this keeps working.
+ *
+ * Reported, not enforced — see the note at the top of this file.
  */
 export function breakEvenFor(category) {
   const cost = num(category?.scopeCost)
@@ -176,12 +193,9 @@ export async function searchThresholds({
     const ex = num(expectedValue)
     const success = num(successChance)
 
-    // ⚠️ Checked BEFORE scoring, so an enormous payout can never argue its way
-    // past the scope floor. This is a solvency constraint, not a preference.
-    if (breakEven !== null && (success === null || success < breakEven)) {
-      rejected.push({ ...candidate, successChance: success, reason: 'below-break-even' })
-      continue
-    }
+    // ⚠️ The ONLY rejection. A crime with no reward coverage has no value we
+    // can state, and scoring it as zero would read as "worthless" rather than
+    // "unmeasured" (#441/#473/#351).
     if (ex === null) {
       rejected.push({ ...candidate, reason: 'no-expected-value' })
       continue
@@ -190,17 +204,25 @@ export async function searchThresholds({
     const metric = perPersonPerDay({
       expectedValue: ex, roleCount: positions.length, rosterSize, crews: candidate.crews, gap,
     })
+    // Expected scope per spawn: the cost is spent either way, only success pays
+    // back. Negative is allowed and reported, never a veto — see the file note.
+    const cost = num(category?.scopeCost)
+    const reward = num(category?.scopeReward)
+    const netScope =
+      cost === null || reward === null || success === null ? null : success * reward - cost
     evaluated.push({
       ...candidate, expectedValue: ex, successChance: success,
       score: metric.perFactionMember, perParticipant: metric.perParticipant,
       utilisation: metric.utilisation,
+      netScope,
+      aboveBreakEven: breakEven === null || success === null ? null : success >= breakEven,
     })
   }
 
-  // ⚠️ Absent, not "the least bad". Nothing here clears the floor, so there is
-  // no threshold to publish — saying so is the useful answer (#441/#473/#351).
+  // ⚠️ Absent, not zero. Every candidate was unpriceable, so there is no
+  // threshold to publish and saying so is the useful answer (#441/#473/#351).
   if (evaluated.length === 0) {
-    return { ...empty, rejected, reason: 'nothing-above-break-even' }
+    return { ...empty, rejected, reason: 'no-expected-value' }
   }
 
   const ranked = [...evaluated].sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity))

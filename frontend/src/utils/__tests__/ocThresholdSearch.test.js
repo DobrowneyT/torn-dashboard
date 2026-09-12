@@ -110,28 +110,45 @@ describe('searchThresholds', () => {
     expect(out.chosen.crews).toBe(3)
   })
 
-  it('⚠️ disqualifies a vector below the scope break-even, whatever it pays', async () => {
-    // A crime paying enormously below break-even still destroys the resource
-    // that lets us spawn anything at all. Money must never win this argument.
+  it('⚠️ takes a scope-NEGATIVE crime when it pays, and flags it', async () => {
+    // MonChoon, 2026-09-12: "I am okay to have the higher paying crimes scope
+    // negative in the hopes that some lower ones balance it out (since we cant
+    // control spawning)." Scope is fungible across the mix and cheaply topped
+    // up by easier crimes, so refusing a lucrative crime because that ONE crime
+    // is scope-negative optimises a sub-problem nobody has. Solvency across the
+    // portfolio is #693's job.
     const probe = vi.fn(async (vector) => {
       const avg = Object.values(vector).reduce((a, b) => a + b, 0) / Object.keys(vector).length
-      // The weakest crews pay a fortune and fail too often to sustain. The
-      // candidate vectors here average 95/94/93/92, so the line sits at 94.
+      // Candidates average 95/94/93/92: the weak crews pay a fortune and fail
+      // far too often to pay their scope back.
       return avg < 94 ? { expectedValue: 1e12, successChance: 0.5 } : { expectedValue: 1, successChance: 0.95 }
     })
     const out = await searchThresholds({ ...base, readings: deepRoster(3, 12), probe })
-    expect(out.chosen.successChance).toBeGreaterThanOrEqual(0.8)
-    expect(out.rejected.some((r) => r.reason === 'below-break-even')).toBe(true)
+    expect(out.chosen.successChance).toBe(0.5)
+    expect(out.chosen.aboveBreakEven).toBe(false)
+    expect(out.chosen.netScope).toBeCloseTo(0.5 * 5 - 4, 6)   // -1.5 scope a spawn
+    // Reported, not refused — nothing is rejected for scope.
+    expect(out.rejected.some((r) => r.reason === 'below-break-even')).toBe(false)
   })
 
-  it('reports nothing viable rather than picking the least-bad option', async () => {
-    const probe = flatProbe(1e9, 0.1)   // everything fails too often
+  it('reports net scope per candidate so the portfolio view has something to add up', async () => {
+    const out = await searchThresholds({ ...base, readings: deepRoster(3, 12), probe: flatProbe(100, 0.9) })
+    for (const e of out.evaluated) {
+      expect(e.netScope).toBeCloseTo(0.9 * 5 - 4, 6)
+      expect(e.aboveBreakEven).toBe(true)
+    }
+  })
+
+  it('⚠️ rejects only a candidate it cannot price', async () => {
+    // The one remaining rejection. Unpriceable is "unmeasured", not "worthless".
+    const probe = vi.fn(async () => ({ expectedValue: null, successChance: 0.95 }))
     const out = await searchThresholds({ ...base, readings: deepRoster(3, 12), probe })
     expect(out.chosen).toBeNull()
-    expect(out.rejected.length).toBeGreaterThan(0)
+    expect(out.reason).toBe('no-expected-value')
+    expect(out.rejected.every((r) => r.reason === 'no-expected-value')).toBe(true)
   })
 
-  it('⚠️ takes the break-even from the category, never a hardcoded ladder', async () => {
+  it('⚠️ derives break-even from the category, never a hardcoded ladder', async () => {
     // A tier added above Elaborate must be a config entry, not a code change.
     const probe = flatProbe(100, 0.82)
     const advanced = await searchThresholds({ ...base, readings: deepRoster(3, 12), probe })
@@ -144,10 +161,12 @@ describe('searchThresholds', () => {
     expect(advanced.breakEven).toBeCloseTo(0.8, 6)
     expect(elaborate.breakEven).toBeCloseTo(5 / 6, 6)
     expect(hypothetical.breakEven).toBeCloseTo(0.9, 6)
-    // 82% clears Advanced, misses Elaborate and the hypothetical tier.
-    expect(advanced.chosen).not.toBeNull()
-    expect(elaborate.chosen).toBeNull()
-    expect(hypothetical.chosen).toBeNull()
+    // 82% clears Advanced and misses the other two — reported per candidate,
+    // and a crime is still chosen in all three cases.
+    expect(advanced.chosen.aboveBreakEven).toBe(true)
+    expect(elaborate.chosen.aboveBreakEven).toBe(false)
+    expect(hypothetical.chosen.aboveBreakEven).toBe(false)
+    expect(elaborate.chosen).not.toBeNull()
   })
 
   it('⚠️ warm-starts from the incumbent but is NOT anchored to it', async () => {
