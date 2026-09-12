@@ -18,6 +18,51 @@ surface it automatically.
 
 ---
 
+## [3.102.1] - 2026-09-11
+
+### Added
+
+- **`docs/oc-cpr-algorithm.md`** — the working record for #688: the source
+  document reproduced verbatim, then every decision taken about it and every
+  mistake made along the way.
+
+  ⚠️ **The mistakes are recorded deliberately.** Two were made twice in one
+  sitting, by both of us, and one shipped a plausible formula that was 21% wrong
+  in a direction that biased the whole tier hierarchy. A file holding only
+  conclusions would let us re-derive them:
+
+  - the **cumulative slack term** — `g·n(n-1)/2` instead of `(n-1)·g`, an error
+    that *grows with `n`* so it never cancels;
+  - the **Engineer off-by-one** — 86 in both the source document and a later
+    screenshot, where only 5 members clear it and a six-role crime needs 6;
+  - reading a **per-role headcount as a crew count**, wrong by 5× and always
+    optimistically;
+  - and a **withdrawn hysteresis requirement** that would have published CPR
+    targets nobody could hit.
+
+  Each entry says how it is now caught in a test.
+
+### Changed
+
+- **Step 3 of the CPR algorithm is deleted, not implemented** (#692). The source
+  document asks for a hand-set hierarchy floor — *"Like maximum of the crime
+  below x 90% or something"* — and flags it unresolved in the same breath.
+
+  It **dissolves under the objective**: once we maximise `$/faction-member/day`
+  across the whole spawn mix, a tier that does not beat the one below simply
+  will not be chosen, so the constraint falls out of the optimisation rather
+  than being imposed on it.
+
+  ⚠️ What that loses is recorded rather than waved away: step 3 also carried the
+  author's point that a higher tier *"could probably be slightly lower because
+  easier CPRs at higher levels mean more flexibility in practice"*, and
+  flexibility has real value a point estimate of throughput misses. If the
+  optimiser starts recommending we abandon a tier and that feels wrong, this is
+  the first place to look — and the fix is to model flexibility explicitly, not
+  to reinstate a 90% fudge.
+
+---
+
 ## [3.102.0] - 2026-09-11
 
 ### Added
