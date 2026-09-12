@@ -209,3 +209,96 @@ describe('searchThresholds', () => {
     expect(out.reason).toBe('no-crewable-vector')
   })
 })
+
+// ⚠️ Role priority, and the carry trade.
+//
+// The source document asks for the carry trade:
+//
+//   > If we can drop a role to a full carry, like Thief 1 / Picklock 2 then
+//   > prioritise doing that and make the other roles a couple points higher.
+//
+// Building it turned up something more important: the greedy raise was already
+// sacrificing a role — the roles share a member pool, so whoever is raised
+// first takes the strongest members and whoever is raised last gets leftovers.
+// It sorted by POSITION ID, so the starved role was whichever sorted last. On a
+// six-role crime that is P6, chosen for no reason at all.
+describe('role priority and the carry trade', () => {
+  const P4 = ['P1', 'P2', 'P3', 'P4']
+  // P4 is the carry: almost no impact on success. Note P3 outranks P2.
+  const WEIGHTS = { P1: 34.6, P2: 30.0, P3: 32.5, P4: 2.9 }
+
+  /**
+   * ⚠️ ONE shared pool across all four roles — the realistic shape, and the only
+   * one where priority means anything. With a separate pool per role nobody
+   * competes and the order is irrelevant. My first fixture made that mistake.
+   */
+  const shared = () => {
+    const pool = Array.from({ length: 12 }, (_, i) => ({ member_id: `m${i}`, cpr: 95 - i }))
+    return Object.fromEntries(P4.map((p) => [p, pool.map((r) => ({ ...r }))]))
+  }
+
+  it('⚠️ gives the strongest members to the HIGHEST-WEIGHT role, not to P1', () => {
+    const byWeight = candidateVectors(shared(), P4, { weights: WEIGHTS })[0].vector
+    // 34.6% > 32.5% > 30.0% > 2.9%  →  P1 > P3 > P2 > P4
+    expect(byWeight.P1).toBeGreaterThan(byWeight.P3)
+    expect(byWeight.P3).toBeGreaterThan(byWeight.P2)
+    expect(byWeight.P2).toBeGreaterThan(byWeight.P4)
+  })
+
+  it('⚠️ starves a DIFFERENT role when the weights say so', () => {
+    // Same roster, weights reversed: the sacrifice must follow the weights.
+    const reversed = { P1: 2.9, P2: 30.0, P3: 32.5, P4: 34.6 }
+    const v = candidateVectors(shared(), P4, { weights: reversed })[0].vector
+    expect(v.P4).toBeGreaterThan(v.P3)
+    expect(v.P3).toBeGreaterThan(v.P2)
+    expect(v.P2).toBeGreaterThan(v.P1)
+  })
+
+  it('falls back to a stable order when weights are absent', () => {
+    const a = candidateVectors(shared(), P4)
+    const b = candidateVectors(shared(), P4)
+    expect(a).toEqual(b)
+    expect(a.every((c) => !c.carryRole)).toBe(true)
+  })
+
+  it('⚠️ does NOT spend a probability call on a carry vector that can only lose', () => {
+    // E(X) is monotone in CPR, so a vector that merely lowers the carry role
+    // and lifts nothing scores strictly worse. Generating it would double the
+    // call budget to evaluate candidates we already know lose.
+    const cands = candidateVectors(shared(), P4, { weights: WEIGHTS })
+    for (const c of cands.filter((x) => x.carryRole)) {
+      const flat = cands.find((f) => !f.carryRole && f.crews === c.crews)
+      expect(P4.some((p) => p !== c.carryRole && c.vector[p] > flat.vector[p])).toBe(true)
+    }
+  })
+
+  it('every candidate still seats the crews it claims', () => {
+    for (const c of candidateVectors(shared(), P4, { weights: WEIGHTS })) {
+      expect(c.verifiedCrews).toBeGreaterThanOrEqual(c.crews)
+    }
+  })
+
+  it('stays budgeted — at most two vectors per crew count', () => {
+    const byCrews = {}
+    for (const c of candidateVectors(shared(), P4, { weights: WEIGHTS })) {
+      byCrews[c.crews] = (byCrews[c.crews] ?? 0) + 1
+    }
+    for (const n of Object.values(byCrews)) expect(n).toBeLessThanOrEqual(2)
+  })
+
+  it('picks the carry role by weight, never by position order', () => {
+    const weights = { P1: 2.1, P2: 34.6, P3: 30.0, P4: 33.3 }
+    const cands = candidateVectors(shared(), P4, { weights })
+    expect(cands.filter((c) => c.carryRole).every((c) => c.carryRole === 'P1')).toBe(true)
+  })
+
+  it('threads weights through the search', async () => {
+    const probe = vi.fn(async () => ({ expectedValue: 100, successChance: 0.95 }))
+    const out = await searchThresholds({
+      readings: shared(), positionIds: P4, rosterSize: 60,
+      category: { scopeCost: 4, scopeReward: 5 }, gap: 0.5, weights: WEIGHTS, probe,
+    })
+    expect(out.chosen).not.toBeNull()
+    expect(out.chosen.vector.P1).toBeGreaterThan(out.chosen.vector.P4)
+  })
+})

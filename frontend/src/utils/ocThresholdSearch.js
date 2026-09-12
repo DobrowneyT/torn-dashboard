@@ -94,22 +94,62 @@ export function breakEvenFor(category) {
  * because it cannot see how disjoint the pools actually are; the raising step
  * recovers that, and costs nothing because matching is local.
  */
-function highestVectorFor(readings, positions, k) {
+const usableRows = (readings, pos) => (readings?.[pos] ?? []).filter((r) => num(r?.cpr) !== null)
+
+/** The lowest CPR anyone has been observed at for a role — the "carry" floor. */
+function rosterFloor(readings, pos) {
+  const values = usableRows(readings, pos).map((r) => num(r.cpr))
+  return values.length === 0 ? null : Math.min(...values)
+}
+
+/**
+ * The highest vector that still seats `k` crews.
+ *
+ * `pinned` holds roles whose bar is FIXED and must not be raised — that is how
+ * a carry role is expressed. Pinning one role low strictly enlarges its
+ * eligible set, so it can only ever help the matching, never break it.
+ *
+ * Starts from the Hall-safe bar — `k·n` candidates per role guarantees `k`
+ * crews, by the same argument slice 3 uses for `k = 1` — then greedily raises
+ * each unpinned role while the matching still holds. The Hall bar alone is
+ * conservative because it cannot see how disjoint the pools actually are; the
+ * raising step recovers that, and costs nothing because matching is local.
+ */
+function highestVectorFor(readings, positions, k, pinned = {}, weights = null) {
   const n = positions.length
   const vector = {}
   for (const pos of positions) {
-    const rows = (readings?.[pos] ?? []).filter((r) => num(r?.cpr) !== null)
-    const safe = maxSustainableCpr(rows, k * n)
+    if (pinned[pos] !== undefined) { vector[pos] = pinned[pos]; continue }
+    const safe = maxSustainableCpr(usableRows(readings, pos), k * n)
     if (safe === null) return null
     vector[pos] = safe
   }
   if (maxDisjointCrews(readings, vector).k < k) return null
 
   // Raise one role at a time to the next reading above its current bar, keeping
-  // the move only while `k` survives. Ordered for determinism, not for merit —
-  // a smarter order is a refinement, not a correctness issue.
-  for (const pos of [...positions].sort()) {
-    const above = [...new Set((readings[pos] ?? []).map((r) => num(r?.cpr)).filter((v) => v !== null))]
+  // the move only while `k` survives.
+  //
+  // ⚠️ **The order is not cosmetic — it decides which role gets starved.** The
+  // roles share a member pool, so whoever is raised first takes first claim on
+  // the strongest members and whoever is raised last gets the leftovers. An
+  // earlier version sorted by position id, which meant the sacrificed role was
+  // whichever happened to sort last: on a six-role crime that is P6, chosen for
+  // no reason at all.
+  //
+  // Ordering by WEIGHT descending makes the sacrifice deliberate — the role
+  // that moves success chance most gets the best people, and the least
+  // important role absorbs the shortfall. That IS the source document's carry
+  // trade, applied on every candidate rather than only the explicit one below.
+  // Weights are static per crime, so the order is a property of the crime.
+  const order = [...positions].sort((a, b) => {
+    const wa = weights ? num(weights[a]) : null
+    const wb = weights ? num(weights[b]) : null
+    if (wa !== null && wb !== null && wa !== wb) return wb - wa
+    return String(a).localeCompare(String(b), 'en', { numeric: true })
+  })
+  for (const pos of order) {
+    if (pinned[pos] !== undefined) continue
+    const above = [...new Set(usableRows(readings, pos).map((r) => num(r.cpr)))]
       .filter((v) => v > vector[pos])
       .sort((a, b) => a - b)
     for (const next of above) {
@@ -128,24 +168,92 @@ function highestVectorFor(readings, positions, k) {
  * entry carries `verifiedCrews` so a caller can see the claim was checked
  * rather than assumed.
  */
-export function candidateVectors(readings, positionIds, { maxCandidates = DEFAULT_MAX_CANDIDATES } = {}) {
+/**
+ * One vector per achievable crew count — plus, where `weights` are supplied, a
+ * CARRY variant of each.
+ *
+ * ⚠️ **The carry variant is the trade the source document calls the usual best
+ * one**, and the first cut of this module could not express it at all:
+ *
+ *   > If we can drop a role to a full carry, like Thief 1 / Picklock 2 then
+ *   > prioritise doing that and make the other roles a couple points higher.
+ *
+ * Raising every role as high as it independently goes never *sacrifices* one to
+ * lift the others, so an unequal vector was never generated. On Blast from the
+ * Past that is Picklock 2 at 2.9% impact against Muscle at 34.6% — dropping the
+ * carry to the roster floor frees a large pool on that role at almost no cost
+ * to success chance, which is exactly the trade the objective rewards.
+ *
+ * ⚠️ The carry is chosen by **weight**, never by position order. Weights are
+ * static per crime (tornprobability, summing to 100), so this is a property of
+ * the crime rather than of the roster.
+ *
+ * ⚠️ **Budgeted: at most ONE carry variant per crew count**, because every
+ * candidate costs a probability call. The lowest-weight role is tried and no
+ * other — a search over which subset to carry would be combinatorial, and the
+ * document only ever describes carrying one.
+ *
+ * ⚠️ It is a candidate, not a preference. If dropping the role costs more than
+ * the crews are worth, `searchThresholds` rejects it like anything else.
+ */
+export function candidateVectors(
+  readings, positionIds, { maxCandidates = DEFAULT_MAX_CANDIDATES, weights = null } = {}
+) {
   const positions = [...(positionIds ?? [])]
   if (positions.length === 0) return []
 
   const ceiling = maximalCprVector(readings, positions)
   if (!ceiling.crewable) return []
 
+  // Lowest weight wins, ties broken by position id so the choice is stable.
+  let carryRole = null
+  if (weights) {
+    const ranked = positions
+      .filter((p) => num(weights[p]) !== null)
+      .sort((a, b) => num(weights[a]) - num(weights[b]) || String(a).localeCompare(String(b)))
+    carryRole = ranked[0] ?? null
+  }
+  const carryFloor = carryRole === null ? null : rosterFloor(readings, carryRole)
+
   const out = []
   const seen = new Set()
-  for (let k = 1; k <= maxCandidates; k += 1) {
-    const vector = highestVectorFor(readings, positions, k)
-    if (vector === null) break
+  const add = (k, vector, role) => {
+    if (vector === null) return false
     // Two crew counts can share a vector when the roster steps; keep the first,
     // which is the one whose claim is the weaker and therefore always true.
     const fingerprint = positions.map((p) => vector[p]).join('|')
-    if (seen.has(fingerprint)) continue
+    if (seen.has(fingerprint)) return true
     seen.add(fingerprint)
-    out.push({ crews: k, vector, verifiedCrews: maxDisjointCrews(readings, vector).k })
+    out.push({
+      crews: k, vector, carryRole: role,
+      verifiedCrews: maxDisjointCrews(readings, vector).k,
+    })
+    return true
+  }
+
+  for (let k = 1; k <= maxCandidates; k += 1) {
+    const flat = highestVectorFor(readings, positions, k, {}, weights)
+    if (flat === null) break
+    add(k, flat, null)
+    // ⚠️ The carry variant is kept ONLY when it lifts another role.
+    //
+    // E(X) is monotone in CPR (verified across six scenarios, 2026-09-12), so a
+    // vector that merely lowers the carry role and changes nothing else can
+    // only score WORSE — and every candidate costs a probability call. Keeping
+    // it unconditionally would double the budget to evaluate vectors we already
+    // know lose.
+    //
+    // ⚠️ This is NOT the whole of the source document's carry rule. Publishing
+    // `0` on a low-impact role is a PRESENTATION decision, not a scoring one:
+    // the bar is a floor, not a prediction, and members will bring whoever is
+    // free to that seat. Scoring a vector at its pinned-low CPR understates
+    // what actually happens. That half belongs to #694.
+    if (carryRole !== null && carryFloor !== null) {
+      const carried = highestVectorFor(readings, positions, k, { [carryRole]: carryFloor }, weights)
+      const liftsSomething =
+        carried !== null && positions.some((p) => p !== carryRole && carried[p] > flat[p])
+      if (liftsSomething) add(k, carried, carryRole)
+    }
   }
   return out
 }
@@ -163,11 +271,11 @@ export function candidateVectors(readings, positionIds, { maxCandidates = DEFAUL
  */
 export async function searchThresholds({
   readings, positionIds, rosterSize, category, probe, incumbent = null,
-  gap, maxCandidates = DEFAULT_MAX_CANDIDATES,
+  gap, maxCandidates = DEFAULT_MAX_CANDIDATES, weights = null,
 } = {}) {
   const positions = [...(positionIds ?? [])]
   const breakEven = breakEvenFor(category)
-  const candidates = candidateVectors(readings, positions, { maxCandidates })
+  const candidates = candidateVectors(readings, positions, { maxCandidates, weights })
 
   const empty = {
     chosen: null, evaluated: [], rejected: [], runnersUp: [], nearTie: false,
