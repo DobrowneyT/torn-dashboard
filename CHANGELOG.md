@@ -18,6 +18,147 @@ surface it automatically.
 
 ---
 
+## [3.102.0] - 2026-09-11
+
+### Added
+
+- **`personDays()` and `perPersonPerDay()`** (#690) — what a crime is worth per
+  person per day, which is the metric the whole CPR algorithm (#688) optimises
+  against and the only honest way to compare crimes with different role counts.
+  A bigger crime ties up more people for longer, so ranking on raw E(X) silently
+  favours it.
+
+  A crime completes `24h × n` after the first member joins — each member adds
+  24h in their role and the roles run back to back — so one run consumes:
+
+  ```
+  personDays(n, g) = n(n+1)/2  +  (n-1)·g
+  ```
+
+  ⚠️ **The slack term is `(n-1)·g` and is NOT cumulative.** The gaps do not
+  delay the crime; it completes at `24h × n` whatever happens. Joiners arrive
+  *early* and idle rather than the crime finishing *late*, so each non-first
+  joiner is held exactly `g` longer than ideal, **once**. Modelling the gaps as
+  pushing completion out gives `g·n(n-1)/2`, which over-charges a six-role crime
+  by 21% — and because the error grows with `n`, it biases the tier-against-tier
+  comparison the algorithm is built on. I made exactly that mistake in review;
+  the test that catches it walks the join schedule by hand and is deliberately
+  not the closed form under test.
+
+  **Two figures, both reported:**
+
+  - `perParticipant` — what somebody in the crew earns for their time
+  - `perFactionMember` — the same income across the whole roster, so an idle
+    member counts as the cost they are
+
+  ⚠️ They coincide at full utilisation and diverge exactly when the CPR bar is
+  too high to crew a second crime. That is the whole tension the algorithm
+  resolves: optimising the first alone sets every bar to the ceiling and leaves
+  most of the faction earning nothing.
+
+  `g` is **faction behaviour, not a game rule** — the only free parameter in the
+  figure, defaulting to 12h, clamped to `[0, 24h]`, and flagged `gapIsAssumed`
+  until #687 measures our real value. It moves the answer by ~22% across that
+  range, and every threshold the algorithm produces inherits it.
+
+  Absent, never zero, wherever an input is missing (#441/#473/#351) — a crime
+  with no reward coverage has no value we can state, and a zero would read as
+  "worthless". `missing` names what was unavailable, and the parts that *can* be
+  computed still come back.
+
+---
+
+## [3.101.0] - 2026-09-11
+
+### Added
+
+- **`maximalCprVector()`** (#691) — step 1 of the CPR algorithm: the highest bar
+  we can set on each role while at least `n` members can still fill it, where
+  `n` is the crime's role count.
+
+  ⚠️ **This is the CEILING of the search space, not the answer we publish.** The
+  algorithm document frames it the same way ("This sets the upper limit of the
+  potential income for each crime"); #692 descends from here looking for the
+  vector that maximises $ per faction member per day. Publishing it directly
+  would ask the whole faction to train to a bar that lets us run exactly one
+  crime.
+
+  ⚠️ **Why `n`:** Hall's marriage theorem. If every one of `n` roles has at
+  least `n` candidates then for any subset S of roles |N(S)| >= n >= |S|, so a
+  crew of *distinct* members always exists. Not a heuristic — provably
+  sufficient for a single crime, and exactly the condition that closes the
+  disjointness gap `ocRosterFit.js` has documented since #442.
+
+  **No safety margin, deliberately.** The output is fragile by construction — on
+  Blast from the Past one CPR point costs six of seven eligible members on three
+  of six roles — and that is fine because nothing is published from it.
+
+  Reports the **cliff** (how many members one more point costs) alongside each
+  threshold, because a bar of 87 with seven clearing it and one clearing 88 is a
+  different object from one with headroom, and #692 needs to know which it has.
+  Keeps the per-role reading count too: the denominators genuinely differ
+  (92, 88, 92, 92, 91, 91 live), and a member with no reading is absent rather
+  than failing (#351).
+
+  Pinned against the real Blast from the Past table from forge, including the
+  off-by-one that MonChoon and I both made in an earlier pass — **Engineer at 86
+  has only 5 eligible, below the bar for a six-role crime, so the answer is 85.**
+  Requiring `n-1` instead of `n` fails seven assertions.
+
+  ⚠️ One test pins the pipeline's sharpest edge: the *same* maximal vector seats
+  **seven** crews against independent per-role pools and **one** against an
+  overlapping roster. Step 1 cannot see overlap — that is `maxDisjointCrews`
+  (#689), and it is why step 1 is a ceiling rather than an answer.
+
+---
+
+## [3.100.0] - 2026-09-11
+
+### Added
+
+- **`maxDisjointCrews()`** (#689) — how many organised crimes we can actually
+  crew at once, by bipartite matching on real per-member CPR readings rather
+  than by counting heads per role.
+
+  ⚠️ **A per-role headcount can be wrong about this by 5x, always in the
+  optimistic direction.** On Blast from the Past every role has 7–9 eligible
+  members, which reads as "seven crews". If the same nine strong members are the
+  ones clearing every bar, the roster seats **one**. A member cannot be in two
+  crimes at once, so a seat filled on one role is a seat unavailable on every
+  other — and no per-role number can see that.
+
+  This is the assignment problem `ocRosterFit.js` has carried a warning about
+  since #442:
+
+  > ⚠️ Deliberately does NOT check that the eligible sets are disjoint. One
+  > member can be the only person clearing the bar for three roles, and this
+  > would call that crime crewable.
+
+  For a *single* crime the gap is harmless — Hall's marriage theorem says that
+  if every one of `n` roles has at least `n` candidates then a crew of distinct
+  members always exists. The guarantee dies at two concurrent crimes, which is
+  exactly where #688 needs it.
+
+  Returns the seating, not just the count, so the team builder (#443) can build
+  on it instead of reimplementing it. Reports `limitingRoles` — which roles ran
+  dry — so #693 can relax the right threshold instead of lowering every bar.
+
+  ⚠️ "Never observed in this role" and "observed, below the bar" are reported
+  **separately and never summed**: the first is a gap in our measurement, the
+  second a gap in the roster, and confusing them sends someone training a member
+  who is already fine (#351). An absent reading excludes a member rather than
+  passing them — treating unknown as eligible would inflate the count on exactly
+  the roles we have measured least.
+
+  Deterministic by construction, because a leader comparing two runs must not
+  see crews reshuffle when nothing real changed.
+
+  **Verified against exhaustive search on 600 random rosters.** Replacing the
+  augmenting-path search with the naive greedy version — the classic way to get
+  this subtly wrong — fails that cross-check immediately.
+
+---
+
 ## [3.99.0] - 2026-09-10
 
 ### Added
