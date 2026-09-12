@@ -18,6 +18,54 @@ surface it automatically.
 
 ---
 
+## [3.105.0] - 2026-09-12
+
+### Added
+
+- **`simulateSpawns()`** (#693, slice 5 of #688) — does the roster survive
+  contact with how crimes actually spawn?
+
+  Slice 4 optimises ONE crime in a steady state. This checks what that cannot
+  see: spawning is lumpy, partly outside our control, and ⚠️ **members are
+  shared across every crime in flight**. A threshold set that is optimal per
+  crime can be unfillable the moment three crimes want the same six people.
+
+  Crewing goes through the #689 matching against members who are **actually
+  free** — never a per-role headcount, which cannot see overlap and is
+  optimistic by up to 5x. Removing the busy-member filter fails two tests.
+
+  **Deterministic, on purpose.** Spawns are allocated by weight in a
+  largest-remainder round robin and interleaved, so a heavily-weighted crime
+  cannot monopolise the first half of the horizon and flatter itself on
+  availability. A leader asking "are we short?" needs a reproducible answer, not
+  a sample; variance is a separate question from feasibility.
+
+  ⚠️ **Occupancy is conservative and says so.** A committed member is reserved
+  for the crime's *full* duration, though in reality the last joiner is held one
+  day — 36 reserved person-days against the 23.5 actually consumed on a six-role
+  crime, a **1.53× overstatement** that makes the roster look tighter than it
+  is. That is the safe direction for a feasibility check but not a free
+  assumption, so the result carries `reservedPersonDaysPerCrime`,
+  `truePersonDaysPerCrime` and the ratio rather than burying it. Modelling the
+  stagger properly is a scheduling problem, and a refinement rather than a
+  correction.
+
+  ⚠️ **Scope is tracked across the portfolio and never vetoes a spawn**, per the
+  #701 decision. The output is `solvent` plus `shortfallPerDay` — actionable,
+  because "this many scope a day short" tells a leader how much cheap spawning
+  covers the gap, where "disallowed" does not.
+
+  ⚠️ **Reports `no-readings` separately from `below-bar`.** A crime nobody can
+  crew names its own reason, so the Elaborate "1 we cannot do" needs no special
+  handling — and forge's current state on those roles is a **measurement gap,
+  never an infeasible tier** (#351).
+
+  Tier-agnostic throughout: scenarios arrive with their own `spawnWeight` and
+  `category`, so the Advanced 25%-each and Elaborate 2:2:1 are *data*, and a
+  tier added above Elaborate is a config entry.
+
+---
+
 ## [3.104.0] - 2026-09-12
 
 ### Fixed
