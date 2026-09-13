@@ -14,8 +14,14 @@ import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
  * 3.97 spawns a day across ten crimes over this window on 2026-09-13.
  */
 const SPAWN_WINDOW_DAYS = 30
+
+// ⚠️ Longer than SPAWN_WINDOW_DAYS on purpose. The spawn mix describes what a
+// faction is doing NOW; a success rate needs enough runs to separate signal
+// from a run of bad luck, and 30 days of one crime is often under 20 runs.
+const OBSERVED_WINDOW_DAYS = 240
 import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js'
 import { matchRolesToPositions } from './oc/roleMatch.js'
+import { summariseObserved } from './oc/observedSuccess.js'
 import {
   buildItemCatalog, priceNodeItems, catalogFreshness, EMPTY_CATALOG,
   type ItemDropInput, type NodeItemDrop,
@@ -685,6 +691,50 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
         conflicts: matched.conflicts,
         roster_size: currentMembers.rows[0]?.n ?? 0,
       }
+    }
+  )
+
+  // What the faction's OWN history says about this crime (#728).
+  //
+  // ⚠️ Every success figure the Simulator shows is tornprobability's model.
+  // Forge has 370 Advanced runs where we know both the crew's CPR and the
+  // outcome, and the two disagree in a way that matters: Break the Bank shows
+  // no measurable gain across the range Forge operates in, while the guidance
+  // pushes its bar toward a threshold that fields zero crews.
+  //
+  // ⚠️ NOT restricted to current members. This is history — a leaver's run
+  // still happened, and dropping it would bias the sample toward whoever
+  // happens to still be here.
+  app.get(
+    '/api/oc-simulator/observed/:scenario',
+    { preHandler: requireRole(...SIM_ROLES) },
+    async (req) => {
+      const { scenario } = req.params as { scenario: string }
+      const days = Number((req.query as { days?: string })?.days ?? OBSERVED_WINDOW_DAYS)
+      const window = Number.isFinite(days) && days > 0 ? days : OBSERVED_WINDOW_DAYS
+
+      const rows = await deps.db.query(
+        `SELECT c.crime_id,
+                lower(c.status) = 'successful' AS ok,
+                s.position,
+                s.checkpoint_pass_rate AS cpr
+           FROM crimes c
+           JOIN crime_slots s ON s.crime_id = c.crime_id
+          WHERE c.name = $1
+            AND c.executed_at IS NOT NULL
+            AND to_timestamp(c.executed_at) > now() - ($2 || ' days')::interval`,
+        [scenario, String(window)]
+      )
+
+      const summary = summariseObserved(
+        rows.rows.map((r) => ({
+          crimeId: String(r.crime_id),
+          ok: Boolean(r.ok),
+          position: String(r.position),
+          cpr: r.cpr === null ? null : Number(r.cpr),
+        }))
+      )
+      return { scenario, window_days: window, ...summary }
     }
   )
 

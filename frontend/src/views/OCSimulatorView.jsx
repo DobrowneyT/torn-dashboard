@@ -43,6 +43,7 @@ import { makeCategoryResolver } from '../utils/ocPlanner'
 import { computeGuidance } from '../utils/ocGuidancePipeline'
 import { GuidancePanel } from './OCGuidancePanel'
 import { ChainPanel } from './OCChainPanel'
+import { ObservedPanel } from './OCObservedPanel'
 import { JointPanel } from './OCJointPanel'
 import { solveForSelection } from '../utils/ocJointPipeline'
 import { computeChainEconomics, meanCpr } from '../utils/ocChainPipeline'
@@ -311,6 +312,18 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
     return () => { cancelled = true }
   }, [scenario.name])
 
+  // #728: what our OWN runs say. Our server, so it rides along with the roster
+  // read rather than waiting for a button.
+  const [observed, setObserved] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    setObserved(null)
+    apiGet(`/api/oc-simulator/observed/${encodeURIComponent(scenario.name)}`)
+      .then((res) => { if (!cancelled) setObserved(res) })
+      .catch(() => { if (!cancelled) setObserved(null) })
+    return () => { cancelled = true }
+  }, [scenario.name])
+
   // #441: measured ON DEMAND, not per slider tick. It costs one extra request
   // per role, so firing it continuously would turn a 6-role crime into seven
   // requests per adjustment against a small third-party server.
@@ -518,6 +531,11 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
         />
         <div>
           <ResultPanel scenario={scenario} result={result} calculating={calculating} error={calcError} />
+          <ObservedPanel
+            observed={observed}
+            predicted={result?.successChance ?? null}
+            crewCpr={meanCpr(cprs)}
+          />
           {isChain && (
             <ChainPanel chain={chain} rootName={scenario.name}
               onCompute={valueChain} computing={computingChain} />
