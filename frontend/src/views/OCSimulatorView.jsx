@@ -33,6 +33,7 @@ import { expectedValue } from '../utils/ocExpectedValue'
 import {
   payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
   withoutEndingPadding, collapseAliasedEndings, endingValueBreakdown,
+  chainTargetOf, chainTargets, unpricedAreAllChains,
 } from '../utils/ocScenarioPayouts'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { headcountAtCpr, maxSustainableCpr } from '../utils/ocRosterFit'
@@ -41,6 +42,9 @@ import { scopeVerdict } from '../utils/ocScope'
 import { makeCategoryResolver } from '../utils/ocPlanner'
 import { computeGuidance } from '../utils/ocGuidancePipeline'
 import { GuidancePanel } from './OCGuidancePanel'
+import { ChainPanel } from './OCChainPanel'
+import { computeChainEconomics, meanCpr } from '../utils/ocChainPipeline'
+import { buildChainIndex, chainFrom } from '../utils/ocChains'
 import { config } from '../config'
 import CrimePickerModal from '../components/oc/CrimePickerModal'
 import CrimeRankingTable from '../components/oc/CrimeRankingTable'
@@ -56,6 +60,7 @@ const CALC_DEBOUNCE_MS = 250
 
 export default function OCSimulatorView() {
   const [scenarios, setScenarios] = useState(null)
+  const [chainEdges, setChainEdges] = useState([])
   // #585: observed previous_crime_id edges, so the ranking can price a crime
   // whose payout is one or two crimes downstream.
   const [chains, setChains] = useState([])
@@ -77,6 +82,8 @@ export default function OCSimulatorView() {
     apiGet('/api/oc-simulator/scenarios')
       .then((res) => {
         setScenarios(res.scenarios ?? [])
+        // #585 shipped these and nothing on this page ever read them.
+        setChainEdges(res.chains ?? [])
         setChains(res.chains ?? [])
         setItemPrices(res.item_prices ?? null)
       })
@@ -192,6 +199,8 @@ export default function OCSimulatorView() {
         <CrimeCard
           key={scenario.name}
           scenario={scenario}
+          scenarios={scenarios}
+          chainEdges={chainEdges}
           onRemove={() => setSelected(toggleSelection(selected, scenario.name))}
         />
       ))}
@@ -216,7 +225,7 @@ export default function OCSimulatorView() {
  * that crime — six crimes on screen must not mean six requests per adjustment
  * against a small third-party server.
  */
-export function CrimeCard({ scenario, onRemove }) {
+export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove }) {
   const [cprs, setCprs] = useState(
     () => Array.from({ length: scenario.parameter_count }, () => DEFAULT_CPR)
   )
@@ -230,6 +239,8 @@ export function CrimeCard({ scenario, onRemove }) {
   const [guidance, setGuidance] = useState(null)
   const [guidanceMeta, setGuidanceMeta] = useState(null)
   const [computingGuidance, setComputingGuidance] = useState(false)
+  const [chain, setChain] = useState(null)
+  const [computingChain, setComputingChain] = useState(false)
 
   // Re-seed if the mirror changes a crime's role count under us.
   useEffect(() => {
@@ -302,6 +313,12 @@ export function CrimeCard({ scenario, onRemove }) {
 
   const suggestCprs = useCallback(async () => {
     setComputingGuidance(true)
+    // ⚠️ Yield to the browser before the heavy part. Candidate generation is
+    // synchronous CPU work — crew matching over the whole roster — so without
+    // this React never gets to paint "Working…" and the page simply locks with
+    // the button still looking idle. That is exactly how v3.107.0 felt: a dead
+    // page, then a faded button appearing seconds later.
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
     try {
       const resolve = makeCategoryResolver({
         scenarios: config.ocScenarios || {},
@@ -318,7 +335,7 @@ export function CrimeCard({ scenario, onRemove }) {
         gapIsAssumed: true,
       })
       setGuidance(out.guidance)
-      setGuidanceMeta({ reason: out.reason, limitingRoles: out.limitingRoles })
+      setGuidanceMeta({ reason: out.reason, limitingRoles: out.limitingRoles, chainsTo: out.chainsTo })
     } catch {
       // ⚠️ A failure leaves the panel in its idle state rather than showing a
       // half-computed table. Nothing here is worth publishing on a guess.
@@ -328,6 +345,41 @@ export function CrimeCard({ scenario, onRemove }) {
       setComputingGuidance(false)
     }
   }, [scenario, rosterCpr])
+
+  useEffect(() => { setChain(null) }, [scenario.name])
+
+  const valueChain = useCallback(async () => {
+    setComputingChain(true)
+    // Same yield as the guidance button: the probe awaits are async but the
+    // React state has to paint before them.
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+    try {
+      const resolve = makeCategoryResolver({
+        scenarios: config.ocScenarios || {},
+        categories: config.ocCategories || {},
+      })
+      setChain(await computeChainEconomics({
+        rootName: scenario.name,
+        scenarios,
+        chains: chainEdges,
+        // ⚠️ Flat, and the panel says so: the links have different role counts,
+        // so the sliders on screen cannot be carried downstream.
+        assumedCpr: meanCpr(cprs) ?? DEFAULT_CPR,
+        categoryOf: (name) => resolve(name, null),
+        call: (name, parameters) =>
+          apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
+      }))
+    } catch {
+      setChain(null)
+    } finally {
+      setComputingChain(false)
+    }
+  }, [scenario.name, scenarios, chainEdges, cprs])
+
+  const isChain = useMemo(
+    () => chainFrom(scenario.name, buildChainIndex(chainEdges)).length > 1,
+    [scenario.name, chainEdges]
+  )
 
   const timerRef = useRef(null)
   const seqRef = useRef(0)
@@ -399,10 +451,15 @@ export function CrimeCard({ scenario, onRemove }) {
         />
         <div>
           <ResultPanel scenario={scenario} result={result} calculating={calculating} error={calcError} />
+          {isChain && (
+            <ChainPanel chain={chain} rootName={scenario.name}
+              onCompute={valueChain} computing={computingChain} />
+          )}
           <GuidancePanel
             guidance={guidance}
             reason={guidanceMeta?.reason}
             limitingRoles={guidanceMeta?.limitingRoles}
+            chainsTo={guidanceMeta?.chainsTo}
             onCompute={suggestCprs}
             computing={computingGuidance}
           />
@@ -735,6 +792,17 @@ export function ResultPanel({ scenario, result, calculating, error }) {
     [scenario.name, collapsed, result, priced]
   )
 
+  // ⚠️ BELOW `ev`, and that placement is load-bearing. A useMemo dependency
+  // array is evaluated IMMEDIATELY, not deferred with the callback, so naming
+  // `ev` from above its own declaration is a temporal-dead-zone throw on every
+  // render — which is exactly how v3.97.0 replaced this page with an error
+  // boundary for every user.
+  const chainOut = useMemo(() => chainTargets(scenario.endings), [scenario.endings])
+  const chainedOnly = useMemo(
+    () => (ev ? unpricedAreAllChains(scenario.endings, ev.missing) : false),
+    [scenario.endings, ev]
+  )
+
   // Expected respect, on the same terms as expected money.
   const expectedRespect = useMemo(() => {
     if (!result) return null
@@ -794,7 +862,9 @@ export function ResultPanel({ scenario, result, calculating, error }) {
           <ScopeVerdict scenario={scenario} successChance={result.successChance} />
 
           <ExpectedValue ev={ev} priced={priced} quality={quality} spread={spread}
-            expectedRespect={expectedRespect} itemsOnly={itemsOnly} />
+            expectedRespect={expectedRespect} itemsOnly={itemsOnly} chainedOnly={chainedOnly}
+          chainOut={chainOut}
+        />
 
           <div className="mt-4">
             <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
@@ -871,9 +941,17 @@ export function ResultPanel({ scenario, result, calculating, error }) {
                     <span className="flex items-center gap-3 whitespace-nowrap tabular-nums">
                       <span className="text-gray-500 dark:text-gray-400"
                         title={breakdown ? rewardTooltip(breakdown) : undefined}>
-                        {isGood && payout == null
-                          ? 'unpriced'
-                          : formatCurrency(payout ?? 0)}
+                        {/* ⚠️ "unpriced" describes a gap in OUR measurement.
+                            A chain link is not that — it pays nothing because
+                            success spawns the next crime, which is what the
+                            crime IS (#585: 124/124 successful Stacking the Deck
+                            runs spawned a child). Saying "unpriced" sends
+                            somebody hunting a number that does not exist. */}
+                        {isGood && payout == null && chainTargetOf(meta)
+                          ? <span className="text-indigo-600 dark:text-indigo-400">→ {chainTargetOf(meta)}</span>
+                          : isGood && payout == null
+                            ? 'unpriced'
+                            : formatCurrency(payout ?? 0)}
                       </span>
                       {/* The observed spread, where there is one. On a cash
                           ending this is what the node actually paid across its
@@ -924,7 +1002,7 @@ export function ResultPanel({ scenario, result, calculating, error }) {
  * say yet". Rendering a partial sum as the expected value is the failure this
  * whole module was written to avoid.
  */
-function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly }) {
+function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly, chainedOnly, chainOut = [] }) {
   if (!ev) return null
   const anyPriced = priced && Object.values(priced).some((v) => v != null)
 
@@ -972,7 +1050,20 @@ function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly
         </p>
       )}
 
-      {!ev.complete && (
+      {/* ⚠️ A chain and a measurement gap need DIFFERENT messages. "The real
+          value is higher by an unknown amount" is right for an ending we have
+          not priced and wrong for one whose value we know perfectly well —
+          it is simply on another crime. */}
+      {!ev.complete && chainedOnly && (
+        <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400">
+          This crime pays no money itself — every successful ending spawns{' '}
+          <strong>{chainOut.join(' or ')}</strong>, covering{' '}
+          {(ev.missingProbability * 100).toFixed(2)}% of the probability. Its value is whatever{' '}
+          {chainOut.length === 1 ? chainOut[0] : 'that crime'} is worth, so judge the pair
+          together rather than reading this as a zero.
+        </p>
+      )}
+      {!ev.complete && !chainedOnly && (
         <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
           {ev.missing.length} ending{ev.missing.length === 1 ? '' : 's'} unpriced, covering{' '}
           {(ev.missingProbability * 100).toFixed(2)}% of the probability. The real value is

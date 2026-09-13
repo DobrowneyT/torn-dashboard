@@ -17,6 +17,9 @@ import {
   collapseAliasedEndings,
   endingValueBreakdown,
   THIN_SAMPLE_THRESHOLD,
+  chainTargetOf,
+  chainTargets,
+  unpricedAreAllChains,
 } from '../ocScenarioPayouts'
 import { expectedValue } from '../ocExpectedValue'
 
@@ -525,5 +528,63 @@ describe('endingValueBreakdown', () => {
       money_avg: 0, item_value_avg: 100, item_value_unmatched: ['Mystery Box'],
     })
     expect(b.unmatched).toEqual(['Mystery Box'])
+  })
+})
+
+// #712 — a chained ending is not "unpriced".
+//
+// ⚠️ "Unpriced" describes a gap in OUR measurement and sends somebody hunting a
+// number that does not exist. Stacking the Deck pays no money and no items at
+// all: every good ending spawns Ace in the Hole. Verified in #585 — 124/124
+// successful runs spawned a child, and Ace in the Hole has zero standalone
+// runs — so the chain is what the crime IS, not a bonus on top.
+describe('chainTargetOf', () => {
+  const chained = (over = {}) => ({
+    ending_key: 'goodEnding1', kind: 'good', money_avg: null, item_value_avg: null,
+    reward: { money: null, chainsTo: 'Ace in the Hole' }, ...over,
+  })
+
+  it('names the crime a payless good ending spawns', () => {
+    expect(chainTargetOf(chained())).toBe('Ace in the Hole')
+  })
+
+  it('⚠️ stays silent when the ending pays real money', () => {
+    // Suppressing a figure to show an arrow would hide a number we have.
+    expect(chainTargetOf(chained({ money_avg: 5_000_000 }))).toBeNull()
+  })
+
+  it('⚠️ stays silent when the ending pays items', () => {
+    expect(chainTargetOf(chained({ item_value_avg: 1_000_000 }))).toBeNull()
+  })
+
+  it('never claims a bad ending chains anywhere', () => {
+    expect(chainTargetOf(chained({ kind: 'bad' }))).toBeNull()
+  })
+
+  it('is null for an ordinary unpriced ending — that IS a measurement gap', () => {
+    expect(chainTargetOf(chained({ reward: { money: null, chainsTo: null } }))).toBeNull()
+  })
+})
+
+describe('chainTargets and unpricedAreAllChains', () => {
+  const ENDINGS = [
+    { ending_key: 'goodEnding1', kind: 'good', money_avg: null, reward: { chainsTo: 'Ace in the Hole' } },
+    { ending_key: 'goodEnding2', kind: 'good', money_avg: null, reward: { chainsTo: 'Ace in the Hole' } },
+    { ending_key: 'goodEnding3', kind: 'good', money_avg: null, reward: { chainsTo: null } },
+    { ending_key: 'badEnding1', kind: 'bad', money_avg: null, reward: { chainsTo: null } },
+  ]
+
+  it('deduplicates the targets', () => {
+    expect(chainTargets(ENDINGS)).toEqual(['Ace in the Hole'])
+  })
+
+  it('⚠️ says yes only when EVERY unpriced ending is a chain link', () => {
+    expect(unpricedAreAllChains(ENDINGS, ['goodEnding1', 'goodEnding2'])).toBe(true)
+    // goodEnding3 is genuinely unmeasured — the reader must still be told.
+    expect(unpricedAreAllChains(ENDINGS, ['goodEnding1', 'goodEnding3'])).toBe(false)
+  })
+
+  it('is false when nothing is missing, so a complete crime says nothing', () => {
+    expect(unpricedAreAllChains(ENDINGS, [])).toBe(false)
   })
 })

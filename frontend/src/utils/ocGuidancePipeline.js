@@ -88,6 +88,20 @@ export async function computeGuidance({
 
   if (positionIds.length === 0) return fail('no-roles')
 
+  // ⚠️ A chain crime pays no money or items at all — every good ending spawns
+  // the NEXT crime (Stacking the Deck → Ace in the Hole). Reporting that as
+  // "unpriced" reads as a data gap and sends somebody hunting a number that
+  // does not exist; it is a different KIND of reward. Detected before the
+  // search so we do not spend probability calls learning nothing.
+  const goodEndings = (scenario?.endings ?? []).filter((e) => e?.kind === 'good' && !e?.alias_of)
+  // The API ships the model's published reward whole, so `chainsTo` arrives
+  // nested under it rather than as a top-level field.
+  const chainsTo = goodEndings.map((e) => e?.reward?.chainsTo).find(Boolean) ?? null
+  const paysSomething = goodEndings.some(
+    (e) => num(e?.money_avg) !== null || num(e?.item_value_avg) !== null
+  )
+  if (chainsTo && !paysSomething) return fail('chains', { chainsTo })
+
   // Slice 3 — the ceiling, and the first place a crime declares itself
   // uncrewable. ⚠️ "Never observed anyone in this role" is a gap in our
   // measurement, NOT a verdict on the roster (#351), and the two must reach the
