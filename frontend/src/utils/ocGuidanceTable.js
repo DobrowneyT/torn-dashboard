@@ -50,7 +50,8 @@ const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinit
  * 10 matches where the source document's importance bands bottom out — they run
  * down to "10-15%" and treat everything beneath as a carry.
  */
-export const CARRY_WEIGHT_MAX = 10
+export { CARRY_WEIGHT_MAX } from './ocThresholdSearch'
+import { CARRY_WEIGHT_MAX as CARRY_MAX } from './ocThresholdSearch'
 
 /**
  * How far from the floor toward step 1's ceiling a real crew is assumed to land.
@@ -64,7 +65,7 @@ export const EXPECTED_BLEND = 0.5
 export function publishGuidance({
   scenarioName, positionIds = [], roleNames = {}, weights = {},
   chosen, ceiling = {}, readings = {}, crews = null,
-  carryWeightMax = CARRY_WEIGHT_MAX, expectedBlend = EXPECTED_BLEND,
+  carryWeightMax = CARRY_MAX, expectedBlend = EXPECTED_BLEND,
   nearMissWithin = 0, values = null,
   gap = null, gapIsAssumed = false, rosterSize = null, generatedAt = null,
 } = {}) {

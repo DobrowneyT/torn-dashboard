@@ -18,6 +18,51 @@ surface it automatically.
 
 ---
 
+## [3.111.0] - 2026-09-13
+
+### Fixed
+
+- **⚠️ A carry role published `0` while being SCORED at 83.** Spotted by
+  MonChoon on the live table:
+
+  > when we are looking at a carry role like Picklock 2 in the screenshot, if it
+  > was truly at the floor then wouldn't it have 69 of 69 that can fill the crime
+  > at the floor?
+
+  Exactly right. The table said *"no training needed"* on a 2.9%-impact role
+  while the E(X) beside it assumed **forty-seven of sixty-nine people had
+  cleared 83**. The guidance and the number were describing different crews.
+
+  Two individually reasonable decisions, jointly incoherent: the search raises
+  roles in weight order, so the lowest-weight role is raised **last** and keeps
+  whatever the matching leaves it — and the table then overrode it to `0` **at
+  render time**, without the search having ever scored that vector.
+
+  **Carry roles are now pinned to the roster floor in every candidate**, not
+  offered as an optional variant. That is what the source document asks for in
+  as many words: *"set it to the lowest actual member of the faction like Andrew
+  so its not literally zero in the simulator, but in the official guidance just
+  put zero"*. On a 70-member roster the carry now reads **70 of 70 can fill**.
+
+  ⚠️ **This LOWERS reported E(X), and that is the correction rather than a
+  regression.** The old figure was optimistic by exactly the amount the carry
+  role was silently assumed to be trained. It also frees the strong members that
+  role was hoarding, so the roles that actually move success chance can go
+  higher — the carry trade, now the default rather than an option.
+
+  The weight threshold is a single shared constant, because a table publishing
+  zeros for a different set of roles than the search pinned is the same bug in a
+  new place.
+
+- **⚠️ The "expected crew" could come out below the published floor** (v3.110.1,
+  same investigation). `maximalCprVector` is Hall-safe for **one** crew, but the
+  search's `k=1` rung starts there and is raised above it — so the blend target
+  sat under the chosen bar and ran backwards. It is now
+  `maxSustainableCpr(readings, chosenCrews)`, and clamped to the floor
+  regardless.
+
+---
+
 ## [3.110.1] - 2026-09-13
 
 ### Fixed
