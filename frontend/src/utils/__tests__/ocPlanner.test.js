@@ -166,3 +166,63 @@ describe('buildBase + selects + buildSpawnPlan', () => {
     expect(avail.membersByCategory).toEqual({ advanced: 1 })
   })
 })
+
+// #723 — the difficulty fallback resolves confidently where it cannot know.
+//
+// Lock Stock is difficulty 8 and Elaborate. It was absent from `ocScenarios`
+// for as long as tnl has been running it — 21% of every spawn decision — and
+// the fallback sent it to Advanced, pricing it at 4/5 instead of 5/6. Nothing
+// on screen said the category was a guess, because for every OTHER crime the
+// fallback happens to be right.
+describe('ambiguous difficulty is reported as a guess, not resolved silently', () => {
+  it('flags a name it has never seen whose difficulty two categories claim', () => {
+    const d = categoryOf.detail('Lock Stock', 8)
+    expect(d.source).toBe('difficulty')
+    expect(d.ambiguous).toBe(true)
+    // ⚠️ It still ANSWERS. Refusing would strip the crime of a scope cost
+    // entirely, which reads as free rather than as unknown.
+    expect(d.category).toBe('advanced')
+    expect(d.candidates).toEqual(['advanced', 'elaborate'])
+  })
+
+  it('does not flag a difficulty only one category claims', () => {
+    expect(categoryOf.detail('Cleared for Takeoff', 7)).toMatchObject({
+      category: 'advanced', source: 'difficulty', ambiguous: false,
+    })
+  })
+
+  it('never flags a crime the table names, even in the overlap', () => {
+    // The whole point of the name table: 8 is ambiguous by difficulty and
+    // decided by name.
+    expect(categoryOf.detail('Stacking the Deck', 8)).toMatchObject({
+      category: 'elaborate', source: 'name', ambiguous: false,
+    })
+    expect(categoryOf.detail('Break the Bank', 8)).toMatchObject({
+      category: 'advanced', source: 'name', ambiguous: false,
+    })
+  })
+
+  it('⚠️ derives the overlap from the category ranges, not a hardcoded 8', () => {
+    // Torn may ship a category above Elaborate tomorrow and the overlap moves.
+    const shifted = makeCategoryResolver({
+      scenarios: {},
+      categories: {
+        advanced: { difficulty: [7, 9], scopeCost: 4 },
+        elaborate: { difficulty: [9, 12], scopeCost: 5 },
+      },
+    })
+    expect(shifted.detail('Whatever', 9).ambiguous).toBe(true)
+    expect(shifted.detail('Whatever', 8).ambiguous).toBe(false)
+  })
+
+  it('reports an unknown difficulty as unresolved rather than guessing', () => {
+    expect(categoryOf.detail('Who Knows', null)).toMatchObject({
+      category: null, source: 'none', ambiguous: false,
+    })
+  })
+
+  it('the plain call signature is unchanged', () => {
+    expect(categoryOf('Lock Stock', 8)).toBe('advanced')
+    expect(categoryOf('Stacking the Deck', 8)).toBe('elaborate')
+  })
+})

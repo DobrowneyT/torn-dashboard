@@ -18,6 +18,108 @@ surface it automatically.
 
 ---
 
+## [3.114.0] - 2026-09-13
+
+### Fixed
+
+- **⚠️ Suggested CPRs priced downstream chain links at the slider default**
+  (#725). `OCSimulatorView` passed `chainCpr: meanCpr(cprs)` into the guidance
+  run, and the sliders sit at `DEFAULT_CPR = 50` until somebody drags them.
+  There is no apply-guidance-to-sliders path, so the terminal link of every
+  chain was priced at whatever the reader last touched.
+
+  That was never necessary. tnl has **81-87 readings per role** for Ace in the
+  Hole, and the roster sustains **70-75** across all five — ten deep, so not
+  fragile. The link was being priced ~22 CPR below what the faction can field,
+  and everything downstream of it was pessimistic: the completion rate, the
+  per-link average, and the scope verdict.
+
+  Bounded from a real screenshot: re-pricing only the ROOT moved the chain from
+  $21,495,123 to $45,881,074, a 2.13× lift, so at the published floor it
+  completes **~29% rather than the 13.7% shown** — before the downstream link is
+  touched at all. Correcting the link as well lands scope near **−1.5 rather
+  than −4.18**.
+
+  ⚠️ The verdict likely stays negative: break-even is 91.3% per link and the
+  best crew Ace can field is 70-75. But **scope is reported, not enforced**, so
+  the number has to be right rather than merely alarming. −4.18 and −1.5 are
+  different decisions.
+
+  Each link is still probed **once** and reused across every candidate — the
+  call budget against tornprobability does not move.
+
+  ⚠️ **Falls back to the flat CPR when a link has no readings, and says which.**
+  A tenant that has never run the terminal link must not silently inherit a
+  roster number it does not have.
+
+- **Two figures on the same card both said "worth" and differed by 2.1×**
+  (#725). The chain panel's total (root at the sliders) sat directly above the
+  guidance table's (root at the searched vector) with nothing to reconcile them.
+  The guidance table now names the crew each downstream link was priced at, and
+  marks an assumed one amber.
+
+  ⚠️ **The chain panel keeps its sliders, deliberately.** Dragging them to see
+  the effect, and comparing against what the faction actually fields, is a
+  separate and legitimate use — the two are not required to agree. Only the
+  *suggestion* path takes the roster-derived crew.
+
+---
+
+## [3.113.1] - 2026-09-13
+
+### Fixed
+
+- **⚠️ Four crimes Torn runs were missing from the scenario model, and one of
+  them was mispriced** (#723). From `select distinct name, difficulty from
+  oc_crime_types` across all five tenant databases on 2026-09-13:
+
+  | Crime | Difficulty | Seen in | Category |
+  |---|---|---|---|
+  | Cleared for Takeoff | 7 | forge, tnl, capacityx, mayhem | advanced |
+  | Lock Stock | 8 | tnl, capacityx | **elaborate** |
+  | Hostile Takeover | 9 | tnl, capacityx | elaborate |
+  | Guardian Ángels | 5 | all five | intermediate |
+
+  **Lock Stock is the one that did damage.** `makeCategoryResolver` falls back
+  to difficulty for a name it does not know, and `CATEGORY_FALLBACK_ORDER` is
+  ordered so difficulty 8 lands on **Advanced** — the right guess for most
+  factions and the wrong one here. Lock Stock is Elaborate, and it is tnl's
+  most-spawned crime at 21% of every decision (#715). It was priced at
+  `scopeCost 4 / scopeReward 5` instead of `5 / 6`, so the chain break-even it
+  drives read **89.4% when it is 91.3%** — 1.9 points too lenient, on the crime
+  spawned more often than any other.
+
+  The other three landed on the correct category by fallback; what they lost was
+  `participants` and any name-keyed lookup.
+
+  ⚠️ **Guardian Ángels was a spelling bug, not a missing crime.** Torn spells it
+  with an accented **Á**. It has never matched on any tenant. Both spellings are
+  now present — we cannot be sure every tenant reports the accent.
+
+### Added
+
+- **The difficulty fallback now says when it is guessing** (#723). The Advanced
+  and Elaborate ranges overlap, so for a difficulty both claim, a name we do not
+  know cannot be placed — and until now nothing said so, because for every other
+  crime the fallback happened to be right.
+
+  `makeCategoryResolver(...).detail(name, difficulty)` returns
+  `{ category, source: 'name' | 'difficulty' | 'none', ambiguous, candidates }`.
+  The plain call signature is unchanged, so no call site had to move.
+
+  ⚠️ It still **answers** when ambiguous. Returning null would strip the crime
+  of a scope cost altogether, and free reads far more wrong than mis-tiered.
+
+  ⚠️ The overlap is **derived from the category ranges**, not written down as
+  "8" — Torn can ship a category above Elaborate and move it.
+
+- **A coverage test built from the tenant databases, not the wiki**
+  (`ocScenarioCoverage.test.js`). Every one of the 28 crimes our factions have
+  actually run must resolve by NAME. A crime Torn adds tomorrow fails this the
+  first time any tenant runs it, instead of being quietly mis-tiered for months.
+
+---
+
 ## [3.113.0] - 2026-09-13
 
 ### Fixed

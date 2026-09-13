@@ -36,15 +36,50 @@ const CATEGORY_FALLBACK_ORDER = ['introductory', 'simple', 'intermediate', 'adva
  * @returns {(name: string, difficulty?: number) => string|null}
  */
 export function makeCategoryResolver({ scenarios = {}, categories = {} } = {}) {
-  return (name, difficulty) => {
-    if (name && scenarios[name]) return scenarios[name].category
-    if (difficulty == null) return null
-    for (const key of CATEGORY_FALLBACK_ORDER) {
-      const c = categories[key]
-      if (c && difficulty >= c.difficulty[0] && difficulty <= c.difficulty[1]) return key
+  const claimants = (difficulty) => CATEGORY_FALLBACK_ORDER.filter((key) => {
+    const c = categories[key]
+    return c && difficulty >= c.difficulty[0] && difficulty <= c.difficulty[1]
+  })
+
+  const resolve = (name, difficulty) => resolve.detail(name, difficulty).category
+
+  /**
+   * ⚠️ Same answer, plus how it was reached (#723).
+   *
+   * Lock Stock is difficulty 8 and Elaborate. It was missing from `ocScenarios`
+   * for as long as tnl had been running it — 21% of every spawn decision — and
+   * the fallback sent it to Advanced, pricing it at 4/5 instead of 5/6. Nothing
+   * said the category was a guess, because for every other crime the fallback
+   * happens to be right.
+   *
+   * `ambiguous` is the honest part: the Advanced and Elaborate ranges OVERLAP,
+   * so for a difficulty both claim, a name we do not know cannot be placed.
+   * The overlap is derived from the ranges rather than written down as "8" —
+   * Torn can ship a category above Elaborate and move it.
+   *
+   * ⚠️ It still answers. Returning null would strip the crime of a scope cost
+   * altogether, and free reads far more wrong than mis-tiered.
+   *
+   * @returns {{category: string|null, source: 'name'|'difficulty'|'none',
+   *            ambiguous: boolean, candidates: string[]}}
+   */
+  resolve.detail = (name, difficulty) => {
+    if (name && scenarios[name]) {
+      return { category: scenarios[name].category, source: 'name', ambiguous: false, candidates: [] }
     }
-    return null
+    if (difficulty == null) {
+      return { category: null, source: 'none', ambiguous: false, candidates: [] }
+    }
+    const candidates = claimants(difficulty)
+    return {
+      category: candidates[0] ?? null,
+      source: candidates.length > 0 ? 'difficulty' : 'none',
+      ambiguous: candidates.length > 1,
+      candidates,
+    }
   }
+
+  return resolve
 }
 
 /** Names in cprRequirements that belong to the Advanced category (for the T3 CPR gate). */
