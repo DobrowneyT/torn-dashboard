@@ -23,6 +23,8 @@ import {
 import { maximalCprVector } from './ocMaximalCpr'
 import { searchThresholds } from './ocThresholdSearch'
 import { publishGuidance } from './ocGuidanceTable'
+import { computeChainEconomics } from './ocChainPipeline'
+import { chainedValue } from './ocChains'
 
 const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
 
@@ -74,6 +76,8 @@ export async function computeGuidance({
   scenario, rosterCpr, category, call,
   gap = null, gapIsAssumed = false, expectedBlend, nearMissWithin = 3,
   incumbent = null, maxCandidates, now = () => new Date().toISOString(),
+  // Needed only for a chain root — see below.
+  scenarios = [], chains = [], categoryOf = null, chainCpr = null,
 } = {}) {
   const positionIds = (scenario?.roles ?? []).map((r) => r.position_id)
   const weights = Object.fromEntries((scenario?.roles ?? []).map((r) => [r.position_id, num(r.weight)]))
@@ -100,7 +104,28 @@ export async function computeGuidance({
   const paysSomething = goodEndings.some(
     (e) => num(e?.money_avg) !== null || num(e?.item_value_avg) !== null
   )
-  if (chainsTo && !paysSomething) return fail('chains', { chainsTo })
+  // ⚠️ A chain root used to be REFUSED here, and that was wrong. Ace in the
+  // Hole cannot be spawned on its own (#585: 128 of 128 runs came from a
+  // parent), so telling a leader to "set thresholds on Ace in the Hole" asks
+  // them to publish bars for a crime nobody can choose. **Stacking the Deck is
+  // the crime members actually join** — it is the one that needs guidance, and
+  // its value is not zero. It is the chain's value, which #712 computes.
+  let chainContext = null
+  if (chainsTo && !paysSomething) {
+    chainContext = await computeChainEconomics({
+      rootName: scenario.name, scenarios, chains,
+      // ⚠️ Downstream links are priced ONCE, at a flat CPR, and reused across
+      // every candidate. Pricing them per candidate would multiply the call
+      // budget by the chain length to refine an assumption we already flag as
+      // an assumption — the links have different role counts, so the root's
+      // crew cannot carry across them anyway.
+      assumedCpr: chainCpr ?? 75,
+      categoryOf, call,
+    })
+    if (!chainContext || chainContext.missing.length > 0) {
+      return fail('chains', { chainsTo, chainContext })
+    }
+  }
 
   // Slice 3 — the ceiling, and the first place a crime declares itself
   // uncrewable. ⚠️ "Never observed anyone in this role" is a gap in our
@@ -115,9 +140,30 @@ export async function computeGuidance({
     })
   }
 
-  let probeCalls = 0
+  let probeCalls = chainContext?.probeCalls ?? 0
   const counted = makeProbe({ scenario, call })
-  const probe = async (vector) => { probeCalls += 1; return counted(vector) }
+
+  // ⚠️ For a chain root the crime's OWN E(X) is zero by design, so searching on
+  // it would rank every vector identically. What varies with the crew is the
+  // root's success chance — and that is what decides how often the chain is
+  // reached at all. So the value scored is the whole chain's, recomputed with
+  // this candidate's success and the downstream figures priced once above.
+  const probe = chainContext
+    ? async (vector) => {
+        probeCalls += 1
+        const { successChance } = await counted(vector)
+        if (successChance === null) return { expectedValue: null, successChance: null }
+        const v = chainedValue(
+          chainContext.links,
+          { ...chainContext.successByName, [scenario.name]: successChance },
+          chainContext.valueByName
+        )
+        return {
+          expectedValue: v && v.complete ? num(v.expected) : null,
+          successChance,
+        }
+      }
+    : async (vector) => { probeCalls += 1; return counted(vector) }
 
   // Slice 4 — descend from the ceiling.
   const search = await searchThresholds({
@@ -132,6 +178,7 @@ export async function computeGuidance({
   const draft = publishGuidance({
     scenarioName: scenario.name, positionIds, roleNames, weights,
     chosen: search.chosen.vector, ceiling: ceiling.vector, readings,
+    crews: search.chosen.crews,
     expectedBlend, nearMissWithin, gap, gapIsAssumed, rosterSize,
   })
   const expectedVector = Object.fromEntries(draft.roles.map((r) => [r.positionId, r.expected]))
@@ -140,6 +187,7 @@ export async function computeGuidance({
   const guidance = publishGuidance({
     scenarioName: scenario.name, positionIds, roleNames, weights,
     chosen: search.chosen.vector, ceiling: ceiling.vector, readings,
+    crews: search.chosen.crews,
     expectedBlend, nearMissWithin, gap, gapIsAssumed, rosterSize,
     generatedAt: now(),
     values: {
@@ -148,5 +196,5 @@ export async function computeGuidance({
     },
   })
 
-  return { guidance, ceiling, chosen: search.chosen, search, probeCalls, reason: null }
+  return { guidance, ceiling, chosen: search.chosen, search, probeCalls, chainContext, reason: null }
 }

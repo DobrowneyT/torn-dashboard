@@ -71,7 +71,7 @@ function NotPublishable({ reason, limitingRoles, chainsTo }) {
   )
 }
 
-export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, onCompute, computing }) {
+export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chainOf, onCompute, computing }) {
   const [showWorking, setShowWorking] = useState(false)
 
   if (!guidance) {
@@ -195,6 +195,17 @@ export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, onCom
       {/* ⚠️ Always visible, never behind a toggle. The point of stating these is
           that a table reading as permanent truth goes stale and nobody notices —
           an assumption somebody has to click to find is one nobody reads. */}
+      {/* ⚠️ A chain root's thresholds are for ITS crew, but the value behind
+          them is the whole chain's. Saying so stops the figure reading as this
+          crime's own payout, which is zero. */}
+      {chainOf && (
+        <p className="text-xs mt-2 text-indigo-600 dark:text-indigo-400">
+          Valued at the whole chain — this crime pays nothing itself, and success spawns{' '}
+          <strong>{chainOf}</strong>. The thresholds below are for <em>this</em> crew, because
+          this is the crime people join.
+        </p>
+      )}
+
       {/* ⚠️ The single most important caveat on this table, and it has to sit
           ABOVE the numbers rather than in the footnotes. Every threshold here
           is computed as if this crime had the whole roster to itself. It does

@@ -147,7 +147,11 @@ export function simulateSpawns({
       const row = perScenario[s.name]
       row.spawned += 1
 
-      const cost = num(s.category?.scopeCost) ?? 0
+      // ⚠️ A chain CHILD costs no scope. Scope is paid once at the ROOT and
+      // repaid only at the terminal link (`ocChains.js`), so charging a child
+      // its category's cost double-charges the chain — and on tnl the children
+      // were 23.5% of all appearances (#715).
+      const cost = s.isChainChild ? 0 : num(s.category?.scopeCost) ?? 0
       if (banked < cost) { row.unfilled += 1; unfilled += 1; note('no-scope'); continue }
 
       // Only members who are free today can be committed.
@@ -200,7 +204,7 @@ export function simulateSpawns({
     for (const s of scenarios) {
       const r = perScenario[s.name]
       if (r.filled === 0) continue
-      const cost = num(s.category?.scopeCost) ?? 0
+      const cost = s.isChainChild ? 0 : num(s.category?.scopeCost) ?? 0
       const reward = num(s.category?.scopeReward) ?? 0
       net += r.filled * ((num(s.successChance) ?? 0) * reward - cost)
     }

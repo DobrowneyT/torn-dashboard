@@ -18,6 +18,267 @@ surface it automatically.
 
 ---
 
+## [3.113.0] - 2026-09-13
+
+### Fixed
+
+- **⚠️ Chain children were being planned for as spawn decisions, and charged
+  scope for it** (#715). From an audit of tnl's own `crimes` table on
+  2026-09-13, 30-day window:
+
+  ```
+  Lock Stock             25   21.0%    <- chain ROOT
+  Hostile Takeover       21   17.6%    <- chain CHILD, 39/39 lifetime from a parent
+  Ace in the Hole         7    5.9%    <- chain CHILD, 128/128 from a parent
+  ```
+
+  **23.5% of "spawns" were not decisions.** A crime with `previous_crime_id` set
+  appeared because its parent succeeded — nobody chose it. Two separate kinds of
+  damage followed:
+
+  - the planner apportioned roster capacity to a choice that does not exist;
+  - `simulateSpawns` charged the child `scopeCost`, when scope is paid **once at
+    the root** and repaid only at the terminal link (`ocChains.js`).
+
+  Chain children now cost no scope, are dropped from the plan with their own
+  reason, and their appearances come off the spawn count. A chain child is never
+  blocked by an empty bank either — it costs nothing, so a faction with no scope
+  can still finish a chain it has already paid for.
+
+### Added
+
+- **The spawn mix is measured, not assumed** (#715). The scenarios payload now
+  carries each crime's spawns and how many came from a chain over a 30-day
+  window, per tenant — tnl's mix is not forge's, and a fleet average would
+  describe neither.
+
+  ⚠️ tnl's real mix is **12-fold uneven** — Lock Stock 21%, Cleared for Takeoff
+  1.7% — against the uniform weight the planner assumed. And the rate is
+  **decisions** per day, not appearances: 91 real decisions in 30 days, not the
+  119 rows a naive count gives.
+
+  ⚠️ **Absent rather than fabricated.** Under 20 observed decisions the mix
+  reports `measured: false` and the caller keeps its defaults — and the panel
+  says which of the two it had, because a plan built on a guess that reads like
+  a measurement is the worse of the two.
+
+  ⚠️ Judged **per crime**, so a crime usually chosen but occasionally chained is
+  still choosable; only one whose *every* appearance came from a parent is a
+  child. Its chained runs still come off the count.
+
+---
+
+## [3.112.0] - 2026-09-13
+
+### Fixed
+
+- **⚠️ A chain root got no CPR guidance at all, and it is the crime people
+  actually join** (#713). v3.107.1 refused it — *"set thresholds on Ace in the
+  Hole and treat this as the way in"* — which is half right and the wrong
+  conclusion.
+
+  **Ace in the Hole cannot be spawned on its own.** #585 verified it across the
+  fleet: 128 of 128 runs came from a parent, zero standalone. So that advice
+  asks a leader to publish bars for a crime nobody can choose, while Stacking
+  the Deck — where the crew is actually assembled, and where tnl has readings
+  for 97 members — got nothing.
+
+  A chain root is now valued at **the whole chain**. Its own E(X) is zero by
+  design, so searching on it would rank every vector identically; what varies
+  with the crew is the root's **success chance**, which decides how often the
+  chain is reached at all. So the search scores `chainedValue` recomputed with
+  each candidate's success.
+
+  ⚠️ **Downstream links are priced ONCE**, at a flat CPR, and reused across every
+  candidate. Pricing them per candidate would multiply the call budget by the
+  chain length to refine an assumption already flagged as one — the links have
+  different role counts, so the root's crew cannot carry across them anyway.
+  There is a test asserting exactly one downstream call.
+
+  ⚠️ It still refuses when the chain **cannot be priced** — a terminal link with
+  an unpriced ending makes the whole chain a lower bound, and published guidance
+  cannot rest on one. The panel says the value is the chain's and the thresholds
+  are this crew's, so the figure is not read as this crime's own payout.
+
+---
+
+## [3.111.0] - 2026-09-13
+
+### Fixed
+
+- **⚠️ A carry role published `0` while being SCORED at 83.** Spotted by
+  MonChoon on the live table:
+
+  > when we are looking at a carry role like Picklock 2 in the screenshot, if it
+  > was truly at the floor then wouldn't it have 69 of 69 that can fill the crime
+  > at the floor?
+
+  Exactly right. The table said *"no training needed"* on a 2.9%-impact role
+  while the E(X) beside it assumed **forty-seven of sixty-nine people had
+  cleared 83**. The guidance and the number were describing different crews.
+
+  Two individually reasonable decisions, jointly incoherent: the search raises
+  roles in weight order, so the lowest-weight role is raised **last** and keeps
+  whatever the matching leaves it — and the table then overrode it to `0` **at
+  render time**, without the search having ever scored that vector.
+
+  **Carry roles are now pinned to the roster floor in every candidate**, not
+  offered as an optional variant. That is what the source document asks for in
+  as many words: *"set it to the lowest actual member of the faction like Andrew
+  so its not literally zero in the simulator, but in the official guidance just
+  put zero"*. On a 70-member roster the carry now reads **70 of 70 can fill**.
+
+  ⚠️ **This LOWERS reported E(X), and that is the correction rather than a
+  regression.** The old figure was optimistic by exactly the amount the carry
+  role was silently assumed to be trained. It also frees the strong members that
+  role was hoarding, so the roles that actually move success chance can go
+  higher — the carry trade, now the default rather than an option.
+
+  The weight threshold is a single shared constant, because a table publishing
+  zeros for a different set of roles than the search pinned is the same bug in a
+  new place.
+
+- **⚠️ The "expected crew" could come out below the published floor** (v3.110.1,
+  same investigation). `maximalCprVector` is Hall-safe for **one** crew, but the
+  search's `k=1` rung starts there and is raised above it — so the blend target
+  sat under the chosen bar and ran backwards. It is now
+  `maxSustainableCpr(readings, chosenCrews)`, and clamped to the floor
+  regardless.
+
+---
+
+## [3.110.1] - 2026-09-13
+
+### Fixed
+
+- **⚠️ The "expected crew" could come out BELOW the published floor.** Found by
+  MonChoon asking what the floor and ceiling were actually based on — a good
+  question to have been asked.
+
+  The expected column blends `floor + 0.5 × (ceiling − floor)`, and the ceiling
+  was `maximalCprVector` — the highest bar with `n` candidates per role, which is
+  Hall-safe for **one** crew. But the search's `k=1` rung *starts* there and is
+  then greedily raised above it, so the "ceiling" was not a ceiling:
+
+  ```
+  ceiling (slice 3):  {P1: 92, P2: 92, P3: 92, P4: 92}
+  chosen (k=1 rung):  {P1: 95, P2: 93, P3: 94, P4: 92}
+
+  P1  floor=95  ceiling=92  expected=93.5   ← below the floor
+  ```
+
+  An expected crew weaker than the minimum we told people to train to is not a
+  thing that can happen.
+
+  The blend target is now `maxSustainableCpr(readings, chosenCrews)` — the best
+  people who could fill that seat while still fielding the chosen number of
+  crews, ignoring what the other roles want. That is the honest upper end, and
+  it is `>= floor` by construction. Clamped to the floor regardless, because a
+  silent inversion is worse than a conservative number.
+
+---
+
+## [3.110.0] - 2026-09-13
+
+### Added
+
+- **The joint plan is on screen** (#714, wiring #710). A "Solve together" panel
+  below the crime cards works out what the selected crimes can run *at the same
+  time*, and shows **what each one gave up** — "39 pts → +4 crews" — beside what
+  it kept. A set of lower numbers with no reasoning attached will not be trusted
+  or followed.
+
+  ⚠️ **Scoped to the crimes on screen, deliberately.** Solving all 31 scenarios
+  would mean 31 roster fetches and ~250 requests to tornprobability. The
+  Simulator already has a selection the operator controls, so the cost is theirs
+  to choose — and the panel states it before they pay it.
+
+  ⚠️ **A skipped crime says which kind of skip it is.** tnl has readings for
+  exactly the ten crimes it has run recently; the other eleven in its history
+  last ran in 2025 and have none. "Never observed anyone in this role — a gap in
+  what we have measured, not a verdict" is a different sentence from "nobody
+  clears the bar" (#351).
+
+  Both known gaps are printed under the table rather than buried: the spawn mix
+  is assumed even when it is not (#715), and occupancy is overstated by about
+  half because a member is held for the crime's whole duration.
+
+### Fixed
+
+- **A duplicated chain-edge state.** v3.108.0 added `chainEdges` next to the
+  `chains` state that already held the same payload. One of them now.
+
+---
+
+## [3.109.0] - 2026-09-13
+
+### Added
+
+- **`solveJointThresholds()`** (#710) — CPR thresholds for **all crimes at
+  once**, against one shared roster.
+
+  ⚠️ **Why the per-crime numbers came out too high.** #707 skips the spawn
+  simulation, so `searchThresholds` maximises `$/faction-member/day` for ONE
+  crime with the ENTIRE roster available — and the optimum for that question is
+  "take the strongest people". Every crime reaches it independently, so the
+  published sets are **individually optimal and jointly unfillable**. The
+  per-crime number is a *ceiling*; this descends from it.
+
+  **It costs no extra probability calls.** `E(X)` for a crime at a vector does
+  not depend on the other crimes, so each crime's candidates are priced once —
+  the same handful #707 already pays for — and the joint search runs entirely on
+  cached values. Verified by a test asserting the search adds none.
+
+### Fixed
+
+- **⚠️ A single-step descent parks in a valley, and the score landscape has a
+  deep one.** `filled` is a **step function**: a crew locks `n` members for `n`
+  days, so the bar has to fall a long way before a second crime fits alongside
+  the first, and every rung in between is strictly worse. Measured on 24 members
+  with one four-role crime:
+
+  | rung | filled | score |
+  |---|---|---|
+  | k=1 | 8/30 | 990,741 ← a one-rung-ahead search stops here |
+  | k=4 | 8/30 | 814,815 |
+  | k=5 | **16/30** | **1,611,111** ← 63% better, never reached |
+
+  So the search moves each crime to its **best rung over the whole ladder**, not
+  its next one, iterated to convergence — plus a lockstep move that steps every
+  crime down together, because coordinate descent cannot see an improvement that
+  needs several crimes to concede at once.
+
+  ⚠️ **Still greedy and named as such.** The exact joint optimum is
+  combinatorial over a shared roster. A leader needs a readable answer with a
+  reason for every concession more than the last 1% of throughput.
+
+### Performance
+
+- The inner loop runs on a **12-day horizon** while the reported simulation runs
+  the caller's full one. Ranking is stable well before thirty days, and the
+  simulation is the hot loop — eight crimes over thirty days at two spawns a day
+  is ~15,000 crew matchings per pass. With memoisation on the pick tuple this
+  took the solve from **11.5s to 7.1s** on eight crimes against a 94-member
+  roster.
+
+  ⚠️ Seven seconds is still the heaviest thing in this codebase's UI path, which
+  is why it belongs behind an explicit button — the guidance button froze the
+  browser for 44 seconds once already (v3.107.1), and there is now a regression
+  test with a hard bound.
+
+### Reported, not just computed
+
+- **What each crime gave up, and for what** — `stepsGivenUp`, `pointsGivenUp`,
+  `crewsGained`, and the vector it started from. *"Crime6 gave up 39 points for
+  4 more crews"* is the insight; a table of lower numbers with no reasoning
+  attached will not be trusted or followed.
+- ⚠️ **`no-readings` stays distinct from `not-crewable`** through the whole
+  solve (#351) — a crime we have never observed is skipped for a different
+  reason than one nobody can crew, and a measurement gap must never read as an
+  infeasible crime.
+
+---
+
 ## [3.108.0] - 2026-09-13
 
 ### Added

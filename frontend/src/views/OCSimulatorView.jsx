@@ -43,6 +43,8 @@ import { makeCategoryResolver } from '../utils/ocPlanner'
 import { computeGuidance } from '../utils/ocGuidancePipeline'
 import { GuidancePanel } from './OCGuidancePanel'
 import { ChainPanel } from './OCChainPanel'
+import { JointPanel } from './OCJointPanel'
+import { solveForSelection } from '../utils/ocJointPipeline'
 import { computeChainEconomics, meanCpr } from '../utils/ocChainPipeline'
 import { buildChainIndex, chainFrom } from '../utils/ocChains'
 import { config } from '../config'
@@ -60,10 +62,12 @@ const CALC_DEBOUNCE_MS = 250
 
 export default function OCSimulatorView() {
   const [scenarios, setScenarios] = useState(null)
-  const [chainEdges, setChainEdges] = useState([])
   // #585: observed previous_crime_id edges, so the ranking can price a crime
-  // whose payout is one or two crimes downstream.
+  // whose payout is one or two crimes downstream — and, since #712, so a crime
+  // card can show what its chain is actually worth.
   const [chains, setChains] = useState([])
+  // #715: what this faction actually spawns, so the planner stops assuming.
+  const [spawns, setSpawns] = useState(null)
   // #609 slice 7: whether the item catalogue behind every dollar figure below
   // is fresh enough to use. The server withholds prices rather than serving
   // stale ones, so without this the page would show a fleet of "unpriced"
@@ -72,6 +76,8 @@ export default function OCSimulatorView() {
   const [loadError, setLoadError] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [rankingOpen, setRankingOpen] = useState(false)
+  const [jointPlan, setJointPlan] = useState(null)
+  const [solvingJoint, setSolvingJoint] = useState(false)
 
   // Persisted: re-picking six crimes on every visit would kill the workflow
   // this screen exists to enable.
@@ -82,9 +88,8 @@ export default function OCSimulatorView() {
     apiGet('/api/oc-simulator/scenarios')
       .then((res) => {
         setScenarios(res.scenarios ?? [])
-        // #585 shipped these and nothing on this page ever read them.
-        setChainEdges(res.chains ?? [])
         setChains(res.chains ?? [])
+        setSpawns(res.spawns ?? null)
         setItemPrices(res.item_prices ?? null)
       })
       .catch((e) => setLoadError(e?.message || 'Could not load scenarios'))
@@ -102,6 +107,42 @@ export default function OCSimulatorView() {
   }, [scenarios, selected, setSelected])
 
   const chosen = useMemo(() => selectedScenarios(scenarios, selected), [scenarios, selected])
+
+  // ⚠️ Declared BELOW `chosen`, and that placement is load-bearing: a hook's
+  // dependency array is evaluated immediately, so naming a `const` from above
+  // its own declaration is the temporal-dead-zone throw that replaced this page
+  // with an error boundary in v3.97.0.
+  //
+  // Cleared when the selection changes — a plan computed for one set of crimes
+  // shown under another is worse than no plan.
+  useEffect(() => { setJointPlan(null) }, [selected])
+
+  const solveJoint = useCallback(async () => {
+    setSolvingJoint(true)
+    // The solve is seconds of synchronous simulation; without a yield React
+    // never paints the busy state and the page looks dead (v3.107.1).
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+    try {
+      const resolveCategory = makeCategoryResolver({
+        scenarios: config.ocScenarios || {},
+        categories: config.ocCategories || {},
+      })
+      setJointPlan(await solveForSelection({
+        crimes: chosen,
+        fetchReadings: (name) =>
+          apiGet(`/api/oc-simulator/roster-cpr/${encodeURIComponent(name)}`),
+        categoryOf: (name) => (config.ocCategories || {})[resolveCategory(name, null)] ?? null,
+        call: (name, parameters) =>
+          apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
+        days: 30, spawnsPerDay: 4, gap: 0.5,
+        spawns,
+      }))
+    } catch {
+      setJointPlan(null)
+    } finally {
+      setSolvingJoint(false)
+    }
+  }, [chosen, spawns])
   const stale = useMemo(() => staleSelections(scenarios, selected), [scenarios, selected])
   const totalScope = useMemo(() => selectionScopeCost(scenarios, selected), [scenarios, selected])
 
@@ -200,10 +241,22 @@ export default function OCSimulatorView() {
           key={scenario.name}
           scenario={scenario}
           scenarios={scenarios}
-          chainEdges={chainEdges}
+          chainEdges={chains}
           onRemove={() => setSelected(toggleSelection(selected, scenario.name))}
         />
       ))}
+
+      {/* ⚠️ Below the cards on purpose. Each card's thresholds are a CEILING —
+          computed as if that crime had the whole roster — and this is the plan
+          that reconciles them. Reading order should match that. */}
+      {chosen.length > 1 && (
+        <JointPanel
+          plan={jointPlan}
+          onSolve={solveJoint}
+          solving={solvingJoint}
+          crimeCount={chosen.length}
+        />
+      )}
 
       {pickerOpen && (
         <CrimePickerModal
@@ -333,9 +386,19 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
           apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
         gap: 0.5,
         gapIsAssumed: true,
+        // #713: a chain ROOT pays nothing itself, so it is valued at the whole
+        // chain. Without these it would be refused — and it is the crime
+        // members actually join.
+        scenarios,
+        chains: chainEdges,
+        categoryOf: (name) => resolve(name, null),
+        chainCpr: meanCpr(cprs) ?? DEFAULT_CPR,
       })
       setGuidance(out.guidance)
-      setGuidanceMeta({ reason: out.reason, limitingRoles: out.limitingRoles, chainsTo: out.chainsTo })
+      setGuidanceMeta({
+        reason: out.reason, limitingRoles: out.limitingRoles,
+        chainsTo: out.chainsTo, chainContext: out.chainContext,
+      })
     } catch {
       // ⚠️ A failure leaves the panel in its idle state rather than showing a
       // half-computed table. Nothing here is worth publishing on a guess.
@@ -344,7 +407,7 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
     } finally {
       setComputingGuidance(false)
     }
-  }, [scenario, rosterCpr])
+  }, [scenario, rosterCpr, scenarios, chainEdges, cprs])
 
   useEffect(() => { setChain(null) }, [scenario.name])
 
@@ -460,6 +523,7 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
             reason={guidanceMeta?.reason}
             limitingRoles={guidanceMeta?.limitingRoles}
             chainsTo={guidanceMeta?.chainsTo}
+            chainOf={guidanceMeta?.chainContext ? guidanceMeta.chainContext.links[guidanceMeta.chainContext.links.length - 1].name : null}
             onCompute={suggestCprs}
             computing={computingGuidance}
           />

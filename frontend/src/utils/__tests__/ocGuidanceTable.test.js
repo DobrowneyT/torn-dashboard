@@ -146,3 +146,98 @@ describe('publishGuidance', () => {
     expect(g.roles.map((r) => r.roleName)).toEqual(['Muscle', 'Bomber', 'Engineer', 'Picklock 2'])
   })
 })
+
+// ⚠️ THE EXPECTED CREW CANNOT BE WEAKER THAN THE PUBLISHED FLOOR.
+//
+// Found by MonChoon asking what the floor and ceiling were actually based on.
+// `maximalCprVector` is the highest bar with `n` candidates per role — Hall-safe
+// for ONE crew — but the search's k=1 rung STARTS there and is then greedily
+// raised above it. Using slice 3 as the blend target therefore produced:
+//
+//     P1 floor=95  ceiling=92  expected=93.5
+//
+// an expected crew below the minimum we told people to train to, which is not a
+// thing that can happen.
+describe('publishGuidance — the expected crew', () => {
+  const P = ['P1', 'P2', 'P3', 'P4']
+  const pool = () => Array.from({ length: 12 }, (_, i) => ({ member_id: `m${i}`, cpr: 95 - i }))
+  const readings = () => Object.fromEntries(P.map((p) => [p, pool()]))
+
+  it('⚠️ is never below the floor, even when the chosen bar beats slice 3\'s', () => {
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: { P1: 40, P2: 30, P3: 20, P4: 10 },
+      // The k=1 rung: raised above the Hall-safe vector below it.
+      chosen: { P1: 95, P2: 93, P3: 94, P4: 92 },
+      ceiling: { P1: 92, P2: 92, P3: 92, P4: 92 },
+      readings: readings(), crews: 1,
+    })
+    for (const r of g.roles) expect(r.expected).toBeGreaterThanOrEqual(r.floor)
+  })
+
+  it('blends toward what this role could reach at the chosen crew count', () => {
+    // Two crews: the 2nd-highest reading for the role is 94, so a seat could
+    // realistically hold 94 while still fielding two crews.
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: { P1: 40, P2: 30, P3: 20, P4: 10 },
+      chosen: { P1: 90, P2: 90, P3: 90, P4: 90 },
+      ceiling: { P1: 92, P2: 92, P3: 92, P4: 92 },
+      readings: readings(), crews: 2,
+    })
+    const p1 = g.roles.find((r) => r.positionId === 'P1')
+    expect(p1.ceiling).toBe(94)
+    expect(p1.expected).toBe(92)        // 90 + 0.5 x (94 - 90)
+  })
+
+  it('falls back to the supplied ceiling when no crew count is given', () => {
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: { P1: 40, P2: 30, P3: 20, P4: 10 },
+      chosen: { P1: 80, P2: 80, P3: 80, P4: 80 },
+      ceiling: { P1: 90, P2: 90, P3: 90, P4: 90 },
+      readings: readings(),
+    })
+    expect(g.roles.find((r) => r.positionId === 'P1').expected).toBe(85)
+  })
+})
+
+// ⚠️ #716 — the table must not contradict the number beside it.
+//
+// Live on tnl: Picklock 2 published `0`, "model used" 83, "can fill" 47 of 69.
+// MonChoon: "if it was truly at the floor then wouldn't it have 69 of 69 that
+// can fill the crime at the floor?" Exactly right — the guidance and the E(X)
+// were describing different crews.
+describe('publishGuidance — a carry role reads consistently', () => {
+  const P = ['P1', 'P2', 'P3', 'P4']
+  const WEIGHTS = { P1: 34.6, P2: 30.0, P3: 32.5, P4: 2.9 }
+  const readings = () => {
+    const pool = Array.from({ length: 12 }, (_, i) => ({ member_id: `m${i}`, cpr: 95 - i }))
+    return Object.fromEntries(P.map((p) => [p, pool.map((r) => ({ ...r }))]))
+  }
+
+  it('⚠️ everyone can fill a role scored at the roster floor', () => {
+    const r = readings()
+    const floor = Math.min(...r.P4.map((x) => x.cpr))
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: WEIGHTS,
+      chosen: { P1: 92, P2: 88, P3: 90, P4: floor },     // carry pinned, as the search now does
+      ceiling: { P1: 95, P2: 93, P3: 94, P4: 95 },
+      readings: r, crews: 1,
+    })
+    const carry = g.roles.find((x) => x.positionId === 'P4')
+    expect(carry.isCarry).toBe(true)
+    expect(carry.published).toBe(0)
+    expect(carry.floor).toBe(floor)
+    // The number MonChoon expected: everyone with a reading clears the floor.
+    expect(carry.eligible).toBe(carry.readings)
+  })
+
+  it('⚠️ uses the same weight threshold the search pins on', () => {
+    // If the table publishes zero for roles the search did not pin, the two
+    // disagree again — which is the whole defect.
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: WEIGHTS,
+      chosen: { P1: 92, P2: 88, P3: 90, P4: 84 },
+      ceiling: { P1: 95, P2: 93, P3: 94, P4: 95 }, readings: readings(), crews: 1,
+    })
+    expect(g.roles.filter((r) => r.isCarry).map((r) => r.positionId)).toEqual(['P4'])
+  })
+})
