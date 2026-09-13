@@ -161,3 +161,37 @@ describe('downstream crew', () => {
     expect(screen.queryByText(/roster can field/i)).toBeNull()
   })
 })
+
+// #729 — crew depth, and the cliff.
+describe('crew depth', () => {
+  const withDepth = (depth) => guidance({ depth })
+
+  it('says how many crews the roster can field', () => {
+    render(<GuidancePanel guidance={withDepth({ crews: 5, atPlusOne: 5, limitingRoles: [], collapses: false })} />)
+    expect(screen.getByText(/can field/)).toBeTruthy()
+    expect(screen.getByText('5')).toBeTruthy()
+  })
+
+  it('shows the cliff when one point up costs crews', () => {
+    render(<GuidancePanel guidance={withDepth({ crews: 3, atPlusOne: 0, limitingRoles: [], collapses: false })} />)
+    expect(screen.getByText(/dropping to/)).toBeTruthy()
+  })
+
+  it('⚠️ refuses to publish quietly when nothing can crew it', () => {
+    render(<GuidancePanel guidance={withDepth({ crews: 0, atPlusOne: 0, limitingRoles: ['P1'], collapses: true })} />)
+    // Named by ROLE, not by position id — "P1 runs out first" is unreadable.
+    const warn = screen.getByText(/Nobody can crew this/).closest('p')
+    expect(warn.textContent).toMatch(/Muscle runs out first/)
+  })
+
+  it('⚠️ calls out a single crew as a knife edge', () => {
+    render(<GuidancePanel guidance={withDepth({ crews: 1, atPlusOne: 1, limitingRoles: [], collapses: false })} />)
+    expect(screen.getByText(/no crew at all/)).toBeTruthy()
+  })
+
+  it('says nothing when depth is unknown', () => {
+    render(<GuidancePanel guidance={withDepth({ crews: null, atPlusOne: null, limitingRoles: [], collapses: false })} />)
+    expect(screen.queryByText(/can field/)).toBeNull()
+    expect(screen.queryByText(/Nobody can crew/)).toBeNull()
+  })
+})

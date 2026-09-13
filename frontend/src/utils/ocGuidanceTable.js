@@ -41,6 +41,7 @@
  */
 
 import { headcountAtCpr, maxSustainableCpr } from './ocRosterFit'
+import { maxDisjointCrews } from './ocCrewMatching'
 
 const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
 
@@ -83,6 +84,38 @@ export function publishGuidance({
     if (wa !== null && wb !== null && wa !== wb) return wb - wa
     return String(a).localeCompare(String(b), 'en', { numeric: true })
   })
+
+  // ⚠️ **How many crews this vector can actually field (#729).**
+  //
+  // The per-role "can fill" counts cannot be composed into this by eye: the
+  // eligible sets OVERLAP, so six roles with nine candidates each may still
+  // seat one crew. `ocRosterFit.js` carries a warning that it deliberately does
+  // NOT check disjointness — this is that gap reaching the table.
+  //
+  // Forge's Break the Bank falls from 3 crews to 0 between a uniform 72 and 75,
+  // and it is the highest earner on the roster. Nothing on screen hinted at it.
+  //
+  // ⚠️ Scored at the vector the MODEL used, never the published one. A carry
+  // role publishes 0, and counting crews at 0 would say everyone can fill it
+  // and report a depth the crime does not have — the #716 defect again.
+  const hasReadings = positionIds.some((p) => (readings?.[p] ?? []).length > 0)
+  const depth = (() => {
+    if (!hasReadings) return { crews: null, atPlusOne: null, limitingRoles: [], collapses: false }
+    const scored = Object.fromEntries(positionIds.map((p) => [p, num(chosen[p]) ?? 0]))
+    const here = maxDisjointCrews(readings, scored)
+    const up = maxDisjointCrews(
+      readings,
+      Object.fromEntries(Object.entries(scored).map(([p, v]) => [p, v + 1]))
+    )
+    return {
+      crews: here.k,
+      atPlusOne: up.k,
+      limitingRoles: here.limitingRoles ?? [],
+      // ⚠️ A bar nobody can crew is not a high standard, it is a crime the
+      // faction has stopped running. It has to be said before publishing.
+      collapses: here.k < 1,
+    }
+  })()
 
   const roles = ordered.map((pos) => {
     const rows = (readings?.[pos] ?? []).filter((r) => num(r?.cpr) !== null)
@@ -179,6 +212,7 @@ export function publishGuidance({
     publishable: true,
     generatedAt,
     roles,
+    depth,
     value: {
       floor: vFloor,
       expected: vExpected,

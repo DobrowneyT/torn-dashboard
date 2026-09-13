@@ -18,6 +18,46 @@ surface it automatically.
 
 ---
 
+## [3.116.0] - 2026-09-13
+
+### Added
+
+- **The guidance table says how many crews the roster can field** (#729), and
+  refuses to publish quietly when the answer is none.
+
+  ⚠️ **The per-role "can fill" counts cannot be composed into this by eye.** The
+  eligible sets OVERLAP, so six roles with nine candidates each may still seat
+  one crew. `ocRosterFit.js` has carried a warning that it deliberately does not
+  check disjointness since it was written; this is that gap finally reaching the
+  table, via `maxDisjointCrews` (#689).
+
+  ⚠️ **Forge's Break the Bank falls from 3 crews to 0 between a uniform 72 and
+  75** — and it is the highest earner on the roster at $9.79M per person-day.
+  Nothing on screen hinted at it:
+
+  ```
+  threshold      60   65   70   72   75   78   80
+  Break the Bank 10    7    5    3    0    0    0
+  Clinical Prec. 17   14   10   10    9    4    1
+  Window of Opp. 16   15   15   14   12   11   10
+  ```
+
+  A vector that seats nobody now shows a red warning naming the role that ran
+  out first — **a bar nobody can meet is not a high standard, it is a crime you
+  have stopped running.** A single crew is called out as a knife edge, since one
+  person joining another crime takes the crime off the board.
+
+  ⚠️ **Scored at the vector the MODEL used, never the published one.** A carry
+  role publishes 0, and counting crews at 0 would say everyone can fill it and
+  report a depth the crime does not have — the #716 defect in a new place.
+
+  ⚠️ **The roster is not the constraint.** At a uniform 75 Forge's five Advanced
+  crimes could field 198 seats against a 94-member roster. What binds is depth
+  in specific roles on specific crimes, so a warning about roster size would be
+  the wrong warning — the failure is always one role running out.
+
+---
+
 ## [3.115.0] - 2026-09-13
 
 ### Added
