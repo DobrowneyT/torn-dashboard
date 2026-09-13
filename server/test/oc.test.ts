@@ -397,6 +397,72 @@ describe('OC Simulator endpoints', () => {
   })
 })
 
+// #728 — the faction's own history, beside the model's prediction.
+describe('GET /api/oc-simulator/observed/:scenario', () => {
+  let obsToken: string
+
+  beforeAll(async () => {
+    const login = await fetch(`${stack.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: 'SIMMANAGERKEY123' }),
+    })
+    obsToken = ((await login.json()) as any).token
+
+    const now = Math.floor(Date.now() / 1000)
+    // 20 runs with a weak crew that mostly fail, 20 with a strong crew that
+    // mostly succeed — the shape the whole feature exists to detect.
+    for (let i = 0; i < 40; i++) {
+      const strong = i >= 20
+      // weak crew: 6 of 20 succeed. strong crew: 18 of 20.
+      const ok = strong ? i < 38 : i < 6
+      const id = `obs-${i}`
+      await stack.db.query(
+        `INSERT INTO crimes (crime_id, name, difficulty, status, executed_at)
+         VALUES ($1, 'Observed Crime', 8, $2, $3) ON CONFLICT DO NOTHING`,
+        [id, ok ? 'Successful' : 'Failure', now - 86400 * (i + 1)]
+      )
+      await stack.db.query(
+        `INSERT INTO crime_slots (crime_id, position, position_id, checkpoint_pass_rate)
+         VALUES ($1, 'Robber', 'P1', $2), ($1, 'Muscle #1', 'P2', $3)
+         ON CONFLICT DO NOTHING`,
+        [id, strong ? 82 : 60, strong ? 80 : 62]
+      )
+    }
+  })
+
+  const obsGet = async (path: string) => {
+    const res = await fetch(`${stack.baseUrl}${path}`, { headers: { authorization: `Bearer ${obsToken}` } })
+    return { status: res.status, body: (await res.json()) as any }
+  }
+
+  it('summarises the faction\'s own runs by the crew that ran them', async () => {
+    const { status, body } = await obsGet('/api/oc-simulator/observed/Observed%20Crime')
+    expect(status).toBe(200)
+    expect(body.runs).toBe(40)          // ⚠️ runs, not the 80 slots
+    expect(body.enough).toBe(true)
+    expect(body.buckets.length).toBeGreaterThan(1)
+    const [lo, hi] = [body.buckets[0], body.buckets[body.buckets.length - 1]]
+    expect(lo.meanCpr).toBeLessThan(hi.meanCpr)
+    expect(lo.rate).toBeLessThan(hi.rate)
+  })
+
+  it('⚠️ reports a crime with no history as absent, not as a zero success rate', async () => {
+    const { status, body } = await obsGet('/api/oc-simulator/observed/Never%20Run')
+    expect(status).toBe(200)
+    expect(body.runs).toBe(0)
+    expect(body.enough).toBe(false)
+    expect(body.rate).toBeNull()
+    expect(body.buckets).toEqual([])
+  })
+
+  it('honours a shorter window', async () => {
+    const { body } = await obsGet('/api/oc-simulator/observed/Observed%20Crime?days=10')
+    expect(body.window_days).toBe(10)
+    expect(body.runs).toBeLessThan(40)
+  })
+})
+
 // #442 — who on our roster can fill each role.
 describe('GET /api/oc-simulator/roster-cpr/:scenario', () => {
   let simToken: string

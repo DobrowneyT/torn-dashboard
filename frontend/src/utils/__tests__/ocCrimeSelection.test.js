@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   groupByCategory, toggleSelection, selectionIndex, selectedScenarios,
   staleSelections, selectionScopeCost, CATEGORY_ORDER,
+  toggleCategory, categoryFullySelected,
 } from '../ocCrimeSelection'
 
 const SCENARIOS = [
@@ -133,5 +134,64 @@ describe('selectionScopeCost', () => {
     // A quietly-short total is a budget someone would act on.
     const scenarios = [...SCENARIOS, { name: 'Some Brand New Crime' }]
     expect(selectionScopeCost(scenarios, ['Break the Bank', 'Some Brand New Crime'])).toBeNull()
+  })
+})
+
+// #730 — solving a whole category at once.
+//
+// Forge is moving to Advanced-only spawning, which makes the per-crime ceiling
+// actively misleading: at a uniform 75 the five Advanced crimes want 198 seats
+// against a 94-member roster. Hand-ticking five crimes to discover that is
+// friction in front of the only view that tells the truth.
+describe('toggleCategory', () => {
+  it('adds every crime in the category, in the order given', () => {
+    expect(toggleCategory([], ['Break the Bank', 'Clinical Precision']))
+      .toEqual(['Break the Bank', 'Clinical Precision'])
+  })
+
+  it('appends only what is missing, leaving existing order alone', () => {
+    // ⚠️ The selection order IS the page order, so re-ordering somebody's
+    // existing picks to satisfy a bulk add would rearrange the screen under them.
+    expect(toggleCategory(['Clinical Precision', 'Snow Blind'],
+      ['Break the Bank', 'Clinical Precision']))
+      .toEqual(['Clinical Precision', 'Snow Blind', 'Break the Bank'])
+  })
+
+  it('clears the category when all of it is already selected', () => {
+    expect(toggleCategory(['Break the Bank', 'Clinical Precision'],
+      ['Break the Bank', 'Clinical Precision'])).toEqual([])
+  })
+
+  it('⚠️ removing a category leaves crimes outside it untouched', () => {
+    expect(toggleCategory(['Snow Blind', 'Break the Bank'], ['Break the Bank']))
+      .toEqual(['Snow Blind'])
+  })
+
+  it('treats a partial selection as "add the rest", not "clear"', () => {
+    // Ticking two of five and hitting the category button should complete the
+    // set — clearing would throw away the picks the reader just made.
+    expect(toggleCategory(['Break the Bank'], ['Break the Bank', 'Clinical Precision']))
+      .toEqual(['Break the Bank', 'Clinical Precision'])
+  })
+
+  it('is a no-op on an empty category', () => {
+    expect(toggleCategory(['Snow Blind'], [])).toEqual(['Snow Blind'])
+  })
+
+  it('tolerates a null selection', () => {
+    expect(toggleCategory(null, ['Break the Bank'])).toEqual(['Break the Bank'])
+  })
+})
+
+describe('categoryFullySelected', () => {
+  it('is true only when every crime in the category is picked', () => {
+    expect(categoryFullySelected(['a', 'b'], ['a', 'b'])).toBe(true)
+    expect(categoryFullySelected(['a'], ['a', 'b'])).toBe(false)
+  })
+
+  it('⚠️ an empty category is not "fully selected"', () => {
+    // Otherwise the button renders as an active state for a group with nothing
+    // in it.
+    expect(categoryFullySelected(['a'], [])).toBe(false)
   })
 })

@@ -241,3 +241,85 @@ describe('publishGuidance — a carry role reads consistently', () => {
     expect(g.roles.filter((r) => r.isCarry).map((r) => r.positionId)).toEqual(['P4'])
   })
 })
+
+// #729 — a threshold that fields no crew is not a high bar, it is a crime you
+// have stopped running.
+//
+// Forge's Break the Bank falls from 3 crews to 0 between a uniform 72 and 75,
+// and it is the highest earner on the roster at $9.79M per person-day. The
+// per-role "can fill" counts cannot be composed into this by eye: the eligible
+// sets OVERLAP, so six roles with nine candidates each may still seat only one
+// crew.
+describe('crew depth', () => {
+  /** n members per role, all at `cpr`, sharing ids across roles when `shared`. */
+  const pool = (positions, count, cpr, { shared = false } = {}) =>
+    Object.fromEntries(positions.map((p, pi) => [
+      p, Array.from({ length: count }, (_, i) => ({
+        member_id: shared ? `m${i}` : `m${pi}-${i}`, cpr,
+      })),
+    ]))
+
+  const POS = ['P1', 'P2', 'P3']
+  const base = (over = {}) => publishGuidance({
+    scenarioName: 'Test', positionIds: POS,
+    weights: { P1: 40, P2: 35, P3: 25 },
+    chosen: { P1: 70, P2: 70, P3: 70 },
+    readings: pool(POS, 9, 75),
+    ...over,
+  })
+
+  it('reports how many crews the published vector can field', () => {
+    const g = base()
+    expect(g.depth.crews).toBe(9)
+    expect(g.depth.collapses).toBe(false)
+  })
+
+  it('⚠️ counts DISJOINT crews — a shared pool is not nine crews', () => {
+    // Nine people who can each fill all three roles seat three crews, not nine.
+    // This is the `ocRosterFit.js` gap that its own comment warns about.
+    const g = base({ readings: pool(POS, 9, 75, { shared: true }) })
+    expect(g.depth.crews).toBe(3)
+  })
+
+  it('⚠️ flags a vector that cannot crew the crime at all', () => {
+    const thin = pool(POS, 9, 75)
+    thin.P2 = [{ member_id: 'x', cpr: 60 }]        // nobody clears 70
+    const g = base({ readings: thin })
+    expect(g.depth.crews).toBe(0)
+    expect(g.depth.collapses).toBe(true)
+    expect(g.depth.limitingRoles).toContain('P2')
+  })
+
+  it('shows the cliff one CPR point up', () => {
+    const rows = pool(POS, 9, 75)
+    rows.P3 = [
+      ...Array.from({ length: 3 }, (_, i) => ({ member_id: `hi${i}`, cpr: 75 })),
+      ...Array.from({ length: 6 }, (_, i) => ({ member_id: `lo${i}`, cpr: 70 })),
+    ]
+    const g = base({ readings: rows })
+    expect(g.depth.crews).toBe(9)
+    expect(g.depth.atPlusOne).toBe(3)     // the 70s drop out at 71
+  })
+
+  it('⚠️ scores the vector the MODEL used, not the published one', () => {
+    // A carry role publishes 0. Counting crews at 0 would say everyone can fill
+    // it and report a depth the crime does not have — the #716 defect again.
+    const rows = pool(POS, 9, 75)
+    rows.P3 = Array.from({ length: 9 }, (_, i) => ({ member_id: `c${i}`, cpr: 40 }))
+    const g = base({
+      weights: { P1: 55, P2: 43, P3: 2 },          // P3 is a carry
+      chosen: { P1: 70, P2: 70, P3: 60 },
+      readings: rows,
+    })
+    expect(g.roles.find((r) => r.positionId === 'P3').published).toBe(0)
+    // Nobody clears the 60 the model scored at, so the crime seats nobody.
+    expect(g.depth.crews).toBe(0)
+    expect(g.depth.collapses).toBe(true)
+  })
+
+  it('is absent rather than zero when there are no readings', () => {
+    const g = base({ readings: {} })
+    expect(g.depth.crews).toBeNull()
+    expect(g.depth.collapses).toBe(false)
+  })
+})

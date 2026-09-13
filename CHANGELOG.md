@@ -18,6 +18,154 @@ surface it automatically.
 
 ---
 
+## [3.117.0] - 2026-09-13
+
+### Added
+
+- **Select a whole category at once in the crime picker** (#730). Forge is
+  moving to Advanced-only spawning, which makes the per-crime ceiling actively
+  misleading — at a uniform 75 the five Advanced crimes want **198 seats against
+  a 94-member roster**. The joint solve is the only view that tells the truth
+  about a set of crimes, and reaching it meant hand-ticking five of them.
+
+  Each category header now carries `Select all <category>` / `Clear <category>`.
+
+  ⚠️ **Appends rather than replaces.** The selection order IS the page order —
+  `toggleSelection` exists to preserve it — so rearranging somebody's existing
+  picks to satisfy a bulk add would shuffle the screen under them.
+
+  ⚠️ **A partial selection completes, it does not clear.** Ticking two of five
+  and then pressing the category button means "give me the rest"; clearing would
+  throw away the picks just made.
+
+  ⚠️ An empty category is not "fully selected", or the control would render in
+  its active state for a group with nothing in it.
+
+- **A mount test for `CrimePickerModal`**, which had none. Same reason as
+  `OCSimulatorResultPanel` and the guidance panel: v3.97.0 took the whole OC
+  Simulator down with a temporal-dead-zone throw that every pure helper's tests
+  passed straight through.
+
+### Notes
+
+The other two halves of #730 were already in place and are confirmed by this
+work rather than changed:
+
+- `solveForSelection` already drives `spawnsPerDay` from #715's **measured**
+  mix, falling back to the declared default only when the faction has fewer than
+  `MIN_SPAWNS_FOR_MIX` real decisions.
+- `ocSpawnSimulation` already nets scope regeneration against drain
+  (`shortfallPerDay = max(0, drain − regenPerDay)`), so a plan inside the +1/day
+  regen budget is correctly reported as solvent rather than as a shortfall.
+
+---
+
+## [3.116.0] - 2026-09-13
+
+### Added
+
+- **The guidance table says how many crews the roster can field** (#729), and
+  refuses to publish quietly when the answer is none.
+
+  ⚠️ **The per-role "can fill" counts cannot be composed into this by eye.** The
+  eligible sets OVERLAP, so six roles with nine candidates each may still seat
+  one crew. `ocRosterFit.js` has carried a warning that it deliberately does not
+  check disjointness since it was written; this is that gap finally reaching the
+  table, via `maxDisjointCrews` (#689).
+
+  ⚠️ **Forge's Break the Bank falls from 3 crews to 0 between a uniform 72 and
+  75** — and it is the highest earner on the roster at $9.79M per person-day.
+  Nothing on screen hinted at it:
+
+  ```
+  threshold      60   65   70   72   75   78   80
+  Break the Bank 10    7    5    3    0    0    0
+  Clinical Prec. 17   14   10   10    9    4    1
+  Window of Opp. 16   15   15   14   12   11   10
+  ```
+
+  A vector that seats nobody now shows a red warning naming the role that ran
+  out first — **a bar nobody can meet is not a high standard, it is a crime you
+  have stopped running.** A single crew is called out as a knife edge, since one
+  person joining another crime takes the crime off the board.
+
+  ⚠️ **Scored at the vector the MODEL used, never the published one.** A carry
+  role publishes 0, and counting crews at 0 would say everyone can fill it and
+  report a depth the crime does not have — the #716 defect in a new place.
+
+  ⚠️ **The roster is not the constraint.** At a uniform 75 Forge's five Advanced
+  crimes could field 198 seats against a 94-member roster. What binds is depth
+  in specific roles on specific crimes, so a warning about roster size would be
+  the wrong warning — the failure is always one role running out.
+
+---
+
+## [3.115.0] - 2026-09-13
+
+### Added
+
+- **The faction's own crime history, beside the model's prediction** (#728).
+  Every success figure on the OC Simulator came from tornprobability's model.
+  Forge has **370 Advanced runs in 120 days** where we know both the crew's CPR
+  and the outcome — ground truth the Simulator had never consulted.
+
+  ⚠️ **They disagree on Forge's highest earner.** Break the Bank returns
+  $9.79M per person-day, and bucketed by crew CPR over 240 days:
+
+  ```
+  mean crew 62-65    21 runs    76.2%
+  mean crew 65-70   145 runs    73.8%
+  mean crew 70-71     4 runs    75.0%
+  ```
+
+  **No measurable gain across the range Forge actually operates in** — while the
+  published guidance pushes its bar toward 75, where the roster can field
+  **zero** crews (10 at 60, 5 at 70, 3 at 72, 0 at 75). That is not a tuning
+  error: it is the model being consulted where measurement was available.
+
+  `GET /api/oc-simulator/observed/:scenario` returns runs bucketed by crew CPR
+  with the success rate in each, plus per-role CPR in successful against failed
+  runs. Not restricted to current members — this is history, and a leaver's run
+  still happened.
+
+  ⚠️ **Bucket edges are derived from the observed range**, never a fixed CPR
+  grid. A faction operating at 40-50 gets 40-50 buckets, not empty ones spanning
+  55-80.
+
+  ⚠️ **Counted by RUN, not by slot.** A six-role crime is one observation, not
+  six; counting slots would inflate every sample sixfold and make noise look
+  like evidence.
+
+  ⚠️ **A slot with no reading is skipped, never scored as 0** — treating it as
+  zero would drag the crew mean down and manufacture a correlation.
+
+### Fixed
+
+- **⚠️ Restriction of range, guarded explicitly** (#728). The correlation
+  between a role's CPR and success measures where the faction has **varied** the
+  crew, not which role matters. Forge holds Blast from the Past's Muscle at ~77
+  in every run, so Muscle shows a −0.36 "effect" — not because it is
+  unimportant, but because there is nothing to see. Reported as a number, that
+  ranks the crime's heaviest role as ignorable.
+
+  A role whose p90−p10 CPR spread falls below `MIN_INFORMATIVE_SPREAD` reports
+  `informative: false` and **`delta: null` — withheld, not zero.** A 0.0 in that
+  column reads as "measured, no effect", which is the precise misreading this
+  exists to prevent. The panel says *"we have run it at almost the same CPR
+  every time — that says nothing about how much it matters"*.
+
+  Three ways of having nothing to say are kept separate, because they call for
+  different responses: `too-few-runs`, `one-outcome`, `narrow-range`.
+
+- **A crew we have never fielded is not compared** (#728). `compareToObserved`
+  returns `out-of-range` when the published bar sits more than
+  `MAX_EXTRAPOLATION_CPR` outside the observed span, rather than dressing an
+  extrapolation as a measurement. "No history" and "agrees" are separate states
+  for the same reason — the first says nobody checked, the second says the model
+  was corroborated.
+
+---
+
 ## [3.114.0] - 2026-09-13
 
 ### Fixed

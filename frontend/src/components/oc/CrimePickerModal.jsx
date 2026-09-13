@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { X, Check } from 'lucide-react'
 import {
   groupByCategory, toggleSelection, selectionIndex, selectionScopeCost,
+  toggleCategory, categoryFullySelected,
 } from '../../utils/ocCrimeSelection'
 
 export default function CrimePickerModal({ scenarios, selected, onApply, onClose }) {
@@ -73,6 +74,20 @@ export default function CrimePickerModal({ scenarios, selected, onApply, onClose
                   </span>
                 )}
                 <span className="text-xs text-gray-400">{group.crimes.length}</span>
+                {/* ⚠️ #730: the joint solve is the only view that tells the
+                    truth about a whole category, and reaching it meant ticking
+                    five crimes by hand. At a uniform 75 Forge's five Advanced
+                    crimes want 198 seats against a 94-member roster — that is
+                    the number this button exists to make reachable. */}
+                <button
+                  type="button"
+                  onClick={() => setDraft((d) => toggleCategory(d, group.crimes.map((c) => c.name)))}
+                  className="ml-auto text-xs underline text-blue-600 dark:text-blue-400"
+                >
+                  {categoryFullySelected(draft, group.crimes.map((c) => c.name))
+                    ? `Clear ${group.label}`
+                    : `Select all ${group.label}`}
+                </button>
               </div>
               <div className="grid gap-1 sm:grid-cols-2">
                 {group.crimes.map((crime) => {
