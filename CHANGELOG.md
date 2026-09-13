@@ -18,6 +18,56 @@ surface it automatically.
 
 ---
 
+## [3.113.0] - 2026-09-13
+
+### Fixed
+
+- **⚠️ Chain children were being planned for as spawn decisions, and charged
+  scope for it** (#715). From an audit of tnl's own `crimes` table on
+  2026-09-13, 30-day window:
+
+  ```
+  Lock Stock             25   21.0%    <- chain ROOT
+  Hostile Takeover       21   17.6%    <- chain CHILD, 39/39 lifetime from a parent
+  Ace in the Hole         7    5.9%    <- chain CHILD, 128/128 from a parent
+  ```
+
+  **23.5% of "spawns" were not decisions.** A crime with `previous_crime_id` set
+  appeared because its parent succeeded — nobody chose it. Two separate kinds of
+  damage followed:
+
+  - the planner apportioned roster capacity to a choice that does not exist;
+  - `simulateSpawns` charged the child `scopeCost`, when scope is paid **once at
+    the root** and repaid only at the terminal link (`ocChains.js`).
+
+  Chain children now cost no scope, are dropped from the plan with their own
+  reason, and their appearances come off the spawn count. A chain child is never
+  blocked by an empty bank either — it costs nothing, so a faction with no scope
+  can still finish a chain it has already paid for.
+
+### Added
+
+- **The spawn mix is measured, not assumed** (#715). The scenarios payload now
+  carries each crime's spawns and how many came from a chain over a 30-day
+  window, per tenant — tnl's mix is not forge's, and a fleet average would
+  describe neither.
+
+  ⚠️ tnl's real mix is **12-fold uneven** — Lock Stock 21%, Cleared for Takeoff
+  1.7% — against the uniform weight the planner assumed. And the rate is
+  **decisions** per day, not appearances: 91 real decisions in 30 days, not the
+  119 rows a naive count gives.
+
+  ⚠️ **Absent rather than fabricated.** Under 20 observed decisions the mix
+  reports `measured: false` and the caller keeps its defaults — and the panel
+  says which of the two it had, because a plan built on a guess that reads like
+  a measurement is the worse of the two.
+
+  ⚠️ Judged **per crime**, so a crime usually chosen but occasionally chained is
+  still choosable; only one whose *every* appearance came from a parent is a
+  child. Its chained runs still come off the count.
+
+---
+
 ## [3.112.0] - 2026-09-13
 
 ### Fixed

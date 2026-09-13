@@ -5,6 +5,15 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { requireAuth, requireRole } from './authz.js'
 import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
+
+/**
+ * How far back the observed spawn mix is measured (#715).
+ *
+ * ⚠️ Long enough that a quiet week does not rewrite the plan, short enough that
+ * a faction changing what it runs is reflected within a month. tnl averaged
+ * 3.97 spawns a day across ten crimes over this window on 2026-09-13.
+ */
+const SPAWN_WINDOW_DAYS = 30
 import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js'
 import { matchRolesToPositions } from './oc/roleMatch.js'
 import {
@@ -520,6 +529,29 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
           ORDER BY observations DESC`
       )
 
+      // #715: what this faction ACTUALLY spawns, so the planner stops assuming.
+      //
+      // ⚠️ `from_chain` is the load-bearing column. A crime with
+      // `previous_crime_id` set did not get chosen — it appeared because its
+      // parent succeeded. Measured on tnl 2026-09-13, 23.5% of "spawns" were
+      // chain children (Hostile Takeover 17.6%, Ace in the Hole 5.9%), and
+      // every one of their lifetime runs came from a parent. Counting them as
+      // spawn decisions puts crimes nobody chose into the mix and charges scope
+      // for crimes that cost none — scope is paid once at the ROOT.
+      //
+      // ⚠️ Per tenant and deliberately so: tnl's mix is not forge's, and a
+      // fleet-wide average would describe neither.
+      const spawnStats = await deps.db.query(
+        `SELECT name,
+                count(*)::int AS spawns,
+                count(*) FILTER (WHERE previous_crime_id IS NOT NULL)::int AS from_chain
+           FROM crimes
+          WHERE created_at > extract(epoch from now() - ($1 || ' days')::interval)
+          GROUP BY name
+          ORDER BY spawns DESC`,
+        [String(SPAWN_WINDOW_DAYS)]
+      )
+
       return {
         // Says whether the numbers below can be trusted, and why not when they
         // cannot. A client that ignores this shows zeroes; one that reads it
@@ -527,6 +559,12 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
         // asks for.
         item_prices: itemPrices,
         chains: chains.rows,
+        // ⚠️ Absent, not zero, for a faction with no history in the window —
+        // the client must assume rather than plan on a fabricated mix.
+        spawns: {
+          window_days: SPAWN_WINDOW_DAYS,
+          by_crime: spawnStats.rows,
+        },
         scenarios: rows.rows.map((s) => {
           // ⚠️ Withheld under the same rule as the ending prices above. This
           // one is computed in SQL against the same table, so leaving it

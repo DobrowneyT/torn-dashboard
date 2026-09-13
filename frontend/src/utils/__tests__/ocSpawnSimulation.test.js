@@ -196,3 +196,42 @@ describe('simulateSpawns — what it reports about itself', () => {
     expect(out.income.perFactionMemberPerDay).toBeCloseTo(out.income.total / (40 * 20), 6)
   })
 })
+
+// ⚠️ #715 — a chain child costs no scope.
+//
+// Scope is paid once at the ROOT and repaid only at the terminal link
+// (`ocChains.js`). Charging a child its category's cost double-charges the
+// chain — and on tnl the children were 23.5% of all appearances, so this was
+// not a rounding error.
+describe('simulateSpawns — chain children', () => {
+  const s = [scenario('A', 4)]
+
+  it('⚠️ does not charge scope to a chain child', () => {
+    const child = simulateSpawns({
+      scenarios: [scenario('A', 4, { isChainChild: true, successChance: 0.9 })],
+      readings: sharedReadings(s, 40), days: 20, spawnsPerDay: 1,
+      scope: { start: 50, cap: 100, regenPerDay: 0 },
+    })
+    const parent = simulateSpawns({
+      scenarios: [scenario('A', 4, { successChance: 0.9 })],
+      readings: sharedReadings(s, 40), days: 20, spawnsPerDay: 1,
+      scope: { start: 50, cap: 100, regenPerDay: 0 },
+    })
+    // The child still PAYS scope back on success; it just never spends any.
+    expect(child.scope.netPerSpawn).toBeCloseTo(0.9 * 5, 6)
+    expect(parent.scope.netPerSpawn).toBeCloseTo(0.9 * 5 - 4, 6)
+    expect(child.scope.end).toBeGreaterThan(parent.scope.end)
+  })
+
+  it('⚠️ a chain child is never blocked by an empty bank', () => {
+    // It costs nothing, so a faction with no scope can still complete a chain
+    // it has already paid for.
+    const out = simulateSpawns({
+      scenarios: [scenario('A', 4, { isChainChild: true })],
+      readings: sharedReadings(s, 40), days: 10, spawnsPerDay: 1,
+      scope: { start: 0, cap: 100, regenPerDay: 0 },
+    })
+    expect(out.unfillReasons['no-scope'] ?? 0).toBe(0)
+    expect(out.filled).toBeGreaterThan(0)
+  })
+})
