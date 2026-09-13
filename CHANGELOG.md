@@ -18,6 +18,55 @@ surface it automatically.
 
 ---
 
+## [3.108.0] - 2026-09-13
+
+### Added
+
+- **Chain economics on the crime card** (#712). `ocChains.js` has known all of
+  this since #585 and the OC Simulator never imported it — so a chain link
+  showed as a crime paying nothing, with no hint that its value lives two crimes
+  downstream or that its scope maths is completely different.
+
+  ⚠️ **The break-even is the number that surprises, and it is why this exists.**
+  Scope is paid once at the root and repaid only at the terminal link, only if
+  **every** link succeeded — so the reward stays flat while the probability of
+  collecting it **compounds**:
+
+  | | Elaborate break-even |
+  |---|---|
+  | standalone | 83.3% |
+  | over two links | **91.3% per link** |
+  | over three | **94.1% per link** |
+
+  The standalone scope verdict shown elsewhere on the page is therefore the
+  wrong number for a chain, and until now nothing said so.
+
+  The panel shows the full chain, what spawning the root is worth across all of
+  it, the chance the chain completes, and the scope verdict on the **per-link**
+  bar. ⚠️ It compares `equivalentSuccess` (the geometric mean per link) against
+  `breakEvenPerLink` — comparing the *chained* probability against a per-link
+  bar is the natural mistake and makes every chain look doomed.
+
+  ⚠️ **The crew assumption is stated on screen.** Links have different role
+  counts, so the sliders cannot be carried downstream; every link is priced at a
+  flat CPR, the mean of the crew on screen by default.
+
+  ⚠️ **A chain parent paying nothing is a known zero, not a measurement gap.**
+  `chainedValue` distinguishes the two with `== null` so a chain reads as a
+  lower bound only when something is genuinely unpriced — and conflating them
+  would mark every chain incomplete and bury a real terminal-link gap in the
+  noise.
+
+  One probability call per link, on demand, reusing what the card already knows
+  about the root. The panel only appears on crimes that actually chain — showing
+  it elsewhere would imply economics a crime does not have.
+
+  Unobserved edges are flagged: at the time of #585 only capacityx had seen all
+  five, so a tenant falling back to the known-chains table is told the link is
+  unverified there.
+
+---
+
 ## [3.107.1] - 2026-09-13
 
 ### Fixed

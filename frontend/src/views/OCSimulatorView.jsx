@@ -42,6 +42,9 @@ import { scopeVerdict } from '../utils/ocScope'
 import { makeCategoryResolver } from '../utils/ocPlanner'
 import { computeGuidance } from '../utils/ocGuidancePipeline'
 import { GuidancePanel } from './OCGuidancePanel'
+import { ChainPanel } from './OCChainPanel'
+import { computeChainEconomics, meanCpr } from '../utils/ocChainPipeline'
+import { buildChainIndex, chainFrom } from '../utils/ocChains'
 import { config } from '../config'
 import CrimePickerModal from '../components/oc/CrimePickerModal'
 import CrimeRankingTable from '../components/oc/CrimeRankingTable'
@@ -57,6 +60,7 @@ const CALC_DEBOUNCE_MS = 250
 
 export default function OCSimulatorView() {
   const [scenarios, setScenarios] = useState(null)
+  const [chainEdges, setChainEdges] = useState([])
   // #585: observed previous_crime_id edges, so the ranking can price a crime
   // whose payout is one or two crimes downstream.
   const [chains, setChains] = useState([])
@@ -78,6 +82,8 @@ export default function OCSimulatorView() {
     apiGet('/api/oc-simulator/scenarios')
       .then((res) => {
         setScenarios(res.scenarios ?? [])
+        // #585 shipped these and nothing on this page ever read them.
+        setChainEdges(res.chains ?? [])
         setChains(res.chains ?? [])
         setItemPrices(res.item_prices ?? null)
       })
@@ -193,6 +199,8 @@ export default function OCSimulatorView() {
         <CrimeCard
           key={scenario.name}
           scenario={scenario}
+          scenarios={scenarios}
+          chainEdges={chainEdges}
           onRemove={() => setSelected(toggleSelection(selected, scenario.name))}
         />
       ))}
@@ -217,7 +225,7 @@ export default function OCSimulatorView() {
  * that crime — six crimes on screen must not mean six requests per adjustment
  * against a small third-party server.
  */
-export function CrimeCard({ scenario, onRemove }) {
+export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove }) {
   const [cprs, setCprs] = useState(
     () => Array.from({ length: scenario.parameter_count }, () => DEFAULT_CPR)
   )
@@ -231,6 +239,8 @@ export function CrimeCard({ scenario, onRemove }) {
   const [guidance, setGuidance] = useState(null)
   const [guidanceMeta, setGuidanceMeta] = useState(null)
   const [computingGuidance, setComputingGuidance] = useState(false)
+  const [chain, setChain] = useState(null)
+  const [computingChain, setComputingChain] = useState(false)
 
   // Re-seed if the mirror changes a crime's role count under us.
   useEffect(() => {
@@ -336,6 +346,41 @@ export function CrimeCard({ scenario, onRemove }) {
     }
   }, [scenario, rosterCpr])
 
+  useEffect(() => { setChain(null) }, [scenario.name])
+
+  const valueChain = useCallback(async () => {
+    setComputingChain(true)
+    // Same yield as the guidance button: the probe awaits are async but the
+    // React state has to paint before them.
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+    try {
+      const resolve = makeCategoryResolver({
+        scenarios: config.ocScenarios || {},
+        categories: config.ocCategories || {},
+      })
+      setChain(await computeChainEconomics({
+        rootName: scenario.name,
+        scenarios,
+        chains: chainEdges,
+        // ⚠️ Flat, and the panel says so: the links have different role counts,
+        // so the sliders on screen cannot be carried downstream.
+        assumedCpr: meanCpr(cprs) ?? DEFAULT_CPR,
+        categoryOf: (name) => resolve(name, null),
+        call: (name, parameters) =>
+          apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
+      }))
+    } catch {
+      setChain(null)
+    } finally {
+      setComputingChain(false)
+    }
+  }, [scenario.name, scenarios, chainEdges, cprs])
+
+  const isChain = useMemo(
+    () => chainFrom(scenario.name, buildChainIndex(chainEdges)).length > 1,
+    [scenario.name, chainEdges]
+  )
+
   const timerRef = useRef(null)
   const seqRef = useRef(0)
 
@@ -406,6 +451,10 @@ export function CrimeCard({ scenario, onRemove }) {
         />
         <div>
           <ResultPanel scenario={scenario} result={result} calculating={calculating} error={calcError} />
+          {isChain && (
+            <ChainPanel chain={chain} rootName={scenario.name}
+              onCompute={valueChain} computing={computingChain} />
+          )}
           <GuidancePanel
             guidance={guidance}
             reason={guidanceMeta?.reason}
