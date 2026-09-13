@@ -18,6 +18,48 @@ surface it automatically.
 
 ---
 
+## [3.117.0] - 2026-09-13
+
+### Added
+
+- **Select a whole category at once in the crime picker** (#730). Forge is
+  moving to Advanced-only spawning, which makes the per-crime ceiling actively
+  misleading — at a uniform 75 the five Advanced crimes want **198 seats against
+  a 94-member roster**. The joint solve is the only view that tells the truth
+  about a set of crimes, and reaching it meant hand-ticking five of them.
+
+  Each category header now carries `Select all <category>` / `Clear <category>`.
+
+  ⚠️ **Appends rather than replaces.** The selection order IS the page order —
+  `toggleSelection` exists to preserve it — so rearranging somebody's existing
+  picks to satisfy a bulk add would shuffle the screen under them.
+
+  ⚠️ **A partial selection completes, it does not clear.** Ticking two of five
+  and then pressing the category button means "give me the rest"; clearing would
+  throw away the picks just made.
+
+  ⚠️ An empty category is not "fully selected", or the control would render in
+  its active state for a group with nothing in it.
+
+- **A mount test for `CrimePickerModal`**, which had none. Same reason as
+  `OCSimulatorResultPanel` and the guidance panel: v3.97.0 took the whole OC
+  Simulator down with a temporal-dead-zone throw that every pure helper's tests
+  passed straight through.
+
+### Notes
+
+The other two halves of #730 were already in place and are confirmed by this
+work rather than changed:
+
+- `solveForSelection` already drives `spawnsPerDay` from #715's **measured**
+  mix, falling back to the declared default only when the faction has fewer than
+  `MIN_SPAWNS_FOR_MIX` real decisions.
+- `ocSpawnSimulation` already nets scope regeneration against drain
+  (`shortfallPerDay = max(0, drain − regenPerDay)`), so a plan inside the +1/day
+  regen budget is correctly reported as solvent rather than as a shortfall.
+
+---
+
 ## [3.116.0] - 2026-09-13
 
 ### Added
