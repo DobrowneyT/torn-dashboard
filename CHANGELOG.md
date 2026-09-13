@@ -18,6 +18,38 @@ surface it automatically.
 
 ---
 
+## [3.110.0] - 2026-09-13
+
+### Added
+
+- **The joint plan is on screen** (#714, wiring #710). A "Solve together" panel
+  below the crime cards works out what the selected crimes can run *at the same
+  time*, and shows **what each one gave up** — "39 pts → +4 crews" — beside what
+  it kept. A set of lower numbers with no reasoning attached will not be trusted
+  or followed.
+
+  ⚠️ **Scoped to the crimes on screen, deliberately.** Solving all 31 scenarios
+  would mean 31 roster fetches and ~250 requests to tornprobability. The
+  Simulator already has a selection the operator controls, so the cost is theirs
+  to choose — and the panel states it before they pay it.
+
+  ⚠️ **A skipped crime says which kind of skip it is.** tnl has readings for
+  exactly the ten crimes it has run recently; the other eleven in its history
+  last ran in 2025 and have none. "Never observed anyone in this role — a gap in
+  what we have measured, not a verdict" is a different sentence from "nobody
+  clears the bar" (#351).
+
+  Both known gaps are printed under the table rather than buried: the spawn mix
+  is assumed even when it is not (#715), and occupancy is overstated by about
+  half because a member is held for the crime's whole duration.
+
+### Fixed
+
+- **A duplicated chain-edge state.** v3.108.0 added `chainEdges` next to the
+  `chains` state that already held the same payload. One of them now.
+
+---
+
 ## [3.109.0] - 2026-09-13
 
 ### Added
