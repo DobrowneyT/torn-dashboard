@@ -18,6 +18,40 @@ surface it automatically.
 
 ---
 
+## [3.112.0] - 2026-09-13
+
+### Fixed
+
+- **⚠️ A chain root got no CPR guidance at all, and it is the crime people
+  actually join** (#713). v3.107.1 refused it — *"set thresholds on Ace in the
+  Hole and treat this as the way in"* — which is half right and the wrong
+  conclusion.
+
+  **Ace in the Hole cannot be spawned on its own.** #585 verified it across the
+  fleet: 128 of 128 runs came from a parent, zero standalone. So that advice
+  asks a leader to publish bars for a crime nobody can choose, while Stacking
+  the Deck — where the crew is actually assembled, and where tnl has readings
+  for 97 members — got nothing.
+
+  A chain root is now valued at **the whole chain**. Its own E(X) is zero by
+  design, so searching on it would rank every vector identically; what varies
+  with the crew is the root's **success chance**, which decides how often the
+  chain is reached at all. So the search scores `chainedValue` recomputed with
+  each candidate's success.
+
+  ⚠️ **Downstream links are priced ONCE**, at a flat CPR, and reused across every
+  candidate. Pricing them per candidate would multiply the call budget by the
+  chain length to refine an assumption already flagged as one — the links have
+  different role counts, so the root's crew cannot carry across them anyway.
+  There is a test asserting exactly one downstream call.
+
+  ⚠️ It still refuses when the chain **cannot be priced** — a terminal link with
+  an unpriced ending makes the whole chain a lower bound, and published guidance
+  cannot rest on one. The panel says the value is the chain's and the thresholds
+  are this crew's, so the figure is not read as this crime's own payout.
+
+---
+
 ## [3.111.0] - 2026-09-13
 
 ### Fixed

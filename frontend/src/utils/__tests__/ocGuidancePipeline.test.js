@@ -207,3 +207,95 @@ describe('computeGuidance — chain crimes', () => {
     expect(out.reason).not.toBe('chains')
   })
 })
+
+// ⚠️ #713 — a chain ROOT is the crime members actually join, and it was getting
+// no guidance at all.
+//
+// Refusing it and saying "set thresholds on Ace in the Hole" asks a leader to
+// publish bars for a crime nobody can choose: #585 verified Ace in the Hole has
+// 128 of 128 runs from a parent and zero standalone. Stacking the Deck is where
+// the crew is assembled, and its value is not zero — it is the chain's.
+describe('computeGuidance — a chain root gets real guidance', () => {
+  const ROOT = {
+    name: 'Stacking the Deck',
+    roles: ROLES,
+    endings: [
+      { ending_key: 'goodEnding1', kind: 'good', resolved: true, node_id: 'A', money_avg: null, reward: { money: null, chainsTo: 'Ace in the Hole' } },
+      { ending_key: 'badEnding1', kind: 'bad', resolved: true, node_id: 'F' },
+    ],
+  }
+  const TERMINAL = {
+    name: 'Ace in the Hole',
+    roles: [...ROLES, { position_id: 'P5', role_name: 'Extra', weight: 0 }],
+    // ⚠️ Declares BOTH good endings the fake service reports. An earlier version
+    // omitted goodEnding2, which the service returns with real probability — so
+    // the terminal was genuinely unpriced and the pipeline refused, correctly.
+    // A fixture that under-declares its endings tests the refusal path, not this
+    // one.
+    endings: [
+      { ending_key: 'goodEnding1', kind: 'good', resolved: true, node_id: 'A', money_avg: 500_000_000 },
+      { ending_key: 'goodEnding2', kind: 'good', resolved: true, node_id: 'B', money_avg: 200_000_000 },
+      { ending_key: 'badEnding1', kind: 'bad', resolved: true, node_id: 'F' },
+    ],
+  }
+  const CHAINS = [{ parent: 'Stacking the Deck', child: 'Ace in the Hole', observations: 128 }]
+
+  const run = (over = {}) => computeGuidance({
+    scenario: ROOT, rosterCpr: rosterCpr(), category: CATEGORY,
+    call: async (n, p) => rawFor(p),
+    scenarios: [ROOT, TERMINAL], chains: CHAINS,
+    categoryOf: () => 'elaborate',
+    now: () => '2026-09-13T00:00:00.000Z',
+    ...over,
+  })
+
+  it('⚠️ publishes thresholds instead of refusing', async () => {
+    const out = await run()
+    expect(out.reason).toBeNull()
+    expect(out.guidance.publishable).toBe(true)
+    expect(out.guidance.roles).toHaveLength(4)
+  })
+
+  it('⚠️ the thresholds are for the ROOT\'s roles, because that is the crew being assembled', async () => {
+    const out = await run()
+    expect(out.guidance.roles.map((r) => r.positionId).sort()).toEqual(['P1', 'P2', 'P3', 'P4'])
+  })
+
+  it('⚠️ values it at the CHAIN, not at its own zero', async () => {
+    // The root pays nothing itself, so searching on its own E(X) would rank
+    // every vector identically. What varies is how often the chain is reached.
+    const out = await run()
+    expect(out.guidance.value.floor).toBeGreaterThan(0)
+  })
+
+  it('⚠️ prices downstream links ONCE, not once per candidate', async () => {
+    // Otherwise the call budget multiplies by the chain length to refine an
+    // assumption already flagged as an assumption.
+    const call = vi.fn(async (n, p) => rawFor(p))
+    const out = await run({ call })
+    const downstreamCalls = call.mock.calls.filter((c) => c[0] === 'Ace in the Hole').length
+    expect(downstreamCalls).toBe(1)
+    expect(out.probeCalls).toBe(call.mock.calls.length)
+  })
+
+  it('still refuses when the chain cannot be priced', async () => {
+    // A terminal we have no scenario for is a real gap, not a known zero.
+    const out = await run({ scenarios: [ROOT] })
+    expect(out.reason).toBe('chains')
+    expect(out.chainsTo).toBe('Ace in the Hole')
+  })
+
+  it('⚠️ refuses when the TERMINAL has an unpriced ending', async () => {
+    // The chain is only as priced as its payout link. A terminal that under-
+    // declares its endings makes the whole chain a lower bound, and published
+    // guidance cannot rest on one.
+    const thin = { ...TERMINAL, endings: TERMINAL.endings.filter((e) => e.ending_key !== 'goodEnding2') }
+    const out = await run({ scenarios: [ROOT, thin] })
+    expect(out.guidance.publishable).toBe(false)
+  })
+
+  it('refuses when there is no chain data at all, rather than inventing one', async () => {
+    const out = await run({ scenarios: [], chains: [] })
+    expect(out.guidance.publishable).toBe(false)
+  })
+})

@@ -119,3 +119,19 @@ describe('GuidancePanel — busy state', () => {
     expect(screen.getByText(/One crime at a time/i)).toBeTruthy()
   })
 })
+
+// ⚠️ #713 — a chain root's thresholds are for ITS crew, but the value behind
+// them is the whole chain's. Without saying so the figure reads as this crime's
+// own payout, which is zero.
+describe('GuidancePanel — a chain root', () => {
+  it('says the value is the chain\'s, and the thresholds are this crew\'s', () => {
+    render(<GuidancePanel guidance={guidance()} chainOf="Ace in the Hole" />)
+    expect(screen.getByText(/Valued at the whole chain/)).toBeTruthy()
+    expect(document.body.textContent).toMatch(/this is the crime people join/)
+  })
+
+  it('says nothing about chains on an ordinary crime', () => {
+    render(<GuidancePanel guidance={guidance()} />)
+    expect(screen.queryByText(/Valued at the whole chain/)).toBeNull()
+  })
+})

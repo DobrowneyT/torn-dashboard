@@ -382,9 +382,19 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
           apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
         gap: 0.5,
         gapIsAssumed: true,
+        // #713: a chain ROOT pays nothing itself, so it is valued at the whole
+        // chain. Without these it would be refused — and it is the crime
+        // members actually join.
+        scenarios,
+        chains: chainEdges,
+        categoryOf: (name) => resolve(name, null),
+        chainCpr: meanCpr(cprs) ?? DEFAULT_CPR,
       })
       setGuidance(out.guidance)
-      setGuidanceMeta({ reason: out.reason, limitingRoles: out.limitingRoles, chainsTo: out.chainsTo })
+      setGuidanceMeta({
+        reason: out.reason, limitingRoles: out.limitingRoles,
+        chainsTo: out.chainsTo, chainContext: out.chainContext,
+      })
     } catch {
       // ⚠️ A failure leaves the panel in its idle state rather than showing a
       // half-computed table. Nothing here is worth publishing on a guess.
@@ -393,7 +403,7 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
     } finally {
       setComputingGuidance(false)
     }
-  }, [scenario, rosterCpr])
+  }, [scenario, rosterCpr, scenarios, chainEdges, cprs])
 
   useEffect(() => { setChain(null) }, [scenario.name])
 
@@ -509,6 +519,7 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
             reason={guidanceMeta?.reason}
             limitingRoles={guidanceMeta?.limitingRoles}
             chainsTo={guidanceMeta?.chainsTo}
+            chainOf={guidanceMeta?.chainContext ? guidanceMeta.chainContext.links[guidanceMeta.chainContext.links.length - 1].name : null}
             onCompute={suggestCprs}
             computing={computingGuidance}
           />
