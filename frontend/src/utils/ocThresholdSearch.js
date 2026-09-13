@@ -60,7 +60,7 @@
  * this file.
  */
 
-import { maxDisjointCrews } from './ocCrewMatching'
+import { maxDisjointCrews, canSeatCrews } from './ocCrewMatching'
 import { maximalCprVector } from './ocMaximalCpr'
 import { perPersonPerDay } from './ocPersonDays'
 import { maxSustainableCpr } from './ocRosterFit'
@@ -124,7 +124,10 @@ function highestVectorFor(readings, positions, k, pinned = {}, weights = null) {
     if (safe === null) return null
     vector[pos] = safe
   }
-  if (maxDisjointCrews(readings, vector).k < k) return null
+  // ⚠️ `maxK: k` matters enormously. Without it the matcher keeps augmenting to
+  // find the TRUE maximum crew count on every feasibility probe, when all we
+  // asked was "does k still fit". That alone was most of a 44-second freeze.
+  if (!canSeatCrews(readings, vector, k)) return null
 
   // Raise one role at a time to the next reading above its current bar, keeping
   // the move only while `k` survives.
@@ -152,11 +155,24 @@ function highestVectorFor(readings, positions, k, pinned = {}, weights = null) {
     const above = [...new Set(usableRows(readings, pos).map((r) => num(r.cpr)))]
       .filter((v) => v > vector[pos])
       .sort((a, b) => a - b)
-    for (const next of above) {
-      const trial = { ...vector, [pos]: next }
-      if (maxDisjointCrews(readings, trial).k >= k) vector[pos] = next
-      else break
+    if (above.length === 0) continue
+
+    // ⚠️ BINARY search, not linear. Raising a role's bar can only shrink its
+    // eligible set, which can only reduce the crew count — so feasibility is
+    // monotone in the bar and the highest workable value can be bisected. The
+    // linear walk did one matching per distinct CPR reading: on a 94-member
+    // roster that is ~90 matchings per role per crew count, and it froze the
+    // browser for 44 seconds.
+    let lo = 0
+    let hi = above.length - 1
+    let best = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      const trial = { ...vector, [pos]: above[mid] }
+      if (canSeatCrews(readings, trial, k)) { best = mid; lo = mid + 1 }
+      else hi = mid - 1
     }
+    if (best >= 0) vector[pos] = above[best]
   }
   return vector
 }

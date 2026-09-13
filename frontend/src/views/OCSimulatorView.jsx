@@ -302,6 +302,12 @@ export function CrimeCard({ scenario, onRemove }) {
 
   const suggestCprs = useCallback(async () => {
     setComputingGuidance(true)
+    // ⚠️ Yield to the browser before the heavy part. Candidate generation is
+    // synchronous CPU work — crew matching over the whole roster — so without
+    // this React never gets to paint "Working…" and the page simply locks with
+    // the button still looking idle. That is exactly how v3.107.0 felt: a dead
+    // page, then a faded button appearing seconds later.
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
     try {
       const resolve = makeCategoryResolver({
         scenarios: config.ocScenarios || {},
@@ -318,7 +324,7 @@ export function CrimeCard({ scenario, onRemove }) {
         gapIsAssumed: true,
       })
       setGuidance(out.guidance)
-      setGuidanceMeta({ reason: out.reason, limitingRoles: out.limitingRoles })
+      setGuidanceMeta({ reason: out.reason, limitingRoles: out.limitingRoles, chainsTo: out.chainsTo })
     } catch {
       // ⚠️ A failure leaves the panel in its idle state rather than showing a
       // half-computed table. Nothing here is worth publishing on a guess.
@@ -403,6 +409,7 @@ export function CrimeCard({ scenario, onRemove }) {
             guidance={guidance}
             reason={guidanceMeta?.reason}
             limitingRoles={guidanceMeta?.limitingRoles}
+            chainsTo={guidanceMeta?.chainsTo}
             onCompute={suggestCprs}
             computing={computingGuidance}
           />

@@ -92,13 +92,21 @@ function assign(slot, adjacency, slotOfMember, visited) {
   return false
 }
 
-/** Try to seat `k` full crews. Returns the seating, or the roles that ran dry. */
-function seat(positions, eligibleByPos, k) {
+/**
+ * Try to seat `k` full crews. Returns the seating, or the roles that ran dry.
+ *
+ * ⚠️ `sortedByPos` is built ONCE by the caller and shared across every `k`.
+ * Sorting inside here meant one sort per SLOT — `k × roles` sorts of a
+ * ~90-member list, each using a numeric-aware `localeCompare`, which is
+ * famously slow. On a real roster that was the single largest cost in the whole
+ * search.
+ */
+function seat(positions, eligibleByPos, k, sortedByPos) {
   const slots = []
   for (let copy = 0; copy < k; copy += 1) {
     for (const pos of positions) slots.push({ pos, copy })
   }
-  const adjacency = slots.map((s) => [...eligibleByPos[s.pos]].sort(byId))
+  const adjacency = slots.map((s) => sortedByPos[s.pos])
   const slotOfMember = new Map()
   const unfilled = []
   for (let i = 0; i < slots.length; i += 1) {
@@ -112,6 +120,35 @@ function seat(positions, eligibleByPos, k) {
     crews[copy][pos] = memberId
   }
   return { ok: true, crews }
+}
+
+/**
+ * Can this roster seat EXACTLY `k` crews at these bars?
+ *
+ * ⚠️ Use this, not `maxDisjointCrews(...).k >= k`, wherever the question is a
+ * yes/no. That walks `k` up from 1 and runs a matching at every step, so asking
+ * "does 8 fit" costs eight matchings instead of one. It was a measurable part
+ * of a 44-second UI freeze.
+ */
+export function canSeatCrews(readingsByRole, cprVector, k) {
+  const positions = Object.keys(cprVector ?? {}).sort(byId)
+  if (positions.length === 0 || k < 1) return false
+  const universe = new Set()
+  for (const pos of positions) {
+    for (const row of readingsByRole?.[pos] ?? []) {
+      const id = String(row?.member_id ?? '')
+      if (id !== '') universe.add(id)
+    }
+  }
+  const eligibleByPos = {}
+  const sortedByPos = {}
+  for (const pos of positions) {
+    const r = eligibleFor(readingsByRole?.[pos], cprVector[pos], universe)
+    if (r.eligible.size < k) return false           // cheap per-role bound first
+    eligibleByPos[pos] = r.eligible
+    sortedByPos[pos] = [...r.eligible].sort(byId)
+  }
+  return seat(positions, eligibleByPos, k, sortedByPos).ok
 }
 
 /**
@@ -167,6 +204,9 @@ export function maxDisjointCrews(readingsByRole, cprVector, { maxK = Infinity } 
   const unionCap = Math.floor(union.size / positions.length)
   const cap = Math.min(perRoleCap, unionCap, maxK)
 
+  const sortedByPos = {}
+  for (const pos of positions) sortedByPos[pos] = [...eligibleByPos[pos]].sort(byId)
+
   let best = { k: 0, crews: [] }
   let limitingRoles = positions.filter((p) => eligibleByPos[p].size === 0)
 
@@ -174,7 +214,7 @@ export function maxDisjointCrews(readingsByRole, cprVector, { maxK = Infinity } 
   // failure is the answer. `k` is single digits in practice, so walking up is
   // clearer than a binary search and costs nothing.
   for (let k = 1; k <= cap; k += 1) {
-    const attempt = seat(positions, eligibleByPos, k)
+    const attempt = seat(positions, eligibleByPos, k, sortedByPos)
     if (!attempt.ok) {
       limitingRoles = attempt.limitingRoles
       break

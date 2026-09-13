@@ -18,6 +18,55 @@ surface it automatically.
 
 ---
 
+## [3.107.1] - 2026-09-13
+
+### Fixed
+
+- **⚠️ "Suggest minimum CPRs" froze the browser for 44 seconds.** Reported from
+  the live page, reproduced on a 94-member six-role roster: **43,873ms** of
+  synchronous, main-thread-blocking work. Not a missing spinner — the page was
+  genuinely locked, which is why the faded "Working…" only appeared seconds
+  after the click.
+
+  Three compounding faults, each measured:
+
+  | | |
+  |---|---|
+  | as shipped | **43,873ms** |
+  | binary-search the greedy raise instead of walking every distinct CPR | 10,620ms |
+  | ask "does `k` fit" instead of "what is the maximum `k`", and sort each role's candidates once instead of once per slot | **769ms** |
+
+  **57x, with byte-identical output** — same candidates, same crew counts. The
+  three faults: the raise did one matching per distinct reading per role per
+  crew count (~90 × 6 × 8); each feasibility probe ran `maxDisjointCrews`, which
+  walks `k` up from 1 and so did eight matchings to answer one question; and
+  `seat()` re-sorted a ~90-member adjacency list per SLOT using a numeric-aware
+  `localeCompare`.
+
+  ⚠️ Nothing caught it because every existing test used a 12-member roster,
+  where the cost is invisible. There is now a test on a real-sized one.
+
+- **The busy state is real.** A spinner, `aria-busy`, and a yield to the browser
+  before the synchronous work so React can actually paint it. The table dims
+  while recomputing, so stale numbers are not read as fresh.
+
+### Changed
+
+- **⚠️ The guidance table now says it is one crime at a time**, above the
+  numbers rather than in a footnote. Every threshold is computed as if that
+  crime had first claim on the whole roster — which is why the values come out
+  higher than the faction actually uses. They are a **per-crime ceiling**, not a
+  set to publish across all crimes. The joint solve is #710.
+
+- **⚠️ A chain crime is now named, not called "unpriced".** Stacking the Deck
+  pays no money or items at all: every good ending spawns **Ace in the Hole**.
+  Reporting that as a pricing gap reads as a data problem and sends somebody
+  hunting a number that does not exist. The panel now says which crime it chains
+  into and that thresholds belong on *that* crime — and the pipeline detects it
+  **before** the search, so it spends no probability calls learning nothing.
+
+---
+
 ## [3.107.0] - 2026-09-12
 
 ### Added

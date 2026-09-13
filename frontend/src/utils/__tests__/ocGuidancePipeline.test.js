@@ -153,3 +153,57 @@ describe('computeGuidance', () => {
     expect(a.guidance).toEqual(b.guidance)
   })
 })
+
+// ⚠️ A chain crime pays no money or items at all — every good ending spawns the
+// NEXT crime. Stacking the Deck → Ace in the Hole is the documented case, and
+// the Simulator reported it as "4 endings unpriced", which reads as a data gap
+// and sends somebody hunting a number that does not exist.
+describe('computeGuidance — chain crimes', () => {
+  const CHAINED = {
+    name: 'Stacking the Deck',
+    roles: ROLES,
+    endings: [
+      { ending_key: 'goodEnding1', kind: 'good', resolved: true, node_id: 'A', money_avg: null, reward: { money: null, chainsTo: 'Ace in the Hole' } },
+      { ending_key: 'goodEnding2', kind: 'good', resolved: true, node_id: 'B', money_avg: null, reward: { money: null, chainsTo: 'Ace in the Hole' } },
+      { ending_key: 'badEnding1', kind: 'bad', resolved: true, node_id: 'F' },
+    ],
+  }
+
+  it('⚠️ names the crime it chains into instead of calling it unpriced', async () => {
+    const call = vi.fn(async (n, p) => rawFor(p))
+    const out = await computeGuidance({
+      scenario: CHAINED, rosterCpr: rosterCpr(), category: CATEGORY, call,
+      now: () => '2026-09-13T00:00:00.000Z',
+    })
+    expect(out.reason).toBe('chains')
+    expect(out.chainsTo).toBe('Ace in the Hole')
+  })
+
+  it('⚠️ spends NO probability calls on it', async () => {
+    // Detected before the search: probing a crime with no money of its own
+    // burns calls on a small third-party server to learn nothing.
+    const call = vi.fn(async (n, p) => rawFor(p))
+    await computeGuidance({
+      scenario: CHAINED, rosterCpr: rosterCpr(), category: CATEGORY, call,
+      now: () => '2026-09-13T00:00:00.000Z',
+    })
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  it('still prices a crime that chains AND pays', async () => {
+    // If a chain link ever pays something of its own, that is a real number and
+    // must not be discarded by the shortcut above.
+    const both = {
+      ...CHAINED,
+      endings: [
+        { ending_key: 'goodEnding1', kind: 'good', resolved: true, node_id: 'A', money_avg: 5_000_000, reward: { money: 5_000_000, chainsTo: 'Ace in the Hole' } },
+        { ending_key: 'badEnding1', kind: 'bad', resolved: true, node_id: 'F' },
+      ],
+    }
+    const out = await computeGuidance({
+      scenario: both, rosterCpr: rosterCpr(), category: CATEGORY,
+      call: async (n, p) => rawFor(p), now: () => '2026-09-13T00:00:00.000Z',
+    })
+    expect(out.reason).not.toBe('chains')
+  })
+})
