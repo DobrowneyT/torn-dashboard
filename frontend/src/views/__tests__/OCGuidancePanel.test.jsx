@@ -83,3 +83,39 @@ describe('GuidancePanel', () => {
     expect(screen.getByText(/Muscle/)).toBeTruthy()
   })
 })
+
+// ⚠️ v3.107.0 locked the browser for 44 seconds with the button still looking
+// idle. The blocking work is fixed (57x faster) but it is still ~0.8s of
+// synchronous matching, so the busy state has to be real and visible.
+describe('GuidancePanel — busy state', () => {
+  it('shows a spinner and marks the button busy while working', () => {
+    render(<GuidancePanel guidance={null} onCompute={vi.fn()} computing />)
+    const button = screen.getByRole('button')
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(button.disabled).toBe(true)
+    expect(button.querySelector('.animate-spin')).toBeTruthy()
+  })
+
+  it('⚠️ dims a stale table while recomputing, so it is not read as fresh', () => {
+    render(<GuidancePanel guidance={guidance()} onCompute={vi.fn()} computing />)
+    expect(document.querySelector('.overflow-x-auto').className).toMatch(/opacity-40/)
+  })
+
+  it('⚠️ explains a chain crime by name rather than calling it unpriced', () => {
+    render(
+      <GuidancePanel guidance={guidance({ publishable: false, roles: [] })}
+        reason="chains" chainsTo="Ace in the Hole" />
+    )
+    // Named twice on purpose — "spawns X instead", then "set thresholds on X".
+    expect(screen.getAllByText(/Ace in the Hole/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/unpriced/i)).toBeNull()
+  })
+
+  it('⚠️ warns that the numbers are one crime at a time', () => {
+    // The single most important caveat: every threshold assumes this crime has
+    // first claim on the whole roster, and every other crime wants the same
+    // people. Buried in a footnote it would be read as publishable.
+    render(<GuidancePanel guidance={guidance()} />)
+    expect(screen.getByText(/One crime at a time/i)).toBeTruthy()
+  })
+})

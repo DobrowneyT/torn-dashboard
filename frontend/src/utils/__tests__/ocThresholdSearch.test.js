@@ -302,3 +302,46 @@ describe('role priority and the carry trade', () => {
     expect(out.chosen.vector.P1).toBeGreaterThan(out.chosen.vector.P4)
   })
 })
+
+// ⚠️ THIS BLOCK EXISTS BECAUSE v3.107.0 FROZE THE BROWSER FOR 44 SECONDS.
+//
+// The search was correct and unusably slow, and nothing caught it: every test
+// above uses a 12-member roster where the cost is invisible. A real faction has
+// ~90 members with ~90 distinct CPR values, and the greedy raise did one
+// matching per distinct value per role per crew count.
+//
+// Three compounding faults, measured on a 94-member six-role roster:
+//   43,873ms  as shipped
+//   10,620ms  after binary-searching the raise instead of walking it
+//      769ms  after asking "does k fit" instead of "what is the maximum k",
+//             and sorting each role's candidates once instead of per slot
+describe('candidateVectors on a real-sized roster', () => {
+  const P6 = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+  const WEIGHTS = { P1: 31.7, P2: 29.1, P3: 13.5, P4: 12.7, P5: 10.1, P6: 2.9 }
+  const bigRoster = () => {
+    const pool = Array.from({ length: 94 }, (_, i) => ({
+      member_id: `m${i}`, cpr: Math.max(5, 95 - Math.floor(i * 0.95)),
+    }))
+    return Object.fromEntries(P6.map((p) => [p, pool.map((r) => ({ ...r }))]))
+  }
+
+  it('⚠️ finishes fast enough to run in a click handler', () => {
+    const started = Date.now()
+    const cands = candidateVectors(bigRoster(), P6, { weights: WEIGHTS })
+    const elapsed = Date.now() - started
+    expect(cands.length).toBeGreaterThan(0)
+    // Generous against CI contention, and still ~14x under the 10.6s the
+    // half-fixed version took — this fails loudly if any of the three faults
+    // comes back.
+    expect(elapsed).toBeLessThan(5000)
+  })
+
+  it('⚠️ the fast path finds the SAME vectors — this was an optimisation, not a change', () => {
+    // Every candidate must still genuinely seat the crews it claims. An
+    // optimisation that quietly loosened the matching would be far worse than
+    // the slowness it fixed.
+    for (const c of candidateVectors(bigRoster(), P6, { weights: WEIGHTS })) {
+      expect(c.verifiedCrews).toBeGreaterThanOrEqual(c.crews)
+    }
+  })
+})
