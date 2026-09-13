@@ -71,6 +71,16 @@ const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinit
 export const DEFAULT_MAX_CANDIDATES = 8
 
 /**
+ * Weight below which a role is a CARRY: pinned to the roster floor and
+ * published as `0`.
+ *
+ * ⚠️ Must match `ocGuidanceTable`'s threshold. If the search pins a different
+ * set of roles than the table publishes zeros for, the two disagree again — the
+ * exact defect this constant exists to prevent.
+ */
+export const CARRY_WEIGHT_MAX = 10
+
+/**
  * The scope break-even success chance for a category.
  *
  * ⚠️ Derived, never tabulated. Advanced happens to be 4/5 today; if Torn
@@ -213,7 +223,8 @@ function highestVectorFor(readings, positions, k, pinned = {}, weights = null) {
  * the crews are worth, `searchThresholds` rejects it like anything else.
  */
 export function candidateVectors(
-  readings, positionIds, { maxCandidates = DEFAULT_MAX_CANDIDATES, weights = null } = {}
+  readings, positionIds,
+  { maxCandidates = DEFAULT_MAX_CANDIDATES, weights = null, carryWeightMax = CARRY_WEIGHT_MAX } = {}
 ) {
   const positions = [...(positionIds ?? [])]
   if (positions.length === 0) return []
@@ -221,15 +232,37 @@ export function candidateVectors(
   const ceiling = maximalCprVector(readings, positions)
   if (!ceiling.crewable) return []
 
-  // Lowest weight wins, ties broken by position id so the choice is stable.
-  let carryRole = null
+  // ⚠️ Carry roles are pinned to the roster floor in EVERY candidate, not
+  // offered as an optional variant.
+  //
+  // The published table says `0` on a carry role — "you do not need this
+  // trained". The search used to leave that role wherever the greedy dropped
+  // it (83 on a live crime), so the number beside it was scored assuming
+  // forty-seven people had cleared 83 while telling members to train none of
+  // them. **The published vector and the scored vector must be the same
+  // vector**, or the table lies about its own figure.
+  //
+  // Pinning to the roster floor is what the source document asks for in as many
+  // words: "set it to the lowest actual member of the faction like Andrew so
+  // its not literally zero in the simulator, but in the official guidance just
+  // put zero".
+  //
+  // ⚠️ This LOWERS reported E(X), and that is the correction rather than a
+  // regression — the old figure was optimistic by exactly the amount the carry
+  // role was silently assumed to be trained. It also frees the strong members
+  // that role was hoarding, so the roles that matter can go higher.
+  const carryPins = {}
+  const carryRoles = []
   if (weights) {
-    const ranked = positions
-      .filter((p) => num(weights[p]) !== null)
-      .sort((a, b) => num(weights[a]) - num(weights[b]) || String(a).localeCompare(String(b)))
-    carryRole = ranked[0] ?? null
+    for (const pos of positions) {
+      const w = num(weights[pos])
+      if (w === null || w >= carryWeightMax) continue
+      const floor = rosterFloor(readings, pos)
+      if (floor === null) continue
+      carryPins[pos] = floor
+      carryRoles.push(pos)
+    }
   }
-  const carryFloor = carryRole === null ? null : rosterFloor(readings, carryRole)
 
   const out = []
   const seen = new Set()
@@ -248,28 +281,9 @@ export function candidateVectors(
   }
 
   for (let k = 1; k <= maxCandidates; k += 1) {
-    const flat = highestVectorFor(readings, positions, k, {}, weights)
-    if (flat === null) break
-    add(k, flat, null)
-    // ⚠️ The carry variant is kept ONLY when it lifts another role.
-    //
-    // E(X) is monotone in CPR (verified across six scenarios, 2026-09-12), so a
-    // vector that merely lowers the carry role and changes nothing else can
-    // only score WORSE — and every candidate costs a probability call. Keeping
-    // it unconditionally would double the budget to evaluate vectors we already
-    // know lose.
-    //
-    // ⚠️ This is NOT the whole of the source document's carry rule. Publishing
-    // `0` on a low-impact role is a PRESENTATION decision, not a scoring one:
-    // the bar is a floor, not a prediction, and members will bring whoever is
-    // free to that seat. Scoring a vector at its pinned-low CPR understates
-    // what actually happens. That half belongs to #694.
-    if (carryRole !== null && carryFloor !== null) {
-      const carried = highestVectorFor(readings, positions, k, { [carryRole]: carryFloor }, weights)
-      const liftsSomething =
-        carried !== null && positions.some((p) => p !== carryRole && carried[p] > flat[p])
-      if (liftsSomething) add(k, carried, carryRole)
-    }
+    const vector = highestVectorFor(readings, positions, k, carryPins, weights)
+    if (vector === null) break
+    add(k, vector, carryRoles.length > 0 ? carryRoles.join(',') : null)
   }
   return out
 }

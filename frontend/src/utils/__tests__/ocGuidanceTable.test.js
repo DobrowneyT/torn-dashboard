@@ -198,3 +198,46 @@ describe('publishGuidance — the expected crew', () => {
     expect(g.roles.find((r) => r.positionId === 'P1').expected).toBe(85)
   })
 })
+
+// ⚠️ #716 — the table must not contradict the number beside it.
+//
+// Live on tnl: Picklock 2 published `0`, "model used" 83, "can fill" 47 of 69.
+// MonChoon: "if it was truly at the floor then wouldn't it have 69 of 69 that
+// can fill the crime at the floor?" Exactly right — the guidance and the E(X)
+// were describing different crews.
+describe('publishGuidance — a carry role reads consistently', () => {
+  const P = ['P1', 'P2', 'P3', 'P4']
+  const WEIGHTS = { P1: 34.6, P2: 30.0, P3: 32.5, P4: 2.9 }
+  const readings = () => {
+    const pool = Array.from({ length: 12 }, (_, i) => ({ member_id: `m${i}`, cpr: 95 - i }))
+    return Object.fromEntries(P.map((p) => [p, pool.map((r) => ({ ...r }))]))
+  }
+
+  it('⚠️ everyone can fill a role scored at the roster floor', () => {
+    const r = readings()
+    const floor = Math.min(...r.P4.map((x) => x.cpr))
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: WEIGHTS,
+      chosen: { P1: 92, P2: 88, P3: 90, P4: floor },     // carry pinned, as the search now does
+      ceiling: { P1: 95, P2: 93, P3: 94, P4: 95 },
+      readings: r, crews: 1,
+    })
+    const carry = g.roles.find((x) => x.positionId === 'P4')
+    expect(carry.isCarry).toBe(true)
+    expect(carry.published).toBe(0)
+    expect(carry.floor).toBe(floor)
+    // The number MonChoon expected: everyone with a reading clears the floor.
+    expect(carry.eligible).toBe(carry.readings)
+  })
+
+  it('⚠️ uses the same weight threshold the search pins on', () => {
+    // If the table publishes zero for roles the search did not pin, the two
+    // disagree again — which is the whole defect.
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: WEIGHTS,
+      chosen: { P1: 92, P2: 88, P3: 90, P4: 84 },
+      ceiling: { P1: 95, P2: 93, P3: 94, P4: 95 }, readings: readings(), crews: 1,
+    })
+    expect(g.roles.filter((r) => r.isCarry).map((r) => r.positionId)).toEqual(['P4'])
+  })
+})

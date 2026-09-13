@@ -261,14 +261,39 @@ describe('role priority and the carry trade', () => {
     expect(a.every((c) => !c.carryRole)).toBe(true)
   })
 
-  it('⚠️ does NOT spend a probability call on a carry vector that can only lose', () => {
-    // E(X) is monotone in CPR, so a vector that merely lowers the carry role
-    // and lifts nothing scores strictly worse. Generating it would double the
-    // call budget to evaluate candidates we already know lose.
-    const cands = candidateVectors(shared(), P4, { weights: WEIGHTS })
-    for (const c of cands.filter((x) => x.carryRole)) {
-      const flat = cands.find((f) => !f.carryRole && f.crews === c.crews)
-      expect(P4.some((p) => p !== c.carryRole && c.vector[p] > flat.vector[p])).toBe(true)
+  it('⚠️ pins a carry role to the roster floor in EVERY candidate', () => {
+    // The defect: the table published `0` on Picklock 2 while the search had
+    // scored it at 83, so the E(X) beside the guidance assumed forty-seven
+    // people had trained a role members were told to ignore. The published
+    // vector and the scored vector must be the same vector.
+    const readings = shared()
+    const floor = Math.min(...readings.P4.map((r) => r.cpr))
+    for (const c of candidateVectors(readings, P4, { weights: WEIGHTS })) {
+      expect(c.vector.P4).toBe(floor)
+    }
+  })
+
+  it('⚠️ pinning the carry lifts the roles that matter', () => {
+    // The carry trade, now the default rather than an option: the strong
+    // members that role was hoarding are freed for the roles that move success.
+    const readings = shared()
+    const withCarry = candidateVectors(readings, P4, { weights: WEIGHTS })
+    const without = candidateVectors(readings, P4)          // no weights, no pinning
+    const k3 = (set) => set.find((c) => c.crews === 3)
+    expect(k3(withCarry).vector.P1).toBeGreaterThanOrEqual(k3(without).vector.P1)
+  })
+
+  it('does not pin a role that matters', () => {
+    const readings = shared()
+    const floor = Math.min(...readings.P2.map((r) => r.cpr))
+    for (const c of candidateVectors(readings, P4, { weights: WEIGHTS })) {
+      expect(c.vector.P2).toBeGreaterThan(floor)
+    }
+  })
+
+  it('⚠️ every candidate still seats the crews it claims after pinning', () => {
+    for (const c of candidateVectors(shared(), P4, { weights: WEIGHTS })) {
+      expect(c.verifiedCrews).toBeGreaterThanOrEqual(c.crews)
     }
   })
 
