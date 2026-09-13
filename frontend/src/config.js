@@ -225,6 +225,11 @@ export const config = {
     'Plucking the Lotus Petal':{ category: 'simple', difficulty: 4, participants: 4 },
     'Stage Fright':            { category: 'simple', difficulty: 4, participants: 6 },
     // Intermediate (Lv5-6)
+    // ⚠️ Torn spells this with an accented Á. The plain-A spelling never
+    // matched on any tenant, so it resolved by difficulty fallback for as long
+    // as this table has existed. Both are kept: we cannot be sure every tenant
+    // reports the accent, and an alias costs nothing.
+    'Guardian Ángels':         { category: 'intermediate', difficulty: 5, participants: 3 },
     'Guardian Angels':         { category: 'intermediate', difficulty: 5, participants: 3 },
     'Counter Offer':           { category: 'intermediate', difficulty: 5, participants: 5 },
     'No Reserve':              { category: 'intermediate', difficulty: 5, participants: 3 },
@@ -238,11 +243,18 @@ export const config = {
     'Window of Opportunity':   { category: 'advanced', difficulty: 7, participants: 5 },
     'Break the Bank':          { category: 'advanced', difficulty: 8, participants: 6 },
     'Clinical Precision':      { category: 'advanced', difficulty: 8, participants: 4 },
+    'Cleared for Takeoff':     { category: 'advanced', difficulty: 7, participants: 6 },
     // Elaborate (Lv8-10)
     'Stacking the Deck':       { category: 'elaborate', difficulty: 8,  participants: 4 },
     'Manifest Cruelty':        { category: 'elaborate', difficulty: 8,  participants: 4 },
     'Ace in the Hole':         { category: 'elaborate', difficulty: 9,  participants: 5 },
     'Gone Fission':            { category: 'elaborate', difficulty: 9,  participants: 5 },
+    // ⚠️ Lock Stock is difficulty 8, which the resolver's fallback sends to
+    // ADVANCED. It is elaborate, and it is the most-spawned crime on tnl, so
+    // its absence here mispriced more scope than every other gap combined.
+    // It is a chain root: Lock Stock → Hostile Takeover (39/39 from a parent).
+    'Lock Stock':              { category: 'elaborate', difficulty: 8,  participants: 5 },
+    'Hostile Takeover':        { category: 'elaborate', difficulty: 9,  participants: 6 },
     'Crane Reaction':          { category: 'elaborate', difficulty: 10, participants: 6 },
   },
 }

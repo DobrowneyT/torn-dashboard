@@ -18,6 +18,61 @@ surface it automatically.
 
 ---
 
+## [3.113.1] - 2026-09-13
+
+### Fixed
+
+- **⚠️ Four crimes Torn runs were missing from the scenario model, and one of
+  them was mispriced** (#723). From `select distinct name, difficulty from
+  oc_crime_types` across all five tenant databases on 2026-09-13:
+
+  | Crime | Difficulty | Seen in | Category |
+  |---|---|---|---|
+  | Cleared for Takeoff | 7 | forge, tnl, capacityx, mayhem | advanced |
+  | Lock Stock | 8 | tnl, capacityx | **elaborate** |
+  | Hostile Takeover | 9 | tnl, capacityx | elaborate |
+  | Guardian Ángels | 5 | all five | intermediate |
+
+  **Lock Stock is the one that did damage.** `makeCategoryResolver` falls back
+  to difficulty for a name it does not know, and `CATEGORY_FALLBACK_ORDER` is
+  ordered so difficulty 8 lands on **Advanced** — the right guess for most
+  factions and the wrong one here. Lock Stock is Elaborate, and it is tnl's
+  most-spawned crime at 21% of every decision (#715). It was priced at
+  `scopeCost 4 / scopeReward 5` instead of `5 / 6`, so the chain break-even it
+  drives read **89.4% when it is 91.3%** — 1.9 points too lenient, on the crime
+  spawned more often than any other.
+
+  The other three landed on the correct category by fallback; what they lost was
+  `participants` and any name-keyed lookup.
+
+  ⚠️ **Guardian Ángels was a spelling bug, not a missing crime.** Torn spells it
+  with an accented **Á**. It has never matched on any tenant. Both spellings are
+  now present — we cannot be sure every tenant reports the accent.
+
+### Added
+
+- **The difficulty fallback now says when it is guessing** (#723). The Advanced
+  and Elaborate ranges overlap, so for a difficulty both claim, a name we do not
+  know cannot be placed — and until now nothing said so, because for every other
+  crime the fallback happened to be right.
+
+  `makeCategoryResolver(...).detail(name, difficulty)` returns
+  `{ category, source: 'name' | 'difficulty' | 'none', ambiguous, candidates }`.
+  The plain call signature is unchanged, so no call site had to move.
+
+  ⚠️ It still **answers** when ambiguous. Returning null would strip the crime
+  of a scope cost altogether, and free reads far more wrong than mis-tiered.
+
+  ⚠️ The overlap is **derived from the category ranges**, not written down as
+  "8" — Torn can ship a category above Elaborate and move it.
+
+- **A coverage test built from the tenant databases, not the wiki**
+  (`ocScenarioCoverage.test.js`). Every one of the 28 crimes our factions have
+  actually run must resolve by NAME. A crime Torn adds tomorrow fails this the
+  first time any tenant runs it, instead of being quietly mis-tiered for months.
+
+---
+
 ## [3.113.0] - 2026-09-13
 
 ### Fixed
