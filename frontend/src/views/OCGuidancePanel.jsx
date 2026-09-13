@@ -81,6 +81,14 @@ function cprRange(vector) {
   return lo === hi ? `${lo}` : `${lo}-${hi}`
 }
 
+
+/** Role names for a list of position ids, for a sentence rather than a table. */
+function nameOf(guidance, positionIds) {
+  const names = positionIds.map(
+    (id) => guidance.roles.find((r) => r.positionId === id)?.roleName ?? id)
+  return names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
 export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chainOf, chainCrew, onCompute, computing }) {
   const [showWorking, setShowWorking] = useState(false)
   // Downstream links only — the view drops the root, whose crew the search
@@ -236,6 +244,36 @@ export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chain
             </li>
           ))}
         </ul>
+      )}
+
+      {/* ⚠️ **Crew depth (#729).** The per-role "can fill" counts above cannot
+          be composed into this by eye — the eligible sets overlap, so six roles
+          with nine candidates each may seat one crew. Forge's Break the Bank
+          falls from 3 crews to 0 between a uniform 72 and 75, and it is the
+          highest earner on the roster. Nothing on screen hinted at it. */}
+      {guidance.depth?.collapses && (
+        <p className="text-xs mt-2 rounded border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 px-2 py-1.5">
+          <strong>Nobody can crew this.</strong> At these thresholds the roster fields{' '}
+          <strong>no complete crew</strong>
+          {guidance.depth.limitingRoles.length > 0 && <>, and {nameOf(guidance, guidance.depth.limitingRoles)} runs out first</>}.
+          A bar nobody can meet is not a high standard — it is a crime you have stopped running.
+        </p>
+      )}
+      {guidance.depth?.crews != null && !guidance.depth.collapses && (
+        <p className="text-xs mt-2 text-gray-600 dark:text-gray-400">
+          The roster can field <strong>{guidance.depth.crews}</strong>{' '}
+          {guidance.depth.crews === 1 ? 'crew' : 'crews'} at once here
+          {guidance.depth.atPlusOne != null && guidance.depth.atPlusOne < guidance.depth.crews && (
+            <>, dropping to <strong>{guidance.depth.atPlusOne}</strong> if every bar goes up one point</>
+          )}
+          {/* ⚠️ One crew with no margin is a knife edge: one person leaving or
+              joining another crime takes the crime off the board entirely. */}
+          {guidance.depth.crews === 1 && (
+            <span className="text-amber-600 dark:text-amber-400">
+              {' '}— one person unavailable and there is no crew at all.
+            </span>
+          )}.
+        </p>
       )}
 
       {/* ⚠️ The single most important caveat on this table, and it has to sit
