@@ -17,6 +17,7 @@ const REASONS = {
   'not-crewable': 'nobody clears the bar on at least one role',
   'no-expected-value': 'payouts are not fully priced',
   'roster-unavailable': 'its roster data could not be loaded',
+  'chain-child': 'only ever appears as a chain reward, so it is not a spawn decision — its parent accounts for it',
 }
 
 export function JointPanel({ plan, onSolve, solving, crimeCount }) {
@@ -124,10 +125,21 @@ export function JointPanel({ plan, onSolve, solving, crimeCount }) {
           competing for the roster here.
         </li>
         {/* ⚠️ Two known gaps, stated rather than buried. */}
-        <li>
-          Assumes an even spawn mix. The real one is not even, and chain children are not
-          spawn decisions at all — see #715.
-        </li>
+        {/* ⚠️ Measured or assumed — say which. A plan built on a guess that
+            reads like a measurement is the worse of the two. */}
+        {plan.spawnMix?.measured ? (
+          <li>
+            Spawn mix from this faction&apos;s own last {plan.spawnMix.windowDays} days:{' '}
+            {plan.spawnMix.spawnsPerDay.toFixed(1)} decisions a day across{' '}
+            {Object.keys(plan.spawnMix.weightByName).length} crimes. Chain rewards are
+            excluded — they are consequences, not choices.
+          </li>
+        ) : (
+          <li>
+            Not enough recent history to measure the spawn mix, so an even one is assumed.
+            The real mix is rarely even.
+          </li>
+        )}
         <li>
           A committed member is held for the crime&apos;s whole duration, which overstates
           occupancy by about half and makes the roster look tighter than it is.

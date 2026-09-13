@@ -43,9 +43,26 @@ describe('JointPanel', () => {
     expect(document.body.textContent).toMatch(/cover it with cheaper spawns/)
   })
 
-  it('⚠️ states both known gaps rather than burying them', () => {
+  it('⚠️ says whether the spawn mix was MEASURED or assumed', () => {
+    // A plan built on a guess that reads like a measurement is the worse of the
+    // two, so the panel has to say which it had.
     render(<JointPanel plan={plan()} crimeCount={3} />)
-    expect(document.body.textContent).toMatch(/#715/)
+    expect(document.body.textContent).toMatch(/an even one is assumed/)
+    cleanup()
+    render(<JointPanel plan={plan({
+      spawnMix: { measured: true, windowDays: 30, spawnsPerDay: 2.4, weightByName: { A: 0.6, B: 0.4 } },
+    })} crimeCount={3} />)
+    expect(document.body.textContent).toMatch(/2\.4 decisions a day across 2 crimes/)
+    expect(document.body.textContent).toMatch(/consequences, not choices/)
+  })
+
+  it('⚠️ explains a chain child skipped from the plan', () => {
+    render(<JointPanel plan={plan({ skipped: { Beta: 'chain-child' } })} crimeCount={3} />)
+    expect(document.body.textContent).toMatch(/not a spawn decision/)
+  })
+
+  it('still states the occupancy caveat', () => {
+    render(<JointPanel plan={plan()} crimeCount={3} />)
     expect(document.body.textContent).toMatch(/overstates\s+occupancy/)
   })
 

@@ -81,3 +81,45 @@ describe('solveForSelection', () => {
     expect(out.rosterSize).toBe(24)
   })
 })
+
+// ⚠️ #715 — plan on what the faction actually spawns.
+describe('solveForSelection — observed spawn mix', () => {
+  const SPAWNS = {
+    window_days: 30,
+    by_crime: [
+      { name: 'Alpha', spawns: 60, from_chain: 0 },
+      { name: 'Beta', spawns: 30, from_chain: 30 },   // pure chain child
+    ],
+  }
+
+  it('⚠️ drops a pure chain child from the plan entirely', () => {
+    // It is not a decision — its parent already accounts for it, and letting it
+    // compete for roster capacity plans for a choice nobody makes.
+    return solveForSelection({ ...base, spawns: SPAWNS }).then((out) => {
+      expect(out.chosen.Beta).toBeUndefined()
+      expect(out.skipped.Beta).toBe('chain-child')
+      expect(out.chosen.Alpha).toBeDefined()
+    })
+  })
+
+  it('⚠️ uses decisions per day, not appearances per day', async () => {
+    const out = await solveForSelection({ ...base, spawns: SPAWNS })
+    // 60 chosen out of 90 appearances, over 30 days.
+    expect(out.spawnMix.spawnsPerDay).toBeCloseTo(2, 6)
+    expect(out.spawnMix.measured).toBe(true)
+  })
+
+  it('falls back to the caller\'s assumption when history is too thin', async () => {
+    const out = await solveForSelection({
+      ...base, spawns: { window_days: 30, by_crime: [{ name: 'Alpha', spawns: 2, from_chain: 0 }] },
+    })
+    expect(out.spawnMix.measured).toBe(false)
+    expect(out.chosen.Alpha).toBeDefined()     // still solves, on the default
+  })
+
+  it('works with no history at all', async () => {
+    const out = await solveForSelection(base)
+    expect(out.spawnMix.measured).toBe(false)
+    expect(Object.keys(out.chosen).sort()).toEqual(['Alpha', 'Beta'])
+  })
+})

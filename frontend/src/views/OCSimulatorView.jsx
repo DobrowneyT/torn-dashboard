@@ -66,6 +66,8 @@ export default function OCSimulatorView() {
   // whose payout is one or two crimes downstream — and, since #712, so a crime
   // card can show what its chain is actually worth.
   const [chains, setChains] = useState([])
+  // #715: what this faction actually spawns, so the planner stops assuming.
+  const [spawns, setSpawns] = useState(null)
   // #609 slice 7: whether the item catalogue behind every dollar figure below
   // is fresh enough to use. The server withholds prices rather than serving
   // stale ones, so without this the page would show a fleet of "unpriced"
@@ -87,6 +89,7 @@ export default function OCSimulatorView() {
       .then((res) => {
         setScenarios(res.scenarios ?? [])
         setChains(res.chains ?? [])
+        setSpawns(res.spawns ?? null)
         setItemPrices(res.item_prices ?? null)
       })
       .catch((e) => setLoadError(e?.message || 'Could not load scenarios'))
@@ -132,13 +135,14 @@ export default function OCSimulatorView() {
         call: (name, parameters) =>
           apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
         days: 30, spawnsPerDay: 4, gap: 0.5,
+        spawns,
       }))
     } catch {
       setJointPlan(null)
     } finally {
       setSolvingJoint(false)
     }
-  }, [chosen])
+  }, [chosen, spawns])
   const stale = useMemo(() => staleSelections(scenarios, selected), [scenarios, selected])
   const totalScope = useMemo(() => selectionScopeCost(scenarios, selected), [scenarios, selected])
 

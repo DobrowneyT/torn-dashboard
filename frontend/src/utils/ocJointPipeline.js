@@ -14,6 +14,7 @@
  */
 
 import { solveJointThresholds } from './ocJointSolve'
+import { observedSpawnMix } from './ocSpawnMix'
 
 /**
  * @param crimes     the selected scenarios, as the API serves them
@@ -24,6 +25,9 @@ import { solveJointThresholds } from './ocJointSolve'
 export async function solveForSelection({
   crimes = [], fetchReadings, categoryOf, call,
   days, spawnsPerDay, gap, scope, maxCandidates, searchDays,
+  // #715: the faction's own history. Absent means "we could not measure it" and
+  // the caller's defaults stand.
+  spawns = null,
 } = {}) {
   if (crimes.length === 0) return { chosen: {}, skipped: {}, score: null, reason: 'nothing-selected' }
 
@@ -50,7 +54,15 @@ export async function solveForSelection({
     if (Number.isFinite(n)) rosterSize = Math.max(rosterSize ?? 0, n)
   }
 
-  const solvable = crimes.filter((c) => readings[c.name])
+  const mix = observedSpawnMix(spawns)
+
+  // ⚠️ A crime that only ever appears as a chain child is not a spawn decision,
+  // so it must not compete for roster capacity in the plan. Its parent already
+  // accounts for it.
+  const solvable = crimes.filter((c) => readings[c.name] && !mix.chainChildren.includes(c.name))
+  for (const c of crimes) {
+    if (mix.chainChildren.includes(c.name)) unreachable[c.name] = 'chain-child'
+  }
   const out = await solveJointThresholds({
     crimes: solvable.map((c) => ({
       name: c.name,
@@ -58,13 +70,22 @@ export async function solveForSelection({
       roles: c.roles ?? [],
       endings: c.endings ?? [],
       category: categoryOf ? categoryOf(c.name) : null,
-      // ⚠️ Uniform until #715 derives this from observed history. tnl's real mix
-      // is far from even (Lock Stock 21%, Cleared for Takeoff 1.7%), so this is
-      // a placeholder and the panel says so.
-      spawnWeight: 1,
+      // ⚠️ From observed history where we have enough of it (#715). tnl's real
+      // mix is far from even — Lock Stock 21%, Cleared for Takeoff 1.7% — so a
+      // uniform assumption apportions the roster to crimes nobody runs.
+      spawnWeight: mix.measured ? (mix.weightByName[c.name] ?? 0) : 1,
+      isChainChild: mix.chainChildren.includes(c.name),
     })),
-    readings, rosterSize, call, days, spawnsPerDay, gap, scope, maxCandidates, searchDays,
+    readings, rosterSize, call, days, gap, scope, maxCandidates, searchDays,
+    // ⚠️ DECISIONS per day, not appearances: a chain child is a consequence,
+    // and counting it inflates how much the faction is choosing to run.
+    spawnsPerDay: mix.measured ? mix.spawnsPerDay : spawnsPerDay,
   })
 
-  return { ...out, skipped: { ...out.skipped, ...unreachable }, rosterSize }
+  return {
+    ...out,
+    skipped: { ...out.skipped, ...unreachable },
+    rosterSize,
+    spawnMix: mix,
+  }
 }
