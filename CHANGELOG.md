@@ -18,6 +18,56 @@ surface it automatically.
 
 ---
 
+## [3.107.0] - 2026-09-12
+
+### Added
+
+- **The CPR algorithm is now visible in the OC Simulator** (#707). #688 shipped
+  six slices and **zero call sites** — the algorithm was complete and the
+  feature had not started. This is the join.
+
+  A **"Suggest minimum CPRs"** button on each crime card runs slice 3 → 4 → 6
+  against the live roster and renders the guidance table: what to publish per
+  role, the bar the model actually scored at, the expected crew, the cliff, how
+  many members have ever been read for that role, and who is within a few points
+  of qualifying.
+
+  **Frontend only — no server changes.** Everything needed was already on the
+  page: roles and weights from the committed model, readings from
+  `/api/oc-simulator/roster-cpr`, and `/api/oc-simulator/calculate` as the probe.
+
+  ⚠️ **On demand, never on a slider drag.** Every candidate vector is a request
+  to tornprobability, a small third-party server this codebase already counts
+  calls against — so it is a button, the panel says so, and there is a test
+  capping the calls.
+
+  ⚠️ **Absent stays absent.** A crime with no readings says *"we have never
+  observed anyone in this role — that is a gap in what we have measured, not a
+  verdict on the roster"*, which is distinct from *"nobody clears the bar"* and
+  from *"payouts are not fully priced"*. forge is currently the first case on
+  several roles (#351). An incomplete `E(X)` yields **no table at all** rather
+  than a lower bound: the Simulator can show a partial figure with a warning
+  beside it, published guidance cannot, because nobody reads a footnote before
+  training for a month.
+
+  ⚠️ **Assumptions render inline, never behind a toggle.** An assumption
+  somebody has to click to find is one nobody reads, and the failure mode here
+  is a table that quietly goes stale.
+
+### Fixed
+
+- **⚠️ A mount test for `CrimeCard`, the component #707 added hooks to.**
+  `OCSimulatorResultPanel.test.jsx` exists because v3.97.0 shipped a
+  temporal-dead-zone crash that replaced the whole Simulator with an error
+  boundary — but it mounts `ResultPanel`, and this work added state to
+  `CrimeCard`, which nothing was mounting. Same gap, one component along.
+
+  Verified by reintroducing the exact v3.97.0 shape — a hook whose dependency
+  array names a `const` declared below it — which now fails with
+  `ReferenceError: Cannot access 'guidance' before initialization`.
+
+---
+
 ## [3.106.0] - 2026-09-12
 
 ### Added
