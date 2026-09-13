@@ -78,6 +78,9 @@ export async function computeGuidance({
   incumbent = null, maxCandidates, now = () => new Date().toISOString(),
   // Needed only for a chain root — see below.
   scenarios = [], chains = [], categoryOf = null, chainCpr = null,
+  // #725: `(crimeName) => Promise<{ readings }>` for the DOWNSTREAM links, so
+  // each is priced at its own roster rather than at the slider default.
+  fetchReadings = null,
 } = {}) {
   const positionIds = (scenario?.roles ?? []).map((r) => r.position_id)
   const weights = Object.fromEntries((scenario?.roles ?? []).map((r) => [r.position_id, num(r.weight)]))
@@ -114,12 +117,27 @@ export async function computeGuidance({
   if (chainsTo && !paysSomething) {
     chainContext = await computeChainEconomics({
       rootName: scenario.name, scenarios, chains,
-      // ⚠️ Downstream links are priced ONCE, at a flat CPR, and reused across
-      // every candidate. Pricing them per candidate would multiply the call
-      // budget by the chain length to refine an assumption we already flag as
-      // an assumption — the links have different role counts, so the root's
-      // crew cannot carry across them anyway.
+      // ⚠️ Downstream links are priced ONCE and reused across every candidate.
+      // Pricing them per candidate would multiply the call budget by the chain
+      // length — the links have different role counts, so the root's crew
+      // cannot carry across them anyway.
+      //
+      // ⚠️ **At the link's own roster, not the sliders (#725).** `chainCpr` is
+      // the mean of the Simulator's sliders, which sit at 50 until somebody
+      // drags them; tnl's readings say Ace in the Hole sustains 70-75. It stays
+      // only as the fallback for a link this faction has never run.
       assumedCpr: chainCpr ?? 75,
+      vectorFor: fetchReadings
+        ? async (name) => {
+            try {
+              return (await fetchReadings(name))?.readings ?? null
+            } catch {
+              // Our own server, but a chain root must still produce a table if
+              // it is briefly unreachable — the flat fallback covers it.
+              return null
+            }
+          }
+        : undefined,
       categoryOf, call,
     })
     if (!chainContext || chainContext.missing.length > 0) {

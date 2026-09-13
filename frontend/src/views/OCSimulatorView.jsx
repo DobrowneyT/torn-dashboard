@@ -392,7 +392,11 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
         scenarios,
         chains: chainEdges,
         categoryOf: (name) => resolve(name, null),
+        // ⚠️ Fallback only (#725). Downstream links are priced from their OWN
+        // roster below; this covers a link this faction has never run.
         chainCpr: meanCpr(cprs) ?? DEFAULT_CPR,
+        fetchReadings: (name) =>
+          apiGet(`/api/oc-simulator/roster-cpr/${encodeURIComponent(name)}`),
       })
       setGuidance(out.guidance)
       setGuidanceMeta({
@@ -524,6 +528,10 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
             limitingRoles={guidanceMeta?.limitingRoles}
             chainsTo={guidanceMeta?.chainsTo}
             chainOf={guidanceMeta?.chainContext ? guidanceMeta.chainContext.links[guidanceMeta.chainContext.links.length - 1].name : null}
+            chainCrew={guidanceMeta?.chainContext
+              ? Object.fromEntries(Object.entries(guidanceMeta.chainContext.crewByName)
+                  .filter(([n]) => n !== scenario.name))
+              : null}
             onCompute={suggestCprs}
             computing={computingGuidance}
           />

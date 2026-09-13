@@ -132,3 +132,85 @@ describe('computeChainEconomics', () => {
     expect(out.chainedSuccess).toBeNull()
   })
 })
+
+// #725 — the downstream crew comes from the ROSTER, not the sliders.
+//
+// `assumedCpr` was `meanCpr(sliders)`, and the sliders default to 50 until
+// somebody drags them. Meanwhile tnl has 81-87 readings per role for Ace in the
+// Hole showing a roster that sustains 70-75. The terminal link was priced ~22
+// CPR below what the faction can actually field, which made the chain look far
+// worse than it is — and the scope verdict is REPORTED, so the number has to be
+// right rather than merely alarming.
+describe('downstream links priced from their own readings', () => {
+  const readings = {
+    P1: [{ cpr: 70 }, { cpr: 70 }, { cpr: 70 }, { cpr: 70 }, { cpr: 70 }],
+    P2: [{ cpr: 72 }, { cpr: 72 }, { cpr: 72 }, { cpr: 72 }, { cpr: 72 }],
+    P3: [{ cpr: 72 }, { cpr: 72 }, { cpr: 72 }, { cpr: 72 }, { cpr: 72 }],
+    P4: [{ cpr: 72 }, { cpr: 72 }, { cpr: 72 }, { cpr: 72 }, { cpr: 72 }],
+    P5: [{ cpr: 75 }, { cpr: 75 }, { cpr: 75 }, { cpr: 75 }, { cpr: 75 }],
+  }
+  const seen = []
+  const spy = vi.fn(async (name, parameters) => {
+    seen.push({ name, parameters })
+    return { result: { successChance: 0.9, failureChance: 0.1, goodEnding1: 0.9, badEnding1: 0.1 } }
+  })
+
+  const run = (over = {}) => computeChainEconomics({
+    rootName: 'Stacking the Deck', scenarios: SCENARIOS, chains: CHAINS,
+    assumedCpr: 50, categoryOf, call: spy, ...over,
+  })
+
+  it('probes the downstream link at its own maximal vector', async () => {
+    seen.length = 0
+    const out = await run({ vectorFor: async (name) => (name === 'Ace in the Hole' ? readings : null) })
+    const ace = seen.find((s) => s.name === 'Ace in the Hole')
+    // ⚠️ Positional, indexed P1..PN — the #390 hazard. 70/72/72/72/75, not 50s.
+    expect(ace.parameters).toEqual([70, 72, 72, 72, 75])
+    expect(out.crewByName['Ace in the Hole'].source).toBe('roster')
+  })
+
+  it('⚠️ falls back to the flat CPR when a link has no readings, and says so', async () => {
+    // A tenant that has never run the terminal link must not silently inherit a
+    // roster number it does not have.
+    seen.length = 0
+    const out = await run({ vectorFor: async () => null })
+    const ace = seen.find((s) => s.name === 'Ace in the Hole')
+    expect(ace.parameters).toEqual([50, 50, 50, 50, 50])
+    expect(out.crewByName['Ace in the Hole'].source).toBe('assumed')
+  })
+
+  it('falls back when the readings cannot crew the link at all', async () => {
+    // Four readings for a five-role crime: Hall's condition fails, so there is
+    // no maximal vector to take. Absent beats confidently wrong.
+    seen.length = 0
+    const thin = { P1: [{ cpr: 70 }], P2: [{ cpr: 70 }], P3: [{ cpr: 70 }], P4: [{ cpr: 70 }], P5: [] }
+    const out = await run({ vectorFor: async () => thin })
+    expect(out.crewByName['Ace in the Hole'].source).toBe('assumed')
+  })
+
+  it('still costs exactly one probe per unknown link', async () => {
+    // The call budget is the design constraint — pricing per candidate would
+    // multiply it by the chain length.
+    spy.mockClear()
+    await run({ vectorFor: async () => readings })
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
+
+  it('behaves exactly as before when no resolver is supplied', async () => {
+    seen.length = 0
+    const out = await run()
+    expect(seen.find((s) => s.name === 'Ace in the Hole').parameters).toEqual([50, 50, 50, 50, 50])
+    expect(out.crewByName['Ace in the Hole'].source).toBe('assumed')
+  })
+
+  it('prices a better downstream crew as a better chain', async () => {
+    // The whole point: the pessimism was an artefact of the slider default.
+    const weak = vi.fn(async (_n, p) => ({
+      result: { successChance: p[0] / 100, failureChance: 1 - p[0] / 100 },
+    }))
+    const flat = await run({ call: weak })
+    const real = await run({ call: weak, vectorFor: async (n) => (n === 'Ace in the Hole' ? readings : null) })
+    expect(real.chainedSuccess).toBeGreaterThan(flat.chainedSuccess)
+    expect(real.scope.net).toBeGreaterThan(flat.scope.net)
+  })
+})
