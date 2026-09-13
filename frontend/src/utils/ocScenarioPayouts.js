@@ -323,3 +323,56 @@ export function paysInItems(endings) {
   // something — respect is non-zero somewhere.
   return values.every((v) => v === 0) && respect.some((v) => v > 0)
 }
+
+/**
+ * The crime this ending spawns, when spawning it IS the reward (#585, #712).
+ *
+ * ⚠️ A chained ending is not "unpriced" — that word describes a gap in our
+ * measurement and sends somebody hunting a number that does not exist. Stacking
+ * the Deck pays no money and no items at all: every good ending spawns Ace in
+ * the Hole, and the value of the parent *is* the child. Verified across the
+ * fleet in #585 — 124/124 successful Stacking the Deck runs spawned a child,
+ * and Ace in the Hole has 0 standalone runs — so this is what the crime IS,
+ * not a bonus on top.
+ *
+ * Null when the ending pays something of its own, because then the money is the
+ * answer and the chain is a footnote rather than the story.
+ */
+export function chainTargetOf(e) {
+  const target = e?.reward?.chainsTo
+  if (!target) return null
+  if (e?.kind === 'bad') return null
+  // ⚠️ A link that pays cash or items as WELL as chaining is priced normally.
+  // Suppressing its figure to show an arrow would hide a real number.
+  if (num(e?.money_avg) !== null || num(e?.item_value_avg) !== null) return null
+  return target
+}
+
+/**
+ * Every crime the good endings of this scenario chain into, deduplicated.
+ *
+ * Usually exactly one — a crime chains somewhere or it does not.
+ */
+export function chainTargets(endings) {
+  const out = []
+  for (const e of endings ?? []) {
+    const t = chainTargetOf(e)
+    if (t && !out.includes(t)) out.push(t)
+  }
+  return out
+}
+
+/**
+ * Are ALL the unpriced good endings simply chain links?
+ *
+ * ⚠️ The distinction that decides which message the reader gets. "Four endings
+ * unpriced, the real value is higher by an unknown amount" is right for a
+ * measurement gap and wrong for a chain, where the value is known and lives on
+ * another crime.
+ */
+export function unpricedAreAllChains(endings, missingKeys) {
+  const keys = missingKeys ?? []
+  if (keys.length === 0) return false
+  const byKey = new Map((endings ?? []).map((e) => [e?.ending_key, e]))
+  return keys.every((k) => chainTargetOf(byKey.get(k)) !== null)
+}

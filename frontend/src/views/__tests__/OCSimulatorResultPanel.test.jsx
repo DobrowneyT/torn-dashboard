@@ -98,3 +98,50 @@ describe('OC Simulator result panel', () => {
     expect(screen.getByText('in items')).toBeTruthy()
   })
 })
+
+// #712 — a chain link is not "unpriced".
+//
+// ⚠️ Stacking the Deck showed "4 endings unpriced, covering 38.23%... the real
+// value is higher by an unknown amount". That reads as a data problem and sends
+// somebody hunting a number that does not exist. The crime pays nothing because
+// every good ending spawns Ace in the Hole — which is what the crime IS
+// (#585: 124/124 successful runs spawned a child; Ace has 0 standalone runs).
+describe('ResultPanel — chained crimes', () => {
+  const CHAINED = {
+    name: 'Stacking the Deck',
+    parameter_count: 4,
+    endings: [
+      { ending_key: 'goodEnding1', kind: 'good', resolved: true, node_id: 'A', money_avg: null, reward: { money: null, chainsTo: 'Ace in the Hole' } },
+      { ending_key: 'goodEnding2', kind: 'good', resolved: true, node_id: 'B', money_avg: null, reward: { money: null, chainsTo: 'Ace in the Hole' } },
+      { ending_key: 'badEnding1', kind: 'bad', resolved: true, node_id: 'F' },
+    ],
+    roles: [],
+  }
+  const RESULT = { successChance: 0.38, failureChance: 0.62, goodEnding1: 0.25, goodEnding2: 0.13, badEnding1: 0.62 }
+
+  it('⚠️ names the crime it spawns instead of saying "unpriced"', () => {
+    render(<ResultPanel scenario={CHAINED} result={RESULT} calculating={false} error={null} />)
+    expect(screen.getAllByText(/Ace in the Hole/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/unpriced, covering/i)).toBeNull()
+  })
+
+  it('⚠️ does not tell the reader the value is unknown — it is known, elsewhere', () => {
+    render(<ResultPanel scenario={CHAINED} result={RESULT} calculating={false} error={null} />)
+    expect(screen.queryByText(/higher by an unknown amount/i)).toBeNull()
+    expect(screen.getByText(/judge the pair together/i)).toBeTruthy()
+  })
+
+  it('⚠️ still warns about a genuinely unmeasured ending alongside a chain', () => {
+    // The distinction has to survive a mixed crime, or the chain message would
+    // quietly swallow a real measurement gap.
+    const mixed = {
+      ...CHAINED,
+      endings: [
+        ...CHAINED.endings,
+        { ending_key: 'goodEnding3', kind: 'good', resolved: true, node_id: 'C', money_avg: null, reward: { money: null, chainsTo: null } },
+      ],
+    }
+    render(<ResultPanel scenario={mixed} result={{ ...RESULT, goodEnding3: 0.05 }} calculating={false} error={null} />)
+    expect(screen.getByText(/unpriced, covering/i)).toBeTruthy()
+  })
+})

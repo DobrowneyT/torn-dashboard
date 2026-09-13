@@ -58,12 +58,30 @@ surface it automatically.
   higher than the faction actually uses. They are a **per-crime ceiling**, not a
   set to publish across all crimes. The joint solve is #710.
 
-- **⚠️ A chain crime is now named, not called "unpriced".** Stacking the Deck
-  pays no money or items at all: every good ending spawns **Ace in the Hole**.
-  Reporting that as a pricing gap reads as a data problem and sends somebody
-  hunting a number that does not exist. The panel now says which crime it chains
-  into and that thresholds belong on *that* crime — and the pipeline detects it
-  **before** the search, so it spends no probability calls learning nothing.
+- **⚠️ Chained crimes are shown as what they are, not as "unpriced" —
+  everywhere.** Stacking the Deck pays no money or items at all: every good
+  ending spawns **Ace in the Hole**. "Unpriced" describes a gap in *our*
+  measurement and sends somebody hunting a number that does not exist, when the
+  value is known perfectly well and simply lives on another crime.
+
+  #585 established this is what the crime **is** rather than a bonus on top:
+  124/124 successful Stacking the Deck runs spawned a child, and Ace in the Hole
+  has **zero** standalone runs.
+
+  Three places now say so:
+
+  - **The endings list** renders `→ Ace in the Hole` in place of `unpriced`.
+  - **The expected-value summary** swaps *"N endings unpriced... the real value
+    is higher by an unknown amount"* for a note naming the crime it spawns and
+    saying to judge the pair together. ⚠️ A mixed crime — some links chained,
+    some genuinely unmeasured — still gets the unpriced warning, so the chain
+    message cannot swallow a real measurement gap.
+  - **The CPR guidance panel** says thresholds belong on the *downstream* crime,
+    and the pipeline detects the chain **before** the search so it spends no
+    probability calls learning nothing.
+
+  ⚠️ An ending that chains *and* pays keeps its figure — suppressing a real
+  number to show an arrow would be the opposite mistake.
 
 ---
 

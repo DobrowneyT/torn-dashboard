@@ -33,6 +33,7 @@ import { expectedValue } from '../utils/ocExpectedValue'
 import {
   payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
   withoutEndingPadding, collapseAliasedEndings, endingValueBreakdown,
+  chainTargetOf, chainTargets, unpricedAreAllChains,
 } from '../utils/ocScenarioPayouts'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { headcountAtCpr, maxSustainableCpr } from '../utils/ocRosterFit'
@@ -742,6 +743,17 @@ export function ResultPanel({ scenario, result, calculating, error }) {
     [scenario.name, collapsed, result, priced]
   )
 
+  // ⚠️ BELOW `ev`, and that placement is load-bearing. A useMemo dependency
+  // array is evaluated IMMEDIATELY, not deferred with the callback, so naming
+  // `ev` from above its own declaration is a temporal-dead-zone throw on every
+  // render — which is exactly how v3.97.0 replaced this page with an error
+  // boundary for every user.
+  const chainOut = useMemo(() => chainTargets(scenario.endings), [scenario.endings])
+  const chainedOnly = useMemo(
+    () => (ev ? unpricedAreAllChains(scenario.endings, ev.missing) : false),
+    [scenario.endings, ev]
+  )
+
   // Expected respect, on the same terms as expected money.
   const expectedRespect = useMemo(() => {
     if (!result) return null
@@ -801,7 +813,9 @@ export function ResultPanel({ scenario, result, calculating, error }) {
           <ScopeVerdict scenario={scenario} successChance={result.successChance} />
 
           <ExpectedValue ev={ev} priced={priced} quality={quality} spread={spread}
-            expectedRespect={expectedRespect} itemsOnly={itemsOnly} />
+            expectedRespect={expectedRespect} itemsOnly={itemsOnly} chainedOnly={chainedOnly}
+          chainOut={chainOut}
+        />
 
           <div className="mt-4">
             <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
@@ -878,9 +892,17 @@ export function ResultPanel({ scenario, result, calculating, error }) {
                     <span className="flex items-center gap-3 whitespace-nowrap tabular-nums">
                       <span className="text-gray-500 dark:text-gray-400"
                         title={breakdown ? rewardTooltip(breakdown) : undefined}>
-                        {isGood && payout == null
-                          ? 'unpriced'
-                          : formatCurrency(payout ?? 0)}
+                        {/* ⚠️ "unpriced" describes a gap in OUR measurement.
+                            A chain link is not that — it pays nothing because
+                            success spawns the next crime, which is what the
+                            crime IS (#585: 124/124 successful Stacking the Deck
+                            runs spawned a child). Saying "unpriced" sends
+                            somebody hunting a number that does not exist. */}
+                        {isGood && payout == null && chainTargetOf(meta)
+                          ? <span className="text-indigo-600 dark:text-indigo-400">→ {chainTargetOf(meta)}</span>
+                          : isGood && payout == null
+                            ? 'unpriced'
+                            : formatCurrency(payout ?? 0)}
                       </span>
                       {/* The observed spread, where there is one. On a cash
                           ending this is what the node actually paid across its
@@ -931,7 +953,7 @@ export function ResultPanel({ scenario, result, calculating, error }) {
  * say yet". Rendering a partial sum as the expected value is the failure this
  * whole module was written to avoid.
  */
-function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly }) {
+function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly, chainedOnly, chainOut = [] }) {
   if (!ev) return null
   const anyPriced = priced && Object.values(priced).some((v) => v != null)
 
@@ -979,7 +1001,20 @@ function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly
         </p>
       )}
 
-      {!ev.complete && (
+      {/* ⚠️ A chain and a measurement gap need DIFFERENT messages. "The real
+          value is higher by an unknown amount" is right for an ending we have
+          not priced and wrong for one whose value we know perfectly well —
+          it is simply on another crime. */}
+      {!ev.complete && chainedOnly && (
+        <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400">
+          This crime pays no money itself — every successful ending spawns{' '}
+          <strong>{chainOut.join(' or ')}</strong>, covering{' '}
+          {(ev.missingProbability * 100).toFixed(2)}% of the probability. Its value is whatever{' '}
+          {chainOut.length === 1 ? chainOut[0] : 'that crime'} is worth, so judge the pair
+          together rather than reading this as a zero.
+        </p>
+      )}
+      {!ev.complete && !chainedOnly && (
         <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
           {ev.missing.length} ending{ev.missing.length === 1 ? '' : 's'} unpriced, covering{' '}
           {(ev.missingProbability * 100).toFixed(2)}% of the probability. The real value is
