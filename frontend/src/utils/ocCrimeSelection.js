@@ -124,3 +124,44 @@ export function selectionScopeCost(scenarios, selected, { resolver } = {}) {
   }
   return total
 }
+
+/**
+ * Is every crime in this category already selected? (#730)
+ *
+ * ⚠️ An empty category is NOT "fully selected" — otherwise the button renders
+ * as an active state for a group with nothing in it.
+ */
+export function categoryFullySelected(selected, names) {
+  const list = names ?? []
+  if (list.length === 0) return false
+  const have = new Set(selected ?? [])
+  return list.every((n) => have.has(n))
+}
+
+/**
+ * Select or clear a whole category at once (#730).
+ *
+ * Forge is moving to Advanced-only spawning, which makes the per-crime ceiling
+ * actively misleading — at a uniform 75 the five Advanced crimes want 198 seats
+ * against a 94-member roster. Hand-ticking five crimes to reach the only view
+ * that tells the truth is friction in front of the answer.
+ *
+ * ⚠️ **Appends rather than replaces.** The selection order IS the page order
+ * (`toggleSelection` exists to preserve it), so rearranging somebody's existing
+ * picks to satisfy a bulk add would shuffle the screen under them.
+ *
+ * ⚠️ **A partial selection completes, it does not clear.** Ticking two of five
+ * and then hitting the category button means "give me the rest" — clearing
+ * would throw away the picks just made.
+ */
+export function toggleCategory(selected, names) {
+  const list = names ?? []
+  const current = selected ?? []
+  if (list.length === 0) return [...current]
+  if (categoryFullySelected(current, list)) {
+    const drop = new Set(list)
+    return current.filter((n) => !drop.has(n))
+  }
+  const have = new Set(current)
+  return [...current, ...list.filter((n) => !have.has(n))]
+}
